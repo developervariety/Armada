@@ -30,6 +30,7 @@ namespace Armada.Server
         private readonly LoggingModule? _Logging;
         private readonly ICodeIndexService? _CodeIndexService;
         private readonly ObjectiveService? _ObjectiveService;
+        private readonly IObjectiveDispatchPreviewService? _ObjectiveDispatchPreview;
         private readonly ArmadaSettings? _Settings;
 
         private const string _CodeContextDestPath = "_briefing/context-pack.md";
@@ -54,13 +55,15 @@ namespace Armada.Server
         /// <param name="codeIndexService">Optional code-index service.</param>
         /// <param name="objectiveService">Optional objective service.</param>
         /// <param name="settings">Optional Armada settings.</param>
+        /// <param name="objectiveDispatchPreview">Optional shared objective dispatch preview.</param>
         public VoyageDispatchService(
             DatabaseDriver database,
             IAdmiralService admiral,
             LoggingModule? logging = null,
             ICodeIndexService? codeIndexService = null,
             ObjectiveService? objectiveService = null,
-            ArmadaSettings? settings = null)
+            ArmadaSettings? settings = null,
+            IObjectiveDispatchPreviewService? objectiveDispatchPreview = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
@@ -68,6 +71,7 @@ namespace Armada.Server
             _CodeIndexService = codeIndexService;
             _ObjectiveService = objectiveService;
             _Settings = settings;
+            _ObjectiveDispatchPreview = objectiveDispatchPreview;
         }
 
         #endregion
@@ -111,6 +115,37 @@ namespace Armada.Server
             VoyageDispatchResult? objectiveValidation = await ValidateObjectiveAsync(
                 NormalizeEmpty(request.ObjectiveId), request.ObjectiveAuthContext, vesselId).ConfigureAwait(false);
             if (objectiveValidation != null) return objectiveValidation;
+
+            string? objectiveId = NormalizeEmpty(request.ObjectiveId);
+            if (objectiveId != null && _ObjectiveDispatchPreview != null && _ObjectiveService != null)
+            {
+                AuthContext objectiveAuth = request.ObjectiveAuthContext ?? McpToolHelpers.CreateDefaultTenantAdminContext();
+                Objective? objective = await _ObjectiveService.ReadAsync(objectiveAuth, objectiveId, token).ConfigureAwait(false);
+                if (objective != null)
+                {
+                    string? effectivePipeline = NormalizeEmpty(request.PipelineId)
+                        ?? NormalizeEmpty(request.Pipeline)
+                        ?? NormalizeEmpty(objective.SuggestedPipelineId);
+                    ObjectiveDispatchPreview preview = await _ObjectiveDispatchPreview.PreviewAsync(
+                        objectiveAuth,
+                        objective,
+                        vesselId,
+                        effectivePipeline,
+                        request.CaptainAssignments,
+                        request.Missions,
+                        token).ConfigureAwait(false);
+                    if (!preview.IsReady)
+                    {
+                        return VoyageDispatchResult.BadRequest(new
+                        {
+                            Error = "Objective dispatch preview found blocking issues.",
+                            Code = "objective_dispatch_not_ready",
+                            ObjectiveId = objectiveId,
+                            Preview = preview
+                        });
+                    }
+                }
+            }
 
             if (IsCodeIndexEnabled() && ShouldEvaluateCodeIndexPrecondition(request))
             {
@@ -196,7 +231,13 @@ namespace Armada.Server
 
             List<SelectedPlaybook> mergedPlaybooks = PlaybookMerge.MergeWithVesselDefaults(dispatchVessel.GetDefaultPlaybooks(), callerPlaybooks);
 
-            string? pipelineId = await ResolvePipelineIdAsync(request.PipelineId, request.Pipeline).ConfigureAwait(false);
+            string? requestedPipelineId = NormalizeEmpty(request.PipelineId);
+            string? requestedPipelineName = NormalizeEmpty(request.Pipeline);
+            if (requestedPipelineId == null && requestedPipelineName == null)
+                requestedPipelineId = NormalizeEmpty(dispatchObjective?.SuggestedPipelineId);
+            string? pipelineId = await ResolvePipelineIdAsync(
+                requestedPipelineId,
+                requestedPipelineName).ConfigureAwait(false);
 
             string? codeContextError = await PrepareDispatchCodeContextAsync(
                 vesselId,

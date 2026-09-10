@@ -186,6 +186,41 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("BareObjectiveVoyageUsesSharedDispatchPreview", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "Blocked bare objective",
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId
+                    }).ConfigureAwait(false);
+                    RejectingObjectiveDispatchPreview preview = new RejectingObjectiveDispatchPreview();
+                    RemoteControlManagementService service = new RemoteControlManagementService(
+                        testDb.Driver,
+                        new StubAdmiralService(testDb.Driver),
+                        (_, _, _, _, _, _, _, _) => Task.CompletedTask,
+                        objectiveService: new Armada.Core.Services.ObjectiveService(testDb.Driver),
+                        objectiveDispatchPreview: preview);
+
+                    RemoteTunnelRequestResult result = await service.HandleAsync(
+                        RemoteTunnelProtocol.CreateRequest("armada.voyage.dispatch", new
+                        {
+                            title = "Must not create",
+                            objectiveId = objective.Id
+                        }),
+                        CancellationToken.None).ConfigureAwait(false);
+
+                    AssertEqual(400, result.StatusCode);
+                    AssertEqual("objective_dispatch_not_ready", result.ErrorCode);
+                    AssertEqual(1, preview.CallCount);
+                    Objective persisted = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false)
+                        ?? throw new InvalidOperationException("Objective missing after rejected preview.");
+                    AssertEqual(0, persisted.VoyageIds.Count);
+                }
+            });
+
             await RunTest("MissionCreateUpdateCancelAndRestartOperateThroughTunnel", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -400,6 +435,29 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(200, deletePlaybook.StatusCode);
                 }
             });
+        }
+
+        private sealed class RejectingObjectiveDispatchPreview : IObjectiveDispatchPreviewService
+        {
+            public int CallCount { get; private set; }
+
+            public Task<ObjectiveDispatchPreview> PreviewAsync(
+                AuthContext auth,
+                Objective objective,
+                string? requestedVesselId = null,
+                string? requestedPipelineId = null,
+                IReadOnlyList<CaptainAssignmentOverride>? captainAssignments = null,
+                IReadOnlyList<MissionDescription>? missionDescriptions = null,
+                CancellationToken token = default)
+            {
+                CallCount++;
+                return Task.FromResult(new ObjectiveDispatchPreview
+                {
+                    ObjectiveId = objective.Id,
+                    IsReady = false,
+                    ErrorCount = 1
+                });
+            }
         }
 
         private sealed class StubAdmiralService : IAdmiralService

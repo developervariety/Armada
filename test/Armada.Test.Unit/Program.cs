@@ -226,6 +226,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new RemoteTriggerEventHookTests());
             runner.AddSuite(new IncidentServiceTests());
             runner.AddSuite(new ObjectiveServiceTests());
+            runner.AddSuite(new ObjectiveDependencyAnalyzerTests());
             runner.AddSuite(new ObjectiveBriefRendererTests());
             runner.AddSuite(new AutonomousRecoveryOrchestratorTests());
             runner.AddSuite(new LandingDrainSafetyNetTests());
@@ -353,6 +354,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new DispatchHoldTests());
             runner.AddSuite(new SchedulerMissionModeTests());
             runner.AddSuite(new DispatchObjectiveModeTests());
+            runner.AddSuite(new ObjectiveDispatchPreviewServiceTests());
 
             int exitCode = await runner.RunAllAsync(suiteFilters).ConfigureAwait(false);
             return exitCode;

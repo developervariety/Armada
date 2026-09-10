@@ -68,6 +68,7 @@ namespace Armada.Server.Mcp
         /// <param name="objectiveScheduler">Optional autonomous objective scheduler for scheduler control tools.</param>
         /// <param name="captainQuarantine">Optional captain quarantine service enabling the bench and unbench tools.</param>
         /// <param name="unlandedBranches">Optional unlanded-branch reporting service enabling armada_unlanded_branches.</param>
+        /// <param name="objectiveDispatchPreviewService">Optional read-only objective dispatch preview service.</param>
         public static void RegisterAll(
             RegisterToolDelegate register,
             DatabaseDriver database,
@@ -101,7 +102,8 @@ namespace Armada.Server.Mcp
             Armada.Core.Services.DiskLifecycleService? diskLifecycle = null,
             LongRunningJobService? longRunningJobs = null,
             Armada.Server.CoordinationService? coordinationService = null,
-            Armada.Core.Services.DispatchHold? dispatchHold = null)
+            Armada.Core.Services.DispatchHold? dispatchHold = null,
+            ObjectiveDispatchPreviewService? objectiveDispatchPreviewService = null)
         {
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
             ReflectionDispatcher effectiveReflectionDispatcher = reflectionDispatcher
@@ -113,7 +115,7 @@ namespace Armada.Server.Mcp
             McpEnumerateTools.Register(register, database, mergeQueue);
             McpFleetTools.Register(register, database);
             McpVesselTools.Register(register, database, dockService);
-            McpVoyageTools.Register(register, database, admiral, settings, onStopCaptain, logging, codeIndexService, objectiveService, longRunningJobs);
+            McpVoyageTools.Register(register, database, admiral, settings, onStopCaptain, logging, codeIndexService, objectiveService, longRunningJobs, objectiveDispatchPreviewService);
             McpMissionTools.Register(register, database, admiral, settings, git, landingService, onStopCaptain);
             McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, logging, captainQuarantine);
             McpCaptainDiagnosticsTools.Register(register, database, codeIndexService);
@@ -128,7 +130,7 @@ namespace Armada.Server.Mcp
             if (logging != null) McpPlaybookTools.Register(register, database, logging);
             if (mergeQueue != null) McpMergeQueueTools.Register(register, mergeQueue, longRunningJobs);
             if (checkRunService != null) McpCheckRunTools.Register(register, database, checkRunService);
-            if (objectiveService != null) McpObjectiveTools.Register(register, database, objectiveService, planningSessionCoordinator, objectiveRefinementCoordinator);
+            if (objectiveService != null) McpObjectiveTools.Register(register, database, objectiveService, planningSessionCoordinator, objectiveRefinementCoordinator, objectiveDispatchPreviewService);
             if (releaseService != null) McpReleaseTools.Register(register, releaseService);
             if (cdWebhookDispatcher != null) McpCdWebhookTools.Register(register, cdWebhookDispatcher);
             if (deploymentService != null) McpDeploymentTools.Register(register, deploymentService);
@@ -188,7 +190,8 @@ namespace Armada.Server.Mcp
             IRemoteTriggerService? remoteTriggerService = null,
             ICodeIndexService? codeIndexService = null,
             ReflectionDispatcher? reflectionDispatcher = null,
-            IReflectionMemoryBootstrapService? reflectionBootstrap = null)
+            IReflectionMemoryBootstrapService? reflectionBootstrap = null,
+            ObjectiveDispatchPreviewService? objectiveDispatchPreviewService = null)
         {
             List<CaptainToolSummary> tools = new List<CaptainToolSummary>();
 
@@ -226,7 +229,8 @@ namespace Armada.Server.Mcp
                 cdWebhookDispatcher,
                 deploymentService,
                 runbookService,
-                incidentService);
+                incidentService,
+                objectiveDispatchPreviewService: objectiveDispatchPreviewService);
 
             return tools
                 .OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase)

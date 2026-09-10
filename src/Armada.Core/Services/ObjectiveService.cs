@@ -32,6 +32,7 @@ namespace Armada.Core.Services
         private readonly LoggingModule? _Logging;
         private const string _Header = "[ObjectiveService] ";
         private readonly SemaphoreSlim _BackfillLock = new SemaphoreSlim(1, 1);
+        private static readonly SemaphoreSlim _DependencyWriteLock = new SemaphoreSlim(1, 1);
         private bool _BackfillCompleted = false;
         private const string _ObjectiveDeletedEventType = "objective.deleted";
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
@@ -228,9 +229,24 @@ namespace Armada.Core.Services
             };
 
             SanitizeObjective(objective);
-            await ValidateLinksAsync(auth, objective, token).ConfigureAwait(false);
-            ApplyLifecycleTimestamps(objective);
-            await PersistObjectiveAsync(auth, objective, token).ConfigureAwait(false);
+            bool dependencyLockTaken = false;
+            try
+            {
+                if (request.BlockedByObjectiveIds != null)
+                {
+                    await _DependencyWriteLock.WaitAsync(token).ConfigureAwait(false);
+                    dependencyLockTaken = true;
+                }
+                await ValidateLinksAsync(auth, objective, token).ConfigureAwait(false);
+                if (request.BlockedByObjectiveIds != null)
+                    await ValidateDependencyCycleAsync(auth, objective, token).ConfigureAwait(false);
+                ApplyLifecycleTimestamps(objective);
+                await PersistObjectiveAsync(auth, objective, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (dependencyLockTaken) _DependencyWriteLock.Release();
+            }
             OnObjectiveChanged?.Invoke(objective);
             return objective;
         }
@@ -315,9 +331,24 @@ namespace Armada.Core.Services
             // objective linked to a null-user fleet). Revalidating every unchanged link made
             // unrelated evidence, status, and refinement edits impossible. Explicitly supplied
             // links remain strict, so this does not weaken authorization for new link changes.
-            await ValidateUpdatedLinksAsync(auth, objective, request, token).ConfigureAwait(false);
-            ApplyLifecycleTimestamps(objective);
-            await PersistObjectiveAsync(auth, objective, token).ConfigureAwait(false);
+            bool dependencyLockTaken = false;
+            try
+            {
+                if (request.BlockedByObjectiveIds != null)
+                {
+                    await _DependencyWriteLock.WaitAsync(token).ConfigureAwait(false);
+                    dependencyLockTaken = true;
+                }
+                await ValidateUpdatedLinksAsync(auth, objective, request, token).ConfigureAwait(false);
+                if (request.BlockedByObjectiveIds != null)
+                    await ValidateDependencyCycleAsync(auth, objective, token).ConfigureAwait(false);
+                ApplyLifecycleTimestamps(objective);
+                await PersistObjectiveAsync(auth, objective, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (dependencyLockTaken) _DependencyWriteLock.Release();
+            }
             OnObjectiveChanged?.Invoke(objective);
             return objective;
         }
@@ -961,6 +992,31 @@ namespace Armada.Core.Services
             {
                 throw new InvalidOperationException("Pipeline not found or not accessible: " + objective.SuggestedPipelineId);
             }
+        }
+
+        /// <summary>
+        /// Reject a blocker change that makes the changed objective depend on itself through any
+        /// number of intermediate objectives. The caller invokes this only when it supplied the
+        /// blocker field, so an unrelated edit remains possible when legacy data contains a cycle.
+        /// </summary>
+        private async Task ValidateDependencyCycleAsync(
+            AuthContext auth,
+            Objective candidate,
+            CancellationToken token)
+        {
+            List<Objective> snapshot = await ReadAllObjectivesAsync(auth, token).ConfigureAwait(false);
+            int existingIndex = snapshot.FindIndex(item =>
+                String.Equals(item.Id, candidate.Id, StringComparison.OrdinalIgnoreCase));
+            if (existingIndex >= 0) snapshot[existingIndex] = candidate;
+            else snapshot.Add(candidate);
+
+            List<string> candidateCycle = ObjectiveDependencyAnalyzer.FindStructuralCycle(candidate, snapshot);
+            if (candidateCycle.Count == 0) return;
+
+            throw new InvalidOperationException(
+                "Objective dependency cycle is not permitted: "
+                + String.Join(" -> ", candidateCycle)
+                + ".");
         }
 
         private async Task ValidateIdsAsync(

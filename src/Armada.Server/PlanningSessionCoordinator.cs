@@ -37,6 +37,7 @@ namespace Armada.Server
         private readonly ArmadaWebSocketHub? _WebSocketHub;
         private readonly PlaybookService _Playbooks;
         private readonly ObjectiveService? _ObjectiveService;
+        private readonly IObjectiveDispatchPreviewService? _ObjectiveDispatchPreview;
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TurnState> _ActiveTurns =
             new System.Collections.Concurrent.ConcurrentDictionary<string, TurnState>(StringComparer.Ordinal);
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Task<PlanningSession>> _StopOperations =
@@ -60,7 +61,8 @@ namespace Armada.Server
             AgentRuntimeFactory runtimeFactory,
             Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEventAsync,
             ArmadaWebSocketHub? webSocketHub = null,
-            ObjectiveService? objectiveService = null)
+            ObjectiveService? objectiveService = null,
+            IObjectiveDispatchPreviewService? objectiveDispatchPreview = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -71,6 +73,7 @@ namespace Armada.Server
             _EmitEventAsync = emitEventAsync ?? throw new ArgumentNullException(nameof(emitEventAsync));
             _WebSocketHub = webSocketHub;
             _ObjectiveService = objectiveService;
+            _ObjectiveDispatchPreview = objectiveDispatchPreview;
             _Playbooks = new PlaybookService(_Database, _Logging);
         }
 
@@ -357,7 +360,8 @@ namespace Armada.Server
                 _Admiral,
                 _Logging,
                 objectiveService: _ObjectiveService,
-                settings: _Settings);
+                settings: _Settings,
+                objectiveDispatchPreview: _ObjectiveDispatchPreview);
             VoyageDispatchResult dispatchResult = await dispatchService.DispatchAsync(new SharedVoyageDispatchRequest
             {
                 Title = title,

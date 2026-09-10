@@ -171,6 +171,11 @@ brief once and inherits the objective start ref only when the mission has no
 explicit ref. Do not copy objective fields into an operator prompt; link the
 dispatch with `objectiveId` and let the server render the current record.
 
+Run `preview_objective_dispatch` before objective dispatch. It is read-only. It
+reports target, pipeline, captain, Check, repository, brief, and dependency
+findings. A busy compatible captain is capacity information and does not make
+the objective unready.
+
 Use the vessel's configured pipeline unless the approved work calls for a
 different existing pipeline. Use the full configured persona path. Do not
 remove review stages only to make a voyage faster.
@@ -1022,7 +1027,7 @@ shows only critical items).
 
 | Risk | Tools |
 | --- | --- |
-| Read | `list_objectives`, `list_backlog`, `get_objective`, `get_backlog_item`, `list_backlog_refinement_sessions`, `get_backlog_refinement_session`, `get_backlog_planning_session` |
+| Read | `list_objectives`, `list_backlog`, `get_objective`, `get_backlog_item`, `preview_objective_dispatch`, `list_backlog_refinement_sessions`, `get_backlog_refinement_session`, `get_backlog_planning_session` |
 | Write | `create_objective`, `create_backlog_item`, `update_objective`, `update_backlog_item`, `reorder_objectives`, `reorder_backlog_items`, `create_backlog_refinement_session`, `send_backlog_refinement_message`, `summarize_backlog_refinement_session`, `apply_backlog_refinement_summary`, `stop_backlog_refinement_session`, `create_backlog_planning_session`, `delete_objective`, `delete_backlog_item` |
 | Execute | `dispatch_backlog_planning_session`, `armada_decompose_plan`, `armada_parse_architect_output` |
 

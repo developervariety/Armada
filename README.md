@@ -165,6 +165,16 @@ vessel whose repository receives the commit. An objective can also carry a
 default branch, and a ref that does not resolve refuses the dispatch by name
 (`start_from_ref_missing`) rather than falling back.
 
+Use `preview_objective_dispatch` or
+`GET /api/v1/objectives/{id}/dispatch-preview` before dispatch. The read-only
+preview checks the target, pipeline roles, configured captains, required Checks,
+repository inputs, brief, and the complete typed dependency graph. Diagnostic
+paths are bounded and report when they are truncated. A compatible captain
+does not have to be idle for the objective to be ready; idle state is capacity.
+Operator and autonomous objective dispatch use this same preflight.
+The REST preview accepts a JSON `captainAssignments` query value when an
+operator must test the same captain and fallback-tier overrides as dispatch.
+
 ### Pipelines and Personas
 
 Built-in pipelines let work move through the right level of review:
@@ -467,6 +477,7 @@ Useful REST areas include:
 - `/api/v1/voyages`
 - `/api/v1/merge-queue`
 - `/api/v1/objectives`
+- `/api/v1/objectives/{id}/dispatch-preview`
 - `/api/v1/check-runs`
 - `/api/v1/releases`
 - `/api/v1/deployments`

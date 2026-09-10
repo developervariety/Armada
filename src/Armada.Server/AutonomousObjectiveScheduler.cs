@@ -115,6 +115,7 @@ namespace Armada.Server
         private readonly ArmadaSettings _Settings;
         private readonly LoggingModule _Logging;
         private readonly ICodeIndexService? _CodeIndex;
+        private readonly IObjectiveDispatchPreviewService? _ObjectiveDispatchPreview;
         private readonly SemaphoreSlim _SweepLock = new SemaphoreSlim(1, 1);
 
         #endregion
@@ -131,6 +132,8 @@ namespace Armada.Server
         /// <param name="settings">Armada settings (seed values for runtime state).</param>
         /// <param name="logging">Logging module.</param>
         /// <param name="codeIndex">Optional code index service for index-update gating.</param>
+        /// <param name="dispatchHold">Optional fleet-wide dispatch hold.</param>
+        /// <param name="objectiveDispatchPreview">Optional shared objective dispatch preflight.</param>
         public AutonomousObjectiveScheduler(
             DatabaseDriver database,
             ObjectiveService objectives,
@@ -139,7 +142,8 @@ namespace Armada.Server
             ArmadaSettings settings,
             LoggingModule logging,
             ICodeIndexService? codeIndex = null,
-            DispatchHold? dispatchHold = null)
+            DispatchHold? dispatchHold = null,
+            IObjectiveDispatchPreviewService? objectiveDispatchPreview = null)
         {
             _DispatchHold = dispatchHold;
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -149,6 +153,7 @@ namespace Armada.Server
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _CodeIndex = codeIndex;
+            _ObjectiveDispatchPreview = objectiveDispatchPreview;
 
             Enabled = settings.AutonomousObjectiveScheduler.Enabled;
             Paused = settings.AutonomousObjectiveScheduler.Paused;
@@ -331,12 +336,47 @@ namespace Armada.Server
                 int reconciledCount = await ReconcileCompletedObjectivesAsync(systemAuth, snapshot, token).ConfigureAwait(false);
 
                 snapshot = await ReadAllObjectivesAsync(systemAuth, token).ConfigureAwait(false);
-                List<Objective> eligible = AutonomousObjectiveSelector.SelectEligible(snapshot);
+                List<Objective> eligible = _ObjectiveDispatchPreview == null
+                    ? AutonomousObjectiveSelector.SelectEligible(snapshot)
+                    : AutonomousObjectiveSelector.SelectCandidates(snapshot);
+
+                // Diagnose dependency blocks before global capacity, dispatch holds, or sibling-lane
+                // occupancy can hide them. Cache each preview so a candidate that reaches dispatch is
+                // not evaluated twice in one sweep.
+                Dictionary<string, ObjectiveDispatchPreview> previews = new Dictionary<string, ObjectiveDispatchPreview>(StringComparer.Ordinal);
+                Dictionary<string, int> skipReasons = new Dictionary<string, int>(StringComparer.Ordinal);
+                if (_ObjectiveDispatchPreview != null)
+                {
+                    List<Objective> dependencyReady = new List<Objective>();
+                    foreach (Objective objective in eligible)
+                    {
+                        ObjectiveDispatchPreview preview = await _ObjectiveDispatchPreview
+                            .PreviewAsync(BuildAuth(objective), objective, token: token)
+                            .ConfigureAwait(false);
+                        previews[objective.Id] = preview;
+                        if (IsDependencyBlocked(preview))
+                        {
+                            RecordSkip(skipReasons, "dependency_blocked");
+                            await EmitDispatchPreviewSkipAsync(objective, preview, true, token).ConfigureAwait(false);
+                            continue;
+                        }
+
+                        dependencyReady.Add(objective);
+                    }
+                    eligible = dependencyReady;
+                }
 
                 ActiveVoyageSummary active = await CountActiveDispatchedAsync(snapshot, token).ConfigureAwait(false);
-                Dictionary<string, HashSet<string>> lanes = await BuildLanesAsync(token).ConfigureAwait(false);
                 ActiveDispatchedCount = active.Total;
                 int capacity = MaxConcurrentVoyages - active.Total;
+
+                if (eligible.Count == 0 && skipReasons.Count > 0)
+                {
+                    LastSkipReason = DescribeSkips(skipReasons);
+                    LastResultSummary = "reconciled=" + reconciledCount + " dispatched=0 skipped=" + LastSkipReason;
+                    _Logging.Info(_Header + "sweep complete: " + LastResultSummary + ".");
+                    return;
+                }
 
                 if (capacity <= 0)
                 {
@@ -345,8 +385,17 @@ namespace Armada.Server
                     _Logging.Debug(_Header + "sweep: concurrency limit reached (" + concurrencyDetail + ").");
                     await EmitSystemEventAsync("objective_scheduler.skipped_max_concurrent",
                         "Autonomous objective scheduler dispatch skipped: " + concurrencyDetail + ".", token).ConfigureAwait(false);
-                    LastSkipReason = "max_concurrent";
-                    LastResultSummary = "reconciled=" + reconciledCount + " dispatched=0 (max_concurrent)";
+                    if (skipReasons.Count == 0)
+                    {
+                        LastSkipReason = "max_concurrent";
+                        LastResultSummary = "reconciled=" + reconciledCount + " dispatched=0 (max_concurrent)";
+                    }
+                    else
+                    {
+                        RecordSkip(skipReasons, "max_concurrent");
+                        LastSkipReason = DescribeSkips(skipReasons);
+                        LastResultSummary = "reconciled=" + reconciledCount + " dispatched=0 skipped=" + LastSkipReason;
+                    }
                     return;
                 }
 
@@ -362,8 +411,17 @@ namespace Armada.Server
                     _Logging.Info(_Header + "sweep: " + holdDetail + "; " + eligible.Count + " eligible objective(s) wait.");
                     await EmitSystemEventAsync("objective_scheduler.skipped_dispatch_hold",
                         "Autonomous objective scheduler dispatch skipped: " + holdDetail + ".", token).ConfigureAwait(false);
-                    LastSkipReason = "dispatch_hold";
-                    LastResultSummary = "reconciled=" + reconciledCount + " dispatched=0 (dispatch_hold)";
+                    if (skipReasons.Count == 0)
+                    {
+                        LastSkipReason = "dispatch_hold";
+                        LastResultSummary = "reconciled=" + reconciledCount + " dispatched=0 (dispatch_hold)";
+                    }
+                    else
+                    {
+                        RecordSkip(skipReasons, "dispatch_hold");
+                        LastSkipReason = DescribeSkips(skipReasons);
+                        LastResultSummary = "reconciled=" + reconciledCount + " dispatched=0 skipped=" + LastSkipReason;
+                    }
                     return;
                 }
 
@@ -372,7 +430,7 @@ namespace Armada.Server
                 // Every skip is counted by reason. A sweep that dispatches nothing must be
                 // able to say why; reporting dispatched=0 with no reason reads as an idle
                 // fleet, and hid two permanently undispatchable objectives for days.
-                Dictionary<string, int> skipReasons = new Dictionary<string, int>(StringComparer.Ordinal);
+                Dictionary<string, HashSet<string>> lanes = await BuildLanesAsync(token).ConfigureAwait(false);
                 List<MergeEntry> mergeQueue = await _MergeQueue.ListAsync(token: token).ConfigureAwait(false);
 
                 foreach (Objective objective in eligible)
@@ -411,7 +469,8 @@ namespace Armada.Server
 
                     try
                     {
-                        await DispatchObjectiveAsync(objective, mergeQueue, token).ConfigureAwait(false);
+                        previews.TryGetValue(objective.Id, out ObjectiveDispatchPreview? preview);
+                        await DispatchObjectiveAsync(objective, mergeQueue, preview, token).ConfigureAwait(false);
                         dispatched++;
                         if (objective.VesselIds.Count == 1)
                         {
@@ -835,6 +894,34 @@ namespace Armada.Server
             return count;
         }
 
+        private static bool IsDependencyBlocked(ObjectiveDispatchPreview preview)
+        {
+            return preview.Issues.Any(issue =>
+                        String.Equals(issue.Code, "objective_dependencies_incomplete", StringComparison.Ordinal)
+                        || String.Equals(issue.Code, "objective_dependency_missing", StringComparison.Ordinal)
+                        || String.Equals(issue.Code, "objective_dependency_cycle", StringComparison.Ordinal));
+        }
+
+        private async Task EmitDispatchPreviewSkipAsync(
+            Objective objective,
+            ObjectiveDispatchPreview preview,
+            bool dependencyBlocked,
+            CancellationToken token)
+        {
+            string issueCodes = String.Join(", ", preview.Issues
+                .Where(issue => issue.Severity == ReadinessSeverityEnum.Error)
+                .Select(issue => issue.Code));
+            string chains = preview.BlockingChains.Count > 0
+                ? " Blocking chains: " + String.Join("; ", preview.BlockingChains.Select(chain => String.Join(" -> ", chain))) + "."
+                : String.Empty;
+            await EmitObjectiveEventAsync(
+                dependencyBlocked ? "objective_scheduler.skipped_dependency" : "objective_scheduler.skipped_dispatch_preflight",
+                "Autonomous scheduler skipped objective " + objective.Id + ": " + issueCodes + "." + chains,
+                objective,
+                preview.VesselId,
+                token).ConfigureAwait(false);
+        }
+
         private async Task<ActiveVoyageSummary> CountActiveDispatchedAsync(List<Objective> snapshot, CancellationToken token)
         {
             ActiveVoyageSummary summary = new ActiveVoyageSummary();
@@ -857,6 +944,7 @@ namespace Armada.Server
         private async Task DispatchObjectiveAsync(
             Objective objective,
             List<MergeEntry> mergeQueue,
+            ObjectiveDispatchPreview? cachedPreview,
             CancellationToken token)
         {
             if (objective.Status == ObjectiveStatusEnum.Completed || objective.Status == ObjectiveStatusEnum.Cancelled)
@@ -890,6 +978,20 @@ namespace Armada.Server
                     "Autonomous scheduler is dispatching requeued objective " + objective.Id + ": its "
                     + objective.VoyageIds.Count + " linked voyage(s) have all ended.",
                     objective, null, token).ConfigureAwait(false);
+            }
+
+            if (_ObjectiveDispatchPreview != null)
+            {
+                ObjectiveDispatchPreview preview = cachedPreview ?? await _ObjectiveDispatchPreview
+                    .PreviewAsync(BuildAuth(objective), objective, token: token)
+                    .ConfigureAwait(false);
+                if (!preview.IsReady)
+                {
+                    bool dependencyBlocked = IsDependencyBlocked(preview);
+                    string reason = dependencyBlocked ? "dependency_blocked" : "dispatch_preflight";
+                    await EmitDispatchPreviewSkipAsync(objective, preview, dependencyBlocked, token).ConfigureAwait(false);
+                    throw new ObjectiveSkippedException(reason);
+                }
             }
 
             if (objective.VesselIds.Count != 1)

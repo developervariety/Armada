@@ -27,6 +27,7 @@ namespace Armada.Server.Routes
         private readonly ArmadaWebSocketHub? _webSocketHub;
         private readonly LoggingModule _logging;
         private readonly ObjectiveService _objectives;
+        private readonly ObjectiveDispatchPreviewService? _objectiveDispatchPreview;
         private readonly ICodeIndexService? _codeIndexService;
         private readonly ArmadaSettings? _settings;
         private readonly JsonSerializerOptions _jsonOptions;
@@ -43,6 +44,7 @@ namespace Armada.Server.Routes
         /// <param name="codeIndexService">Optional code-index service.</param>
         /// <param name="settings">Optional Armada settings.</param>
         /// <param name="jsonOptions">JSON serializer options.</param>
+        /// <param name="objectiveDispatchPreview">Optional shared objective dispatch preflight.</param>
         public VoyageRoutes(
             DatabaseDriver database,
             IAdmiralService admiral,
@@ -52,7 +54,8 @@ namespace Armada.Server.Routes
             ObjectiveService objectives,
             ICodeIndexService? codeIndexService,
             ArmadaSettings? settings,
-            JsonSerializerOptions jsonOptions)
+            JsonSerializerOptions jsonOptions,
+            ObjectiveDispatchPreviewService? objectiveDispatchPreview = null)
         {
             _database = database;
             _admiral = admiral;
@@ -63,6 +66,7 @@ namespace Armada.Server.Routes
             _codeIndexService = codeIndexService;
             _settings = settings;
             _jsonOptions = jsonOptions;
+            _objectiveDispatchPreview = objectiveDispatchPreview;
         }
 
         /// <summary>
@@ -202,10 +206,11 @@ namespace Armada.Server.Routes
                 }
                 VoyageRequest voyageReq = JsonSerializer.Deserialize<VoyageRequest>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as VoyageRequest.");
+                Objective? linkedObjective = null;
                 if (!String.IsNullOrWhiteSpace(voyageReq.ObjectiveId))
                 {
-                    Objective? objective = await _objectives.ReadAsync(ctx, voyageReq.ObjectiveId).ConfigureAwait(false);
-                    if (objective == null)
+                    linkedObjective = await _objectives.ReadAsync(ctx, voyageReq.ObjectiveId).ConfigureAwait(false);
+                    if (linkedObjective == null)
                     {
                         req.Http.Response.StatusCode = 404;
                         return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Objective not found" };
@@ -215,6 +220,27 @@ namespace Armada.Server.Routes
                 Voyage voyage;
                 if (isBareVoyage)
                 {
+                    if (linkedObjective != null && _objectiveDispatchPreview != null)
+                    {
+                        ObjectiveDispatchPreview preview = await _objectiveDispatchPreview.PreviewAsync(
+                            ctx,
+                            linkedObjective,
+                            requestedVesselId: voyageReq.VesselId,
+                            requestedPipelineId: voyageReq.PipelineId ?? voyageReq.Pipeline,
+                            captainAssignments: voyageReq.CaptainAssignments).ConfigureAwait(false);
+                        if (!preview.IsReady)
+                        {
+                            req.Http.Response.StatusCode = 400;
+                            return new
+                            {
+                                Error = "Objective dispatch preview found blocking issues.",
+                                Code = "objective_dispatch_not_ready",
+                                ObjectiveId = linkedObjective.Id,
+                                Preview = preview
+                            };
+                        }
+                    }
+
                     // Bare voyage creation (missions added separately)
                     voyage = new Voyage(voyageReq.Title, voyageReq.Description);
                     voyage.TenantId = ctx.TenantId;
@@ -240,7 +266,8 @@ namespace Armada.Server.Routes
                         _logging,
                         _codeIndexService,
                         _objectives,
-                        _settings);
+                        _settings,
+                        _objectiveDispatchPreview);
                     VoyageDispatchResult dispatchResult = await dispatchService.DispatchAsync(dispatchRequest).ConfigureAwait(false);
                     if (!dispatchResult.Succeeded)
                     {

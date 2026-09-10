@@ -203,6 +203,12 @@ until the job reaches a terminal state.
 assignment starts. A successful dispatch response is not evidence that a
 captain has started work.
 
+For objective work, call `preview_objective_dispatch` before `armada_dispatch`.
+It performs the same read-only preflight that operator and autonomous objective
+dispatch enforce. It reports all structural blockers, a complete typed
+dependency graph, and bounded diagnostic chains. A busy compatible captain remains valid configured coverage; its idle
+count is capacity information only.
+
 ## Errors
 
 Armada uses two error levels:

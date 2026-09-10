@@ -31,7 +31,8 @@ namespace Armada.Server.Mcp.Tools
             DatabaseDriver database,
             ObjectiveService objectiveService,
             PlanningSessionCoordinator? planningSessionCoordinator = null,
-            ObjectiveRefinementCoordinator? objectiveRefinementCoordinator = null)
+            ObjectiveRefinementCoordinator? objectiveRefinementCoordinator = null,
+            ObjectiveDispatchPreviewService? dispatchPreviewService = null)
         {
             register(
                 "list_objectives",
@@ -150,6 +151,63 @@ namespace Armada.Server.Mcp.Tools
                     if (objective == null) return (object)new { Error = "Backlog item not found" };
                     return (object)objective;
                 });
+
+            if (dispatchPreviewService != null)
+            {
+                register(
+                    "preview_objective_dispatch",
+                    "Build a read-only dispatch preview for one persisted objective. Reports all target, pipeline, captain, verification, provisioning, dependency, and brief blockers without creating fleet state. Busy captains are capacity information and do not make a configured role unready.",
+                    new
+                    {
+                        type = "object",
+                        properties = new
+                        {
+                            objectiveId = new { type = "string", description = "Objective or backlog item ID (obj_ prefix)" },
+                            vesselId = new { type = "string", description = "Optional target vessel override" },
+                            pipelineId = new { type = "string", description = "Optional pipeline ID or name override" },
+                            captainAssignments = new
+                            {
+                                type = "array",
+                                description = "Optional per-persona captain routing overrides to evaluate",
+                                items = new
+                                {
+                                    type = "object",
+                                    properties = new
+                                    {
+                                        persona = new { type = "string", description = "Pipeline persona" },
+                                        captainId = new { type = "string", description = "Optional preferred captain ID" },
+                                        fallbackTier = new { type = "string", description = "Optional fallback tier: Economy, Standard, or Premium" }
+                                    },
+                                    required = new[] { "persona" }
+                                }
+                            }
+                        },
+                        required = new[] { "objectiveId" }
+                    },
+                    async (args) =>
+                    {
+                        ObjectiveDispatchPreviewArgs request = JsonSerializer.Deserialize<ObjectiveDispatchPreviewArgs>(args!.Value, _JsonOptions)
+                            ?? throw new InvalidOperationException("Could not deserialize ObjectiveDispatchPreviewArgs.");
+                        AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                        Objective? objective = await objectiveService.ReadAsync(auth, request.ObjectiveId).ConfigureAwait(false);
+                        if (objective == null)
+                        {
+                            return (object)new
+                            {
+                                Error = "Objective not found: " + request.ObjectiveId,
+                                Code = "objective_not_found",
+                                ObjectiveId = request.ObjectiveId
+                            };
+                        }
+
+                        return (object)await dispatchPreviewService.PreviewAsync(
+                            auth,
+                            objective,
+                            request.VesselId,
+                            request.PipelineId,
+                            request.CaptainAssignments).ConfigureAwait(false);
+                    });
+            }
 
             register(
                 "create_objective",

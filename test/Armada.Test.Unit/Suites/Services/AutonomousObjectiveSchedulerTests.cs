@@ -30,6 +30,178 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("SweepAsync_SharedPreviewReportsCompleteDependencyBlock", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                    "dependency-preview-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                Objective blocker = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Title = "Transitive blocker",
+                    Status = ObjectiveStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                Objective candidate = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Title = "Blocked candidate",
+                    Status = ObjectiveStatusEnum.Planned,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id },
+                    BlockedByObjectiveIds = new List<string> { blocker.Id }
+                }).ConfigureAwait(false);
+                RecordingObjectiveDispatchPreview preview = new RecordingObjectiveDispatchPreview
+                {
+                    Result = new ObjectiveDispatchPreview
+                    {
+                        ObjectiveId = candidate.Id,
+                        VesselId = vessel.Id,
+                        IsReady = false,
+                        BlockingChains = new List<List<string>>
+                        {
+                            new List<string> { candidate.Id, blocker.Id }
+                        },
+                        Issues = new List<ObjectiveDispatchPreviewIssue>
+                        {
+                            new ObjectiveDispatchPreviewIssue
+                            {
+                                Code = "objective_dependencies_incomplete",
+                                Area = "admission",
+                                Severity = ReadinessSeverityEnum.Error,
+                                Message = "Dependency incomplete."
+                            }
+                        }
+                    }
+                };
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver, admiral, EnabledSchedulerSettings(), objectiveDispatchPreview: preview);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual("dependency_blocked=1", scheduler.LastSkipReason);
+                AssertEqual(0, admiral.DispatchVoyageCallCount, "A dependency-blocked objective must not dispatch.");
+                AssertEqual(1, preview.CallCount, "The scheduler evaluates the shared preview once.");
+                List<ArmadaEvent> events = await testDb.Driver.Events
+                    .EnumerateByTypeAsync("objective_scheduler.skipped_dependency")
+                    .ConfigureAwait(false);
+                AssertEqual(1, events.Count);
+                AssertContains(candidate.Id + " -> " + blocker.Id, events[0].Message,
+                    "The scheduler event must include the complete blocking chain.");
+            }).ConfigureAwait(false);
+
+            await RunTest("SweepAsync_DependencyDiagnosticsPrecedeZeroGlobalCapacity", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                    "dependency-zero-capacity", "https://github.com/test/dependency-zero-capacity.git")).ConfigureAwait(false);
+                Voyage activeVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Active capacity consumer")
+                {
+                    Status = VoyageStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Title = "Active objective",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VesselIds = new List<string> { vessel.Id },
+                    VoyageIds = new List<string> { activeVoyage.Id }
+                }).ConfigureAwait(false);
+                Objective blocker = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Title = "Incomplete dependency",
+                    Status = ObjectiveStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                Objective candidate = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Title = "Blocked at zero capacity",
+                    Status = ObjectiveStatusEnum.Planned,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id },
+                    BlockedByObjectiveIds = new List<string> { blocker.Id }
+                }).ConfigureAwait(false);
+                RecordingObjectiveDispatchPreview preview = DependencyBlockedPreview(candidate, blocker, vessel);
+                ArmadaSettings settings = EnabledSchedulerSettings();
+                settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages = 1;
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver),
+                    settings,
+                    objectiveDispatchPreview: preview);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual("dependency_blocked=1", scheduler.LastSkipReason,
+                    "A dependency diagnosis must not be hidden by zero global capacity.");
+                AssertEqual(1, preview.CallCount, "The blocked candidate is previewed once.");
+                List<ArmadaEvent> events = await testDb.Driver.Events
+                    .EnumerateByTypeAsync("objective_scheduler.skipped_dependency")
+                    .ConfigureAwait(false);
+                AssertEqual(1, events.Count, "The complete dependency diagnostic is emitted before the capacity return.");
+            }).ConfigureAwait(false);
+
+            await RunTest("SweepAsync_DependencyDiagnosticsPrecedeBusySiblingLane", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel producer = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                    "dependency-lane-producer", "https://github.com/test/dependency-lane-producer.git")).ConfigureAwait(false);
+                Vessel consumer = new Vessel(
+                    "dependency-lane-consumer", "https://github.com/test/dependency-lane-consumer.git");
+                consumer.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                {
+                    new SiblingRepo
+                    {
+                        VesselRef = producer.Id,
+                        RelativePath = "../dependency-lane-producer",
+                        BuildParticipant = true
+                    }
+                });
+                consumer = await testDb.Driver.Vessels.CreateAsync(consumer).ConfigureAwait(false);
+                Voyage activeVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Active lane consumer")
+                {
+                    Status = VoyageStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Title = "Active producer objective",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VesselIds = new List<string> { producer.Id },
+                    VoyageIds = new List<string> { activeVoyage.Id }
+                }).ConfigureAwait(false);
+                Objective blocker = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Title = "Incomplete lane dependency",
+                    Status = ObjectiveStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                Objective candidate = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Title = "Blocked on busy lane",
+                    Status = ObjectiveStatusEnum.Planned,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { consumer.Id },
+                    BlockedByObjectiveIds = new List<string> { blocker.Id }
+                }).ConfigureAwait(false);
+                RecordingObjectiveDispatchPreview preview = DependencyBlockedPreview(candidate, blocker, consumer);
+                ArmadaSettings settings = EnabledSchedulerSettings();
+                settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel = 1;
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver),
+                    settings,
+                    objectiveDispatchPreview: preview);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual("dependency_blocked=1", scheduler.LastSkipReason,
+                    "A dependency diagnosis must not be replaced by lane_busy.");
+                AssertEqual(1, preview.CallCount, "The blocked lane candidate is previewed once.");
+                List<ArmadaEvent> dependencyEvents = await testDb.Driver.Events
+                    .EnumerateByTypeAsync("objective_scheduler.skipped_dependency")
+                    .ConfigureAwait(false);
+                AssertEqual(1, dependencyEvents.Count);
+                List<ArmadaEvent> laneEvents = await testDb.Driver.Events
+                    .EnumerateByTypeAsync("objective_scheduler.skipped_lane_busy")
+                    .ConfigureAwait(false);
+                AssertEqual(0, laneEvents.Count, "The lane gate must not hide or replace the dependency diagnostic.");
+            }).ConfigureAwait(false);
+
             await RunTest("SweepAsync_SecondImmediateCallWithinInterval_IsNoOp", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -1859,10 +2031,42 @@ namespace Armada.Test.Unit.Suites.Services
             }).ConfigureAwait(false);
         }
 
+        private static RecordingObjectiveDispatchPreview DependencyBlockedPreview(
+            Objective candidate,
+            Objective blocker,
+            Vessel vessel)
+        {
+            return new RecordingObjectiveDispatchPreview
+            {
+                Result = new ObjectiveDispatchPreview
+                {
+                    ObjectiveId = candidate.Id,
+                    VesselId = vessel.Id,
+                    IsReady = false,
+                    BlockingChains = new List<List<string>>
+                    {
+                        new List<string> { candidate.Id, blocker.Id }
+                    },
+                    Issues = new List<ObjectiveDispatchPreviewIssue>
+                    {
+                        new ObjectiveDispatchPreviewIssue
+                        {
+                            Code = "objective_dependencies_incomplete",
+                            Area = "admission",
+                            Severity = ReadinessSeverityEnum.Error,
+                            Message = "Dependency incomplete."
+                        }
+                    }
+                }
+            };
+        }
+
         private static AutonomousObjectiveScheduler CreateScheduler(
             DatabaseDriver database,
             IAdmiralService admiral,
-            ArmadaSettings settings, DispatchHold? dispatchHold = null)
+            ArmadaSettings settings,
+            DispatchHold? dispatchHold = null,
+            IObjectiveDispatchPreviewService? objectiveDispatchPreview = null)
         {
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
@@ -1875,7 +2079,8 @@ namespace Armada.Test.Unit.Suites.Services
                 settings,
                 logging,
                 null,
-                dispatchHold);
+                dispatchHold,
+                objectiveDispatchPreview);
         }
 
         private static ArmadaSettings EnabledSchedulerSettings()
@@ -1913,6 +2118,26 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<bool> HasActiveMergeEntryForMissionAsync(string missionId, CancellationToken token = default) => Task.FromResult(false);
             public Task<SafetyNetEnqueueResult> TrySafetyNetEnqueueAsync(Mission mission, Vessel vessel, string? unifiedDiff, IAutoLandEvaluator autoLandEvaluator, IConventionChecker conventionChecker, ICriticalTriggerEvaluator criticalTriggerEvaluator, CancellationToken token = default)
                 => Task.FromResult(new SafetyNetEnqueueResult(SafetyNetEnqueueOutcomeEnum.Enqueued, null));
+        }
+
+        private sealed class RecordingObjectiveDispatchPreview : IObjectiveDispatchPreviewService
+        {
+            public ObjectiveDispatchPreview Result { get; set; } = new ObjectiveDispatchPreview { IsReady = true };
+            public int CallCount { get; private set; }
+
+            public Task<ObjectiveDispatchPreview> PreviewAsync(
+                AuthContext auth,
+                Objective objective,
+                string? requestedVesselId = null,
+                string? requestedPipelineId = null,
+                IReadOnlyList<CaptainAssignmentOverride>? captainAssignments = null,
+                IReadOnlyList<MissionDescription>? missionDescriptions = null,
+                CancellationToken token = default)
+            {
+                CallCount++;
+                return Task.FromResult(Result);
+            }
+
         }
 
         private sealed class RecordingAdmiralService : IAdmiralService

@@ -11,9 +11,11 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Database.Mysql;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Settings;
     using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
+    using SyslogLogging;
     using MysqlTableQueries = Armada.Core.Database.Mysql.Queries.TableQueries;
     using PostgresqlTableQueries = Armada.Core.Database.Postgresql.Queries.TableQueries;
     using SqliteTableQueries = Armada.Core.Database.Sqlite.Queries.TableQueries;
@@ -478,6 +480,54 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("backlog_create_failed", invalidJson);
                 AssertContains("ValidEnums", invalidJson);
                 AssertContains("Feature", invalidJson);
+            }).ConfigureAwait(false);
+
+            await RunTest("MCP preview_objective_dispatch returns the shared persisted-objective preview", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                using LoggingModule logging = new LoggingModule();
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                WorkflowProfileService profiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, profiles, logging);
+                ObjectiveDispatchPreviewService previews = new ObjectiveDispatchPreviewService(
+                    testDb.Driver,
+                    profiles,
+                    readiness,
+                    new GitService(logging),
+                    new ArmadaSettings());
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
+                McpObjectiveTools.Register(
+                    (name, _, _, handler) => handlers[name] = handler,
+                    testDb.Driver,
+                    objectives,
+                    dispatchPreviewService: previews);
+
+                AuthContext auth = AuthContext.Authenticated(
+                    Armada.Core.Constants.DefaultTenantId,
+                    Armada.Core.Constants.DefaultUserId,
+                    false,
+                    true,
+                    "UnitTest");
+                Objective objective = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "MCP dispatch preview",
+                    Description = "Preview this persisted objective without creating fleet state.",
+                    RefinementSummary = "Use the shared preview service.",
+                    AcceptanceCriteria = new List<string> { "Return all blockers." }
+                }).ConfigureAwait(false);
+
+                using JsonDocument previewDoc = JsonDocument.Parse("{\"objectiveId\":\"" + objective.Id + "\"}");
+                object previewResult = await handlers["preview_objective_dispatch"](previewDoc.RootElement).ConfigureAwait(false);
+                ObjectiveDispatchPreview preview = (ObjectiveDispatchPreview)previewResult;
+                AssertEqual(objective.Id, preview.ObjectiveId);
+                AssertFalse(preview.IsReady, "an objective with no target vessel must not be ready");
+                AssertTrue(preview.Issues.Exists(issue => issue.Code == "target_vessel_count"));
+
+                using JsonDocument missingDoc = JsonDocument.Parse("{\"objectiveId\":\"missing-objective\"}");
+                object missingResult = await handlers["preview_objective_dispatch"](missingDoc.RootElement).ConfigureAwait(false);
+                string missingJson = JsonSerializer.Serialize(missingResult);
+                AssertContains("objective_not_found", missingJson);
+                AssertContains("missing-objective", missingJson);
             }).ConfigureAwait(false);
 
             await RunTest("DeleteAsync tombstones an objective so a fresh-instance backfill does not resurrect it", async () =>

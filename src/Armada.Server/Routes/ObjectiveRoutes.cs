@@ -19,6 +19,7 @@ namespace Armada.Server.Routes
     {
         private readonly ObjectiveService _Objectives;
         private readonly GitHubIntegrationService _GitHub;
+        private readonly ObjectiveDispatchPreviewService _DispatchPreview;
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -29,10 +30,14 @@ namespace Armada.Server.Routes
         /// <summary>
         /// Instantiate.
         /// </summary>
-        public ObjectiveRoutes(ObjectiveService objectives, GitHubIntegrationService gitHub)
+        public ObjectiveRoutes(
+            ObjectiveService objectives,
+            GitHubIntegrationService gitHub,
+            ObjectiveDispatchPreviewService dispatchPreview)
         {
             _Objectives = objectives ?? throw new ArgumentNullException(nameof(objectives));
             _GitHub = gitHub ?? throw new ArgumentNullException(nameof(gitHub));
+            _DispatchPreview = dispatchPreview ?? throw new ArgumentNullException(nameof(dispatchPreview));
         }
 
         /// <summary>
@@ -139,6 +144,44 @@ namespace Armada.Server.Routes
                 .WithDescription("Returns one objective or intake-style record by ID.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Objective ID (obj_ prefix)"))
                 .WithResponse(200, OpenApiJson.For<Objective>("Objective"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Get("/api/v1/objectives/{id}/dispatch-preview", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+                Objective? objective = await _Objectives.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
+                if (objective == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Objective not found" };
+                }
+
+                try
+                {
+                    return await _DispatchPreview.PreviewAsync(
+                        ctx,
+                        objective,
+                        NormalizeEmpty(req.Query.GetValueOrDefault("vesselId")),
+                        NormalizeEmpty(req.Query.GetValueOrDefault("pipelineId")),
+                        ParseCaptainAssignments(req.Query.GetValueOrDefault("captainAssignments"))).ConfigureAwait(false);
+                }
+                catch (JsonException ex)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Invalid captainAssignments JSON: " + ex.Message };
+                }
+            },
+            api => api
+                .WithTag("Objectives")
+                .WithSummary("Preview objective dispatch readiness")
+                .WithDescription("Returns a read-only preview of the effective target, pipeline, captain coverage, verification, provisioning, dependencies, and brief for one objective dispatch.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Objective ID (obj_ prefix)"))
+                .WithParameter(OpenApiParameterMetadata.Query("vesselId", "Optional target vessel override", false))
+                .WithParameter(OpenApiParameterMetadata.Query("pipelineId", "Optional pipeline ID or name override", false))
+                .WithParameter(OpenApiParameterMetadata.Query("captainAssignments", "Optional JSON array of captain routing overrides", false))
+                .WithResponse(200, OpenApiJson.For<ObjectiveDispatchPreview>("Objective dispatch preview"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
@@ -352,6 +395,44 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
+            app.Get("/api/v1/backlog/{id}/dispatch-preview", async (ApiRequest req) =>
+            {
+                AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
+                if (ctx == null) return BuildAuthError(req);
+                Objective? objective = await _Objectives.ReadAsync(ctx, req.Parameters["id"]).ConfigureAwait(false);
+                if (objective == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Backlog item not found" };
+                }
+
+                try
+                {
+                    return await _DispatchPreview.PreviewAsync(
+                        ctx,
+                        objective,
+                        NormalizeEmpty(req.Query.GetValueOrDefault("vesselId")),
+                        NormalizeEmpty(req.Query.GetValueOrDefault("pipelineId")),
+                        ParseCaptainAssignments(req.Query.GetValueOrDefault("captainAssignments"))).ConfigureAwait(false);
+                }
+                catch (JsonException ex)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Invalid captainAssignments JSON: " + ex.Message };
+                }
+            },
+            api => api
+                .WithTag("Objectives")
+                .WithSummary("Preview backlog item dispatch readiness")
+                .WithDescription("Returns the same read-only objective dispatch preview through the backlog alias.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Backlog item ID (obj_ prefix)"))
+                .WithParameter(OpenApiParameterMetadata.Query("vesselId", "Optional target vessel override", false))
+                .WithParameter(OpenApiParameterMetadata.Query("pipelineId", "Optional pipeline ID or name override", false))
+                .WithParameter(OpenApiParameterMetadata.Query("captainAssignments", "Optional JSON array of captain routing overrides", false))
+                .WithResponse(200, OpenApiJson.For<ObjectiveDispatchPreview>("Backlog item dispatch preview"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
             app.Post("/api/v1/backlog", async (ApiRequest req) =>
             {
                 AuthContext? ctx = await AuthorizeAsync(req, authenticate, authz).ConfigureAwait(false);
@@ -510,6 +591,15 @@ namespace Armada.Server.Routes
         private static string? NormalizeEmpty(string? value)
         {
             return String.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+
+        private static List<CaptainAssignmentOverride>? ParseCaptainAssignments(string? value)
+        {
+            string? json = NormalizeEmpty(value);
+            return json == null
+                ? null
+                : JsonSerializer.Deserialize<List<CaptainAssignmentOverride>>(json, _JsonOptions)
+                    ?? new List<CaptainAssignmentOverride>();
         }
     }
 }

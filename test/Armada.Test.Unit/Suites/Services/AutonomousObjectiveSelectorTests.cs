@@ -48,6 +48,20 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("SelectCandidates keeps dependency-blocked rows for shared diagnostics", () =>
+            {
+                Objective blocker = MakeObjective("obj-candidate-blocker", status: ObjectiveStatusEnum.InProgress);
+                Objective candidate = MakeObjective(
+                    "obj-candidate",
+                    blockedBy: new List<string> { blocker.Id });
+
+                List<Objective> result = AutonomousObjectiveSelector.SelectCandidates(new List<Objective> { candidate, blocker });
+
+                AssertEqual(1, result.Count, "The diagnostic candidate set must retain the blocked auto-dispatch row.");
+                AssertEqual(candidate.Id, result[0].Id);
+                return Task.CompletedTask;
+            });
+
             await RunTest("SelectEligible_NullInput_ThrowsArgumentNullException", () =>
             {
                 AssertThrows<ArgumentNullException>(

@@ -38,6 +38,20 @@ namespace Armada.Core.Services
             return eligible;
         }
 
+        /// <summary>
+        /// Return autonomous-dispatch candidates before dependency readiness is applied. The
+        /// scheduler uses this form when the shared dispatch preview is available, so blocked
+        /// objectives reach the diagnostic path instead of disappearing before a reason is made.
+        /// </summary>
+        public static List<Objective> SelectCandidates(IReadOnlyList<Objective> all)
+        {
+            if (all is null) throw new ArgumentNullException(nameof(all));
+
+            List<Objective> candidates = all.Where(IsCandidate).ToList();
+            candidates.Sort(CompareDispatchOrder);
+            return candidates;
+        }
+
         #endregion
 
         #region Private-Methods
@@ -52,13 +66,7 @@ namespace Armada.Core.Services
 
         private static bool IsEligible(Objective obj, Dictionary<string, Objective> index)
         {
-            if (!obj.AutoDispatchEnabled) return false;
-
-            if (obj.Status == ObjectiveStatusEnum.Completed || obj.Status == ObjectiveStatusEnum.Cancelled)
-                return false;
-
-            if (obj.Status != ObjectiveStatusEnum.Scoped && obj.Status != ObjectiveStatusEnum.Planned)
-                return false;
+            if (!IsCandidate(obj)) return false;
 
             // Linked voyages do not exclude a row here. Linking a voyage promotes the objective to
             // InProgress, so a Scoped or Planned row that still carries voyage ids is one an
@@ -76,6 +84,12 @@ namespace Armada.Core.Services
             }
 
             return true;
+        }
+
+        private static bool IsCandidate(Objective obj)
+        {
+            return obj.AutoDispatchEnabled
+                && (obj.Status == ObjectiveStatusEnum.Scoped || obj.Status == ObjectiveStatusEnum.Planned);
         }
 
         private static int CompareDispatchOrder(Objective left, Objective right)

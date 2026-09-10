@@ -96,6 +96,7 @@ namespace Armada.Server
         private DeploymentEnvironmentService _EnvironmentService = null!;
         private CheckRunService _CheckRunService = null!;
         private ObjectiveService _ObjectiveService = null!;
+        private ObjectiveDispatchPreviewService _ObjectiveDispatchPreviewService = null!;
         private ReleaseService _ReleaseService = null!;
         private ReleaseWebhookDispatcher? _ReleaseWebhookDispatcher = null;
         private DeploymentService _DeploymentService = null!;
@@ -266,6 +267,12 @@ namespace Armada.Server
             _EnvironmentService = new DeploymentEnvironmentService(_Database, _WorkflowProfileService, _Logging);
             _CheckRunService = new CheckRunService(_Database, _WorkflowProfileService, _VesselReadinessService, _Logging);
             _ObjectiveService = new ObjectiveService(_Database);
+            _ObjectiveDispatchPreviewService = new ObjectiveDispatchPreviewService(
+                _Database,
+                _WorkflowProfileService,
+                _VesselReadinessService,
+                _Git,
+                _Settings);
             if (_Settings.CdWebhook != null && _Settings.CdWebhook.IsConfigured())
                 _ReleaseWebhookDispatcher = new ReleaseWebhookDispatcher(_Settings.CdWebhook, _Logging);
             _ReleaseService = new ReleaseService(_Database, _WorkflowProfileService, _Logging, _ReleaseWebhookDispatcher);
@@ -276,7 +283,7 @@ namespace Armada.Server
             _AutonomousRecovery = new AutonomousRecoveryOrchestrator(
                 _Database, _Admiral, _IncidentService, _RunbookService, _Settings, _Logging,
                 _MergeQueue, _Git, _AutoLandEvaluator, _ConventionChecker, _CriticalTriggerEvaluator, _ProviderProgress, _CheckRunService);
-            _ObjectiveScheduler = new AutonomousObjectiveScheduler(_Database, _ObjectiveService, _Admiral, _MergeQueue, _Settings, _Logging, _CodeIndex, _DispatchHold);
+            _ObjectiveScheduler = new AutonomousObjectiveScheduler(_Database, _ObjectiveService, _Admiral, _MergeQueue, _Settings, _Logging, _CodeIndex, _DispatchHold, _ObjectiveDispatchPreviewService);
             _IncidentLifecycle = new IncidentLifecycleOrchestrator(_Database, _IncidentService, _Settings, _Logging);
             _GitHubIntegrationService = new GitHubIntegrationService(_Database, _ObjectiveService, _CheckRunService, _DeploymentService, _Settings, _Logging);
             _LandingPreviewService = new LandingPreviewService(_Database, _Logging);
@@ -504,7 +511,8 @@ namespace Armada.Server
                 _RuntimeFactory,
                 EmitEventAsync,
                 _WebSocketHub,
-                _ObjectiveService);
+                _ObjectiveService,
+                _ObjectiveDispatchPreviewService);
             _ObjectiveRefinementSessions = new ObjectiveRefinementCoordinator(
                 _Logging,
                 _Database,
@@ -838,7 +846,7 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Objectives
-            new ObjectiveRoutes(_ObjectiveService, _GitHubIntegrationService)
+            new ObjectiveRoutes(_ObjectiveService, _GitHubIntegrationService, _ObjectiveDispatchPreviewService)
                 .Register(_App, authenticate, _AuthorizationService);
 
             new ObjectiveRefinementRoutes(_Database, _ObjectiveRefinementSessions, _ObjectiveService, _JsonOptions)
@@ -881,7 +889,7 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Voyages
-            new VoyageRoutes(_Database, _Admiral, EmitEventAsync, _WebSocketHub, _Logging, _ObjectiveService, _CodeIndex, _Settings, _JsonOptions)
+            new VoyageRoutes(_Database, _Admiral, EmitEventAsync, _WebSocketHub, _Logging, _ObjectiveService, _CodeIndex, _Settings, _JsonOptions, _ObjectiveDispatchPreviewService)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Missions
@@ -1357,7 +1365,8 @@ namespace Armada.Server
                 diskLifecycle: _DiskLifecycle,
                 longRunningJobs: _LongRunningJobs,
                 coordinationService: _CoordinationService,
-                dispatchHold: _DispatchHold);
+                dispatchHold: _DispatchHold,
+                objectiveDispatchPreviewService: _ObjectiveDispatchPreviewService);
 
             McpLeadCycleTools.Register(
                 _McpServer.RegisterTool,

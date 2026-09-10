@@ -43,6 +43,8 @@ namespace Armada.Server.Mcp.Tools
         /// regardless of whether the caller threads logging in.</param>
         /// <param name="codeIndexService">Optional code index service used to auto-attach context packs.</param>
         /// <param name="objectiveService">Optional objective service used to validate and link voyage scope.</param>
+        /// <param name="jobs">Optional long-running job service for background dispatch.</param>
+        /// <param name="objectiveDispatchPreview">Optional shared objective dispatch preflight.</param>
         /// <remarks>
         /// armada_dispatch accepts an optional <c>prestagedFiles</c> array on each
         /// mission entry. Each entry copies an absolute <c>sourcePath</c> on the
@@ -60,7 +62,8 @@ namespace Armada.Server.Mcp.Tools
             LoggingModule? logging = null,
             ICodeIndexService? codeIndexService = null,
             ObjectiveService? objectiveService = null,
-            LongRunningJobService? jobs = null)
+            LongRunningJobService? jobs = null,
+            ObjectiveDispatchPreviewService? objectiveDispatchPreview = null)
         {
             register(
                 "armada_dispatch",
@@ -189,7 +192,8 @@ namespace Armada.Server.Mcp.Tools
                         logging,
                         codeIndexService,
                         objectiveService,
-                        settings);
+                        settings,
+                        objectiveDispatchPreview);
 
                     if (jobs != null)
                     {

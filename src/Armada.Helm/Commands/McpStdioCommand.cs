@@ -77,6 +77,12 @@ namespace Armada.Helm.Commands
             WorkflowProfileService workflowProfileService = new WorkflowProfileService(database, logging);
             VesselReadinessService readinessService = new VesselReadinessService(database, workflowProfileService, logging);
             CheckRunService checkRunService = new CheckRunService(database, workflowProfileService, readinessService, logging);
+            ObjectiveDispatchPreviewService objectiveDispatchPreviewService = new ObjectiveDispatchPreviewService(
+                database,
+                workflowProfileService,
+                readinessService,
+                git,
+                armadaSettings);
             HttpClient codeIndexHttpClient = new HttpClient();
             IEmbeddingClient embeddingClient = new DeepSeekEmbeddingClient(armadaSettings.CodeIndex, logging, codeIndexHttpClient);
             OpenCodeServerLauncher openCodeServerLauncher = new OpenCodeServerLauncher(armadaSettings, logging, codeIndexHttpClient);
@@ -103,7 +109,8 @@ namespace Armada.Helm.Commands
                     codeIndexService: codeIndexService,
                     checkRunService: checkRunService,
                     objectiveService: objectiveService,
-                    incidentService: incidentService);
+                    incidentService: incidentService,
+                    objectiveDispatchPreviewService: objectiveDispatchPreviewService);
 
                 // Run until stdin closes or process is killed
                 using CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

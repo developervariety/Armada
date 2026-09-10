@@ -12,6 +12,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Server;
@@ -33,6 +34,108 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("ValidatePreconditions_UsesSharedObjectiveDispatchPreview", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                        "preview-gated-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "Preview-gated objective",
+                        VesselIds = new List<string> { vessel.Id }
+                    }).ConfigureAwait(false);
+                    ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                    RecordingObjectiveDispatchPreview preview = new RecordingObjectiveDispatchPreview
+                    {
+                        Result = new ObjectiveDispatchPreview
+                        {
+                            ObjectiveId = objective.Id,
+                            VesselId = vessel.Id,
+                            IsReady = false,
+                            Issues = new List<ObjectiveDispatchPreviewIssue>
+                            {
+                                new ObjectiveDispatchPreviewIssue
+                                {
+                                    Code = "brief_acceptance_missing",
+                                    Area = "brief",
+                                    Severity = ReadinessSeverityEnum.Error,
+                                    Message = "Acceptance is missing."
+                                }
+                            }
+                        }
+                    };
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver,
+                        new RecordingAdmiralService(testDb.Driver),
+                        objectiveService: objectives,
+                        settings: new ArmadaSettings { CodeIndex = { Enabled = false } },
+                        objectiveDispatchPreview: preview);
+
+                    VoyageDispatchResult? invalid = await service.ValidatePreconditionsAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "blocked by preview",
+                        VesselId = vessel.Id,
+                        ObjectiveId = objective.Id,
+                        Pipeline = "Reviewed",
+                        CaptainAssignments = new List<CaptainAssignmentOverride>
+                        {
+                            new CaptainAssignmentOverride("Worker", "cpt_requested", CaptainTierEnum.Standard)
+                        },
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("Do not dispatch", "The preview blocks this work.")
+                        }
+                    }).ConfigureAwait(false);
+
+                    AssertNotNull(invalid, "The shared preview must block an unready objective dispatch.");
+                    AssertEqual(400, invalid!.StatusCode);
+                    AssertContains("objective_dispatch_not_ready", JsonSerializer.Serialize(invalid.Value));
+                    AssertEqual(1, preview.CallCount, "The operator precondition path calls the preview once.");
+                    AssertEqual(vessel.Id, preview.RequestedVesselId);
+                    AssertEqual("Reviewed", preview.RequestedPipelineId);
+                    AssertEqual("cpt_requested", preview.CaptainAssignments!.Single().CaptainId);
+                }
+            });
+
+            await RunTest("DispatchAsync_UsesObjectiveSuggestedPipelineForPreviewAndExecution", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                        "objective-pipeline-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                    Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "Objective pipeline",
+                        VesselIds = new List<string> { vessel.Id },
+                        SuggestedPipelineId = "pln_objective"
+                    }).ConfigureAwait(false);
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    RecordingObjectiveDispatchPreview preview = new RecordingObjectiveDispatchPreview();
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver,
+                        admiral,
+                        objectiveService: new ObjectiveService(testDb.Driver),
+                        settings: new ArmadaSettings { CodeIndex = { Enabled = false } },
+                        objectiveDispatchPreview: preview);
+
+                    VoyageDispatchResult result = await service.DispatchAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "Use objective pipeline",
+                        VesselId = vessel.Id,
+                        ObjectiveId = objective.Id,
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("Implement", "Use the selected pipeline.")
+                        }
+                    }).ConfigureAwait(false);
+
+                    AssertTrue(result.Succeeded);
+                    AssertEqual("pln_objective", preview.RequestedPipelineId);
+                    AssertEqual("pln_objective", admiral.LastPipelineId);
+                }
+            });
+
             await RunTest("ValidatePreconditions_AllEffectiveModesOff_SkipsCodeIndexStatus", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -1076,6 +1179,8 @@ namespace Armada.Test.Unit.Suites.Services
 
             public bool DispatchVoyageCalled { get; private set; }
 
+            public string? LastPipelineId { get; private set; }
+
             public List<Mission> CreatedMissions { get; } = new List<Mission>();
 
             public Func<Captain, Mission, Dock, Task<int>>? OnLaunchAgent { get; set; }
@@ -1129,6 +1234,7 @@ namespace Armada.Test.Unit.Suites.Services
                 CancellationToken token = default)
             {
                 DispatchVoyageCalled = true;
+                LastPipelineId = pipelineId;
                 Voyage voyage = await _Database.Voyages.CreateAsync(new Voyage(title, description)
                 {
                     TenantId = Constants.DefaultTenantId,
@@ -1183,6 +1289,33 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Task HandleProcessExitAsync(int processId, int? exitCode, string captainId, string missionId, CancellationToken token = default)
                 => throw new NotImplementedException();
+        }
+
+        private sealed class RecordingObjectiveDispatchPreview : IObjectiveDispatchPreviewService
+        {
+            public ObjectiveDispatchPreview Result { get; set; } = new ObjectiveDispatchPreview { IsReady = true };
+            public int CallCount { get; private set; }
+            public string? RequestedVesselId { get; private set; }
+            public string? RequestedPipelineId { get; private set; }
+            public IReadOnlyList<CaptainAssignmentOverride>? CaptainAssignments { get; private set; }
+            public IReadOnlyList<MissionDescription>? MissionDescriptions { get; private set; }
+
+            public Task<ObjectiveDispatchPreview> PreviewAsync(
+                AuthContext auth,
+                Objective objective,
+                string? requestedVesselId = null,
+                string? requestedPipelineId = null,
+                IReadOnlyList<CaptainAssignmentOverride>? captainAssignments = null,
+                IReadOnlyList<MissionDescription>? missionDescriptions = null,
+                CancellationToken token = default)
+            {
+                CallCount++;
+                RequestedVesselId = requestedVesselId;
+                RequestedPipelineId = requestedPipelineId;
+                CaptainAssignments = captainAssignments;
+                MissionDescriptions = missionDescriptions;
+                return Task.FromResult(Result);
+            }
         }
 
         private sealed class PipelinePersistingAdmiralService : IAdmiralService

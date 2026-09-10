@@ -25,7 +25,8 @@ namespace Armada.Server
             Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEventAsync,
             Func<DateTime>? utcNow = null,
             ObjectiveService? objectiveService = null,
-            Armada.Core.Settings.ArmadaSettings? settings = null)
+            Armada.Core.Settings.ArmadaSettings? settings = null,
+            IObjectiveDispatchPreviewService? objectiveDispatchPreview = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
@@ -33,6 +34,7 @@ namespace Armada.Server
             _UtcNow = utcNow ?? (() => DateTime.UtcNow);
             _ObjectiveService = objectiveService ?? new ObjectiveService(_Database);
             _Settings = settings;
+            _ObjectiveDispatchPreview = objectiveDispatchPreview;
         }
 
         #endregion
@@ -529,6 +531,28 @@ namespace Armada.Server
                     objectiveAuth = Mcp.Tools.McpToolHelpers.CreateDefaultTenantAdminContext();
                     bareObjective = await _ObjectiveService.ReadAsync(objectiveAuth, request.ObjectiveId, token).ConfigureAwait(false);
                     if (bareObjective == null) return NotFound("Objective not found: " + request.ObjectiveId);
+
+                    if (_ObjectiveDispatchPreview != null)
+                    {
+                        ObjectiveDispatchPreview preview = await _ObjectiveDispatchPreview.PreviewAsync(
+                            objectiveAuth,
+                            bareObjective,
+                            request.VesselId,
+                            pipelineId,
+                            request.CaptainAssignments,
+                            missions,
+                            token).ConfigureAwait(false);
+                        if (!preview.IsReady)
+                        {
+                            return new RemoteTunnelRequestResult
+                            {
+                                StatusCode = 400,
+                                ErrorCode = "objective_dispatch_not_ready",
+                                Message = "Objective dispatch preview found blocking issues.",
+                                Payload = preview
+                            };
+                        }
+                    }
                 }
 
                 voyage = new Voyage(request.Title, request.Description);
@@ -550,7 +574,8 @@ namespace Armada.Server
                     _Database,
                     _Admiral,
                     objectiveService: _ObjectiveService,
-                    settings: _Settings);
+                    settings: _Settings,
+                    objectiveDispatchPreview: _ObjectiveDispatchPreview);
                 VoyageDispatchResult result = await dispatchService.DispatchAsync(new SharedVoyageDispatchRequest
                 {
                     Title = request.Title,
@@ -949,6 +974,7 @@ namespace Armada.Server
         private readonly Func<DateTime> _UtcNow;
         private readonly ObjectiveService _ObjectiveService;
         private readonly Armada.Core.Settings.ArmadaSettings? _Settings;
+        private readonly IObjectiveDispatchPreviewService? _ObjectiveDispatchPreview;
 
         private sealed class FleetUpdateRequest
         {
