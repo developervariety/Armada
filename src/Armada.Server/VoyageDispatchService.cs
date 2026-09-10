@@ -109,7 +109,7 @@ namespace Armada.Server
             });
 
             VoyageDispatchResult? objectiveValidation = await ValidateObjectiveAsync(
-                NormalizeEmpty(request.ObjectiveId), request.ObjectiveAuthContext).ConfigureAwait(false);
+                NormalizeEmpty(request.ObjectiveId), request.ObjectiveAuthContext, vesselId).ConfigureAwait(false);
             if (objectiveValidation != null) return objectiveValidation;
 
             if (IsCodeIndexEnabled() && ShouldEvaluateCodeIndexPrecondition(request))
@@ -168,12 +168,21 @@ namespace Armada.Server
             if (preconditions != null) return preconditions;
             LogDispatchInfo("dispatch step preconditions_ok elapsedMs=" + dispatchWatch.ElapsedMilliseconds);
 
+            // Dispatch preparation can add objective text, inherited mode, start refs, and context
+            // metadata. Work on a copy so a failed caller retry always starts from its original input.
+            missions = missions!.Select(CloneMissionDescription).ToList();
+
             // A Research objective linked to this dispatch runs its missions read-only, so a mission
             // that did not state its own mode inherits the objective's mode before the pipeline
             // expands. Without this the operator path produced Implementation missions for a
             // report-only objective and the Judge failed the correct empty diff -- the autonomous
             // scheduler already derives the mode; this is the same rule on the operator path.
-            await ApplyObjectiveModeDefaultAsync(objectiveId, request.ObjectiveAuthContext, missions).ConfigureAwait(false);
+            Objective? dispatchObjective = await ApplyObjectiveDefaultsAsync(
+                objectiveId,
+                request.ObjectiveAuthContext,
+                missions).ConfigureAwait(false);
+            if (dispatchObjective != null && String.IsNullOrWhiteSpace(description))
+                description = ObjectiveBriefRenderer.Render(dispatchObjective);
 
             Vessel? dispatchVessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
             if (dispatchVessel == null) return VoyageDispatchResult.NotFound(new
@@ -462,7 +471,7 @@ namespace Armada.Server
             return _Settings?.CodeIndex?.Enabled ?? true;
         }
 
-        private async Task<VoyageDispatchResult?> ValidateObjectiveAsync(string? objectiveId, AuthContext? authContext)
+        private async Task<VoyageDispatchResult?> ValidateObjectiveAsync(string? objectiveId, AuthContext? authContext, string vesselId)
         {
             if (String.IsNullOrEmpty(objectiveId)) return null;
             if (_ObjectiveService == null)
@@ -473,43 +482,85 @@ namespace Armada.Server
             if (objective == null)
                 return VoyageDispatchResult.NotFound(new { Error = "Objective not found: " + objectiveId });
 
+            if (objective.VesselIds.Count > 0
+                && !objective.VesselIds.Contains(vesselId, StringComparer.OrdinalIgnoreCase))
+                return VoyageDispatchResult.BadRequest(new
+                {
+                    Error = "Objective target vessel does not match dispatch vessel.",
+                    Code = "objective_vessel_mismatch",
+                    ObjectiveId = objectiveId,
+                    ObjectiveVesselIds = objective.VesselIds,
+                    DispatchVesselId = vesselId
+                });
+
+            string? preparedTargetVessel = objective.Preparation?.Target?.VesselId;
+            if (!String.IsNullOrWhiteSpace(preparedTargetVessel)
+                && !String.Equals(preparedTargetVessel, vesselId, StringComparison.OrdinalIgnoreCase))
+                return VoyageDispatchResult.BadRequest(new
+                {
+                    Error = "Prepared target vessel does not match dispatch vessel.",
+                    Code = "preparation_target_vessel_mismatch",
+                    ObjectiveId = objectiveId,
+                    PreparedTargetVesselId = preparedTargetVessel,
+                    DispatchVesselId = vesselId
+                });
+
             return null;
         }
 
         /// <summary>
-        /// When a dispatch is linked to a Research objective, a mission that did not state its own
-        /// mode inherits the objective's read-only mode, so the Judge accepts its no-commit report and
-        /// the pipeline drops the diff-dependent stage. An explicit per-mission mode always wins, and a
-        /// non-Research objective changes nothing (the derivation returns null and the mission keeps
-        /// the Implementation default). This applies the one shared
-        /// <see cref="MissionModes.FromObjectiveKind"/> rule to the operator dispatch path, matching
-        /// the autonomous scheduler, so a Research objective is judged the same way however it is
-        /// dispatched.
+        /// Apply one linked objective to operator-dispatched missions. The server appends the shared
+        /// objective brief, inherits the objective start ref when a mission did not set one, and
+        /// applies the shared Research-mode default. Explicit mission values always win.
         /// </summary>
         /// <param name="objectiveId">The linked objective id, or null when the dispatch is unlinked.</param>
         /// <param name="authContext">Auth context for reading the objective, or null for the default tenant admin.</param>
         /// <param name="missions">Mission descriptions to mutate in place before dispatch.</param>
-        private async Task ApplyObjectiveModeDefaultAsync(string? objectiveId, AuthContext? authContext, List<MissionDescription>? missions)
+        private async Task<Objective?> ApplyObjectiveDefaultsAsync(string? objectiveId, AuthContext? authContext, List<MissionDescription>? missions)
         {
             if (String.IsNullOrEmpty(objectiveId) || _ObjectiveService == null || missions == null || missions.Count == 0)
-                return;
+                return null;
 
             AuthContext auth = authContext ?? McpToolHelpers.CreateDefaultTenantAdminContext();
             Objective? objective = await _ObjectiveService.ReadAsync(auth, objectiveId).ConfigureAwait(false);
-            if (objective == null) return;
+            if (objective == null) return null;
 
             string? derivedMode = MissionModes.FromObjectiveKind(objective.Kind);
-            if (String.IsNullOrEmpty(derivedMode)) return;
-
             foreach (MissionDescription mission in missions)
             {
-                if (mission != null && String.IsNullOrWhiteSpace(mission.Mode))
+                if (mission == null) continue;
+                mission.Description = ObjectiveBriefRenderer.AppendToMissionDescription(mission.Description, objective);
+                if (String.IsNullOrWhiteSpace(mission.StartFromRef)
+                    && !String.IsNullOrWhiteSpace(objective.StartFromRef))
+                    mission.StartFromRef = objective.StartFromRef;
+                if (!String.IsNullOrEmpty(derivedMode) && String.IsNullOrWhiteSpace(mission.Mode))
                 {
                     mission.Mode = derivedMode;
                     LogDispatchInfo("derived read-only mode '" + derivedMode + "' for mission '" + mission.Title
                         + "' from objective " + objectiveId + " Kind=" + objective.Kind);
                 }
             }
+            return objective;
+        }
+
+        private static MissionDescription CloneMissionDescription(MissionDescription mission)
+        {
+            return new MissionDescription
+            {
+                Title = mission.Title,
+                Description = mission.Description,
+                PrestagedFiles = mission.PrestagedFiles?.ToList(),
+                CodeContextMode = mission.CodeContextMode,
+                CodeContextQuery = mission.CodeContextQuery,
+                PreferredModel = mission.PreferredModel,
+                CapabilityHint = mission.CapabilityHint,
+                Mode = mission.Mode,
+                DependsOnMissionId = mission.DependsOnMissionId,
+                Alias = mission.Alias,
+                DependsOnMissionAlias = mission.DependsOnMissionAlias,
+                SelectedPlaybooks = mission.SelectedPlaybooks?.ToList(),
+                StartFromRef = mission.StartFromRef
+            };
         }
 
         private async Task<string?> ResolvePipelineIdAsync(string? requestedPipelineId, string? requestedPipeline)

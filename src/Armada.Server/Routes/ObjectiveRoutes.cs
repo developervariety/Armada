@@ -221,7 +221,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Objectives")
                 .WithSummary("Update an objective")
-                .WithDescription("Updates scope, acceptance criteria, linked entities, and current status for an objective.")
+                .WithDescription("Updates scope, acceptance criteria, linked entities, and current status for an objective. The preparation field is a complete replacement; send every source, target, and claim value that must remain.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Objective ID (obj_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<ObjectiveUpsertRequest>("Objective update request", true))
                 .WithResponse(200, OpenApiJson.For<Objective>("Updated objective"))

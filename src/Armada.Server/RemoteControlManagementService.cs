@@ -23,12 +23,16 @@ namespace Armada.Server
             DatabaseDriver database,
             IAdmiralService admiral,
             Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEventAsync,
-            Func<DateTime>? utcNow = null)
+            Func<DateTime>? utcNow = null,
+            ObjectiveService? objectiveService = null,
+            Armada.Core.Settings.ArmadaSettings? settings = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
             _EmitEventAsync = emitEventAsync ?? throw new ArgumentNullException(nameof(emitEventAsync));
             _UtcNow = utcNow ?? (() => DateTime.UtcNow);
+            _ObjectiveService = objectiveService ?? new ObjectiveService(_Database);
+            _Settings = settings;
         }
 
         #endregion
@@ -486,7 +490,19 @@ namespace Armada.Server
                 {
                     if (!String.IsNullOrWhiteSpace(mission.Title))
                     {
-                        missions.Add(new MissionDescription(mission.Title, mission.Description));
+                        missions.Add(new MissionDescription
+                        {
+                            Title = mission.Title,
+                            Description = mission.Description,
+                            PrestagedFiles = mission.PrestagedFiles,
+                            CodeContextMode = mission.CodeContextMode,
+                            CodeContextQuery = mission.CodeContextQuery,
+                            PreferredModel = mission.PreferredModel,
+                            DependsOnMissionId = mission.DependsOnMissionId,
+                            Alias = mission.Alias,
+                            DependsOnMissionAlias = mission.DependsOnMissionAlias,
+                            SelectedPlaybooks = mission.SelectedPlaybooks
+                        });
                     }
                 }
             }
@@ -506,7 +522,18 @@ namespace Armada.Server
             Voyage voyage;
             if (String.IsNullOrWhiteSpace(request.VesselId) || missions.Count == 0)
             {
+                AuthContext? objectiveAuth = null;
+                Objective? bareObjective = null;
+                if (!String.IsNullOrWhiteSpace(request.ObjectiveId))
+                {
+                    objectiveAuth = Mcp.Tools.McpToolHelpers.CreateDefaultTenantAdminContext();
+                    bareObjective = await _ObjectiveService.ReadAsync(objectiveAuth, request.ObjectiveId, token).ConfigureAwait(false);
+                    if (bareObjective == null) return NotFound("Objective not found: " + request.ObjectiveId);
+                }
+
                 voyage = new Voyage(request.Title, request.Description);
+                voyage.TenantId = bareObjective?.TenantId;
+                voyage.UserId = bareObjective?.UserId;
                 voyage.SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>();
                 voyage.LastUpdateUtc = _UtcNow();
                 voyage = await _Database.Voyages.CreateAsync(voyage, token).ConfigureAwait(false);
@@ -514,17 +541,44 @@ namespace Armada.Server
                 {
                     await _Database.Playbooks.SetVoyageSelectionsAsync(voyage.Id, voyage.SelectedPlaybooks, token).ConfigureAwait(false);
                 }
+                if (objectiveAuth != null)
+                    await _ObjectiveService.LinkVoyageAsync(objectiveAuth, request.ObjectiveId!, voyage.Id, token).ConfigureAwait(false);
             }
             else
             {
-                voyage = await _Admiral.DispatchVoyageAsync(
-                    request.Title,
-                    request.Description,
-                    request.VesselId,
-                    missions,
-                    pipelineId,
-                    request.SelectedPlaybooks ?? new List<SelectedPlaybook>(),
-                    token).ConfigureAwait(false);
+                VoyageDispatchService dispatchService = new VoyageDispatchService(
+                    _Database,
+                    _Admiral,
+                    objectiveService: _ObjectiveService,
+                    settings: _Settings);
+                VoyageDispatchResult result = await dispatchService.DispatchAsync(new SharedVoyageDispatchRequest
+                {
+                    Title = request.Title,
+                    Description = request.Description,
+                    VesselId = request.VesselId,
+                    Missions = missions,
+                    // The proxy has no code-index service. Keep its established dispatch behavior
+                    // unless a server composition supplies settings and the caller selects a mode.
+                    CodeContextMode = request.CodeContextMode ?? "off",
+                    CodeContextTokenBudget = request.CodeContextTokenBudget,
+                    CodeContextMaxResults = request.CodeContextMaxResults,
+                    PipelineId = pipelineId,
+                    ObjectiveId = request.ObjectiveId,
+                    SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>(),
+                    Settings = _Settings,
+                    CaptainAssignments = request.CaptainAssignments
+                }, token).ConfigureAwait(false);
+                if (!result.Succeeded || result.Voyage == null)
+                {
+                    return new RemoteTunnelRequestResult
+                    {
+                        StatusCode = result.StatusCode,
+                        ErrorCode = "dispatch_failed",
+                        Message = "Voyage dispatch failed.",
+                        Payload = result.Value
+                    };
+                }
+                voyage = result.Voyage;
             }
 
             await _EmitEventAsync("voyage.dispatched", "Voyage dispatched from proxy: " + voyage.Title, "voyage", voyage.Id, null, null, request.VesselId, voyage.Id).ConfigureAwait(false);
@@ -893,6 +947,8 @@ namespace Armada.Server
         private readonly IAdmiralService _Admiral;
         private readonly Func<string, string, string?, string?, string?, string?, string?, string?, Task> _EmitEventAsync;
         private readonly Func<DateTime> _UtcNow;
+        private readonly ObjectiveService _ObjectiveService;
+        private readonly Armada.Core.Settings.ArmadaSettings? _Settings;
 
         private sealed class FleetUpdateRequest
         {

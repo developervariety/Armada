@@ -103,7 +103,26 @@ namespace Armada.Test.Unit.Suites.Services
                         (_, _, _, _, _, _, _, _) => Task.CompletedTask);
 
                     Vessel vessel = new Vessel("Dispatch Vessel", "https://github.com/example/dispatch.git");
+                    vessel.TenantId = Constants.DefaultTenantId;
+                    vessel.UserId = Constants.DefaultUserId;
                     vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "Prepared remote objective",
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Preparation = new ObjectivePreparation
+                        {
+                            Claims = new List<ObjectivePreparationClaim>
+                            {
+                                new ObjectivePreparationClaim
+                                {
+                                    Kind = ObjectivePreparationClaimKindEnum.DispatchEntryPoint,
+                                    Text = "Use the shared remote dispatch path."
+                                }
+                            }
+                        }
+                    }).ConfigureAwait(false);
 
                     Captain captain = new Captain("voyage-captain");
                     captain.State = CaptainStateEnum.Working;
@@ -115,6 +134,7 @@ namespace Armada.Test.Unit.Suites.Services
                             title = "Remote Voyage",
                             description = "Voyage dispatched remotely",
                             vesselId = vessel.Id,
+                            objectiveId = objective.Id,
                             missions = new[]
                             {
                                 new { title = "Slice One", description = "First slice" },
@@ -130,6 +150,24 @@ namespace Armada.Test.Unit.Suites.Services
 
                     List<Mission> missions = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
                     AssertEqual(2, missions.Count);
+                    AssertContains("Use the shared remote dispatch path.", missions[0].Description);
+                    Objective? linkedObjective = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
+                    AssertTrue(linkedObjective!.VoyageIds.Contains(voyage.Id), "Remote dispatch must preserve objective lineage.");
+
+                    RemoteTunnelRequestResult bareDispatch = await service.HandleAsync(
+                        RemoteTunnelProtocol.CreateRequest("armada.voyage.dispatch", new
+                        {
+                            title = "Remote Bare Voyage",
+                            description = "Add missions later",
+                            objectiveId = objective.Id
+                        }),
+                        CancellationToken.None).ConfigureAwait(false);
+                    AssertEqual(201, bareDispatch.StatusCode);
+                    string bareVoyageId = JsonDocument.Parse(JsonSerializer.Serialize(bareDispatch.Payload, RemoteTunnelProtocol.JsonOptions))
+                        .RootElement.GetProperty("id").GetString()!;
+                    linkedObjective = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
+                    AssertTrue(linkedObjective!.VoyageIds.Contains(bareVoyageId),
+                        "A remote bare voyage must preserve objective lineage.");
                     missions[0].CaptainId = captain.Id;
                     missions[0].Status = MissionStatusEnum.InProgress;
                     await testDb.Driver.Missions.UpdateAsync(missions[0]).ConfigureAwait(false);

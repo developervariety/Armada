@@ -352,6 +352,44 @@ export type ObjectiveKind = 'Feature' | 'Bug' | 'Refactor' | 'Research' | 'Chore
 export type ObjectivePriority = 'P0' | 'P1' | 'P2' | 'P3';
 export type ObjectiveBacklogState = 'Inbox' | 'Triaged' | 'Refining' | 'ReadyForPlanning' | 'ReadyForDispatch' | 'Dispatched';
 export type ObjectiveEffort = 'XS' | 'S' | 'M' | 'L' | 'XL';
+export type ObjectivePreparationClaimKind =
+  | 'SourcePath'
+  | 'DispatchEntryPoint'
+  | 'ReuseType'
+  | 'CatalogueInput'
+  | 'ProvisioningRequirement'
+  | 'ResponseRule'
+  | 'CleanupRequirement'
+  | 'ConsumerObligation'
+  | 'LedgerObligation'
+  | 'Uncertainty'
+  | 'OwnerDecision';
+export type ObjectivePreparationClaimState = 'Verified' | 'NeedsRecheck';
+export type ObjectivePreparationDependency = 'None' | 'Source' | 'Target' | 'Both';
+
+export interface ObjectivePreparationAnchor {
+  vesselId: string | null;
+  ref: string | null;
+  resolvedCommit: string | null;
+}
+
+export interface ObjectivePreparationClaim {
+  id: string;
+  kind: ObjectivePreparationClaimKind;
+  text: string;
+  evidenceLinks: string[];
+  dependsOn: ObjectivePreparationDependency;
+  state: ObjectivePreparationClaimState;
+  verifiedUtc: string | null;
+  invalidatedUtc: string | null;
+  invalidationReason: string | null;
+}
+
+export interface ObjectivePreparation {
+  source: ObjectivePreparationAnchor | null;
+  target: ObjectivePreparationAnchor | null;
+  claims: ObjectivePreparationClaim[];
+}
 
 export interface Objective {
   id: string;
@@ -372,7 +410,9 @@ export interface Objective {
   parentObjectiveId: string | null;
   blockedByObjectiveIds: string[];
   refinementSummary: string | null;
+  preparation: ObjectivePreparation;
   suggestedPipelineId: string | null;
+  startFromRef: string | null;
   suggestedPlaybooks: SelectedPlaybook[];
   refinementSessionIds: string[];
   sourceProvider: string | null;
@@ -444,7 +484,9 @@ export interface ObjectiveUpsertRequest {
   parentObjectiveId?: string | null;
   blockedByObjectiveIds?: string[] | null;
   refinementSummary?: string | null;
+  preparation?: ObjectivePreparation | null;
   suggestedPipelineId?: string | null;
+  startFromRef?: string | null;
   suggestedPlaybooks?: SelectedPlaybook[] | null;
   tags?: string[] | null;
   acceptanceCriteria?: string[] | null;
@@ -568,6 +610,7 @@ export interface PlanningSession {
   title: string;
   status: string;
   pipelineId: string | null;
+  objectiveId?: string | null;
   processId: number | null;
   failureReason: string | null;
   createdUtc: string;

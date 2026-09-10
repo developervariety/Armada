@@ -701,6 +701,7 @@ namespace Armada.Core.Database.Sqlite
             session.Title = reader["title"].ToString()!;
             session.Status = Enum.Parse<PlanningSessionStatusEnum>(reader["status"].ToString()!);
             session.PipelineId = NullableString(reader["pipeline_id"]);
+            try { session.ObjectiveId = NullableString(reader["objective_id"]); } catch { }
             session.DeserializeSelectedPlaybooks(NullableString(reader["selected_playbooks_json"]));
             try
             {

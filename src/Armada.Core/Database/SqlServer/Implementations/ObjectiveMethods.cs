@@ -34,9 +34,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"INSERT INTO objectives
-                        (id, tenant_id, user_id, title, description, status, kind, category, priority, rank, auto_dispatch_enabled, start_from_ref, backlog_state, effort, owner, target_version, due_utc, parent_objective_id, blocked_by_objective_ids_json, refinement_summary, suggested_pipeline_id, suggested_playbooks_json, tags_json, acceptance_criteria_json, non_goals_json, rollout_constraints_json, evidence_links_json, fleet_ids_json, vessel_ids_json, planning_session_ids_json, refinement_session_ids_json, voyage_ids_json, mission_ids_json, check_run_ids_json, release_ids_json, deployment_ids_json, incident_ids_json, source_provider, source_type, source_id, source_url, source_updated_utc, created_utc, last_update_utc, completed_utc)
+                        (id, tenant_id, user_id, title, description, status, kind, category, priority, rank, auto_dispatch_enabled, start_from_ref, backlog_state, effort, owner, target_version, due_utc, parent_objective_id, blocked_by_objective_ids_json, refinement_summary, preparation_json, suggested_pipeline_id, suggested_playbooks_json, tags_json, acceptance_criteria_json, non_goals_json, rollout_constraints_json, evidence_links_json, fleet_ids_json, vessel_ids_json, planning_session_ids_json, refinement_session_ids_json, voyage_ids_json, mission_ids_json, check_run_ids_json, release_ids_json, deployment_ids_json, incident_ids_json, source_provider, source_type, source_id, source_url, source_updated_utc, created_utc, last_update_utc, completed_utc)
                         VALUES
-                        (@id, @tenant_id, @user_id, @title, @description, @status, @kind, @category, @priority, @rank, @auto_dispatch_enabled, @start_from_ref, @backlog_state, @effort, @owner, @target_version, @due_utc, @parent_objective_id, @blocked_by_objective_ids_json, @refinement_summary, @suggested_pipeline_id, @suggested_playbooks_json, @tags_json, @acceptance_criteria_json, @non_goals_json, @rollout_constraints_json, @evidence_links_json, @fleet_ids_json, @vessel_ids_json, @planning_session_ids_json, @refinement_session_ids_json, @voyage_ids_json, @mission_ids_json, @check_run_ids_json, @release_ids_json, @deployment_ids_json, @incident_ids_json, @source_provider, @source_type, @source_id, @source_url, @source_updated_utc, @created_utc, @last_update_utc, @completed_utc);";
+                        (@id, @tenant_id, @user_id, @title, @description, @status, @kind, @category, @priority, @rank, @auto_dispatch_enabled, @start_from_ref, @backlog_state, @effort, @owner, @target_version, @due_utc, @parent_objective_id, @blocked_by_objective_ids_json, @refinement_summary, @preparation_json, @suggested_pipeline_id, @suggested_playbooks_json, @tags_json, @acceptance_criteria_json, @non_goals_json, @rollout_constraints_json, @evidence_links_json, @fleet_ids_json, @vessel_ids_json, @planning_session_ids_json, @refinement_session_ids_json, @voyage_ids_json, @mission_ids_json, @check_run_ids_json, @release_ids_json, @deployment_ids_json, @incident_ids_json, @source_provider, @source_type, @source_id, @source_url, @source_updated_utc, @created_utc, @last_update_utc, @completed_utc);";
                     BindObjective(cmd, objective);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -74,6 +74,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         parent_objective_id = @parent_objective_id,
                         blocked_by_objective_ids_json = @blocked_by_objective_ids_json,
                         refinement_summary = @refinement_summary,
+                        preparation_json = @preparation_json,
                         suggested_pipeline_id = @suggested_pipeline_id,
                         suggested_playbooks_json = @suggested_playbooks_json,
                         tags_json = @tags_json,
@@ -346,6 +347,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             cmd.Parameters.AddWithValue("@parent_objective_id", (object?)objective.ParentObjectiveId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@blocked_by_objective_ids_json", ObjectivePersistenceHelper.Serialize(objective.BlockedByObjectiveIds));
             cmd.Parameters.AddWithValue("@refinement_summary", (object?)objective.RefinementSummary ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@preparation_json", ObjectivePersistenceHelper.Serialize(objective.Preparation));
             cmd.Parameters.AddWithValue("@suggested_pipeline_id", (object?)objective.SuggestedPipelineId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@suggested_playbooks_json", ObjectivePersistenceHelper.Serialize(objective.SuggestedPlaybooks));
             cmd.Parameters.AddWithValue("@tags_json", ObjectivePersistenceHelper.Serialize(objective.Tags));
@@ -408,6 +410,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
             };
 
             objective.BlockedByObjectiveIds = ObjectivePersistenceHelper.DeserializeList(reader["blocked_by_objective_ids_json"]);
+            objective.Preparation = ObjectivePersistenceHelper.DeserializePreparation(reader["preparation_json"]);
             objective.SuggestedPlaybooks = ObjectivePersistenceHelper.DeserializePlaybooks(reader["suggested_playbooks_json"]);
             objective.Tags = ObjectivePersistenceHelper.DeserializeList(reader["tags_json"]);
             objective.AcceptanceCriteria = ObjectivePersistenceHelper.DeserializeList(reader["acceptance_criteria_json"]);

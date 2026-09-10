@@ -47,6 +47,29 @@ namespace Armada.Core.Database
             }
         }
 
+        internal static ObjectivePreparation DeserializePreparation(object? value)
+        {
+            string? json = value?.ToString();
+            if (String.IsNullOrWhiteSpace(json))
+                return new ObjectivePreparation();
+
+            try
+            {
+                ObjectivePreparation preparation = JsonSerializer.Deserialize<ObjectivePreparation>(json, _JsonOptions)
+                    ?? new ObjectivePreparation();
+                preparation.Claims ??= new List<ObjectivePreparationClaim>();
+                foreach (ObjectivePreparationClaim? claim in preparation.Claims)
+                {
+                    if (claim != null) claim.EvidenceLinks ??= new List<string>();
+                }
+                return preparation;
+            }
+            catch (JsonException ex)
+            {
+                throw new InvalidOperationException("Stored objective preparation JSON is invalid.", ex);
+            }
+        }
+
         internal static TEnum ParseEnum<TEnum>(object? value, TEnum fallback) where TEnum : struct
         {
             string? raw = value?.ToString();

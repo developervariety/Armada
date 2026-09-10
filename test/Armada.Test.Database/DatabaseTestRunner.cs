@@ -1033,18 +1033,25 @@ namespace Armada.Test.Database
                 DatabaseAssert.Equal(1, read.BlockedByObjectiveIds.Count, "Objective.BlockedByObjectiveIds.Count");
                 DatabaseAssert.Equal(1, read.RefinementSessionIds.Count, "Objective.RefinementSessionIds.Count");
                 DatabaseAssert.Equal(vessel.Id, read.VesselIds[0], "Objective.VesselIds[0]");
+                DatabaseAssert.Equal("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", read.Preparation.Source?.ResolvedCommit, "Objective.Preparation.Source.ResolvedCommit");
+                DatabaseAssert.Equal(1, read.Preparation.Claims.Count, "Objective.Preparation.Claims.Count");
+                DatabaseAssert.Equal(ObjectivePreparationClaimStateEnum.Verified, read.Preparation.Claims[0].State, "Objective.Preparation.Claims[0].State");
 
                 read.Priority = ObjectivePriorityEnum.P0;
                 read.Rank = 3;
                 read.BacklogState = ObjectiveBacklogStateEnum.ReadyForPlanning;
                 read.RefinementSummary = "Updated objective summary";
                 read.AcceptanceCriteria.Add("Persist refinement transcript");
+                read.Preparation.Claims[0].State = ObjectivePreparationClaimStateEnum.NeedsRecheck;
+                read.Preparation.Claims[0].InvalidationReason = "Fixture anchor changed.";
                 Objective updated = await _Driver.Objectives.UpdateAsync(read, token).ConfigureAwait(false);
                 DatabaseAssert.Equal(ObjectivePriorityEnum.P0, updated.Priority, "Updated Objective.Priority");
                 DatabaseAssert.Equal(3, updated.Rank, "Updated Objective.Rank");
                 DatabaseAssert.Equal(ObjectiveBacklogStateEnum.ReadyForPlanning, updated.BacklogState, "Updated Objective.BacklogState");
                 DatabaseAssert.Equal("Updated objective summary", updated.RefinementSummary, "Updated Objective.RefinementSummary");
                 DatabaseAssert.Equal(4, updated.AcceptanceCriteria.Count, "Updated Objective.AcceptanceCriteria.Count");
+                DatabaseAssert.Equal(ObjectivePreparationClaimStateEnum.NeedsRecheck, updated.Preparation.Claims[0].State, "Updated Objective.Preparation.Claims[0].State");
+                DatabaseAssert.Equal("Fixture anchor changed.", updated.Preparation.Claims[0].InvalidationReason, "Updated Objective.Preparation.Claims[0].InvalidationReason");
 
                 List<Objective> tenantObjectives = await _Driver.Objectives.EnumerateAsync(tenant.Id, token).ConfigureAwait(false);
                 DatabaseAssert.ContainsIds(tenantObjectives, item => item.Id, parent.Id, objectiveA.Id, objectiveB.Id);

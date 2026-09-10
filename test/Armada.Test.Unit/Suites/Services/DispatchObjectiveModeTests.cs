@@ -4,6 +4,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
+    using System.Text.Json;
     using System.Threading.Tasks;
     using SyslogLogging;
     using Armada.Core;
@@ -119,6 +120,56 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Operator dispatch appends the authoritative objective brief once", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ServiceHarness harness = await ServiceHarness.CreateAsync(testDb).ConfigureAwait(false);
+                    Objective objective = await CreateObjectiveAsync(testDb, "Prepared operator dispatch", ObjectiveKindEnum.Feature).ConfigureAwait(false);
+                    objective.Preparation = new ObjectivePreparation
+                    {
+                        Claims = new List<ObjectivePreparationClaim>
+                        {
+                            new ObjectivePreparationClaim
+                            {
+                                Kind = ObjectivePreparationClaimKindEnum.ReuseType,
+                                Text = "Reuse ObjectiveBriefRenderer."
+                            }
+                        }
+                    };
+                    await testDb.Driver.Objectives.UpdateAsync(objective).ConfigureAwait(false);
+
+                    VoyageDispatchService service = harness.NewDispatchService();
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "prepared operator dispatch",
+                        VesselId = harness.Vessel.Id,
+                        CodeContextMode = "off",
+                        ObjectiveId = objective.Id,
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("Build prepared change", "Keep this operator instruction.")
+                        }
+                    };
+
+                    VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
+                    AssertTrue(result.Succeeded, "prepared operator dispatch should succeed");
+
+                    List<Mission> created = await testDb.Driver.Missions.EnumerateByVoyageAsync(result.Voyage!.Id).ConfigureAwait(false);
+                    AssertEqual(1, created.Count, "one mission should be created");
+                    AssertContains("Keep this operator instruction.", created[0].Description,
+                        "The shared brief must preserve operator-specific instructions.");
+                    AssertContains("Reuse ObjectiveBriefRenderer.", created[0].Description,
+                        "The linked objective's prepared research must reach the operator mission.");
+                    AssertEqual(1, CountOccurrences(created[0].Description, "<!-- armada-objective-brief:"),
+                        "The operator path must append one authoritative objective brief.");
+                    AssertEqual("Keep this operator instruction.", request.Missions[0].Description,
+                        "Objective enrichment must not mutate caller input used by a retry.");
+                    AssertNull(request.Missions[0].StartFromRef,
+                        "Objective defaults must not write inherited values into caller input.");
+                }
+            });
+
             await RunTest("An explicit mission mode wins over the linked objective Kind", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -149,6 +200,33 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(1, created.Count, "one mission should be created");
                     AssertEqual(MissionModeEnum.Implementation, created[0].Mode,
                         "an explicit per-mission mode must win over the objective-derived mode");
+                }
+            });
+
+            await RunTest("Operator dispatch rejects an objective prepared for another vessel", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ServiceHarness harness = await ServiceHarness.CreateAsync(testDb).ConfigureAwait(false);
+                    Objective objective = await CreateObjectiveAsync(testDb, "Wrong target", ObjectiveKindEnum.Feature).ConfigureAwait(false);
+                    objective.VesselIds = new List<string> { "vsl_other_target", "vsl_other_history" };
+                    objective.Preparation = new ObjectivePreparation();
+                    await testDb.Driver.Objectives.UpdateAsync(objective).ConfigureAwait(false);
+
+                    VoyageDispatchResult result = await harness.NewDispatchService().DispatchAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "mismatched dispatch",
+                        VesselId = harness.Vessel.Id,
+                        CodeContextMode = "off",
+                        ObjectiveId = objective.Id,
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("Do not create", "This mission targets the wrong vessel.")
+                        }
+                    }).ConfigureAwait(false);
+
+                    AssertFalse(result.Succeeded, "A mismatched objective target must fail before voyage creation.");
+                    AssertContains("objective_vessel_mismatch", JsonSerializer.Serialize(result.Value));
                 }
             });
 
@@ -218,6 +296,18 @@ namespace Armada.Test.Unit.Suites.Services
                 UserId = Constants.DefaultUserId
             };
             return await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+        }
+
+        private static int CountOccurrences(string value, string search)
+        {
+            int count = 0;
+            int offset = 0;
+            while ((offset = value.IndexOf(search, offset, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                offset += search.Length;
+            }
+            return count;
         }
 
         private static async Task<Pipeline> CreateTestedPipelineAsync(TestDatabase testDb)

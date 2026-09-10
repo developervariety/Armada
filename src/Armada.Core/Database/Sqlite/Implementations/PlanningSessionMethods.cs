@@ -42,9 +42,9 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = @"INSERT INTO planning_sessions
-                        (id, tenant_id, user_id, captain_id, vessel_id, fleet_id, dock_id, branch_name, title, status, pipeline_id, selected_playbooks_json, process_id, failure_reason, created_utc, started_utc, completed_utc, last_update_utc)
+                        (id, tenant_id, user_id, captain_id, vessel_id, fleet_id, dock_id, branch_name, title, status, pipeline_id, objective_id, selected_playbooks_json, process_id, failure_reason, created_utc, started_utc, completed_utc, last_update_utc)
                         VALUES
-                        (@id, @tenant_id, @user_id, @captain_id, @vessel_id, @fleet_id, @dock_id, @branch_name, @title, @status, @pipeline_id, @selected_playbooks_json, @process_id, @failure_reason, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
+                        (@id, @tenant_id, @user_id, @captain_id, @vessel_id, @fleet_id, @dock_id, @branch_name, @title, @status, @pipeline_id, @objective_id, @selected_playbooks_json, @process_id, @failure_reason, @created_utc, @started_utc, @completed_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", session.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)session.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)session.UserId ?? DBNull.Value);
@@ -56,6 +56,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.Parameters.AddWithValue("@title", session.Title);
                     cmd.Parameters.AddWithValue("@status", session.Status.ToString());
                     cmd.Parameters.AddWithValue("@pipeline_id", (object?)session.PipelineId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@objective_id", (object?)session.ObjectiveId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@selected_playbooks_json", session.SerializeSelectedPlaybooks());
                     cmd.Parameters.AddWithValue("@process_id", session.ProcessId.HasValue ? (object)session.ProcessId.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@failure_reason", (object?)session.FailureReason ?? DBNull.Value);
@@ -115,6 +116,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                         title = @title,
                         status = @status,
                         pipeline_id = @pipeline_id,
+                        objective_id = @objective_id,
                         selected_playbooks_json = @selected_playbooks_json,
                         process_id = @process_id,
                         failure_reason = @failure_reason,
@@ -133,6 +135,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.Parameters.AddWithValue("@title", session.Title);
                     cmd.Parameters.AddWithValue("@status", session.Status.ToString());
                     cmd.Parameters.AddWithValue("@pipeline_id", (object?)session.PipelineId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@objective_id", (object?)session.ObjectiveId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@selected_playbooks_json", session.SerializeSelectedPlaybooks());
                     cmd.Parameters.AddWithValue("@process_id", session.ProcessId.HasValue ? (object)session.ProcessId.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@failure_reason", (object?)session.FailureReason ?? DBNull.Value);

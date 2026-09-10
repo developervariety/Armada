@@ -16,6 +16,13 @@ namespace Armada.Core.Services
     /// </summary>
     public class ObjectiveService
     {
+        private const int _MaxPreparationClaims = 50;
+        private const int _MaxPreparationIdChars = 255;
+        private const int _MaxPreparationClaimTextChars = 2000;
+        private const int _MaxPreparationEvidenceLinks = 20;
+        private const int _MaxPreparationValueChars = 2048;
+        private const int _MaxPreparationAnchorChars = 512;
+        private const int _MaxPreparationReasonChars = 1000;
         /// <summary>
         /// Optional callback invoked whenever an objective changes.
         /// </summary>
@@ -112,6 +119,9 @@ namespace Armada.Core.Services
                     || ContainsIgnoreCase(item.Category, search)
                     || ContainsIgnoreCase(item.TargetVersion, search)
                     || ContainsIgnoreCase(item.RefinementSummary, search)
+                    || item.Preparation.Claims.Any(claim =>
+                        ContainsIgnoreCase(claim.Text, search)
+                        || claim.EvidenceLinks.Any(link => ContainsIgnoreCase(link, search)))
                     || ContainsIgnoreCase(item.SourceProvider, search)
                     || ContainsIgnoreCase(item.SourceType, search)
                     || ContainsIgnoreCase(item.SourceId, search)
@@ -195,6 +205,7 @@ namespace Armada.Core.Services
                 ParentObjectiveId = Normalize(request.ParentObjectiveId),
                 BlockedByObjectiveIds = DistinctNormalized(request.BlockedByObjectiveIds),
                 RefinementSummary = Normalize(request.RefinementSummary),
+                Preparation = request.Preparation ?? new ObjectivePreparation(),
                 SuggestedPipelineId = Normalize(request.SuggestedPipelineId),
                 SuggestedPlaybooks = DistinctPlaybooks(request.SuggestedPlaybooks),
                 Tags = DistinctNormalized(request.Tags),
@@ -237,6 +248,15 @@ namespace Armada.Core.Services
             Objective objective = await ReadAsync(auth, id, token).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("Objective not found.");
 
+            ObjectivePreparationAnchor? priorSourceAnchor = CopyAnchor(objective.Preparation?.Source);
+            ObjectivePreparationAnchor? priorTargetAnchor = CopyAnchor(objective.Preparation?.Target);
+            string? priorStartFromRef = objective.StartFromRef;
+            List<string> priorVesselIds = objective.VesselIds.ToList();
+            Dictionary<string, DateTime?> priorClaimVerification = (objective.Preparation?.Claims ?? new List<ObjectivePreparationClaim>())
+                .Where(claim => claim != null && !String.IsNullOrWhiteSpace(claim.Id))
+                .GroupBy(claim => claim.Id, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First().VerifiedUtc, StringComparer.OrdinalIgnoreCase);
+
             objective.Title = Normalize(request.Title) ?? objective.Title;
             objective.Description = request.Description != null ? Normalize(request.Description) : objective.Description;
             objective.Status = request.Status ?? objective.Status;
@@ -254,6 +274,7 @@ namespace Armada.Core.Services
             if (request.ParentObjectiveId != null) objective.ParentObjectiveId = Normalize(request.ParentObjectiveId);
             if (request.BlockedByObjectiveIds != null) objective.BlockedByObjectiveIds = DistinctNormalized(request.BlockedByObjectiveIds);
             if (request.RefinementSummary != null) objective.RefinementSummary = Normalize(request.RefinementSummary);
+            if (request.Preparation != null) objective.Preparation = request.Preparation;
             if (request.SuggestedPipelineId != null) objective.SuggestedPipelineId = Normalize(request.SuggestedPipelineId);
             if (request.SuggestedPlaybooks != null) objective.SuggestedPlaybooks = DistinctPlaybooks(request.SuggestedPlaybooks);
             if (request.Tags != null) objective.Tags = DistinctNormalized(request.Tags);
@@ -274,6 +295,21 @@ namespace Armada.Core.Services
             objective.LastUpdateUtc = DateTime.UtcNow;
 
             SanitizeObjective(objective);
+            if (request.Preparation != null || request.StartFromRef != null || request.VesselIds != null)
+            {
+                ObjectivePreparation preparation = objective.Preparation!;
+                bool sourceChanged = !AnchorsEqual(priorSourceAnchor, preparation.Source);
+                bool targetChanged = !AnchorsEqual(priorTargetAnchor, preparation.Target)
+                    || (request.StartFromRef != null && !String.Equals(priorStartFromRef, objective.StartFromRef, StringComparison.Ordinal))
+                    || (request.VesselIds != null
+                        && !priorVesselIds.ToHashSet(StringComparer.OrdinalIgnoreCase).SetEquals(objective.VesselIds));
+                InvalidatePreparationClaims(
+                    preparation,
+                    priorClaimVerification,
+                    sourceChanged,
+                    targetChanged,
+                    DateTime.UtcNow);
+            }
             // Validate only link fields the caller supplied. Persisted objectives can contain
             // legacy links created under an older ownership model (for example, a user-owned
             // objective linked to a null-user fleet). Revalidating every unchanged link made
@@ -1395,6 +1431,149 @@ namespace Armada.Core.Services
             objective.IncidentIds = DistinctNormalized(objective.IncidentIds);
             objective.BlockedByObjectiveIds = DistinctNormalized(objective.BlockedByObjectiveIds);
             objective.SuggestedPlaybooks = DistinctPlaybooks(objective.SuggestedPlaybooks);
+            SanitizePreparation(objective);
+        }
+
+        private static void SanitizePreparation(Objective objective)
+        {
+            objective.Preparation ??= new ObjectivePreparation();
+            objective.Preparation.Source = SanitizePreparationAnchor(objective.Preparation.Source);
+            objective.Preparation.Target = SanitizePreparationAnchor(objective.Preparation.Target);
+            objective.Preparation.Claims ??= new List<ObjectivePreparationClaim>();
+
+            if (objective.Preparation.Claims.Count > _MaxPreparationClaims)
+                throw new InvalidOperationException("Objective preparation cannot contain more than " + _MaxPreparationClaims + " claims.");
+
+            HashSet<string> claimIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (ObjectivePreparationClaim claim in objective.Preparation.Claims)
+            {
+                if (claim == null)
+                    throw new InvalidOperationException("Objective preparation claims cannot contain null entries.");
+
+                claim.Id = Normalize(claim.Id) ?? throw new InvalidOperationException("Each objective preparation claim must have an id.");
+                EnsureMaximumLength(claim.Id, _MaxPreparationIdChars, "Objective preparation claim id");
+                if (!claimIds.Add(claim.Id))
+                    throw new InvalidOperationException("Objective preparation claim ids must be unique: " + claim.Id + ".");
+
+                claim.Text = Normalize(claim.Text) ?? throw new InvalidOperationException("Each objective preparation claim must have text.");
+                EnsureMaximumLength(claim.Text, _MaxPreparationClaimTextChars, "Objective preparation claim text");
+
+                if ((claim.DependsOn & ~(ObjectivePreparationDependencyEnum.Source | ObjectivePreparationDependencyEnum.Target)) != 0)
+                    throw new InvalidOperationException("Objective preparation claim " + claim.Id + " has an invalid dependency value.");
+                if (!Enum.IsDefined(claim.Kind))
+                    throw new InvalidOperationException("Objective preparation claim " + claim.Id + " has an invalid kind value.");
+                if (!Enum.IsDefined(claim.State))
+                    throw new InvalidOperationException("Objective preparation claim " + claim.Id + " has an invalid state value.");
+
+                claim.EvidenceLinks = DistinctNormalized(claim.EvidenceLinks);
+                if (claim.EvidenceLinks.Count > _MaxPreparationEvidenceLinks)
+                    throw new InvalidOperationException("Objective preparation claim " + claim.Id + " cannot contain more than " + _MaxPreparationEvidenceLinks + " evidence links.");
+                foreach (string evidenceLink in claim.EvidenceLinks)
+                    EnsureMaximumLength(evidenceLink, _MaxPreparationValueChars, "Objective preparation evidence link");
+
+                claim.VerifiedUtc = claim.VerifiedUtc?.ToUniversalTime();
+                claim.InvalidatedUtc = claim.InvalidatedUtc?.ToUniversalTime();
+                claim.InvalidationReason = Normalize(claim.InvalidationReason);
+                if (claim.InvalidationReason != null)
+                    EnsureMaximumLength(claim.InvalidationReason, _MaxPreparationReasonChars, "Objective preparation invalidation reason");
+
+                if (claim.State == ObjectivePreparationClaimStateEnum.Verified)
+                {
+                    claim.InvalidatedUtc = null;
+                    claim.InvalidationReason = null;
+                }
+
+                bool unresolvedSource = (claim.DependsOn & ObjectivePreparationDependencyEnum.Source) != 0
+                    && String.IsNullOrWhiteSpace(objective.Preparation.Source?.ResolvedCommit);
+                bool unresolvedTarget = (claim.DependsOn & ObjectivePreparationDependencyEnum.Target) != 0
+                    && String.IsNullOrWhiteSpace(objective.Preparation.Target?.ResolvedCommit);
+                if (claim.State == ObjectivePreparationClaimStateEnum.Verified && (unresolvedSource || unresolvedTarget))
+                {
+                    claim.State = ObjectivePreparationClaimStateEnum.NeedsRecheck;
+                    claim.InvalidatedUtc = DateTime.UtcNow;
+                    claim.InvalidationReason = unresolvedSource && unresolvedTarget
+                        ? "Source and target revisions are unresolved."
+                        : unresolvedSource ? "Source revision is unresolved." : "Target revision is unresolved.";
+                }
+            }
+
+
+            if (objective.VesselIds.Count == 1
+                && objective.Preparation.Target?.VesselId != null
+                && !String.Equals(objective.VesselIds[0], objective.Preparation.Target.VesselId, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Objective preparation target vessel must match the objective dispatch vessel.");
+        }
+
+        private static ObjectivePreparationAnchor? SanitizePreparationAnchor(ObjectivePreparationAnchor? anchor)
+        {
+            if (anchor == null) return null;
+
+            anchor.VesselId = Normalize(anchor.VesselId);
+            anchor.Ref = Normalize(anchor.Ref);
+            anchor.ResolvedCommit = Normalize(anchor.ResolvedCommit);
+            if (anchor.VesselId != null) EnsureMaximumLength(anchor.VesselId, _MaxPreparationAnchorChars, "Objective preparation anchor vessel id");
+            if (anchor.Ref != null) EnsureMaximumLength(anchor.Ref, _MaxPreparationAnchorChars, "Objective preparation anchor ref");
+            if (anchor.ResolvedCommit != null) EnsureMaximumLength(anchor.ResolvedCommit, _MaxPreparationAnchorChars, "Objective preparation anchor commit");
+
+            return anchor.VesselId == null && anchor.Ref == null && anchor.ResolvedCommit == null ? null : anchor;
+        }
+
+        private static void EnsureMaximumLength(string value, int maximum, string fieldName)
+        {
+            if (value.Length > maximum)
+                throw new InvalidOperationException(fieldName + " cannot exceed " + maximum + " characters.");
+        }
+
+        private static ObjectivePreparationAnchor? CopyAnchor(ObjectivePreparationAnchor? anchor)
+        {
+            if (anchor == null) return null;
+            return new ObjectivePreparationAnchor
+            {
+                VesselId = anchor.VesselId,
+                Ref = anchor.Ref,
+                ResolvedCommit = anchor.ResolvedCommit
+            };
+        }
+
+        private static bool AnchorsEqual(ObjectivePreparationAnchor? left, ObjectivePreparationAnchor? right)
+        {
+            if (ReferenceEquals(left, right)) return true;
+            if (left == null || right == null) return false;
+            return String.Equals(left.VesselId, right.VesselId, StringComparison.OrdinalIgnoreCase)
+                && String.Equals(left.Ref, right.Ref, StringComparison.Ordinal)
+                && String.Equals(left.ResolvedCommit, right.ResolvedCommit, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void InvalidatePreparationClaims(
+            ObjectivePreparation preparation,
+            Dictionary<string, DateTime?> priorClaimVerification,
+            bool sourceChanged,
+            bool targetChanged,
+            DateTime invalidatedUtc)
+        {
+            if (!sourceChanged && !targetChanged) return;
+
+            ObjectivePreparationDependencyEnum changed = ObjectivePreparationDependencyEnum.None;
+            if (sourceChanged) changed |= ObjectivePreparationDependencyEnum.Source;
+            if (targetChanged) changed |= ObjectivePreparationDependencyEnum.Target;
+            string reason = sourceChanged && targetChanged
+                ? "Source and target preparation anchors changed."
+                : sourceChanged
+                    ? "Source preparation anchor changed."
+                    : "Target preparation anchor changed.";
+
+            foreach (ObjectivePreparationClaim claim in preparation.Claims)
+            {
+                if ((claim.DependsOn & changed) == 0) continue;
+                if (!priorClaimVerification.TryGetValue(claim.Id, out DateTime? priorVerifiedUtc)) continue;
+                bool explicitlyReverified = claim.State == ObjectivePreparationClaimStateEnum.Verified
+                    && claim.VerifiedUtc.HasValue
+                    && (!priorVerifiedUtc.HasValue || claim.VerifiedUtc.Value > priorVerifiedUtc.Value);
+                if (explicitlyReverified) continue;
+                claim.State = ObjectivePreparationClaimStateEnum.NeedsRecheck;
+                claim.InvalidatedUtc = invalidatedUtc;
+                claim.InvalidationReason = reason;
+            }
         }
 
         private static List<string> DistinctNormalized(IEnumerable<string>? values)

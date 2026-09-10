@@ -99,33 +99,7 @@ export function buildObjectivePlanningPrompt(objective: Objective): string {
 }
 
 export function buildObjectiveDispatchPrompt(objective: Objective): string {
-  const lines: string[] = [];
-  lines.push(`Implement backlog item: ${objective.title}`);
-  if (objective.description) {
-    lines.push('');
-    lines.push(objective.description);
-  }
-  if (objective.refinementSummary) {
-    lines.push('');
-    lines.push('Refinement Summary');
-    lines.push(objective.refinementSummary);
-  }
-  if (objective.acceptanceCriteria.length > 0) {
-    lines.push('');
-    lines.push('Acceptance Criteria');
-    objective.acceptanceCriteria.forEach((item) => lines.push(`- ${item}`));
-  }
-  if (objective.nonGoals.length > 0) {
-    lines.push('');
-    lines.push('Non-Goals');
-    objective.nonGoals.forEach((item) => lines.push(`- ${item}`));
-  }
-  if (objective.rolloutConstraints.length > 0) {
-    lines.push('');
-    lines.push('Constraints');
-    objective.rolloutConstraints.forEach((item) => lines.push(`- ${item}`));
-  }
-  return lines.join('\n');
+  return `Implement backlog item: ${objective.title}`;
 }
 
 export function buildObjectiveReleaseNotes(objective: Objective): string {

@@ -991,6 +991,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_judge_follow_ups_merge_entry ON judge_follow_ups(merge_entry_id);",
                     @"CREATE INDEX IF NOT EXISTS idx_judge_follow_ups_vessel_pending ON judge_follow_ups(vessel_id, audit_verdict, audit_completed_utc, created_utc);",
                     @"CREATE INDEX IF NOT EXISTS idx_judge_follow_ups_tenant_created ON judge_follow_ups(tenant_id, created_utc);"
+                ),
+                new SchemaMigration(83, "Add objective preparation",
+                    @"ALTER TABLE objectives ADD COLUMN IF NOT EXISTS preparation_json TEXT NOT NULL DEFAULT '{}';"
                 )
             };
         }

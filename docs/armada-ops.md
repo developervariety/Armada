@@ -133,6 +133,21 @@ If code indexing is enabled, use `armada_index_status` before index-dependent
 work. If it is disabled, use checkout search and set `codeContextMode` to
 `off`.
 
+Record prepared repository facts in the objective `preparation` field. Set a
+verified source and target anchor. Give each claim a stable ID, a kind, evidence,
+and a `dependsOn` value of `Source`, `Target`, both, or `None`. Use the claim
+kinds for source paths, dispatch entry points, reusable types, catalogue inputs,
+provisioning, response rules, cleanup, consumers, ledgers, uncertainty, and
+owner decisions. Keep claims concise. Armada limits the claim count and size.
+
+When a source or target anchor changes, Armada keeps the claims and marks only
+the dependent claims `NeedsRecheck`. Recheck those claims and record them as
+`Verified`; do not repeat unrelated research.
+
+An objective update replaces the complete `preparation` object. Send all source,
+target, and claim values that must remain. A claim that depends on an anchor stays
+unverified until that anchor has an immutable `resolvedCommit`.
+
 ### 4.3 Select Mission Shape
 
 Use mission mode `Implementation` for work that must produce a commit. Use
@@ -148,6 +163,13 @@ per-mission `mode` argument and relies on this entirely. Operator dispatch
 Implementation pipeline (for example `Tested`) drops the diff-dependent Test
 Engineer stage and keeps a read-only Judge that accepts a no-commit report; an
 explicit per-mission `mode` overrides it.
+
+Operator and autonomous dispatch use the same server-rendered objective brief.
+The brief includes prepared research, constraints, and evidence. An operator
+mission keeps its mission-specific text first. The server appends the objective
+brief once and inherits the objective start ref only when the mission has no
+explicit ref. Do not copy objective fields into an operator prompt; link the
+dispatch with `objectiveId` and let the server render the current record.
 
 Use the vessel's configured pipeline unless the approved work calls for a
 different existing pipeline. Use the full configured persona path. Do not

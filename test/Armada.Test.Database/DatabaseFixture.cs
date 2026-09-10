@@ -458,6 +458,28 @@ namespace Armada.Test.Database
                 ParentObjectiveId = parentObjectiveId,
                 BlockedByObjectiveIds = new List<string>(),
                 RefinementSummary = "Fixture summary",
+                Preparation = new ObjectivePreparation
+                {
+                    Source = new ObjectivePreparationAnchor
+                    {
+                        VesselId = vesselIds?.FirstOrDefault(),
+                        Ref = "main",
+                        ResolvedCommit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+                    },
+                    Claims = new List<ObjectivePreparationClaim>
+                    {
+                        new ObjectivePreparationClaim
+                        {
+                            Id = "opc_fixture_" + Token(),
+                            Kind = ObjectivePreparationClaimKindEnum.DispatchEntryPoint,
+                            Text = "Fixture dispatch entry point",
+                            EvidenceLinks = new List<string> { "src/Fixture.cs" },
+                            DependsOn = ObjectivePreparationDependencyEnum.Source,
+                            State = ObjectivePreparationClaimStateEnum.Verified,
+                            VerifiedUtc = DateTime.UtcNow.AddMinutes(-1)
+                        }
+                    }
+                },
                 SuggestedPipelineId = null,
                 Tags = new List<string> { "fixture", "objective" },
                 AcceptanceCriteria = new List<string> { "Create", "Read", "Update" },

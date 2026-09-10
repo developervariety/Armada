@@ -567,6 +567,7 @@ export default function Planning() {
       vesselId: currentSession.vesselId,
       pipelineName: pipelines.find((pipeline) => pipeline.id === currentSession.pipelineId)?.name,
       selectedPlaybooks: currentSession.selectedPlaybooks || [],
+      objectiveId: currentSession.objectiveId || objectiveId || undefined,
       prompt: dispatchDescription.trim(),
       voyageTitle: dispatchTitle.trim() || undefined,
     };
@@ -587,6 +588,7 @@ export default function Planning() {
       vesselId: currentSession.vesselId,
       pipelineName: pipelines.find((pipeline) => pipeline.id === currentSession.pipelineId)?.name,
       selectedPlaybooks: currentSession.selectedPlaybooks || [],
+      objectiveId: currentSession.objectiveId || objectiveId || undefined,
       prompt,
       voyageTitle: dispatchTitle.trim() || currentSession.title || undefined,
     };

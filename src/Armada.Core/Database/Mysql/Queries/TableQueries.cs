@@ -1181,6 +1181,14 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration v74 statements for objective preparation.
+        /// </summary>
+        public static readonly string[] MigrationV74Statements = new string[]
+        {
+            @"ALTER TABLE objectives ADD COLUMN preparation_json LONGTEXT NULL;"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

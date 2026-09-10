@@ -121,6 +121,11 @@ namespace Armada.Core.Models
         public string? RefinementSummary { get; set; } = null;
 
         /// <summary>
+        /// Repository preparation and selectively invalidated claims for the next dispatch.
+        /// </summary>
+        public ObjectivePreparation Preparation { get; set; } = new ObjectivePreparation();
+
+        /// <summary>
         /// Optional suggested pipeline identifier for follow-through.
         /// </summary>
         public string? SuggestedPipelineId { get; set; } = null;

@@ -728,7 +728,18 @@ namespace Armada.Test.Unit.Suites.Services
                     Status = ObjectiveStatusEnum.Scoped,
                     AutoDispatchEnabled = true,
                     VesselIds = new List<string> { vessel.Id },
-                    StartFromRef = "recover/accepted-tip-abc1234"
+                    StartFromRef = "recover/accepted-tip-abc1234",
+                    Preparation = new ObjectivePreparation
+                    {
+                        Claims = new List<ObjectivePreparationClaim>
+                        {
+                            new ObjectivePreparationClaim
+                            {
+                                Kind = ObjectivePreparationClaimKindEnum.DispatchEntryPoint,
+                                Text = "Use the scheduler dispatch seam."
+                            }
+                        }
+                    }
                 }).ConfigureAwait(false);
 
                 ArmadaSettings settings = new ArmadaSettings
@@ -748,6 +759,10 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, admiral.DispatchVoyageCallCount, "The objective dispatches.");
                 AssertNotNull(admiral.LastMissionDescriptions, "The dispatch carried descriptions.");
                 AssertEqual("recover/accepted-tip-abc1234", admiral.LastMissionDescriptions![0].StartFromRef, "The objective's start ref reaches the first-stage description.");
+                AssertContains("<!-- armada-objective-brief:", admiral.LastMissionDescriptions[0].Description,
+                    "The autonomous path must deliver the authoritative objective brief.");
+                AssertContains("Use the scheduler dispatch seam.", admiral.LastMissionDescriptions[0].Description,
+                    "Prepared research must reach the autonomous mission.");
             }).ConfigureAwait(false);
 
             await RunTest("A start ref that does not resolve is reported as start_from_ref_missing, not dispatch_error", async () =>

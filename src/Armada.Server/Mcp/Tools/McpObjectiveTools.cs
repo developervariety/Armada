@@ -174,6 +174,7 @@ namespace Armada.Server.Mcp.Tools
                         parentObjectiveId = new { type = "string", description = "Optional parent objective identifier" },
                         blockedByObjectiveIds = new { type = "array", items = new { type = "string" }, description = "Blocking objective identifiers" },
                         refinementSummary = new { type = "string", description = "Optional captain-generated refinement summary" },
+                        preparation = BuildPreparationSchema(),
                         suggestedPipelineId = new { type = "string", description = "Optional suggested pipeline identifier" },
                         startFromRef = new { type = "string", description = "Optional commit or ref in the vessel repository that the next dispatched voyage starts from; empty string clears it; dispatch refuses an unresolvable ref" },
                         refinementSessionIds = new { type = "array", items = new { type = "string" }, description = "Linked refinement-session IDs" },
@@ -232,6 +233,7 @@ namespace Armada.Server.Mcp.Tools
                         parentObjectiveId = new { type = "string", description = "Optional parent backlog item identifier" },
                         blockedByObjectiveIds = new { type = "array", items = new { type = "string" }, description = "Blocking backlog item identifiers" },
                         refinementSummary = new { type = "string", description = "Optional captain-generated refinement summary" },
+                        preparation = BuildPreparationSchema(),
                         suggestedPipelineId = new { type = "string", description = "Optional suggested pipeline identifier" },
                         startFromRef = new { type = "string", description = "Optional commit or ref in the vessel repository that the next dispatched voyage starts from; empty string clears it; dispatch refuses an unresolvable ref" },
                         refinementSessionIds = new { type = "array", items = new { type = "string" }, description = "Linked refinement-session IDs" },
@@ -293,6 +295,7 @@ namespace Armada.Server.Mcp.Tools
                         parentObjectiveId = new { type = "string", description = "Optional parent objective identifier" },
                         blockedByObjectiveIds = new { type = "array", items = new { type = "string" }, description = "Blocking objective identifiers" },
                         refinementSummary = new { type = "string", description = "Optional captain-generated refinement summary" },
+                        preparation = BuildPreparationSchema(),
                         suggestedPipelineId = new { type = "string", description = "Optional suggested pipeline identifier" },
                         startFromRef = new { type = "string", description = "Optional commit or ref in the vessel repository that the next dispatched voyage starts from; empty string clears it; dispatch refuses an unresolvable ref" },
                         refinementSessionIds = new { type = "array", items = new { type = "string" }, description = "Linked refinement-session IDs" },
@@ -355,6 +358,7 @@ namespace Armada.Server.Mcp.Tools
                         parentObjectiveId = new { type = "string", description = "Optional parent backlog item identifier" },
                         blockedByObjectiveIds = new { type = "array", items = new { type = "string" }, description = "Blocking backlog item identifiers" },
                         refinementSummary = new { type = "string", description = "Optional captain-generated refinement summary" },
+                        preparation = BuildPreparationSchema(),
                         suggestedPipelineId = new { type = "string", description = "Optional suggested pipeline identifier" },
                         startFromRef = new { type = "string", description = "Optional commit or ref in the vessel repository that the next dispatched voyage starts from; empty string clears it; dispatch refuses an unresolvable ref" },
                         refinementSessionIds = new { type = "array", items = new { type = "string" }, description = "Linked refinement-session IDs" },
@@ -1055,6 +1059,7 @@ namespace Armada.Server.Mcp.Tools
                     ParentObjectiveId = ParentObjectiveId,
                     BlockedByObjectiveIds = BlockedByObjectiveIds,
                     RefinementSummary = RefinementSummary,
+                    Preparation = Preparation,
                     SuggestedPipelineId = SuggestedPipelineId,
                     StartFromRef = StartFromRef,
                     SuggestedPlaybooks = SuggestedPlaybooks,
@@ -1075,6 +1080,65 @@ namespace Armada.Server.Mcp.Tools
                     IncidentIds = IncidentIds
                 };
             }
+        }
+
+        private static object BuildPreparationSchema()
+        {
+            object anchor = new
+            {
+                type = "object",
+                properties = new
+                {
+                    vesselId = new { type = "string", description = "Vessel whose repository contains the revision" },
+                    @ref = new { type = "string", description = "Human-readable ref that was resolved" },
+                    resolvedCommit = new { type = "string", description = "Immutable commit resolved from the ref" }
+                }
+            };
+
+            return new
+            {
+                type = "object",
+                description = "Complete bounded repository preparation replacement. Send every source, target, and claim value that must remain. Changing an anchor marks only dependent claims for recheck.",
+                properties = new
+                {
+                    source = anchor,
+                    target = anchor,
+                    claims = new
+                    {
+                        type = "array",
+                        maxItems = 50,
+                        items = new
+                        {
+                            type = "object",
+                            properties = new
+                            {
+                                id = new { type = "string", description = "Stable claim identifier" },
+                                kind = new
+                                {
+                                    type = "string",
+                                    @enum = Enum.GetNames<ObjectivePreparationClaimKindEnum>()
+                                },
+                                text = new { type = "string", maxLength = 2000 },
+                                evidenceLinks = new { type = "array", maxItems = 20, items = new { type = "string" } },
+                                dependsOn = new
+                                {
+                                    type = "string",
+                                    @enum = Enum.GetNames<ObjectivePreparationDependencyEnum>()
+                                },
+                                state = new
+                                {
+                                    type = "string",
+                                    @enum = Enum.GetNames<ObjectivePreparationClaimStateEnum>()
+                                },
+                                verifiedUtc = new { type = "string", description = "Last successful verification timestamp in UTC" },
+                                invalidatedUtc = new { type = "string", description = "Anchor-change invalidation timestamp in UTC" },
+                                invalidationReason = new { type = "string", maxLength = 1000 }
+                            },
+                            required = new[] { "id", "kind", "text" }
+                        }
+                    }
+                }
+            };
         }
     }
 }

@@ -854,6 +854,11 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_judge_follow_ups_merge_entry') CREATE INDEX idx_judge_follow_ups_merge_entry ON judge_follow_ups(merge_entry_id);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_judge_follow_ups_vessel_pending') CREATE INDEX idx_judge_follow_ups_vessel_pending ON judge_follow_ups(vessel_id, audit_verdict, audit_completed_utc, created_utc);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_judge_follow_ups_tenant_created') CREATE INDEX idx_judge_follow_ups_tenant_created ON judge_follow_ups(tenant_id, created_utc);"
+                ),
+                new SchemaMigration(
+                    77,
+                    "Add objective preparation",
+                    @"IF COL_LENGTH('objectives', 'preparation_json') IS NULL ALTER TABLE objectives ADD preparation_json NVARCHAR(MAX) NOT NULL CONSTRAINT DF_objectives_preparation_json DEFAULT '{}';"
                 )
             };
         }

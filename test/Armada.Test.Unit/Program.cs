@@ -226,6 +226,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new RemoteTriggerEventHookTests());
             runner.AddSuite(new IncidentServiceTests());
             runner.AddSuite(new ObjectiveServiceTests());
+            runner.AddSuite(new ObjectiveBriefRendererTests());
             runner.AddSuite(new AutonomousRecoveryOrchestratorTests());
             runner.AddSuite(new LandingDrainSafetyNetTests());
             runner.AddSuite(new AutonomousObjectiveSchedulerTests());

@@ -36,6 +36,7 @@ namespace Armada.Server
         private readonly Func<string, string, string?, string?, string?, string?, string?, string?, Task> _EmitEventAsync;
         private readonly ArmadaWebSocketHub? _WebSocketHub;
         private readonly PlaybookService _Playbooks;
+        private readonly ObjectiveService? _ObjectiveService;
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TurnState> _ActiveTurns =
             new System.Collections.Concurrent.ConcurrentDictionary<string, TurnState>(StringComparer.Ordinal);
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Task<PlanningSession>> _StopOperations =
@@ -58,7 +59,8 @@ namespace Armada.Server
             IAdmiralService admiral,
             AgentRuntimeFactory runtimeFactory,
             Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEventAsync,
-            ArmadaWebSocketHub? webSocketHub = null)
+            ArmadaWebSocketHub? webSocketHub = null,
+            ObjectiveService? objectiveService = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -68,6 +70,7 @@ namespace Armada.Server
             _RuntimeFactory = runtimeFactory ?? throw new ArgumentNullException(nameof(runtimeFactory));
             _EmitEventAsync = emitEventAsync ?? throw new ArgumentNullException(nameof(emitEventAsync));
             _WebSocketHub = webSocketHub;
+            _ObjectiveService = objectiveService;
             _Playbooks = new PlaybookService(_Database, _Logging);
         }
 
@@ -117,6 +120,7 @@ namespace Armada.Server
                 Title = !String.IsNullOrWhiteSpace(request.Title) ? request.Title.Trim() : "Planning: " + vessel.Name,
                 Status = PlanningSessionStatusEnum.Created,
                 PipelineId = request.PipelineId,
+                ObjectiveId = String.IsNullOrWhiteSpace(request.ObjectiveId) ? null : request.ObjectiveId.Trim(),
                 SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>(),
                 CreatedUtc = DateTime.UtcNow,
                 LastUpdateUtc = DateTime.UtcNow
@@ -348,14 +352,28 @@ namespace Armada.Server
                 new MissionDescription(title, description)
             };
 
-            Voyage voyage = await _Admiral.DispatchVoyageAsync(
-                title,
-                "Created from planning session " + session.Id,
-                session.VesselId,
-                missions,
-                session.PipelineId,
-                session.SelectedPlaybooks,
-                token).ConfigureAwait(false);
+            VoyageDispatchService dispatchService = new VoyageDispatchService(
+                _Database,
+                _Admiral,
+                _Logging,
+                objectiveService: _ObjectiveService,
+                settings: _Settings);
+            VoyageDispatchResult dispatchResult = await dispatchService.DispatchAsync(new SharedVoyageDispatchRequest
+            {
+                Title = title,
+                Description = "Created from planning session " + session.Id,
+                VesselId = session.VesselId,
+                Missions = missions,
+                CodeContextMode = "off",
+                PipelineId = session.PipelineId,
+                ObjectiveId = session.ObjectiveId,
+                ObjectiveAuthContext = BuildObjectiveAuthContext(session),
+                SelectedPlaybooks = session.SelectedPlaybooks,
+                Settings = _Settings
+            }, token).ConfigureAwait(false);
+            if (!dispatchResult.Succeeded || dispatchResult.Voyage == null)
+                throw new InvalidOperationException("Planning dispatch failed: " + JsonSerializer.Serialize(dispatchResult.Value));
+            Voyage voyage = dispatchResult.Voyage;
 
             voyage.SourcePlanningSessionId = session.Id;
             voyage.SourcePlanningMessageId = sourceMessage.Id;
@@ -394,6 +412,17 @@ namespace Armada.Server
             }
 
             return voyage;
+        }
+
+        private static AuthContext? BuildObjectiveAuthContext(PlanningSession session)
+        {
+            if (String.IsNullOrWhiteSpace(session.TenantId) || String.IsNullOrWhiteSpace(session.UserId)) return null;
+            return AuthContext.Authenticated(
+                session.TenantId,
+                session.UserId,
+                false,
+                true,
+                "PlanningSession");
         }
 
         /// <summary>

@@ -4,7 +4,6 @@ namespace Armada.Server
     using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
-    using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core;
@@ -944,7 +943,7 @@ namespace Armada.Server
                 }
             }
 
-            string missionDescription = BuildMissionDescription(objective);
+            string missionDescription = ObjectiveBriefRenderer.Render(objective);
             MissionDescription md = new MissionDescription(objective.Title, missionDescription)
             {
                 CodeContextMode = _Settings.CodeIndex.Enabled ? "auto" : "off",
@@ -1001,34 +1000,6 @@ namespace Armada.Server
         public static string? DeriveMissionMode(ObjectiveKindEnum kind)
         {
             return MissionModes.FromObjectiveKind(kind);
-        }
-
-        private static string BuildMissionDescription(Objective objective)
-        {
-            StringBuilder sb = new StringBuilder();
-            if (!String.IsNullOrWhiteSpace(objective.Description))
-            {
-                sb.AppendLine(objective.Description.Trim());
-                sb.AppendLine();
-            }
-
-            if (objective.AcceptanceCriteria.Count > 0)
-            {
-                sb.AppendLine("## Acceptance Criteria");
-                foreach (string criterion in objective.AcceptanceCriteria)
-                    sb.AppendLine("- " + criterion);
-                sb.AppendLine();
-            }
-
-            if (objective.NonGoals.Count > 0)
-            {
-                sb.AppendLine("## Non-Goals");
-                foreach (string nonGoal in objective.NonGoals)
-                    sb.AppendLine("- " + nonGoal);
-                sb.AppendLine();
-            }
-
-            return sb.ToString().TrimEnd();
         }
 
         private static bool IsMergeTerminal(MergeStatusEnum status)

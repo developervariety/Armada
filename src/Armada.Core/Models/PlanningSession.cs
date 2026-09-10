@@ -74,6 +74,11 @@ namespace Armada.Core.Models
         public string? PipelineId { get; set; } = null;
 
         /// <summary>
+        /// Optional objective that supplied the planning scope and must remain linked at dispatch.
+        /// </summary>
+        public string? ObjectiveId { get; set; } = null;
+
+        /// <summary>
         /// Ordered playbook selections attached to this planning session.
         /// </summary>
         public List<SelectedPlaybook> SelectedPlaybooks { get; set; } = new List<SelectedPlaybook>();

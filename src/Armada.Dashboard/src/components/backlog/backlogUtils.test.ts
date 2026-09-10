@@ -32,7 +32,9 @@ function createObjective(overrides: Partial<Objective> = {}): Objective {
     parentObjectiveId: null,
     blockedByObjectiveIds: [],
     refinementSummary: 'Use the selected captain transcript to sharpen acceptance criteria.',
+    preparation: { source: null, target: null, claims: [] },
     suggestedPipelineId: null,
+    startFromRef: null,
     suggestedPlaybooks: [
       { playbookId: 'pb_inline', deliveryMode: 'InlineFullContent' },
       { playbookId: 'pb_reference', deliveryMode: 'InstructionWithReference' },
@@ -88,9 +90,9 @@ describe('backlogUtils', () => {
     expect(planningPrompt).toContain('Acceptance Criteria');
     expect(planningPrompt).toContain('Turn this refined backlog item into a practical implementation plan');
 
-    expect(dispatchPrompt).toContain('Implement backlog item: Backlog hardening');
-    expect(dispatchPrompt).toContain('Constraints');
-    expect(dispatchPrompt).toContain('Keep objective compatibility routes intact');
+    expect(dispatchPrompt).toBe('Implement backlog item: Backlog hardening');
+    expect(dispatchPrompt).not.toContain(objective.refinementSummary);
+    expect(dispatchPrompt).not.toContain(objective.rolloutConstraints[0]);
 
     expect(releaseNotes).toContain('Backlog-derived release notes for Backlog hardening');
     expect(releaseNotes).toContain('Evidence Links');

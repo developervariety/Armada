@@ -89,6 +89,12 @@ namespace Armada.Core.Models
         public string? RefinementSummary { get; set; } = null;
 
         /// <summary>
+        /// Complete repository preparation replacement. Null leaves existing preparation unchanged on update.
+        /// Send all source, target, and claim values that must remain.
+        /// </summary>
+        public ObjectivePreparation? Preparation { get; set; } = null;
+
+        /// <summary>
         /// Suggested pipeline override.
         /// </summary>
         public string? SuggestedPipelineId { get; set; } = null;

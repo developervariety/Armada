@@ -692,6 +692,11 @@ namespace Armada.Core.Database.Mysql
                     73,
                     "Add durable Judge follow-ups",
                     TableQueries.MigrationV73Statements
+                ),
+                new SchemaMigration(
+                    74,
+                    "Add objective preparation",
+                    TableQueries.MigrationV74Statements
                 )
             };
         }

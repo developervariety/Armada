@@ -1520,6 +1520,12 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_judge_follow_ups_merge_entry ON judge_follow_ups(merge_entry_id);",
                     @"CREATE INDEX IF NOT EXISTS idx_judge_follow_ups_vessel_pending ON judge_follow_ups(vessel_id, audit_verdict, audit_completed_utc, created_utc);",
                     @"CREATE INDEX IF NOT EXISTS idx_judge_follow_ups_tenant_created ON judge_follow_ups(tenant_id, created_utc);"
+                ),
+                new SchemaMigration(81, "Add objective preparation",
+                    @"ALTER TABLE objectives ADD COLUMN preparation_json TEXT NOT NULL DEFAULT '{}';"
+                ),
+                new SchemaMigration(82, "Preserve planning objective linkage through dispatch",
+                    @"ALTER TABLE planning_sessions ADD COLUMN objective_id TEXT;"
                 )
             };
         }

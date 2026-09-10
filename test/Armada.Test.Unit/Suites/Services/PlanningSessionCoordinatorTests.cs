@@ -11,6 +11,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Settings;
     using Armada.Runtimes;
     using Armada.Server;
+    using Armada.Server.Mcp;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
@@ -154,6 +155,24 @@ namespace Armada.Test.Unit.Suites.Services
                     Pipeline pipeline = await fixture.CreatePipelineAsync(tenantUser.TenantId, "Full planning pipeline").ConfigureAwait(false);
                     Vessel vessel = await fixture.CreateVesselAsync("planning-vessel-dispatch", tenantUser.TenantId, tenantUser.UserId).ConfigureAwait(false);
                     Captain captain = await fixture.CreateCaptainAsync("planner-dispatch", AgentRuntimeEnum.ClaudeCode, tenantUser.TenantId, tenantUser.UserId).ConfigureAwait(false);
+                    AuthContext auth = AuthContext.Authenticated(tenantUser.TenantId, tenantUser.UserId, false, true, "UnitTest");
+                    Objective objective = await fixture.Objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Prepared planning objective",
+                        VesselIds = new List<string> { vessel.Id },
+                        Preparation = new ObjectivePreparation
+                        {
+                            Claims = new List<ObjectivePreparationClaim>
+                            {
+                                new ObjectivePreparationClaim
+                                {
+                                    Id = "opc_planning",
+                                    Kind = ObjectivePreparationClaimKindEnum.DispatchEntryPoint,
+                                    Text = "Keep the planning objective linked through dispatch."
+                                }
+                            }
+                        }
+                    }).ConfigureAwait(false);
 
                     PlanningSession session = await fixture.Coordinator.CreateAsync(
                         tenantUser.TenantId,
@@ -164,6 +183,7 @@ namespace Armada.Test.Unit.Suites.Services
                         {
                             Title = "Repository plan",
                             PipelineId = pipeline.Id,
+                            ObjectiveId = objective.Id,
                             SelectedPlaybooks = new List<SelectedPlaybook>
                             {
                                 new SelectedPlaybook
@@ -193,6 +213,11 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(session.Id, voyage.SourcePlanningSessionId);
                     AssertEqual(assistantMessage.Id, voyage.SourcePlanningMessageId);
                     AssertEqual("API hardening dispatch", voyage.Title);
+                    AssertEqual(objective.Id, session.ObjectiveId);
+
+                    PlanningSession? persistedSession = await testDb.Driver.PlanningSessions.ReadAsync(session.Id).ConfigureAwait(false);
+                    AssertEqual(objective.Id, persistedSession?.ObjectiveId,
+                        "The planning session must persist its objective before a later dispatch.");
 
                     Voyage? persistedVoyage = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
                     AssertNotNull(persistedVoyage);
@@ -212,6 +237,11 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission architectMission = missions.Find(m => m.Persona == "Architect")
                         ?? throw new Exception("Expected architect mission to exist");
                     AssertContains("Implement the API hardening changes and add regression tests.", architectMission.Description ?? String.Empty);
+                    AssertContains("Keep the planning objective linked through dispatch.", architectMission.Description ?? String.Empty);
+
+                    Objective? linkedObjective = await fixture.Objectives.ReadAsync(auth, objective.Id).ConfigureAwait(false);
+                    AssertTrue(linkedObjective!.VoyageIds.Contains(voyage.Id),
+                        "Planning dispatch must preserve objective voyage lineage.");
 
                     List<MissionPlaybookSnapshot> snapshots = await testDb.Driver.Playbooks.GetMissionSnapshotsAsync(architectMission.Id).ConfigureAwait(false);
                     AssertEqual(1, snapshots.Count);
@@ -632,6 +662,7 @@ namespace Armada.Test.Unit.Suites.Services
             public ArmadaSettings Settings { get; }
             public StubGitService Git { get; }
             public PlanningSessionCoordinator Coordinator { get; }
+            public ObjectiveService Objectives { get; }
 
             private readonly string _rootDirectory;
             private readonly LoggingModule _logging;
@@ -656,6 +687,7 @@ namespace Armada.Test.Unit.Suites.Services
                 DockService docks = new DockService(_logging, Database, Settings, Git);
                 AdmiralService admiral = CreateAdmiralService(_logging, Database, Settings, Git);
                 AgentRuntimeFactory runtimeFactory = new AgentRuntimeFactory(_logging);
+                Objectives = new ObjectiveService(Database, _logging);
 
                 Coordinator = new PlanningSessionCoordinator(
                     _logging,
@@ -664,7 +696,8 @@ namespace Armada.Test.Unit.Suites.Services
                     docks,
                     admiral,
                     runtimeFactory,
-                    (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) => Task.CompletedTask);
+                    (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) => Task.CompletedTask,
+                    objectiveService: Objectives);
             }
 
             public async Task<TenantUserResult> CreateTenantUserAsync(string tenantName = "Planning Tenant")

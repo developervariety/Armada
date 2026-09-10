@@ -3,13 +3,21 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Linq;
     using System.Text.Json;
+    using Microsoft.Data.Sqlite;
     using Armada.Core.Enums;
+    using Armada.Core.Database;
+    using Armada.Core.Database.Mysql;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
+    using MysqlTableQueries = Armada.Core.Database.Mysql.Queries.TableQueries;
+    using PostgresqlTableQueries = Armada.Core.Database.Postgresql.Queries.TableQueries;
+    using SqliteTableQueries = Armada.Core.Database.Sqlite.Queries.TableQueries;
+    using SqlServerTableQueries = Armada.Core.Database.SqlServer.Queries.TableQueries;
 
     /// <summary>
     /// Unit coverage for internal-first objective capture, linkage, and filtering flows.
@@ -426,11 +434,13 @@ namespace Armada.Test.Unit.Suites.Services
                     Status = ObjectiveStatusEnum.Draft
                 }).ConfigureAwait(false);
 
-                using JsonDocument aliasDoc = JsonDocument.Parse("{\"backlogItemId\":\"" + objective.Id + "\",\"status\":\"Completed\",\"refinementSummary\":\"done\"}");
+                using JsonDocument aliasDoc = JsonDocument.Parse("{\"backlogItemId\":\"" + objective.Id + "\",\"status\":\"Completed\",\"refinementSummary\":\"done\",\"preparation\":{\"target\":{\"vesselId\":\"vsl_mcp\",\"ref\":\"main\",\"resolvedCommit\":\"abc123\"},\"claims\":[{\"id\":\"opc_mcp_update\",\"kind\":\"DispatchEntryPoint\",\"text\":\"Use the dispatch entry point\",\"dependsOn\":\"Target\",\"state\":\"Verified\"}]}}");
                 object aliasResult = await handlers["update_backlog_item"](aliasDoc.RootElement).ConfigureAwait(false);
                 Objective updated = (Objective)aliasResult;
                 AssertEqual(ObjectiveStatusEnum.Completed, updated.Status);
                 AssertEqual("done", updated.RefinementSummary);
+                AssertEqual("abc123", updated.Preparation.Target?.ResolvedCommit);
+                AssertEqual("opc_mcp_update", updated.Preparation.Claims[0].Id);
 
                 using JsonDocument missingDoc = JsonDocument.Parse("{\"backlogItemId\":\"obj_missing\",\"status\":\"Completed\"}");
                 object missingResult = await handlers["update_backlog_item"](missingDoc.RootElement).ConfigureAwait(false);
@@ -453,12 +463,14 @@ namespace Armada.Test.Unit.Suites.Services
                     testDb.Driver,
                     objectives);
 
-                using JsonDocument validDoc = JsonDocument.Parse("{\"title\":\"MCP backlog create\",\"kind\":\"Bug\",\"priority\":\"P0\",\"status\":\"Scoped\"}");
+                using JsonDocument validDoc = JsonDocument.Parse("{\"title\":\"MCP backlog create\",\"kind\":\"Bug\",\"priority\":\"P0\",\"status\":\"Scoped\",\"preparation\":{\"source\":{\"vesselId\":\"vsl_source\",\"ref\":\"main\",\"resolvedCommit\":\"def456\"},\"claims\":[{\"id\":\"opc_mcp_create\",\"kind\":\"SourcePath\",\"text\":\"Read src/Entry.cs\",\"dependsOn\":\"Source\",\"state\":\"Verified\"}]}}");
                 object validResult = await handlers["create_backlog_item"](validDoc.RootElement).ConfigureAwait(false);
                 Objective created = (Objective)validResult;
                 AssertStartsWith("obj_", created.Id);
                 AssertEqual(ObjectiveKindEnum.Bug, created.Kind);
                 AssertEqual(ObjectivePriorityEnum.P0, created.Priority);
+                AssertEqual("def456", created.Preparation.Source?.ResolvedCommit);
+                AssertEqual("opc_mcp_create", created.Preparation.Claims[0].Id);
 
                 using JsonDocument invalidEnumDoc = JsonDocument.Parse("{\"title\":\"Bad backlog create\",\"kind\":\"NotARealKind\"}");
                 object invalidEnumResult = await handlers["create_backlog_item"](invalidEnumDoc.RootElement).ConfigureAwait(false);
@@ -1063,6 +1075,289 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("flt_does_not_exist", missingError,
                     "A genuinely missing fleet must remain a strict validation error");
             }).ConfigureAwait(false);
+
+            await RunTest("Preparation anchors selectively invalidate only dependent existing claims", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                string tenantId = "ten_objective_preparation";
+                string userId = "usr_objective_preparation";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+                DateTime verifiedUtc = DateTime.UtcNow.AddMinutes(-10);
+
+                Objective created = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Prepared objective",
+                    Preparation = new ObjectivePreparation
+                    {
+                        Source = new ObjectivePreparationAnchor { VesselId = "vsl_source", Ref = "main", ResolvedCommit = "aaaa" },
+                        Target = new ObjectivePreparationAnchor { VesselId = "vsl_target", Ref = "main", ResolvedCommit = "bbbb" },
+                        Claims = new List<ObjectivePreparationClaim>
+                        {
+                            Claim("opc_source", ObjectivePreparationDependencyEnum.Source, verifiedUtc),
+                            Claim("opc_target", ObjectivePreparationDependencyEnum.Target, verifiedUtc),
+                            Claim("opc_both", ObjectivePreparationDependencyEnum.Source | ObjectivePreparationDependencyEnum.Target, verifiedUtc),
+                            Claim("opc_none", ObjectivePreparationDependencyEnum.None, verifiedUtc)
+                        }
+                    }
+                }).ConfigureAwait(false);
+
+                Objective? persisted = await objectives.ReadAsync(auth, created.Id).ConfigureAwait(false);
+                persisted = NotNull(persisted);
+                AssertEqual("aaaa", persisted.Preparation.Source?.ResolvedCommit);
+                AssertEqual(4, persisted.Preparation.Claims.Count);
+
+                Objective sourceChanged = await objectives.UpdateAsync(auth, created.Id, new ObjectiveUpsertRequest
+                {
+                    Preparation = new ObjectivePreparation
+                    {
+                        Source = new ObjectivePreparationAnchor { VesselId = "vsl_source", Ref = "main", ResolvedCommit = "cccc" },
+                        Target = persisted.Preparation.Target,
+                        Claims = persisted.Preparation.Claims
+                    }
+                }).ConfigureAwait(false);
+
+                AssertEqual(ObjectivePreparationClaimStateEnum.NeedsRecheck, FindClaim(sourceChanged, "opc_source").State);
+                AssertEqual(ObjectivePreparationClaimStateEnum.Verified, FindClaim(sourceChanged, "opc_target").State);
+                AssertEqual(ObjectivePreparationClaimStateEnum.NeedsRecheck, FindClaim(sourceChanged, "opc_both").State);
+                AssertEqual(ObjectivePreparationClaimStateEnum.Verified, FindClaim(sourceChanged, "opc_none").State);
+                AssertContains("Source preparation anchor changed", FindClaim(sourceChanged, "opc_source").InvalidationReason ?? String.Empty);
+                AssertTrue(FindClaim(sourceChanged, "opc_source").InvalidatedUtc.HasValue, "Invalidated claim must retain its invalidation timestamp.");
+
+                DateTime reverifiedUtc = DateTime.UtcNow;
+                FindClaim(sourceChanged, "opc_both").State = ObjectivePreparationClaimStateEnum.Verified;
+                FindClaim(sourceChanged, "opc_both").VerifiedUtc = reverifiedUtc;
+                Objective targetChanged = await objectives.UpdateAsync(auth, created.Id, new ObjectiveUpsertRequest
+                {
+                    Preparation = new ObjectivePreparation
+                    {
+                        Source = sourceChanged.Preparation.Source,
+                        Target = new ObjectivePreparationAnchor { VesselId = "vsl_target", Ref = "main", ResolvedCommit = "dddd" },
+                        Claims = sourceChanged.Preparation.Claims.Concat(new[]
+                        {
+                            Claim("opc_new_target", ObjectivePreparationDependencyEnum.Target, reverifiedUtc)
+                        }).ToList()
+                    }
+                }).ConfigureAwait(false);
+
+                AssertEqual(ObjectivePreparationClaimStateEnum.NeedsRecheck, FindClaim(targetChanged, "opc_target").State);
+                AssertEqual(ObjectivePreparationClaimStateEnum.Verified, FindClaim(targetChanged, "opc_both").State);
+                AssertEqual(reverifiedUtc, FindClaim(targetChanged, "opc_both").VerifiedUtc);
+                AssertEqual(ObjectivePreparationClaimStateEnum.Verified, FindClaim(targetChanged, "opc_new_target").State);
+
+                Objective unrelatedUpdate = await objectives.UpdateAsync(auth, created.Id, new ObjectiveUpsertRequest
+                {
+                    Owner = "new-owner"
+                }).ConfigureAwait(false);
+                AssertEqual("dddd", unrelatedUpdate.Preparation.Target?.ResolvedCommit);
+                AssertEqual(5, unrelatedUpdate.Preparation.Claims.Count);
+
+                Objective dispatchRefChanged = await objectives.UpdateAsync(auth, created.Id, new ObjectiveUpsertRequest
+                {
+                    StartFromRef = "refs/tags/new-target"
+                }).ConfigureAwait(false);
+                AssertEqual(ObjectivePreparationClaimStateEnum.NeedsRecheck, FindClaim(dispatchRefChanged, "opc_both").State,
+                    "Changing the actual dispatch ref must invalidate target-dependent preparation even when the stored anchor was not replaced.");
+
+                Objective unresolved = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Unresolved source preparation",
+                    Preparation = new ObjectivePreparation
+                    {
+                        Source = new ObjectivePreparationAnchor { VesselId = "vsl_source", Ref = "main" },
+                        Claims = new List<ObjectivePreparationClaim>
+                        {
+                            Claim("opc_unresolved", ObjectivePreparationDependencyEnum.Source, DateTime.UtcNow)
+                        }
+                    }
+                }).ConfigureAwait(false);
+                AssertEqual(ObjectivePreparationClaimStateEnum.NeedsRecheck, FindClaim(unresolved, "opc_unresolved").State);
+                AssertContains("Source revision is unresolved", FindClaim(unresolved, "opc_unresolved").InvalidationReason ?? String.Empty);
+            }).ConfigureAwait(false);
+
+            await RunTest("Preparation write bounds reject excessive claims and claim text", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                string tenantId = "ten_objective_preparation_bounds";
+                string userId = "usr_objective_preparation_bounds";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+
+                string tooManyError = String.Empty;
+                try
+                {
+                    await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Too many preparation claims",
+                        Preparation = new ObjectivePreparation
+                        {
+                            Claims = Enumerable.Range(0, 51)
+                                .Select(index => Claim("opc_bound_" + index, ObjectivePreparationDependencyEnum.None, DateTime.UtcNow))
+                                .ToList()
+                        }
+                    }).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    tooManyError = ex.Message;
+                }
+                AssertContains("more than 50 claims", tooManyError);
+
+                string longTextError = String.Empty;
+                try
+                {
+                    await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Long preparation claim",
+                        Preparation = new ObjectivePreparation
+                        {
+                            Claims = new List<ObjectivePreparationClaim>
+                            {
+                                new ObjectivePreparationClaim { Id = "opc_long", Text = new string('x', 2001) }
+                            }
+                        }
+                    }).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    longTextError = ex.Message;
+                }
+                AssertContains("cannot exceed 2000 characters", longTextError);
+
+                string invalidStateError = String.Empty;
+                try
+                {
+                    await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Invalid preparation state",
+                        Preparation = new ObjectivePreparation
+                        {
+                            Claims = new List<ObjectivePreparationClaim>
+                            {
+                                new ObjectivePreparationClaim
+                                {
+                                    Id = "opc_invalid_state",
+                                    Text = "This state is not defined.",
+                                    State = (ObjectivePreparationClaimStateEnum)999
+                                }
+                            }
+                        }
+                    }).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    invalidStateError = ex.Message;
+                }
+                AssertContains("invalid state value", invalidStateError);
+            }).ConfigureAwait(false);
+
+            await RunTest("Preparation updates are complete replacements", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                string tenantId = "ten_objective_preparation_replace";
+                string userId = "usr_objective_preparation_replace";
+                await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+
+                Objective created = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Replace preparation",
+                    Preparation = new ObjectivePreparation
+                    {
+                        Source = new ObjectivePreparationAnchor { ResolvedCommit = "aaaa" },
+                        Claims = new List<ObjectivePreparationClaim>
+                        {
+                            Claim("opc_replace", ObjectivePreparationDependencyEnum.None, DateTime.UtcNow)
+                        }
+                    }
+                }).ConfigureAwait(false);
+
+                Objective replaced = await objectives.UpdateAsync(auth, created.Id, new ObjectiveUpsertRequest
+                {
+                    Preparation = new ObjectivePreparation
+                    {
+                        Target = new ObjectivePreparationAnchor { ResolvedCommit = "bbbb" }
+                    }
+                }).ConfigureAwait(false);
+
+                AssertNull(replaced.Preparation.Source,
+                    "A supplied preparation object replaces omitted nested source data.");
+                AssertEqual(0, replaced.Preparation.Claims.Count,
+                    "A supplied preparation object replaces omitted nested claims.");
+                AssertEqual("bbbb", replaced.Preparation.Target?.ResolvedCommit);
+            }).ConfigureAwait(false);
+
+            await RunTest("Stored preparation with null claims normalizes on read", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Title = "Legacy null claims"
+                }).ConfigureAwait(false);
+
+                using (SqliteConnection connection = new SqliteConnection(testDb.ConnectionString))
+                {
+                    await connection.OpenAsync().ConfigureAwait(false);
+                    using SqliteCommand command = connection.CreateCommand();
+                    command.CommandText = "UPDATE objectives SET preparation_json = @preparation WHERE id = @id;";
+                    command.Parameters.AddWithValue("@preparation", "{\"claims\":null}");
+                    command.Parameters.AddWithValue("@id", objective.Id);
+                    await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+                }
+
+                Objective? persisted = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
+                AssertNotNull(persisted);
+                AssertNotNull(persisted!.Preparation.Claims,
+                    "A structurally valid legacy preparation payload must not crash dispatch rendering.");
+                ObjectiveBriefRenderer.Render(persisted);
+            }).ConfigureAwait(false);
+
+            await RunTest("All database providers register objective preparation persistence", () =>
+            {
+                AssertPreparationMigration(SqliteTableQueries.GetMigrations(), 81, "SQLite");
+                AssertPreparationMigration(PostgresqlTableQueries.GetMigrations(), 83, "PostgreSQL");
+                AssertPreparationMigration(SqlServerTableQueries.GetMigrations(), 77, "SQL Server");
+                AssertContains("preparation_json", MysqlTableQueries.MigrationV74Statements[0]);
+
+                System.Reflection.MethodInfo? mysqlGetMigrations = typeof(MysqlDatabaseDriver).GetMethod(
+                    "GetMigrations",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+                AssertNotNull(mysqlGetMigrations, "MySQL must expose its migration registration list internally");
+                List<SchemaMigration> mysqlMigrations = (List<SchemaMigration>)mysqlGetMigrations!.Invoke(null, Array.Empty<object>())!;
+                AssertPreparationMigration(mysqlMigrations, 74, "MySQL");
+                return Task.CompletedTask;
+            });
+        }
+
+        private void AssertPreparationMigration(IEnumerable<SchemaMigration> migrations, int version, string provider)
+        {
+            SchemaMigration? migration = migrations.FirstOrDefault(item => item.Version == version);
+            AssertNotNull(migration, provider + " must register objective preparation migration " + version + ".");
+            AssertTrue(migration!.Statements.Any(statement => statement.Contains("preparation_json", StringComparison.OrdinalIgnoreCase)),
+                provider + " objective preparation migration must add preparation_json.");
+        }
+
+        private static ObjectivePreparationClaim Claim(string id, ObjectivePreparationDependencyEnum dependsOn, DateTime verifiedUtc)
+        {
+            return new ObjectivePreparationClaim
+            {
+                Id = id,
+                Kind = ObjectivePreparationClaimKindEnum.SourcePath,
+                Text = "Prepared claim " + id,
+                EvidenceLinks = new List<string> { "https://example.test/" + id },
+                DependsOn = dependsOn,
+                State = ObjectivePreparationClaimStateEnum.Verified,
+                VerifiedUtc = verifiedUtc
+            };
+        }
+
+        private static ObjectivePreparationClaim FindClaim(Objective objective, string id)
+        {
+            return objective.Preparation.Claims.Find(claim => claim.Id == id)
+                ?? throw new InvalidOperationException("Expected preparation claim " + id + ".");
         }
 
         private static async Task EnsureTenantAndUserAsync(TestDatabase testDb, string tenantId, string userId)

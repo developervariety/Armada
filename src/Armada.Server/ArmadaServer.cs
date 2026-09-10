@@ -503,7 +503,8 @@ namespace Armada.Server
                 _Admiral,
                 _RuntimeFactory,
                 EmitEventAsync,
-                _WebSocketHub);
+                _WebSocketHub,
+                _ObjectiveService);
             _ObjectiveRefinementSessions = new ObjectiveRefinementCoordinator(
                 _Logging,
                 _Database,
