@@ -13,6 +13,7 @@ namespace Armada.Server.WebSocket
     using WatsonWebserver.Core.WebSockets;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
 
@@ -29,10 +30,13 @@ namespace Armada.Server.WebSocket
         private string _Header = "[WebSocketHub] ";
         private LoggingModule _Logging;
         private IAdmiralService _Admiral;
+        private readonly DatabaseDriver _Database;
         private WebSocketCommandHandler _CommandHandler;
         private const int ClientOutputQueueCapacity = 256;
         private ConcurrentDictionary<Guid, ClientConnection> _Sessions = new ConcurrentDictionary<Guid, ClientConnection>();
         private readonly object _BroadcastLock = new object();
+        private readonly WebSocketReplayBuffer _ReplayBuffer = new WebSocketReplayBuffer();
+        private readonly FleetReconciliationSnapshotService _SnapshotService;
 
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
@@ -60,10 +64,12 @@ namespace Armada.Server.WebSocket
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
+            _Database = database ?? throw new ArgumentNullException(nameof(database));
+            _SnapshotService = new FleetReconciliationSnapshotService(_Database);
 
             _CommandHandler = new WebSocketCommandHandler(
                 _Admiral,
-                database ?? throw new ArgumentNullException(nameof(database)),
+                _Database,
                 mergeQueue ?? throw new ArgumentNullException(nameof(mergeQueue)),
                 settings,
                 git,
@@ -131,17 +137,17 @@ namespace Armada.Server.WebSocket
         /// <param name="voyageId">Parent voyage ID, or null for a standalone mission.</param>
         public void BroadcastMissionChange(string missionId, string status, string? title, string? voyageId)
         {
-            object payload = new
+            WebSocketEventEnvelope payload = new WebSocketEventEnvelope
             {
-                type = "mission.changed",
-                data = new
+                Type = "mission.changed",
+                Data = new
                 {
                     id = missionId,
                     title = title,
                     status = status,
                     voyageId = voyageId
                 },
-                timestamp = DateTime.UtcNow
+                Timestamp = DateTime.UtcNow
             };
 
             BroadcastEvent(payload);
@@ -155,16 +161,16 @@ namespace Armada.Server.WebSocket
         /// <param name="title">Voyage title.</param>
         public void BroadcastVoyageChange(string voyageId, string status, string? title = null)
         {
-            object payload = new
+            WebSocketEventEnvelope payload = new WebSocketEventEnvelope
             {
-                type = "voyage.changed",
-                data = new
+                Type = "voyage.changed",
+                Data = new
                 {
                     id = voyageId,
                     title = title,
                     status = status
                 },
-                timestamp = DateTime.UtcNow
+                Timestamp = DateTime.UtcNow
             };
 
             BroadcastEvent(payload);
@@ -178,16 +184,16 @@ namespace Armada.Server.WebSocket
         /// <param name="name">Captain name.</param>
         public void BroadcastCaptainChange(string captainId, string state, string? name = null)
         {
-            object payload = new
+            WebSocketEventEnvelope payload = new WebSocketEventEnvelope
             {
-                type = "captain.changed",
-                data = new
+                Type = "captain.changed",
+                Data = new
                 {
                     id = captainId,
                     name = name,
                     state = state
                 },
-                timestamp = DateTime.UtcNow
+                Timestamp = DateTime.UtcNow
             };
 
             BroadcastEvent(payload);
@@ -199,11 +205,11 @@ namespace Armada.Server.WebSocket
         /// <param name="run">Changed check run.</param>
         public void BroadcastCheckRunChange(CheckRun run)
         {
-            object payload = new
+            WebSocketEventEnvelope payload = new WebSocketEventEnvelope
             {
-                type = "check-run.changed",
-                data = run,
-                timestamp = DateTime.UtcNow
+                Type = "check-run.changed",
+                Data = run,
+                Timestamp = DateTime.UtcNow
             };
 
             BroadcastEvent(payload);
@@ -215,11 +221,11 @@ namespace Armada.Server.WebSocket
         /// <param name="objective">Changed objective.</param>
         public void BroadcastObjectiveChange(Objective objective)
         {
-            object payload = new
+            WebSocketEventEnvelope payload = new WebSocketEventEnvelope
             {
-                type = "objective.changed",
-                data = objective,
-                timestamp = DateTime.UtcNow
+                Type = "objective.changed",
+                Data = objective,
+                Timestamp = DateTime.UtcNow
             };
 
             BroadcastEvent(payload);
@@ -231,19 +237,19 @@ namespace Armada.Server.WebSocket
         /// <param name="deployment">Changed deployment.</param>
         public void BroadcastDeploymentChange(Deployment deployment)
         {
-            object changedPayload = new
+            WebSocketEventEnvelope changedPayload = new WebSocketEventEnvelope
             {
-                type = "deployment.changed",
-                data = deployment,
-                timestamp = DateTime.UtcNow
+                Type = "deployment.changed",
+                Data = deployment,
+                Timestamp = DateTime.UtcNow
             };
 
             BroadcastEvent(changedPayload);
 
-            object progressPayload = new
+            WebSocketEventEnvelope progressPayload = new WebSocketEventEnvelope
             {
-                type = "deployment.progress",
-                data = new
+                Type = "deployment.progress",
+                Data = new
                 {
                     deployment.Id,
                     deployment.Title,
@@ -255,17 +261,17 @@ namespace Armada.Server.WebSocket
                     deployment.CompletedUtc,
                     deployment.LastUpdateUtc
                 },
-                timestamp = DateTime.UtcNow
+                Timestamp = DateTime.UtcNow
             };
 
             BroadcastEvent(progressPayload);
 
             if (!String.IsNullOrWhiteSpace(deployment.EnvironmentId) || !String.IsNullOrWhiteSpace(deployment.EnvironmentName))
             {
-                object environmentPayload = new
+                WebSocketEventEnvelope environmentPayload = new WebSocketEventEnvelope
                 {
-                    type = "environment.health",
-                    data = new
+                    Type = "environment.health",
+                    Data = new
                     {
                         deployment.EnvironmentId,
                         deployment.EnvironmentName,
@@ -278,7 +284,7 @@ namespace Armada.Server.WebSocket
                         deployment.LatestMonitoringSummary,
                         deployment.MonitoringFailureCount
                     },
-                    timestamp = DateTime.UtcNow
+                    Timestamp = DateTime.UtcNow
                 };
 
                 BroadcastEvent(environmentPayload);
@@ -291,11 +297,11 @@ namespace Armada.Server.WebSocket
         /// <param name="incident">Changed incident.</param>
         public void BroadcastIncidentChange(Incident incident)
         {
-            object payload = new
+            WebSocketEventEnvelope payload = new WebSocketEventEnvelope
             {
-                type = "incident.changed",
-                data = incident,
-                timestamp = DateTime.UtcNow
+                Type = "incident.changed",
+                Data = incident,
+                Timestamp = DateTime.UtcNow
             };
 
             BroadcastEvent(payload);
@@ -307,11 +313,11 @@ namespace Armada.Server.WebSocket
         /// <param name="execution">Changed runbook execution.</param>
         public void BroadcastRunbookExecutionChange(RunbookExecution execution)
         {
-            object payload = new
+            WebSocketEventEnvelope payload = new WebSocketEventEnvelope
             {
-                type = "runbook-execution.changed",
-                data = execution,
-                timestamp = DateTime.UtcNow
+                Type = "runbook-execution.changed",
+                Data = execution,
+                Timestamp = DateTime.UtcNow
             };
 
             BroadcastEvent(payload);
@@ -323,10 +329,10 @@ namespace Armada.Server.WebSocket
         /// <param name="mission">Mission awaiting approval.</param>
         public void BroadcastApprovalNeeded(Mission mission)
         {
-            object payload = new
+            WebSocketEventEnvelope payload = new WebSocketEventEnvelope
             {
-                type = "approval-needed",
-                data = new
+                Type = "approval-needed",
+                Data = new
                 {
                     entityType = "mission",
                     entityId = mission.Id,
@@ -337,7 +343,7 @@ namespace Armada.Server.WebSocket
                     voyageId = mission.VoyageId,
                     reviewRequestedUtc = mission.ReviewRequestedUtc
                 },
-                timestamp = DateTime.UtcNow
+                Timestamp = DateTime.UtcNow
             };
 
             BroadcastEvent(payload);
@@ -351,12 +357,12 @@ namespace Armada.Server.WebSocket
         /// <param name="data">Optional additional data.</param>
         public void BroadcastEvent(string eventType, string message, object? data = null)
         {
-            object payload = new
+            WebSocketEventEnvelope payload = new WebSocketEventEnvelope
             {
-                type = eventType,
-                message = message,
-                data = data,
-                timestamp = DateTime.UtcNow
+                Type = eventType,
+                Message = message,
+                Data = data,
+                Timestamp = DateTime.UtcNow
             };
 
             BroadcastEvent(payload);
@@ -388,14 +394,9 @@ namespace Armada.Server.WebSocket
             {
                 if (string.Equals(route, "subscribe", StringComparison.OrdinalIgnoreCase))
                 {
-                    ArmadaStatus status = await _Admiral.GetStatusAsync().ConfigureAwait(false);
-                    object initial = new
-                    {
-                        type = "status.snapshot",
-                        data = status,
-                        timestamp = DateTime.UtcNow
-                    };
-                    EnqueueOrDisconnect(sessionId, JsonSerializer.Serialize(initial, _JsonOptions));
+                    WebSocketSubscribeRequest request = JsonSerializer.Deserialize<WebSocketSubscribeRequest>(body, _JsonOptions)
+                        ?? new WebSocketSubscribeRequest { Route = "subscribe" };
+                    await ActivateSubscriptionAsync(sessionId, request).ConfigureAwait(false);
                     return;
                 }
 
@@ -427,19 +428,25 @@ namespace Armada.Server.WebSocket
             }
         }
 
-        private void BroadcastEvent(object payload)
+        private void BroadcastEvent(WebSocketEventEnvelope payload)
         {
             try
             {
-                string json = JsonSerializer.Serialize(payload, _JsonOptions);
                 List<KeyValuePair<Guid, ClientConnection>> disconnected = new List<KeyValuePair<Guid, ClientConnection>>();
 
                 lock (_BroadcastLock)
                 {
+                    WebSocketReplayRecord record = _ReplayBuffer.Append((streamId, cursor) =>
+                    {
+                        payload.StreamId = streamId;
+                        payload.Cursor = cursor;
+                        return JsonSerializer.Serialize(payload, _JsonOptions);
+                    });
                     foreach (KeyValuePair<Guid, ClientConnection> kvp in _Sessions)
                     {
                         ClientConnection connection = kvp.Value;
-                        if (!connection.Session.IsConnected || !connection.Output.TryEnqueue(json))
+                        if (!connection.Subscribed) continue;
+                        if (!connection.Session.IsConnected || !connection.Output.TryEnqueue(record.Frame))
                             disconnected.Add(kvp);
                     }
                 }
@@ -456,6 +463,103 @@ namespace Armada.Server.WebSocket
             {
                 _Logging.Warn(_Header + "broadcast error: " + ex.Message);
             }
+        }
+
+        private async Task ActivateSubscriptionAsync(Guid sessionId, WebSocketSubscribeRequest request)
+        {
+            WebSocketReplayReadResult? replay = null;
+            long snapshotWatermark;
+            lock (_BroadcastLock)
+            {
+                if (!_Sessions.TryGetValue(sessionId, out ClientConnection? pending)) return;
+                if (pending.SubscriptionRequested)
+                    throw new InvalidOperationException("This WebSocket connection is already subscribed.");
+                pending.SubscriptionRequested = true;
+                pending.Subscribed = false;
+                snapshotWatermark = _ReplayBuffer.CurrentCursor;
+                if (!String.IsNullOrWhiteSpace(request.StreamId) && request.Cursor.HasValue)
+                    replay = _ReplayBuffer.ReadAfter(request.StreamId, request.Cursor.Value);
+            }
+
+            ArmadaStatus status = await _Admiral.GetStatusAsync().ConfigureAwait(false);
+            FleetReconciliationSnapshot reconciliation = await _SnapshotService
+                .GetAsync(request.VoyageId)
+                .ConfigureAwait(false);
+
+            ClientConnection? failedConnection = null;
+            lock (_BroadcastLock)
+            {
+                if (!_Sessions.TryGetValue(sessionId, out ClientConnection? connection)) return;
+                WebSocketReplayReadResult catchUp = _ReplayBuffer.ReadAfter(_ReplayBuffer.StreamId, snapshotWatermark);
+                string? gapReason = replay?.GapReason;
+                IReadOnlyList<WebSocketReplayRecord> initialRecords = replay?.Records ?? Array.Empty<WebSocketReplayRecord>();
+                IReadOnlyList<WebSocketReplayRecord> catchUpRecords = catchUp.Records;
+                long readyCursor = _ReplayBuffer.CurrentCursor;
+
+                if (catchUp.HasGap)
+                {
+                    gapReason = "snapshot_overflow";
+                    catchUpRecords = Array.Empty<WebSocketReplayRecord>();
+                    // Do not acknowledge events that the snapshot and catch-up did not
+                    // cover. The next live event will expose a cursor discontinuity and
+                    // make the client reconnect from this safe watermark.
+                    readyCursor = snapshotWatermark;
+                }
+                if (initialRecords.Count + catchUpRecords.Count > ClientOutputQueueCapacity - 3)
+                {
+                    gapReason = "replay_overflow";
+                    initialRecords = Array.Empty<WebSocketReplayRecord>();
+                }
+
+                List<string> frames = new List<string>();
+                foreach (WebSocketReplayRecord record in initialRecords) frames.Add(record.Frame);
+                if (gapReason != null)
+                {
+                    frames.Add(JsonSerializer.Serialize(new
+                    {
+                        type = "event.gap",
+                        streamId = _ReplayBuffer.StreamId,
+                        data = new
+                        {
+                            reason = gapReason,
+                            requestedStreamId = request.StreamId,
+                            requestedCursor = request.Cursor,
+                            oldestCursor = replay?.OldestAvailableCursor ?? catchUp.OldestAvailableCursor,
+                            currentCursor = _ReplayBuffer.CurrentCursor
+                        },
+                        timestamp = DateTime.UtcNow
+                    }, _JsonOptions));
+                }
+
+                frames.Add(JsonSerializer.Serialize(new
+                {
+                    type = "status.snapshot",
+                    streamId = _ReplayBuffer.StreamId,
+                    cursor = snapshotWatermark,
+                    data = new { status, reconciliation },
+                    timestamp = DateTime.UtcNow
+                }, _JsonOptions));
+                foreach (WebSocketReplayRecord record in catchUpRecords) frames.Add(record.Frame);
+                frames.Add(JsonSerializer.Serialize(new
+                {
+                    type = "stream.ready",
+                    streamId = _ReplayBuffer.StreamId,
+                    cursor = readyCursor,
+                    data = new { replayed = initialRecords.Count + catchUpRecords.Count, gapDetected = gapReason != null },
+                    timestamp = DateTime.UtcNow
+                }, _JsonOptions));
+
+                foreach (string frame in frames)
+                {
+                    if (connection.Session.IsConnected && connection.Output.TryEnqueue(frame)) continue;
+                    failedConnection = connection;
+                    break;
+                }
+                if (failedConnection == null) connection.Subscribed = true;
+            }
+
+            if (failedConnection != null)
+                DisconnectConnection(sessionId, failedConnection, "Outbound subscription queue reached its capacity.");
         }
 
         private void EnqueueOrDisconnect(Guid sessionId, string json)
@@ -504,6 +608,8 @@ namespace Armada.Server.WebSocket
         {
             public WebSocketSession Session { get; }
             public WebSocketClientOutputQueue Output { get; }
+            public bool Subscribed { get; set; }
+            public bool SubscriptionRequested { get; set; }
 
             public ClientConnection(WebSocketSession session, WebSocketClientOutputQueue output)
             {

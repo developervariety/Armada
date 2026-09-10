@@ -1220,6 +1220,21 @@ delay the event producer or another monitor. If a client cannot keep up, Armada
 disconnects it instead of silently dropping events. Reconnect and reconcile
 authoritative state after that disconnect.
 
+Each broadcast has a process `streamId` and a monotonic `cursor`. The watcher
+keeps the last pair in memory and sends it on reconnect. Armada replays the
+available suffix from a bounded 128-event, 1 MiB process buffer. It sends an
+explicit `event.gap` if the process changed, the cursor is invalid, history was
+evicted, or the reconnect output is too large.
+
+Each subscription also gets an authoritative reconciliation snapshot before
+Armada enables live delivery. A global watch gets all Open and InProgress
+voyages, their missions and Checks, and all captains. `--voyage` gets the exact
+voyage, including a terminal voyage, with its linked missions, Checks, and
+captains. The global view also includes active standalone missions and their
+Checks. The watcher applies this state before it trusts later live events. It
+prints `RECONCILED` after each connect or reconnect. A scoped snapshot for a
+purged voyage is empty and does not stop future live delivery.
+
 ```sh
 ssh <server> 'node <armada-checkout>/scripts/autonomy/watch-armada.mjs \
     --voyage <voyage-id> --participant <your-key> --exit-on-terminal'

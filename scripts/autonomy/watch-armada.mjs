@@ -89,6 +89,11 @@ export function describeEvent(event, options) {
       return `check ${data.id} ${label} -> ${data.status}${queue}${run}`;
     }
 
+    case "event.gap": {
+      const reason = shorten(data.reason || event.message || "event history is not available", 160);
+      return `EVENT GAP${reason ? `: ${reason}` : ""}`;
+    }
+
     case "incident.changed": {
       const severity = data.Severity ?? data.severity ?? "";
       const status = data.Status ?? data.status ?? "";
@@ -150,13 +155,88 @@ export async function watch(options = {}) {
   const openSocket = options.openSocket || ((target) => new WebSocket(target));
   const write = options.write || ((line) => process.stdout.write(`${line}\n`));
   const note = options.note || ((line) => process.stderr.write(`${line}\n`));
+  const wait = options.wait || ((durationMs) => new Promise((resolve) => setTimeout(resolve, durationMs)));
 
   let backoffMs = RECONNECT_MIN_MS;
   let stop = false;
+  let streamId = null;
+  let cursor = null;
+  const knownStates = new Map();
+
+  const eventState = (event) => {
+    const data = event?.data ?? {};
+    switch (event?.type) {
+      case "voyage.changed": return { key: `voyage:${data.id}`, state: data.status };
+      case "mission.changed": return { key: `mission:${data.id}`, state: data.status };
+      case "captain.changed": return { key: `captain:${data.Id ?? data.id}`, state: data.State ?? data.state ?? data.Status ?? data.status };
+      case "check-run.changed": return { key: `check:${data.Id ?? data.id}`, state: data.Status ?? data.status };
+      default: return null;
+    }
+  };
+
+  const remember = (event) => {
+    const current = eventState(event);
+    if (!current?.key || current.key.endsWith(":")) return false;
+    const changed = knownStates.has(current.key) && knownStates.get(current.key) !== current.state;
+    knownStates.set(current.key, current.state);
+    return changed;
+  };
+
+  const snapshotEvents = (reconciliation) => {
+    const result = [];
+    for (const voyage of reconciliation?.voyages ?? [])
+      result.push({ type: "voyage.changed", data: voyage });
+    for (const mission of reconciliation?.missions ?? [])
+      result.push({ type: "mission.changed", data: mission });
+    for (const captain of reconciliation?.captains ?? [])
+      result.push({ type: "captain.changed", data: captain });
+    for (const checkRun of reconciliation?.checkRuns ?? [])
+      result.push({ type: "check-run.changed", data: checkRun });
+    return result;
+  };
+
+  const isActionableSnapshotState = (event) => {
+    const state = event?.data?.status ?? event?.data?.state;
+    if (event?.type === "mission.changed")
+      return ["Failed", "LandingFailed", "WaitingForInput"].includes(state);
+    if (event?.type === "captain.changed") return state === "Stalled";
+    if (event?.type === "check-run.changed") return state === "Failed";
+    return false;
+  };
+
+  const applySnapshot = (event, socket) => {
+    const reconciliation = event?.data?.reconciliation;
+    if (!reconciliation) return false;
+
+    const events = snapshotEvents(reconciliation);
+    let terminal = null;
+    for (const reconciledEvent of events) {
+      const changed = remember(reconciledEvent);
+      if (changed || isActionableSnapshotState(reconciledEvent)) {
+        const line = describeEvent(reconciledEvent, settings);
+        if (line) write(line);
+      }
+      if (isTerminalVoyageEvent(reconciledEvent, settings)) terminal = reconciledEvent;
+    }
+
+    write(`RECONCILED voyages=${reconciliation.voyages?.length ?? 0}` +
+      ` missions=${reconciliation.missions?.length ?? 0}` +
+      ` captains=${reconciliation.captains?.length ?? 0}` +
+      ` checks=${reconciliation.checkRuns?.length ?? 0}`);
+
+    if (terminal) {
+      write(`TERMINAL ${terminal.data.id} ${terminal.data.status}`);
+      stop = true;
+      try { socket.close(); } catch { /* already closing */ }
+      return true;
+    }
+    return false;
+  };
 
   while (!stop) {
     const closed = await new Promise((resolve) => {
       let socket;
+      let snapshotApplied = false;
       try {
         socket = openSocket(url);
       } catch (error) {
@@ -168,7 +248,11 @@ export async function watch(options = {}) {
         backoffMs = RECONNECT_MIN_MS;
         note(`watching ${url}${settings.voyageId ? ` voyage=${settings.voyageId}` : ""}` +
           `${settings.participantKey ? ` mail=${settings.participantKey}` : ""}`);
-        socket.send(JSON.stringify({ route: "subscribe" }));
+        const subscription = { route: "subscribe" };
+        if (streamId) subscription.streamId = streamId;
+        if (cursor !== null) subscription.cursor = cursor;
+        if (settings.voyageId) subscription.voyageId = settings.voyageId;
+        socket.send(JSON.stringify(subscription));
       });
 
       socket.addEventListener("message", (frame) => {
@@ -179,8 +263,52 @@ export async function watch(options = {}) {
           return;
         }
 
+        if (event.type === "status.snapshot") {
+          if (typeof event.streamId === "string" && event.streamId) streamId = event.streamId;
+          if (Number.isSafeInteger(event.cursor)) cursor = event.cursor;
+          snapshotApplied = Boolean(event?.data?.reconciliation);
+          applySnapshot(event, socket);
+          return;
+        }
+
+        if (event.type === "stream.ready") {
+          const validBoundary = snapshotApplied
+            && typeof event.streamId === "string"
+            && event.streamId === streamId
+            && Number.isSafeInteger(event.cursor)
+            && event.cursor === cursor;
+          if (!validBoundary) {
+            note(`EVENT GAP invalid stream.ready boundary; reconnecting`);
+            try { socket.close(); } catch { /* close event will schedule retry */ }
+          }
+          return;
+        }
+
+        if (event.type === "event.gap") {
+          const line = describeEvent(event, settings);
+          if (line) write(line);
+          return;
+        }
+
+        const sequenced = typeof event.streamId === "string" && event.streamId && Number.isSafeInteger(event.cursor);
+        if (sequenced && cursor !== null) {
+          const expected = cursor + 1;
+          if (event.streamId !== streamId || event.cursor !== expected) {
+            note(`EVENT GAP expected=${streamId ?? "unknown"}/${expected} received=${event.streamId}/${event.cursor}; reconnecting`);
+            try { socket.close(); } catch { /* close event will schedule retry */ }
+            return;
+          }
+        }
+
+        if (sequenced) {
+          streamId = event.streamId;
+          cursor = event.cursor;
+        }
+
         const line = describeEvent(event, settings);
         if (line) write(line);
+
+        remember(event);
 
         if (isTerminalVoyageEvent(event, settings)) {
           write(`TERMINAL ${event.data.id} ${event.data.status}`);
@@ -203,7 +331,7 @@ export async function watch(options = {}) {
     // A dropped socket is not the end of the watch. Reconnecting silently would
     // hide a hub that is refusing connections, so say so and back off.
     note(`disconnected (${closed.reason}); retrying in ${backoffMs}ms`);
-    await new Promise((resolve) => setTimeout(resolve, backoffMs));
+    await wait(backoffMs);
     backoffMs = Math.min(backoffMs * 2, RECONNECT_MAX_MS);
   }
 }

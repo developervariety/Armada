@@ -83,6 +83,10 @@ test("stays silent on routine noise but reports what needs action", () => {
     describeEvent({ type: "mission.failed", message: "gate red" }, options()),
     /^mission\.failed: gate red$/,
   );
+  assert.equal(
+    describeEvent({ type: "event.gap", data: { reason: "cursor expired" } }, options()),
+    "EVENT GAP: cursor expired",
+  );
 });
 
 test("collapses whitespace so one event stays one line", () => {
@@ -131,10 +135,234 @@ test("subscribes on open and stops on the terminal voyage event", async () => {
   listeners.get("message")({ data: JSON.stringify({ type: "voyage.changed", data: { id: "vyg_1", status: "Complete" } }) });
   await done;
 
-  assert.deepEqual(JSON.parse(sent[0]), { route: "subscribe" });
+  assert.deepEqual(JSON.parse(sent[0]), { route: "subscribe", voyageId: "vyg_1" });
   assert.deepEqual(lines, [
     "mission msn_1 -> Complete",
     "voyage vyg_1 -> Complete",
     "TERMINAL vyg_1 Complete",
   ]);
+});
+
+test("reconnects with the last cursor and tracked voyage", async () => {
+  const sockets = [];
+  const makeSocket = () => {
+    const listeners = new Map();
+    const sent = [];
+    const socket = {
+      listeners,
+      sent,
+      addEventListener: (name, handler) => listeners.set(name, handler),
+      send: (payload) => sent.push(payload),
+      close: () => listeners.get("close")?.({ code: 1000 }),
+    };
+    sockets.push(socket);
+    return socket;
+  };
+
+  const done = watch({
+    environment: {},
+    voyageId: "vyg_1",
+    exitOnTerminal: true,
+    openSocket: makeSocket,
+    write: () => {},
+    note: () => {},
+    wait: async () => {},
+  });
+
+  sockets[0].listeners.get("open")();
+  sockets[0].listeners.get("message")({ data: JSON.stringify({
+    type: "mission.changed", streamId: "stream-a", cursor: 7,
+    data: { id: "msn_1", voyageId: "vyg_1", status: "InProgress" },
+  }) });
+  sockets[0].close();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  sockets[1].listeners.get("open")();
+  assert.deepEqual(JSON.parse(sockets[1].sent[0]), {
+    route: "subscribe", streamId: "stream-a", cursor: 7, voyageId: "vyg_1",
+  });
+  sockets[1].listeners.get("message")({ data: JSON.stringify({
+    type: "voyage.changed", streamId: "stream-a", cursor: 8,
+    data: { id: "vyg_1", status: "Complete" },
+  }) });
+  await done;
+});
+
+test("a local cursor discontinuity closes and resumes from the last good cursor", async () => {
+  const sockets = [];
+  const notes = [];
+  const makeSocket = () => {
+    const listeners = new Map();
+    const sent = [];
+    const socket = {
+      listeners,
+      sent,
+      addEventListener: (name, handler) => listeners.set(name, handler),
+      send: (payload) => sent.push(payload),
+      close: () => listeners.get("close")?.({ code: 1000 }),
+    };
+    sockets.push(socket);
+    return socket;
+  };
+
+  const done = watch({
+    environment: {},
+    voyageId: "vyg_1",
+    exitOnTerminal: true,
+    openSocket: makeSocket,
+    write: () => {},
+    note: (line) => notes.push(line),
+    wait: async () => {},
+  });
+
+  sockets[0].listeners.get("open")();
+  sockets[0].listeners.get("message")({ data: JSON.stringify({
+    type: "mission.changed", streamId: "stream-a", cursor: 4,
+    data: { id: "msn_1", voyageId: "vyg_1", status: "InProgress" },
+  }) });
+  sockets[0].listeners.get("message")({ data: JSON.stringify({
+    type: "mission.changed", streamId: "stream-a", cursor: 6,
+    data: { id: "msn_1", voyageId: "vyg_1", status: "Complete" },
+  }) });
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.match(notes.find((line) => line.startsWith("EVENT GAP")), /expected=stream-a\/5 received=stream-a\/6/);
+  sockets[1].listeners.get("open")();
+  assert.deepEqual(JSON.parse(sockets[1].sent[0]), {
+    route: "subscribe", streamId: "stream-a", cursor: 4, voyageId: "vyg_1",
+  });
+  sockets[1].listeners.get("message")({ data: JSON.stringify({
+    type: "voyage.changed", streamId: "stream-a", cursor: 5,
+    data: { id: "vyg_1", status: "Failed" },
+  }) });
+  await done;
+});
+
+test("an authoritative snapshot reconciles state and detects a terminal tracked voyage", async () => {
+  const listeners = new Map();
+  const lines = [];
+  const socket = {
+    addEventListener: (name, handler) => listeners.set(name, handler),
+    send: () => {},
+    close: () => listeners.get("close")?.({ code: 1000 }),
+  };
+
+  const done = watch({
+    environment: {},
+    voyageId: "vyg_1",
+    exitOnTerminal: true,
+    openSocket: () => socket,
+    write: (line) => lines.push(line),
+    note: () => {},
+  });
+
+  listeners.get("open")();
+  listeners.get("message")({ data: JSON.stringify({
+    type: "status.snapshot",
+    streamId: "stream-new",
+    cursor: 21,
+    data: {
+      status: { activeVoyages: 0 },
+      reconciliation: {
+        voyages: [{ id: "vyg_1", status: "Complete", title: "done" }],
+        missions: [{ id: "msn_1", voyageId: "vyg_1", status: "Failed" }],
+        captains: [{ id: "cpt_1", name: "worker", state: "Stalled" }],
+        checkRuns: [{ id: "chk_1", voyageId: "vyg_1", type: "UnitTest", status: "Failed" }],
+      },
+    },
+  }) });
+  await done;
+
+  assert.deepEqual(lines, [
+    "mission msn_1 -> Failed",
+    "CAPTAIN STALLED cpt_1 worker",
+    "check chk_1 UnitTest -> Failed",
+    "RECONCILED voyages=1 missions=1 captains=1 checks=1",
+    "TERMINAL vyg_1 Complete",
+  ]);
+});
+
+test("an explicit server gap is reported before reconciliation", async () => {
+  const listeners = new Map();
+  const lines = [];
+  const socket = {
+    addEventListener: (name, handler) => listeners.set(name, handler),
+    send: () => {},
+    close: () => listeners.get("close")?.({ code: 1000 }),
+  };
+
+  const done = watch({
+    environment: {},
+    voyageId: "vyg_1",
+    exitOnTerminal: true,
+    openSocket: () => socket,
+    write: (line) => lines.push(line),
+    note: () => {},
+  });
+
+  listeners.get("open")();
+  listeners.get("message")({ data: JSON.stringify({
+    type: "event.gap", streamId: "stream-b", cursor: 30, data: { reason: "cursor expired" },
+  }) });
+  listeners.get("message")({ data: JSON.stringify({
+    type: "status.snapshot", streamId: "stream-b", cursor: 30,
+    data: { status: {}, reconciliation: {
+      voyages: [{ id: "vyg_1", status: "Cancelled" }], missions: [], captains: [], checkRuns: [],
+    } },
+  }) });
+  await done;
+
+  assert.deepEqual(lines, [
+    "EVENT GAP: cursor expired",
+    "RECONCILED voyages=1 missions=0 captains=0 checks=0",
+    "TERMINAL vyg_1 Cancelled",
+  ]);
+});
+
+test("a gap control frame never advances the reconnect cursor", async () => {
+  const sockets = [];
+  const makeSocket = () => {
+    const listeners = new Map();
+    const sent = [];
+    const socket = {
+      listeners,
+      sent,
+      addEventListener: (name, handler) => listeners.set(name, handler),
+      send: (payload) => sent.push(payload),
+      close: () => listeners.get("close")?.({ code: 1000 }),
+    };
+    sockets.push(socket);
+    return socket;
+  };
+
+  const done = watch({
+    environment: {}, voyageId: "vyg_1", exitOnTerminal: true,
+    openSocket: makeSocket, write: () => {}, note: () => {}, wait: async () => {},
+  });
+
+  sockets[0].listeners.get("open")();
+  sockets[0].listeners.get("message")({ data: JSON.stringify({
+    type: "status.snapshot", streamId: "stream-a", cursor: 5,
+    data: { reconciliation: { voyages: [], missions: [], captains: [], checkRuns: [] } },
+  }) });
+  sockets[0].listeners.get("message")({ data: JSON.stringify({
+    type: "stream.ready", streamId: "stream-a", cursor: 5,
+  }) });
+  sockets[0].listeners.get("message")({ data: JSON.stringify({
+    type: "event.gap", streamId: "stream-a", data: { reason: "snapshot_overflow", currentCursor: 200 },
+  }) });
+  sockets[0].close();
+  await new Promise((resolve) => setImmediate(resolve));
+
+  sockets[1].listeners.get("open")();
+  assert.deepEqual(JSON.parse(sockets[1].sent[0]), {
+    route: "subscribe", streamId: "stream-a", cursor: 5, voyageId: "vyg_1",
+  });
+  sockets[1].listeners.get("message")({ data: JSON.stringify({
+    type: "status.snapshot", streamId: "stream-a", cursor: 200,
+    data: { reconciliation: {
+      voyages: [{ id: "vyg_1", status: "Complete" }], missions: [], captains: [], checkRuns: [],
+    } },
+  }) });
+  await done;
 });

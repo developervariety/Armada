@@ -144,11 +144,18 @@ All server messages include a `type` field indicating the event kind, and a `tim
   "data": {
     "id": "msn_abc123",
     "status": "Complete",
-    "title": "Implement feature X"
+    "title": "Implement feature X",
+    "voyageId": "vyg_abc123"
   },
+  "streamId": "8af7caa37157484ca80587eadac99747",
+  "cursor": 42,
   "timestamp": "2026-03-07T12:34:56.789Z"
 }
 ```
+
+Broadcast events have a process `streamId` and a monotonic `cursor`.
+`status.snapshot` and `stream.ready` include a safe resume position.
+`event.gap` identifies the stream but does not claim an event cursor.
 
 ---
 
@@ -156,17 +163,26 @@ All server messages include a `type` field indicating the event kind, and a `tim
 
 ### subscribe
 
-Subscribe to real-time event broadcasts. Upon connection with this route, the server immediately sends a `status.snapshot` message containing the current Armada state.
+Subscribe to real-time event broadcasts. A new subscription needs only the
+route. A reconnect can send the last complete `streamId` and `cursor` pair.
+`voyageId` limits the authoritative reconciliation snapshot to one voyage.
 
 **Client sends:**
 
 ```json
 {
-  "Route": "subscribe"
+  "Route": "subscribe",
+  "streamId": "8af7caa37157484ca80587eadac99747",
+  "cursor": 42,
+  "voyageId": "vyg_abc123"
 }
 ```
 
-**Server responds with:** a [`status.snapshot`](#statussnapshot) message.
+The server can first replay retained events after the cursor. It then sends a
+[`status.snapshot`](#statussnapshot), any events that occurred while it built
+the snapshot, and `stream.ready`. If complete replay is not possible, it sends
+`event.gap` before the snapshot. Old clients that send only `Route` continue to
+work.
 
 After the initial snapshot, the client will receive all broadcast events ([`mission.changed`](#missionchanged), [`voyage.changed`](#voyagechanged), [`captain.changed`](#captainchanged), [`objective.changed`](#objectivechanged), [`objective-refinement-session.changed`](#objective-refinement-sessionchanged), [`objective-refinement-session.message.created`](#objective-refinement-sessionmessagecreated), [`objective-refinement-session.message.updated`](#objective-refinement-sessionmessageupdated), [`objective-refinement-session.summary.created`](#objective-refinement-sessionsummarycreated), [`objective-refinement-session.applied`](#objective-refinement-sessionapplied), [`check-run.changed`](#check-runchanged), [`deployment.changed`](#deploymentchanged), [`deployment.progress`](#deploymentprogress), [`environment.health`](#environmenthealth), [`approval-needed`](#approval-needed), and [generic events](#generic-events)) as they occur.
 
@@ -194,53 +210,56 @@ See [Command Actions](#command-actions) for the current operational action set. 
 
 ## Server-Pushed Events
 
-These events are broadcast to **all connected clients** whenever state changes occur in the Armada system. Clients do not need to request these Ã¢â‚¬â€ they are pushed automatically after subscribing.
+These events are broadcast to all subscribed clients when state changes occur.
+Clients do not receive live events before subscription reconciliation is ready.
 
 ### status.snapshot
 
-Sent immediately when a client connects via the `subscribe` route. Contains a full snapshot of the current Armada state.
+Sent for each `subscribe` request. It contains the normal Armada status and an
+authoritative reconciliation view at the stated cursor.
 
 ```json
 {
   "type": "status.snapshot",
+  "streamId": "8af7caa37157484ca80587eadac99747",
+  "cursor": 42,
   "data": {
-    "totalCaptains": 4,
-    "idleCaptains": 1,
-    "workingCaptains": 2,
-    "stalledCaptains": 1,
-    "activeVoyages": 2,
-    "missionsByStatus": {
-      "Pending": 3,
-      "InProgress": 2,
-      "Complete": 10,
-      "Failed": 1
+    "status": {
+      "totalCaptains": 4,
+      "idleCaptains": 1,
+      "workingCaptains": 2,
+      "stalledCaptains": 1,
+      "activeVoyages": 2
     },
-    "voyages": [
-      {
-        "voyage": { "...": "Voyage object" },
-        "totalMissions": 5,
-        "completedMissions": 3,
-        "failedMissions": 0,
-        "inProgressMissions": 2
-      }
-    ],
-    "recentSignals": [],
-    "remoteTunnel": {
-      "enabled": false,
-      "state": "Disabled",
-      "tunnelUrl": null,
-      "instanceId": "armada-1f2e3d4c5b6a",
-      "lastError": null,
-      "reconnectAttempts": 0,
-      "latencyMs": null
-    },
-    "timestampUtc": "2026-03-07T12:34:56.789Z"
+    "reconciliation": {
+      "generatedUtc": "2026-03-07T12:34:56.789Z",
+      "voyageId": null,
+      "voyages": [],
+      "missions": [],
+      "captains": [],
+      "checkRuns": []
+    }
   },
   "timestamp": "2026-03-07T12:34:56.789Z"
 }
 ```
 
-**`data` field:** [ArmadaStatus](#armadastatus) object.
+For a global subscription, reconciliation includes Open and InProgress voyages,
+their missions and Checks, active standalone missions and their Checks, and all captains. For a scoped subscription, it
+includes the exact voyage even when it is terminal, plus its linked state.
+Snapshots use bounded database pagination and fail instead of returning a
+silently incomplete result.
+
+### event.gap
+
+The requested history is not complete. `data.reason` is `stream_changed`,
+`cursor_ahead`, `history_evicted`, `snapshot_overflow`, or `replay_overflow`.
+The client must use the following `status.snapshot` as authoritative state.
+
+### stream.ready
+
+Subscription reconciliation is complete. The frame gives the current
+`streamId` and `cursor`. Live events follow it in cursor order.
 
 ---
 

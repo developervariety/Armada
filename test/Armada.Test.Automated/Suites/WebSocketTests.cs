@@ -65,31 +65,110 @@ namespace Armada.Test.Automated.Suites
                 byte[] bytes = Encoding.UTF8.GetBytes(msg);
                 await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
 
-                // The socket joins the broadcast set when it connects, and the hub awaits
-                // GetStatusAsync before sending the snapshot. Any fleet event raised in that
-                // window is delivered first, so the snapshot is guaranteed to ARRIVE, not to
-                // arrive first. Skip broadcasts rather than pinning an order the hub never
-                // promised.
                 byte[] buffer = new byte[1048576];
                 using CancellationTokenSource cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-                bool sawSnapshot = false;
-                string lastType = "<none>";
-                while (!sawSnapshot)
+                JsonElement snapshot = await ReceiveFrameAsync(ws, buffer, cts.Token).ConfigureAwait(false);
+                AssertEqual("status.snapshot", snapshot.GetProperty("type").GetString());
+                Assert(snapshot.TryGetProperty("streamId", out JsonElement streamId) && !String.IsNullOrWhiteSpace(streamId.GetString()), "Snapshot should contain streamId.");
+                Assert(snapshot.TryGetProperty("cursor", out _), "Snapshot should contain cursor.");
+                Assert(snapshot.GetProperty("data").TryGetProperty("status", out _), "Snapshot should contain status.");
+                Assert(snapshot.GetProperty("data").TryGetProperty("reconciliation", out _), "Snapshot should contain reconciliation state.");
+                Assert(snapshot.TryGetProperty("timestamp", out _), "Snapshot should contain timestamp.");
+
+                JsonElement ready;
+                long lastCursor = snapshot.GetProperty("cursor").GetInt64();
+                do
                 {
-                    WebSocketReceiveResult result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), cts.Token).ConfigureAwait(false);
-                    string json = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    using JsonDocument doc = JsonDocument.Parse(json);
-                    JsonElement root = doc.RootElement;
+                    ready = await ReceiveFrameAsync(ws, buffer, cts.Token).ConfigureAwait(false);
+                    if (ready.GetProperty("type").GetString() != "stream.ready"
+                        && ready.TryGetProperty("cursor", out JsonElement eventCursor))
+                    {
+                        AssertEqual(lastCursor + 1, eventCursor.GetInt64(), "Snapshot catch-up events must be contiguous.");
+                        lastCursor = eventCursor.GetInt64();
+                    }
+                } while (ready.GetProperty("type").GetString() != "stream.ready");
 
-                    lastType = root.GetProperty("type").GetString() ?? "<null>";
-                    if (!String.Equals(lastType, "status.snapshot", StringComparison.Ordinal)) continue;
+                AssertEqual(streamId.GetString(), ready.GetProperty("streamId").GetString());
+                AssertTrue(ready.GetProperty("cursor").GetInt64() >= lastCursor, "Ready must not move the cursor backward.");
+            }).ConfigureAwait(false);
 
-                    sawSnapshot = true;
-                    Assert(root.TryGetProperty("data", out _), "Should contain data property");
-                    Assert(root.TryGetProperty("timestamp", out _), "Should contain timestamp");
+            await RunTest("Reconnect_ReplaysEventAfterCursorBeforeSnapshot", async () =>
+            {
+                string streamId;
+                long cursor;
+                using (ClientWebSocket first = await ConnectAsync().ConfigureAwait(false))
+                {
+                    await SendJsonAsync(first, new { Route = "subscribe" }).ConfigureAwait(false);
+                    byte[] firstBuffer = new byte[1048576];
+                    using CancellationTokenSource firstCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                    JsonElement frame;
+                    do
+                    {
+                        frame = await ReceiveFrameAsync(first, firstBuffer, firstCts.Token).ConfigureAwait(false);
+                    } while (frame.GetProperty("type").GetString() != "stream.ready");
+
+                    streamId = frame.GetProperty("streamId").GetString()!;
+                    cursor = frame.GetProperty("cursor").GetInt64();
                 }
 
-                Assert(sawSnapshot, "subscribe should deliver a status.snapshot; last frame was " + lastType);
+                string voyageId = await CreateVoyageViaRestAsync("ws-replay-voyage").ConfigureAwait(false);
+                HttpResponseMessage cancel = await _AuthClient.DeleteAsync("/api/v1/voyages/" + voyageId).ConfigureAwait(false);
+                cancel.EnsureSuccessStatusCode();
+
+                using ClientWebSocket resumed = await ConnectAsync().ConfigureAwait(false);
+                await SendJsonAsync(resumed, new { Route = "subscribe", streamId, cursor, voyageId }).ConfigureAwait(false);
+                byte[] buffer = new byte[1048576];
+                using CancellationTokenSource cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+                bool sawExpectedReplay = false;
+                bool sawSnapshot = false;
+                while (true)
+                {
+                    JsonElement frame = await ReceiveFrameAsync(resumed, buffer, cts.Token).ConfigureAwait(false);
+                    string? type = frame.GetProperty("type").GetString();
+                    if (type == "voyage.changed"
+                        && frame.GetProperty("data").GetProperty("id").GetString() == voyageId)
+                    {
+                        AssertFalse(sawSnapshot, "The missed event must be replayed before the authoritative snapshot.");
+                        AssertTrue(frame.GetProperty("cursor").GetInt64() > cursor, "The replay cursor must advance.");
+                        sawExpectedReplay = true;
+                    }
+                    else if (type == "status.snapshot")
+                    {
+                        sawSnapshot = true;
+                        JsonElement voyages = frame.GetProperty("data").GetProperty("reconciliation").GetProperty("voyages");
+                        AssertTrue(voyages.GetArrayLength() == 1, "The scoped snapshot should contain the cancelled voyage.");
+                        AssertEqual(voyageId, voyages[0].GetProperty("id").GetString());
+                    }
+                    else if (type == "stream.ready")
+                    {
+                        break;
+                    }
+                }
+
+                AssertTrue(sawExpectedReplay, "Reconnect should replay the missed voyage event.");
+                AssertTrue(sawSnapshot, "Reconnect should include an authoritative snapshot.");
+            }).ConfigureAwait(false);
+
+            await RunTest("RepeatedSubscribe_IsRejectedWithoutMixingSequences", async () =>
+            {
+                using ClientWebSocket ws = await ConnectAsync().ConfigureAwait(false);
+                await SendJsonAsync(ws, new { Route = "subscribe" }).ConfigureAwait(false);
+                byte[] buffer = new byte[1048576];
+                using CancellationTokenSource cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+                JsonElement frame;
+                do
+                {
+                    frame = await ReceiveFrameAsync(ws, buffer, cts.Token).ConfigureAwait(false);
+                } while (frame.GetProperty("type").GetString() != "stream.ready");
+
+                await SendJsonAsync(ws, new { Route = "subscribe" }).ConfigureAwait(false);
+                do
+                {
+                    frame = await ReceiveFrameAsync(ws, buffer, cts.Token).ConfigureAwait(false);
+                } while (frame.GetProperty("type").GetString() != "command.error");
+
+                AssertContains("already subscribed", frame.GetProperty("error").GetString()!);
             }).ConfigureAwait(false);
 
             // Status Tests
@@ -950,6 +1029,23 @@ namespace Armada.Test.Automated.Suites
             Uri uri = new Uri("ws://localhost:" + _RestPort + "/ws");
             await ws.ConnectAsync(uri, CancellationToken.None).ConfigureAwait(false);
             return ws;
+        }
+
+        private static async Task SendJsonAsync(ClientWebSocket socket, object value)
+        {
+            byte[] bytes = Encoding.UTF8.GetBytes(JsonHelper.Serialize(value));
+            await socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+        }
+
+        private static async Task<JsonElement> ReceiveFrameAsync(
+            ClientWebSocket socket,
+            byte[] buffer,
+            CancellationToken token)
+        {
+            WebSocketReceiveResult result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), token).ConfigureAwait(false);
+            string json = Encoding.UTF8.GetString(buffer, 0, result.Count);
+            using JsonDocument document = JsonDocument.Parse(json);
+            return document.RootElement.Clone();
         }
 
         /// <summary>

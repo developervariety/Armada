@@ -112,6 +112,8 @@ namespace Armada.Test.Unit
             runner.AddSuite(new RemoteControlQueryServiceTests());
             runner.AddSuite(new RemoteControlManagementServiceTests());
             runner.AddSuite(new WebSocketClientOutputQueueTests());
+            runner.AddSuite(new WebSocketReplayBufferTests());
+            runner.AddSuite(new FleetReconciliationSnapshotServiceTests());
             runner.AddSuite(new CaptainServiceTests());
             runner.AddSuite(new AgentLifecycleHandlerTests());
             runner.AddSuite(new PlanningSessionCoordinatorTests());

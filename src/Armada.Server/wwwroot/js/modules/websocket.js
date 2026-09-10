@@ -13,11 +13,37 @@ window.ArmadaModules.websocket = {
             this.ws.onopen = () => {
                 this.wsConnected = true;
                 this.connected = true;
+                this.wsStreamReady = false;
+                this.wsPendingStreamId = this.wsStreamId || null;
+                this.wsPendingCursor = Number.isFinite(this.wsCursor) ? this.wsCursor : null;
                 console.log('WebSocket connected');
-                this.ws.send(JSON.stringify({ Route: 'subscribe' }));
+                const subscribe = { Route: 'subscribe' };
+                if (this.wsStreamId && Number.isFinite(this.wsCursor)) {
+                    subscribe.streamId = this.wsStreamId;
+                    subscribe.cursor = this.wsCursor;
+                }
+                this.ws.send(JSON.stringify(subscribe));
             };
             this.ws.onmessage = (evt) => {
-                try { this.handleWsMessage(this.toCamel(JSON.parse(evt.data))); } catch (e) { }
+                try {
+                    const data = this.toCamel(JSON.parse(evt.data));
+                    const isControl = ['event.gap', 'status.snapshot', 'stream.ready'].includes(data.type);
+                    if (!isControl && data.streamId && Number.isFinite(data.cursor)) {
+                        const sameStream = this.wsPendingStreamId === data.streamId;
+                        if (sameStream && Number.isFinite(this.wsPendingCursor) && data.cursor > this.wsPendingCursor + 1) {
+                            console.warn('WebSocket event gap detected; reconnecting for authoritative state');
+                            this.ws?.close();
+                            return;
+                        }
+                        this.wsPendingStreamId = data.streamId;
+                        this.wsPendingCursor = sameStream ? Math.max(this.wsPendingCursor || 0, data.cursor) : data.cursor;
+                        if (this.wsStreamReady) {
+                            this.wsStreamId = this.wsPendingStreamId;
+                            this.wsCursor = this.wsPendingCursor;
+                        }
+                    }
+                    this.handleWsMessage(data);
+                } catch (e) { }
             };
             this.ws.onclose = () => {
                 this.wsConnected = false;
@@ -37,8 +63,34 @@ window.ArmadaModules.websocket = {
     },
 
     handleWsMessage(data) {
+        if (data.type === 'event.gap') {
+            this.wsStreamReady = false;
+            console.warn('WebSocket replay gap:', data.data || data.message || 'unknown');
+            this.refresh();
+            return;
+        }
+        if (data.type === 'stream.ready') {
+            const validBoundary = data.streamId && data.streamId === this.wsPendingStreamId &&
+                Number.isFinite(data.cursor) && data.cursor === this.wsPendingCursor;
+            if (!validBoundary) {
+                console.warn('Invalid WebSocket ready boundary; reconnecting');
+                this.ws?.close();
+                return;
+            }
+            this.wsStreamId = this.wsPendingStreamId;
+            this.wsCursor = this.wsPendingCursor;
+            this.wsStreamReady = true;
+            return;
+        }
         if (data.type === 'status.snapshot') {
-            this.status = data.data || this.status;
+            if (data.streamId && Number.isFinite(data.cursor)) {
+                this.wsPendingStreamId = data.streamId;
+                this.wsPendingCursor = data.cursor;
+            }
+            this.status = data.data?.status || data.data || this.status;
+            // A snapshot is the authoritative reconnect boundary. Refresh the current
+            // view so entity lists cannot keep state that changed while disconnected.
+            this.refresh();
             return;
         }
         if (data.type && (
