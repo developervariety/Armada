@@ -394,7 +394,7 @@ namespace Armada.Server.Routes
                     {
                         if (cm.Status == MissionStatusEnum.Cancelled)
                         {
-                            _webSocketHub.BroadcastMissionChange(cm.Id, MissionStatusEnum.Cancelled.ToString(), cm.Title);
+                            _webSocketHub.BroadcastMissionChange(cm.Id, MissionStatusEnum.Cancelled.ToString(), cm.Title, cm.VoyageId);
                         }
                     }
                 }

@@ -115,7 +115,8 @@ namespace Armada.Server.WebSocket
         /// <param name="missionId">Mission ID.</param>
         /// <param name="status">New status.</param>
         /// <param name="title">Mission title.</param>
-        public void BroadcastMissionChange(string missionId, string status, string? title = null)
+        /// <param name="voyageId">Parent voyage ID, or null for a standalone mission.</param>
+        public void BroadcastMissionChange(string missionId, string status, string? title, string? voyageId)
         {
             object payload = new
             {
@@ -124,7 +125,8 @@ namespace Armada.Server.WebSocket
                 {
                     id = missionId,
                     title = title,
-                    status = status
+                    status = status,
+                    voyageId = voyageId
                 },
                 timestamp = DateTime.UtcNow
             };

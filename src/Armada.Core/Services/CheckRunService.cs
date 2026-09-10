@@ -104,97 +104,112 @@ namespace Armada.Core.Services
                 Label = request.Label,
                 Type = request.Type,
                 Source = CheckRunSourceEnum.Armada,
-                Status = CheckRunStatusEnum.Running,
+                Status = CheckRunStatusEnum.Pending,
                 EnvironmentName = request.EnvironmentName,
                 Command = command,
                 WorkingDirectory = vessel.WorkingDirectory,
                 BranchName = request.BranchName,
                 CommitHash = request.CommitHash,
-                StartedUtc = DateTime.UtcNow,
                 CreatedUtc = DateTime.UtcNow,
                 LastUpdateUtc = DateTime.UtcNow
             };
 
-            run = await _Database.CheckRuns.CreateAsync(run, token).ConfigureAwait(false);
-            OnCheckRunChanged?.Invoke(run);
-
-            IsolatedCheckout? isolatedCheckout = null;
-
-            Stopwatch sw = Stopwatch.StartNew();
-            CommandExecutionResult execution;
-
+            SemaphoreSlim runLock = _PendingRunLocks.GetOrAdd(run.Id, _ => new SemaphoreSlim(1, 1));
+            await runLock.WaitAsync(token).ConfigureAwait(false);
             try
             {
-                string executionDirectory = run.WorkingDirectory!;
-                string executionCommand = run.Command;
+                run = await _Database.CheckRuns.CreateAsync(run, token).ConfigureAwait(false);
+                OnCheckRunChanged?.Invoke(run);
 
-                if (IsIsolatedCheckoutType(run.Type))
+                IsolatedCheckout? isolatedCheckout = null;
+
+                long executionDurationMs = 0;
+                CommandExecutionResult execution;
+
+                try
                 {
-                    string? repoSource = ResolveRepoSource(vessel);
-                    if (repoSource != null)
+                    string executionDirectory = run.WorkingDirectory!;
+                    string executionCommand = run.Command;
+
+                    if (IsIsolatedCheckoutType(run.Type))
                     {
-                        isolatedCheckout = await TryCreateIsolatedCheckoutAsync(vessel, run.CommitHash, run.BranchName, vessel.DefaultBranch, token).ConfigureAwait(false);
-                        if (isolatedCheckout != null)
+                        string? repoSource = ResolveRepoSource(vessel);
+                        if (repoSource != null)
                         {
-                            executionDirectory = isolatedCheckout.Path;
-                            executionCommand = StripNoRestore(run.Command);
-                        }
-                        else
-                        {
-                            return await CompleteExistingRunAsFailureAsync(
-                                run,
-                                "Isolated checkout could not be created for the configured repo source. The check will not execute in the live working directory.",
-                                token).ConfigureAwait(false);
+                            isolatedCheckout = await TryCreateIsolatedCheckoutAsync(vessel, run.CommitHash, run.BranchName, vessel.DefaultBranch, token).ConfigureAwait(false);
+                            if (isolatedCheckout != null)
+                            {
+                                executionDirectory = isolatedCheckout.Path;
+                                executionCommand = StripNoRestore(run.Command);
+                            }
+                            else
+                            {
+                                return await CompleteExistingRunAsFailureAsync(
+                                    run,
+                                    "Isolated checkout could not be created for the configured repo source. The check will not execute in the live working directory.",
+                                    token).ConfigureAwait(false);
+                            }
                         }
                     }
+
+                    // Share the host-wide slot with DoD gates and merge-queue test runs so two full
+                    // build+test suites never run on one host at once. See HostWideCommandLock.
+                    using (await HostWideCommandLock.AcquireAsync(token).ConfigureAwait(false))
+                    {
+                        run.Status = CheckRunStatusEnum.Running;
+                        run.StartedUtc = DateTime.UtcNow;
+                        run.LastUpdateUtc = run.StartedUtc.Value;
+                        run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+                        OnCheckRunChanged?.Invoke(run);
+                        Stopwatch sw = Stopwatch.StartNew();
+                        execution = await ExecuteCommandAsync(
+                            executionCommand, executionDirectory, _DefaultTimeout, token, profile?.EnvironmentVariables).ConfigureAwait(false);
+                        sw.Stop();
+                        executionDurationMs = Convert.ToInt64(Math.Round(sw.Elapsed.TotalMilliseconds));
+                    }
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    await CleanupIsolatedCheckoutAsync(isolatedCheckout, CancellationToken.None).ConfigureAwait(false);
+                    run.Status = CheckRunStatusEnum.Pending;
+                    run.StartedUtc = null;
+                    run.LastUpdateUtc = DateTime.UtcNow;
+                    run = await _Database.CheckRuns.UpdateAsync(run, CancellationToken.None).ConfigureAwait(false);
+                    OnCheckRunChanged?.Invoke(run);
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    execution = new CommandExecutionResult
+                    {
+                        ExitCode = -1,
+                        Output = ex.Message
+                    };
                 }
 
-                // Share the host-wide slot with DoD gates and merge-queue test runs so two full
-                // build+test suites never run on one host at once. See HostWideCommandLock.
-                using (await HostWideCommandLock.AcquireAsync(token).ConfigureAwait(false))
-                {
-                    execution = await ExecuteCommandAsync(
-                        executionCommand, executionDirectory, _DefaultTimeout, token, profile?.EnvironmentVariables).ConfigureAwait(false);
-                }
-            }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
-                await CleanupIsolatedCheckoutAsync(isolatedCheckout, CancellationToken.None).ConfigureAwait(false);
-                run.Status = CheckRunStatusEnum.Pending;
+                run.ExitCode = execution.ExitCode;
+                run.Output = execution.Output;
+                run.DurationMs = executionDurationMs;
+                run.CompletedUtc = DateTime.UtcNow;
                 run.LastUpdateUtc = DateTime.UtcNow;
-                run = await _Database.CheckRuns.UpdateAsync(run, CancellationToken.None).ConfigureAwait(false);
+                run.Status = execution.ExitCode == 0 ? CheckRunStatusEnum.Passed : CheckRunStatusEnum.Failed;
+
+                string artifactDirectory = isolatedCheckout?.Path ?? run.WorkingDirectory!;
+                run.Artifacts = CollectArtifacts(artifactDirectory, profile?.ExpectedArtifacts);
+                run.TestSummary = CheckRunParsingService.ParseTestSummary(run.Output, artifactDirectory, run.Artifacts);
+                run.CoverageSummary = CheckRunParsingService.ParseCoverageSummary(artifactDirectory, run.Artifacts);
+                run.Summary = BuildSummary(run, profile);
+
+                await CleanupIsolatedCheckoutAsync(isolatedCheckout, token).ConfigureAwait(false);
+
+                run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
                 OnCheckRunChanged?.Invoke(run);
-                throw;
+                return run;
             }
-            catch (Exception ex)
+            finally
             {
-                execution = new CommandExecutionResult
-                {
-                    ExitCode = -1,
-                    Output = ex.Message
-                };
+                runLock.Release();
             }
-
-            sw.Stop();
-
-            run.ExitCode = execution.ExitCode;
-            run.Output = execution.Output;
-            run.DurationMs = Convert.ToInt64(Math.Round(sw.Elapsed.TotalMilliseconds));
-            run.CompletedUtc = DateTime.UtcNow;
-            run.LastUpdateUtc = DateTime.UtcNow;
-            run.Status = execution.ExitCode == 0 ? CheckRunStatusEnum.Passed : CheckRunStatusEnum.Failed;
-
-            string artifactDirectory = isolatedCheckout?.Path ?? run.WorkingDirectory!;
-            run.Artifacts = CollectArtifacts(artifactDirectory, profile?.ExpectedArtifacts);
-            run.TestSummary = CheckRunParsingService.ParseTestSummary(run.Output, artifactDirectory, run.Artifacts);
-            run.CoverageSummary = CheckRunParsingService.ParseCoverageSummary(artifactDirectory, run.Artifacts);
-            run.Summary = BuildSummary(run, profile);
-
-            await CleanupIsolatedCheckoutAsync(isolatedCheckout, token).ConfigureAwait(false);
-
-            run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
-            OnCheckRunChanged?.Invoke(run);
-            return run;
         }
 
         /// <summary>
@@ -539,11 +554,6 @@ namespace Armada.Core.Services
                 return await CompleteExistingRunAsFailureAsync(run, "No command is configured for " + run.Type + ".", token).ConfigureAwait(false);
 
             run.WorkingDirectory = vessel.WorkingDirectory;
-            run.Status = CheckRunStatusEnum.Running;
-            run.StartedUtc = DateTime.UtcNow;
-            run.LastUpdateUtc = DateTime.UtcNow;
-            run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
-            OnCheckRunChanged?.Invoke(run);
 
             IsolatedCheckout? isolatedCheckout = null;
             string executionDirectory = run.WorkingDirectory!;
@@ -570,16 +580,34 @@ namespace Armada.Core.Services
                 }
             }
 
-            Stopwatch sw = Stopwatch.StartNew();
+            long executionDurationMs = 0;
             CommandExecutionResult execution;
 
             try
             {
                 using (await HostWideCommandLock.AcquireAsync(token).ConfigureAwait(false))
                 {
+                    run.Status = CheckRunStatusEnum.Running;
+                    run.StartedUtc = DateTime.UtcNow;
+                    run.LastUpdateUtc = run.StartedUtc.Value;
+                    run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+                    OnCheckRunChanged?.Invoke(run);
+                    Stopwatch sw = Stopwatch.StartNew();
                     execution = await ExecuteCommandAsync(
                         executionCommand, executionDirectory, _DefaultTimeout, token, profile?.EnvironmentVariables).ConfigureAwait(false);
+                    sw.Stop();
+                    executionDurationMs = Convert.ToInt64(Math.Round(sw.Elapsed.TotalMilliseconds));
                 }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                await CleanupIsolatedCheckoutAsync(isolatedCheckout, CancellationToken.None).ConfigureAwait(false);
+                run.Status = CheckRunStatusEnum.Pending;
+                run.StartedUtc = null;
+                run.LastUpdateUtc = DateTime.UtcNow;
+                run = await _Database.CheckRuns.UpdateAsync(run, CancellationToken.None).ConfigureAwait(false);
+                OnCheckRunChanged?.Invoke(run);
+                throw;
             }
             catch (Exception ex)
             {
@@ -590,11 +618,9 @@ namespace Armada.Core.Services
                 };
             }
 
-            sw.Stop();
-
             run.ExitCode = execution.ExitCode;
             run.Output = execution.Output;
-            run.DurationMs = Convert.ToInt64(Math.Round(sw.Elapsed.TotalMilliseconds));
+            run.DurationMs = executionDurationMs;
             run.CompletedUtc = DateTime.UtcNow;
             run.LastUpdateUtc = DateTime.UtcNow;
             run.Status = execution.ExitCode == 0 ? CheckRunStatusEnum.Passed : CheckRunStatusEnum.Failed;

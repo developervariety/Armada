@@ -249,7 +249,8 @@ Broadcast when a mission's status changes (e.g., assigned, started, completed, f
   "data": {
     "id": "msn_abc123def456ghi789jk",
     "status": "InProgress",
-    "title": "Add input validation to signup form"
+    "title": "Add input validation to signup form",
+    "voyageId": "vyg_abc123def456ghi789jk"
   },
   "timestamp": "2026-03-07T12:35:00.000Z"
 }
@@ -261,6 +262,7 @@ Broadcast when a mission's status changes (e.g., assigned, started, completed, f
 | `data.id` | string | Mission ID (prefix `msn_`) |
 | `data.status` | string | New [MissionStatusEnum](#missionstatusenum) value |
 | `data.title` | string \| null | Mission title |
+| `data.voyageId` | string \| null | Parent voyage ID; null for a standalone mission |
 | `timestamp` | string | ISO 8601 UTC timestamp |
 
 ---
@@ -329,7 +331,9 @@ Broadcast when a structured check run is created, imported, updated, or retried.
     "status": "Passed",
     "type": "UnitTest",
     "vesselId": "vsl_abc123def456ghi789jk",
-    "label": "Unit tests"
+    "label": "Unit tests",
+    "queueDurationMs": 4200,
+    "durationMs": 18500
   },
   "timestamp": "2026-03-07T12:35:00.000Z"
 }
@@ -339,6 +343,8 @@ Broadcast when a structured check run is created, imported, updated, or retried.
 |---|---|---|
 | `type` | string | Always `"check-run.changed"` |
 | `data` | object | Full serialized `CheckRun` payload with enum values emitted as strings |
+| `data.queueDurationMs` | number \| null | Time from record creation until the host command slot was acquired |
+| `data.durationMs` | number \| null | Command execution time; does not include queue wait |
 | `timestamp` | string | ISO 8601 UTC timestamp |
 
 ---

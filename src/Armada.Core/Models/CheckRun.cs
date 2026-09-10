@@ -161,6 +161,13 @@ namespace Armada.Core.Models
         public long? DurationMs { get; set; } = null;
 
         /// <summary>
+        /// Time from durable record creation until the command acquired the shared host slot.
+        /// </summary>
+        public long? QueueDurationMs => StartedUtc.HasValue
+            ? Math.Max(0L, Convert.ToInt64(Math.Round((StartedUtc.Value - CreatedUtc).TotalMilliseconds)))
+            : null;
+
+        /// <summary>
         /// Run start time in UTC.
         /// </summary>
         public DateTime? StartedUtc { get; set; } = null;

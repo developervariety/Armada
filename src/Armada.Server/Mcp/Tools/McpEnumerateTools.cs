@@ -340,7 +340,7 @@ namespace Armada.Server.Mcp.Tools
                                         c.Id, c.TenantId, c.UserId, c.WorkflowProfileId, c.VesselId, c.MissionId, c.VoyageId, c.DeploymentId,
                                         c.Label, c.Type, c.Source, c.Status, c.ProviderName, c.ExternalId, c.ExternalUrl, c.EnvironmentName,
                                         c.Command, c.WorkingDirectory, c.BranchName, c.CommitHash, c.ExitCode, c.Summary, c.TestSummary,
-                                        c.CoverageSummary, c.Artifacts, c.DurationMs, c.StartedUtc, c.CompletedUtc, c.CreatedUtc, c.LastUpdateUtc,
+                                        c.CoverageSummary, c.Artifacts, c.DurationMs, c.QueueDurationMs, c.StartedUtc, c.CompletedUtc, c.CreatedUtc, c.LastUpdateUtc,
                                         OutputLength = c.Output?.Length ?? 0
                                     }).ToList(),
                                     checkRuns.TotalMs

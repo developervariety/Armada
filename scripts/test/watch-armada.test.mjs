@@ -38,6 +38,20 @@ test("a voyage filter excludes other voyages", () => {
     describeEvent({ type: "mission.changed", data: { id: "msn_9", status: "Complete", voyageId: "vyg_2" } }, only),
     null,
   );
+  assert.equal(
+    describeEvent({ type: "mission.changed", data: { id: "msn_missing", status: "Complete" } }, only),
+    null,
+  );
+});
+
+test("reports Check lifecycle timing and applies the voyage filter", () => {
+  const event = {
+    type: "check-run.changed",
+    data: { id: "chk_1", voyageId: "vyg_1", type: "UnitTest", status: "Passed", queueDurationMs: 25, durationMs: 90 },
+  };
+  assert.equal(describeEvent(event, options()), "check chk_1 UnitTest -> Passed queue=25ms run=90ms");
+  assert.ok(describeEvent(event, options({ voyageId: "vyg_1" })));
+  assert.equal(describeEvent(event, options({ voyageId: "vyg_2" })), null);
 });
 
 test("directed mail is reported, other sessions' notes are not", () => {
@@ -54,11 +68,11 @@ test("directed mail is reported, other sessions' notes are not", () => {
 
 test("stays silent on routine noise but reports what needs action", () => {
   assert.equal(describeEvent({ type: "status.snapshot", data: {} }, options()), null);
-  assert.equal(describeEvent({ type: "captain.changed", data: { Status: "Working" } }, options()), null);
+  assert.equal(describeEvent({ type: "captain.changed", data: { state: "Working" } }, options()), null);
   assert.equal(describeEvent({ type: "playbook.updated", message: "x" }, options()), null);
 
   assert.match(
-    describeEvent({ type: "captain.changed", data: { Status: "Stalled", Id: "cpt_1", Name: "worker" } }, options()),
+    describeEvent({ type: "captain.changed", data: { state: "Stalled", id: "cpt_1", name: "worker" } }, options()),
     /^CAPTAIN STALLED cpt_1 worker$/,
   );
   assert.match(
@@ -113,7 +127,7 @@ test("subscribes on open and stops on the terminal voyage event", async () => {
 
   listeners.get("open")();
   listeners.get("message")({ data: JSON.stringify({ type: "status.snapshot", data: {} }) });
-  listeners.get("message")({ data: JSON.stringify({ type: "mission.changed", data: { id: "msn_1", status: "Complete" } }) });
+  listeners.get("message")({ data: JSON.stringify({ type: "mission.changed", data: { id: "msn_1", voyageId: "vyg_1", status: "Complete" } }) });
   listeners.get("message")({ data: JSON.stringify({ type: "voyage.changed", data: { id: "vyg_1", status: "Complete" } }) });
   await done;
 

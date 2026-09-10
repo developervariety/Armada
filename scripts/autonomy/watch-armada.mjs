@@ -77,8 +77,16 @@ export function describeEvent(event, options) {
     case "mission.changed": {
       // A mission line is the stage boundary, which is the only window in which a
       // correction can still reach the next brief.
-      if (options.voyageId && data.voyageId && data.voyageId !== options.voyageId) return null;
+      if (options.voyageId && data.voyageId !== options.voyageId) return null;
       return `mission ${data.id} -> ${data.status}${data.title ? ` (${shorten(data.title, 60)})` : ""}`;
+    }
+
+    case "check-run.changed": {
+      if (options.voyageId && data.voyageId !== options.voyageId) return null;
+      const label = data.label || data.type || "Check";
+      const queue = Number.isFinite(data.queueDurationMs) ? ` queue=${data.queueDurationMs}ms` : "";
+      const run = Number.isFinite(data.durationMs) ? ` run=${data.durationMs}ms` : "";
+      return `check ${data.id} ${label} -> ${data.status}${queue}${run}`;
     }
 
     case "incident.changed": {
@@ -91,8 +99,8 @@ export function describeEvent(event, options) {
 
     case "captain.changed": {
       if (options.quietCaptains) return null;
-      const status = data.Status ?? data.status ?? "";
-      if (status !== "Stalled") return null; // only a stall is actionable
+      const state = data.State ?? data.state ?? data.Status ?? data.status ?? "";
+      if (state !== "Stalled") return null; // only a stall is actionable
       return `CAPTAIN STALLED ${data.Id ?? data.id ?? ""} ${data.Name ?? data.name ?? ""}`;
     }
 

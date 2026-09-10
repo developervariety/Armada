@@ -82,6 +82,9 @@ namespace Armada.Core.Models
         /// <summary>Wall-clock duration of the command.</summary>
         public long? DurationMs { get; set; } = null;
 
+        /// <summary>Time spent ready or queued before the command acquired the host slot.</summary>
+        public long? QueueDurationMs { get; set; } = null;
+
         /// <summary>When the command started.</summary>
         public DateTime? StartedUtc { get; set; } = null;
 
@@ -157,6 +160,7 @@ namespace Armada.Core.Models
                 CoverageSummary = run.CoverageSummary,
                 Artifacts = run.Artifacts ?? new List<CheckRunArtifact>(),
                 DurationMs = run.DurationMs,
+                QueueDurationMs = run.QueueDurationMs,
                 StartedUtc = run.StartedUtc,
                 CompletedUtc = run.CompletedUtc,
                 CreatedUtc = run.CreatedUtc,

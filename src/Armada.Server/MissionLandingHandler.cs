@@ -305,7 +305,7 @@ namespace Armada.Server
 
                 if (_WebSocketHub != null)
                 {
-                    _WebSocketHub.BroadcastMissionChange(mission.Id, MissionStatusEnum.Failed.ToString(), mission.Title);
+                    _WebSocketHub.BroadcastMissionChange(mission.Id, MissionStatusEnum.Failed.ToString(), mission.Title, mission.VoyageId);
                 }
                 return;
             }
@@ -440,7 +440,7 @@ namespace Armada.Server
                                 vesselId = mission.VesselId,
                                 voyageId = mission.VoyageId
                             });
-                            _WebSocketHub.BroadcastMissionChange(mission.Id, MissionStatusEnum.PullRequestOpen.ToString(), mission.Title);
+                            _WebSocketHub.BroadcastMissionChange(mission.Id, MissionStatusEnum.PullRequestOpen.ToString(), mission.Title, mission.VoyageId);
                         }
 
                         // PR path handles its own status — skip the generic landing result block below
@@ -941,7 +941,7 @@ namespace Armada.Server
                 });
 
                 // Broadcast specific mission change for dashboard toast notifications
-                _WebSocketHub.BroadcastMissionChange(mission.Id, mission.Status.ToString(), mission.Title);
+                _WebSocketHub.BroadcastMissionChange(mission.Id, mission.Status.ToString(), mission.Title, mission.VoyageId);
             }
 
             // NOTE: Dock reclaim is NOT done here. MissionService.HandleCompletionAsync
@@ -1096,7 +1096,7 @@ namespace Armada.Server
                                         vesselId = mission.VesselId,
                                         voyageId = mission.VoyageId
                                     });
-                                    _WebSocketHub.BroadcastMissionChange(mission.Id, MissionStatusEnum.Complete.ToString(), mission.Title);
+                                    _WebSocketHub.BroadcastMissionChange(mission.Id, MissionStatusEnum.Complete.ToString(), mission.Title, mission.VoyageId);
                                 }
                             }
                         }

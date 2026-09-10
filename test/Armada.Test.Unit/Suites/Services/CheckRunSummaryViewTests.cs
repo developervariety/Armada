@@ -123,6 +123,21 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
+            await RunTest("Queue and execution durations stay separate in the projection", () =>
+            {
+                DateTime created = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+                CheckRun run = MakeRun("done");
+                run.CreatedUtc = created;
+                run.StartedUtc = created.AddMilliseconds(1234);
+                run.DurationMs = 456;
+
+                CheckRunSummaryView view = CheckRunSummaryView.From(run);
+
+                AssertEqual(1234L, view.QueueDurationMs);
+                AssertEqual(456L, view.DurationMs);
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await RunTest("A null run is rejected rather than projected", () =>
             {
                 AssertThrows<ArgumentNullException>(() => CheckRunSummaryView.From(null!));

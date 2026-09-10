@@ -403,6 +403,81 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("RunPendingAsync keeps host-slot wait pending and separate from execution duration", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_check_queue", "usr_check_queue").ConfigureAwait(false);
+
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-check-queue-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                IDisposable? hostSlot = null;
+                try
+                {
+                    Vessel vessel = CreateVessel("ten_check_queue", "usr_check_queue", workingDirectory);
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_check_queue",
+                        UserId = "usr_check_queue",
+                        Name = "Queued Check Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = "dotnet --version"
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                    CheckRun pending = new CheckRun
+                    {
+                        TenantId = "ten_check_queue",
+                        UserId = "usr_check_queue",
+                        VesselId = vessel.Id,
+                        WorkflowProfileId = profile.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        Status = CheckRunStatusEnum.Pending,
+                        Label = "Queued Build",
+                        Command = "dotnet --version",
+                        CreatedUtc = DateTime.UtcNow
+                    };
+                    await testDb.Driver.CheckRuns.CreateAsync(pending).ConfigureAwait(false);
+
+                    hostSlot = await HostWideCommandLock.AcquireAsync().ConfigureAwait(false);
+                    AuthContext auth = AuthContext.Authenticated("ten_check_queue", "usr_check_queue", false, false, "UnitTest");
+                    Task<CheckRun> executionTask = checkRuns.RunPendingAsync(auth, pending.Id);
+
+                    await Task.Delay(750).ConfigureAwait(false);
+                    CheckRun? whileQueued = await testDb.Driver.CheckRuns.ReadAsync(pending.Id).ConfigureAwait(false);
+                    bool completedWhileQueued = executionTask.IsCompleted;
+
+                    hostSlot.Dispose();
+                    hostSlot = null;
+                    CheckRun completed = await executionTask.ConfigureAwait(false);
+                    long queueDurationMs = completed.QueueDurationMs ?? -1;
+                    long executionDurationMs = completed.DurationMs ?? -1;
+
+                    AssertNotNull(whileQueued);
+                    AssertEqual(CheckRunStatusEnum.Pending, whileQueued!.Status, "A run that waits for the host slot must stay pending.");
+                    AssertNull(whileQueued.StartedUtc, "StartedUtc must identify command start, not queue admission.");
+                    AssertFalse(completedWhileQueued, "The command must not execute while another caller holds the host slot.");
+                    AssertEqual(CheckRunStatusEnum.Passed, completed.Status);
+                    AssertTrue(queueDurationMs >= 700,
+                        "QueueDurationMs must include the measured host-slot wait.");
+                    AssertTrue(executionDurationMs >= 0 && executionDurationMs < queueDurationMs,
+                        "DurationMs must exclude the longer host-slot wait.");
+                }
+                finally
+                {
+                    hostSlot?.Dispose();
+                    TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("RunPendingAsync fails unresolved placeholder command instead of passing", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

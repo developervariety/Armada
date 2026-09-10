@@ -410,9 +410,10 @@ definition-of-done gate, and a merge-queue test run.
 
 Two consequences for an operator:
 
-- A check submitted while a gate is running does not fail and does not race. It
-  QUEUES, so it can take much longer to return than the command itself takes.
-  A slow check is not necessarily a slow suite.
+- A check stays `Pending` while it waits for the host slot and changes to
+  `Running` only after it acquires that slot. `queueDurationMs` measures the
+  ready-and-wait interval. `durationMs` measures command execution. Compare the
+  two values before you classify a slow check as a slow suite.
 - The contended resource is the host, not the vessel, so checks on DIFFERENT
   vessels serialize against each other too.
 

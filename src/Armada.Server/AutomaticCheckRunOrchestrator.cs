@@ -217,8 +217,8 @@ namespace Armada.Server
             pending = await StampWorkUnderReviewAsync(pending, token).ConfigureAwait(false);
 
             await WriteEventAsync(
-                "check.auto_started",
-                "Automated check started: " + (pending.Label ?? pending.Type.ToString()),
+                "check.auto_queued",
+                "Automated check queued: " + (pending.Label ?? pending.Type.ToString()),
                 pending,
                 new { pending.Id, pending.Type, pending.Label },
                 token).ConfigureAwait(false);
