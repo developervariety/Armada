@@ -14,6 +14,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Server;
+    using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
@@ -232,6 +233,127 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(firstTick, scheduler.LastTickUtc, "Second sweep within interval must not advance LastTickUtc.");
                 AssertEqual(firstSummary, scheduler.LastResultSummary, "Second sweep within interval must not change LastResultSummary.");
                 AssertEqual(dispatchCountAfterFirst, admiral.DispatchVoyageCallCount, "Second sweep within interval must not dispatch voyages.");
+            }).ConfigureAwait(false);
+
+            await RunTest("RequestRefill_RapidRequests_CoalesceAndBypassPeriodicInterval", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ArmadaSettings settings = EnabledSchedulerSettings();
+                settings.AutonomousObjectiveScheduler.IntervalMinutes = 1440;
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver,
+                    admiral,
+                    settings,
+                    refillDebounceDelay: TimeSpan.FromMilliseconds(50));
+
+                try
+                {
+                    await scheduler.SweepAsync().ConfigureAwait(false);
+                    AssertEqual(0L, scheduler.EventTriggeredSweepCount);
+
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                        "event-refill-vessel", "https://github.com/test/event-refill.git")).ConfigureAwait(false);
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "Event refill candidate",
+                        Status = ObjectiveStatusEnum.Scoped,
+                        AutoDispatchEnabled = true,
+                        VesselIds = new List<string> { vessel.Id }
+                    }).ConfigureAwait(false);
+
+                    scheduler.RequestRefill();
+                    scheduler.RequestRefill();
+                    scheduler.RequestRefill();
+
+                    await WaitForEventTriggeredSweepCountAsync(scheduler, 1).ConfigureAwait(false);
+                    await Task.Delay(100).ConfigureAwait(false);
+
+                    AssertEqual(1L, scheduler.EventTriggeredSweepCount,
+                        "Rapid refill requests must produce one event-triggered sweep.");
+                    ObjectiveSchedulerStatus status = McpObjectiveSchedulerTools.BuildStatus(scheduler);
+                    AssertEqual(1L, status.EventTriggeredSweepCount,
+                        "Scheduler status must expose event-triggered sweep activity.");
+                    AssertEqual(1, admiral.DispatchVoyageCallCount,
+                        "The event-triggered sweep must bypass the 24-hour periodic interval.");
+                }
+                finally
+                {
+                    scheduler.Dispose();
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("NotifyObjectiveChanged_RequestsOnlyForDispatchableOrCompletedObjectives", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver),
+                    EnabledSchedulerSettings(),
+                    refillDebounceDelay: TimeSpan.FromMilliseconds(40));
+
+                try
+                {
+                    scheduler.NotifyObjectiveChanged(new Objective
+                    {
+                        Status = ObjectiveStatusEnum.Draft,
+                        AutoDispatchEnabled = true
+                    });
+                    scheduler.NotifyObjectiveChanged(new Objective
+                    {
+                        Status = ObjectiveStatusEnum.Scoped,
+                        AutoDispatchEnabled = false
+                    });
+
+                    await Task.Delay(120).ConfigureAwait(false);
+                    AssertEqual(0L, scheduler.EventTriggeredSweepCount,
+                        "Draft and non-autonomous objective changes must not request a refill.");
+
+                    scheduler.NotifyObjectiveChanged(new Objective
+                    {
+                        Status = ObjectiveStatusEnum.Scoped,
+                        AutoDispatchEnabled = true
+                    });
+                    scheduler.NotifyObjectiveChanged(new Objective
+                    {
+                        Status = ObjectiveStatusEnum.Planned,
+                        AutoDispatchEnabled = true
+                    });
+
+                    await WaitForEventTriggeredSweepCountAsync(scheduler, 1).ConfigureAwait(false);
+                    AssertEqual(1L, scheduler.EventTriggeredSweepCount,
+                        "Ready Scoped and Planned objective changes must request a coalesced refill.");
+
+                    scheduler.NotifyObjectiveChanged(new Objective
+                    {
+                        Status = ObjectiveStatusEnum.Completed,
+                        AutoDispatchEnabled = false
+                    });
+
+                    await WaitForEventTriggeredSweepCountAsync(scheduler, 2).ConfigureAwait(false);
+                    AssertEqual(2L, scheduler.EventTriggeredSweepCount,
+                        "A completed objective must request a refill for its dependants.");
+                }
+                finally
+                {
+                    scheduler.Dispose();
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Dispose_CancelsPendingRefill", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver),
+                    EnabledSchedulerSettings(),
+                    refillDebounceDelay: TimeSpan.FromMinutes(1));
+
+                scheduler.RequestRefill();
+                scheduler.Dispose();
+
+                AssertEqual(0L, scheduler.EventTriggeredSweepCount,
+                    "Disposal must cancel a refill that is still in its debounce window.");
             }).ConfigureAwait(false);
 
             await RunTest("Pause records who, when and why; Resume drops all three; both are mirrored for persistence", async () =>
@@ -2069,7 +2191,8 @@ namespace Armada.Test.Unit.Suites.Services
             IAdmiralService admiral,
             ArmadaSettings settings,
             DispatchHold? dispatchHold = null,
-            IObjectiveDispatchPreviewService? objectiveDispatchPreview = null)
+            IObjectiveDispatchPreviewService? objectiveDispatchPreview = null,
+            TimeSpan? refillDebounceDelay = null)
         {
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
@@ -2083,7 +2206,20 @@ namespace Armada.Test.Unit.Suites.Services
                 logging,
                 null,
                 dispatchHold,
-                objectiveDispatchPreview);
+                objectiveDispatchPreview,
+                refillDebounceDelay);
+        }
+
+        private async Task WaitForEventTriggeredSweepCountAsync(
+            AutonomousObjectiveScheduler scheduler,
+            long expectedCount)
+        {
+            DateTime deadline = DateTime.UtcNow.AddSeconds(3);
+            while (scheduler.EventTriggeredSweepCount < expectedCount && DateTime.UtcNow < deadline)
+                await Task.Delay(10).ConfigureAwait(false);
+
+            AssertEqual(expectedCount, scheduler.EventTriggeredSweepCount,
+                "The expected event-triggered sweep did not finish before the test deadline.");
         }
 
         private static ArmadaSettings EnabledSchedulerSettings()

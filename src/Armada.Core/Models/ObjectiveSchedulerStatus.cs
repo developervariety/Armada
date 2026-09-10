@@ -68,6 +68,11 @@ namespace Armada.Core.Models
         public int ActiveDispatchedCount { get; set; } = 0;
 
         /// <summary>
+        /// Number of debounced event-triggered sweeps that started in this process.
+        /// </summary>
+        public long EventTriggeredSweepCount { get; set; } = 0;
+
+        /// <summary>
         /// Human-readable reason the last sweep was skipped (e.g. "disabled", "paused", "max_concurrent"),
         /// or null when the last sweep ran to completion.
         /// </summary>

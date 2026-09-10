@@ -1066,6 +1066,12 @@ The dispatch hold is never touched: it clears itself on a successful redeploy,
 so a hold that survives is a deploy that stopped halfway and needs a human.
 Pass `dryRun=true` to read the decision and evidence without acting. Scheduler dispatches use the same Build and
 UnitTest Check arming path as operator dispatches. A dispatch hold blocks both.
+The Admiral also requests a debounced immediate sweep when an eligible objective
+becomes ready, a dependency completes, or a terminal mission or voyage can free
+a shared lane. These event requests bypass the interval but coalesce burst
+traffic. The periodic health-loop sweep remains the recovery path for missed
+events. `armada_objective_scheduler_status` reports the process-local
+`eventTriggeredSweepCount`.
 See `docs/SCHEDULING.md` for eligibility and ordering, and section 4.11 for the
 separate optional lead-cycle layer.
 

@@ -20,7 +20,7 @@ namespace Armada.Server
     /// auto-dispatches each through AdmiralService, links the resulting voyage, and
     /// reconciles objectives whose linked voyage has completed to Completed status.
     /// </summary>
-    public sealed class AutonomousObjectiveScheduler
+    public sealed class AutonomousObjectiveScheduler : IDisposable
     {
         #region Public-Members
 
@@ -99,6 +99,11 @@ namespace Armada.Server
         /// </summary>
         public string? LastSkipReason { get; private set; }
 
+        /// <summary>
+        /// Number of debounced event-triggered sweeps that started in this process.
+        /// </summary>
+        public long EventTriggeredSweepCount => Interlocked.Read(ref _EventTriggeredSweepCount);
+
         #endregion
 
         #region Private-Members
@@ -117,6 +122,13 @@ namespace Armada.Server
         private readonly ICodeIndexService? _CodeIndex;
         private readonly IObjectiveDispatchPreviewService? _ObjectiveDispatchPreview;
         private readonly SemaphoreSlim _SweepLock = new SemaphoreSlim(1, 1);
+        private readonly object _RefillLock = new object();
+        private readonly CancellationTokenSource _RefillLifetime = new CancellationTokenSource();
+        private readonly TimeSpan _RefillDebounceDelay;
+        private Task? _RefillTask;
+        private bool _RefillRequested;
+        private bool _Disposed;
+        private long _EventTriggeredSweepCount;
 
         #endregion
 
@@ -134,6 +146,7 @@ namespace Armada.Server
         /// <param name="codeIndex">Optional code index service for index-update gating.</param>
         /// <param name="dispatchHold">Optional fleet-wide dispatch hold.</param>
         /// <param name="objectiveDispatchPreview">Optional shared objective dispatch preflight.</param>
+        /// <param name="refillDebounceDelay">Optional event-refill debounce delay; tests can shorten it.</param>
         public AutonomousObjectiveScheduler(
             DatabaseDriver database,
             ObjectiveService objectives,
@@ -143,7 +156,8 @@ namespace Armada.Server
             LoggingModule logging,
             ICodeIndexService? codeIndex = null,
             DispatchHold? dispatchHold = null,
-            IObjectiveDispatchPreviewService? objectiveDispatchPreview = null)
+            IObjectiveDispatchPreviewService? objectiveDispatchPreview = null,
+            TimeSpan? refillDebounceDelay = null)
         {
             _DispatchHold = dispatchHold;
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -154,6 +168,9 @@ namespace Armada.Server
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _CodeIndex = codeIndex;
             _ObjectiveDispatchPreview = objectiveDispatchPreview;
+            _RefillDebounceDelay = refillDebounceDelay ?? TimeSpan.FromSeconds(1);
+            if (_RefillDebounceDelay < TimeSpan.Zero)
+                throw new ArgumentOutOfRangeException(nameof(refillDebounceDelay));
 
             Enabled = settings.AutonomousObjectiveScheduler.Enabled;
             Paused = settings.AutonomousObjectiveScheduler.Paused;
@@ -289,6 +306,36 @@ namespace Armada.Server
         }
 
         /// <summary>
+        /// Request one debounced sweep that does not wait for the periodic interval.
+        /// Rapid requests coalesce. A request that arrives during a sweep schedules one
+        /// additional debounced pass after the current pass.
+        /// </summary>
+        public void RequestRefill()
+        {
+            lock (_RefillLock)
+            {
+                if (_Disposed) return;
+                _RefillRequested = true;
+                if (_RefillTask == null)
+                    _RefillTask = Task.Run(ProcessRefillRequestsAsync, CancellationToken.None);
+            }
+        }
+
+        /// <summary>
+        /// Request a refill when an objective becomes dispatchable or completes a dependency.
+        /// </summary>
+        /// <param name="objective">Changed objective.</param>
+        public void NotifyObjectiveChanged(Objective objective)
+        {
+            if (objective == null) throw new ArgumentNullException(nameof(objective));
+            if (objective.Status == ObjectiveStatusEnum.Completed
+                || (objective.AutoDispatchEnabled
+                    && (objective.Status == ObjectiveStatusEnum.Scoped
+                        || objective.Status == ObjectiveStatusEnum.Planned)))
+                RequestRefill();
+        }
+
+        /// <summary>
         /// Run one bounded scheduling sweep: reconcile completed objectives, then dispatch eligible ones.
         /// Non-reentrant; concurrent calls return immediately without running a second sweep.
         /// Skips the work portion if the last tick ran within IntervalMinutes, so the health loop
@@ -297,11 +344,43 @@ namespace Armada.Server
         /// <param name="token">Cancellation token.</param>
         public async Task SweepAsync(CancellationToken token = default)
         {
-            if (!await _SweepLock.WaitAsync(0, token).ConfigureAwait(false)) return;
+            await SweepAsync(false, false, token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public void Dispose()
+        {
+            Task? refillTask;
+            lock (_RefillLock)
+            {
+                if (_Disposed) return;
+                _Disposed = true;
+                refillTask = _RefillTask;
+            }
+
+            _RefillLifetime.Cancel();
+            try
+            {
+                refillTask?.GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            _RefillLifetime.Dispose();
+        }
+
+        private async Task SweepAsync(bool ignoreInterval, bool waitForActiveSweep, CancellationToken token)
+        {
+            if (waitForActiveSweep)
+                await _SweepLock.WaitAsync(token).ConfigureAwait(false);
+            else if (!await _SweepLock.WaitAsync(0, token).ConfigureAwait(false))
+                return;
 
             try
             {
-                if (LastTickUtc.HasValue
+                if (!ignoreInterval
+                    && LastTickUtc.HasValue
                     && (DateTime.UtcNow - LastTickUtc.Value).TotalMinutes < IntervalMinutes)
                 {
                     _Logging.Debug(_Header + "sweep skipped: interval not elapsed (" + IntervalMinutes + " min).");
@@ -522,6 +601,47 @@ namespace Armada.Server
         #endregion
 
         #region Private-Methods
+
+        private async Task ProcessRefillRequestsAsync()
+        {
+            try
+            {
+                while (true)
+                {
+                    await Task.Delay(_RefillDebounceDelay, _RefillLifetime.Token).ConfigureAwait(false);
+                    lock (_RefillLock)
+                    {
+                        if (_Disposed) return;
+                        _RefillRequested = false;
+                    }
+
+                    Interlocked.Increment(ref _EventTriggeredSweepCount);
+                    await SweepAsync(true, true, _RefillLifetime.Token).ConfigureAwait(false);
+
+                    lock (_RefillLock)
+                    {
+                        if (!_RefillRequested)
+                            return;
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (_RefillLifetime.IsCancellationRequested)
+            {
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "event-triggered refill failed: " + ex.Message);
+            }
+            finally
+            {
+                lock (_RefillLock)
+                {
+                    _RefillTask = null;
+                    if (_RefillRequested && !_Disposed)
+                        _RefillTask = Task.Run(ProcessRefillRequestsAsync, CancellationToken.None);
+                }
+            }
+        }
 
         private async Task<int> ReconcileCompletedObjectivesAsync(AuthContext systemAuth, List<Objective> snapshot, CancellationToken token)
         {

@@ -392,9 +392,23 @@ namespace Armada.Server
                 await outcomeWake.HandleAsync(mission, willInvokeLanding).ConfigureAwait(false);
                 await _AutonomousRecovery.HandleMissionOutcomeAsync(mission, willInvokeLanding).ConfigureAwait(false);
                 _IncidentLifecycle.TriggerBackgroundSweep();
+                if (mission.Status == MissionStatusEnum.Failed
+                    || mission.Status == MissionStatusEnum.LandingFailed
+                    || mission.Status == MissionStatusEnum.Cancelled)
+                    _ObjectiveScheduler.RequestRefill();
             };
             _Admiral.OnMissionComplete = _MissionLanding.HandleMissionCompleteAsync;
-            _Admiral.OnVoyageComplete = _MissionLanding.HandleVoyageCompleteAsync;
+            _Admiral.OnVoyageComplete = async voyage =>
+            {
+                try
+                {
+                    await _MissionLanding.HandleVoyageCompleteAsync(voyage).ConfigureAwait(false);
+                }
+                finally
+                {
+                    _ObjectiveScheduler.RequestRefill();
+                }
+            };
             _Admiral.OnReconcilePullRequest = _MissionLanding.HandleReconcilePullRequestAsync;
             _Admiral.OnReconcileMergeEntries = async () =>
             {
@@ -498,7 +512,11 @@ namespace Armada.Server
             _MissionLanding.SetWebSocketHub(_WebSocketHub);
             missionService.OnReviewRequested = _WebSocketHub.BroadcastApprovalNeeded;
             _CheckRunService.OnCheckRunChanged = _WebSocketHub.BroadcastCheckRunChange;
-            _ObjectiveService.OnObjectiveChanged = _WebSocketHub.BroadcastObjectiveChange;
+            _ObjectiveService.OnObjectiveChanged = objective =>
+            {
+                _WebSocketHub.BroadcastObjectiveChange(objective);
+                _ObjectiveScheduler.NotifyObjectiveChanged(objective);
+            };
             _DeploymentService.OnDeploymentChanged = _WebSocketHub.BroadcastDeploymentChange;
             _IncidentService.OnIncidentChanged = _WebSocketHub.BroadcastIncidentChange;
             _RunbookService.OnRunbookExecutionChanged = _WebSocketHub.BroadcastRunbookExecutionChange;
@@ -739,6 +757,7 @@ namespace Armada.Server
             }
 
             _TokenSource.Cancel();
+            _ObjectiveScheduler?.Dispose();
             _RemoteTunnel?.StopAsync().GetAwaiter().GetResult();
             _RemoteDashboardRelay?.DisposeAsync().GetAwaiter().GetResult();
             _GrokMcpServer?.StopAsync().GetAwaiter().GetResult();

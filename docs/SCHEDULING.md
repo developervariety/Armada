@@ -143,13 +143,13 @@ Both captains are idle. Assignment proceeds as follows:
 
 ## Autonomous Objective Scheduler
 
-Everything above governs **mission-level** scheduling (which pending mission an idle captain picks up next). A separate, higher-level **autonomous objective scheduler** (`AutonomousObjectiveScheduler`) governs **which objectives get dispatched into voyages at all** -- on a timer, without an operator in the loop. It runs a periodic sweep and dispatches eligible objectives up to a concurrency cap.
+Everything above governs **mission-level** scheduling (which pending mission an idle captain picks up next). A separate, higher-level **autonomous objective scheduler** (`AutonomousObjectiveScheduler`) governs **which objectives get dispatched into voyages at all**. It runs a periodic safety sweep and also requests a debounced immediate refill when an objective becomes ready, a dependency completes, or terminal mission or voyage work can release a lane. Event refills bypass the periodic interval and coalesce bursts. The scheduler dispatches eligible objectives up to a concurrency cap.
 
 ### Control tools (MCP)
 
 | Tool | Purpose |
 |------|---------|
-| `armada_objective_scheduler_status` | Return the scheduler's runtime state: `enabled`, `paused`, `intervalMinutes`, `maxConcurrentVoyages`, `maxConcurrentVoyagesPerVessel`, `lastTickUtc`, `activeDispatchedCount`, `lastSkipReason`. No arguments. |
+| `armada_objective_scheduler_status` | Return the scheduler's runtime state: `enabled`, `paused`, `intervalMinutes`, `maxConcurrentVoyages`, `maxConcurrentVoyagesPerVessel`, `lastTickUtc`, `activeDispatchedCount`, `eventTriggeredSweepCount`, `lastSkipReason`. No arguments. |
 | `armada_objective_scheduler_set` | Enable/disable/pause or adjust the sweep. All fields optional; omitted fields are left unchanged. `enabled` (bool), `paused` (bool -- suspend without clearing `enabled`), `intervalMinutes` (int, clamped 1-1440), `maxConcurrentVoyages` (fleet-wide, clamped 1-50), `maxConcurrentVoyagesPerVessel` (default 1, clamped 1-50). Returns the same status snapshot. |
 | `armada_mark_objective_auto_dispatchable` | Per-objective opt-in. `objectiveId` (required), `enabled` (required bool -- sets the objective's `AutoDispatchEnabled` flag), `blockedByObjectiveIds` (optional array -- objectives that must reach `Completed` before this one is eligible; omit to leave existing blockers unchanged). |
 | `preview_objective_dispatch` | Run the shared read-only objective preflight. It returns all target, pipeline, captain, Check, repository, brief, and dependency findings. Optional vessel, pipeline, and captain overrides use the same evaluator as dispatch. |

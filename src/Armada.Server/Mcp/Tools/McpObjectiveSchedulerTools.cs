@@ -284,6 +284,7 @@ namespace Armada.Server.Mcp.Tools
                 MaxConcurrentVoyagesPerVessel = scheduler.MaxConcurrentVoyagesPerVessel,
                 LastTickUtc = scheduler.LastTickUtc,
                 ActiveDispatchedCount = scheduler.ActiveDispatchedCount,
+                EventTriggeredSweepCount = scheduler.EventTriggeredSweepCount,
                 LastSkipReason = scheduler.LastSkipReason
             };
         }
