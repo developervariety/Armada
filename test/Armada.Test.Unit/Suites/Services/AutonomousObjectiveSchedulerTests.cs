@@ -356,6 +356,117 @@ namespace Armada.Test.Unit.Suites.Services
                     "Disposal must cancel a refill that is still in its debounce window.");
             }).ConfigureAwait(false);
 
+            await RunTest("FairShare_RotatesCampaignsAcrossSweepsWithoutCrossingPriorityBands", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Objective campaignA = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Campaign A",
+                    Tags = new List<string> { "campaign:a" },
+                    Status = ObjectiveStatusEnum.Planned
+                }).ConfigureAwait(false);
+                Objective campaignB = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Campaign B",
+                    Tags = new List<string> { "campaign:b" },
+                    Status = ObjectiveStatusEnum.Planned
+                }).ConfigureAwait(false);
+                Vessel vesselA1 = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                    "fair-a1", "https://github.com/test/fair-a1.git") { TenantId = Constants.DefaultTenantId }).ConfigureAwait(false);
+                Vessel vesselA2 = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                    "fair-a2", "https://github.com/test/fair-a2.git") { TenantId = Constants.DefaultTenantId }).ConfigureAwait(false);
+                Vessel vesselB1 = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                    "fair-b1", "https://github.com/test/fair-b1.git") { TenantId = Constants.DefaultTenantId }).ConfigureAwait(false);
+                Objective a1 = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "A1",
+                    ParentObjectiveId = campaignA.Id,
+                    Status = ObjectiveStatusEnum.Planned,
+                    AutoDispatchEnabled = true,
+                    Priority = ObjectivePriorityEnum.P0,
+                    Rank = 1,
+                    VesselIds = new List<string> { vesselA1.Id }
+                }).ConfigureAwait(false);
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "A2",
+                    ParentObjectiveId = campaignA.Id,
+                    Status = ObjectiveStatusEnum.Planned,
+                    AutoDispatchEnabled = true,
+                    Priority = ObjectivePriorityEnum.P0,
+                    Rank = 2,
+                    VesselIds = new List<string> { vesselA2.Id }
+                }).ConfigureAwait(false);
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "B1",
+                    ParentObjectiveId = campaignB.Id,
+                    Status = ObjectiveStatusEnum.Planned,
+                    AutoDispatchEnabled = true,
+                    Priority = ObjectivePriorityEnum.P0,
+                    Rank = 3,
+                    VesselIds = new List<string> { vesselB1.Id }
+                }).ConfigureAwait(false);
+
+                ArmadaSettings settings = EnabledSchedulerSettings();
+                settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages = 1;
+                settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel = 1;
+                settings.AutonomousObjectiveScheduler.FairShareWithinPriorityBands = true;
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver,
+                    admiral,
+                    settings,
+                    refillDebounceDelay: TimeSpan.FromMilliseconds(20));
+
+                try
+                {
+                    AssertEqual(1, scheduler.MaxConcurrentVoyages,
+                        "The fair-share test scheduler must use one global slot.");
+                    await scheduler.SweepAsync().ConfigureAwait(false);
+                    AssertEqual(1, admiral.DispatchedTitles.Count,
+                        "The global capacity must permit one dispatch in the first sweep.");
+                    AssertEqual("A1", admiral.DispatchedTitles[0],
+                        "Rank order selects campaign A on the first sweep.");
+
+                    Objective dispatchedA1 = (await testDb.Driver.Objectives.ReadAsync(a1.Id).ConfigureAwait(false))!;
+                    Voyage firstVoyage = (await testDb.Driver.Voyages.ReadAsync(dispatchedA1.VoyageIds.Single()).ConfigureAwait(false))!;
+                    firstVoyage.Status = VoyageStatusEnum.Complete;
+                    await testDb.Driver.Voyages.UpdateAsync(firstVoyage).ConfigureAwait(false);
+
+                    scheduler.RequestRefill();
+                    DateTime refillDeadline = DateTime.UtcNow.AddSeconds(3);
+                    ObjectiveSchedulerStatus status = McpObjectiveSchedulerTools.BuildStatus(scheduler);
+                    string expectedCursor = "campaign:" + campaignB.Id;
+                    while ((!status.LastServedCampaignByPriority.TryGetValue("P0", out string? cursor)
+                            || cursor != expectedCursor)
+                        && DateTime.UtcNow < refillDeadline)
+                    {
+                        await Task.Delay(10).ConfigureAwait(false);
+                        status = McpObjectiveSchedulerTools.BuildStatus(scheduler);
+                    }
+
+                    AssertEqual("A1,B1", String.Join(',', admiral.DispatchedTitles),
+                        "The next sweep must start after the last served campaign, even when A2 has the lower rank.");
+                    AssertEqual(expectedCursor, status.LastServedCampaignByPriority["P0"],
+                        "Status must expose the campaign cursor after the successful refill dispatch.");
+                }
+                finally
+                {
+                    scheduler.Dispose();
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Pause records who, when and why; Resume drops all three; both are mirrored for persistence", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -2290,6 +2401,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Exception? ThrowOnDispatch { get; set; }
             public int DispatchVoyageCallCount { get; private set; }
+            public List<string> DispatchedTitles { get; } = new List<string>();
 
             public Func<Captain, Mission, Dock, Task<int>>? OnLaunchAgent { get; set; }
             public Func<Captain, Task>? OnStopAgent { get; set; }
@@ -2314,6 +2426,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 if (ThrowOnDispatch != null) throw ThrowOnDispatch;
                 DispatchVoyageCallCount++;
+                DispatchedTitles.Add(title);
                 LastMissionDescriptions = missionDescriptions;
                 Voyage voyage = new Voyage
                 {

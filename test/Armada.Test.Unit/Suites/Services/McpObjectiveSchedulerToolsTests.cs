@@ -66,7 +66,8 @@ namespace Armada.Test.Unit.Suites.Services
                         Paused = false,
                         IntervalMinutes = 10,
                         MaxConcurrentVoyages = 3,
-                        MaxConcurrentVoyagesPerVessel = 1
+                        MaxConcurrentVoyagesPerVessel = 1,
+                        FairShareWithinPriorityBands = true
                     }
                 });
 
@@ -77,13 +78,15 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(10, status.IntervalMinutes, "IntervalMinutes should match settings.");
                 AssertEqual(3, status.MaxConcurrentVoyages, "MaxConcurrentVoyages should match settings.");
                 AssertEqual(1, status.MaxConcurrentVoyagesPerVessel, "Per-vessel concurrency should match settings.");
+                AssertTrue(status.FairShareWithinPriorityBands, "Fair-share should match settings.");
                 AssertNull(status.LastTickUtc, "LastTickUtc should be null before first sweep.");
             }).ConfigureAwait(false);
 
             await RunTest("ArmadaObjectiveSchedulerSet_TogglesEnabledAndPaused", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, new ArmadaSettings());
+                ArmadaSettings settings = new ArmadaSettings();
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, settings);
                 Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(testDb.Driver, scheduler);
 
                 JsonElement args = JsonSerializer.SerializeToElement(new
@@ -92,7 +95,8 @@ namespace Armada.Test.Unit.Suites.Services
                     paused = true,
                     intervalMinutes = 15,
                     maxConcurrentVoyages = 5,
-                    maxConcurrentVoyagesPerVessel = 2
+                    maxConcurrentVoyagesPerVessel = 2,
+                    fairShareWithinPriorityBands = true
                 });
 
                 object result = await handlers["armada_objective_scheduler_set"](args).ConfigureAwait(false);
@@ -103,12 +107,21 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("\"intervalMinutes\":15", json);
                 AssertContains("\"maxConcurrentVoyages\":5", json);
                 AssertContains("\"maxConcurrentVoyagesPerVessel\":2", json);
+                AssertContains("\"fairShareWithinPriorityBands\":true", json);
+                AssertContains("\"settingsPersisted\":true", json);
 
                 AssertTrue(scheduler.Enabled, "Scheduler.Enabled should be true.");
                 AssertTrue(scheduler.Paused, "Scheduler.Paused should be true.");
                 AssertEqual(15, scheduler.IntervalMinutes, "Scheduler.IntervalMinutes should be 15.");
                 AssertEqual(5, scheduler.MaxConcurrentVoyages, "Scheduler.MaxConcurrentVoyages should be 5.");
                 AssertEqual(2, scheduler.MaxConcurrentVoyagesPerVessel, "Per-vessel concurrency should be 2.");
+                AssertTrue(scheduler.FairShareWithinPriorityBands, "Fair-share should be enabled.");
+                AssertTrue(settings.AutonomousObjectiveScheduler.FairShareWithinPriorityBands,
+                    "The persisted settings model should contain the fair-share value.");
+
+                object statusResult = await handlers["armada_objective_scheduler_status"](null).ConfigureAwait(false);
+                string statusJson = JsonSerializer.Serialize(statusResult, _JsonOptions);
+                AssertContains("\"fairShareWithinPriorityBands\":true", statusJson);
             }).ConfigureAwait(false);
 
             await RunTest("ArmadaObjectiveSchedulerSet_PausedTrue_RecordsOwnerAndReason_AndStatusExposesThem", async () =>

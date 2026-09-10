@@ -40,6 +40,13 @@ namespace Armada.Test.Unit.Suites.Settings
                 return Task.CompletedTask;
             });
 
+            await RunTest("Defaults_FairShareWithinPriorityBands_IsFalse", () =>
+            {
+                AutonomousObjectiveSchedulerSettings s = new AutonomousObjectiveSchedulerSettings();
+                AssertFalse(s.FairShareWithinPriorityBands);
+                return Task.CompletedTask;
+            });
+
             await RunTest("IntervalMinutes_Zero_ClampsTo1", () =>
             {
                 AutonomousObjectiveSchedulerSettings s = new AutonomousObjectiveSchedulerSettings
@@ -229,6 +236,7 @@ namespace Armada.Test.Unit.Suites.Settings
                         Enabled = true,
                         IntervalMinutes = 45,
                         MaxConcurrentVoyages = 4,
+                        FairShareWithinPriorityBands = true,
                         Paused = true
                     };
                     await original.SaveAsync(tempFile).ConfigureAwait(false);
@@ -238,6 +246,7 @@ namespace Armada.Test.Unit.Suites.Settings
                     AssertTrue(loaded.AutonomousObjectiveScheduler.Enabled);
                     AssertEqual(45, loaded.AutonomousObjectiveScheduler.IntervalMinutes);
                     AssertEqual(4, loaded.AutonomousObjectiveScheduler.MaxConcurrentVoyages);
+                    AssertTrue(loaded.AutonomousObjectiveScheduler.FairShareWithinPriorityBands);
                     AssertTrue(loaded.AutonomousObjectiveScheduler.Paused);
                 }
                 finally
@@ -286,6 +295,7 @@ namespace Armada.Test.Unit.Suites.Settings
                     AssertFalse(loaded.AutonomousObjectiveScheduler.Enabled);
                     AssertEqual(25, loaded.AutonomousObjectiveScheduler.IntervalMinutes);
                     AssertEqual(1, loaded.AutonomousObjectiveScheduler.MaxConcurrentVoyages);
+                    AssertFalse(loaded.AutonomousObjectiveScheduler.FairShareWithinPriorityBands);
                     AssertFalse(loaded.AutonomousObjectiveScheduler.Paused);
                 }
                 finally

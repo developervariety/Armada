@@ -81,7 +81,8 @@ namespace Armada.Server.Mcp.Tools
                         pauseReason = new { type = "string", description = "Why the scheduler is being paused, for example the deploy it protects." },
                         intervalMinutes = new { type = "integer", description = "Sweep interval in minutes (clamped to 1-1440)." },
                         maxConcurrentVoyages = new { type = "integer", description = "Fleet-wide active objective voyage ceiling (clamped to 1-50). Operator-dispatched linked voyages count toward it." },
-                        maxConcurrentVoyagesPerVessel = new { type = "integer", description = "Per-vessel active objective voyage ceiling (clamped to 1-50, default 1). This prevents one vessel from consuming the fleet-wide capacity." }
+                        maxConcurrentVoyagesPerVessel = new { type = "integer", description = "Per-vessel active objective voyage ceiling (clamped to 1-50, default 1). This prevents one vessel from consuming the fleet-wide capacity." },
+                        fairShareWithinPriorityBands = new { type = "boolean", description = "When true, rotate campaign roots within each priority band. Disabled by default; priority bands remain authoritative." }
                     }
                 },
                 async (args) =>
@@ -112,6 +113,9 @@ namespace Armada.Server.Mcp.Tools
 
                         if (request.MaxConcurrentVoyagesPerVessel.HasValue)
                             scheduler.SetMaxConcurrentVoyagesPerVessel(request.MaxConcurrentVoyagesPerVessel.Value);
+
+                        if (request.FairShareWithinPriorityBands.HasValue)
+                            scheduler.SetFairShareWithinPriorityBands(request.FairShareWithinPriorityBands.Value);
                     }
 
                     bool persisted = await scheduler.TryPersistAsync().ConfigureAwait(false);
@@ -282,6 +286,11 @@ namespace Armada.Server.Mcp.Tools
                 IntervalMinutes = scheduler.IntervalMinutes,
                 MaxConcurrentVoyages = scheduler.MaxConcurrentVoyages,
                 MaxConcurrentVoyagesPerVessel = scheduler.MaxConcurrentVoyagesPerVessel,
+                FairShareWithinPriorityBands = scheduler.FairShareWithinPriorityBands,
+                LastServedCampaignByPriority = scheduler.LastServedCampaignByPriority.ToDictionary(
+                    pair => pair.Key.ToString(),
+                    pair => pair.Value,
+                    StringComparer.Ordinal),
                 LastTickUtc = scheduler.LastTickUtc,
                 ActiveDispatchedCount = scheduler.ActiveDispatchedCount,
                 EventTriggeredSweepCount = scheduler.EventTriggeredSweepCount,
@@ -336,6 +345,11 @@ namespace Armada.Server.Mcp.Tools
             /// Optional per-vessel concurrent voyage override.
             /// </summary>
             public int? MaxConcurrentVoyagesPerVessel { get; set; }
+
+            /// <summary>
+            /// Optional campaign fair-share override.
+            /// </summary>
+            public bool? FairShareWithinPriorityBands { get; set; }
         }
 
         /// <summary>

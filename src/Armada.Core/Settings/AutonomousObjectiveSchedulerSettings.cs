@@ -39,6 +39,11 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Whether the scheduler rotates campaigns within each priority band. Disabled by default.
+        /// </summary>
+        public bool FairShareWithinPriorityBands { get; set; } = false;
+
+        /// <summary>
         /// When true, the scheduler is paused and will not dispatch new voyages until resumed.
         /// </summary>
         public bool Paused { get; set; } = false;

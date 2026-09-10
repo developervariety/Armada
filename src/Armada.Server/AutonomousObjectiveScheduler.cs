@@ -71,6 +71,23 @@ namespace Armada.Server
         public int MaxConcurrentVoyagesPerVessel { get; private set; }
 
         /// <summary>
+        /// Whether eligible campaigns rotate within each owner priority band.
+        /// </summary>
+        public bool FairShareWithinPriorityBands { get; private set; }
+
+        /// <summary>
+        /// Last successfully served campaign key in each priority band for this process.
+        /// </summary>
+        public IReadOnlyDictionary<ObjectivePriorityEnum, string> LastServedCampaignByPriority
+        {
+            get
+            {
+                lock (_FairShareLock)
+                    return new Dictionary<ObjectivePriorityEnum, string>(_LastServedCampaignByPriority);
+            }
+        }
+
+        /// <summary>
         /// UTC timestamp of the last completed sweep tick, or null if no tick has run.
         /// </summary>
         public DateTime? LastTickUtc { get; private set; }
@@ -123,12 +140,15 @@ namespace Armada.Server
         private readonly IObjectiveDispatchPreviewService? _ObjectiveDispatchPreview;
         private readonly SemaphoreSlim _SweepLock = new SemaphoreSlim(1, 1);
         private readonly object _RefillLock = new object();
+        private readonly object _FairShareLock = new object();
         private readonly CancellationTokenSource _RefillLifetime = new CancellationTokenSource();
         private readonly TimeSpan _RefillDebounceDelay;
         private Task? _RefillTask;
         private bool _RefillRequested;
         private bool _Disposed;
         private long _EventTriggeredSweepCount;
+        private readonly Dictionary<ObjectivePriorityEnum, string> _LastServedCampaignByPriority =
+            new Dictionary<ObjectivePriorityEnum, string>();
 
         #endregion
 
@@ -180,6 +200,7 @@ namespace Armada.Server
             IntervalMinutes = settings.AutonomousObjectiveScheduler.IntervalMinutes;
             MaxConcurrentVoyages = settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages;
             MaxConcurrentVoyagesPerVessel = settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel;
+            FairShareWithinPriorityBands = settings.AutonomousObjectiveScheduler.FairShareWithinPriorityBands;
         }
 
         #endregion
@@ -209,6 +230,7 @@ namespace Armada.Server
                 _Settings.AutonomousObjectiveScheduler.IntervalMinutes = IntervalMinutes;
                 _Settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages = MaxConcurrentVoyages;
                 _Settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel = MaxConcurrentVoyagesPerVessel;
+                _Settings.AutonomousObjectiveScheduler.FairShareWithinPriorityBands = FairShareWithinPriorityBands;
                 await _Settings.SaveAsync().ConfigureAwait(false);
                 return true;
             }
@@ -280,6 +302,18 @@ namespace Armada.Server
         public void SetMaxConcurrentVoyagesPerVessel(int max)
         {
             MaxConcurrentVoyagesPerVessel = Math.Max(1, Math.Min(50, max));
+        }
+
+        /// <summary>
+        /// Enable or disable campaign rotation within owner priority bands.
+        /// </summary>
+        public void SetFairShareWithinPriorityBands(bool enabled)
+        {
+            lock (_FairShareLock)
+            {
+                FairShareWithinPriorityBands = enabled;
+                if (!enabled) _LastServedCampaignByPriority.Clear();
+            }
         }
 
         /// <summary>
@@ -445,6 +479,23 @@ namespace Armada.Server
                     eligible = dependencyReady;
                 }
 
+                Dictionary<string, string> campaignByObjectiveId = new Dictionary<string, string>(StringComparer.Ordinal);
+                bool fairShareEnabled;
+                Dictionary<ObjectivePriorityEnum, string> fairShareCursor;
+                lock (_FairShareLock)
+                {
+                    fairShareEnabled = FairShareWithinPriorityBands;
+                    fairShareCursor = new Dictionary<ObjectivePriorityEnum, string>(_LastServedCampaignByPriority);
+                }
+                if (fairShareEnabled)
+                {
+                    eligible = ObjectiveFairShareOrder.Apply(
+                        eligible,
+                        snapshot,
+                        fairShareCursor,
+                        out campaignByObjectiveId);
+                }
+
                 ActiveVoyageSummary active = await CountActiveDispatchedAsync(token).ConfigureAwait(false);
                 ActiveDispatchedCount = active.Total;
                 int capacity = MaxConcurrentVoyages - active.Total;
@@ -551,6 +602,15 @@ namespace Armada.Server
                         previews.TryGetValue(objective.Id, out ObjectiveDispatchPreview? preview);
                         await DispatchObjectiveAsync(objective, mergeQueue, preview, token).ConfigureAwait(false);
                         dispatched++;
+                        if (fairShareEnabled
+                            && campaignByObjectiveId.TryGetValue(objective.Id, out string? campaignKey))
+                        {
+                            lock (_FairShareLock)
+                            {
+                                if (FairShareWithinPriorityBands)
+                                    _LastServedCampaignByPriority[objective.Priority] = campaignKey;
+                            }
+                        }
                         if (objective.VesselIds.Count == 1)
                         {
                             string dispatchedVesselId = objective.VesselIds[0];

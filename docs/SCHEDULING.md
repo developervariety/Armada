@@ -149,8 +149,8 @@ Everything above governs **mission-level** scheduling (which pending mission an 
 
 | Tool | Purpose |
 |------|---------|
-| `armada_objective_scheduler_status` | Return the scheduler's runtime state: `enabled`, `paused`, `intervalMinutes`, `maxConcurrentVoyages`, `maxConcurrentVoyagesPerVessel`, `lastTickUtc`, `activeDispatchedCount`, `eventTriggeredSweepCount`, `lastSkipReason`. No arguments. |
-| `armada_objective_scheduler_set` | Enable/disable/pause or adjust the sweep. All fields optional; omitted fields are left unchanged. `enabled` (bool), `paused` (bool -- suspend without clearing `enabled`), `intervalMinutes` (int, clamped 1-1440), `maxConcurrentVoyages` (fleet-wide, clamped 1-50), `maxConcurrentVoyagesPerVessel` (default 1, clamped 1-50). Returns the same status snapshot. |
+| `armada_objective_scheduler_status` | Return the scheduler's runtime state: `enabled`, `paused`, `intervalMinutes`, `maxConcurrentVoyages`, `maxConcurrentVoyagesPerVessel`, `fairShareWithinPriorityBands`, `lastServedCampaignByPriority`, `lastTickUtc`, `activeDispatchedCount`, `eventTriggeredSweepCount`, `lastSkipReason`. No arguments. |
+| `armada_objective_scheduler_set` | Enable/disable/pause or adjust the sweep. All fields optional; omitted fields are left unchanged. `enabled` (bool), `paused` (bool -- suspend without clearing `enabled`), `intervalMinutes` (int, clamped 1-1440), `maxConcurrentVoyages` (fleet-wide, clamped 1-50), `maxConcurrentVoyagesPerVessel` (default 1, clamped 1-50), `fairShareWithinPriorityBands` (bool, default false). Returns the same status snapshot. |
 | `armada_mark_objective_auto_dispatchable` | Per-objective opt-in. `objectiveId` (required), `enabled` (required bool -- sets the objective's `AutoDispatchEnabled` flag), `blockedByObjectiveIds` (optional array -- objectives that must reach `Completed` before this one is eligible; omit to leave existing blockers unchanged). |
 | `preview_objective_dispatch` | Run the shared read-only objective preflight. It returns all target, pipeline, captain, Check, repository, brief, and dependency findings. Optional vessel, pipeline, and captain overrides use the same evaluator as dispatch. |
 
@@ -159,6 +159,16 @@ Everything above governs **mission-level** scheduling (which pending mission an 
 The sweep dispatches an objective only when it is `AutoDispatchEnabled` and the shared dispatch preview is ready. The preview requires every objective in `BlockedByObjectiveIds` to reach `Completed`. It returns the complete typed dependency graph and up to 100 diagnostic paths, and it states when more paths exist. It reports a dependency cycle without hanging. Objective create and update requests reject a new cycle and name its closed path. `blockedByObjectiveIds` is the declarative, objective-level equivalent of wiring `dependsOnMissionId` by hand at dispatch time -- prefer it when you want an unattended objective graph to unblock and dispatch itself in dependency order. The scheduler will not exceed the fleet-wide `maxConcurrentVoyages` ceiling or the per-vessel `maxConcurrentVoyagesPerVessel` ceiling. Operator-dispatched linked voyages count toward both limits.
 
 A row is considered only while its `Status` is `Scoped` or `Planned`. Linking a voyage promotes the row to `InProgress`, so a `Scoped` or `Planned` row that still carries `VoyageIds` is one an operator has **requeued** after those voyages ended. The sweep does not hold such a row: when every linked voyage has ended (`Complete`, `Failed`, `Cancelled`) it dispatches a new voyage and records an `objective_scheduler.requeue_after_ended_voyages` event; the old ids stay on the row as history. When a linked voyage is still `Open` or `InProgress` the row is skipped and the reason is named as `active_voyage` in `lastSkipReason`. A requeue therefore needs only the status reset — clearing `VoyageIds` by hand is not required and loses the history.
+
+`fairShareWithinPriorityBands` is off by default. When it is on, it applies only
+to objective trees whose root has a `campaign:<name>` tag. It keeps P0 ahead of
+P1, P1 ahead of P2, and P2 ahead of P3. Within one priority band, it takes one
+ready slice from each campaign before it takes a second slice from a campaign.
+Rank and ID order stay authoritative inside each campaign. Plain objectives use
+one shared default group and keep their rank and ID order. The scheduler advances
+a band's cursor only after a successful dispatch. Status reports the process-local
+cursor in `lastServedCampaignByPriority`; a restart begins from deterministic rank
+order again.
 
 `maxConcurrentVoyages` is a safety ceiling, not a throughput target. A lead must
 keep enough verified objectives auto-enabled to use the ceiling. Prefer

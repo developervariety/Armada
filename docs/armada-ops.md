@@ -681,6 +681,14 @@ A campaign is an opt-in objective tree for one large effort: a root tagged
 lanes. Plain objectives outside any campaign remain the default; do not force
 ordinary work into one.
 
+The autonomous scheduler can use optional campaign fair-share. Set
+`fairShareWithinPriorityBands=true` with `armada_objective_scheduler_set`. The
+setting is false by default. It never moves a lower-priority slice ahead of a
+higher-priority slice. In one priority band, it rotates across tagged campaign
+roots and keeps rank and ID order inside each campaign. Plain objectives remain
+in one default group. Scheduler status shows both the setting and the
+process-local last-served cursor.
+
 Operating rules:
 
 1. Claim the slice (`armada_coordination_claim`) before starting; heartbeat

@@ -56,6 +56,16 @@ namespace Armada.Core.Models
         public int MaxConcurrentVoyagesPerVessel { get; set; } = 1;
 
         /// <summary>
+        /// Whether campaign fair-share is active within each priority band.
+        /// </summary>
+        public bool FairShareWithinPriorityBands { get; set; } = false;
+
+        /// <summary>
+        /// Last successfully served campaign key in each priority band for this process.
+        /// </summary>
+        public Dictionary<string, string> LastServedCampaignByPriority { get; set; } = new Dictionary<string, string>();
+
+        /// <summary>
         /// UTC timestamp of the last completed sweep tick, or null if no tick has run yet.
         /// </summary>
         public DateTime? LastTickUtc { get; set; } = null;

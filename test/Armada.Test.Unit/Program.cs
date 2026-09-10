@@ -174,6 +174,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CaptainBenchPersistenceTests());
             runner.AddSuite(new McpVesselToolsTests());
             runner.AddSuite(new AutonomousObjectiveSelectorTests());
+            runner.AddSuite(new ObjectiveFairShareOrderTests());
             runner.AddSuite(new ConventionCheckTests());
             runner.AddSuite(new DockBoundaryScannerTests());
             runner.AddSuite(new DockBoundaryManifestHashTests());
