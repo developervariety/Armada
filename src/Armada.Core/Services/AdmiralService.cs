@@ -379,13 +379,6 @@ namespace Armada.Core.Services
 
                     foreach (PipelineStage stage in stageGroup)
                     {
-                        if (StageIsUnusableOnMode(stage.PersonaName, md.Mode))
-                        {
-                            _Logging.Info(_Header + "skipping " + stage.PersonaName + " stage for read-only mission \"" +
-                                baseTitle + "\": a " + md.Mode + " mission produces no diff to cover");
-                            continue;
-                        }
-
                         Mission mission = new Mission(
                             "[" + stage.PersonaName + "] " + baseTitle,
                             md.Description);
@@ -553,13 +546,6 @@ namespace Armada.Core.Services
 
                         foreach (PipelineStage stage in stageGroup)
                         {
-                            if (StageIsUnusableOnMode(stage.PersonaName, md.Mode))
-                            {
-                                _Logging.Info(_Header + "skipping " + stage.PersonaName + " stage for read-only mission \"" +
-                                    baseTitle + "\": a " + md.Mode + " mission produces no diff to cover");
-                                continue;
-                            }
-
                             Mission mission = new Mission("[" + stage.PersonaName + "] " + baseTitle, md.Description);
                             mission.TenantId = vessel.TenantId;
                             mission.UserId = vessel.UserId;
@@ -1514,24 +1500,6 @@ namespace Armada.Core.Services
             }
 
             return await ResolvePipelineAsync(pipelineId, vessel, token).ConfigureAwait(false);
-        }
-
-        /// <summary>
-        /// Whether a pipeline stage has nothing to do on a read-only mission. A Test Engineer stage
-        /// exists to cover the diff the previous stage produced, and an Audit or Research mission
-        /// produces none by construction. Materializing it anyway costs a full captain run that can
-        /// only report the contradiction, and leaves the voyage a stage longer than the work.
-        ///
-        /// Only the diff-dependent stage is dropped. The reviewing stages read a report as readily as
-        /// a diff, so a read-only voyage keeps its review and its verdict.
-        /// </summary>
-        /// <param name="personaName">Stage persona name.</param>
-        /// <param name="missionMode">Mission mode string from the dispatch.</param>
-        /// <returns>True when the stage must not be created.</returns>
-        internal static bool StageIsUnusableOnMode(string? personaName, string? missionMode)
-        {
-            if (!IsReadOnlyMissionMode(missionMode)) return false;
-            return PersonaCatalog.NormalizeName(personaName) == PersonaCatalog.TestEngineer;
         }
 
         /// <summary>
