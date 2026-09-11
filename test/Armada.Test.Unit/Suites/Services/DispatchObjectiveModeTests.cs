@@ -277,47 +277,53 @@ namespace Armada.Test.Unit.Suites.Services
                     };
                     referencePipeline = await testDb.Driver.Pipelines.CreateAsync(referencePipeline).ConfigureAwait(false);
 
-                    List<MissionDescription> autonomousDescriptions = new List<MissionDescription>
+                    MissionModeEnum[] readOnlyModes = new[] { MissionModeEnum.Audit, MissionModeEnum.Research };
+                    foreach (MissionModeEnum mode in readOnlyModes)
                     {
-                        new MissionDescription("Research through the reference pipeline", "Inspect and report.")
+                        List<MissionDescription> autonomousDescriptions = new List<MissionDescription>
                         {
-                            Mode = MissionModeEnum.Research.ToString()
-                        }
-                    };
-                    Voyage autonomousVoyage = await harness.Admiral.DispatchVoyageAsync(
-                        "autonomous reference voyage", "report only", harness.Vessel.Id,
-                        autonomousDescriptions, referencePipeline.Id).ConfigureAwait(false);
-
-                    VoyageDispatchResult operatorResult = await harness.NewDispatchService().DispatchAsync(
-                        new SharedVoyageDispatchRequest
-                        {
-                            Title = "operator reference voyage",
-                            VesselId = harness.Vessel.Id,
-                            PipelineId = referencePipeline.Id,
-                            CodeContextMode = "off",
-                            Missions = new List<MissionDescription>
+                            new MissionDescription(mode + " through the reference pipeline", "Inspect and report.")
                             {
-                                new MissionDescription("Research through the reference pipeline", "Inspect and report.")
-                                {
-                                    Mode = MissionModeEnum.Research.ToString()
-                                }
+                                Mode = mode.ToString()
                             }
-                        }).ConfigureAwait(false);
+                        };
+                        Voyage autonomousVoyage = await harness.Admiral.DispatchVoyageAsync(
+                            "autonomous " + mode + " reference voyage", "report only", harness.Vessel.Id,
+                            autonomousDescriptions, referencePipeline.Id).ConfigureAwait(false);
 
-                    AssertTrue(operatorResult.Succeeded, "operator dispatch should succeed");
-                    List<Mission> autonomousMissions = await testDb.Driver.Missions
-                        .EnumerateByVoyageAsync(autonomousVoyage.Id).ConfigureAwait(false);
-                    List<Mission> operatorMissions = await testDb.Driver.Missions
-                        .EnumerateByVoyageAsync(operatorResult.Voyage!.Id).ConfigureAwait(false);
+                        VoyageDispatchResult operatorResult = await harness.NewDispatchService().DispatchAsync(
+                            new SharedVoyageDispatchRequest
+                            {
+                                Title = "operator " + mode + " reference voyage",
+                                VesselId = harness.Vessel.Id,
+                                PipelineId = referencePipeline.Id,
+                                CodeContextMode = "off",
+                                Missions = new List<MissionDescription>
+                                {
+                                    new MissionDescription(mode + " through the reference pipeline", "Inspect and report.")
+                                    {
+                                        Mode = mode.ToString()
+                                    }
+                                }
+                            }).ConfigureAwait(false);
 
-                    string autonomousGraph = String.Join(";", DescribePipelineGraph(autonomousMissions));
-                    string operatorGraph = String.Join(";", DescribePipelineGraph(operatorMissions));
-                    AssertEqual("Worker|1|none;PortingReferenceAnalyst|2|Worker;TestEngineer|3|PortingReferenceAnalyst;Judge|4|TestEngineer",
-                        autonomousGraph, "the autonomous dispatch must persist the complete ordered graph");
-                    AssertEqual(autonomousGraph, operatorGraph,
-                        "autonomous and operator dispatch must persist equivalent stage dependencies");
-                    AssertTrue(autonomousMissions.All(m => m.IsReadOnlyMode),
-                        "Research must remain read-only across every preserved stage");
+                        AssertTrue(operatorResult.Succeeded, mode + " operator dispatch should succeed");
+                        List<Mission> autonomousMissions = await testDb.Driver.Missions
+                            .EnumerateByVoyageAsync(autonomousVoyage.Id).ConfigureAwait(false);
+                        List<Mission> operatorMissions = await testDb.Driver.Missions
+                            .EnumerateByVoyageAsync(operatorResult.Voyage!.Id).ConfigureAwait(false);
+
+                        string autonomousGraph = String.Join(";", DescribePipelineGraph(autonomousMissions));
+                        string operatorGraph = String.Join(";", DescribePipelineGraph(operatorMissions));
+                        AssertEqual("Worker|1|none;PortingReferenceAnalyst|2|Worker;TestEngineer|3|PortingReferenceAnalyst;Judge|4|TestEngineer",
+                            autonomousGraph, mode + " autonomous dispatch must persist the complete ordered graph");
+                        AssertEqual(autonomousGraph, operatorGraph,
+                            mode + " autonomous and operator dispatch must persist equivalent stage dependencies");
+                        AssertTrue(autonomousMissions.All(m => m.IsReadOnlyMode),
+                            mode + " must remain read-only across every autonomous stage");
+                        AssertTrue(operatorMissions.All(m => m.IsReadOnlyMode),
+                            mode + " must remain read-only across every operator stage");
+                    }
                 }
             });
 

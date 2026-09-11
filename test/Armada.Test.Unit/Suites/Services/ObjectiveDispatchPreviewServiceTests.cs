@@ -140,6 +140,58 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Read-only ReferencePortingTested preview requires TestEngineer coverage", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    harness.Captain.AllowedPersonas = "[\"Worker\",\"PortingReferenceAnalyst\",\"Judge\"]";
+                    await testDb.Driver.Captains.UpdateAsync(harness.Captain).ConfigureAwait(false);
+
+                    Pipeline pipeline = new Pipeline("ReferencePortingTested")
+                    {
+                        Stages = new List<PipelineStage>
+                        {
+                            new PipelineStage(1, "Worker"),
+                            new PipelineStage(2, "PortingReferenceAnalyst"),
+                            new PipelineStage(3, "TestEngineer"),
+                            new PipelineStage(4, "Judge")
+                        }
+                    };
+                    pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("read-only-reference-preview");
+                    objective.Kind = ObjectiveKindEnum.Research;
+                    objective = await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+
+                    MissionModeEnum[] readOnlyModes = new[] { MissionModeEnum.Audit, MissionModeEnum.Research };
+                    foreach (MissionModeEnum mode in readOnlyModes)
+                    {
+                        ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(
+                            harness.Auth,
+                            objective,
+                            null,
+                            pipeline.Id,
+                            null,
+                            new List<MissionDescription>
+                            {
+                                new MissionDescription("Inspect through every stage", "Report findings only.")
+                                {
+                                    Mode = mode.ToString()
+                                }
+                            }).ConfigureAwait(false);
+
+                        AssertFalse(result.IsReady, mode + " preview must fail when TestEngineer has no configured captain.");
+                        AssertTrue(result.RequiredRoles.Select(role => role.Persona).SequenceEqual(
+                            new[] { "Worker", "PortingReferenceAnalyst", "TestEngineer", "Judge" }),
+                            mode + " preview must preserve every declared role in pipeline order.");
+                        AssertTrue(result.Issues.Any(issue =>
+                                issue.Code == "required_role_has_no_captain"
+                                && issue.Message.Contains("TestEngineer", StringComparison.Ordinal)),
+                            mode + " preview must name the missing TestEngineer coverage.");
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Missing sibling artifacts block readiness without provisioning a dock", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
