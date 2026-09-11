@@ -395,9 +395,13 @@ namespace Armada.Test.Unit.Suites.Services
                 string impl = MissionService.BuildPersonaPreamble("Judge", MissionModeEnum.Implementation);
 
                 AssertContains("Review the Report", audit, "audit Judge must validate the report");
+                AssertContains("Do not edit, commit, or push", audit, "audit Judge must forbid edits");
                 AssertContains("do not order or run implementation tests", audit, "audit Judge must not order tests");
                 AssertContains("Review the Report", research, "research Judge must validate the report");
+                AssertContains("Do not edit, commit, or push", research, "research Judge must forbid edits");
+                AssertContains("do not order or run implementation tests", research, "research Judge must not order tests");
                 AssertContains("Judge (Review)", impl, "implementation Judge keeps the code-review role");
+                AssertContains("test adequacy", impl, "implementation Judge must retain the code test review");
                 AssertFalse(audit.Equals(impl, StringComparison.Ordinal), "report-only Judge preamble must differ from implementation");
             });
         }

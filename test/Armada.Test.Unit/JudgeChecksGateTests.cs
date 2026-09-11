@@ -624,6 +624,25 @@ namespace Armada.Test.Unit
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("ReportOnlyResearchJudgePass_AcceptsWithoutChecksOrExclusion", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService svc, Voyage voyage) = await SeedReportOnlyJudgePassedVoyageAsync(
+                        testDb, MissionModeEnum.Research).ConfigureAwait(false);
+
+                    Mission? judge = (await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id, CancellationToken.None).ConfigureAwait(false))
+                        .FirstOrDefault(m => m.Persona == "Judge");
+                    AssertNotNull(judge, "judge mission should exist");
+                    judge!.AgentOutput = "report review\n[ARMADA:VERDICT] PASS";
+
+                    AssertEqual(
+                        MissionService.JudgeCheckGate.GreenChecks,
+                        await svc.EvaluateJudgeCheckGateAsync(judge, CancellationToken.None).ConfigureAwait(false),
+                        "a report-only Research Judge PASS is accepted without code Checks");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("ReportOnlyVoyage_LegacyFailedChecks_DoNotFailTerminalization", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -635,6 +654,40 @@ namespace Armada.Test.Unit
                     Voyage? after = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
                     AssertEqual(VoyageStatusEnum.Complete, after!.Status,
                         "legacy code Checks must not fail a fully report-only voyage");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("ReportOnlyVoyage_LegacyPendingChecks_DoNotHoldTerminalization", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService svc, Voyage voyage) = await SeedReportOnlyJudgePassedVoyageAsync(
+                        testDb, MissionModeEnum.Audit).ConfigureAwait(false);
+                    await AddCheckAsync(testDb, voyage.Id, CheckRunStatusEnum.Pending).ConfigureAwait(false);
+                    await svc.UpdateVoyageTerminalStatusAsync(voyage.Id, CancellationToken.None).ConfigureAwait(false);
+                    Voyage? after = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.Complete, after!.Status,
+                        "legacy pending code Checks must not hold a fully report-only voyage");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("MixedAuditAndResearchVoyage_StillRequiresGreenChecks", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService svc, Voyage voyage) = await SeedReportOnlyJudgePassedVoyageAsync(
+                        testDb, MissionModeEnum.Audit).ConfigureAwait(false);
+                    Mission? judge = (await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id, CancellationToken.None).ConfigureAwait(false))
+                        .FirstOrDefault(m => m.Persona == "Judge");
+                    AssertNotNull(judge, "judge mission should exist");
+                    judge!.Mode = MissionModeEnum.Research;
+                    judge.AgentOutput = "review body\n[ARMADA:VERDICT] PASS";
+                    await testDb.Driver.Missions.UpdateAsync(judge, CancellationToken.None).ConfigureAwait(false);
+
+                    AssertEqual(
+                        MissionService.JudgeCheckGate.NoChecksNoExclusion,
+                        await svc.EvaluateJudgeCheckGateAsync(judge, CancellationToken.None).ConfigureAwait(false),
+                        "an Audit and Research voyage is mixed-mode and still requires green Checks");
                 }
             }).ConfigureAwait(false);
 

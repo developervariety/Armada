@@ -214,12 +214,20 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("[ARMADA:VERDICT]", judgeContract, "a report-only Judge keeps its verdict contract");
                 AssertContains("report-only Audit mission", judgeContract, "audit Judge must name the report-only contract");
                 AssertContains("## Evidence", judgeContract, "audit Judge must require evidence validation");
+                AssertContains("Do not edit, commit, or push", judgeContract, "audit Judge must forbid edits");
                 AssertFalse(judgeContract.Contains("Run the test suite", StringComparison.Ordinal),
                     "audit Judge must not order implementation tests");
 
                 string researchJudgeContract = MissionPromptBuilder.GetPersonaOutputContract("Judge", MissionModeEnum.Research);
                 AssertContains("report-only Research mission", researchJudgeContract, "research Judge must name the report-only contract");
+                AssertContains("## Evidence", researchJudgeContract, "research Judge must require evidence validation");
                 AssertContains("Do not edit, commit, or push", researchJudgeContract, "research Judge must forbid edits");
+                AssertFalse(researchJudgeContract.Contains("Run the test suite", StringComparison.Ordinal),
+                    "research Judge must not order implementation tests");
+
+                string implementationJudgeContract = MissionPromptBuilder.GetPersonaOutputContract("Judge", MissionModeEnum.Implementation);
+                AssertContains("Run the test suite", implementationJudgeContract,
+                    "implementation Judge must retain the existing test requirement");
 
                 await Task.CompletedTask;
             });

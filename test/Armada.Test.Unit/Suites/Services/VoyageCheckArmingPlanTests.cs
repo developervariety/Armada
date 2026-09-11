@@ -2,11 +2,14 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System.Collections.Generic;
     using System.Threading.Tasks;
+    using Armada.Core;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Settings;
     using Armada.Test.Common;
+    using Armada.Test.Unit.TestHelpers;
+    using SyslogLogging;
 
     /// <summary>
     /// Coverage for the dispatch-time Check arming decision. A voyage with no green independent
@@ -136,6 +139,27 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, planned.Count, "report-only voyages must not arm Build or UnitTest");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
+
+            await RunTest("Arming service persists no Checks for an all-Audit voyage", async () =>
+            {
+                await AssertServiceArmsExpectedCountAsync(
+                    new List<MissionModeEnum> { MissionModeEnum.Audit, MissionModeEnum.Audit },
+                    0).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
+            await RunTest("Arming service persists no Checks for an all-Research voyage", async () =>
+            {
+                await AssertServiceArmsExpectedCountAsync(
+                    new List<MissionModeEnum> { MissionModeEnum.Research, MissionModeEnum.Research },
+                    0).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
+            await RunTest("Arming service preserves code Checks for mixed report-only modes", async () =>
+            {
+                await AssertServiceArmsExpectedCountAsync(
+                    new List<MissionModeEnum> { MissionModeEnum.Audit, MissionModeEnum.Research },
+                    2).ConfigureAwait(false);
+            }).ConfigureAwait(false);
         }
 
         #region Private-Methods
@@ -149,6 +173,67 @@ namespace Armada.Test.Unit.Suites.Services
                 BuildCommand = build,
                 UnitTestCommand = unitTest
             };
+        }
+
+        private async Task AssertServiceArmsExpectedCountAsync(
+            IReadOnlyList<MissionModeEnum> modes,
+            int expectedCount)
+        {
+            using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+            {
+                Vessel vessel = new Vessel("arming-vessel", "https://github.com/test/repo.git")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId
+                };
+                vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                WorkflowProfile profile = MakeProfile("dotnet build", "dotnet test");
+                profile.TenantId = Constants.DefaultTenantId;
+                profile.UserId = Constants.DefaultUserId;
+                profile.Scope = WorkflowProfileScopeEnum.Vessel;
+                profile.VesselId = vessel.Id;
+                await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                Voyage voyage = new Voyage("arming-voyage")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId
+                };
+                voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                for (int index = 0; index < modes.Count; index++)
+                {
+                    Mission mission = new Mission("Stage " + index, "Report stage")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        VesselId = vessel.Id,
+                        VoyageId = voyage.Id,
+                        Mode = modes[index]
+                    };
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                }
+
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                VoyageCheckArmingService service = new VoyageCheckArmingService(
+                    testDb.Driver,
+                    new ArmadaSettings { VoyageCheckArming = new VoyageCheckArmingSettings() },
+                    logging);
+
+                int createdCount = await service.ArmAsync(voyage, vessel, "test").ConfigureAwait(false);
+                EnumerationResult<CheckRun> persisted = await testDb.Driver.CheckRuns.EnumerateAsync(
+                    new CheckRunQuery
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        VoyageId = voyage.Id,
+                        PageSize = 100
+                    }).ConfigureAwait(false);
+
+                AssertEqual(expectedCount, createdCount, "the service must report the number of created Checks");
+                AssertEqual(expectedCount, persisted.Objects.Count, "the database must contain exactly the planned Checks");
+            }
         }
 
         #endregion
