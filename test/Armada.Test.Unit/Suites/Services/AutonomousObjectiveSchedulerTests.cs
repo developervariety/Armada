@@ -907,6 +907,91 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("vessel_concurrency=1", scheduler.LastResultSummary ?? String.Empty, "Summary should name the vessel-limited objective.");
             }).ConfigureAwait(false);
 
+            await RunTest("Per-vessel saturation backfills remaining fleet capacity", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel primary = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                    "saturation-primary", "https://github.com/test/saturation-primary.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+
+                for (int i = 0; i < 4; i++)
+                {
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Title = "Primary priority " + i,
+                        Status = ObjectiveStatusEnum.Scoped,
+                        AutoDispatchEnabled = true,
+                        Priority = ObjectivePriorityEnum.P0,
+                        Rank = i,
+                        VesselIds = new List<string> { primary.Id }
+                    }).ConfigureAwait(false);
+                }
+
+                for (int i = 0; i < 4; i++)
+                {
+                    Vessel other = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                        "saturation-other-" + i, "https://github.com/test/saturation-other-" + i + ".git")
+                    {
+                        TenantId = Constants.DefaultTenantId
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Title = "Backfill priority " + i,
+                        Status = ObjectiveStatusEnum.Scoped,
+                        AutoDispatchEnabled = true,
+                        Priority = ObjectivePriorityEnum.P1,
+                        Rank = i,
+                        VesselIds = new List<string> { other.Id }
+                    }).ConfigureAwait(false);
+                }
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1,
+                        MaxConcurrentVoyages = 7,
+                        MaxConcurrentVoyagesPerVessel = 3
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(7, admiral.DispatchVoyageCallCount,
+                    "One sweep must backfill all fleet slots after the primary vessel reaches its cap.");
+                AssertEqual("Primary priority 0", admiral.DispatchedTitles[0],
+                    "Priority must remain authoritative for the first admissible objective.");
+                AssertEqual("Primary priority 1", admiral.DispatchedTitles[1],
+                    "Priority and rank must remain authoritative within the primary vessel.");
+                AssertEqual("Primary priority 2", admiral.DispatchedTitles[2],
+                    "The primary vessel may consume only its three admissible slots.");
+                AssertEqual("Backfill priority 0", admiral.DispatchedTitles[3],
+                    "The first admissible objective after saturation must backfill capacity.");
+                for (int i = 0; i < 4; i++)
+                    AssertEqual("Backfill priority " + i, admiral.DispatchedTitles[3 + i],
+                        "Backfill objectives must retain priority and rank order.");
+                AssertContains("vessel_concurrency=1", scheduler.LastResultSummary ?? String.Empty,
+                    "The summary must report the saturated candidate that was skipped.");
+                AssertContains("search_exhaustive=true", scheduler.LastResultSummary ?? String.Empty,
+                    "The summary must report that every candidate was examined while backfilling capacity.");
+                List<ArmadaEvent> saturationEvents = await testDb.Driver.Events
+                    .EnumerateByTypeAsync("objective_scheduler.skipped_vessel_concurrency")
+                    .ConfigureAwait(false);
+                AssertEqual(1, saturationEvents.Count,
+                    "The saturated candidate must be recorded with its skip reason.");
+            }).ConfigureAwait(false);
+
             await RunTest("Two vessels joined by a build-participating sibling are one lane: the second objective waits with lane_busy", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

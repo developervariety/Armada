@@ -557,6 +557,7 @@ namespace Armada.Server
 
                 int dispatched = 0;
                 int vesselConcurrencySkips = 0;
+                bool searchExhaustive = true;
                 // Every skip is counted by reason. A sweep that dispatches nothing must be
                 // able to say why; reporting dispatched=0 with no reason reads as an idle
                 // fleet, and hid two permanently undispatchable objectives for days.
@@ -565,7 +566,11 @@ namespace Armada.Server
 
                 foreach (Objective objective in eligible)
                 {
-                    if (dispatched >= capacity) break;
+                    if (dispatched >= capacity)
+                    {
+                        searchExhaustive = false;
+                        break;
+                    }
                     token.ThrowIfCancellationRequested();
 
                     if (objective.VesselIds.Count == 1)
@@ -647,10 +652,12 @@ namespace Armada.Server
                     : (skipReasons.Count > 0 ? DescribeSkips(skipReasons) : "no_eligible_objectives");
 
                 LastResultSummary = "reconciled=" + reconciledCount + " dispatched=" + dispatched
-                    + (skipReasons.Count > 0 ? " skipped=" + DescribeSkips(skipReasons) : String.Empty);
+                    + (skipReasons.Count > 0 ? " skipped=" + DescribeSkips(skipReasons) : String.Empty)
+                    + " search_exhaustive=" + searchExhaustive.ToString().ToLowerInvariant();
                 _Logging.Info(_Header + "sweep complete: reconciled=" + reconciledCount
                     + " dispatched=" + dispatched + " capacity=" + capacity
-                    + (skipReasons.Count > 0 ? " skipped=" + DescribeSkips(skipReasons) : String.Empty) + ".");
+                    + (skipReasons.Count > 0 ? " skipped=" + DescribeSkips(skipReasons) : String.Empty)
+                    + " search_exhaustive=" + searchExhaustive.ToString().ToLowerInvariant() + ".");
             }
             finally
             {
