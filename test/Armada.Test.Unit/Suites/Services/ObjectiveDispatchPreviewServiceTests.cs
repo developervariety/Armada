@@ -318,6 +318,55 @@ namespace Armada.Test.Unit.Suites.Services
                         "preview must be ready when idle mid-tier Workers cover the capped Worker role");
                 }
             }).ConfigureAwait(false);
+
+            await RunTest("Preview rejects an unavailable literal model without rewriting the pin", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(
+                        testDb,
+                        includeUnitTestCommand: true,
+                        settings: global::Test.Shared.Infrastructure.FleetRoutingSettings.CreateArmadaSettings()).ConfigureAwait(false);
+                    harness.Captain.Model = "gpt-5.6-luna";
+                    harness.Captain.State = CaptainStateEnum.Idle;
+                    await testDb.Driver.Captains.UpdateAsync(harness.Captain).ConfigureAwait(false);
+
+                    Pipeline pipeline = new Pipeline("LiteralPinPreview");
+                    pipeline.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker")
+                    };
+                    pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+
+                    Objective objective = harness.CreateReadyObjective("literal-pin-preview");
+                    objective.SuggestedPipelineId = pipeline.Id;
+                    await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(
+                        harness.Auth,
+                        objective,
+                        harness.Vessel.Id,
+                        pipeline.Id,
+                        null,
+                        new List<MissionDescription>
+                        {
+                            new MissionDescription("Implement feature", "Use the requested model")
+                            {
+                                PreferredModel = "gpt-5.6-sol"
+                            }
+                        }).ConfigureAwait(false);
+
+                    ObjectiveDispatchRole workerRole = result.RequiredRoles.Single(role => role.Persona == "Worker");
+                    AssertEqual("gpt-5.6-sol", workerRole.PreferredModel,
+                        "preview must retain the literal model value that dispatch persists");
+                    AssertEqual(0, workerRole.EligibleConfiguredCaptainIds.Count,
+                        "a different mid-tier model must not satisfy an exact literal pin");
+                    AssertFalse(result.IsReady,
+                        "preview must reject dispatch when no configured captain serves the literal model pin");
+                    AssertTrue(result.Issues.Any(issue => issue.Code == "required_role_has_no_captain"),
+                        "the unavailable literal pin must report the standard missing-role error");
+                }
+            }).ConfigureAwait(false);
         }
 
         private sealed class PreviewHarness
