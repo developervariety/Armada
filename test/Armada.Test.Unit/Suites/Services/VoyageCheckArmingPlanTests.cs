@@ -124,6 +124,18 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(CheckRunTypeEnum.UnitTest, planned[0]);
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
+
+            await RunTest("A fully report-only voyage is not armed with code Checks", () =>
+            {
+                IReadOnlyList<CheckRunTypeEnum> planned = VoyageCheckArmingPlan.Resolve(
+                    new VoyageCheckArmingSettings(),
+                    MakeProfile("dotnet build", "dotnet test"),
+                    null,
+                    isFullyReportOnlyVoyage: true);
+
+                AssertEqual(0, planned.Count, "report-only voyages must not arm Build or UnitTest");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
         }
 
         #region Private-Methods

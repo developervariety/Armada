@@ -36,6 +36,44 @@ namespace Armada.Test.Unit
 
         /// <summary>Seeds a voyage whose missions are all terminal (Worker WorkProduced + Judge Complete,
         /// so the Judge "passed") and returns the service + the still-InProgress voyage.</summary>
+        private async Task<(MissionService svc, Voyage voyage)> SeedReportOnlyJudgePassedVoyageAsync(
+            TestDatabase testDb,
+            MissionModeEnum mode)
+        {
+            LoggingModule logging = CreateLogging();
+            ArmadaSettings settings = CreateSettings();
+            StubGitService git = new StubGitService();
+            IDockService docks = new DockService(logging, testDb.Driver, settings, git);
+            ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
+            MissionService svc = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git);
+
+            Vessel vessel = new Vessel("report-only-vessel", "https://github.com/test/repo.git");
+            vessel.DefaultBranch = "main";
+            vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+            Voyage voyage = new Voyage("report-only-voyage");
+            voyage.Status = VoyageStatusEnum.InProgress;
+            voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+            Mission worker = new Mission("[Worker] Audit", "worker description");
+            worker.VesselId = vessel.Id;
+            worker.VoyageId = voyage.Id;
+            worker.Persona = "Worker";
+            worker.Mode = mode;
+            worker.Status = MissionStatusEnum.WorkProduced;
+            await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
+
+            Mission judge = new Mission("[Judge] Review", "judge description");
+            judge.VesselId = vessel.Id;
+            judge.VoyageId = voyage.Id;
+            judge.Persona = "Judge";
+            judge.Mode = mode;
+            judge.Status = MissionStatusEnum.Complete;
+            await testDb.Driver.Missions.CreateAsync(judge).ConfigureAwait(false);
+
+            return (svc, voyage);
+        }
+
         private async Task<(MissionService svc, Voyage voyage)> SeedJudgePassedVoyageAsync(TestDatabase testDb)
         {
             LoggingModule logging = CreateLogging();
@@ -567,6 +605,57 @@ namespace Armada.Test.Unit
             // The rejection message forced the operator to guess which record blocked the PASS.
             // The obvious wrong guess was a degraded captain, which benches healthy Judges and
             // fixes nothing, so the message must name the records instead.
+            await RunTest("ReportOnlyAuditJudgePass_AcceptsWithoutChecksOrExclusion", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService svc, Voyage voyage) = await SeedReportOnlyJudgePassedVoyageAsync(
+                        testDb, MissionModeEnum.Audit).ConfigureAwait(false);
+
+                    Mission? judge = (await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id, CancellationToken.None).ConfigureAwait(false))
+                        .FirstOrDefault(m => m.Persona == "Judge");
+                    AssertNotNull(judge, "judge mission should exist");
+                    judge!.AgentOutput = "report review\n[ARMADA:VERDICT] PASS";
+
+                    AssertEqual(
+                        MissionService.JudgeCheckGate.GreenChecks,
+                        await svc.EvaluateJudgeCheckGateAsync(judge, CancellationToken.None).ConfigureAwait(false),
+                        "a report-only Audit Judge PASS is accepted without code Checks");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("ReportOnlyVoyage_LegacyFailedChecks_DoNotFailTerminalization", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService svc, Voyage voyage) = await SeedReportOnlyJudgePassedVoyageAsync(
+                        testDb, MissionModeEnum.Research).ConfigureAwait(false);
+                    await AddCheckAsync(testDb, voyage.Id, CheckRunStatusEnum.Failed).ConfigureAwait(false);
+                    await svc.UpdateVoyageTerminalStatusAsync(voyage.Id, CancellationToken.None).ConfigureAwait(false);
+                    Voyage? after = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.Complete, after!.Status,
+                        "legacy code Checks must not fail a fully report-only voyage");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("MixedModeVoyage_StillRequiresGreenChecks", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService svc, Voyage voyage) = await SeedJudgePassedVoyageAsync(testDb).ConfigureAwait(false);
+
+                    Mission? judge = (await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id, CancellationToken.None).ConfigureAwait(false))
+                        .FirstOrDefault(m => m.Persona == "Judge");
+                    AssertNotNull(judge, "judge mission should exist");
+                    judge!.AgentOutput = "review body\n[ARMADA:VERDICT] PASS";
+
+                    AssertEqual(
+                        MissionService.JudgeCheckGate.NoChecksNoExclusion,
+                        await svc.EvaluateJudgeCheckGateAsync(judge, CancellationToken.None).ConfigureAwait(false),
+                        "implementation voyages still require green independent Checks");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("DescribeUnresolvedChecks_NamesTheBlockingRecords", () =>
             {
                 CheckRun queued = new CheckRun

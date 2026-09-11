@@ -466,6 +466,32 @@ namespace Armada.Core.Services
                 " passes so nothing falls between the pool." + JudgeBoundedRule + JudgeDeliveryEvidenceRule;
         }
 
+        /// <summary>
+        /// Output contract for a Judge on a fully read-only Audit or Research mission: validate the
+        /// report and its evidence, forbid edits, and do not order implementation tests.
+        /// </summary>
+        /// <param name="mode">The read-only mission mode.</param>
+        /// <param name="judgePrimaryLens">Assigned primary Judge lens, or null for the combined form.</param>
+        /// <returns>The report-only Judge output contract.</returns>
+        internal static string BuildReportOnlyJudgeOutputContract(MissionModeEnum mode, string? judgePrimaryLens)
+        {
+            string lensDirective = String.IsNullOrWhiteSpace(judgePrimaryLens)
+                ? " Review through completeness, correctness, and evidence quality -- not through build or test commands."
+                : " Your PRIMARY lens for this review is " + judgePrimaryLens.Trim() +
+                    " -- lead with it and weigh your verdict toward it.";
+
+            return
+                "This is a report-only " + mode + " mission: validate the prior stage's report and evidence, not a code change. " +
+                "Do not edit, commit, or push, and do not order or run implementation tests (build, unit test, or suite commands). " +
+                "Verify that every claim is backed by exact evidence, that cited paths and references resolve, and that the report is complete and internally consistent. " +
+                "Your response must contain these exact section headings: `## Completeness`, `## Correctness`, `## Evidence`, `## Residual Risks`, and `## Verdict`. " +
+                "Do not reply with only a verdict line or brief summary." + lensDirective +
+                " Emit your verdict synchronously: the very last thing you do must be to print exactly one standalone line " +
+                "`[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`. " +
+                "Before you exit, verify that your response already contains the standalone verdict line. If it does not, emit it immediately. " +
+                "A review without that line is discarded and re-run.";
+        }
+
         internal static string GetPersonaOutputContract(string? persona)
         {
             return GetPersonaOutputContract(persona, MissionModeEnum.Implementation, null);
@@ -498,6 +524,11 @@ namespace Armada.Core.Services
             if (mode == MissionModeEnum.Audit || mode == MissionModeEnum.Research)
             {
                 string normalizedForMode = PersonaCatalog.NormalizeName(persona);
+
+                if (normalizedForMode == PersonaCatalog.Judge)
+                {
+                    return BuildReportOnlyJudgeOutputContract(mode, judgePrimaryLens);
+                }
 
                 // Reviewer personas already have report-shaped contracts that do not ask for changes,
                 // so they are left alone. Only the producing personas need the read-only wording.
