@@ -1092,6 +1092,64 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNull(dispatchable, "a dispatchable request must pass preconditions so it can be backgrounded");
                 }
             });
+
+            await RunTest("DispatchAsync_ObjectiveAlreadyHasActiveVoyage_ReturnsConflictNamingWinner", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("already-dispatched-vessel", "https://github.com/test/already.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                Voyage winner = await testDb.Driver.Voyages.CreateAsync(new Voyage("Winning voyage")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Already dispatched",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VesselIds = new List<string> { vessel.Id },
+                    VoyageIds = new List<string> { winner.Id }
+                }).ConfigureAwait(false);
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                VoyageDispatchService service = new VoyageDispatchService(
+                    testDb.Driver,
+                    admiral,
+                    objectiveService: objectives,
+                    settings: new ArmadaSettings { CodeIndex = { Enabled = false } });
+
+                VoyageDispatchResult result = await service.DispatchAsync(new SharedVoyageDispatchRequest
+                {
+                    Title = "Operator duplicate",
+                    VesselId = vessel.Id,
+                    ObjectiveId = objective.Id,
+                    Missions = new List<MissionDescription>
+                    {
+                        new MissionDescription("Implement", "Duplicate work.")
+                    }
+                }).ConfigureAwait(false);
+
+                AssertFalse(result.Succeeded, "The duplicate operator dispatch must not report success.");
+                AssertEqual(409, result.StatusCode, "The already-dispatched outcome must surface as a conflict.");
+                string payload = JsonSerializer.Serialize(result.Value);
+                AssertContains("objective_already_dispatched", payload);
+                AssertContains(winner.Id, payload, "The response must identify the existing winning voyage.");
+
+                Objective stored = (await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false))!;
+                AssertEqual(1, stored.VoyageIds.Count, "The duplicate must not be linked to the objective.");
+
+                List<Voyage> allVoyages = await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false);
+                Voyage? duplicate = allVoyages.FirstOrDefault(v => !String.Equals(v.Id, winner.Id, StringComparison.Ordinal));
+                AssertNotNull(duplicate, "The operator path created a duplicate voyage that must be retired.");
+                AssertEqual(VoyageStatusEnum.Cancelled, duplicate!.Status,
+                    "The duplicate voyage the operator path created must be cancelled, not left active.");
+            });
         }
 
         private static VoyageDispatchService NewService(TestDatabase testDb, ArmadaSettings? settings = null)

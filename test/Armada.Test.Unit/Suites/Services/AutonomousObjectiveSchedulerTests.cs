@@ -2265,6 +2265,86 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(ObjectiveStatusEnum.InProgress, still!.Status,
                     "An objective whose failed voyage was never rescued must not reconcile to Completed.");
             }).ConfigureAwait(false);
+
+            await RunTest("A scheduler sweep racing an operator dispatch leaves one active voyage", async () =>
+            {
+                // Production failure: a scheduler sweep and an operator dispatch both read one
+                // ReadyForDispatch objective with no active voyage, both created one, and both
+                // linked - eight active voyages for four objectives. Both paths must settle on
+                // one winner through the same atomic link guard.
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("race-vessel", "https://github.com/test/race.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Raced objective",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id }
+                }).ConfigureAwait(false);
+
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                ArmadaSettings settings = EnabledSchedulerSettings();
+
+                RecordingAdmiralService schedulerAdmiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, schedulerAdmiral, settings);
+
+                RecordingAdmiralService operatorAdmiral = new RecordingAdmiralService(testDb.Driver);
+                VoyageDispatchService dispatchService = new VoyageDispatchService(
+                    testDb.Driver,
+                    operatorAdmiral,
+                    objectiveService: objectives,
+                    settings: new ArmadaSettings { CodeIndex = { Enabled = false } });
+
+                Task schedulerTask = scheduler.SweepAsync();
+                Task<VoyageDispatchResult> operatorTask = dispatchService.DispatchAsync(new SharedVoyageDispatchRequest
+                {
+                    Title = "Operator dispatch",
+                    VesselId = vessel.Id,
+                    ObjectiveId = objective.Id,
+                    Missions = new List<MissionDescription>
+                    {
+                        new MissionDescription("Implement", "Operator work for the raced objective.")
+                    }
+                });
+                await Task.WhenAll(schedulerTask, operatorTask).ConfigureAwait(false);
+                VoyageDispatchResult operatorResult = operatorTask.Result;
+
+                Objective stored = (await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false))!;
+                AssertEqual(1, stored.VoyageIds.Count,
+                    "Exactly one voyage may be linked to the objective after the race.");
+                Voyage winner = (await testDb.Driver.Voyages.ReadAsync(stored.VoyageIds[0]).ConfigureAwait(false))!;
+                AssertTrue(ObjectiveService.IsActiveVoyageStatus(winner.Status),
+                    "The winning voyage stays nonterminal; no duplicate active voyage may exist.");
+
+                List<Voyage> allVoyages = await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false);
+                int nonTerminalLinked = allVoyages.Count(v =>
+                    ObjectiveService.IsActiveVoyageStatus(v.Status)
+                    && stored.VoyageIds.Contains(v.Id, StringComparer.Ordinal));
+                AssertEqual(1, nonTerminalLinked,
+                    "At most one nonterminal voyage is linked to the objective after the race.");
+
+                bool schedulerLost = (scheduler.LastSkipReason ?? String.Empty).Contains("already_dispatched");
+                bool operatorLost = !operatorResult.Succeeded
+                    && JsonSerializer.Serialize(operatorResult.Value).Contains("objective_already_dispatched");
+                AssertTrue(schedulerLost || operatorLost,
+                    "The losing path must report the already-dispatched state instead of a silent duplicate.");
+                AssertTrue(!(schedulerLost && operatorLost),
+                    "Exactly one path loses the race; both cannot report already-dispatched.");
+
+                if (operatorLost)
+                {
+                    AssertEqual(409, operatorResult.StatusCode,
+                        "The operator dispatch must surface the objective_already_dispatched conflict.");
+                    AssertContains(winner.Id, JsonSerializer.Serialize(operatorResult.Value),
+                        "The conflict must identify the winning voyage.");
+                }
+            }).ConfigureAwait(false);
         }
 
         private static RecordingObjectiveDispatchPreview DependencyBlockedPreview(

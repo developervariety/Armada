@@ -806,7 +806,7 @@ namespace Armada.Server
                 }
 
                 // A voyage still running blocks completion.
-                if (IsActiveVoyageStatus(voyage.Status)) return false;
+                if (ObjectiveService.IsActiveVoyageStatus(voyage.Status)) return false;
 
                 if (!AreFailedChainsRecovered(
                     missionsByVoyage[voyage.Id],
@@ -1195,7 +1195,26 @@ namespace Armada.Server
                 token).ConfigureAwait(false);
 
             AuthContext objectiveAuth = BuildAuth(objective);
-            await _Objectives.LinkVoyageAsync(objectiveAuth, objective.Id, voyage.Id, token).ConfigureAwait(false);
+            try
+            {
+                await _Objectives.LinkVoyageAsync(objectiveAuth, objective.Id, voyage.Id, token).ConfigureAwait(false);
+            }
+            catch (ObjectiveAlreadyDispatchedException alreadyDispatched)
+            {
+                // An operator dispatch (or a parallel sweep) linked its voyage first; the atomic
+                // guard refused this duplicate. Cancel the freshly created losing voyage so no
+                // active duplicate lingers, then report the winner and skip instead of failing.
+                await VoyageCancellation.CancelVoyageAsync(
+                    _Database,
+                    voyage,
+                    "Voyage cancelled: objective " + objective.Id + " already dispatched as voyage " + alreadyDispatched.WinningVoyageId + ".",
+                    token).ConfigureAwait(false);
+                await EmitObjectiveEventAsync("objective_scheduler.skipped_already_dispatched",
+                    "Autonomous scheduler skipped objective " + objective.Id + ": already dispatched as voyage "
+                        + alreadyDispatched.WinningVoyageId + ".",
+                    objective, vesselId, token).ConfigureAwait(false);
+                throw new ObjectiveSkippedException("already_dispatched");
+            }
 
             // Arm this voyage's Checks through the same seam the operator dispatch paths use. The
             // scheduler dispatches through the admiral directly rather than through
@@ -1243,19 +1262,9 @@ namespace Armada.Server
 
         private async Task<bool> HasActiveLinkedVoyageAsync(Objective objective, CancellationToken token)
         {
-            foreach (string voyageId in objective.VoyageIds)
-            {
-                Voyage? voyage = await _Database.Voyages.ReadAsync(voyageId, token).ConfigureAwait(false);
-                if (voyage != null && IsActiveVoyageStatus(voyage.Status))
-                    return true;
-            }
-
-            return false;
-        }
-
-        private static bool IsActiveVoyageStatus(VoyageStatusEnum status)
-        {
-            return status == VoyageStatusEnum.Open || status == VoyageStatusEnum.InProgress;
+            // One definition of "already dispatched" for the scheduler's early-out and for the
+            // atomic link admission guard both paths use: delegate to the shared objective check.
+            return await _Objectives.FindActiveLinkedVoyageIdAsync(objective, token).ConfigureAwait(false) != null;
         }
 
         private async Task EmitSystemEventAsync(string eventType, string message, CancellationToken token)

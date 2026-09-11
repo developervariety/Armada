@@ -281,7 +281,12 @@ namespace Armada.Server
                 return VoyageDispatchResult.BadRequest(dispatchResult);
             }
 
-            await LinkObjectiveToVoyageAsync(objectiveId, request.ObjectiveAuthContext, voyage).ConfigureAwait(false);
+            VoyageDispatchResult? linkConflict = await LinkObjectiveToVoyageAsync(objectiveId, request.ObjectiveAuthContext, voyage).ConfigureAwait(false);
+            if (linkConflict != null)
+            {
+                LogDispatchInfo("dispatch conflict voyage " + voyage.Id + " totalMs=" + dispatchWatch.ElapsedMilliseconds + " objective_already_dispatched=true");
+                return linkConflict;
+            }
 
             // Persist per-persona captain overrides so assignment resolves the preferred captain and
             // fallback tier for every mission of a step, including fan-out missions created later. Both
@@ -1023,15 +1028,52 @@ namespace Armada.Server
             return value.Trim();
         }
 
-        private async Task LinkObjectiveToVoyageAsync(string? objectiveId, AuthContext? authContext, Voyage voyage)
+        /// <summary>
+        /// Link a freshly dispatched voyage to its objective. Returns a conflict result when the
+        /// objective already has a nonterminal voyage (another dispatch won the race): the losing
+        /// voyage is cancelled and the winner is named so the caller does not report success for a
+        /// duplicate. Returns null when the link succeeded or did not apply.
+        /// </summary>
+        private async Task<VoyageDispatchResult?> LinkObjectiveToVoyageAsync(string? objectiveId, AuthContext? authContext, Voyage voyage)
         {
-            if (String.IsNullOrEmpty(objectiveId)) return;
-            if (_ObjectiveService == null) return;
+            if (String.IsNullOrEmpty(objectiveId)) return null;
+            if (_ObjectiveService == null) return null;
 
             AuthContext auth = authContext ?? McpToolHelpers.CreateDefaultTenantAdminContext();
             try
             {
                 await _ObjectiveService.LinkVoyageAsync(auth, objectiveId, voyage.Id).ConfigureAwait(false);
+                return null;
+            }
+            catch (ObjectiveAlreadyDispatchedException alreadyDispatched)
+            {
+                // The scheduler (or a parallel operator dispatch) won the race for this objective.
+                // The atomic guard refused the link; cancel this duplicate voyage and identify the
+                // winning voyage so the caller sees the objective is already in flight.
+                try
+                {
+                    await VoyageCancellation.CancelVoyageAsync(
+                        _Database,
+                        voyage,
+                        "Voyage cancelled: objective " + objectiveId + " already dispatched as voyage " + alreadyDispatched.WinningVoyageId + ".",
+                        default).ConfigureAwait(false);
+                }
+                catch (Exception cancelEx)
+                {
+                    _Logging?.Warn("[VoyageDispatchService] could not cancel duplicate voyage " + voyage.Id + ": " + cancelEx.Message);
+                }
+
+                _Logging?.Warn("[VoyageDispatchService] voyage " + voyage.Id + " cancelled: objective " + objectiveId +
+                    " already dispatched as voyage " + alreadyDispatched.WinningVoyageId + ".");
+                return VoyageDispatchResult.Conflict(new
+                {
+                    Error = "Objective already dispatched.",
+                    Code = "objective_already_dispatched",
+                    Reason = "Objective " + objectiveId + " already has a nonterminal voyage " + alreadyDispatched.WinningVoyageId + ".",
+                    Action = "Cancel the winning voyage first if you intend to re-dispatch this objective.",
+                    ObjectiveId = objectiveId,
+                    VoyageId = alreadyDispatched.WinningVoyageId
+                });
             }
             catch (Exception ex)
             {
@@ -1041,6 +1083,7 @@ namespace Armada.Server
                 // was running but unreachable. Record the voyage; report the link failure separately.
                 _Logging?.Warn("[VoyageDispatchService] voyage " + voyage.Id + " dispatched but could not be linked to objective " +
                     objectiveId + ": " + ex.Message);
+                return null;
             }
         }
 

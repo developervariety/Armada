@@ -566,7 +566,31 @@ namespace Armada.Server
                     await _Database.Playbooks.SetVoyageSelectionsAsync(voyage.Id, voyage.SelectedPlaybooks, token).ConfigureAwait(false);
                 }
                 if (objectiveAuth != null)
-                    await _ObjectiveService.LinkVoyageAsync(objectiveAuth, request.ObjectiveId!, voyage.Id, token).ConfigureAwait(false);
+                {
+                    try
+                    {
+                        await _ObjectiveService.LinkVoyageAsync(objectiveAuth, request.ObjectiveId!, voyage.Id, token).ConfigureAwait(false);
+                    }
+                    catch (ObjectiveAlreadyDispatchedException alreadyDispatched)
+                    {
+                        // The objective already has a nonterminal voyage (a scheduler sweep or
+                        // another dispatch won the race). Refuse and retire the duplicate instead
+                        // of creating a second active voyage for the same objective.
+                        await VoyageCancellation.CancelVoyageAsync(
+                            _Database,
+                            voyage,
+                            "Voyage cancelled: objective " + request.ObjectiveId + " already dispatched as voyage "
+                                + alreadyDispatched.WinningVoyageId + ".",
+                            token).ConfigureAwait(false);
+                        return new RemoteTunnelRequestResult
+                        {
+                            StatusCode = 409,
+                            ErrorCode = "objective_already_dispatched",
+                            Message = "Objective already dispatched as voyage " + alreadyDispatched.WinningVoyageId + ".",
+                            Payload = new { VoyageId = alreadyDispatched.WinningVoyageId }
+                        };
+                    }
+                }
             }
             else
             {

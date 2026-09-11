@@ -154,20 +154,22 @@ namespace Armada.Test.Unit.Suites.Services
                     Objective? linkedObjective = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
                     AssertTrue(linkedObjective!.VoyageIds.Contains(voyage.Id), "Remote dispatch must preserve objective lineage.");
 
-                    RemoteTunnelRequestResult bareDispatch = await service.HandleAsync(
+                    // A second dispatch for the same objective while the first voyage is still active is
+                    // refused: an objective keeps at most one nonterminal voyage, so a scheduler
+                    // sweep racing this dispatch cannot create a duplicate. The refusal names the
+                    // winning voyage instead of silently linking a second one.
+                    RemoteTunnelRequestResult duplicateDispatch = await service.HandleAsync(
                         RemoteTunnelProtocol.CreateRequest("armada.voyage.dispatch", new
                         {
-                            title = "Remote Bare Voyage",
-                            description = "Add missions later",
+                            title = "Remote Duplicate Voyage",
+                            description = "Must be refused while the first voyage is active",
                             objectiveId = objective.Id
                         }),
                         CancellationToken.None).ConfigureAwait(false);
-                    AssertEqual(201, bareDispatch.StatusCode);
-                    string bareVoyageId = JsonDocument.Parse(JsonSerializer.Serialize(bareDispatch.Payload, RemoteTunnelProtocol.JsonOptions))
-                        .RootElement.GetProperty("id").GetString()!;
+                    AssertEqual(409, duplicateDispatch.StatusCode);
                     linkedObjective = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
-                    AssertTrue(linkedObjective!.VoyageIds.Contains(bareVoyageId),
-                        "A remote bare voyage must preserve objective lineage.");
+                    AssertEqual(1, linkedObjective!.VoyageIds.Count,
+                        "A duplicate dispatch must not add a second linked voyage to the objective.");
                     missions[0].CaptainId = captain.Id;
                     missions[0].Status = MissionStatusEnum.InProgress;
                     await testDb.Driver.Missions.UpdateAsync(missions[0]).ConfigureAwait(false);
@@ -183,6 +185,22 @@ namespace Armada.Test.Unit.Suites.Services
                     Voyage cancelled = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false) ?? throw new InvalidOperationException("Voyage missing after cancellation.");
                     AssertEqual(VoyageStatusEnum.Cancelled, cancelled.Status);
                     AssertTrue(admiral.RecalledCaptains.Contains(captain.Id), "Cancelling a voyage should recall active captains");
+
+                    // The cancelled voyage is terminal, so an intentional successor dispatch for the
+                    // same objective is permitted and linked (a terminal voyage never blocks a
+                    // later successor).
+                    RemoteTunnelRequestResult successorDispatch = await service.HandleAsync(
+                        RemoteTunnelProtocol.CreateRequest("armada.voyage.dispatch", new
+                        {
+                            title = "Remote Successor Voyage",
+                            description = "Successor after cancellation",
+                            objectiveId = objective.Id
+                        }),
+                        CancellationToken.None).ConfigureAwait(false);
+                    AssertEqual(201, successorDispatch.StatusCode);
+                    linkedObjective = await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false);
+                    AssertEqual(2, linkedObjective!.VoyageIds.Count,
+                        "A cancelled voyage must not prevent an intentional successor voyage.");
                 }
             });
 

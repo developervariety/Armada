@@ -1380,6 +1380,165 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertPreparationMigration(mysqlMigrations, 74, "MySQL");
                 return Task.CompletedTask;
             });
+
+            await RunTest("Concurrent voyage links settle on one nonterminal voyage per objective", async () =>
+            {
+                // The scheduler and an operator dispatch can both read "no active voyage", both
+                // create one, and both link. The link admission guard must settle them on a single
+                // winner: exactly one concurrent link succeeds and the other is refused by name.
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                AuthContext auth = AuthContext.Authenticated(
+                    Armada.Core.Constants.DefaultTenantId,
+                    Armada.Core.Constants.DefaultUserId,
+                    false,
+                    true,
+                    "UnitTest");
+
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Armada.Core.Constants.DefaultTenantId,
+                    UserId = Armada.Core.Constants.DefaultUserId,
+                    Title = "Concurrent dispatch guard",
+                    Status = ObjectiveStatusEnum.Scoped
+                }).ConfigureAwait(false);
+                Voyage first = await testDb.Driver.Voyages.CreateAsync(new Voyage("First dispatch")
+                {
+                    TenantId = Armada.Core.Constants.DefaultTenantId,
+                    UserId = Armada.Core.Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Open
+                }).ConfigureAwait(false);
+                Voyage second = await testDb.Driver.Voyages.CreateAsync(new Voyage("Second dispatch")
+                {
+                    TenantId = Armada.Core.Constants.DefaultTenantId,
+                    UserId = Armada.Core.Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Open
+                }).ConfigureAwait(false);
+
+                int succeeded = 0;
+                List<Exception> failures = new List<Exception>();
+                await Task.WhenAll(LinkAsync(first.Id), LinkAsync(second.Id)).ConfigureAwait(false);
+
+                async Task LinkAsync(string voyageId)
+                {
+                    try
+                    {
+                        await objectives.LinkVoyageAsync(auth, objective.Id, voyageId).ConfigureAwait(false);
+                        succeeded++;
+                    }
+                    catch (Exception ex)
+                    {
+                        failures.Add(ex);
+                    }
+                }
+
+                AssertEqual(1, succeeded, "Exactly one concurrent link must win the race.");
+                AssertEqual(1, failures.Count, "Exactly one concurrent link must be refused.");
+                AssertTrue(failures[0] is ObjectiveAlreadyDispatchedException,
+                    "The refused link must report the already-dispatched state, not a generic failure.");
+
+                Objective stored = (await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false))!;
+                AssertEqual(1, stored.VoyageIds.Count, "The objective must carry exactly one linked voyage.");
+                Voyage winner = (await testDb.Driver.Voyages.ReadAsync(stored.VoyageIds[0]).ConfigureAwait(false))!;
+                AssertTrue(ObjectiveService.IsActiveVoyageStatus(winner.Status),
+                    "The winning voyage stays nonterminal.");
+            });
+
+            await RunTest("A terminal voyage does not prevent an intentional successor voyage", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                AuthContext auth = AuthContext.Authenticated(
+                    Armada.Core.Constants.DefaultTenantId,
+                    Armada.Core.Constants.DefaultUserId,
+                    false,
+                    true,
+                    "UnitTest");
+
+                foreach (VoyageStatusEnum terminal in new[]
+                {
+                    VoyageStatusEnum.Cancelled,
+                    VoyageStatusEnum.Failed,
+                    VoyageStatusEnum.Complete
+                })
+                {
+                    Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        Title = "Successor after " + terminal,
+                        Status = ObjectiveStatusEnum.Scoped
+                    }).ConfigureAwait(false);
+                    Voyage ended = await testDb.Driver.Voyages.CreateAsync(new Voyage("Ended " + terminal)
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        Status = terminal
+                    }).ConfigureAwait(false);
+                    objective.VoyageIds.Add(ended.Id);
+                    await testDb.Driver.Objectives.UpdateAsync(objective).ConfigureAwait(false);
+
+                    Voyage successor = await testDb.Driver.Voyages.CreateAsync(new Voyage("Successor")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        Status = VoyageStatusEnum.Open
+                    }).ConfigureAwait(false);
+
+                    Objective linked = await objectives.LinkVoyageAsync(auth, objective.Id, successor.Id).ConfigureAwait(false);
+                    AssertTrue(linked.VoyageIds.Contains(successor.Id),
+                        "A " + terminal + " voyage must not block the intentional successor.");
+                }
+            });
+
+            await RunTest("An active voyage refuses a second link and names the winner", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                AuthContext auth = AuthContext.Authenticated(
+                    Armada.Core.Constants.DefaultTenantId,
+                    Armada.Core.Constants.DefaultUserId,
+                    false,
+                    true,
+                    "UnitTest");
+
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Armada.Core.Constants.DefaultTenantId,
+                    UserId = Armada.Core.Constants.DefaultUserId,
+                    Title = "Active voyage blocks a second dispatch",
+                    Status = ObjectiveStatusEnum.Scoped
+                }).ConfigureAwait(false);
+                Voyage winner = await testDb.Driver.Voyages.CreateAsync(new Voyage("Winning voyage")
+                {
+                    TenantId = Armada.Core.Constants.DefaultTenantId,
+                    UserId = Armada.Core.Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                objective.VoyageIds.Add(winner.Id);
+                await testDb.Driver.Objectives.UpdateAsync(objective).ConfigureAwait(false);
+
+                Voyage loser = await testDb.Driver.Voyages.CreateAsync(new Voyage("Duplicate dispatch")
+                {
+                    TenantId = Armada.Core.Constants.DefaultTenantId,
+                    UserId = Armada.Core.Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Open
+                }).ConfigureAwait(false);
+
+                try
+                {
+                    await objectives.LinkVoyageAsync(auth, objective.Id, loser.Id).ConfigureAwait(false);
+                    AssertTrue(false, "Linking a second active voyage must be refused.");
+                }
+                catch (ObjectiveAlreadyDispatchedException ex)
+                {
+                    AssertEqual(winner.Id, ex.WinningVoyageId, "The refusal must identify the winning voyage.");
+                }
+
+                Objective stored = (await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false))!;
+                AssertEqual(1, stored.VoyageIds.Count, "The duplicate voyage must not be linked.");
+                AssertFalse(stored.VoyageIds.Contains(loser.Id), "The losing voyage stays out of the dispatch lineage.");
+            });
         }
 
         private void AssertPreparationMigration(IEnumerable<SchemaMigration> migrations, int version, string provider)
