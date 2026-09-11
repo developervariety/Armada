@@ -196,6 +196,24 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Resolves the PreferredModel a pipeline stage should persist: a stage override,
+        /// else mission inheritance, then persona-aware tier normalization via
+        /// <see cref="ResolveTierForPersona"/>.
+        /// </summary>
+        /// <param name="stagePreferredModel">Optional stage-level override.</param>
+        /// <param name="missionPreferredModel">Optional per-mission value inherited when the stage override is null.</param>
+        /// <param name="persona">Persona the mission will actually run as.</param>
+        /// <param name="specialistPersonas">Optional specialist set; null or empty treats no persona as a specialist.</param>
+        public static string? ResolveEffectivePreferredModel(
+            string? stagePreferredModel,
+            string? missionPreferredModel,
+            string? persona,
+            IReadOnlyCollection<string>? specialistPersonas = null)
+        {
+            return ResolveTierForPersona(stagePreferredModel ?? missionPreferredModel, persona, specialistPersonas);
+        }
+
+        /// <summary>
         /// Normalizes a tier selector value to its canonical form (mid or high).
         /// The legacy <c>low</c> selector (and its <c>quick</c> alias) maps to mid:
         /// there is no low tier, so a low request is served by the mid tier.

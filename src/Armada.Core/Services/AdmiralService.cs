@@ -396,8 +396,9 @@ namespace Armada.Core.Services
                         mission.Persona = stage.PersonaName;
                         mission.DependsOnMissionId = groupDependencyId;
                         mission.StageOrder = stage.Order;
-                        mission.PreferredModel = PreferredModelTierSelector.EnforceHighTierForPersona(
-                            stage.PreferredModel ?? md.PreferredModel,
+                        mission.PreferredModel = PreferredModelTierSelector.ResolveEffectivePreferredModel(
+                            stage.PreferredModel,
+                            md.PreferredModel,
                             stage.PersonaName,
                             _Settings.ModelTier.SpecialistPersonas);
 
@@ -568,8 +569,9 @@ namespace Armada.Core.Services
                             mission.Persona = stage.PersonaName;
                             mission.DependsOnMissionId = groupDependencyId;
                             mission.StageOrder = stage.Order;
-                            mission.PreferredModel = PreferredModelTierSelector.EnforceHighTierForPersona(
-                                stage.PreferredModel ?? md.PreferredModel,
+                            mission.PreferredModel = PreferredModelTierSelector.ResolveEffectivePreferredModel(
+                                stage.PreferredModel,
+                                md.PreferredModel,
                                 stage.PersonaName,
                                 _Settings.ModelTier.SpecialistPersonas);
                             mission.Mode = MissionModes.Parse(md.Mode);

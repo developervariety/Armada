@@ -1199,6 +1199,24 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("ResolveEffectivePreferredModel_InheritsMissionTierThenCapsForPersona", () =>
+            {
+                IReadOnlyCollection<string> specialists = Fleet().SpecialistPersonas;
+                AssertEqual("mid", PreferredModelTierSelector.ResolveEffectivePreferredModel(
+                    null, "high", "Worker", specialists),
+                    "a mission-level high tier inherited by a Worker stage caps to mid");
+                AssertEqual("high", PreferredModelTierSelector.ResolveEffectivePreferredModel(
+                    null, "high", "Judge", specialists),
+                    "a Judge stage keeps high when the mission requests high");
+                AssertEqual("gpt-5.6-luna", PreferredModelTierSelector.ResolveEffectivePreferredModel(
+                    null, "gpt-5.6-luna", "Worker", specialists),
+                    "literal model pins pass through unchanged after mission inheritance");
+                AssertEqual("claude-opus-5", PreferredModelTierSelector.ResolveEffectivePreferredModel(
+                    "claude-opus-5", "high", "Worker", specialists),
+                    "a stage literal override wins over mission inheritance and is not rewritten");
+                return Task.CompletedTask;
+            });
+
             await RunTest("VanillaDefaults_ClassifyNoFamilyAndJudgeIsNotSpecialist", () =>
             {
                 ModelTierSettings defaults = new ModelTierSettings();

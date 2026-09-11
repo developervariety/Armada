@@ -261,6 +261,63 @@ namespace Armada.Test.Unit.Suites.Services
                         "The missing fallback-tier coverage has the standard role error.");
                 }
             }).ConfigureAwait(false);
+
+            await RunTest("Preview inherits mission tier and caps high to mid for Worker coverage", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(
+                        testDb,
+                        includeUnitTestCommand: true,
+                        settings: global::Test.Shared.Infrastructure.FleetRoutingSettings.CreateArmadaSettings()).ConfigureAwait(false);
+                    harness.Captain.Model = "gpt-5.6-luna";
+                    harness.Captain.State = CaptainStateEnum.Idle;
+                    await testDb.Driver.Captains.UpdateAsync(harness.Captain).ConfigureAwait(false);
+                    await testDb.Driver.Captains.CreateAsync(new Captain("preview-judge")
+                    {
+                        Model = "claude-fable-5",
+                        State = CaptainStateEnum.Idle
+                    }).ConfigureAwait(false);
+
+                    Pipeline pipeline = new Pipeline("ReviewedPreviewParity");
+                    pipeline.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "Judge")
+                    };
+                    pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+
+                    Objective objective = harness.CreateReadyObjective("preview-high-tier-cap");
+                    objective.SuggestedPipelineId = pipeline.Id;
+                    await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(
+                        harness.Auth,
+                        objective,
+                        harness.Vessel.Id,
+                        pipeline.Id,
+                        null,
+                        new List<MissionDescription>
+                        {
+                            new MissionDescription("Implement feature", "Mission requests high tier routing")
+                            {
+                                PreferredModel = "high"
+                            }
+                        }).ConfigureAwait(false);
+
+                    ObjectiveDispatchRole workerRole = result.RequiredRoles.Single(role => role.Persona == "Worker");
+                    ObjectiveDispatchRole judgeRole = result.RequiredRoles.Single(role => role.Persona == "Judge");
+
+                    AssertEqual("mid", workerRole.PreferredModel,
+                        "preview must report the same mid tier dispatch persists for an inherited high Worker request");
+                    AssertEqual("high", judgeRole.PreferredModel,
+                        "preview must still report high for a Judge stage when the mission requests high");
+                    AssertEqual(2, workerRole.IdleEligibleCount,
+                        "idle captains that satisfy the capped mid tier must count as eligible Worker coverage");
+                    AssertTrue(result.IsReady,
+                        "preview must be ready when idle mid-tier Workers cover the capped Worker role");
+                }
+            }).ConfigureAwait(false);
         }
 
         private sealed class PreviewHarness
@@ -273,7 +330,10 @@ namespace Armada.Test.Unit.Suites.Services
             public ObjectiveDispatchPreviewService Service { get; private set; } = null!;
             public string RepositoryDirectory { get; private set; } = String.Empty;
 
-            public static async Task<PreviewHarness> CreateAsync(TestDatabase testDb, bool includeUnitTestCommand)
+            public static async Task<PreviewHarness> CreateAsync(
+                TestDatabase testDb,
+                bool includeUnitTestCommand,
+                ArmadaSettings? settings = null)
             {
                 PreviewHarness result = new PreviewHarness();
                 result.RepositoryDirectory = Path.Combine(Path.GetTempPath(), "armada-preview-" + Guid.NewGuid().ToString("N"));
@@ -301,10 +361,10 @@ namespace Armada.Test.Unit.Suites.Services
                 result.Git = new StubGitService();
                 LoggingModule logging = new LoggingModule();
                 logging.Settings.EnableConsole = false;
-                ArmadaSettings settings = new ArmadaSettings();
+                ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
                 WorkflowProfileService profiles = new WorkflowProfileService(testDb.Driver, logging);
                 VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, profiles, logging);
-                result.Service = new ObjectiveDispatchPreviewService(testDb.Driver, profiles, readiness, result.Git, settings);
+                result.Service = new ObjectiveDispatchPreviewService(testDb.Driver, profiles, readiness, result.Git, effectiveSettings);
                 return result;
             }
 

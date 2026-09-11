@@ -159,7 +159,8 @@ namespace Armada.Core.Services
             }
 
             List<Captain> captains = await ReadCaptainsAsync(auth, token).ConfigureAwait(false);
-            EvaluateCaptainCoverage(objective, pipeline, captains, captainAssignments, effectiveMissionModes, result);
+            EvaluateCaptainCoverage(
+                objective, pipeline, captains, captainAssignments, effectiveMissionModes, missionDescriptions, result);
             await EvaluateChecksAsync(auth, vessel, result, token).ConfigureAwait(false);
 
             FinalizeResult(result);
@@ -496,6 +497,7 @@ namespace Armada.Core.Services
             List<Captain> captains,
             IReadOnlyList<CaptainAssignmentOverride>? captainAssignments,
             IReadOnlyList<string> effectiveMissionModes,
+            IReadOnlyList<MissionDescription>? missionDescriptions,
             ObjectiveDispatchPreview result)
         {
             List<PipelineStage> stages = pipeline?.Stages?.ToList()
@@ -503,21 +505,23 @@ namespace Armada.Core.Services
             List<string> missionModes = effectiveMissionModes.Count > 0
                 ? effectiveMissionModes.ToList()
                 : new List<string> { MissionModes.FromObjectiveKind(objective.Kind) ?? MissionModeEnum.Implementation.ToString() };
+            IReadOnlyCollection<string> specialistPersonas = _Settings.ModelTier.SpecialistPersonas;
             foreach (PipelineStage stage in stages
                 .Where(item => item != null && missionModes.Any(mode => !AdmiralService.StageIsUnusableOnMode(item.PersonaName, mode)))
                 .OrderBy(item => item.Order))
             {
-                string? preferredModel = PreferredModelTierSelector.EnforceHighTierForPersona(
-                    stage.PreferredModel,
-                    stage.PersonaName,
-                    _Settings.ModelTier.SpecialistPersonas);
+                List<string?> resolvedPreferences = ResolveStagePreferredModels(
+                    stage, missionDescriptions, specialistPersonas);
+                string? preferredModel = resolvedPreferences.FirstOrDefault(item => !String.IsNullOrWhiteSpace(item))
+                    ?? resolvedPreferences.FirstOrDefault();
                 CaptainAssignmentOverride? assignment = captainAssignments?.FirstOrDefault(item => item != null
                     && PersonaCatalog.Matches(item.Persona, stage.PersonaName));
                 CaptainTierEnum? fallbackTier = assignment?.FallbackTier;
                 List<Captain> configured = captains
                     .Where(IsConfiguredUsableCaptain)
-                    .Where(captain => MissionService.CaptainSatisfiesPreferredRouting(
-                        captain, stage.PersonaName, preferredModel, _Settings.ModelTier))
+                    .Where(captain => resolvedPreferences.All(resolvedPreference =>
+                        MissionService.CaptainSatisfiesPreferredRouting(
+                            captain, stage.PersonaName, resolvedPreference, _Settings.ModelTier)))
                     .Where(captain => fallbackTier == null || CaptainTierSelector.EffectiveTier(captain) >= fallbackTier.Value)
                     .ToList();
 
@@ -526,8 +530,9 @@ namespace Armada.Core.Services
                     Captain? selected = captains.FirstOrDefault(captain => String.Equals(
                         captain.Id, assignment.CaptainId, StringComparison.Ordinal));
                     if (selected == null || !IsConfiguredUsableCaptain(selected)
-                        || !MissionService.CaptainSatisfiesPreferredRouting(
-                            selected, stage.PersonaName, preferredModel, _Settings.ModelTier))
+                        || !resolvedPreferences.All(resolvedPreference =>
+                            MissionService.CaptainSatisfiesPreferredRouting(
+                                selected, stage.PersonaName, resolvedPreference, _Settings.ModelTier)))
                     {
                         AddIssue(result, "assigned_captain_ineligible", "captain", ReadinessSeverityEnum.Error,
                             "The assigned captain cannot run the " + stage.PersonaName + " role.", assignment.CaptainId);
@@ -558,6 +563,38 @@ namespace Armada.Core.Services
                         "The required " + stage.PersonaName + " role has configured coverage but no idle capacity.", preferredModel);
                 }
             }
+        }
+
+        private static List<string?> ResolveStagePreferredModels(
+            PipelineStage stage,
+            IReadOnlyList<MissionDescription>? missionDescriptions,
+            IReadOnlyCollection<string> specialistPersonas)
+        {
+            List<string?> resolved = new List<string?>();
+            if (missionDescriptions == null || missionDescriptions.Count == 0)
+            {
+                resolved.Add(PreferredModelTierSelector.ResolveEffectivePreferredModel(
+                    stage.PreferredModel, null, stage.PersonaName, specialistPersonas));
+                return resolved;
+            }
+
+            foreach (MissionDescription missionDescription in missionDescriptions)
+            {
+                if (missionDescription == null) continue;
+                resolved.Add(PreferredModelTierSelector.ResolveEffectivePreferredModel(
+                    stage.PreferredModel,
+                    missionDescription.PreferredModel,
+                    stage.PersonaName,
+                    specialistPersonas));
+            }
+
+            if (resolved.Count == 0)
+            {
+                resolved.Add(PreferredModelTierSelector.ResolveEffectivePreferredModel(
+                    stage.PreferredModel, null, stage.PersonaName, specialistPersonas));
+            }
+
+            return resolved;
         }
 
         private async Task EvaluateChecksAsync(
