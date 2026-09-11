@@ -1339,7 +1339,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(after!.LastRecoveryActionUtc.HasValue, "Aged voyage-less candidate must be excluded from sweep selection.");
             }).ConfigureAwait(false);
 
-            await RunTest("Sweep excludes a Failed-voyage failed candidate before policy application", async () =>
+            await RunTest("Sweep reconciles a Failed-voyage provider failure into one actionable incident", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 await EnsureTenantAndUserAsync(testDb, "ten_sweep_failed_vyg", "usr_sweep_failed_vyg").ConfigureAwait(false);
@@ -1355,7 +1355,8 @@ namespace Armada.Test.Unit.Suites.Services
                     LastUpdateUtc = DateTime.UtcNow.AddMinutes(-1)
                 }).ConfigureAwait(false);
 
-                Mission failedVoyageMission = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                string failureReason = "Provider HTTP 400 forbidden: request is non-retryable.";
+                Mission failedVoyageMission = await CreateFailedMissionAsync(testDb, vessel, failureReason).ConfigureAwait(false);
                 failedVoyageMission.VoyageId = failedVoyage.Id;
                 await testDb.Driver.Missions.UpdateAsync(failedVoyageMission).ConfigureAwait(false);
 
@@ -1366,10 +1367,11 @@ namespace Armada.Test.Unit.Suites.Services
 
                 await orchestrator.SweepAsync().ConfigureAwait(false);
 
-                AssertEqual(0, admiral.DispatchedMissions.Count, "Failed-voyage failures must not be processed by the sweep.");
+                AssertEqual(0, admiral.DispatchedMissions.Count, "A non-retryable provider failure must not dispatch a rescue.");
 
                 Mission? after = await testDb.Driver.Missions.ReadAsync(failedVoyageMission.Id).ConfigureAwait(false);
-                AssertFalse(after!.LastRecoveryActionUtc.HasValue, "Failed-voyage candidate must be excluded before policy application.");
+                AssertTrue(after!.LastRecoveryActionUtc.HasValue, "Failed-voyage candidate must reach failure policy processing.");
+                AssertEqual(1, after.RecoveryAttempts, "Failure policy processing must consume the bounded terminal decision.");
 
                 AuthContext auth = AuthContext.Authenticated("ten_sweep_failed_vyg", "usr_sweep_failed_vyg", false, true, "UnitTest");
                 EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
@@ -1378,7 +1380,26 @@ namespace Armada.Test.Unit.Suites.Services
                     PageNumber = 1,
                     PageSize = 10
                 }).ConfigureAwait(false);
-                AssertEqual(0, incidentPage.Objects.Count, "Excluded Failed-voyage candidate must not open an incident.");
+                AssertEqual(1, incidentPage.Objects.Count, "The operator inbox must show one actionable terminal failure.");
+                AssertEqual(IncidentStatusEnum.Open, incidentPage.Objects[0].Status, "The terminal provider failure must remain open for operator action.");
+                AssertEqual(IncidentSeverityEnum.High, incidentPage.Objects[0].Severity, "A blocked provider failure must be high severity.");
+                AssertEqual(failedVoyageMission.Id, incidentPage.Objects[0].MissionId, "The incident must preserve mission evidence lineage.");
+                AssertEqual(failedVoyage.Id, incidentPage.Objects[0].VoyageId, "The incident must preserve voyage evidence lineage.");
+                AssertEqual(failureReason, incidentPage.Objects[0].RootCause, "The incident must preserve the provider diagnostic.");
+                AssertContains("stopped before rescue dispatch", incidentPage.Objects[0].RecoveryNotes ?? "", "Recovery notes must explain why automatic recovery stopped.");
+
+                string incidentId = incidentPage.Objects[0].Id;
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchedMissions.Count, "A repeated sweep must remain idempotent and must not dispatch a rescue.");
+                EnumerationResult<Incident> repeatedIncidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = failedVoyageMission.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(1, repeatedIncidentPage.Objects.Count, "A repeated sweep must not duplicate the inbox incident.");
+                AssertEqual(incidentId, repeatedIncidentPage.Objects[0].Id, "A repeated sweep must retain the original incident record.");
             }).ConfigureAwait(false);
 
             await RunTest("PolicyBlock skips incident and closes existing for rescue_produced_no_commits auto-rescue", async () =>

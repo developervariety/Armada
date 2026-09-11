@@ -253,8 +253,7 @@ namespace Armada.Server
             Voyage? voyage = await _Database.Voyages.ReadAsync(voyageId, token).ConfigureAwait(false);
             terminal = voyage != null
                 && (voyage.Status == VoyageStatusEnum.Cancelled
-                    || voyage.Status == VoyageStatusEnum.Complete
-                    || voyage.Status == VoyageStatusEnum.Failed);
+                    || voyage.Status == VoyageStatusEnum.Complete);
             cache[voyageId] = terminal;
             return terminal;
         }
