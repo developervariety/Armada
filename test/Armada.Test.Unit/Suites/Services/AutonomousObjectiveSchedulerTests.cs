@@ -992,6 +992,55 @@ namespace Armada.Test.Unit.Suites.Services
                     "The saturated candidate must be recorded with its skip reason.");
             }).ConfigureAwait(false);
 
+            await RunTest("Fleet capacity reports a non-exhaustive candidate search", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                    "non-exhaustive-vessel", "https://github.com/test/non-exhaustive-vessel.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+
+                for (int i = 0; i < 4; i++)
+                {
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Title = "Capacity objective " + i,
+                        Status = ObjectiveStatusEnum.Scoped,
+                        AutoDispatchEnabled = true,
+                        Priority = ObjectivePriorityEnum.P0,
+                        Rank = i,
+                        VesselIds = new List<string> { vessel.Id }
+                    }).ConfigureAwait(false);
+                }
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                    {
+                        Enabled = true,
+                        IntervalMinutes = 1,
+                        MaxConcurrentVoyages = 3,
+                        MaxConcurrentVoyagesPerVessel = 3
+                    }
+                };
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, settings);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(3, admiral.DispatchVoyageCallCount,
+                    "The sweep must stop after filling the fleet capacity.");
+                AssertEqual("Capacity objective 2", admiral.DispatchedTitles[2],
+                    "Priority rank must decide the final admitted objective.");
+                AssertContains("search_exhaustive=false", scheduler.LastResultSummary ?? String.Empty,
+                    "The summary must report that an eligible candidate remained unexamined.");
+            }).ConfigureAwait(false);
+
             await RunTest("Two vessels joined by a build-participating sibling are one lane: the second objective waits with lane_busy", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
