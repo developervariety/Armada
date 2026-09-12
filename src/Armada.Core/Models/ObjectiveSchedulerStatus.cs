@@ -88,6 +88,46 @@ namespace Armada.Core.Models
         /// </summary>
         public string? LastSkipReason { get; set; } = null;
 
+        /// <summary>
+        /// True while a scheduler sweep is running.
+        /// </summary>
+        public bool SweepInProgress { get; set; } = false;
+
+        /// <summary>
+        /// UTC timestamp at which the current or most recent sweep started.
+        /// </summary>
+        public DateTime? LastSweepStartedUtc { get; set; } = null;
+
+        /// <summary>
+        /// UTC timestamp at which the most recent sweep completed or failed.
+        /// </summary>
+        public DateTime? LastSweepCompletedUtc { get; set; } = null;
+
+        /// <summary>
+        /// Total candidate count in the current or most recent sweep snapshot.
+        /// </summary>
+        public int SweepCandidateCount { get; set; } = 0;
+
+        /// <summary>
+        /// Candidates examined in the current or most recent sweep.
+        /// </summary>
+        public int SweepCandidatesExamined { get; set; } = 0;
+
+        /// <summary>
+        /// Voyages dispatched in the current or most recent sweep.
+        /// </summary>
+        public int SweepDispatchedCount { get; set; } = 0;
+
+        /// <summary>
+        /// True when candidate or elapsed-time limits stopped the most recent sweep.
+        /// </summary>
+        public bool LastSweepBoundReached { get; set; } = false;
+
+        /// <summary>
+        /// Most recent sweep-level or candidate-dispatch error, or null.
+        /// </summary>
+        public string? LastSweepError { get; set; } = null;
+
         #endregion
 
         #region Constructors-and-Factories

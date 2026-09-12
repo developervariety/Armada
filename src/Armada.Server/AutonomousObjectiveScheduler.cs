@@ -2,6 +2,7 @@ namespace Armada.Server
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics;
     using System.Globalization;
     using System.Linq;
     using System.Threading;
@@ -117,6 +118,46 @@ namespace Armada.Server
         public string? LastSkipReason { get; private set; }
 
         /// <summary>
+        /// True while a scheduling sweep holds the single-flight lock and is doing work.
+        /// </summary>
+        public bool SweepInProgress { get; private set; }
+
+        /// <summary>
+        /// UTC timestamp at which the current or most recent sweep started.
+        /// </summary>
+        public DateTime? LastSweepStartedUtc { get; private set; }
+
+        /// <summary>
+        /// UTC timestamp at which the most recent sweep completed or failed.
+        /// </summary>
+        public DateTime? LastSweepCompletedUtc { get; private set; }
+
+        /// <summary>
+        /// Total candidate count in the current or most recent sweep snapshot.
+        /// </summary>
+        public int SweepCandidateCount { get; private set; }
+
+        /// <summary>
+        /// Candidates examined in the current or most recent sweep.
+        /// </summary>
+        public int SweepCandidatesExamined { get; private set; }
+
+        /// <summary>
+        /// Voyages dispatched in the current or most recent sweep.
+        /// </summary>
+        public int SweepDispatchedCount { get; private set; }
+
+        /// <summary>
+        /// True when candidate or elapsed-time limits stopped the most recent sweep.
+        /// </summary>
+        public bool LastSweepBoundReached { get; private set; }
+
+        /// <summary>
+        /// Most recent sweep-level or candidate-dispatch error, or null after a successful sweep starts.
+        /// </summary>
+        public string? LastSweepError { get; private set; }
+
+        /// <summary>
         /// Number of debounced event-triggered sweeps that started in this process.
         /// </summary>
         public long EventTriggeredSweepCount => Interlocked.Read(ref _EventTriggeredSweepCount);
@@ -143,10 +184,13 @@ namespace Armada.Server
         private readonly object _FairShareLock = new object();
         private readonly CancellationTokenSource _RefillLifetime = new CancellationTokenSource();
         private readonly TimeSpan _RefillDebounceDelay;
+        private readonly TimeSpan _SweepTimeBudget;
+        private readonly int _MaxCandidatesPerSweep;
         private Task? _RefillTask;
         private bool _RefillRequested;
         private bool _Disposed;
         private long _EventTriggeredSweepCount;
+        private string? _CandidateCursorObjectiveId;
         private readonly Dictionary<ObjectivePriorityEnum, string> _LastServedCampaignByPriority =
             new Dictionary<ObjectivePriorityEnum, string>();
 
@@ -167,6 +211,8 @@ namespace Armada.Server
         /// <param name="dispatchHold">Optional fleet-wide dispatch hold.</param>
         /// <param name="objectiveDispatchPreview">Optional shared objective dispatch preflight.</param>
         /// <param name="refillDebounceDelay">Optional event-refill debounce delay; tests can shorten it.</param>
+        /// <param name="maxCandidatesPerSweep">Maximum candidates examined by one sweep.</param>
+        /// <param name="sweepTimeBudget">Maximum elapsed candidate-processing time in one sweep.</param>
         public AutonomousObjectiveScheduler(
             DatabaseDriver database,
             ObjectiveService objectives,
@@ -177,7 +223,9 @@ namespace Armada.Server
             ICodeIndexService? codeIndex = null,
             DispatchHold? dispatchHold = null,
             IObjectiveDispatchPreviewService? objectiveDispatchPreview = null,
-            TimeSpan? refillDebounceDelay = null)
+            TimeSpan? refillDebounceDelay = null,
+            int maxCandidatesPerSweep = 100,
+            TimeSpan? sweepTimeBudget = null)
         {
             _DispatchHold = dispatchHold;
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -191,6 +239,12 @@ namespace Armada.Server
             _RefillDebounceDelay = refillDebounceDelay ?? TimeSpan.FromSeconds(1);
             if (_RefillDebounceDelay < TimeSpan.Zero)
                 throw new ArgumentOutOfRangeException(nameof(refillDebounceDelay));
+            if (maxCandidatesPerSweep < 1)
+                throw new ArgumentOutOfRangeException(nameof(maxCandidatesPerSweep));
+            _MaxCandidatesPerSweep = maxCandidatesPerSweep;
+            _SweepTimeBudget = sweepTimeBudget ?? TimeSpan.FromSeconds(20);
+            if (_SweepTimeBudget <= TimeSpan.Zero)
+                throw new ArgumentOutOfRangeException(nameof(sweepTimeBudget));
 
             Enabled = settings.AutonomousObjectiveScheduler.Enabled;
             Paused = settings.AutonomousObjectiveScheduler.Paused;
@@ -409,7 +463,13 @@ namespace Armada.Server
             if (waitForActiveSweep)
                 await _SweepLock.WaitAsync(token).ConfigureAwait(false);
             else if (!await _SweepLock.WaitAsync(0, token).ConfigureAwait(false))
+            {
+                // A concurrent periodic or event trigger must not start a second sweep. Preserve
+                // one coalesced request so work that became ready during the active pass is seen
+                // immediately after it, rather than waiting for the periodic interval.
+                RequestRefill();
                 return;
+            }
 
             try
             {
@@ -421,7 +481,15 @@ namespace Armada.Server
                     return;
                 }
 
-                LastTickUtc = DateTime.UtcNow;
+                SweepInProgress = true;
+                LastSweepStartedUtc = DateTime.UtcNow;
+                SweepCandidateCount = 0;
+                SweepCandidatesExamined = 0;
+                SweepDispatchedCount = 0;
+                LastSweepBoundReached = false;
+                LastSweepError = null;
+                LastSkipReason = null;
+                LastResultSummary = "running candidates=0/0 dispatched=0";
 
                 if (!Enabled)
                 {
@@ -452,32 +520,7 @@ namespace Armada.Server
                 List<Objective> eligible = _ObjectiveDispatchPreview == null
                     ? AutonomousObjectiveSelector.SelectEligible(snapshot)
                     : AutonomousObjectiveSelector.SelectCandidates(snapshot);
-
-                // Diagnose dependency blocks before global capacity, dispatch holds, or sibling-lane
-                // occupancy can hide them. Cache each preview so a candidate that reaches dispatch is
-                // not evaluated twice in one sweep.
-                Dictionary<string, ObjectiveDispatchPreview> previews = new Dictionary<string, ObjectiveDispatchPreview>(StringComparer.Ordinal);
                 Dictionary<string, int> skipReasons = new Dictionary<string, int>(StringComparer.Ordinal);
-                if (_ObjectiveDispatchPreview != null)
-                {
-                    List<Objective> dependencyReady = new List<Objective>();
-                    foreach (Objective objective in eligible)
-                    {
-                        ObjectiveDispatchPreview preview = await _ObjectiveDispatchPreview
-                            .PreviewAsync(BuildAuth(objective), objective, token: token)
-                            .ConfigureAwait(false);
-                        previews[objective.Id] = preview;
-                        if (IsDependencyBlocked(preview))
-                        {
-                            RecordSkip(skipReasons, "dependency_blocked");
-                            await EmitDispatchPreviewSkipAsync(objective, preview, true, token).ConfigureAwait(false);
-                            continue;
-                        }
-
-                        dependencyReady.Add(objective);
-                    }
-                    eligible = dependencyReady;
-                }
 
                 Dictionary<string, string> campaignByObjectiveId = new Dictionary<string, string>(StringComparer.Ordinal);
                 bool fairShareEnabled;
@@ -496,17 +539,13 @@ namespace Armada.Server
                         out campaignByObjectiveId);
                 }
 
+                eligible = RotateAfterCursor(eligible, _CandidateCursorObjectiveId);
+                SweepCandidateCount = eligible.Count;
+                LastResultSummary = "running candidates=0/" + SweepCandidateCount + " dispatched=0";
+
                 ActiveVoyageSummary active = await CountActiveDispatchedAsync(token).ConfigureAwait(false);
                 ActiveDispatchedCount = active.Total;
                 int capacity = MaxConcurrentVoyages - active.Total;
-
-                if (eligible.Count == 0 && skipReasons.Count > 0)
-                {
-                    LastSkipReason = DescribeSkips(skipReasons);
-                    LastResultSummary = "reconciled=" + reconciledCount + " dispatched=0 skipped=" + LastSkipReason;
-                    _Logging.Info(_Header + "sweep complete: " + LastResultSummary + ".");
-                    return;
-                }
 
                 if (capacity <= 0)
                 {
@@ -562,11 +601,26 @@ namespace Armada.Server
                 // fleet, and hid two permanently undispatchable objectives for days.
                 VesselLaneMap lanes = await BuildLanesAsync(token).ConfigureAwait(false);
                 List<MergeEntry> mergeQueue = await _MergeQueue.ListAsync(token: token).ConfigureAwait(false);
+                Stopwatch candidateTimer = Stopwatch.StartNew();
+                Objective? lastExamined = null;
 
                 foreach (Objective objective in eligible)
                 {
                     if (dispatched >= capacity) break;
                     token.ThrowIfCancellationRequested();
+
+                    if (SweepCandidatesExamined >= _MaxCandidatesPerSweep
+                        || candidateTimer.Elapsed >= _SweepTimeBudget)
+                    {
+                        LastSweepBoundReached = true;
+                        RecordSkip(skipReasons, "sweep_bound");
+                        break;
+                    }
+
+                    SweepCandidatesExamined++;
+                    lastExamined = objective;
+                    LastResultSummary = "running candidates=" + SweepCandidatesExamined + "/"
+                        + SweepCandidateCount + " dispatched=" + dispatched;
 
                     if (objective.VesselIds.Count == 1)
                     {
@@ -597,11 +651,46 @@ namespace Armada.Server
                         }
                     }
 
+                    ObjectiveDispatchPreview? preview = null;
+                    if (_ObjectiveDispatchPreview != null)
+                    {
+                        TimeSpan previewBudget = _SweepTimeBudget - candidateTimer.Elapsed;
+                        if (previewBudget <= TimeSpan.Zero)
+                        {
+                            LastSweepBoundReached = true;
+                            RecordSkip(skipReasons, "sweep_bound");
+                            break;
+                        }
+
+                        using CancellationTokenSource previewTimeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+                        previewTimeout.CancelAfter(previewBudget);
+                        try
+                        {
+                            preview = await _ObjectiveDispatchPreview
+                                .PreviewAsync(BuildAuth(objective), objective, token: previewTimeout.Token)
+                                .ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException) when (!token.IsCancellationRequested && previewTimeout.IsCancellationRequested)
+                        {
+                            LastSweepBoundReached = true;
+                            RecordSkip(skipReasons, "sweep_bound");
+                            break;
+                        }
+                        if (IsDependencyBlocked(preview))
+                        {
+                            RecordSkip(skipReasons, "dependency_blocked");
+                            await EmitDispatchPreviewSkipAsync(objective, preview, true, token).ConfigureAwait(false);
+                            continue;
+                        }
+                    }
+
                     try
                     {
-                        previews.TryGetValue(objective.Id, out ObjectiveDispatchPreview? preview);
                         await DispatchObjectiveAsync(objective, mergeQueue, preview, token).ConfigureAwait(false);
                         dispatched++;
+                        SweepDispatchedCount = dispatched;
+                        LastResultSummary = "running candidates=" + SweepCandidatesExamined + "/"
+                            + SweepCandidateCount + " dispatched=" + dispatched;
                         if (fairShareEnabled
                             && campaignByObjectiveId.TryGetValue(objective.Id, out string? campaignKey))
                         {
@@ -652,8 +741,18 @@ namespace Armada.Server
                     catch (Exception ex)
                     {
                         RecordSkip(skipReasons, "dispatch_error");
+                        LastSweepError = "objective " + objective.Id + ": " + ex.Message;
                         _Logging.Warn(_Header + "dispatch failed for objective " + objective.Id + ": " + ex.Message);
                     }
+                }
+
+                if (LastSweepBoundReached && lastExamined != null && dispatched < capacity)
+                {
+                    _CandidateCursorObjectiveId = lastExamined.Id;
+                }
+                else
+                {
+                    _CandidateCursorObjectiveId = null;
                 }
 
                 // A null skip reason must mean "work was dispatched", never "nothing
@@ -669,8 +768,20 @@ namespace Armada.Server
                     + " dispatched=" + dispatched + " capacity=" + capacity
                     + (skipReasons.Count > 0 ? " skipped=" + DescribeSkips(skipReasons) : String.Empty) + ".");
             }
+            catch (Exception ex)
+            {
+                LastSweepError = ex.Message;
+                LastResultSummary = "failed: " + ex.Message;
+                throw;
+            }
             finally
             {
+                if (SweepInProgress)
+                {
+                    SweepInProgress = false;
+                    LastSweepCompletedUtc = DateTime.UtcNow;
+                    LastTickUtc = LastSweepCompletedUtc;
+                }
                 _SweepLock.Release();
             }
         }
@@ -678,6 +789,22 @@ namespace Armada.Server
         #endregion
 
         #region Private-Methods
+
+        private static List<Objective> RotateAfterCursor(List<Objective> candidates, string? cursorObjectiveId)
+        {
+            if (candidates.Count < 2 || String.IsNullOrWhiteSpace(cursorObjectiveId))
+                return candidates;
+
+            int cursorIndex = candidates.FindIndex(objective =>
+                String.Equals(objective.Id, cursorObjectiveId, StringComparison.Ordinal));
+            if (cursorIndex < 0 || cursorIndex == candidates.Count - 1)
+                return candidates;
+
+            List<Objective> rotated = new List<Objective>(candidates.Count);
+            rotated.AddRange(candidates.Skip(cursorIndex + 1));
+            rotated.AddRange(candidates.Take(cursorIndex + 1));
+            return rotated;
+        }
 
         private async Task ProcessRefillRequestsAsync()
         {

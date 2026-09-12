@@ -15,6 +15,11 @@ replaced.
 Focus: operator signal fidelity - make a failure say what actually failed.
 
 ### Operator documentation
+- Autonomous objective sweeps now preflight candidates only as capacity needs
+  them. Each pass has candidate and elapsed-time limits, resumes after its last
+  examined objective, and stops as soon as fleet capacity is full. Scheduler
+  status now reports active, completed, progress, bounded, and error state, and
+  concurrent triggers coalesce into one follow-up pass.
 - Autonomous recovery no longer lets old, already-handled failures consume the
   ten-item sweep budget. New failures behind a large handled backlog now reach
   their incident, follow-up, or rescue policy in the same sweep.

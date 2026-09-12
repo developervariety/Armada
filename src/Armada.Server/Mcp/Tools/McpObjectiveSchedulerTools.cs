@@ -294,7 +294,15 @@ namespace Armada.Server.Mcp.Tools
                 LastTickUtc = scheduler.LastTickUtc,
                 ActiveDispatchedCount = scheduler.ActiveDispatchedCount,
                 EventTriggeredSweepCount = scheduler.EventTriggeredSweepCount,
-                LastSkipReason = scheduler.LastSkipReason
+                LastSkipReason = scheduler.LastSkipReason,
+                SweepInProgress = scheduler.SweepInProgress,
+                LastSweepStartedUtc = scheduler.LastSweepStartedUtc,
+                LastSweepCompletedUtc = scheduler.LastSweepCompletedUtc,
+                SweepCandidateCount = scheduler.SweepCandidateCount,
+                SweepCandidatesExamined = scheduler.SweepCandidatesExamined,
+                SweepDispatchedCount = scheduler.SweepDispatchedCount,
+                LastSweepBoundReached = scheduler.LastSweepBoundReached,
+                LastSweepError = scheduler.LastSweepError
             };
         }
 

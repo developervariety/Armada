@@ -89,7 +89,7 @@ namespace Armada.Test.Unit.Suites.Services
                     "The scheduler event must include the complete blocking chain.");
             }).ConfigureAwait(false);
 
-            await RunTest("SweepAsync_DependencyDiagnosticsPrecedeZeroGlobalCapacity", async () =>
+            await RunTest("SweepAsync_ZeroGlobalCapacityStopsBeforeCandidatePreflight", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
@@ -97,6 +97,12 @@ namespace Armada.Test.Unit.Suites.Services
                 Voyage activeVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Active capacity consumer")
                 {
                     Status = VoyageStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Active capacity mission")
+                {
+                    VoyageId = activeVoyage.Id,
+                    VesselId = vessel.Id,
+                    Status = MissionStatusEnum.InProgress
                 }).ConfigureAwait(false);
                 await testDb.Driver.Objectives.CreateAsync(new Objective
                 {
@@ -129,16 +135,16 @@ namespace Armada.Test.Unit.Suites.Services
 
                 await scheduler.SweepAsync().ConfigureAwait(false);
 
-                AssertEqual("dependency_blocked=1", scheduler.LastSkipReason,
-                    "A dependency diagnosis must not be hidden by zero global capacity.");
-                AssertEqual(1, preview.CallCount, "The blocked candidate is previewed once.");
+                AssertEqual("max_concurrent", scheduler.LastSkipReason,
+                    "A full fleet must report its admission limit.");
+                AssertEqual(0, preview.CallCount, "A full fleet must not spend time on candidate preflight.");
                 List<ArmadaEvent> events = await testDb.Driver.Events
                     .EnumerateByTypeAsync("objective_scheduler.skipped_dependency")
                     .ConfigureAwait(false);
-                AssertEqual(1, events.Count, "The complete dependency diagnostic is emitted before the capacity return.");
+                AssertEqual(0, events.Count, "No candidate was examined after fleet capacity was full.");
             }).ConfigureAwait(false);
 
-            await RunTest("SweepAsync_DependencyDiagnosticsPrecedeBusySiblingLane", async () =>
+            await RunTest("SweepAsync_BusySiblingLaneStopsCandidateBeforePreflight", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 Vessel producer = await testDb.Driver.Vessels.CreateAsync(new Vessel(
@@ -158,6 +164,12 @@ namespace Armada.Test.Unit.Suites.Services
                 Voyage activeVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Active lane consumer")
                 {
                     Status = VoyageStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Active lane mission")
+                {
+                    VoyageId = activeVoyage.Id,
+                    VesselId = producer.Id,
+                    Status = MissionStatusEnum.InProgress
                 }).ConfigureAwait(false);
                 await testDb.Driver.Objectives.CreateAsync(new Objective
                 {
@@ -190,17 +202,268 @@ namespace Armada.Test.Unit.Suites.Services
 
                 await scheduler.SweepAsync().ConfigureAwait(false);
 
-                AssertEqual("dependency_blocked=1", scheduler.LastSkipReason,
-                    "A dependency diagnosis must not be replaced by lane_busy.");
-                AssertEqual(1, preview.CallCount, "The blocked lane candidate is previewed once.");
+                AssertContains("lane_busy:", scheduler.LastSkipReason ?? String.Empty,
+                    "A full sibling lane must report its admission limit.");
+                AssertEqual(0, preview.CallCount, "A full sibling lane must not spend time on candidate preflight.");
                 List<ArmadaEvent> dependencyEvents = await testDb.Driver.Events
                     .EnumerateByTypeAsync("objective_scheduler.skipped_dependency")
                     .ConfigureAwait(false);
-                AssertEqual(1, dependencyEvents.Count);
+                AssertEqual(0, dependencyEvents.Count);
                 List<ArmadaEvent> laneEvents = await testDb.Driver.Events
                     .EnumerateByTypeAsync("objective_scheduler.skipped_lane_busy")
                     .ConfigureAwait(false);
-                AssertEqual(0, laneEvents.Count, "The lane gate must not hide or replace the dependency diagnostic.");
+                AssertEqual(1, laneEvents.Count, "The lane gate reports the skipped candidate.");
+            }).ConfigureAwait(false);
+
+            await RunTest("SweepAsync_DispatchesEarlyCandidateWithoutPreviewingLaterCandidates", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                    "large-candidate-set", "https://github.com/test/large-candidate-set.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                for (int i = 0; i < 250; i++)
+                {
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "Candidate " + i.ToString("D3"),
+                        Status = ObjectiveStatusEnum.Planned,
+                        AutoDispatchEnabled = true,
+                        Rank = i,
+                        VesselIds = new List<string> { vessel.Id }
+                    }).ConfigureAwait(false);
+                }
+
+                RecordingObjectiveDispatchPreview preview = new RecordingObjectiveDispatchPreview();
+                preview.Handler = (objective, _) =>
+                {
+                    return Task.FromResult(new ObjectiveDispatchPreview
+                    {
+                        ObjectiveId = objective.Id,
+                        VesselId = vessel.Id,
+                        IsReady = true
+                    });
+                };
+                ArmadaSettings settings = EnabledSchedulerSettings();
+                settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages = 1;
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver, admiral, settings, objectiveDispatchPreview: preview);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, preview.CallCount, "The sweep stops preflight when fleet capacity is filled. Summary: " + scheduler.LastResultSummary + "; error: " + scheduler.LastSweepError);
+                AssertEqual(1, admiral.DispatchVoyageCallCount, "The first ready candidate dispatches immediately.");
+                AssertEqual(1, scheduler.SweepCandidatesExamined);
+                AssertEqual(1, scheduler.SweepDispatchedCount);
+                AssertEqual(250, scheduler.SweepCandidateCount);
+            }).ConfigureAwait(false);
+
+            await RunTest("SweepAsync_ReportsLiveProgressCompletionAndFailure", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                    "progress-vessel", "https://github.com/test/progress-vessel.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                Objective candidate = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Title = "Progress candidate",
+                    Status = ObjectiveStatusEnum.Planned,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id }
+                }).ConfigureAwait(false);
+                TaskCompletionSource<bool> previewEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                TaskCompletionSource<bool> releasePreview = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                RecordingObjectiveDispatchPreview preview = new RecordingObjectiveDispatchPreview
+                {
+                    Handler = async (objective, token) =>
+                    {
+                        previewEntered.TrySetResult(true);
+                        await releasePreview.Task.WaitAsync(token).ConfigureAwait(false);
+                        return new ObjectiveDispatchPreview
+                        {
+                            ObjectiveId = objective.Id,
+                            VesselId = vessel.Id,
+                            IsReady = true
+                        };
+                    }
+                };
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver),
+                    EnabledSchedulerSettings(),
+                    objectiveDispatchPreview: preview);
+
+                Task sweep = scheduler.SweepAsync();
+                await previewEntered.Task.WaitAsync(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
+                ObjectiveSchedulerStatus running = McpObjectiveSchedulerTools.BuildStatus(scheduler);
+                AssertTrue(running.SweepInProgress, "Status identifies the active sweep.");
+                AssertTrue(running.LastSweepStartedUtc.HasValue, "Status records when the active sweep started.");
+                AssertNull(running.LastSweepCompletedUtc, "An active sweep has no completion time.");
+                AssertEqual(1, running.SweepCandidatesExamined, "Status reports candidate progress during preflight.");
+                AssertEqual(1, running.SweepCandidateCount, "Status reports the total candidate count during preflight.");
+                AssertEqual(0, running.SweepDispatchedCount);
+
+                releasePreview.TrySetResult(true);
+                await sweep.ConfigureAwait(false);
+                ObjectiveSchedulerStatus completed = McpObjectiveSchedulerTools.BuildStatus(scheduler);
+                AssertFalse(completed.SweepInProgress, "Status identifies the completed sweep.");
+                AssertTrue(completed.LastSweepCompletedUtc.HasValue, "Status records completion.");
+                AssertEqual(1, completed.SweepDispatchedCount, "Status reports the completed dispatch count. Summary: " + scheduler.LastResultSummary + "; error: " + scheduler.LastSweepError);
+                AssertNull(completed.LastSweepError);
+
+                Objective failingCandidate = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Title = "Failing preview candidate",
+                    Status = ObjectiveStatusEnum.Planned,
+                    AutoDispatchEnabled = true,
+                    Rank = -1,
+                    VesselIds = new List<string> { vessel.Id }
+                }).ConfigureAwait(false);
+                RecordingObjectiveDispatchPreview failingPreview = new RecordingObjectiveDispatchPreview
+                {
+                    Handler = (_, _) => throw new InvalidOperationException("preview failed")
+                };
+                AutonomousObjectiveScheduler failingScheduler = CreateScheduler(
+                    testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver),
+                    EnabledSchedulerSettings(),
+                    objectiveDispatchPreview: failingPreview);
+
+                await AssertThrowsAsync<InvalidOperationException>(() => failingScheduler.SweepAsync()).ConfigureAwait(false);
+                ObjectiveSchedulerStatus failed = McpObjectiveSchedulerTools.BuildStatus(failingScheduler);
+                AssertFalse(failed.SweepInProgress, "A failed sweep releases its running state.");
+                AssertTrue(failed.LastSweepCompletedUtc.HasValue, "A failed sweep records its terminal time.");
+                AssertContains("preview failed", failed.LastSweepError ?? String.Empty);
+                AssertContains("failed", failingScheduler.LastResultSummary ?? String.Empty);
+            }).ConfigureAwait(false);
+
+            await RunTest("SweepAsync_BoundsCandidateWorkAndCoalescesConcurrentFollowUp", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                    "bounded-sweep-vessel", "https://github.com/test/bounded-sweep-vessel.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                for (int i = 0; i < 5; i++)
+                {
+                    await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        Title = "Blocked candidate " + i,
+                        Status = ObjectiveStatusEnum.Planned,
+                        AutoDispatchEnabled = true,
+                        Rank = i,
+                        VesselIds = new List<string> { vessel.Id }
+                    }).ConfigureAwait(false);
+                }
+
+                TaskCompletionSource<bool> firstPreviewEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                TaskCompletionSource<bool> releaseFirstPreview = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                RecordingObjectiveDispatchPreview preview = new RecordingObjectiveDispatchPreview
+                {
+                    Handler = async (objective, token) =>
+                    {
+                        if (!firstPreviewEntered.Task.IsCompleted)
+                        {
+                            firstPreviewEntered.TrySetResult(true);
+                            await releaseFirstPreview.Task.WaitAsync(token).ConfigureAwait(false);
+                        }
+                        return new ObjectiveDispatchPreview
+                        {
+                            ObjectiveId = objective.Id,
+                            VesselId = vessel.Id,
+                            IsReady = false,
+                            Issues = new List<ObjectiveDispatchPreviewIssue>
+                            {
+                                new ObjectiveDispatchPreviewIssue
+                                {
+                                    Code = "objective_dependencies_incomplete",
+                                    Area = "admission",
+                                    Severity = ReadinessSeverityEnum.Error,
+                                    Message = "Dependency incomplete."
+                                }
+                            }
+                        };
+                    }
+                };
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver),
+                    EnabledSchedulerSettings(),
+                    objectiveDispatchPreview: preview,
+                    refillDebounceDelay: TimeSpan.FromMilliseconds(20),
+                    maxCandidatesPerSweep: 2,
+                    sweepTimeBudget: TimeSpan.FromSeconds(5));
+
+                try
+                {
+                    Task firstSweep = scheduler.SweepAsync();
+                    await firstPreviewEntered.Task.WaitAsync(TimeSpan.FromSeconds(3)).ConfigureAwait(false);
+                    await Task.WhenAll(scheduler.SweepAsync(), scheduler.SweepAsync()).ConfigureAwait(false);
+                    releaseFirstPreview.TrySetResult(true);
+                    await firstSweep.ConfigureAwait(false);
+                    await WaitForEventTriggeredSweepCountAsync(scheduler, 1).ConfigureAwait(false);
+                    DateTime deadline = DateTime.UtcNow.AddSeconds(3);
+                    while ((preview.CallCount < 4 || scheduler.SweepInProgress) && DateTime.UtcNow < deadline)
+                        await Task.Delay(10).ConfigureAwait(false);
+
+                    AssertEqual(4, preview.CallCount,
+                        "Two concurrent triggers coalesce into one follow-up, with two bounded candidates per pass.");
+                    AssertEqual(1L, scheduler.EventTriggeredSweepCount);
+                    AssertTrue(scheduler.LastSweepBoundReached, "The follow-up also reports its candidate bound.");
+                    AssertEqual(2, scheduler.SweepCandidatesExamined);
+                    AssertContains("sweep_bound", scheduler.LastSkipReason ?? String.Empty);
+                }
+                finally
+                {
+                    scheduler.Dispose();
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("SweepAsync_TimeBudgetCancelsSlowCandidatePreflight", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                    "time-bounded-sweep-vessel", "https://github.com/test/time-bounded-sweep-vessel.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    Title = "Slow preflight candidate",
+                    Status = ObjectiveStatusEnum.Planned,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id }
+                }).ConfigureAwait(false);
+                RecordingObjectiveDispatchPreview preview = new RecordingObjectiveDispatchPreview
+                {
+                    Handler = async (_, token) =>
+                    {
+                        await Task.Delay(TimeSpan.FromSeconds(5), token).ConfigureAwait(false);
+                        return new ObjectiveDispatchPreview { IsReady = false };
+                    }
+                };
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver),
+                    EnabledSchedulerSettings(),
+                    objectiveDispatchPreview: preview,
+                    maxCandidatesPerSweep: 100,
+                    sweepTimeBudget: TimeSpan.FromMilliseconds(40));
+
+                DateTime started = DateTime.UtcNow;
+                await scheduler.SweepAsync().ConfigureAwait(false);
+                TimeSpan elapsed = DateTime.UtcNow - started;
+
+                AssertTrue(elapsed < TimeSpan.FromSeconds(2), "A cooperative slow preflight is canceled at the sweep deadline.");
+                AssertEqual(1, preview.CallCount);
+                AssertTrue(scheduler.LastSweepBoundReached);
+                AssertContains("sweep_bound", scheduler.LastSkipReason ?? String.Empty);
+                AssertNull(scheduler.LastSweepError, "The configured work bound is not a scheduler failure.");
             }).ConfigureAwait(false);
 
             await RunTest("SweepAsync_SecondImmediateCallWithinInterval_IsNoOp", async () =>
@@ -2413,7 +2676,9 @@ namespace Armada.Test.Unit.Suites.Services
             ArmadaSettings settings,
             DispatchHold? dispatchHold = null,
             IObjectiveDispatchPreviewService? objectiveDispatchPreview = null,
-            TimeSpan? refillDebounceDelay = null)
+            TimeSpan? refillDebounceDelay = null,
+            int maxCandidatesPerSweep = 100,
+            TimeSpan? sweepTimeBudget = null)
         {
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
@@ -2428,7 +2693,9 @@ namespace Armada.Test.Unit.Suites.Services
                 null,
                 dispatchHold,
                 objectiveDispatchPreview,
-                refillDebounceDelay);
+                refillDebounceDelay,
+                maxCandidatesPerSweep,
+                sweepTimeBudget);
         }
 
         private async Task WaitForEventTriggeredSweepCountAsync(
@@ -2483,6 +2750,7 @@ namespace Armada.Test.Unit.Suites.Services
         private sealed class RecordingObjectiveDispatchPreview : IObjectiveDispatchPreviewService
         {
             public ObjectiveDispatchPreview Result { get; set; } = new ObjectiveDispatchPreview { IsReady = true };
+            public Func<Objective, CancellationToken, Task<ObjectiveDispatchPreview>>? Handler { get; set; }
             public int CallCount { get; private set; }
 
             public Task<ObjectiveDispatchPreview> PreviewAsync(
@@ -2495,6 +2763,8 @@ namespace Armada.Test.Unit.Suites.Services
                 CancellationToken token = default)
             {
                 CallCount++;
+                if (Handler != null)
+                    return Handler(objective, token);
                 return Task.FromResult(Result);
             }
 
