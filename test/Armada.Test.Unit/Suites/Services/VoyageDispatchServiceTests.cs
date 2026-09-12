@@ -1059,6 +1059,170 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Inherited high tier on Worker blocks routing until persona aware cap", () =>
+            {
+                ModelTierSettings fleet = FleetRoutingSettings.CreateModelTier();
+                Captain captain = new Captain("mid-tier-worker");
+                captain.Model = "gpt-5.6-luna";
+                captain.State = CaptainStateEnum.Idle;
+
+                string? enforced = PreferredModelTierSelector.EnforceHighTierForPersona(
+                    "high",
+                    "Worker",
+                    fleet.SpecialistPersonas);
+                AssertEqual("high", enforced, "the enforce-only path keeps high on Worker and reproduces the failure mode");
+                AssertFalse(
+                    MissionService.CaptainSatisfiesPreferredRouting(captain, "Worker", enforced, fleet),
+                    "high on Worker leaves an idle mid-tier roster with zero eligible captains");
+
+                string? resolved = PreferredModelTierSelector.ResolveEffectivePreferredModel(
+                    null,
+                    "high",
+                    "Worker",
+                    fleet.SpecialistPersonas);
+                AssertEqual("mid", resolved, "the persona-aware resolver caps inherited high to mid on Worker");
+                AssertTrue(
+                    MissionService.CaptainSatisfiesPreferredRouting(captain, "Worker", resolved, fleet),
+                    "the cap restores assignable coverage on the same idle roster");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("Pipeline dispatch caps mission high tier to mid on Worker stages", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("high-tier-cap-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    Pipeline pipeline = new Pipeline("ReviewedHighCap");
+                    pipeline.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "Judge")
+                    };
+                    pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+
+                    PipelinePersistingAdmiralService admiral = new PipelinePersistingAdmiralService(testDb.Driver, pipeline);
+                    ArmadaSettings settings = FleetRoutingSettings.CreateArmadaSettings();
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver, admiral, null, null, null, settings);
+
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "High tier cap voyage",
+                        VesselId = vessel.Id,
+                        PipelineId = pipeline.Id,
+                        CodeContextMode = "off",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("Implement feature", "Worker should inherit mid, Judge stays high")
+                            {
+                                PreferredModel = "high",
+                                Alias = "M1"
+                            }
+                        }
+                    };
+
+                    VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
+                    AssertTrue(result.Succeeded, "pipeline dispatch should succeed");
+
+                    List<Mission> missions = await WaitForVoyageMissionsAsync(testDb.Driver, result.Voyage!.Id, 2).ConfigureAwait(false);
+                    Mission worker = missions.Single(m => m.Persona == "Worker");
+                    Mission judge = missions.Single(m => m.Persona == "Judge");
+
+                    AssertEqual("mid", worker.PreferredModel,
+                        "a mission-level high tier inherited by a Worker stage must cap to mid so assignment can proceed");
+                    AssertEqual("high", judge.PreferredModel,
+                        "a Judge stage must still persist high when the mission requests high");
+                }
+            });
+
+            await RunTest("Pipeline dispatch avoids WaitingForIdleCaptain for inherited high on Worker", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    ArmadaSettings settings = FleetRoutingSettings.CreateArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
+                    StubGitService git = new StubGitService();
+
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
+                    AdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService);
+                    admiral.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+
+                    Vessel vessel = new Vessel("high-tier-assign-vessel", "https://github.com/test/repo.git");
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    for (int index = 0; index < 3; index++)
+                    {
+                        Captain captain = new Captain("mid-worker-" + index);
+                        captain.Model = "gpt-5.6-luna";
+                        captain.State = CaptainStateEnum.Idle;
+                        await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    }
+
+                    Pipeline pipeline = new Pipeline("ReviewedHighAssign");
+                    pipeline.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "Judge")
+                    };
+                    pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver, admiral, logging, null, null, settings);
+
+                    SharedVoyageDispatchRequest request = new SharedVoyageDispatchRequest
+                    {
+                        Title = "High tier assign voyage",
+                        VesselId = vessel.Id,
+                        PipelineId = pipeline.Id,
+                        CodeContextMode = "off",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("Implement feature", "Idle mid-tier workers must receive the Worker stage")
+                            {
+                                PreferredModel = "high"
+                            }
+                        }
+                    };
+
+                    VoyageDispatchResult result = await service.DispatchAsync(request).ConfigureAwait(false);
+                    AssertTrue(result.Succeeded, "pipeline dispatch should succeed");
+
+                    List<Mission> missions = await WaitForVoyageMissionsAsync(testDb.Driver, result.Voyage!.Id, 2).ConfigureAwait(false);
+                    Mission worker = missions.Single(m => m.Persona == "Worker");
+                    AssertEqual("mid", worker.PreferredModel,
+                        "Worker stage must cap inherited high to mid before assignment runs");
+
+                    Mission? refreshedWorker = null;
+                    DateTime assignmentDeadline = DateTime.UtcNow.AddSeconds(5);
+                    while (DateTime.UtcNow < assignmentDeadline)
+                    {
+                        refreshedWorker = await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false);
+                        if (refreshedWorker?.CaptainId != null
+                            && (refreshedWorker.Status == MissionStatusEnum.Assigned
+                                || refreshedWorker.Status == MissionStatusEnum.InProgress))
+                            break;
+                        await Task.Delay(25).ConfigureAwait(false);
+                    }
+                    AssertNotNull(refreshedWorker, "Worker mission must remain readable after dispatch");
+                    AssertNotNull(refreshedWorker!.CaptainId,
+                        "an idle mid-tier captain must be assigned after the Worker preference is capped to mid");
+                    AssertTrue(
+                        refreshedWorker.Status == MissionStatusEnum.Assigned
+                            || refreshedWorker.Status == MissionStatusEnum.InProgress,
+                        "the Worker must reach Assigned or InProgress instead of only avoiding WaitingForIdleCaptain");
+                }
+            });
+
             await RunTest("ValidatePreconditions_RejectsBadRequestsSoBackgroundDispatchStillFailsFast", async () =>
             {
                 // armada_dispatch hands the expensive tail to a background job. That is only safe if a

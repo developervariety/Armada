@@ -15,6 +15,10 @@ replaced.
 Focus: operator signal fidelity - make a failure say what actually failed.
 
 ### Operator documentation
+- Pipeline dispatch and objective preview now share persona-aware model-tier
+  resolution. Non-specialist stages no longer inherit an unassignable `high`
+  selector, specialist and Judge stages remain `high`, literal pins stay exact,
+  and multi-mission previews evaluate each distinct model requirement.
 - Autonomous recovery now preserves Audit and Research scope. It records an
   incident and runbook execution but does not dispatch an Implementation
   rescue. Only a failed Judge creates a durable Judge follow-up; reference

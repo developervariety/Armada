@@ -75,8 +75,9 @@ namespace Armada.Core.Models
         /// Optional per-stage preferred Captain.Model. When set, the dispatcher uses this value
         /// for the mission record created from this stage instead of the dispatch's per-mission
         /// PreferredModel. Lets pipelines route different stages of the same mission to different
-        /// model pools (e.g. Reviewed pipeline's Worker stage on Mid-tier, Judge stage on Opus).
-        /// When null, the dispatch's PreferredModel is used as-is (current behaviour).
+        /// model pools (for example, a Reviewed pipeline's Worker and Judge stages can use
+        /// different tiers). When null, the mission preference is inherited. Tier selectors
+        /// are normalized for this stage's persona; literal model names remain exact pins.
         /// </summary>
         public string? PreferredModel { get; set; } = null;
 

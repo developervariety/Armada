@@ -1268,8 +1268,9 @@ namespace Armada.Server
                         // would let a Judge review a diff its parallel sibling reviewers had not
                         // finished contributing to.
                         stageMission.StageOrder = stage.Order;
-                        stageMission.PreferredModel = PreferredModelTierSelector.EnforceHighTierForPersona(
-                            stage.PreferredModel ?? md.PreferredModel,
+                        stageMission.PreferredModel = PreferredModelTierSelector.ResolveEffectivePreferredModel(
+                            stage.PreferredModel,
+                            md.PreferredModel,
                             stage.PersonaName,
                             settings?.ModelTier.SpecialistPersonas);
                         stageMission.CapabilityHint = md.CapabilityHint;

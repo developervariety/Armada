@@ -40,8 +40,9 @@ namespace Armada.Core.Models
         public string? CodeContextQuery { get; set; } = null;
 
         /// <summary>
-        /// Optional captain Model filter for assignment. Plumbed through to
-        /// <see cref="Mission.PreferredModel"/> on the created mission.
+        /// Optional captain Model filter for assignment. A pipeline stage override takes
+        /// precedence. Tier selectors are then normalized for the stage persona, while a
+        /// literal model name remains an exact pin on <see cref="Mission.PreferredModel"/>.
         /// </summary>
         public string? PreferredModel { get; set; } = null;
 

@@ -159,7 +159,7 @@ namespace Armada.Core.Services
             }
 
             List<Captain> captains = await ReadCaptainsAsync(auth, token).ConfigureAwait(false);
-            EvaluateCaptainCoverage(pipeline, captains, captainAssignments, result);
+            EvaluateCaptainCoverage(pipeline, captains, captainAssignments, missionDescriptions, result);
             await EvaluateChecksAsync(auth, vessel, result, token).ConfigureAwait(false);
 
             FinalizeResult(result);
@@ -494,65 +494,100 @@ namespace Armada.Core.Services
             Pipeline? pipeline,
             List<Captain> captains,
             IReadOnlyList<CaptainAssignmentOverride>? captainAssignments,
+            IReadOnlyList<MissionDescription>? missionDescriptions,
             ObjectiveDispatchPreview result)
         {
             List<PipelineStage> stages = pipeline?.Stages?.ToList()
                 ?? new List<PipelineStage> { new PipelineStage(1, "Worker") };
+            IReadOnlyCollection<string> specialistPersonas = _Settings.ModelTier.SpecialistPersonas;
             foreach (PipelineStage stage in stages
                 .Where(item => item != null)
                 .OrderBy(item => item.Order))
             {
-                string? preferredModel = PreferredModelTierSelector.EnforceHighTierForPersona(
-                    stage.PreferredModel,
-                    stage.PersonaName,
-                    _Settings.ModelTier.SpecialistPersonas);
-                CaptainAssignmentOverride? assignment = captainAssignments?.FirstOrDefault(item => item != null
-                    && PersonaCatalog.Matches(item.Persona, stage.PersonaName));
-                CaptainTierEnum? fallbackTier = assignment?.FallbackTier;
-                List<Captain> configured = captains
-                    .Where(IsConfiguredUsableCaptain)
-                    .Where(captain => MissionService.CaptainSatisfiesPreferredRouting(
-                        captain, stage.PersonaName, preferredModel, _Settings.ModelTier))
-                    .Where(captain => fallbackTier == null || CaptainTierSelector.EffectiveTier(captain) >= fallbackTier.Value)
-                    .ToList();
-
-                if (assignment != null && !String.IsNullOrWhiteSpace(assignment.CaptainId))
+                List<string?> resolvedPreferences = ResolveStagePreferredModels(
+                    stage, missionDescriptions, specialistPersonas);
+                foreach (string? preferredModel in resolvedPreferences.Distinct(StringComparer.OrdinalIgnoreCase))
                 {
-                    Captain? selected = captains.FirstOrDefault(captain => String.Equals(
-                        captain.Id, assignment.CaptainId, StringComparison.Ordinal));
-                    if (selected == null || !IsConfiguredUsableCaptain(selected)
-                        || !MissionService.CaptainSatisfiesPreferredRouting(
-                            selected, stage.PersonaName, preferredModel, _Settings.ModelTier))
+                    CaptainAssignmentOverride? assignment = captainAssignments?.FirstOrDefault(item => item != null
+                        && PersonaCatalog.Matches(item.Persona, stage.PersonaName));
+                    CaptainTierEnum? fallbackTier = assignment?.FallbackTier;
+                    List<Captain> configured = captains
+                        .Where(IsConfiguredUsableCaptain)
+                        .Where(captain => MissionService.CaptainSatisfiesPreferredRouting(
+                            captain, stage.PersonaName, preferredModel, _Settings.ModelTier))
+                        .Where(captain => fallbackTier == null || CaptainTierSelector.EffectiveTier(captain) >= fallbackTier.Value)
+                        .ToList();
+
+                    if (assignment != null && !String.IsNullOrWhiteSpace(assignment.CaptainId))
                     {
-                        AddIssue(result, "assigned_captain_ineligible", "captain", ReadinessSeverityEnum.Error,
-                            "The assigned captain cannot run the " + stage.PersonaName + " role.", assignment.CaptainId);
+                        Captain? selected = captains.FirstOrDefault(captain => String.Equals(
+                            captain.Id, assignment.CaptainId, StringComparison.Ordinal));
+                        if (selected == null || !IsConfiguredUsableCaptain(selected)
+                            || !MissionService.CaptainSatisfiesPreferredRouting(
+                                selected, stage.PersonaName, preferredModel, _Settings.ModelTier))
+                        {
+                            AddIssue(result, "assigned_captain_ineligible", "captain", ReadinessSeverityEnum.Error,
+                                "The assigned captain cannot run the " + stage.PersonaName + " role.", assignment.CaptainId);
+                        }
+                        else if (!configured.Any(captain => String.Equals(captain.Id, selected.Id, StringComparison.Ordinal)))
+                        {
+                            configured.Add(selected);
+                        }
                     }
-                    else if (!configured.Any(captain => String.Equals(captain.Id, selected.Id, StringComparison.Ordinal)))
+
+                    ObjectiveDispatchRole role = new ObjectiveDispatchRole
                     {
-                        configured.Add(selected);
+                        Persona = stage.PersonaName,
+                        PreferredModel = preferredModel,
+                        EligibleConfiguredCaptainIds = configured.Select(captain => captain.Id).OrderBy(id => id, StringComparer.Ordinal).ToList(),
+                        IdleEligibleCount = configured.Count(captain => captain.State == CaptainStateEnum.Idle)
+                    };
+                    result.RequiredRoles.Add(role);
+
+                    if (configured.Count == 0)
+                    {
+                        AddIssue(result, "required_role_has_no_captain", "captain", ReadinessSeverityEnum.Error,
+                            "No configured captain can run the required " + stage.PersonaName + " role.", preferredModel);
                     }
-                }
-
-                ObjectiveDispatchRole role = new ObjectiveDispatchRole
-                {
-                    Persona = stage.PersonaName,
-                    PreferredModel = preferredModel,
-                    EligibleConfiguredCaptainIds = configured.Select(captain => captain.Id).OrderBy(id => id, StringComparer.Ordinal).ToList(),
-                    IdleEligibleCount = configured.Count(captain => captain.State == CaptainStateEnum.Idle)
-                };
-                result.RequiredRoles.Add(role);
-
-                if (configured.Count == 0)
-                {
-                    AddIssue(result, "required_role_has_no_captain", "captain", ReadinessSeverityEnum.Error,
-                        "No configured captain can run the required " + stage.PersonaName + " role.", preferredModel);
-                }
-                else if (role.IdleEligibleCount == 0)
-                {
-                    AddIssue(result, "required_role_has_no_idle_captain", "captain", ReadinessSeverityEnum.Warning,
-                        "The required " + stage.PersonaName + " role has configured coverage but no idle capacity.", preferredModel);
+                    else if (role.IdleEligibleCount == 0)
+                    {
+                        AddIssue(result, "required_role_has_no_idle_captain", "captain", ReadinessSeverityEnum.Warning,
+                            "The required " + stage.PersonaName + " role has configured coverage but no idle capacity.", preferredModel);
+                    }
                 }
             }
+        }
+
+        private static List<string?> ResolveStagePreferredModels(
+            PipelineStage stage,
+            IReadOnlyList<MissionDescription>? missionDescriptions,
+            IReadOnlyCollection<string> specialistPersonas)
+        {
+            List<string?> resolved = new List<string?>();
+            if (missionDescriptions == null || missionDescriptions.Count == 0)
+            {
+                resolved.Add(PreferredModelTierSelector.ResolveEffectivePreferredModel(
+                    stage.PreferredModel, null, stage.PersonaName, specialistPersonas));
+                return resolved;
+            }
+
+            foreach (MissionDescription missionDescription in missionDescriptions)
+            {
+                if (missionDescription == null) continue;
+                resolved.Add(PreferredModelTierSelector.ResolveEffectivePreferredModel(
+                    stage.PreferredModel,
+                    missionDescription.PreferredModel,
+                    stage.PersonaName,
+                    specialistPersonas));
+            }
+
+            if (resolved.Count == 0)
+            {
+                resolved.Add(PreferredModelTierSelector.ResolveEffectivePreferredModel(
+                    stage.PreferredModel, null, stage.PersonaName, specialistPersonas));
+            }
+
+            return resolved;
         }
 
         private async Task EvaluateChecksAsync(

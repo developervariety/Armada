@@ -11,6 +11,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
+    using FleetRoutingSettings = global::Test.Shared.Infrastructure.FleetRoutingSettings;
 
     public class AdmiralServiceTests : TestSuite
     {
@@ -527,6 +528,86 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(
                         missions.All(m => m.Mode == MissionModeEnum.Audit),
                         "every stage of a read-only dispatch must run read-only");
+                }
+            });
+
+            await RunTest("DispatchVoyageAsync PipelineResolvesStageOverridesForEachPersona", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.ModelTier.CopyFrom(FleetRoutingSettings.CreateModelTier());
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
+
+                    Pipeline pipeline = new Pipeline("PersonaResolvedRouting");
+                    pipeline.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker") { PreferredModel = "high" },
+                        new PipelineStage(2, "TestEngineer"),
+                        new PipelineStage(3, "Judge")
+                    };
+                    pipeline = await db.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+
+                    Vessel vessel = new Vessel("PersonaResolvedVessel", "https://github.com/test/repo");
+                    await db.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Voyage voyage = await service.DispatchVoyageAsync(
+                        "Persona resolved routing",
+                        "verify persisted stage preferences",
+                        vessel.Id,
+                        new List<MissionDescription>
+                        {
+                            new MissionDescription("Implement", "Change code") { PreferredModel = "mid" }
+                        },
+                        pipeline.Id).ConfigureAwait(false);
+
+                    List<Mission> missions = await db.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual("mid", missions.Single(mission => mission.Persona == "Worker").PreferredModel,
+                        "a Worker stage override of high must cap to its assignable mid tier");
+                    AssertEqual("high", missions.Single(mission => mission.Persona == "TestEngineer").PreferredModel,
+                        "a specialist stage must upgrade the inherited mission tier to high");
+                    AssertEqual("high", missions.Single(mission => mission.Persona == "Judge").PreferredModel,
+                        "a Judge stage must upgrade the inherited mission tier to high");
+                }
+            });
+
+            await RunTest("DispatchVoyageQueuedAsync PipelinePreservesLiteralModelPins", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.ModelTier.CopyFrom(FleetRoutingSettings.CreateModelTier());
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
+
+                    Pipeline pipeline = new Pipeline("LiteralModelRouting");
+                    pipeline.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "Judge")
+                    };
+                    pipeline = await db.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+
+                    Vessel vessel = new Vessel("LiteralModelVessel", "https://github.com/test/repo");
+                    await db.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Voyage voyage = await service.DispatchVoyageQueuedAsync(
+                        "Literal model routing",
+                        "keep the operator pin",
+                        vessel.Id,
+                        new List<MissionDescription>
+                        {
+                            new MissionDescription("Implement", "Change code") { PreferredModel = "gpt-5.6-luna" }
+                        },
+                        pipeline.Id,
+                        null).ConfigureAwait(false);
+
+                    List<Mission> missions = await db.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
+                    AssertTrue(missions.All(mission => mission.PreferredModel == "gpt-5.6-luna"),
+                        "queued pipeline creation must preserve a literal model pin for Worker and Judge stages");
                 }
             });
 

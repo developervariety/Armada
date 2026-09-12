@@ -198,6 +198,10 @@ off). A deployment applies fleet policy from settings, not from C#.
 - `mid` and `high` select among available captains in a complexity tier; the legacy `low` value maps to `mid`.
 - Literal model names remain available for direct pins.
 - Pipeline stages can override mission-level routing with their own `PreferredModel`.
+- Dispatch and objective preview use the same persona-aware result for each generated
+  stage and mission. A non-specialist `high` tier request is capped to `mid`, while
+  configured specialist and Judge stages stay `high`. Preview reports separate
+  requirements when mission descriptions use different literal model pins.
 - Specialist reservation, family classification, within-tier preference order, non-native-first, reserved high-tier slots, and the stage-persona title-prefix guard live in `ArmadaSettings` (`factory/settings.fleet.example.json` is the overlay that restores the former hardcoded fleet).
 - Dashboard Settings edits those fields. `modelTier` and `voyageDispatch` hot-reload; `modelProviders` and additional personas/pipelines/templates load at startup.
 
