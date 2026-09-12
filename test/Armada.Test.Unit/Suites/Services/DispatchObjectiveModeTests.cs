@@ -124,9 +124,19 @@ namespace Armada.Test.Unit.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ServiceHarness harness = await ServiceHarness.CreateAsync(testDb).ConfigureAwait(false);
+                    Vessel referenceSource = await testDb.Driver.Vessels.CreateAsync(new Vessel("ReferenceSource", "https://example.test/reference-source.git")).ConfigureAwait(false);
+                    harness.Vessel.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                    {
+                        new SiblingRepo { VesselRef = referenceSource.Id, RelativePath = "../ReferenceSource" }
+                    });
+                    await testDb.Driver.Vessels.UpdateAsync(harness.Vessel).ConfigureAwait(false);
                     Objective objective = await CreateObjectiveAsync(testDb, "Prepared operator dispatch", ObjectiveKindEnum.Feature).ConfigureAwait(false);
                     objective.Preparation = new ObjectivePreparation
                     {
+                        RequiredSiblingInputs = new List<ObjectivePreparationSiblingInput>
+                        {
+                            new ObjectivePreparationSiblingInput { VesselRef = referenceSource.Name, RelativePath = "../ReferenceSource" }
+                        },
                         Claims = new List<ObjectivePreparationClaim>
                         {
                             new ObjectivePreparationClaim
@@ -160,6 +170,8 @@ namespace Armada.Test.Unit.Suites.Services
                         "The shared brief must preserve operator-specific instructions.");
                     AssertContains("Reuse ObjectiveBriefRenderer.", created[0].Description,
                         "The linked objective's prepared research must reach the operator mission.");
+                    AssertContains("vessel `ReferenceSource` at `../ReferenceSource`", created[0].Description,
+                        "Structured sibling preparation must reach the operator mission.");
                     AssertEqual(1, CountOccurrences(created[0].Description, "<!-- armada-objective-brief:"),
                         "The operator path must append one authoritative objective brief.");
                     AssertEqual("Keep this operator instruction.", request.Missions[0].Description,

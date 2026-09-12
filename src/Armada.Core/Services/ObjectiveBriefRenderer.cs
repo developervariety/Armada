@@ -69,6 +69,8 @@ namespace Armada.Core.Services
             List<ObjectivePreparationClaim> claims = preparationModel.Claims ?? new List<ObjectivePreparationClaim>();
             bool hasAnchors = HasAnchor(preparationModel.Source) || HasAnchor(preparationModel.Target);
             bool hasContent = hasAnchors
+                || preparationModel.RequiredForDispatch
+                || (preparationModel.RequiredSiblingInputs?.Count ?? 0) > 0
                 || claims.Any(claim => claim != null && !String.IsNullOrWhiteSpace(claim.Text))
                 || !String.IsNullOrWhiteSpace(objective.RefinementSummary)
                 || objective.RolloutConstraints.Any(item => !String.IsNullOrWhiteSpace(item))
@@ -76,12 +78,29 @@ namespace Armada.Core.Services
             if (!hasContent) return String.Empty;
 
             bool complete = AppendAtomic(result, "## Prepared Research", contentLimit, false);
+            if (preparationModel.RequiredForDispatch)
+            {
+                List<string> gates = new List<string>
+                {
+                    "Dispatch requires verified preparation."
+                };
+                if (preparationModel.RequiredClaimKinds?.Count > 0)
+                    gates.Add("Required claim kinds: " + String.Join(", ", preparationModel.RequiredClaimKinds) + ".");
+                complete &= AppendListSection(result, "### Required Dispatch Gates", gates, contentLimit);
+            }
             if (hasAnchors)
             {
                 List<string> anchors = new List<string>();
                 if (HasAnchor(preparationModel.Source)) anchors.Add("Source: " + RenderAnchor(preparationModel.Source!));
                 if (HasAnchor(preparationModel.Target)) anchors.Add("Target: " + RenderAnchor(preparationModel.Target!));
                 complete &= AppendListSection(result, "### Source and Target Anchors", anchors, contentLimit);
+            }
+
+            if (preparationModel.RequiredSiblingInputs?.Count > 0)
+            {
+                complete &= AppendListSection(result, "### Required Sibling Inputs",
+                    preparationModel.RequiredSiblingInputs.Where(item => item != null).Select(RenderSiblingInput),
+                    contentLimit);
             }
 
             foreach (IGrouping<ObjectivePreparationClaimKindEnum, ObjectivePreparationClaim> group in claims
@@ -109,6 +128,14 @@ namespace Armada.Core.Services
                 ? String.Empty
                 : " Evidence: " + String.Join(", ", claim.EvidenceLinks.Select(BoundItem)) + ".";
             return "[" + state + "] " + BoundItem(claim.Text) + evidence;
+        }
+
+        private static string RenderSiblingInput(ObjectivePreparationSiblingInput input)
+        {
+            string artifacts = input.RequiredArtifactPaths?.Count > 0
+                ? "; artifacts: " + String.Join(", ", input.RequiredArtifactPaths.Select(BoundItem))
+                : String.Empty;
+            return "vessel `" + BoundItem(input.VesselRef) + "` at `" + BoundItem(input.RelativePath) + "`" + artifacts;
         }
 
         private static string ClaimHeading(ObjectivePreparationClaimKindEnum kind)

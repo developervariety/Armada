@@ -3,6 +3,7 @@ namespace Armada.Server
     using System.Diagnostics;
     using System.Text;
     using System.Text.Json;
+    using System.Text.Json.Serialization;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -31,6 +32,12 @@ namespace Armada.Server
         private readonly Func<string, string, string?, string?, string?, string?, string?, string?, Task> _EmitEventAsync;
         private readonly ArmadaWebSocketHub? _WebSocketHub;
         private const int _MaxRefinementOutputChars = 131072;
+        private static readonly JsonSerializerOptions _SummaryJsonOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            Converters = { new JsonStringEnumConverter() }
+        };
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, TurnState> _ActiveTurns =
             new System.Collections.Concurrent.ConcurrentDictionary<string, TurnState>(StringComparer.Ordinal);
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Task<ObjectiveRefinementSession>> _StopOperations =
@@ -290,12 +297,13 @@ namespace Armada.Server
                 string prompt =
                     "Read `" + promptFilePath + "` and the selected refinement message below.\n" +
                     "Produce a structured backlog-refinement summary for Armada.\n" +
-                    "Return JSON only with keys `summary`, `acceptanceCriteria`, `nonGoals`, `rolloutConstraints`, and `suggestedPipelineId`.\n" +
+                    "Return JSON only with keys `summary`, `acceptanceCriteria`, `nonGoals`, `rolloutConstraints`, `suggestedPipelineId`, and optional `preparation`.\n" +
                     "- `summary` must be concise and implementation-oriented.\n" +
                     "- Each list must be an array of strings.\n" +
                     "- Keep only concrete items that materially clarify future implementation.\n" +
                     "- Use `suggestedPipelineId` only when the transcript strongly supports a specific pipeline id already known to the user.\n" +
                     "- Do not invent IDs or requirements not grounded in the transcript.\n\n" +
+                    "- When source-backed preparation is needed, set preparation.requiredForDispatch, immutable source and target anchors, requiredClaimKinds, requiredSiblingInputs, and evidence-backed claims with verifiedUtc. Each sibling input names vesselRef, relativePath, and requiredArtifactPaths.\n" +
                     "Selected refinement message:\n" +
                     sourceMessage.Content.Trim();
 
@@ -391,6 +399,7 @@ namespace Armada.Server
                 NonGoals = summary.NonGoals.Count > 0 ? summary.NonGoals : null,
                 RolloutConstraints = summary.RolloutConstraints.Count > 0 ? summary.RolloutConstraints : null,
                 SuggestedPipelineId = summary.SuggestedPipelineId,
+                Preparation = summary.Preparation,
                 RefinementSessionIds = MergeDistinct(objective.RefinementSessionIds, session.Id)
             };
 
@@ -789,6 +798,14 @@ namespace Armada.Server
                 builder.AppendLine();
                 builder.AppendLine("### Current Refinement Summary");
                 builder.AppendLine(objective.RefinementSummary.Trim());
+            }
+            if (objective.Preparation != null)
+            {
+                builder.AppendLine();
+                builder.AppendLine("### Current Dispatch Preparation");
+                builder.AppendLine("```json");
+                builder.AppendLine(JsonSerializer.Serialize(objective.Preparation, _SummaryJsonOptions));
+                builder.AppendLine("```");
             }
             if (vessel != null)
             {
@@ -1197,7 +1214,7 @@ namespace Armada.Server
             };
         }
 
-        private static bool TryParseSummaryResponse(string content, out ObjectiveRefinementSummaryResponse? response)
+        internal static bool TryParseSummaryResponse(string content, out ObjectiveRefinementSummaryResponse? response)
         {
             response = null;
             if (String.IsNullOrWhiteSpace(content))
@@ -1211,24 +1228,26 @@ namespace Armada.Server
 
             try
             {
-                using JsonDocument doc = JsonDocument.Parse(candidate);
-                JsonElement root = doc.RootElement;
-                response = new ObjectiveRefinementSummaryResponse
+                response = JsonSerializer.Deserialize<ObjectiveRefinementSummaryResponse>(candidate, _SummaryJsonOptions);
+                if (response == null) return false;
+                response.Summary ??= String.Empty;
+                response.AcceptanceCriteria = NormalizeLines(response.AcceptanceCriteria);
+                response.NonGoals = NormalizeLines(response.NonGoals);
+                response.RolloutConstraints = NormalizeLines(response.RolloutConstraints);
+                if (response.Preparation != null)
                 {
-                    Summary = root.TryGetProperty("summary", out JsonElement summary) ? summary.GetString() ?? String.Empty : String.Empty,
-                    AcceptanceCriteria = root.TryGetProperty("acceptanceCriteria", out JsonElement acceptanceCriteria)
-                        ? ReadStringArray(acceptanceCriteria)
-                        : new List<string>(),
-                    NonGoals = root.TryGetProperty("nonGoals", out JsonElement nonGoals)
-                        ? ReadStringArray(nonGoals)
-                        : new List<string>(),
-                    RolloutConstraints = root.TryGetProperty("rolloutConstraints", out JsonElement rolloutConstraints)
-                        ? ReadStringArray(rolloutConstraints)
-                        : new List<string>(),
-                    SuggestedPipelineId = root.TryGetProperty("suggestedPipelineId", out JsonElement pipelineId)
-                        ? pipelineId.GetString()
-                        : null
-                };
+                    response.Preparation.RequiredClaimKinds ??= new List<ObjectivePreparationClaimKindEnum>();
+                    response.Preparation.RequiredSiblingInputs ??= new List<ObjectivePreparationSiblingInput>();
+                    response.Preparation.Claims ??= new List<ObjectivePreparationClaim>();
+                    foreach (ObjectivePreparationSiblingInput? sibling in response.Preparation.RequiredSiblingInputs)
+                    {
+                        if (sibling != null) sibling.RequiredArtifactPaths ??= new List<string>();
+                    }
+                    foreach (ObjectivePreparationClaim? claim in response.Preparation.Claims)
+                    {
+                        if (claim != null) claim.EvidenceLinks ??= new List<string>();
+                    }
+                }
                 return true;
             }
             catch
@@ -1240,20 +1259,6 @@ namespace Armada.Server
         private bool IsStopRequested(string sessionId)
         {
             return _ActiveTurns.TryGetValue(sessionId, out TurnState? turnState) && turnState.StopRequested;
-        }
-
-        private static List<string> ReadStringArray(JsonElement element)
-        {
-            if (element.ValueKind != JsonValueKind.Array)
-                return new List<string>();
-
-            return element.EnumerateArray()
-                .Where(item => item.ValueKind == JsonValueKind.String)
-                .Select(item => item.GetString() ?? String.Empty)
-                .Where(item => !String.IsNullOrWhiteSpace(item))
-                .Select(item => item.Trim())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
         }
 
         private static List<string> NormalizeLines(IEnumerable<string>? values)

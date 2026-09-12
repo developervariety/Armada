@@ -386,9 +386,18 @@ export interface ObjectivePreparationClaim {
 }
 
 export interface ObjectivePreparation {
+  requiredForDispatch: boolean;
+  requiredClaimKinds: ObjectivePreparationClaimKind[];
+  requiredSiblingInputs: ObjectivePreparationSiblingInput[];
   source: ObjectivePreparationAnchor | null;
   target: ObjectivePreparationAnchor | null;
   claims: ObjectivePreparationClaim[];
+}
+
+export interface ObjectivePreparationSiblingInput {
+  vesselRef: string;
+  relativePath: string;
+  requiredArtifactPaths: string[];
 }
 
 export interface Objective {
@@ -714,6 +723,7 @@ export interface ObjectiveRefinementSummaryResponse {
   nonGoals: string[];
   rolloutConstraints: string[];
   suggestedPipelineId: string | null;
+  preparation: ObjectivePreparation | null;
   method: string;
 }
 

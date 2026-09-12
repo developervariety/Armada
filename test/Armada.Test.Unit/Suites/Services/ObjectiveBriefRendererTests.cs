@@ -31,7 +31,9 @@ namespace Armada.Test.Unit.Suites.Services
                     "## Acceptance Criteria",
                     "## Non-Goals",
                     "## Prepared Research",
+                    "### Required Dispatch Gates",
                     "### Source and Target Anchors",
+                    "### Required Sibling Inputs",
                     "### Readable Source Paths",
                     "### Dispatch Entry Points",
                     "### Implementation Types to Reuse",
@@ -49,6 +51,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("Source: [verified revision] vessel `vsl_source`, ref `refs/tags/source`, commit `1111111`", brief);
                 AssertContains("Target: [verified revision] vessel `vsl_target`, ref `main`, commit `2222222`", brief);
                 AssertContains("[Verified] claim-SourcePath", brief);
+                AssertContains("vessel `ReferenceSource` at `../ReferenceSource`; artifacts: output/extracted-artifacts", brief);
                 AssertContains("Evidence: evidence-SourcePath.", brief);
                 AssertContains("<!-- /armada-objective-brief -->", brief);
             }).ConfigureAwait(false);
@@ -217,6 +220,17 @@ namespace Armada.Test.Unit.Suites.Services
                 EvidenceLinks = new List<string> { "docs/evidence.md" },
                 Preparation = new ObjectivePreparation
                 {
+                    RequiredForDispatch = true,
+                    RequiredClaimKinds = new List<ObjectivePreparationClaimKindEnum> { ObjectivePreparationClaimKindEnum.SourcePath },
+                    RequiredSiblingInputs = new List<ObjectivePreparationSiblingInput>
+                    {
+                        new ObjectivePreparationSiblingInput
+                        {
+                            VesselRef = "ReferenceSource",
+                            RelativePath = "../ReferenceSource",
+                            RequiredArtifactPaths = new List<string> { "output/extracted-artifacts" }
+                        }
+                    },
                     Source = new ObjectivePreparationAnchor
                     {
                         VesselId = "vsl_source",

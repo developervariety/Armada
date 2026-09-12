@@ -32,7 +32,14 @@ function createObjective(overrides: Partial<Objective> = {}): Objective {
     parentObjectiveId: null,
     blockedByObjectiveIds: [],
     refinementSummary: 'Use the selected captain transcript to sharpen acceptance criteria.',
-    preparation: { source: null, target: null, claims: [] },
+    preparation: {
+      requiredForDispatch: false,
+      requiredClaimKinds: [],
+      requiredSiblingInputs: [],
+      source: null,
+      target: null,
+      claims: [],
+    },
     suggestedPipelineId: null,
     startFromRef: null,
     suggestedPlaybooks: [

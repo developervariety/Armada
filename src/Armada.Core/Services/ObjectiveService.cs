@@ -26,6 +26,7 @@ namespace Armada.Core.Services
         private const int _MaxPreparationValueChars = 2048;
         private const int _MaxPreparationAnchorChars = 512;
         private const int _MaxPreparationReasonChars = 1000;
+        private const int _MaxPreparationSiblingInputs = 20;
         /// <summary>
         /// Optional callback invoked whenever an objective changes.
         /// </summary>
@@ -1643,6 +1644,29 @@ namespace Armada.Core.Services
             objective.Preparation.Source = SanitizePreparationAnchor(objective.Preparation.Source);
             objective.Preparation.Target = SanitizePreparationAnchor(objective.Preparation.Target);
             objective.Preparation.Claims ??= new List<ObjectivePreparationClaim>();
+            objective.Preparation.RequiredClaimKinds ??= new List<ObjectivePreparationClaimKindEnum>();
+            objective.Preparation.RequiredClaimKinds = objective.Preparation.RequiredClaimKinds.Distinct().ToList();
+            if (objective.Preparation.RequiredClaimKinds.Any(kind => !Enum.IsDefined(kind)))
+                throw new InvalidOperationException("Objective preparation contains an invalid required claim kind.");
+            objective.Preparation.RequiredSiblingInputs ??= new List<ObjectivePreparationSiblingInput>();
+            if (objective.Preparation.RequiredSiblingInputs.Count > _MaxPreparationSiblingInputs)
+                throw new InvalidOperationException("Objective preparation cannot contain more than " + _MaxPreparationSiblingInputs + " required sibling inputs.");
+            foreach (ObjectivePreparationSiblingInput sibling in objective.Preparation.RequiredSiblingInputs)
+            {
+                if (sibling == null)
+                    throw new InvalidOperationException("Objective preparation sibling inputs cannot contain null entries.");
+                sibling.VesselRef = Normalize(sibling.VesselRef)
+                    ?? throw new InvalidOperationException("Each objective preparation sibling input must have a vessel reference.");
+                sibling.RelativePath = Normalize(sibling.RelativePath)
+                    ?? throw new InvalidOperationException("Each objective preparation sibling input must have a relative path.");
+                EnsureMaximumLength(sibling.VesselRef, _MaxPreparationAnchorChars, "Objective preparation sibling vessel reference");
+                EnsureMaximumLength(sibling.RelativePath, _MaxPreparationAnchorChars, "Objective preparation sibling relative path");
+                sibling.RequiredArtifactPaths = DistinctNormalized(sibling.RequiredArtifactPaths);
+                if (sibling.RequiredArtifactPaths.Count > _MaxPreparationEvidenceLinks)
+                    throw new InvalidOperationException("Objective preparation sibling input cannot contain more than " + _MaxPreparationEvidenceLinks + " required artifact paths.");
+                foreach (string artifactPath in sibling.RequiredArtifactPaths)
+                    EnsureMaximumLength(artifactPath, _MaxPreparationValueChars, "Objective preparation sibling artifact path");
+            }
 
             if (objective.Preparation.Claims.Count > _MaxPreparationClaims)
                 throw new InvalidOperationException("Objective preparation cannot contain more than " + _MaxPreparationClaims + " claims.");

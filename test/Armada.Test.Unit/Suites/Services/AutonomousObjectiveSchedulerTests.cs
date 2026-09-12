@@ -1128,6 +1128,15 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     TenantId = Constants.DefaultTenantId
                 }).ConfigureAwait(false);
+                Vessel referenceConsumer = await testDb.Driver.Vessels.CreateAsync(new Vessel("ReferenceConsumer", "https://github.com/test/reference-consumer.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                vessel.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                {
+                    new SiblingRepo { VesselRef = referenceConsumer.Id, RelativePath = "../ReferenceConsumer" }
+                });
+                await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
                 await testDb.Driver.Objectives.CreateAsync(new Objective
                 {
                     TenantId = Constants.DefaultTenantId,
@@ -1139,6 +1148,10 @@ namespace Armada.Test.Unit.Suites.Services
                     StartFromRef = "recover/accepted-tip-abc1234",
                     Preparation = new ObjectivePreparation
                     {
+                        RequiredSiblingInputs = new List<ObjectivePreparationSiblingInput>
+                        {
+                            new ObjectivePreparationSiblingInput { VesselRef = referenceConsumer.Name, RelativePath = "../ReferenceConsumer" }
+                        },
                         Claims = new List<ObjectivePreparationClaim>
                         {
                             new ObjectivePreparationClaim
@@ -1171,6 +1184,8 @@ namespace Armada.Test.Unit.Suites.Services
                     "The autonomous path must deliver the authoritative objective brief.");
                 AssertContains("Use the scheduler dispatch seam.", admiral.LastMissionDescriptions[0].Description,
                     "Prepared research must reach the autonomous mission.");
+                AssertContains("vessel `ReferenceConsumer` at `../ReferenceConsumer`", admiral.LastMissionDescriptions[0].Description,
+                    "Structured sibling preparation must reach the autonomous mission.");
             }).ConfigureAwait(false);
 
             await RunTest("A start ref that does not resolve is reported as start_from_ref_missing, not dispatch_error", async () =>

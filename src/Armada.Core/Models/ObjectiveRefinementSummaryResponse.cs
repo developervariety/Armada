@@ -34,6 +34,10 @@ namespace Armada.Core.Models
         /// </summary>
         public string? SuggestedPipelineId { get; set; } = null;
         /// <summary>
+        /// Gets or sets preparation produced by the refinement runtime. Null preserves existing preparation.
+        /// </summary>
+        public ObjectivePreparation? Preparation { get; set; } = null;
+        /// <summary>
         /// Gets or sets the summary generation method.
         /// </summary>
         public string Method { get; set; } = "assistant-fallback";

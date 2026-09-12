@@ -432,6 +432,12 @@ namespace Armada.Core.Database.Sqlite.Implementations
             {
                 ObjectivePreparation preparation = JsonSerializer.Deserialize<ObjectivePreparation>(json, _JsonOptions)
                     ?? new ObjectivePreparation();
+                preparation.RequiredClaimKinds ??= new List<ObjectivePreparationClaimKindEnum>();
+                preparation.RequiredSiblingInputs ??= new List<ObjectivePreparationSiblingInput>();
+                foreach (ObjectivePreparationSiblingInput? sibling in preparation.RequiredSiblingInputs)
+                {
+                    if (sibling != null) sibling.RequiredArtifactPaths ??= new List<string>();
+                }
                 preparation.Claims ??= new List<ObjectivePreparationClaim>();
                 foreach (ObjectivePreparationClaim? claim in preparation.Claims)
                 {

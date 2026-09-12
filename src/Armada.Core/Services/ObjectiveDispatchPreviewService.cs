@@ -136,7 +136,7 @@ namespace Armada.Core.Services
             List<string> effectiveMissionModes = await EvaluateMissionDescriptionsAsync(
                 vessel, objective, missionDescriptions, result, token).ConfigureAwait(false);
             await EvaluatePreparationAnchorsAsync(auth, objective, result, token).ConfigureAwait(false);
-            await EvaluateSiblingProvisioningAsync(auth, vessel, result, token).ConfigureAwait(false);
+            await EvaluateSiblingProvisioningAsync(auth, objective, vessel, result, token).ConfigureAwait(false);
 
             string? effectivePipelineRequest = NormalizeEmpty(requestedPipelineId)
                 ?? NormalizeEmpty(objective.SuggestedPipelineId);
@@ -182,6 +182,42 @@ namespace Armada.Core.Services
 
             ObjectivePreparation preparation = objective.Preparation ?? new ObjectivePreparation();
             List<ObjectivePreparationClaim> claims = preparation.Claims ?? new List<ObjectivePreparationClaim>();
+            if (preparation.RequiredForDispatch)
+            {
+                if (preparation.Source == null)
+                    AddIssue(result, "preparation_source_required", "brief", ReadinessSeverityEnum.Error,
+                        "Required preparation must include an immutable source anchor.", null);
+                if (preparation.Target == null)
+                    AddIssue(result, "preparation_target_required", "brief", ReadinessSeverityEnum.Error,
+                        "Required preparation must include an immutable target anchor.", null);
+
+                if (preparation.RequiredClaimKinds == null || preparation.RequiredClaimKinds.Count == 0)
+                    AddIssue(result, "preparation_required_kinds_missing", "brief", ReadinessSeverityEnum.Error,
+                        "Required preparation must name at least one required claim kind.", null);
+
+                foreach (ObjectivePreparationClaimKindEnum kind in preparation.RequiredClaimKinds ?? new List<ObjectivePreparationClaimKindEnum>())
+                {
+                    bool present = claims.Any(claim => claim != null
+                        && claim.Kind == kind
+                        && claim.State == ObjectivePreparationClaimStateEnum.Verified
+                        && claim.VerifiedUtc.HasValue
+                        && claim.EvidenceLinks != null
+                        && claim.EvidenceLinks.Any(link => !String.IsNullOrWhiteSpace(link)));
+                    if (!present)
+                        AddIssue(result, "preparation_required_kind_missing", "brief", ReadinessSeverityEnum.Error,
+                            "Required preparation has no current evidence-backed " + kind + " claim.", kind.ToString());
+                }
+
+                foreach (ObjectivePreparationClaim claim in claims.Where(item => item != null))
+                {
+                    if (!claim.VerifiedUtc.HasValue)
+                        AddIssue(result, "preparation_claim_verification_time_missing", "brief", ReadinessSeverityEnum.Error,
+                            "A required preparation claim has no verification time: " + claim.Text, claim.Id);
+                    if (claim.EvidenceLinks == null || !claim.EvidenceLinks.Any(link => !String.IsNullOrWhiteSpace(link)))
+                        AddIssue(result, "preparation_claim_evidence_missing", "brief", ReadinessSeverityEnum.Error,
+                            "A required preparation claim has no evidence: " + claim.Text, claim.Id);
+                }
+            }
             bool hasMethod = !String.IsNullOrWhiteSpace(objective.RefinementSummary)
                 || claims.Any(claim => claim != null
                     && claim.State == ObjectivePreparationClaimStateEnum.Verified
@@ -388,11 +424,60 @@ namespace Armada.Core.Services
 
         private async Task EvaluateSiblingProvisioningAsync(
             AuthContext auth,
+            Objective objective,
             Vessel vessel,
             ObjectiveDispatchPreview result,
             CancellationToken token)
         {
-            foreach (SiblingRepo sibling in vessel.GetSiblingRepos())
+            List<SiblingRepo> declaredSiblings = vessel.GetSiblingRepos();
+            foreach (ObjectivePreparationSiblingInput required in objective.Preparation?.RequiredSiblingInputs
+                ?? new List<ObjectivePreparationSiblingInput>())
+            {
+                Vessel? requiredVessel = await ResolveVesselReferenceAsync(auth, required.VesselRef, token).ConfigureAwait(false);
+                if (requiredVessel == null)
+                {
+                    AddIssue(result, "required_sibling_vessel_not_found", "provisioning", ReadinessSeverityEnum.Error,
+                        "The required sibling vessel does not exist or is not accessible.", required.VesselRef);
+                    continue;
+                }
+
+                SiblingRepo? declaration = null;
+                foreach (SiblingRepo sibling in declaredSiblings.Where(item => item != null
+                    && String.Equals(NormalizeRelativePath(item.RelativePath), NormalizeRelativePath(required.RelativePath), StringComparison.OrdinalIgnoreCase)))
+                {
+                    if (String.Equals(sibling.VesselRef, required.VesselRef, StringComparison.OrdinalIgnoreCase))
+                    {
+                        declaration = sibling;
+                        break;
+                    }
+                    Vessel? declaredVessel = await ResolveVesselReferenceAsync(auth, sibling.VesselRef, token).ConfigureAwait(false);
+                    if (String.Equals(declaredVessel?.Id, requiredVessel.Id, StringComparison.OrdinalIgnoreCase))
+                    {
+                        declaration = sibling;
+                        break;
+                    }
+                }
+                if (declaration == null)
+                {
+                    AddIssue(result, "required_sibling_not_declared", "provisioning", ReadinessSeverityEnum.Error,
+                        "The target vessel does not declare required sibling " + required.VesselRef + " at " + required.RelativePath + ".",
+                        required.VesselRef);
+                    continue;
+                }
+
+                HashSet<string> declaredArtifacts = new HashSet<string>(
+                    (declaration.ExtractionArtifactPaths ?? new List<string>()).Select(NormalizeRelativePath),
+                    StringComparer.OrdinalIgnoreCase);
+                foreach (string artifactPath in required.RequiredArtifactPaths ?? new List<string>())
+                {
+                    if (!declaredArtifacts.Contains(NormalizeRelativePath(artifactPath)))
+                        AddIssue(result, "required_sibling_artifact_not_declared", "provisioning", ReadinessSeverityEnum.Error,
+                            "The sibling declaration does not provision required artifact path " + artifactPath + ".",
+                            required.VesselRef);
+                }
+            }
+
+            foreach (SiblingRepo sibling in declaredSiblings)
             {
                 if (sibling == null) continue;
                 if (String.IsNullOrWhiteSpace(sibling.RelativePath))
@@ -438,6 +523,21 @@ namespace Armada.Core.Services
                     }
                 }
             }
+        }
+
+        private async Task<Vessel?> ResolveVesselReferenceAsync(
+            AuthContext auth,
+            string? vesselRef,
+            CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(vesselRef)) return null;
+            return await ReadVesselAsync(auth, vesselRef, token).ConfigureAwait(false)
+                ?? await ReadVesselByNameAsync(auth, vesselRef, token).ConfigureAwait(false);
+        }
+
+        private static string NormalizeRelativePath(string? value)
+        {
+            return (value ?? String.Empty).Trim().Replace('\\', '/').TrimEnd('/');
         }
 
         private async Task<Pipeline?> ResolvePipelineReadOnlyAsync(
@@ -722,8 +822,11 @@ namespace Armada.Core.Services
 
         private static bool RevisionMatches(string left, string right)
         {
-            return left.StartsWith(right, StringComparison.OrdinalIgnoreCase)
-                || right.StartsWith(left, StringComparison.OrdinalIgnoreCase);
+            return left.Length == 40
+                && right.Length == 40
+                && left.All(Uri.IsHexDigit)
+                && right.All(Uri.IsHexDigit)
+                && String.Equals(left, right, StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsReadOnlyMissionMode(string mode)

@@ -64,6 +64,7 @@ import {
   upsertRefinementMessage,
   upsertRefinementSession,
 } from '../components/backlog/refinementUtils';
+import { parseObjectivePreparationJson } from '../components/backlog/preparationUtils';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
@@ -191,6 +192,7 @@ export default function ObjectiveDetail() {
   const [parentObjectiveId, setParentObjectiveId] = useState('');
   const [blockedByObjectiveIds, setBlockedByObjectiveIds] = useState<string[]>([]);
   const [refinementSummary, setRefinementSummary] = useState('');
+  const [preparationJson, setPreparationJson] = useState('{\n  "requiredForDispatch": false,\n  "requiredClaimKinds": [],\n  "requiredSiblingInputs": [],\n  "source": null,\n  "target": null,\n  "claims": []\n}');
   const [suggestedPipelineId, setSuggestedPipelineId] = useState('');
   const [suggestedPlaybooks, setSuggestedPlaybooks] = useState('');
   const [tagEntries, setTagEntries] = useState<TagEntry[]>([createEmptyTagEntry()]);
@@ -363,6 +365,14 @@ export default function ObjectiveDetail() {
     setParentObjectiveId(next.parentObjectiveId || '');
     setBlockedByObjectiveIds(next.blockedByObjectiveIds || []);
     setRefinementSummary(next.refinementSummary || '');
+    setPreparationJson(JSON.stringify(next.preparation || {
+      requiredForDispatch: false,
+      requiredClaimKinds: [],
+      requiredSiblingInputs: [],
+      source: null,
+      target: null,
+      claims: [],
+    }, null, 2));
     setSuggestedPipelineId(next.suggestedPipelineId || '');
     setSuggestedPlaybooks(joinSuggestedPlaybooks(next.suggestedPlaybooks));
     setTagEntries(parseTagEntries(next.tags));
@@ -402,6 +412,7 @@ export default function ObjectiveDetail() {
       parentObjectiveId: parentObjectiveId.trim() || null,
       blockedByObjectiveIds,
       refinementSummary: refinementSummary.trim() || null,
+      preparation: parseObjectivePreparationJson(preparationJson),
       suggestedPipelineId: suggestedPipelineId.trim() || null,
       suggestedPlaybooks: parseSuggestedPlaybooks(suggestedPlaybooks),
       tags: serializeTagEntries(tagEntries),
@@ -1189,6 +1200,17 @@ export default function ObjectiveDetail() {
               <label title={fieldHelp.refinementSummary}>{t('Refinement Summary')}</label>
               <textarea rows={4} value={refinementSummary} onChange={(event) => setRefinementSummary(event.target.value)} disabled={!canManage} title={fieldHelp.refinementSummary} />
             </div>
+            <div className="form-field detail-field-full">
+              <label>{t('Dispatch Preparation (JSON)')}</label>
+              <textarea
+                rows={14}
+                value={preparationJson}
+                onChange={(event) => setPreparationJson(event.target.value)}
+                disabled={!canManage}
+                spellCheck={false}
+                title={t('Edit required anchors, required claim kinds, and evidence-backed preparation claims. Invalid JSON cannot be saved.')}
+              />
+            </div>
             <div className="form-field">
               <label title={fieldHelp.acceptanceCriteria}>{t('Acceptance Criteria')}</label>
               <textarea rows={6} value={acceptanceCriteria} onChange={(event) => setAcceptanceCriteria(event.target.value)} disabled={!canManage} title={fieldHelp.acceptanceCriteria} />
@@ -1587,6 +1609,14 @@ export default function ObjectiveDetail() {
                               {refinementSummaryDraft.rolloutConstraints.map((item) => <li key={item}>{item}</li>)}
                             </ul>
                           </div>
+                          {refinementSummaryDraft.preparation && (
+                            <div style={{ gridColumn: '1 / -1' }}>
+                              <h4>{t('Dispatch Preparation')}</h4>
+                              <pre className="backlog-refinement-message-body">
+                                {JSON.stringify(refinementSummaryDraft.preparation, null, 2)}
+                              </pre>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

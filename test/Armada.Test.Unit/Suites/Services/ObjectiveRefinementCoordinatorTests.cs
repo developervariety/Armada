@@ -18,6 +18,31 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Runtime JSON carries structured dispatch preparation", () =>
+            {
+                string json = "{\"summary\":\"Prepared\",\"preparation\":{\"requiredForDispatch\":true,\"requiredClaimKinds\":[\"SourcePath\",\"ResponseRule\"],\"requiredSiblingInputs\":[{\"vesselRef\":\"ReferenceSource\",\"relativePath\":\"../ReferenceSource\",\"requiredArtifactPaths\":null}],\"source\":{\"vesselId\":\"source-vessel\",\"ref\":\"main\",\"resolvedCommit\":\"0123456789abcdef0123456789abcdef01234567\"},\"target\":null,\"claims\":[{\"id\":\"source-path\",\"kind\":\"SourcePath\",\"text\":\"Read source.cs\",\"evidenceLinks\":null,\"dependsOn\":\"Source\",\"state\":\"Verified\",\"verifiedUtc\":\"2026-09-12T00:00:00Z\"}]}}";
+                bool parsed = ObjectiveRefinementCoordinator.TryParseSummaryResponse(json, out ObjectiveRefinementSummaryResponse? summary);
+                AssertTrue(parsed);
+                AssertNotNull(summary?.Preparation);
+                AssertTrue(summary!.Preparation!.RequiredForDispatch);
+                AssertEqual(2, summary.Preparation.RequiredClaimKinds.Count);
+                AssertEqual(ObjectivePreparationClaimKindEnum.ResponseRule, summary.Preparation.RequiredClaimKinds[1]);
+                AssertEqual(1, summary.Preparation.Claims.Count);
+                AssertEqual("ReferenceSource", summary.Preparation.RequiredSiblingInputs[0].VesselRef);
+                AssertNotNull(summary.Preparation.RequiredSiblingInputs[0].RequiredArtifactPaths);
+                AssertNotNull(summary.Preparation.Claims[0].EvidenceLinks);
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("Runtime JSON without preparation preserves the null apply signal", () =>
+            {
+                bool parsed = ObjectiveRefinementCoordinator.TryParseSummaryResponse(
+                    "{\"summary\":\"No repository preparation change\"}", out ObjectiveRefinementSummaryResponse? summary);
+                AssertTrue(parsed);
+                AssertNull(summary!.Preparation);
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await RunTest("SendMessageAsync creates transcript rows and recovers to active state when runtime is unsupported", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -85,6 +110,14 @@ namespace Armada.Test.Unit.Suites.Services
                 CoordinatorFixture.TenantUserResult tenantUser = await fixture.CreateTenantUserAsync().ConfigureAwait(false);
                 Vessel vessel = await fixture.CreateVesselAsync("refinement-apply", tenantUser.TenantId, tenantUser.UserId).ConfigureAwait(false);
                 Objective objective = await fixture.CreateObjectiveAsync("Apply refinement", tenantUser.TenantId, tenantUser.UserId).ConfigureAwait(false);
+                objective.Preparation = new ObjectivePreparation
+                {
+                    RequiredSiblingInputs = new List<ObjectivePreparationSiblingInput>
+                    {
+                        new ObjectivePreparationSiblingInput { VesselRef = "ReferenceSource", RelativePath = "../ReferenceSource" }
+                    }
+                };
+                objective = await testDb.Driver.Objectives.UpdateAsync(objective).ConfigureAwait(false);
                 Captain captain = await fixture.CreateCaptainAsync("apply-custom", AgentRuntimeEnum.Custom, tenantUser.TenantId, tenantUser.UserId, CaptainStateEnum.Refining).ConfigureAwait(false);
                 ObjectiveRefinementSession session = await fixture.CreateSessionAsync(objective, captain, vesselId: vessel.Id).ConfigureAwait(false);
                 ObjectiveRefinementMessage assistant = await fixture.CreateMessageAsync(session, "Assistant", 2,
@@ -115,6 +148,8 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("No schema rollback", applied.Objective.NonGoals[0]);
                 AssertEqual("Validate with SQLite first", applied.Objective.RolloutConstraints[0]);
                 AssertTrue(applied.Objective.RefinementSessionIds.Contains(session.Id), "Expected session linkage on updated objective.");
+                AssertEqual("ReferenceSource", applied.Objective.Preparation.RequiredSiblingInputs[0].VesselRef,
+                    "A runtime summary that omits preparation must preserve existing preparation.");
                 AssertEqual(ObjectiveStatusEnum.Scoped, persistedObjective.Status);
                 AssertTrue(selected.IsSelected, "Expected source refinement message to be selected.");
             }).ConfigureAwait(false);

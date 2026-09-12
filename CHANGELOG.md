@@ -15,6 +15,10 @@ replaced.
 Focus: operator signal fidelity - make a failure say what actually failed.
 
 ### Operator documentation
+- Objective dispatch preparation can now be mandatory. Preview verifies full
+  immutable source and target commits, evidence and timestamps for required
+  claims, and structured sibling repository and artifact requirements. Runtime
+  refinement, MCP schemas, and the Dashboard carry the same preparation shape.
 - Terminal failed-voyage missions now enter normal recovery policy instead of
   remaining stranded. Recovery incidents link to objectives that own the
   failed mission or voyage, and rescue checkout priority is produced commit,

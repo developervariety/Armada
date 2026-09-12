@@ -460,12 +460,23 @@ namespace Armada.Test.Unit.Suites.Services
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 ObjectiveService objectives = new ObjectiveService(testDb.Driver);
                 Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
+                Dictionary<string, object> schemas = new Dictionary<string, object>();
                 McpObjectiveTools.Register(
-                    (name, _, _, handler) => handlers[name] = handler,
+                    (name, _, schema, handler) =>
+                    {
+                        handlers[name] = handler;
+                        schemas[name] = schema;
+                    },
                     testDb.Driver,
                     objectives);
 
-                using JsonDocument validDoc = JsonDocument.Parse("{\"title\":\"MCP backlog create\",\"kind\":\"Bug\",\"priority\":\"P0\",\"status\":\"Scoped\",\"preparation\":{\"source\":{\"vesselId\":\"vsl_source\",\"ref\":\"main\",\"resolvedCommit\":\"def456\"},\"claims\":[{\"id\":\"opc_mcp_create\",\"kind\":\"SourcePath\",\"text\":\"Read src/Entry.cs\",\"dependsOn\":\"Source\",\"state\":\"Verified\"}]}}");
+                string createSchema = JsonSerializer.Serialize(schemas["create_backlog_item"]);
+                AssertContains("requiredForDispatch", createSchema);
+                AssertContains("requiredClaimKinds", createSchema);
+                AssertContains("requiredSiblingInputs", createSchema);
+                AssertContains("requiredArtifactPaths", createSchema);
+
+                using JsonDocument validDoc = JsonDocument.Parse("{\"title\":\"MCP backlog create\",\"kind\":\"Bug\",\"priority\":\"P0\",\"status\":\"Scoped\",\"preparation\":{\"requiredForDispatch\":true,\"requiredClaimKinds\":[\"SourcePath\"],\"requiredSiblingInputs\":[{\"vesselRef\":\"ReferenceSource\",\"relativePath\":\"../ReferenceSource\",\"requiredArtifactPaths\":[]}],\"source\":{\"vesselId\":\"vsl_source\",\"ref\":\"main\",\"resolvedCommit\":\"def456\"},\"claims\":[{\"id\":\"opc_mcp_create\",\"kind\":\"SourcePath\",\"text\":\"Read src/Entry.cs\",\"dependsOn\":\"Source\",\"state\":\"Verified\"}]}}");
                 object validResult = await handlers["create_backlog_item"](validDoc.RootElement).ConfigureAwait(false);
                 Objective created = (Objective)validResult;
                 AssertStartsWith("obj_", created.Id);
@@ -473,6 +484,9 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(ObjectivePriorityEnum.P0, created.Priority);
                 AssertEqual("def456", created.Preparation.Source?.ResolvedCommit);
                 AssertEqual("opc_mcp_create", created.Preparation.Claims[0].Id);
+                AssertTrue(created.Preparation.RequiredForDispatch);
+                AssertEqual(ObjectivePreparationClaimKindEnum.SourcePath, created.Preparation.RequiredClaimKinds[0]);
+                AssertEqual("ReferenceSource", created.Preparation.RequiredSiblingInputs[0].VesselRef);
 
                 using JsonDocument invalidEnumDoc = JsonDocument.Parse("{\"title\":\"Bad backlog create\",\"kind\":\"NotARealKind\"}");
                 object invalidEnumResult = await handlers["create_backlog_item"](invalidEnumDoc.RootElement).ConfigureAwait(false);
@@ -1301,6 +1315,48 @@ namespace Armada.Test.Unit.Suites.Services
                     invalidStateError = ex.Message;
                 }
                 AssertContains("invalid state value", invalidStateError);
+
+                string siblingBoundsError = String.Empty;
+                try
+                {
+                    await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Too many required sibling inputs",
+                        Preparation = new ObjectivePreparation
+                        {
+                            RequiredSiblingInputs = Enumerable.Range(0, 21)
+                                .Select(index => new ObjectivePreparationSiblingInput
+                                {
+                                    VesselRef = "vsl_" + index,
+                                    RelativePath = "../sibling-" + index
+                                })
+                                .ToList()
+                        }
+                    }).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    siblingBoundsError = ex.Message;
+                }
+                AssertContains("more than 20 required sibling inputs", siblingBoundsError);
+
+                string nullSiblingError = String.Empty;
+                try
+                {
+                    await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Null required sibling input",
+                        Preparation = new ObjectivePreparation
+                        {
+                            RequiredSiblingInputs = new List<ObjectivePreparationSiblingInput> { null! }
+                        }
+                    }).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    nullSiblingError = ex.Message;
+                }
+                AssertContains("cannot contain null entries", nullSiblingError);
             }).ConfigureAwait(false);
 
             await RunTest("Preparation updates are complete replacements", async () =>
@@ -1353,7 +1409,7 @@ namespace Armada.Test.Unit.Suites.Services
                     await connection.OpenAsync().ConfigureAwait(false);
                     using SqliteCommand command = connection.CreateCommand();
                     command.CommandText = "UPDATE objectives SET preparation_json = @preparation WHERE id = @id;";
-                    command.Parameters.AddWithValue("@preparation", "{\"claims\":null}");
+                    command.Parameters.AddWithValue("@preparation", "{\"requiredClaimKinds\":null,\"requiredSiblingInputs\":[{\"vesselRef\":\"ReferenceSource\",\"relativePath\":\"../ReferenceSource\",\"requiredArtifactPaths\":null}],\"claims\":null}");
                     command.Parameters.AddWithValue("@id", objective.Id);
                     await command.ExecuteNonQueryAsync().ConfigureAwait(false);
                 }
@@ -1362,6 +1418,9 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNotNull(persisted);
                 AssertNotNull(persisted!.Preparation.Claims,
                     "A structurally valid legacy preparation payload must not crash dispatch rendering.");
+                AssertNotNull(persisted.Preparation.RequiredClaimKinds);
+                AssertNotNull(persisted.Preparation.RequiredSiblingInputs);
+                AssertNotNull(persisted.Preparation.RequiredSiblingInputs[0].RequiredArtifactPaths);
                 ObjectiveBriefRenderer.Render(persisted);
             }).ConfigureAwait(false);
 

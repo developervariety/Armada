@@ -1159,6 +1159,28 @@ namespace Armada.Server.Mcp.Tools
                 description = "Complete bounded repository preparation replacement. Send every source, target, and claim value that must remain. Changing an anchor marks only dependent claims for recheck.",
                 properties = new
                 {
+                    requiredForDispatch = new { type = "boolean", description = "When true, dispatch requires immutable anchors and current evidence-backed required claims" },
+                    requiredClaimKinds = new
+                    {
+                        type = "array",
+                        items = new { type = "string", @enum = Enum.GetNames<ObjectivePreparationClaimKindEnum>() }
+                    },
+                    requiredSiblingInputs = new
+                    {
+                        type = "array",
+                        maxItems = 20,
+                        items = new
+                        {
+                            type = "object",
+                            properties = new
+                            {
+                                vesselRef = new { type = "string", description = "Required sibling vessel ID or name" },
+                                relativePath = new { type = "string", description = "Required checkout path relative to the target dock" },
+                                requiredArtifactPaths = new { type = "array", maxItems = 20, items = new { type = "string" } }
+                            },
+                            required = new[] { "vesselRef", "relativePath" }
+                        }
+                    },
                     source = anchor,
                     target = anchor,
                     claims = new

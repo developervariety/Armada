@@ -141,6 +141,176 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Required preparation blocks missing anchors and evidence-backed kinds", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("required-preparation-preview");
+                    objective.Preparation = new ObjectivePreparation
+                    {
+                        RequiredForDispatch = true,
+                        RequiredClaimKinds = new List<ObjectivePreparationClaimKindEnum>
+                        {
+                            ObjectivePreparationClaimKindEnum.SourcePath,
+                            ObjectivePreparationClaimKindEnum.ProvisioningRequirement
+                        },
+                        Claims = new List<ObjectivePreparationClaim>
+                        {
+                            new ObjectivePreparationClaim
+                            {
+                                Id = "unverified-source",
+                                Kind = ObjectivePreparationClaimKindEnum.SourcePath,
+                                Text = "A path without evidence or verification time is not ready.",
+                                State = ObjectivePreparationClaimStateEnum.Verified
+                            }
+                        }
+                    };
+                    objective = await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertFalse(result.IsReady);
+                    AssertTrue(result.Issues.Any(issue => issue.Code == "preparation_source_required"));
+                    AssertTrue(result.Issues.Any(issue => issue.Code == "preparation_target_required"));
+                    AssertEqual(2, result.Issues.Count(issue => issue.Code == "preparation_required_kind_missing"));
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Required preparation rejects empty kinds and incomplete claims", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("incomplete-required-preparation");
+                    objective.Preparation = new ObjectivePreparation
+                    {
+                        RequiredForDispatch = true,
+                        Source = new ObjectivePreparationAnchor(),
+                        Target = new ObjectivePreparationAnchor(),
+                        Claims = new List<ObjectivePreparationClaim>
+                        {
+                            new ObjectivePreparationClaim
+                            {
+                                Id = "incomplete",
+                                Text = "Unverified evidence-free preparation",
+                                State = ObjectivePreparationClaimStateEnum.Verified
+                            }
+                        }
+                    };
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+
+                    AssertFalse(result.IsReady);
+                    AssertTrue(result.Issues.Any(issue => issue.Code == "preparation_required_kinds_missing"));
+                    AssertTrue(result.Issues.Any(issue => issue.Code == "preparation_claim_verification_time_missing"));
+                    AssertTrue(result.Issues.Any(issue => issue.Code == "preparation_claim_evidence_missing"));
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Required sibling inputs must match vessel declarations and artifacts", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    Vessel requiredSource = await testDb.Driver.Vessels.CreateAsync(new Vessel("ReferenceSource", "https://example.test/reference-source.git")
+                    {
+                        LocalPath = harness.RepositoryDirectory,
+                        WorkingDirectory = harness.RepositoryDirectory
+                    }).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("required-sibling-preview");
+                    objective.Preparation.RequiredSiblingInputs.Add(new ObjectivePreparationSiblingInput
+                    {
+                        VesselRef = requiredSource.Id,
+                        RelativePath = "../ReferenceSource",
+                        RequiredArtifactPaths = new List<string> { "output/extracted-artifacts" }
+                    });
+
+                    ObjectiveDispatchPreview missing = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertTrue(missing.Issues.Any(issue => issue.Code == "required_sibling_not_declared"));
+
+                    harness.Vessel.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                    {
+                        new SiblingRepo { VesselRef = requiredSource.Name, RelativePath = "..\\ReferenceSource", RepoUrl = "https://example.test/reference-source.git" }
+                    });
+                    await testDb.Driver.Vessels.UpdateAsync(harness.Vessel).ConfigureAwait(false);
+                    ObjectiveDispatchPreview artifactMissing = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertTrue(artifactMissing.Issues.Any(issue => issue.Code == "required_sibling_artifact_not_declared"));
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Three catalogue sibling inputs are provisionable and reach the brief", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    string artifactPath = "output/extracted-artifacts";
+                    async Task<Vessel> CreateSiblingAsync(string name, bool withArtifacts)
+                    {
+                        string workingDirectory = Path.Combine(harness.RepositoryDirectory, name);
+                        Directory.CreateDirectory(workingDirectory);
+                        if (withArtifacts) Directory.CreateDirectory(Path.Combine(workingDirectory, artifactPath));
+                        return await testDb.Driver.Vessels.CreateAsync(new Vessel(name, "https://example.test/" + name + ".git")
+                        {
+                            LocalPath = workingDirectory,
+                            WorkingDirectory = workingDirectory
+                        }).ConfigureAwait(false);
+                    }
+
+                    Vessel sourceA = await CreateSiblingAsync("CatalogueSourceA", true).ConfigureAwait(false);
+                    Vessel sourceB = await CreateSiblingAsync("CatalogueSourceB", true).ConfigureAwait(false);
+                    Vessel consumerC = await CreateSiblingAsync("CatalogueConsumerC", false).ConfigureAwait(false);
+                    harness.Vessel.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                    {
+                        new SiblingRepo { VesselRef = sourceA.Name, RelativePath = "../CatalogueSourceA", ExtractionArtifactPaths = new List<string> { artifactPath } },
+                        new SiblingRepo { VesselRef = sourceB.Id, RelativePath = "../CatalogueSourceB", ExtractionArtifactPaths = new List<string> { artifactPath } },
+                        new SiblingRepo { VesselRef = consumerC.Name, RelativePath = "../CatalogueConsumerC" }
+                    });
+                    await testDb.Driver.Vessels.UpdateAsync(harness.Vessel).ConfigureAwait(false);
+
+                    Objective objective = harness.CreateReadyObjective("source-glossary-siblings");
+                    objective.Preparation.RequiredSiblingInputs = new List<ObjectivePreparationSiblingInput>
+                    {
+                        new ObjectivePreparationSiblingInput { VesselRef = sourceA.Id, RelativePath = "..\\CatalogueSourceA", RequiredArtifactPaths = new List<string> { artifactPath } },
+                        new ObjectivePreparationSiblingInput { VesselRef = sourceB.Name, RelativePath = "../CatalogueSourceB", RequiredArtifactPaths = new List<string> { artifactPath } },
+                        new ObjectivePreparationSiblingInput { VesselRef = consumerC.Id, RelativePath = "../CatalogueConsumerC" }
+                    };
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+
+                    AssertTrue(result.IsReady, "All three declared source inputs and their artifacts are ready.");
+                    AssertContains("### Required Sibling Inputs", result.RenderedBrief);
+                    AssertContains("CatalogueSourceA", result.RenderedBrief);
+                    AssertContains("CatalogueSourceB", result.RenderedBrief);
+                    AssertContains("CatalogueConsumerC", result.RenderedBrief);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Preparation anchors require exact full commits", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    const string fullCommit = "0123456789abcdef0123456789abcdef01234567";
+                    harness.Git.RevisionCommitShas[harness.RepositoryDirectory + "|main"] = fullCommit;
+                    Objective objective = harness.CreateReadyObjective("exact-preparation-anchor");
+                    objective.Preparation.Target = new ObjectivePreparationAnchor
+                    {
+                        VesselId = harness.Vessel.Id,
+                        Ref = "main",
+                        ResolvedCommit = fullCommit.Substring(0, 7)
+                    };
+
+                    ObjectiveDispatchPreview prefix = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertTrue(prefix.Issues.Any(issue => issue.Code == "preparation_target_revision_changed"),
+                        "A matching short prefix is not an immutable prepared commit.");
+
+                    objective.Preparation.Target.ResolvedCommit = fullCommit;
+                    ObjectiveDispatchPreview exact = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertFalse(exact.Issues.Any(issue => issue.Code == "preparation_target_revision_changed"),
+                        "An exact full commit remains current.");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Read-only ReferencePortingTested preview requires TestEngineer coverage", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

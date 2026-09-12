@@ -140,6 +140,13 @@ kinds for source paths, dispatch entry points, reusable types, catalogue inputs,
 provisioning, response rules, cleanup, consumers, ledgers, uncertainty, and
 owner decisions. Keep claims concise. Armada limits the claim count and size.
 
+Set `requiredForDispatch` when the prepared facts are mandatory. Name at least
+one `requiredClaimKinds` value. Each preparation claim must then have evidence
+and a `verifiedUtc` value. Use `requiredSiblingInputs` to name the sibling
+vessel, its checkout path, and required extraction-artifact paths. Dispatch
+preview blocks work when a required claim, immutable anchor, sibling declaration,
+or artifact input is absent or stale.
+
 When a source or target anchor changes, Armada keeps the claims and marks only
 the dependent claims `NeedsRecheck`. Recheck those claims and record them as
 `Verified`; do not repeat unrelated research.
