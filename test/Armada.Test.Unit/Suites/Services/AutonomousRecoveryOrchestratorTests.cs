@@ -163,6 +163,268 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(RunbookExecutionStatusEnum.Completed, executionPage.Objects[0].Status);
             }).ConfigureAwait(false);
 
+            await RunTest("ReadOnlyJudgeFailure_PreservesModeAndPersistsRecommendedImplementation", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_readonly", "usr_auto_readonly").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_readonly", "usr_auto_readonly").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                failed.Mode = MissionModeEnum.Research;
+                failed.ReviewComment = "Recommended implementation: add coverage for the null-branch case.";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchedMissions.Count,
+                    "A failed read-only Judge must not dispatch an Implementation rescue.");
+
+                List<JudgeFollowUp> followUps = await testDb.Driver.JudgeFollowUps.EnumeratePendingAsync(vessel.Id).ConfigureAwait(false);
+                AssertEqual(1, followUps.Count, "The recommended implementation must remain a durable follow-up item.");
+                AssertEqual(failed.Id, followUps[0].JudgeMissionId, "The follow-up must link to the failed Judge mission.");
+                AssertContains("Recommended implementation", followUps[0].SuggestedFollowUps ?? String.Empty,
+                    "The durable follow-up must retain the recommended implementation.");
+
+                AuthContext auth = AuthContext.Authenticated("ten_auto_readonly", "usr_auto_readonly", false, true, "UnitTest");
+                EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = failed.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(1, incidentPage.Objects.Count);
+                AssertContains("read-only mode Research", incidentPage.Objects[0].RecoveryNotes ?? String.Empty,
+                    "Recovery notes must state the preserved mode.");
+                AssertContains("audit-only", incidentPage.Objects[0].RecoveryNotes ?? String.Empty,
+                    "Recovery notes must state the preserved read-only scope.");
+
+                List<ArmadaEvent> missionEvents = await testDb.Driver.Events.EnumerateByMissionAsync(failed.Id, 100).ConfigureAwait(false);
+                ArmadaEvent? preservedEvent = missionEvents.FirstOrDefault(item =>
+                    String.Equals(item.EventType, "autonomous_recovery.read_only_preserved", StringComparison.Ordinal));
+                AssertTrue(preservedEvent != null, "Recovery must emit a read-only preservation event.");
+                AssertContains("Research", preservedEvent!.Message, "The preservation event must state the mode.");
+                AssertContains("audit-only", preservedEvent.Message, "The preservation event must state the scope.");
+            }).ConfigureAwait(false);
+
+            await RunTest("AuditJudgeFailure_PreservesAuditModeWithoutRecommendation", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_audit", "usr_auto_audit").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_audit", "usr_auto_audit").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: FAIL").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                failed.Mode = MissionModeEnum.Audit;
+                failed.ReviewComment = null;
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchedMissions.Count,
+                    "A failed Audit Judge must remain read-only even when it has no recommended implementation.");
+
+                List<JudgeFollowUp> followUps = await testDb.Driver.JudgeFollowUps.EnumeratePendingAsync(vessel.Id).ConfigureAwait(false);
+                AssertEqual(1, followUps.Count, "The failed Audit Judge must still produce a linked durable review record.");
+                AssertEqual(failed.Id, followUps[0].JudgeMissionId, "The review record must link to the failed Audit Judge.");
+                AssertTrue(String.IsNullOrWhiteSpace(followUps[0].SuggestedFollowUps),
+                    "Recovery must not invent implementation advice when the Judge supplied none.");
+
+                AuthContext auth = AuthContext.Authenticated("ten_auto_audit", "usr_auto_audit", false, true, "UnitTest");
+                EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = failed.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(1, incidentPage.Objects.Count);
+                AssertContains("read-only mode Audit", incidentPage.Objects[0].RecoveryNotes ?? String.Empty,
+                    "Recovery notes must identify the preserved Audit mode.");
+                AssertContains("audit-only", incidentPage.Objects[0].RecoveryNotes ?? String.Empty,
+                    "Recovery notes must retain the audit-only scope.");
+
+                EnumerationResult<RunbookExecution> executionPage = await runbooks.EnumerateExecutionsAsync(auth, new RunbookExecutionQuery
+                {
+                    IncidentId = incidentPage.Objects[0].Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(1, executionPage.Objects.Count);
+                AssertEqual("Audit", executionPage.Objects[0].ParameterValues["missionMode"],
+                    "The recovery execution must record the preserved Audit mode.");
+                AssertContains("Audit", executionPage.Objects[0].Notes ?? String.Empty,
+                    "The completed recovery execution must retain the preserved Audit mode in its notes.");
+                AssertContains("audit-only", executionPage.Objects[0].Notes ?? String.Empty,
+                    "The completed recovery execution must retain the read-only scope in its notes.");
+            }).ConfigureAwait(false);
+
+            await RunTest("ReadOnlyJudgeFailure_ReusesExistingDurableFollowUp", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_followup", "usr_auto_followup").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_followup", "usr_auto_followup").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                failed.Mode = MissionModeEnum.Research;
+                failed.ReviewComment = "Recommended implementation: preserve the explicit scope.";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                LoggingModule logging = new LoggingModule();
+                JudgeFollowUp existing = await new JudgeFollowUpService(testDb.Driver, logging)
+                    .CaptureAsync(failed, "NEEDS_REVISION", failed.ReviewComment).ConfigureAwait(false);
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, logging);
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                List<JudgeFollowUp> followUps = await testDb.Driver.JudgeFollowUps.EnumeratePendingAsync(vessel.Id).ConfigureAwait(false);
+                AssertEqual(1, followUps.Count, "Recovery must not duplicate an existing durable follow-up for the same Judge.");
+                AssertEqual(existing.Id, followUps[0].Id, "Recovery must retain the original durable follow-up record.");
+                AssertEqual(0, admiral.DispatchedMissions.Count, "A pre-existing follow-up must not widen read-only recovery into a rescue.");
+            }).ConfigureAwait(false);
+
+            await RunTest("ReadOnlyNonJudgeReviewers_BlockWithoutCreatingJudgeFollowUps", async () =>
+            {
+                foreach ((string Persona, MissionModeEnum Mode) scenario in new[]
+                {
+                    ("PortingReferenceAnalyst", MissionModeEnum.Research),
+                    ("TestEngineer", MissionModeEnum.Audit)
+                })
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    string suffix = scenario.Persona.ToLowerInvariant();
+                    await EnsureTenantAndUserAsync(testDb, "ten_auto_" + suffix, "usr_auto_" + suffix).ConfigureAwait(false);
+
+                    Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_" + suffix, "usr_auto_" + suffix).ConfigureAwait(false);
+                    Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Review stage failed without a Judge verdict.").ConfigureAwait(false);
+                    failed.Persona = scenario.Persona;
+                    failed.Mode = scenario.Mode;
+                    failed.ReviewComment = "A finding that must remain attached to the review stage.";
+                    await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                    IncidentService incidents = new IncidentService(testDb.Driver);
+                    RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                    AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                    await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                    AssertEqual(0, admiral.DispatchedMissions.Count,
+                        scenario.Persona + " must remain read-only and must not dispatch a rescue.");
+                    List<JudgeFollowUp> followUps = await testDb.Driver.JudgeFollowUps
+                        .EnumeratePendingAsync(vessel.Id).ConfigureAwait(false);
+                    AssertEqual(0, followUps.Count,
+                        scenario.Persona + " must not be recorded as a Judge follow-up.");
+
+                    AuthContext auth = AuthContext.Authenticated(
+                        "ten_auto_" + suffix,
+                        "usr_auto_" + suffix,
+                        false,
+                        true,
+                        "UnitTest");
+                    EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
+                    {
+                        MissionId = failed.Id,
+                        PageNumber = 1,
+                        PageSize = 10
+                    }).ConfigureAwait(false);
+                    AssertEqual(1, incidentPage.Objects.Count);
+                    AssertContains(scenario.Mode.ToString(), incidentPage.Objects[0].RecoveryNotes ?? String.Empty);
+                    AssertContains("audit-only", incidentPage.Objects[0].RecoveryNotes ?? String.Empty);
+
+                    EnumerationResult<RunbookExecution> executionPage = await runbooks.EnumerateExecutionsAsync(auth, new RunbookExecutionQuery
+                    {
+                        IncidentId = incidentPage.Objects[0].Id,
+                        PageNumber = 1,
+                        PageSize = 10
+                    }).ConfigureAwait(false);
+                    AssertEqual(1, executionPage.Objects.Count);
+                    AssertEqual(scenario.Mode.ToString(), executionPage.Objects[0].ParameterValues["missionMode"]);
+                    AssertContains("audit-only", executionPage.Objects[0].Notes ?? String.Empty);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("ExistingRecoveryRunbook_GainsMissionModeWithoutLosingContent", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_legacy_runbook", "usr_auto_legacy_runbook").ConfigureAwait(false);
+                AuthContext auth = AuthContext.Authenticated(
+                    "ten_auto_legacy_runbook",
+                    "usr_auto_legacy_runbook",
+                    false,
+                    true,
+                    "UnitTest");
+
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                Runbook legacy = await runbooks.CreateAsync(auth, new RunbookUpsertRequest
+                {
+                    FileName = "system/mission-recovery.md",
+                    Title = "Existing Recovery Runbook",
+                    Description = "Keep this description.",
+                    Active = false,
+                    Parameters = new List<RunbookParameter>
+                    {
+                        new RunbookParameter { Name = "missionId", Label = "Mission ID", Required = true },
+                        new RunbookParameter
+                        {
+                            Name = "missionMode",
+                            Label = "Existing Mode Label",
+                            Description = "Keep this parameter description.",
+                            DefaultValue = "Research",
+                            Required = false
+                        }
+                    },
+                    Steps = new List<RunbookStep>
+                    {
+                        new RunbookStep { Title = "Existing step", Instructions = "Keep these instructions." }
+                    },
+                    OverviewMarkdown = "Keep this overview."
+                }).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_legacy_runbook", "usr_auto_legacy_runbook").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: FAIL").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                failed.Mode = MissionModeEnum.Audit;
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                Runbook? migrated = await runbooks.ReadAsync(auth, legacy.Id).ConfigureAwait(false);
+                AssertTrue(migrated != null, "The existing recovery runbook must remain readable.");
+                AssertEqual("Existing Recovery Runbook", migrated!.Title);
+                AssertEqual("Keep this description.", migrated.Description);
+                AssertEqual(false, migrated.Active);
+                AssertEqual("Keep this overview.", migrated.OverviewMarkdown);
+                AssertEqual(1, migrated.Steps.Count);
+                AssertEqual("Existing step", migrated.Steps[0].Title);
+                AssertEqual("Keep these instructions.", migrated.Steps[0].Instructions);
+                AssertTrue(migrated.Parameters.Any(item =>
+                    String.Equals(item.Name, "missionMode", StringComparison.OrdinalIgnoreCase)
+                    && item.Required),
+                    "The existing recovery runbook must gain the required missionMode parameter.");
+                RunbookParameter modeParameter = migrated.Parameters.Single(item =>
+                    String.Equals(item.Name, "missionMode", StringComparison.OrdinalIgnoreCase));
+                AssertEqual("Existing Mode Label", modeParameter.Label);
+                AssertEqual("Keep this parameter description.", modeParameter.Description);
+                AssertEqual("Research", modeParameter.DefaultValue);
+            }).ConfigureAwait(false);
+
             await RunTest("Rescue start ref falls back only to a same-vessel dependency commit", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

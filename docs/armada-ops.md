@@ -800,6 +800,14 @@ dispatch a bounded rescue mission. It does not use generic rescue missions for
 landing failures. Authentication, quota, review, protected-path, dependency,
 and exhausted-recovery failures remain for operator action.
 
+Audit and Research failures remain read-only. Recovery records the mission
+mode and audit-only scope in the incident, runbook execution, and event, then
+stops without an Implementation rescue. A failed Judge also creates one
+durable Judge follow-up for its recommendation. Other review stages, including
+PortingReferenceAnalyst and TestEngineer, do not create Judge follow-ups. The
+system updates an older recovery runbook in place to add the required
+`missionMode` parameter and preserves its existing content.
+
 Use this order for manual diagnosis:
 
 1. Read the complete mission and captain logs.

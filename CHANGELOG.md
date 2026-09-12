@@ -15,6 +15,11 @@ replaced.
 Focus: operator signal fidelity - make a failure say what actually failed.
 
 ### Operator documentation
+- Autonomous recovery now preserves Audit and Research scope. It records an
+  incident and runbook execution but does not dispatch an Implementation
+  rescue. Only a failed Judge creates a durable Judge follow-up; reference
+  analysts and test reviewers do not impersonate a Judge. Existing system
+  recovery runbooks gain the required mission-mode parameter in place.
 - Audit and Research missions now preserve every stage declared by the
   selected pipeline. Reference analysts, test reviewers, and Judges all run
   read-only and pass reports through the configured graph. A fully report-only

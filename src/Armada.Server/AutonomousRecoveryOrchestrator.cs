@@ -883,6 +883,16 @@ namespace Armada.Server
                 Incident incident = await EnsureIncidentAsync(auth, latest, decision, token).ConfigureAwait(false);
                 RunbookExecution? execution = await ExecuteRecoveryRunbookAsync(auth, latest, incident, decision, token).ConfigureAwait(false);
 
+                if (latest.IsReadOnlyMode)
+                {
+                    await EnsureReadOnlyJudgeFollowUpAsync(latest, token).ConfigureAwait(false);
+                    await MarkPolicyBlockedAsync(latest, token).ConfigureAwait(false);
+                    await EmitEventAsync("autonomous_recovery.read_only_preserved",
+                        "Autonomous recovery preserved read-only mode " + latest.Mode + " and audit-only scope for mission " + latest.Id + "; no rescue was dispatched.",
+                        latest, incident.Id, token).ConfigureAwait(false);
+                    return;
+                }
+
                 if (!decision.DispatchRescue)
                 {
                     await MarkPolicyBlockedAsync(latest, token).ConfigureAwait(false);
@@ -959,6 +969,8 @@ namespace Armada.Server
                 return RecoveryDecision.Blocked("mission recovery budget is exhausted");
             if (mission.Status == MissionStatusEnum.LandingFailed)
                 return RecoveryDecision.Blocked("landing failures remain owned by landing and merge recovery workflows");
+            if (mission.IsReadOnlyMode)
+                return RecoveryDecision.Blocked("read-only mode " + mission.Mode + "; autonomous recovery preserves audit-only scope");
             if (IsAutoRescueMission(mission))
                 return RecoveryDecision.Blocked("failed mission is already an autonomous rescue");
             if (IsEnvironmentalFailure(reason))
@@ -1071,7 +1083,7 @@ namespace Armada.Server
                 .FirstOrDefault(item => item.Status != IncidentStatusEnum.Closed && item.Status != IncidentStatusEnum.RolledBack);
             string recoveryNote = decision.DispatchRescue
                 ? "Autonomous policy classified this as recoverable and will dispatch one rescue mission."
-                : "Autonomous policy stopped before rescue dispatch: " + decision.Reason + ".";
+                : "Autonomous policy stopped before rescue dispatch: " + decision.Reason + "." + BuildModeScopeNote(mission);
 
             if (active != null)
             {
@@ -1104,6 +1116,44 @@ namespace Armada.Server
             return created;
         }
 
+        private async Task EnsureReadOnlyJudgeFollowUpAsync(Mission mission, CancellationToken token)
+        {
+            if (!mission.IsReadOnlyMode
+                || !String.Equals(
+                    PersonaCatalog.NormalizeName(mission.Persona),
+                    PersonaCatalog.Judge,
+                    StringComparison.Ordinal))
+                return;
+
+            try
+            {
+                List<JudgeFollowUp> pending = await _Database.JudgeFollowUps
+                    .EnumeratePendingAsync(mission.VesselId, token).ConfigureAwait(false);
+                if (pending.Any(item => String.Equals(item.JudgeMissionId, mission.Id, StringComparison.Ordinal)))
+                    return;
+
+                string? recommendation = String.IsNullOrWhiteSpace(mission.ReviewComment)
+                    ? null
+                    : mission.ReviewComment.Trim();
+                string verdict = (mission.FailureReason ?? String.Empty)
+                    .Contains("NEEDS_REVISION", StringComparison.OrdinalIgnoreCase)
+                    ? "NEEDS_REVISION"
+                    : "FAIL";
+                JudgeFollowUp followUp = await new JudgeFollowUpService(_Database, _Logging)
+                    .CaptureAsync(mission, verdict, recommendation, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "persisted read-only Judge follow-up " + followUp.Id +
+                    " for mission " + mission.Id + "; implementation remains outside the audit-only scope.");
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not persist read-only Judge follow-up for mission " + mission.Id + ": " + ex.Message);
+            }
+        }
+
         private async Task<RunbookExecution?> ExecuteRecoveryRunbookAsync(
             AuthContext auth,
             Mission mission,
@@ -1124,9 +1174,10 @@ namespace Armada.Server
                         ["incidentId"] = incident.Id,
                         ["vesselId"] = mission.VesselId ?? String.Empty,
                         ["failureReason"] = mission.FailureReason ?? String.Empty,
+                        ["missionMode"] = mission.Mode.ToString(),
                         ["decision"] = decision.DispatchRescue ? "dispatch_rescue" : "block"
                     },
-                    Notes = "Decision: " + (decision.DispatchRescue ? "dispatch rescue" : "block") + ". Reason: " + decision.Reason
+                    Notes = "Decision: " + (decision.DispatchRescue ? "dispatch rescue" : "block") + ". Reason: " + decision.Reason + "." + BuildModeScopeNote(mission)
                 }, token).ConfigureAwait(false);
 
                 await _Runbooks.UpdateExecutionAsync(auth, execution.Id, new RunbookExecutionUpdateRequest
@@ -1134,7 +1185,8 @@ namespace Armada.Server
                     Status = RunbookExecutionStatusEnum.Completed,
                     CompletedStepIds = runbook.Steps.Select(step => step.Id).ToList(),
                     Notes = "Autonomous recovery policy completed. Decision: " +
-                        (decision.DispatchRescue ? "dispatch rescue." : "block. " + decision.Reason)
+                        (decision.DispatchRescue ? "dispatch rescue." : "block. " + decision.Reason + ".") +
+                        BuildModeScopeNote(mission)
                 }, token).ConfigureAwait(false);
 
                 return execution;
@@ -1158,7 +1210,47 @@ namespace Armada.Server
             Runbook? runbook = existing.Objects.FirstOrDefault(item =>
                 String.Equals(item.FileName, _RecoveryRunbookFileName, StringComparison.OrdinalIgnoreCase));
             if (runbook != null)
-                return runbook;
+            {
+                RunbookParameter? existingMode = runbook.Parameters.FirstOrDefault(item =>
+                    String.Equals(item.Name, "missionMode", StringComparison.OrdinalIgnoreCase));
+                if (existingMode?.Required == true)
+                    return runbook;
+
+                List<RunbookParameter> parameters = runbook.Parameters
+                    .Where(item => !String.Equals(item.Name, "missionMode", StringComparison.OrdinalIgnoreCase))
+                    .Select(item => new RunbookParameter
+                    {
+                        Name = item.Name,
+                        Label = item.Label,
+                        Description = item.Description,
+                        DefaultValue = item.DefaultValue,
+                        Required = item.Required
+                    })
+                    .ToList();
+                parameters.Add(new RunbookParameter
+                {
+                    Name = "missionMode",
+                    Label = existingMode?.Label ?? "Mission Mode",
+                    Description = existingMode?.Description,
+                    DefaultValue = existingMode?.DefaultValue,
+                    Required = true
+                });
+
+                return await _Runbooks.UpdateAsync(auth, runbook.Id, new RunbookUpsertRequest
+                {
+                    FileName = runbook.FileName,
+                    Title = runbook.Title,
+                    Description = runbook.Description,
+                    WorkflowProfileId = runbook.WorkflowProfileId,
+                    EnvironmentId = runbook.EnvironmentId,
+                    EnvironmentName = runbook.EnvironmentName,
+                    DefaultCheckType = runbook.DefaultCheckType,
+                    Parameters = parameters,
+                    Steps = runbook.Steps,
+                    OverviewMarkdown = runbook.OverviewMarkdown,
+                    Active = runbook.Active
+                }, token).ConfigureAwait(false);
+            }
 
             return await _Runbooks.CreateAsync(auth, new RunbookUpsertRequest
             {
@@ -1172,6 +1264,7 @@ namespace Armada.Server
                     new RunbookParameter { Name = "incidentId", Label = "Incident ID", Required = true },
                     new RunbookParameter { Name = "vesselId", Label = "Vessel ID", Required = false },
                     new RunbookParameter { Name = "failureReason", Label = "Failure Reason", Required = false },
+                    new RunbookParameter { Name = "missionMode", Label = "Mission Mode", Required = true },
                     new RunbookParameter { Name = "decision", Label = "Decision", Required = true }
                 },
                 Steps = new List<RunbookStep>
@@ -1704,6 +1797,14 @@ namespace Armada.Server
             return "Mission " + mission.Id + " is " + mission.Status + ". " +
                 "Reason: " + (String.IsNullOrWhiteSpace(mission.FailureReason) ? "not recorded" : mission.FailureReason) + ". " +
                 "Policy: " + (decision.DispatchRescue ? "dispatch rescue" : "block") + " (" + decision.Reason + ").";
+        }
+
+        private static string BuildModeScopeNote(Mission mission)
+        {
+            if (mission.IsReadOnlyMode)
+                return " Preserved mode: " + mission.Mode + ". Scope: audit-only; no production edits or implementation rescue.";
+
+            return " Mode: " + mission.Mode + ". Scope: implementation recovery.";
         }
 
         // Hard size cap on the prior mission's description embedded in the rescue brief.
