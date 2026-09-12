@@ -1713,7 +1713,7 @@ namespace Armada.Core.Services
                 bool judgeGateRejected = false;
                 if (verdict == JudgeVerdict.Pass)
                 {
-                    if (!TryValidateJudgePassOutput(mission.AgentOutput, out verdictFailureReason))
+                    if (!TryValidateJudgePassOutput(mission.AgentOutput, mission.IsReadOnlyMode, out verdictFailureReason))
                     {
                         // A PASS that fails structural validation degrades to a re-run request
                         // (NEEDS_REVISION semantics) so the mission stays non-terminal and the
@@ -4583,6 +4583,17 @@ namespace Armada.Core.Services
                         "End with a standalone `[ARMADA:RESULT] COMPLETE` line and a short summary.\n\n";
 
                 case "Judge":
+                    if (reportOnly)
+                    {
+                        return "## Your Role: Judge (Review the Report)\n\n" +
+                            "This is a report-only " + mode + " mission: validate the report and its evidence, not a code change. " +
+                            "Do not edit, commit, or push, and do not order or run implementation tests. Examine the prior stage output " +
+                            "against the current mission description only, not sibling missions in the same voyage. " +
+                            "Verify that every claim is backed by exact evidence and that cited paths resolve. " +
+                            "Your response must include `## Completeness`, `## Correctness`, `## Evidence`, `## Residual Risks`, and `## Verdict` sections. " +
+                            "End with a standalone line `[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`.\n\n";
+                    }
+
                     return "## Your Role: Judge (Review)\n\n" +
                         "You are reviewing the completed work for correctness, completeness, scope compliance, " +
                         "test adequacy, and failure-mode safety. Examine the diff below against the current mission " +
@@ -5645,7 +5656,8 @@ namespace Armada.Core.Services
             // only reach Complete (which authorizes landing) when its Checks -- the Build/UnitTest run
             // from real command output -- reflect that. A failed Check overrides a Judge PASS;
             // unresolved Checks hold completion. Voyages with no Checks are unaffected (backward compatible).
-            if (!anyFailed)
+            bool isFullyReportOnly = VoyageReportOnlyClassifier.IsFullyReportOnly(missions);
+            if (!anyFailed && !isFullyReportOnly)
             {
                 VoyageCheckGate gate = await EvaluateVoyageChecksAsync(voyageId, missions, token).ConfigureAwait(false);
                 if (gate == VoyageCheckGate.HasFailed)
@@ -5731,6 +5743,17 @@ namespace Armada.Core.Services
         /// </summary>
         internal async Task<JudgeCheckGate> EvaluateJudgeCheckGateAsync(Mission judgeMission, CancellationToken token)
         {
+            if (!String.IsNullOrEmpty(judgeMission.VoyageId))
+            {
+                List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(judgeMission.VoyageId, token).ConfigureAwait(false);
+                if (VoyageReportOnlyClassifier.IsFullyReportOnly(voyageMissions))
+                {
+                    _LastJudgeGateChecks = new List<CheckRun>();
+                    _LastJudgeReviewedCommit = judgeMission.CommitHash;
+                    return JudgeCheckGate.GreenChecks;
+                }
+            }
+
             Dictionary<string, CheckRun> checks = new Dictionary<string, CheckRun>();
             if (!String.IsNullOrEmpty(judgeMission.VoyageId))
             {
@@ -7136,7 +7159,7 @@ namespace Armada.Core.Services
             return JudgeVerdict.None;
         }
 
-        private bool TryValidateJudgePassOutput(string? agentOutput, out string? failureReason)
+        private bool TryValidateJudgePassOutput(string? agentOutput, bool reportOnly, out string? failureReason)
         {
             failureReason = null;
 
@@ -7149,8 +7172,16 @@ namespace Armada.Core.Services
             List<string> missingSections = new List<string>();
             if (!ContainsJudgeReviewSection(agentOutput, "Completeness")) missingSections.Add("Completeness");
             if (!ContainsJudgeReviewSection(agentOutput, "Correctness")) missingSections.Add("Correctness");
-            if (!ContainsJudgeReviewSection(agentOutput, "Tests")) missingSections.Add("Tests");
-            if (!ContainsJudgeReviewSection(agentOutput, "Failure Modes")) missingSections.Add("Failure Modes");
+            if (reportOnly)
+            {
+                if (!ContainsJudgeReviewSection(agentOutput, "Evidence")) missingSections.Add("Evidence");
+                if (!ContainsJudgeReviewSection(agentOutput, "Residual Risks")) missingSections.Add("Residual Risks");
+            }
+            else
+            {
+                if (!ContainsJudgeReviewSection(agentOutput, "Tests")) missingSections.Add("Tests");
+                if (!ContainsJudgeReviewSection(agentOutput, "Failure Modes")) missingSections.Add("Failure Modes");
+            }
 
             if (missingSections.Count > 0)
             {

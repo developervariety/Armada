@@ -43,16 +43,22 @@ namespace Armada.Core.Services
         /// signal and would sit Pending until it failed the Judge.
         /// </param>
         /// <param name="existingVoyageChecks">Checks already attached to the voyage, if any.</param>
+        /// <param name="isFullyReportOnlyVoyage">
+        /// When true, the voyage is fully Audit or fully Research and must not be armed with code
+        /// Checks. Report-only work is judged on report evidence, not Build or UnitTest output.
+        /// </param>
         /// <returns>The types to create, in a stable order. Empty when nothing should be armed.</returns>
         public static IReadOnlyList<CheckRunTypeEnum> Resolve(
             VoyageCheckArmingSettings? settings,
             WorkflowProfile? profile,
-            IEnumerable<CheckRun>? existingVoyageChecks)
+            IEnumerable<CheckRun>? existingVoyageChecks,
+            bool isFullyReportOnlyVoyage = false)
         {
             List<CheckRunTypeEnum> planned = new List<CheckRunTypeEnum>();
 
             if (settings == null || !settings.Enabled) return planned;
             if (profile == null) return planned;
+            if (isFullyReportOnlyVoyage) return planned;
 
             HashSet<CheckRunTypeEnum> alreadyAttached = new HashSet<CheckRunTypeEnum>();
             if (existingVoyageChecks != null)

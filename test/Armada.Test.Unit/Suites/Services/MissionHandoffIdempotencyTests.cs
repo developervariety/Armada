@@ -388,13 +388,21 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("Worker (Implement)", impl, "implementation-mode Worker keeps the implement role");
             });
 
-            await RunTest("Judge preamble is unchanged by mission mode", async () =>
+            await RunTest("Judge preamble specializes for report-only modes", async () =>
             {
                 string audit = MissionService.BuildPersonaPreamble("Judge", MissionModeEnum.Audit);
+                string research = MissionService.BuildPersonaPreamble("Judge", MissionModeEnum.Research);
                 string impl = MissionService.BuildPersonaPreamble("Judge", MissionModeEnum.Implementation);
 
-                AssertContains("Judge (Review)", audit, "Judge role is review-shaped in every mode");
-                AssertEqual(audit, impl, "the Judge preamble must not vary by mode");
+                AssertContains("Review the Report", audit, "audit Judge must validate the report");
+                AssertContains("Do not edit, commit, or push", audit, "audit Judge must forbid edits");
+                AssertContains("do not order or run implementation tests", audit, "audit Judge must not order tests");
+                AssertContains("Review the Report", research, "research Judge must validate the report");
+                AssertContains("Do not edit, commit, or push", research, "research Judge must forbid edits");
+                AssertContains("do not order or run implementation tests", research, "research Judge must not order tests");
+                AssertContains("Judge (Review)", impl, "implementation Judge keeps the code-review role");
+                AssertContains("test adequacy", impl, "implementation Judge must retain the code test review");
+                AssertFalse(audit.Equals(impl, StringComparison.Ordinal), "report-only Judge preamble must differ from implementation");
             });
         }
     }

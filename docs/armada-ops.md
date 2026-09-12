@@ -164,6 +164,14 @@ Implementation pipeline (for example `Tested`) drops the diff-dependent Test
 Engineer stage and keeps a read-only Judge that accepts a no-commit report; an
 explicit per-mission `mode` overrides it.
 
+Armada classifies a voyage as fully report-only only when every effective
+stage is `Audit` or `Research`. The same classifier controls pipeline stage
+shaping, automatic Check arming, and Judge validation. A fully report-only
+voyage does not arm Build or UnitTest Checks and its Judge can accept a
+no-commit report without `[JUDGE-CHECK-EXCLUSION]`. If any effective stage is
+`Implementation`, the complete implementation Check and delivery contract
+still applies.
+
 Operator and autonomous dispatch use the same server-rendered objective brief.
 The brief includes prepared research, constraints, and evidence. An operator
 mission keeps its mission-specific text first. The server appends the objective
@@ -463,6 +471,11 @@ gate reads every Check attached to the voyage and to the Judge mission:
 | `Passed` or `Failed` for a commit other than the reviewed tip | Stale: PASS is held exactly as for `Pending`; the executor cancels the record as superseded and arms a fresh one for the tip |
 | None attached | PASS is rejected unless the review carries `[JUDGE-CHECK-EXCLUSION]` |
 | `Canceled` | Ignored |
+
+The table applies to voyages that contain implementation work. A fully
+report-only voyage has no implementation Checks by design. Its Judge validates
+the report structure and evidence, not a code diff or a green Build and
+UnitTest pair. Do not use this rule for a mixed-mode voyage.
 
 A green is a statement about one commit. A voyage-armed Check is stamped at the
 FIRST stage that commits, and every later stage commits on top, so by the Judge

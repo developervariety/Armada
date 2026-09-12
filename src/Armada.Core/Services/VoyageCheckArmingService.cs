@@ -84,7 +84,10 @@ namespace Armada.Core.Services
                 WorkflowProfileService profiles = new WorkflowProfileService(_Database, _Logging!);
                 WorkflowProfile? profile = await profiles.ResolveForVesselAsync(auth, vessel, null, token).ConfigureAwait(false);
 
-                IReadOnlyList<CheckRunTypeEnum> planned = VoyageCheckArmingPlan.Resolve(arming, profile, null);
+                List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
+                bool isFullyReportOnly = VoyageReportOnlyClassifier.IsFullyReportOnly(voyageMissions);
+
+                IReadOnlyList<CheckRunTypeEnum> planned = VoyageCheckArmingPlan.Resolve(arming, profile, null, isFullyReportOnly);
                 if (planned.Count == 0)
                 {
                     _Logging?.Info(_Header + "checks_armed voyage " + voyage.Id + " armed=0 source=" + source
