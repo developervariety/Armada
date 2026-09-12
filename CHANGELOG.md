@@ -18,7 +18,9 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Missed Judge follow-up captures can now be repaired with the bounded,
   idempotent `armada_backfill_judge_followups` operator tool. It distinguishes
   actionable sections from explicit `(none)` evidence and reports incomplete
-  searches. Read-only recovery capture now has an injected test seam, preserves
+  searches. Its parser also accepts anchored legacy `Suggested`, `Recommended`,
+  and `Tracked` follow-up labels while rejecting prose mentions. Read-only
+  recovery capture now has an injected test seam, preserves
   non-cancellation fault containment, and propagates requested cancellation.
 - Objective create and update MCP schemas now expose `suggestedPlaybooks`.
   Scheduler-created voyages can receive the same validated playbook selections

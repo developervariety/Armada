@@ -30,11 +30,10 @@ namespace Armada.Core.Services
 
             string[] lines = agentOutput.Replace("\r\n", "\n").Split('\n');
             int startIndex = -1;
+            string inlineBody = String.Empty;
             for (int i = 0; i < lines.Length; i++)
             {
-                string trimmed = lines[i].Trim();
-                if (trimmed.StartsWith("## ", StringComparison.Ordinal)
-                    && trimmed.Substring(3).Trim().Equals("Suggested Follow-ups", StringComparison.OrdinalIgnoreCase))
+                if (TryParseFollowUpLabel(lines[i], out inlineBody))
                 {
                     result.Present = true;
                     startIndex = i + 1;
@@ -44,9 +43,12 @@ namespace Armada.Core.Services
             if (startIndex < 0) return result;
 
             System.Text.StringBuilder body = new System.Text.StringBuilder();
+            if (!String.IsNullOrWhiteSpace(inlineBody)) body.AppendLine(inlineBody);
             for (int i = startIndex; i < lines.Length; i++)
             {
-                if (lines[i].TrimStart().StartsWith("## ", StringComparison.Ordinal)) break;
+                string trimmed = lines[i].TrimStart();
+                if (trimmed.StartsWith("## ", StringComparison.Ordinal)
+                    || trimmed.StartsWith("[ARMADA:", StringComparison.OrdinalIgnoreCase)) break;
                 body.Append(lines[i]);
                 body.Append('\n');
             }
@@ -55,6 +57,76 @@ namespace Armada.Core.Services
             result.ExplicitNone = text.Equals("(none)", StringComparison.OrdinalIgnoreCase);
             result.Body = String.IsNullOrEmpty(text) || result.ExplicitNone ? null : text;
             return result;
+        }
+
+        private static bool TryParseFollowUpLabel(string line, out string inlineBody)
+        {
+            inlineBody = String.Empty;
+            string text = line.Trim();
+            if (text.StartsWith("- ", StringComparison.Ordinal)) text = text.Substring(2).TrimStart();
+
+            bool markdownHeading = text.StartsWith("## ", StringComparison.Ordinal);
+            if (markdownHeading) text = text.Substring(3).Trim();
+
+            bool bold = text.StartsWith("**", StringComparison.Ordinal);
+            if (bold)
+            {
+                int closing = text.IndexOf("**", 2, StringComparison.Ordinal);
+                if (closing < 0) return false;
+                string label = text.Substring(2, closing - 2).Trim();
+                string afterBold = text.Substring(closing + 2).Trim();
+                if (!TryParseLabelText(label, !markdownHeading, out string labelTail)) return false;
+                inlineBody = JoinInlineParts(labelTail, afterBold.TrimStart(':').Trim());
+                return true;
+            }
+
+            return TryParseLabelText(text, !markdownHeading, out inlineBody);
+        }
+
+        private static bool TryParseLabelText(string text, bool requireColon, out string inlineBody)
+        {
+            inlineBody = String.Empty;
+            string[] prefixes = { "Suggested Follow-up", "Recommended Follow-up", "Tracked Follow-up" };
+            string? prefix = null;
+            foreach (string candidate in prefixes)
+            {
+                if (text.StartsWith(candidate, StringComparison.OrdinalIgnoreCase))
+                {
+                    prefix = candidate;
+                    break;
+                }
+            }
+            if (prefix == null) return false;
+
+            int offset = prefix.Length;
+            if (offset < text.Length && (text[offset] == 's' || text[offset] == 'S')) offset++;
+            string remainder = text.Substring(offset).TrimStart();
+
+            const string orchestratorQualifier = "for the orchestrator";
+            if (remainder.StartsWith(orchestratorQualifier, StringComparison.OrdinalIgnoreCase))
+                remainder = remainder.Substring(orchestratorQualifier.Length).TrimStart();
+
+            if (remainder.StartsWith("(", StringComparison.Ordinal))
+            {
+                int closing = remainder.IndexOf(')');
+                if (closing < 0) return false;
+                remainder = remainder.Substring(closing + 1).TrimStart();
+            }
+
+            if (remainder.StartsWith(":", StringComparison.Ordinal))
+            {
+                inlineBody = remainder.Substring(1).Trim();
+                return true;
+            }
+
+            return !requireColon && remainder.Length == 0;
+        }
+
+        private static string JoinInlineParts(string first, string second)
+        {
+            if (String.IsNullOrWhiteSpace(first)) return second;
+            if (String.IsNullOrWhiteSpace(second)) return first;
+            return first + " " + second;
         }
 
         /// <summary>Return a normalized verdict label for durable follow-up capture.</summary>

@@ -87,6 +87,13 @@ namespace Armada.Test.Unit.Suites.Services
                         AgentOutput = "[ARMADA:VERDICT] PASS\n\n## Suggested Follow-ups\n(none)",
                         CreatedUtc = DateTime.UtcNow.AddMinutes(-50)
                     };
+                    Mission compatibleLabel = new Mission("Backfill compatible label", "Review")
+                    {
+                        Persona = "Judge",
+                        Status = Armada.Core.Enums.MissionStatusEnum.Complete,
+                        AgentOutput = "[ARMADA:VERDICT] PASS\n\n**Tracked follow-ups (non-blocking):** - Preserve this real-world variant.",
+                        CreatedUtc = DateTime.UtcNow.AddMinutes(-45)
+                    };
                     Mission missingSection = new Mission("Backfill missing", "Review")
                     {
                         Persona = "Judge",
@@ -96,23 +103,25 @@ namespace Armada.Test.Unit.Suites.Services
                     };
                     actionable = await testDb.Driver.Missions.CreateAsync(actionable).ConfigureAwait(false);
                     explicitNone = await testDb.Driver.Missions.CreateAsync(explicitNone).ConfigureAwait(false);
+                    compatibleLabel = await testDb.Driver.Missions.CreateAsync(compatibleLabel).ConfigureAwait(false);
                     await testDb.Driver.Missions.CreateAsync(missingSection).ConfigureAwait(false);
 
                     JudgeFollowUpBackfillService service = new JudgeFollowUpBackfillService(testDb.Driver, logging);
                     JudgeFollowUpBackfillService.Result preview = await service.RunAsync(
                         fromUtc, DateTime.UtcNow.AddMinutes(1), true, 10).ConfigureAwait(false);
-                    AssertEqual(2, preview.WouldCreate, "Dry run must report both missing durable rows");
+                    AssertEqual(3, preview.WouldCreate, "Dry run must report every recognized missing durable row");
                     AssertEqual(0, preview.Created, "Dry run must not claim that it wrote rows");
-                    AssertEqual(1, preview.Actionable);
+                    AssertEqual(2, preview.Actionable);
                     AssertEqual(1, preview.ExplicitNone);
                     AssertEqual(0, (await testDb.Driver.JudgeFollowUps.EnumeratePendingAsync().ConfigureAwait(false)).Count);
 
                     JudgeFollowUpBackfillService.Result first = await service.RunAsync(
                         fromUtc, DateTime.UtcNow.AddMinutes(1), false, 10).ConfigureAwait(false);
-                    AssertEqual(2, first.Created);
+                    AssertEqual(3, first.Created);
                     AssertEqual(0, first.Errors);
                     AssertFalse(first.Incomplete);
                     AssertNotNull(await testDb.Driver.JudgeFollowUps.ReadByJudgeMissionAsync(actionable.Id).ConfigureAwait(false));
+                    AssertNotNull(await testDb.Driver.JudgeFollowUps.ReadByJudgeMissionAsync(compatibleLabel.Id).ConfigureAwait(false));
                     JudgeFollowUp? noneRow = await testDb.Driver.JudgeFollowUps
                         .ReadByJudgeMissionAsync(explicitNone.Id).ConfigureAwait(false);
                     AssertNotNull(noneRow, "Explicit (none) is durable reconciliation evidence");
@@ -121,7 +130,7 @@ namespace Armada.Test.Unit.Suites.Services
                     JudgeFollowUpBackfillService.Result second = await service.RunAsync(
                         fromUtc, DateTime.UtcNow.AddMinutes(1), false, 10).ConfigureAwait(false);
                     AssertEqual(0, second.Created, "A repeat pass must create no rows");
-                    AssertEqual(2, second.AlreadyPresent);
+                    AssertEqual(3, second.AlreadyPresent);
                 }
             });
 

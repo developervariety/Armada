@@ -79,6 +79,34 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("ExtractSuggestedFollowUps_AcceptsAnchoredCompatibilityLabels", () =>
+            {
+                string[] outputs =
+                {
+                    "Suggested follow-ups (non-blocking): - correct the citation.\n[ARMADA:VERDICT] PASS",
+                    "Suggested follow-ups for the orchestrator (non-blocking):\n1. Track the gap.\n[ARMADA:VERDICT] PASS",
+                    "**Suggested follow-ups (non-blocking):** - widen the handoff.\n[ARMADA:VERDICT] PASS",
+                    "- **Suggested follow-ups (citation-only):** correct the count.\n[ARMADA:VERDICT] PASS",
+                    "Recommended follow-ups (non-blocking): correct the line.\n[ARMADA:VERDICT] PASS",
+                    "Tracked follow-ups (non-blocking): create the remediation objective.\n[ARMADA:VERDICT] PASS"
+                };
+
+                foreach (string output in outputs)
+                {
+                    string? body = InvokeExtract(output);
+                    AssertNotNull(body, "The anchored compatibility label should be accepted: " + output);
+                    AssertFalse(body!.Contains("[ARMADA:VERDICT]"), "Control markers must not enter the follow-up body: " + body);
+                }
+                return Task.CompletedTask;
+            });
+
+            await RunTest("ExtractSuggestedFollowUps_CompatibilityNoneAndNarrativeSafety", () =>
+            {
+                AssertNull(InvokeExtract("**Suggested follow-ups (non-blocking):** (none)\n[ARMADA:VERDICT] PASS"));
+                AssertNull(InvokeExtract("These are Suggested Follow-ups, not blockers.\n[ARMADA:VERDICT] PASS"));
+                return Task.CompletedTask;
+            });
+
             // ReviewComment population pin: a Judge that does not pass stores its written review as
             // ReviewComment (not only the one-line FailureReason) so autonomous recovery can inline
             // concrete reviewer feedback into the Worker rescue brief.

@@ -618,7 +618,11 @@ If a transient write fault predates this durable capture path, run
 `toUtc`. Start with `dryRun: true`, check `incomplete` and `errors`, then run
 the same bounded range with `dryRun: false`. A second write pass must report
 zero `created` rows. The repair records explicit `(none)` sections as durable
-reconciliation evidence with an empty recommendation.
+reconciliation evidence with an empty recommendation. The current prompt uses
+the exact `## Suggested Follow-ups` heading. Repair also accepts anchored
+legacy `Suggested`, `Recommended`, and `Tracked` follow-up labels, including
+bold, list-prefixed, qualified, and inline forms. It does not treat a prose
+mention as a section.
 
 Use `armada_process_merge_entry` for one reviewed entry. Use
 `armada_process_merge_queue` only when the operator intends to start queue
