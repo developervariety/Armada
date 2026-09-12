@@ -425,7 +425,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("Research", modeParameter.DefaultValue);
             }).ConfigureAwait(false);
 
-            await RunTest("Rescue start ref falls back only to a same-vessel dependency commit", async () =>
+            await RunTest("Rescue start ref uses produced tip then original ref then same-vessel dependency", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 await EnsureTenantAndUserAsync(testDb, "ten_rescue_ref", "usr_rescue_ref").ConfigureAwait(false);
@@ -460,8 +460,32 @@ namespace Armada.Test.Unit.Suites.Services
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
                     testDb.Driver, admiral, new IncidentService(testDb.Driver),
                     new RunbookService(testDb.Driver, new LoggingModule()));
+
+                Mission producedFailure = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                producedFailure.Persona = "Judge";
+                producedFailure.CommitHash = "3333333333333333333333333333333333333333";
+                producedFailure.StartFromRef = "4444444444444444444444444444444444444444";
+                producedFailure.DependsOnMissionId = reviewed.Id;
+                await testDb.Driver.Missions.UpdateAsync(producedFailure).ConfigureAwait(false);
+                await orchestrator.HandleMissionOutcomeAsync(producedFailure, false).ConfigureAwait(false);
+                AssertEqual(producedFailure.CommitHash,
+                    admiral.DispatchedMissions.Single(item => item.ParentMissionId == producedFailure.Id).StartFromRef,
+                    "a produced commit must take precedence over the original start ref and dependency commit");
+
+                Mission originalRefFailure = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                originalRefFailure.Persona = "Judge";
+                originalRefFailure.CommitHash = null;
+                originalRefFailure.StartFromRef = "4444444444444444444444444444444444444444";
+                originalRefFailure.DependsOnMissionId = reviewed.Id;
+                await testDb.Driver.Missions.UpdateAsync(originalRefFailure).ConfigureAwait(false);
+                await orchestrator.HandleMissionOutcomeAsync(originalRefFailure, false).ConfigureAwait(false);
+                AssertEqual(originalRefFailure.StartFromRef,
+                    admiral.DispatchedMissions.Single(item => item.ParentMissionId == originalRefFailure.Id).StartFromRef,
+                    "the failed mission's original start ref must take precedence when it produced no commit");
+
                 await orchestrator.HandleMissionOutcomeAsync(sameVesselFailure, false).ConfigureAwait(false);
-                AssertEqual(reviewed.CommitHash, admiral.DispatchedMissions.Single().StartFromRef,
+                AssertEqual(reviewed.CommitHash,
+                    admiral.DispatchedMissions.Single(item => item.ParentMissionId == sameVesselFailure.Id).StartFromRef,
                     "A same-vessel dependency supplies the reviewed tip when the Judge commit is absent.");
 
                 Mission crossVesselFailure = await CreateFailedMissionAsync(testDb, otherVessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
@@ -1601,7 +1625,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(after!.LastRecoveryActionUtc.HasValue, "Aged voyage-less candidate must be excluded from sweep selection.");
             }).ConfigureAwait(false);
 
-            await RunTest("Sweep excludes a Failed-voyage failed candidate before policy application", async () =>
+            await RunTest("Sweep reconciles a Failed-voyage provider failure into one actionable incident", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 await EnsureTenantAndUserAsync(testDb, "ten_sweep_failed_vyg", "usr_sweep_failed_vyg").ConfigureAwait(false);
@@ -1616,10 +1640,48 @@ namespace Armada.Test.Unit.Suites.Services
                     CompletedUtc = DateTime.UtcNow.AddMinutes(-1),
                     LastUpdateUtc = DateTime.UtcNow.AddMinutes(-1)
                 }).ConfigureAwait(false);
+                Voyage unrelatedVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Unrelated voyage")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Failed,
+                    CompletedUtc = DateTime.UtcNow.AddMinutes(-1)
+                }).ConfigureAwait(false);
+                Objective voyageOwner = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Title = "Provider failure voyage owner",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    BacklogState = ObjectiveBacklogStateEnum.Dispatched,
+                    VesselIds = new List<string> { vessel.Id },
+                    VoyageIds = new List<string> { failedVoyage.Id }
+                }).ConfigureAwait(false);
+                Objective bystander = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Title = "Unrelated objective",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    BacklogState = ObjectiveBacklogStateEnum.Dispatched,
+                    VesselIds = new List<string> { vessel.Id },
+                    VoyageIds = new List<string> { unrelatedVoyage.Id }
+                }).ConfigureAwait(false);
 
-                Mission failedVoyageMission = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                string failureReason = "Provider HTTP 400 forbidden: request is non-retryable.";
+                Mission failedVoyageMission = await CreateFailedMissionAsync(testDb, vessel, failureReason).ConfigureAwait(false);
                 failedVoyageMission.VoyageId = failedVoyage.Id;
                 await testDb.Driver.Missions.UpdateAsync(failedVoyageMission).ConfigureAwait(false);
+                Objective missionOwner = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Title = "Provider failure mission owner",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    BacklogState = ObjectiveBacklogStateEnum.Dispatched,
+                    VesselIds = new List<string> { vessel.Id },
+                    MissionIds = new List<string> { failedVoyageMission.Id }
+                }).ConfigureAwait(false);
 
                 IncidentService incidents = new IncidentService(testDb.Driver);
                 RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
@@ -1628,10 +1690,11 @@ namespace Armada.Test.Unit.Suites.Services
 
                 await orchestrator.SweepAsync().ConfigureAwait(false);
 
-                AssertEqual(0, admiral.DispatchedMissions.Count, "Failed-voyage failures must not be processed by the sweep.");
+                AssertEqual(0, admiral.DispatchedMissions.Count, "A non-retryable provider failure must not dispatch a rescue.");
 
                 Mission? after = await testDb.Driver.Missions.ReadAsync(failedVoyageMission.Id).ConfigureAwait(false);
-                AssertFalse(after!.LastRecoveryActionUtc.HasValue, "Failed-voyage candidate must be excluded before policy application.");
+                AssertTrue(after!.LastRecoveryActionUtc.HasValue, "Failed-voyage candidate must reach failure policy processing.");
+                AssertEqual(1, after.RecoveryAttempts, "Failure policy processing must consume the bounded terminal decision.");
 
                 AuthContext auth = AuthContext.Authenticated("ten_sweep_failed_vyg", "usr_sweep_failed_vyg", false, true, "UnitTest");
                 EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
@@ -1640,7 +1703,96 @@ namespace Armada.Test.Unit.Suites.Services
                     PageNumber = 1,
                     PageSize = 10
                 }).ConfigureAwait(false);
-                AssertEqual(0, incidentPage.Objects.Count, "Excluded Failed-voyage candidate must not open an incident.");
+                AssertEqual(1, incidentPage.Objects.Count, "The operator inbox must show one actionable terminal failure.");
+                AssertEqual(IncidentStatusEnum.Open, incidentPage.Objects[0].Status, "The terminal provider failure must remain open for operator action.");
+                AssertEqual(IncidentSeverityEnum.High, incidentPage.Objects[0].Severity, "A blocked provider failure must be high severity.");
+                AssertEqual(failedVoyageMission.Id, incidentPage.Objects[0].MissionId, "The incident must preserve mission evidence lineage.");
+                AssertEqual(failedVoyage.Id, incidentPage.Objects[0].VoyageId, "The incident must preserve voyage evidence lineage.");
+                AssertEqual(failureReason, incidentPage.Objects[0].RootCause, "The incident must preserve the provider diagnostic.");
+                AssertContains("stopped before rescue dispatch", incidentPage.Objects[0].RecoveryNotes ?? "", "Recovery notes must explain why automatic recovery stopped.");
+
+                string incidentId = incidentPage.Objects[0].Id;
+                Objective? voyageOwnerAfter = await testDb.Driver.Objectives.ReadAsync(voyageOwner.Id).ConfigureAwait(false);
+                Objective? missionOwnerAfter = await testDb.Driver.Objectives.ReadAsync(missionOwner.Id).ConfigureAwait(false);
+                Objective? bystanderAfter = await testDb.Driver.Objectives.ReadAsync(bystander.Id).ConfigureAwait(false);
+                AssertTrue(voyageOwnerAfter!.VoyageIds.Contains(failedVoyage.Id),
+                    "incident linking must retain the failed voyage as dispatch evidence");
+                AssertTrue(voyageOwnerAfter.IncidentIds.Contains(incidentId),
+                    "an objective that owns the failed voyage must link the recovery incident");
+                AssertTrue(missionOwnerAfter!.IncidentIds.Contains(incidentId),
+                    "an objective that directly owns a standalone mission must link the recovery incident");
+                AssertFalse(bystanderAfter!.IncidentIds.Contains(incidentId),
+                    "an objective on the same vessel but outside the failed lineage must not link the incident");
+                AssertEqual(ObjectiveStatusEnum.InProgress, voyageOwnerAfter.Status,
+                    "an incident annotation must not rewrite objective lifecycle state");
+                AssertEqual(ObjectiveBacklogStateEnum.Dispatched, voyageOwnerAfter.BacklogState,
+                    "an incident annotation must not rewrite objective backlog state");
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchedMissions.Count, "A repeated sweep must remain idempotent and must not dispatch a rescue.");
+                EnumerationResult<Incident> repeatedIncidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = failedVoyageMission.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(1, repeatedIncidentPage.Objects.Count, "A repeated sweep must not duplicate the inbox incident.");
+                AssertEqual(incidentId, repeatedIncidentPage.Objects[0].Id, "A repeated sweep must retain the original incident record.");
+                Objective? repeatedOwner = await testDb.Driver.Objectives.ReadAsync(voyageOwner.Id).ConfigureAwait(false);
+                AssertEqual(1, repeatedOwner!.IncidentIds.Count(id => id == incidentId),
+                    "a repeated sweep must not duplicate the objective incident link");
+            }).ConfigureAwait(false);
+
+            await RunTest("Sweep dispatches recovery for a recoverable Failed-voyage failure and links its objective", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_sweep_failed_recovery", "usr_sweep_failed_recovery").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_sweep_failed_recovery", "usr_sweep_failed_recovery").ConfigureAwait(false);
+                Voyage failedVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Failed voyage")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Failed,
+                    CompletedUtc = DateTime.UtcNow.AddMinutes(-1),
+                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-1)
+                }).ConfigureAwait(false);
+                Objective owner = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Title = "Objective with recoverable failed voyage",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VesselIds = new List<string> { vessel.Id },
+                    VoyageIds = new List<string> { failedVoyage.Id }
+                }).ConfigureAwait(false);
+
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                failed.Persona = "Worker";
+                failed.VoyageId = failedVoyage.Id;
+                failed.CommitHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "A recoverable failure in a Failed voyage must dispatch one rescue.");
+                Mission rescue = admiral.DispatchedMissions[0];
+                AssertEqual(failed.Id, rescue.ParentMissionId, "The rescue must preserve failed-mission lineage.");
+                AssertEqual(failed.CommitHash, rescue.StartFromRef, "The rescue must start from the failed mission's recorded commit.");
+                AssertTrue(!String.IsNullOrWhiteSpace(rescue.VoyageId), "The recovery must run in a dedicated rescue voyage.");
+                AssertFalse(String.Equals(failedVoyage.Id, rescue.VoyageId, StringComparison.Ordinal), "The rescue must not reuse the terminal parent voyage.");
+
+                Objective? ownerAfter = await testDb.Driver.Objectives.ReadAsync(owner.Id).ConfigureAwait(false);
+                AssertTrue(ownerAfter!.VoyageIds.Contains(failedVoyage.Id), "The objective must retain the failed voyage as evidence.");
+                AssertTrue(ownerAfter.VoyageIds.Contains(rescue.VoyageId!), "The objective must expose the active recovery voyage.");
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+                AssertEqual(1, admiral.DispatchedMissions.Count, "A repeat sweep must not dispatch a duplicate rescue.");
             }).ConfigureAwait(false);
 
             await RunTest("PolicyBlock skips incident and closes existing for rescue_produced_no_commits auto-rescue", async () =>

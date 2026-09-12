@@ -253,8 +253,7 @@ namespace Armada.Server
             Voyage? voyage = await _Database.Voyages.ReadAsync(voyageId, token).ConfigureAwait(false);
             terminal = voyage != null
                 && (voyage.Status == VoyageStatusEnum.Cancelled
-                    || voyage.Status == VoyageStatusEnum.Complete
-                    || voyage.Status == VoyageStatusEnum.Failed);
+                    || voyage.Status == VoyageStatusEnum.Complete);
             cache[voyageId] = terminal;
             return terminal;
         }
@@ -881,6 +880,7 @@ namespace Armada.Server
                 }
 
                 Incident incident = await EnsureIncidentAsync(auth, latest, decision, token).ConfigureAwait(false);
+                await LinkIncidentToOwningObjectivesAsync(auth, latest, incident, token).ConfigureAwait(false);
                 RunbookExecution? execution = await ExecuteRecoveryRunbookAsync(auth, latest, incident, decision, token).ConfigureAwait(false);
 
                 if (latest.IsReadOnlyMode)
@@ -1331,6 +1331,7 @@ namespace Armada.Server
         private async Task<string?> ResolveRescueStartFromRefAsync(Mission failedMission, CancellationToken token)
         {
             if (!String.IsNullOrWhiteSpace(failedMission.CommitHash)) return failedMission.CommitHash.Trim();
+            if (!String.IsNullOrWhiteSpace(failedMission.StartFromRef)) return failedMission.StartFromRef.Trim();
             if (String.IsNullOrWhiteSpace(failedMission.DependsOnMissionId)) return null;
 
             Mission? reviewed = await ReadMissionAsync(
@@ -1340,6 +1341,69 @@ namespace Armada.Server
             if (reviewed == null || !String.Equals(reviewed.VesselId, failedMission.VesselId, StringComparison.Ordinal))
                 return null;
             return String.IsNullOrWhiteSpace(reviewed?.CommitHash) ? null : reviewed.CommitHash.Trim();
+        }
+
+        /// <summary>
+        /// Link a recovery incident to each objective that already owns the failed mission or
+        /// its voyage. Incident links are annotations and do not change objective dispatch lineage.
+        /// </summary>
+        internal async Task<int> LinkIncidentToOwningObjectivesAsync(
+            AuthContext auth,
+            Mission failedMission,
+            Incident incident,
+            CancellationToken token)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (failedMission == null) throw new ArgumentNullException(nameof(failedMission));
+            if (incident == null) throw new ArgumentNullException(nameof(incident));
+            if (String.IsNullOrWhiteSpace(failedMission.Id) && String.IsNullOrWhiteSpace(failedMission.VoyageId)) return 0;
+
+            ObjectiveService objectiveService = new ObjectiveService(_Database, _Logging);
+            HashSet<string> objectiveIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            async Task AddMatchesAsync(ObjectiveQuery query)
+            {
+                while (true)
+                {
+                    EnumerationResult<Objective> page = await objectiveService
+                        .EnumerateAsync(auth, query, token)
+                        .ConfigureAwait(false);
+                    foreach (Objective objective in page.Objects)
+                        objectiveIds.Add(objective.Id);
+
+                    if (page.PageNumber >= page.TotalPages || page.Objects.Count == 0) return;
+                    query.PageNumber++;
+                }
+            }
+
+            if (!String.IsNullOrWhiteSpace(failedMission.Id))
+            {
+                await AddMatchesAsync(new ObjectiveQuery
+                {
+                    MissionId = failedMission.Id,
+                    PageNumber = 1,
+                    PageSize = 200
+                }).ConfigureAwait(false);
+            }
+
+            if (!String.IsNullOrWhiteSpace(failedMission.VoyageId))
+            {
+                await AddMatchesAsync(new ObjectiveQuery
+                {
+                    VoyageId = failedMission.VoyageId,
+                    PageNumber = 1,
+                    PageSize = 200
+                }).ConfigureAwait(false);
+            }
+
+            foreach (string objectiveId in objectiveIds)
+            {
+                await objectiveService.LinkIncidentAsync(auth, objectiveId, incident.Id, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "incident " + incident.Id + " linked to objective " + objectiveId
+                    + " for failed mission " + failedMission.Id);
+            }
+
+            return objectiveIds.Count;
         }
 
         /// <summary>

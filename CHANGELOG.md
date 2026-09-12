@@ -15,6 +15,10 @@ replaced.
 Focus: operator signal fidelity - make a failure say what actually failed.
 
 ### Operator documentation
+- Terminal failed-voyage missions now enter normal recovery policy instead of
+  remaining stranded. Recovery incidents link to objectives that own the
+  failed mission or voyage, and rescue checkout priority is produced commit,
+  original mission start ref, then same-vessel dependency commit.
 - Pipeline dispatch and objective preview now share persona-aware model-tier
   resolution. Non-specialist stages no longer inherit an unassignable `high`
   selector, specialist and Judge stages remain `high`, literal pins stay exact,

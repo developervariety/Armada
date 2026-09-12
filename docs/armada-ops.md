@@ -809,6 +809,11 @@ dispatch a bounded rescue mission. It does not use generic rescue missions for
 landing failures. Authentication, quota, review, protected-path, dependency,
 and exhausted-recovery failures remain for operator action.
 
+The recovery incident is linked to each objective that already owns the failed
+mission or its voyage. This annotation preserves the objective's existing
+mission and voyage lineage. It does not add unrelated incident context to the
+objective or change its lifecycle state.
+
 Audit and Research failures remain read-only. Recovery records the mission
 mode and audit-only scope in the incident, runbook execution, and event, then
 stops without an Implementation rescue. A failed Judge also creates one
@@ -833,15 +838,16 @@ close an incident only because a captain reported success.
 
 ### A rescue of a stage inside a voyage re-enters review
 
-The rescue root starts from the failed mission's captured commit. If that value
-is absent, Armada can use the immediate dependency commit only when both
-missions use the same vessel. Armada resolves this ref before provisioning and
-proves that the new checkout contains it before the captain starts. A missing
+The rescue root first uses the failed mission's produced commit. If no commit
+was produced, Armada keeps the mission's original `StartFromRef`. If both are
+absent, Armada can use the immediate dependency commit only when both missions
+use the same vessel. Armada resolves this ref before provisioning and proves
+that the new checkout contains it before the captain starts. A missing
 ref, a false ancestry result, or an ancestry result that Armada cannot verify
 fails closed as a provisioning fault. If a reviewer rescue has no captured
-commit and no same-vessel dependency commit, Armada leaves the incident open
-and does not start a Worker from the vessel default branch. Later rescue stages
-inherit the verified Worker branch.
+commit, original start ref, or same-vessel dependency commit, Armada leaves the
+incident open and does not start a Worker from the vessel default branch. Later
+rescue stages inherit the verified Worker branch.
 
 A Worker that fails its gate inside a voyage has already cost that voyage its
 TestEngineer and Judge: the pipeline cancels them as blocked dependents when the
