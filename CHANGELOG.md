@@ -15,6 +15,9 @@ replaced.
 Focus: operator signal fidelity - make a failure say what actually failed.
 
 ### Operator documentation
+- Objective create and update MCP schemas now expose `suggestedPlaybooks`.
+  Scheduler-created voyages can receive the same validated playbook selections
+  that the objective model and dispatcher already supported.
 - All voyage, mission, recovery, reflection, Architect, and restart entry points
   now share one tenant-scoped durable capacity admission lease. The gate counts
   actual work-bearing voyages and standalone missions, resolves transitive

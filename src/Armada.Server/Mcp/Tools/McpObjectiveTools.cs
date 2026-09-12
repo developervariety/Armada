@@ -234,6 +234,7 @@ namespace Armada.Server.Mcp.Tools
                         refinementSummary = new { type = "string", description = "Optional captain-generated refinement summary" },
                         preparation = BuildPreparationSchema(),
                         suggestedPipelineId = new { type = "string", description = "Optional suggested pipeline identifier" },
+                        suggestedPlaybooks = BuildPlaybookSelectionSchema(),
                         startFromRef = new { type = "string", description = "Optional commit or ref in the vessel repository that the next dispatched voyage starts from; empty string clears it; dispatch refuses an unresolvable ref" },
                         refinementSessionIds = new { type = "array", items = new { type = "string" }, description = "Linked refinement-session IDs" },
                         tags = new { type = "array", items = new { type = "string" }, description = "Optional tags" },
@@ -293,6 +294,7 @@ namespace Armada.Server.Mcp.Tools
                         refinementSummary = new { type = "string", description = "Optional captain-generated refinement summary" },
                         preparation = BuildPreparationSchema(),
                         suggestedPipelineId = new { type = "string", description = "Optional suggested pipeline identifier" },
+                        suggestedPlaybooks = BuildPlaybookSelectionSchema(),
                         startFromRef = new { type = "string", description = "Optional commit or ref in the vessel repository that the next dispatched voyage starts from; empty string clears it; dispatch refuses an unresolvable ref" },
                         refinementSessionIds = new { type = "array", items = new { type = "string" }, description = "Linked refinement-session IDs" },
                         tags = new { type = "array", items = new { type = "string" }, description = "Optional tags" },
@@ -355,6 +357,7 @@ namespace Armada.Server.Mcp.Tools
                         refinementSummary = new { type = "string", description = "Optional captain-generated refinement summary" },
                         preparation = BuildPreparationSchema(),
                         suggestedPipelineId = new { type = "string", description = "Optional suggested pipeline identifier" },
+                        suggestedPlaybooks = BuildPlaybookSelectionSchema(),
                         startFromRef = new { type = "string", description = "Optional commit or ref in the vessel repository that the next dispatched voyage starts from; empty string clears it; dispatch refuses an unresolvable ref" },
                         refinementSessionIds = new { type = "array", items = new { type = "string" }, description = "Linked refinement-session IDs" },
                         tags = new { type = "array", items = new { type = "string" }, description = "Optional tags" },
@@ -418,6 +421,7 @@ namespace Armada.Server.Mcp.Tools
                         refinementSummary = new { type = "string", description = "Optional captain-generated refinement summary" },
                         preparation = BuildPreparationSchema(),
                         suggestedPipelineId = new { type = "string", description = "Optional suggested pipeline identifier" },
+                        suggestedPlaybooks = BuildPlaybookSelectionSchema(),
                         startFromRef = new { type = "string", description = "Optional commit or ref in the vessel repository that the next dispatched voyage starts from; empty string clears it; dispatch refuses an unresolvable ref" },
                         refinementSessionIds = new { type = "array", items = new { type = "string" }, description = "Linked refinement-session IDs" },
                         tags = new { type = "array", items = new { type = "string" }, description = "Optional tags" },
@@ -1217,6 +1221,25 @@ namespace Armada.Server.Mcp.Tools
                             required = new[] { "id", "kind", "text" }
                         }
                     }
+                }
+            };
+        }
+
+        private static object BuildPlaybookSelectionSchema()
+        {
+            return new
+            {
+                type = "array",
+                description = "Optional playbooks delivered to scheduler-created voyages",
+                items = new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        playbookId = new { type = "string", description = "Playbook ID (pbk_ prefix)" },
+                        deliveryMode = new { type = "string", description = "InlineFullContent, InstructionWithReference, or AttachIntoWorktree" }
+                    },
+                    required = new[] { "playbookId", "deliveryMode" }
                 }
             };
         }

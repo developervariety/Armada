@@ -293,6 +293,11 @@ Use bounded read-only helpers to prepare future lanes; use captains and voyages
 for repository writes. When throughput looks low, inspect both the scheduler
 ceiling and how many objectives have `AutoDispatchEnabled=true`.
 
+Objective create and update tools accept `suggestedPlaybooks`, an array of
+`playbookId` and `deliveryMode` pairs. The scheduler copies these selections to
+the voyage before it creates the first mission. Use this field for campaign
+rules that must reach every pipeline stage.
+
 #### Start ref: continue from an accepted tip
 
 An objective can carry `startFromRef` (a branch, tag or commit in the vessel

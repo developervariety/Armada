@@ -470,13 +470,21 @@ namespace Armada.Test.Unit.Suites.Services
                     testDb.Driver,
                     objectives);
 
+                foreach (string toolName in new[] { "create_objective", "create_backlog_item", "update_objective", "update_backlog_item" })
+                {
+                    string objectiveSchema = JsonSerializer.Serialize(schemas[toolName]);
+                    AssertContains("suggestedPlaybooks", objectiveSchema);
+                    AssertContains("playbookId", objectiveSchema);
+                    AssertContains("deliveryMode", objectiveSchema);
+                }
+
                 string createSchema = JsonSerializer.Serialize(schemas["create_backlog_item"]);
                 AssertContains("requiredForDispatch", createSchema);
                 AssertContains("requiredClaimKinds", createSchema);
                 AssertContains("requiredSiblingInputs", createSchema);
                 AssertContains("requiredArtifactPaths", createSchema);
 
-                using JsonDocument validDoc = JsonDocument.Parse("{\"title\":\"MCP backlog create\",\"kind\":\"Bug\",\"priority\":\"P0\",\"status\":\"Scoped\",\"preparation\":{\"requiredForDispatch\":true,\"requiredClaimKinds\":[\"SourcePath\"],\"requiredSiblingInputs\":[{\"vesselRef\":\"ReferenceSource\",\"relativePath\":\"../ReferenceSource\",\"requiredArtifactPaths\":[]}],\"source\":{\"vesselId\":\"vsl_source\",\"ref\":\"main\",\"resolvedCommit\":\"def456\"},\"claims\":[{\"id\":\"opc_mcp_create\",\"kind\":\"SourcePath\",\"text\":\"Read src/Entry.cs\",\"dependsOn\":\"Source\",\"state\":\"Verified\"}]}}");
+                using JsonDocument validDoc = JsonDocument.Parse("{\"title\":\"MCP backlog create\",\"kind\":\"Bug\",\"priority\":\"P0\",\"status\":\"Scoped\",\"suggestedPlaybooks\":[{\"playbookId\":\"pbk_mcp\",\"deliveryMode\":\"InstructionWithReference\"}],\"preparation\":{\"requiredForDispatch\":true,\"requiredClaimKinds\":[\"SourcePath\"],\"requiredSiblingInputs\":[{\"vesselRef\":\"ReferenceSource\",\"relativePath\":\"../ReferenceSource\",\"requiredArtifactPaths\":[]}],\"source\":{\"vesselId\":\"vsl_source\",\"ref\":\"main\",\"resolvedCommit\":\"def456\"},\"claims\":[{\"id\":\"opc_mcp_create\",\"kind\":\"SourcePath\",\"text\":\"Read src/Entry.cs\",\"dependsOn\":\"Source\",\"state\":\"Verified\"}]}}");
                 object validResult = await handlers["create_backlog_item"](validDoc.RootElement).ConfigureAwait(false);
                 Objective created = (Objective)validResult;
                 AssertStartsWith("obj_", created.Id);
@@ -487,6 +495,8 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(created.Preparation.RequiredForDispatch);
                 AssertEqual(ObjectivePreparationClaimKindEnum.SourcePath, created.Preparation.RequiredClaimKinds[0]);
                 AssertEqual("ReferenceSource", created.Preparation.RequiredSiblingInputs[0].VesselRef);
+                AssertEqual("pbk_mcp", created.SuggestedPlaybooks[0].PlaybookId);
+                AssertEqual(PlaybookDeliveryModeEnum.InstructionWithReference, created.SuggestedPlaybooks[0].DeliveryMode);
 
                 using JsonDocument invalidEnumDoc = JsonDocument.Parse("{\"title\":\"Bad backlog create\",\"kind\":\"NotARealKind\"}");
                 object invalidEnumResult = await handlers["create_backlog_item"](invalidEnumDoc.RootElement).ConfigureAwait(false);
