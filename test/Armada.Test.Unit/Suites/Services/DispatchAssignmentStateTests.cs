@@ -510,7 +510,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                     // The same mission shape with a ref that resolves is cut at that commit before provisioning.
                     missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
-                    git.RevisionShaResult = "abc1234";
+                    const string resolvedStartCommit = "abcdef0123456789abcdef0123456789abcdef01";
+                    git.RevisionCommitShaResult = resolvedStartCommit;
                     git.IsAncestorResult = true;
                     Mission good = new Mission("Continue from the accepted tip", "Continues the slice.");
                     good.VesselId = vessel.Id;
@@ -527,8 +528,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(goodBack, "Mission must still exist");
                     AssertTrue(assignedGood, "A resolvable start ref assigns; state=" + goodBack!.AssignmentState + " status=" + goodBack.Status + " reason: " + (goodBack.FailureReason ?? "(none)"));
                     AssertEqual(1, git.ForceUpdateBranchRefCalls.Count, "The mission branch is cut once.");
-                    AssertEqual(vessel.LocalPath + ":" + goodBack.BranchName + ":abc1234", git.ForceUpdateBranchRefCalls[0], "The branch is cut at the start ref's commit before provisioning.");
-                    AssertTrue(git.IsAncestorCalls.Any(call => call.EndsWith(":abc1234:HEAD", StringComparison.Ordinal)),
+                    AssertEqual(vessel.LocalPath + ":" + goodBack.BranchName + ":" + resolvedStartCommit, git.ForceUpdateBranchRefCalls[0], "The branch is cut at the full start-ref commit before provisioning.");
+                    AssertTrue(git.IsAncestorCalls.Any(call => call.EndsWith(":" + resolvedStartCommit + ":HEAD", StringComparison.Ordinal)),
                         "The provisioned checkout must be checked for the resolved start commit before launch.");
 
                     goodBack.Status = MissionStatusEnum.Complete;

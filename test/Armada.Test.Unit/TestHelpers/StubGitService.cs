@@ -211,6 +211,21 @@ namespace Armada.Test.Unit.TestHelpers
             return Task.FromResult(RevisionShaResult);
         }
 
+        /// <summary>Strict commit resolutions keyed by "repoPath|revision".</summary>
+        public Dictionary<string, string?> RevisionCommitShas { get; } = new Dictionary<string, string?>();
+
+        /// <summary>Default strict commit answer when no keyed entry matches.</summary>
+        public string? RevisionCommitShaResult { get; set; } = null;
+
+        public List<string> RevisionCommitShaCalls { get; } = new List<string>();
+
+        public Task<string?> GetRevisionCommitShaAsync(string repoPath, string revision, CancellationToken token = default)
+        {
+            RevisionCommitShaCalls.Add(repoPath + "|" + revision);
+            if (RevisionCommitShas.TryGetValue(repoPath + "|" + revision, out string? keyed)) return Task.FromResult(keyed);
+            return Task.FromResult(RevisionCommitShaResult);
+        }
+
         /// <summary>
         /// Ancestry answer for TryIsAncestorAsync. Null means UNKNOWN, matching the interface
         /// default: a stub that consults no repository must not be able to answer "yes".

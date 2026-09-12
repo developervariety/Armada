@@ -293,7 +293,8 @@ namespace Armada.Test.Unit.Suites.Services
                     pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
 
                     // The accepted tip resolves in the vessel repository; the ref that is gone does not.
-                    git.RevisionShaResult = "abc1234";
+                    const string resolvedStartCommit = "abcdef0123456789abcdef0123456789abcdef01";
+                    git.RevisionCommitShaResult = resolvedStartCommit;
 
                     List<MissionDescription> missions = new List<MissionDescription>
                     {
@@ -307,19 +308,20 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission worker = voyageMissions.First(m => m.Persona == "Worker");
                     Mission testEngineer = voyageMissions.First(m => m.Persona == "TestEngineer");
                     Mission judge = voyageMissions.First(m => m.Persona == "Judge");
-                    AssertEqual("recover/accepted-tip-abc1234", worker.StartFromRef, "the first stage carries the trimmed start ref");
+                    AssertEqual(resolvedStartCommit, worker.StartFromRef, "the first stage carries the verified immutable start commit");
                     AssertNull(testEngineer.StartFromRef, "a later stage continues the branch; it carries no start ref");
                     AssertNull(judge.StartFromRef, "a later stage continues the branch; it carries no start ref");
 
                     Mission? reread = await testDb.Driver.Missions.ReadAsync(worker.Id).ConfigureAwait(false);
-                    AssertEqual("recover/accepted-tip-abc1234", reread!.StartFromRef, "the start ref survives a round trip through the database");
+                    AssertEqual(resolvedStartCommit, reread!.StartFromRef, "the verified start commit survives a round trip through the database");
+                    int voyageCountBeforeRefusal = (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Count;
 
                     // An unresolvable ref is refused by name before any voyage row exists.
                     List<MissionDescription> bad = new List<MissionDescription>
                     {
                         new MissionDescription("Continue the slice", "Continue from a ref that is gone") { StartFromRef = "recover/gone" }
                     };
-                    git.RevisionShaResult = null;
+                    git.RevisionCommitShaResult = null;
                     StartFromRefMissingException? refused = null;
                     try
                     {
@@ -332,6 +334,24 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(refused, "a ref that does not resolve refuses the dispatch");
                     AssertContains("start_from_ref_missing", refused!.Message, "the refusal is named");
                     AssertContains("recover/gone", refused.Message, "the refusal names the ref");
+                    AssertEqual(voyageCountBeforeRefusal,
+                        (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Count,
+                        "a rejected pipeline dispatch creates no voyage");
+
+                    refused = null;
+                    try
+                    {
+                        await admiralService.DispatchVoyageAsync("Bad direct start ref voyage", "Test", vessel.Id, bad).ConfigureAwait(false);
+                    }
+                    catch (StartFromRefMissingException ex)
+                    {
+                        refused = ex;
+                    }
+                    AssertNotNull(refused, "the direct dispatch path also refuses an unresolved ref");
+                    AssertEqual(voyageCountBeforeRefusal,
+                        (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Count,
+                        "a rejected direct dispatch creates no voyage");
+                    AssertTrue(git.RevisionCommitShaCalls.Count >= 3, "every dispatch uses strict commit resolution");
                 }
             });
 
@@ -347,20 +367,21 @@ namespace Armada.Test.Unit.Suites.Services
                     Vessel vessel = new Vessel("prepare-vessel", "https://github.com/test/repo.git");
                     vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
                     vessel.DefaultBranch = "main";
-                    git.RevisionShas[vessel.LocalPath + "|recover/tip-abc1234"] = "abc1234";
+                    git.RevisionCommitShas[vessel.LocalPath + "|recover/tip-abc1234"] = "abcdef0123456789abcdef0123456789abcdef01";
 
                     string? unknown = await dockService.PrepareBranchFromRefAsync(vessel, "armada/captain/msn_1", "recover/missing").ConfigureAwait(false);
                     AssertNull(unknown, "an unknown ref resolves to nothing");
                     AssertEqual(0, git.ForceUpdateBranchRefCalls.Count, "no branch is written for an unknown ref");
 
                     string? cut = await dockService.PrepareBranchFromRefAsync(vessel, "armada/captain/msn_1", "recover/tip-abc1234").ConfigureAwait(false);
-                    AssertEqual("abc1234", cut, "the resolved commit is returned");
+                    AssertEqual("abcdef0123456789abcdef0123456789abcdef01", cut, "the full resolved commit is returned");
                     AssertEqual(1, git.ForceUpdateBranchRefCalls.Count, "the branch is written once");
-                    AssertEqual(vessel.LocalPath + ":armada/captain/msn_1:abc1234", git.ForceUpdateBranchRefCalls[0], "the branch is cut at the resolved commit in the vessel repository");
+                    AssertTrue(git.RevisionCommitShaCalls.Contains(vessel.LocalPath + "|recover/tip-abc1234"), "branch preparation uses strict commit resolution");
+                    AssertEqual(vessel.LocalPath + ":armada/captain/msn_1:abcdef0123456789abcdef0123456789abcdef01", git.ForceUpdateBranchRefCalls[0], "the branch is cut at the resolved commit in the vessel repository");
 
                     git.ExistingBranches.Add("armada/captain/msn_1");
                     string? retry = await dockService.PrepareBranchFromRefAsync(vessel, "armada/captain/msn_1", "recover/tip-abc1234").ConfigureAwait(false);
-                    AssertEqual("abc1234", retry, "a retry still reports the commit");
+                    AssertEqual("abcdef0123456789abcdef0123456789abcdef01", retry, "a retry still reports the full commit");
                     AssertEqual(1, git.ForceUpdateBranchRefCalls.Count, "an existing branch is left where it is");
                 }
             });

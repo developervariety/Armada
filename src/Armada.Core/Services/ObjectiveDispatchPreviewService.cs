@@ -261,7 +261,7 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrWhiteSpace(result.StartFromRef)) return;
             string repositoryPath = RepositoryPath(vessel);
-            string? commit = await _Git.GetRevisionShaAsync(repositoryPath, result.StartFromRef, token).ConfigureAwait(false);
+            string? commit = await _Git.GetRevisionCommitShaAsync(repositoryPath, result.StartFromRef, token).ConfigureAwait(false);
             result.ResolvedStartCommit = NormalizeEmpty(commit);
             if (String.IsNullOrWhiteSpace(commit))
             {
@@ -302,7 +302,7 @@ namespace Armada.Core.Services
                     startRef = null;
                 string? commit = startRef == null
                     ? null
-                    : NormalizeEmpty(await _Git.GetRevisionShaAsync(RepositoryPath(vessel), startRef, token).ConfigureAwait(false));
+                    : NormalizeEmpty(await _Git.GetRevisionCommitShaAsync(RepositoryPath(vessel), startRef, token).ConfigureAwait(false));
                 result.MissionStartRefs.Add(new ObjectiveDispatchMissionRef
                 {
                     MissionIndex = index,
@@ -373,7 +373,7 @@ namespace Armada.Core.Services
                 return;
             }
 
-            string? current = await _Git.GetRevisionShaAsync(RepositoryPath(anchorVessel), anchor.Ref, token).ConfigureAwait(false);
+            string? current = await _Git.GetRevisionCommitShaAsync(RepositoryPath(anchorVessel), anchor.Ref, token).ConfigureAwait(false);
             if (String.IsNullOrWhiteSpace(current))
             {
                 AddIssue(result, "preparation_" + label + "_ref_missing", "provisioning", ReadinessSeverityEnum.Error,

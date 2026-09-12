@@ -58,7 +58,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(startFromRef)) throw new ArgumentNullException(nameof(startFromRef));
 
             string repoPath = vessel.LocalPath ?? Path.Combine(_Settings.ReposDirectory, vessel.Name + ".git");
-            string? commit = await _Git.GetRevisionShaAsync(repoPath, startFromRef, token).ConfigureAwait(false);
+            string? commit = await _Git.GetRevisionCommitShaAsync(repoPath, startFromRef, token).ConfigureAwait(false);
             if (String.IsNullOrEmpty(commit))
             {
                 _Logging.Warn(_Header + "start ref " + startFromRef + " does not resolve in " + repoPath + "; branch " + branchName + " not created");

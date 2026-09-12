@@ -197,5 +197,14 @@ namespace Test.Shared.Infrastructure
             return Task.CompletedTask;
         }
 
+        public string? RevisionCommitShaResult { get; set; }
+        public List<string> RevisionCommitShaCalls { get; } = new List<string>();
+
+        public Task<string?> GetRevisionCommitShaAsync(string repoPath, string revision, CancellationToken token = default)
+        {
+            RevisionCommitShaCalls.Add(repoPath + "|" + revision);
+            return Task.FromResult(RevisionCommitShaResult);
+        }
+
     }
 }

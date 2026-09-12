@@ -33,7 +33,7 @@ namespace Armada.Test.Unit.Suites.Services
                     PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
                     harness.Captain.State = CaptainStateEnum.Working;
                     await testDb.Driver.Captains.UpdateAsync(harness.Captain).ConfigureAwait(false);
-                    harness.Git.RevisionShaResult = "0123456789abcdef";
+                    harness.Git.RevisionCommitShaResult = "0123456789abcdef0123456789abcdef01234567";
 
                     Objective objective = harness.CreateReadyObjective("busy-capacity-preview");
                     objective.StartFromRef = "accepted-tip";
@@ -43,7 +43,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertTrue(result.IsReady, "A busy captain is configured role coverage. Idle state is capacity, not readiness.");
                     AssertEqual("WorkerOnly", result.PipelineName, "No configured pipeline uses the Worker-only path.");
-                    AssertEqual("0123456789abcdef", result.ResolvedStartCommit, "Start ref resolution is reported.");
+                    AssertEqual("0123456789abcdef0123456789abcdef01234567", result.ResolvedStartCommit, "Full start-ref resolution is reported.");
+                    AssertTrue(harness.Git.RevisionCommitShaCalls.Contains(harness.RepositoryDirectory + "|accepted-tip"), "Objective preview uses strict commit resolution.");
                     AssertEqual(1, result.RequiredRoles.Count, "Worker-only dispatch has one required role.");
                     AssertEqual(0, result.RequiredRoles[0].IdleEligibleCount, "The eligible captain is busy.");
                     AssertTrue(result.Issues.Any(issue => issue.Code == "required_role_has_no_idle_captain"),
@@ -262,8 +263,8 @@ namespace Armada.Test.Unit.Suites.Services
                     defaultPipeline = await testDb.Driver.Pipelines.CreateAsync(defaultPipeline).ConfigureAwait(false);
                     harness.Vessel.DefaultPipelineId = defaultPipeline.Id;
                     await testDb.Driver.Vessels.UpdateAsync(harness.Vessel).ConfigureAwait(false);
-                    harness.Git.RevisionShas[harness.RepositoryDirectory + "|known-tip"] = "1111111111111111";
-                    harness.Git.RevisionShas[harness.RepositoryDirectory + "|missing-tip"] = null;
+                    harness.Git.RevisionCommitShas[harness.RepositoryDirectory + "|known-tip"] = "1111111111111111111111111111111111111111";
+                    harness.Git.RevisionCommitShas[harness.RepositoryDirectory + "|missing-tip"] = null;
                     Objective objective = harness.CreateReadyObjective("operator-mission-preview");
                     List<MissionDescription> missions = new List<MissionDescription>
                     {
@@ -277,7 +278,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("WorkerOnly", result.PipelineName, "An all-read-only operator request does not inherit the default pipeline.");
                     AssertEqual("Mixed", result.DeliverableMode, "Mixed read-only modes are reported without losing either mode.");
                     AssertEqual(2, result.MissionStartRefs.Count, "Each operator mission has an effective start-ref result.");
-                    AssertEqual("1111111111111111", result.MissionStartRefs[0].ResolvedCommit, "The known mission ref resolves.");
+                    AssertEqual("1111111111111111111111111111111111111111", result.MissionStartRefs[0].ResolvedCommit, "The known mission ref resolves.");
+                    AssertTrue(harness.Git.RevisionCommitShaCalls.Contains(harness.RepositoryDirectory + "|known-tip"), "Per-mission preview uses strict commit resolution.");
                     AssertTrue(result.Issues.Any(issue => issue.Code == "mission_start_from_ref_missing" && issue.RelatedValue == "missing-tip"),
                         "An unresolved per-mission ref blocks dispatch.");
                 }

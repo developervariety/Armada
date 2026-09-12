@@ -263,6 +263,19 @@ namespace Armada.Core.Services.Interfaces
         }
 
         /// <summary>
+        /// Resolve a revision to the full object ID of a commit that exists in this repository.
+        /// </summary>
+        /// <remarks>
+        /// Use this for branch creation and other writes. A hexadecimal string can be parsed as a
+        /// revision name even when the named object is absent, so write paths must verify the commit
+        /// object and must not replace it with an abbreviated display value.
+        /// </remarks>
+        Task<string?> GetRevisionCommitShaAsync(string repoPath, string revision, CancellationToken token = default)
+        {
+            return Task.FromResult<string?>(null);
+        }
+
+        /// <summary>
         /// Whether one ref is an ancestor of another, or null when it cannot be determined.
         /// </summary>
         /// <remarks>

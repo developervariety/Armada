@@ -219,6 +219,11 @@ namespace Armada.Core.Services
                 await _Playbooks.ResolveSelectionsAsync(vessel.TenantId, selectedPlaybooks, token).ConfigureAwait(false);
             }
 
+            // Validate request-shaped inputs before creating any durable voyage state.
+            ValidatePrestagedFilesOrThrow(missionDescriptions);
+            await ValidateDependsOnReferencesOrThrowAsync(missionDescriptions, token).ConfigureAwait(false);
+            await ValidateStartFromRefsOrThrowAsync(vessel, missionDescriptions, token).ConfigureAwait(false);
+
             // Create voyage
             Voyage voyage = new Voyage(title, description);
             voyage.TenantId = vessel.TenantId;
@@ -231,13 +236,6 @@ namespace Armada.Core.Services
                 await _Database.Playbooks.SetVoyageSelectionsAsync(voyage.Id, voyage.SelectedPlaybooks, token).ConfigureAwait(false);
             }
             _Logging.Info(_Header + "created voyage " + voyage.Id + ": " + title);
-
-            // Validate prestaged files for every mission before any persistence. Reject
-            // the entire dispatch on the first failure so the caller sees a single,
-            // unambiguous error and no partial state is left behind.
-            ValidatePrestagedFilesOrThrow(missionDescriptions);
-            await ValidateDependsOnReferencesOrThrowAsync(missionDescriptions, token).ConfigureAwait(false);
-            await ValidateStartFromRefsOrThrowAsync(vessel, missionDescriptions, token).ConfigureAwait(false);
 
             // Create missions
             foreach (MissionDescription md in missionDescriptions)
@@ -336,6 +334,11 @@ namespace Armada.Core.Services
                 return await DispatchVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, token).ConfigureAwait(false);
             }
 
+            // Validate request-shaped inputs before creating any durable voyage state.
+            ValidatePrestagedFilesOrThrow(missionDescriptions);
+            await ValidateDependsOnReferencesOrThrowAsync(missionDescriptions, token).ConfigureAwait(false);
+            await ValidateStartFromRefsOrThrowAsync(vessel, missionDescriptions, token).ConfigureAwait(false);
+
             _Logging.Info(_Header + "resolved pipeline " + pipeline.Name + " with " + pipeline.Stages.Count + " stage(s) for voyage dispatch of " + missionDescriptions.Count + " mission(s)");
 
             // Multi-stage pipeline: create voyage, then for each mission create a chain of persona stages
@@ -350,11 +353,6 @@ namespace Armada.Core.Services
                 await _Database.Playbooks.SetVoyageSelectionsAsync(voyage.Id, voyage.SelectedPlaybooks, token).ConfigureAwait(false);
             }
             _Logging.Info(_Header + "created pipeline voyage " + voyage.Id + ": " + title + " (pipeline: " + pipeline.Name + ")");
-
-            // Validate prestaged files for every mission before persisting any pipeline stage.
-            ValidatePrestagedFilesOrThrow(missionDescriptions);
-            await ValidateDependsOnReferencesOrThrowAsync(missionDescriptions, token).ConfigureAwait(false);
-            await ValidateStartFromRefsOrThrowAsync(vessel, missionDescriptions, token).ConfigureAwait(false);
 
             foreach (MissionDescription md in missionDescriptions)
             {
@@ -830,13 +828,17 @@ namespace Armada.Core.Services
                 string? startFromRef = NormalizeStartFromRef(md.StartFromRef);
                 if (startFromRef == null || !String.IsNullOrEmpty(md.DependsOnMissionId)) continue;
 
-                string? sha = await _Git.GetRevisionShaAsync(repoPath, startFromRef, token).ConfigureAwait(false);
+                string? sha = await _Git.GetRevisionCommitShaAsync(repoPath, startFromRef, token).ConfigureAwait(false);
                 if (String.IsNullOrEmpty(sha))
                 {
                     throw new StartFromRefMissingException(
-                        "start_from_ref_missing: ref '" + startFromRef + "' does not resolve in the repository of vessel " + vessel.Name + ".");
+                        "start_from_ref_missing: ref '" + startFromRef + "' does not resolve to a commit in '" + repoPath
+                        + "' for vessel " + vessel.Name + ". Fetch that repository before retrying.");
                 }
 
+                // Persist the verified immutable commit as the assignment base. This prevents a
+                // moving branch or tag from changing the accepted start point after dispatch.
+                md.StartFromRef = sha;
                 _Logging.Info(_Header + "start ref " + startFromRef + " resolves to " + sha + " in vessel " + vessel.Name);
             }
         }

@@ -130,6 +130,75 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("PrepareBranchFromRefAsync refuses a hexadecimal commit absent from the dock repository and preserves the full verified object ID", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    ArmadaSettings settings = new ArmadaSettings();
+                    GitService git = new GitService(logging);
+                    DockService service = new DockService(logging, testDb.Driver, settings, git);
+
+                    string rootDir = Path.Combine(Path.GetTempPath(), "armada-start-ref-" + Guid.NewGuid().ToString("N"));
+                    string sourceDir = Path.Combine(rootDir, "source");
+                    string bareDir = Path.Combine(rootDir, "bare.git");
+
+                    try
+                    {
+                        Directory.CreateDirectory(sourceDir);
+                        await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                        await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                        await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                        await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "base\n").ConfigureAwait(false);
+                        await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                        await RunGitAsync(sourceDir, "commit", "-m", "Base").ConfigureAwait(false);
+                        await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+
+                        await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "new tip\n").ConfigureAwait(false);
+                        await RunGitAsync(sourceDir, "commit", "-am", "New tip").ConfigureAwait(false);
+                        string newTip = (await RunGitAsync(sourceDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+
+                        Vessel vessel = new Vessel("start-ref-vessel", sourceDir) { LocalPath = bareDir };
+                        string branchName = "armada/test/msn_start_ref";
+                        string? absent = await service.PrepareBranchFromRefAsync(vessel, branchName, newTip).ConfigureAwait(false);
+                        AssertNull(absent, "a hexadecimal name for an absent object must not pass revision parsing");
+                        string absentBranch = (await RunGitAsync(bareDir, "branch", "--list", branchName).ConfigureAwait(false)).Trim();
+                        AssertEqual(String.Empty, absentBranch, "an absent commit must not create a branch");
+
+                        await RunGitAsync(bareDir, "fetch", sourceDir, "refs/heads/main:refs/heads/main").ConfigureAwait(false);
+                        string? resolved = await service.PrepareBranchFromRefAsync(vessel, branchName, newTip).ConfigureAwait(false);
+                        AssertEqual(newTip, resolved, "the write path returns the full verified object ID");
+                        string branchTip = (await RunGitAsync(bareDir, "rev-parse", "refs/heads/" + branchName).ConfigureAwait(false)).Trim();
+                        AssertEqual(newTip, branchTip, "the branch is cut at the verified object");
+
+                        string? optionLike = await git.GetRevisionCommitShaAsync(bareDir, "--help").ConfigureAwait(false);
+                        AssertNull(optionLike, "an option-like revision fails closed");
+
+                        using CancellationTokenSource cancelled = new CancellationTokenSource();
+                        cancelled.Cancel();
+                        bool cancellationObserved = false;
+                        try
+                        {
+                            await git.GetRevisionCommitShaAsync(bareDir, newTip, cancelled.Token).ConfigureAwait(false);
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            cancellationObserved = true;
+                        }
+                        AssertTrue(cancellationObserved, "commit resolution preserves caller cancellation");
+                    }
+                    finally
+                    {
+                        if (Directory.Exists(rootDir))
+                        {
+                            try { Directory.Delete(rootDir, true); }
+                            catch { }
+                        }
+                    }
+                }
+            });
+
             await RunTest("An explicit opt-out removes MCP client config but keeps OpenCode permissions", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

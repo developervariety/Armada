@@ -689,6 +689,35 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<string?> GetRevisionCommitShaAsync(string repoPath, string revision, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) return null;
+            if (String.IsNullOrEmpty(revision)) return null;
+
+            try
+            {
+                string output = await RunGitAsync(
+                    repoPath,
+                    token,
+                    "rev-parse",
+                    "--verify",
+                    "--end-of-options",
+                    revision + "^{commit}").ConfigureAwait(false);
+                string trimmed = output.Trim();
+                return String.IsNullOrEmpty(trimmed) ? null : trimmed;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "could not verify commit " + revision + " in " + repoPath + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <inheritdoc />
         public async Task<IReadOnlyList<GitAnchorCommit>> GetCommitsTouchingPathAsync(
             string worktreePath,
             string relativePath,
