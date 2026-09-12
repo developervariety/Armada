@@ -59,6 +59,9 @@ namespace Armada.Server.Mcp.Tools
                     if (!settings.LearnedFactsEnabled)
                         return (object)new { Error = "learned_facts_disabled" };
 
+                    try
+                    {
+
                     ConsolidateMemoryArgs request = args.HasValue
                         ? JsonSerializer.Deserialize<ConsolidateMemoryArgs>(args!.Value, _JsonOptions)!
                         : new ConsolidateMemoryArgs();
@@ -195,15 +198,28 @@ namespace Armada.Server.Mcp.Tools
                     ReflectionDispatcher.DispatchResult dispatched = await dispatcher
                         .DispatchReflectionAsync(vessel, brief, mode, dualJudge, tokenBudget)
                         .ConfigureAwait(false);
-                    return (object)new
+                        return (object)new
+                        {
+                            missionId = dispatched.MissionId,
+                            voyageId = dispatched.VoyageId,
+                            evidenceMissionCount = bundle.EvidenceMissionCount,
+                            truncated = bundle.Truncated,
+                            mode = ReflectionMemoryService.ModeToWireString(mode),
+                            dualJudge = dualJudge
+                        };
+                    }
+                    catch (FleetCapacityAdmissionException capacity)
                     {
-                        missionId = dispatched.MissionId,
-                        voyageId = dispatched.VoyageId,
-                        evidenceMissionCount = bundle.EvidenceMissionCount,
-                        truncated = bundle.Truncated,
-                        mode = ReflectionMemoryService.ModeToWireString(mode),
-                        dualJudge = dualJudge
-                    };
+                        return (object)new
+                        {
+                            Error = capacity.Message,
+                            capacity.Code,
+                            capacity.ActiveCount,
+                            capacity.Limit,
+                            capacity.CandidateVesselId,
+                            capacity.LaneMembers
+                        };
+                    }
                 });
 
             register(

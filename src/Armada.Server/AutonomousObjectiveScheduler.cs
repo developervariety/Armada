@@ -621,6 +621,23 @@ namespace Armada.Server
                     {
                         RecordSkip(skipReasons, skipped.Reason);
                     }
+                    catch (FleetCapacityAdmissionException capacityRefusal)
+                    {
+                        string reason = String.Equals(
+                            capacityRefusal.Code,
+                            "sibling_lane_capacity_reached",
+                            StringComparison.Ordinal)
+                            ? "lane_busy"
+                            : "max_concurrent";
+                        RecordSkip(skipReasons, reason);
+                        await EmitObjectiveEventAsync(
+                            "objective_scheduler.skipped_" + capacityRefusal.Code,
+                            "Autonomous scheduler skipped objective " + objective.Id + ": "
+                                + capacityRefusal.Message,
+                            objective,
+                            capacityRefusal.CandidateVesselId,
+                            token).ConfigureAwait(false);
+                    }
                     catch (StartFromRefMissingException missing)
                     {
                         // A ref that does not resolve is the objective's fault, not the fleet's.

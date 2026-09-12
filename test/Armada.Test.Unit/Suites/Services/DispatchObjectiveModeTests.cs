@@ -431,6 +431,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                 ArmadaSettings settings = new ArmadaSettings();
                 settings.CodeIndex.Enabled = false;
+                settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages = 10;
+                settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel = 10;
                 settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_test_docks_" + Guid.NewGuid().ToString("N"));
                 settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_test_repos_" + Guid.NewGuid().ToString("N"));
 

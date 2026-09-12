@@ -175,6 +175,14 @@ Operator and autonomous objective dispatch use this same preflight.
 The REST preview accepts a JSON `captainAssignments` query value when an
 operator must test the same captain and fallback-tier overrides as dispatch.
 
+Every work-creation path also passes through one durable fleet-capacity gate.
+The gate counts active work-bearing voyages plus standalone active missions,
+uses the transitive sibling-lane map, and holds a renewable tenant-scoped lease
+through initial graph creation. Capacity refusals use
+`fleet_capacity_reached` or `sibling_lane_capacity_reached`; failed creation is
+cancelled before the lease is released. Mission metadata updates cannot move a
+mission between vessels or voyages, and restarts are admitted like new work.
+
 ### Pipelines and Personas
 
 Built-in pipelines let work move through the right level of review:

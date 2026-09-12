@@ -392,7 +392,10 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
-                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
+                    ArmadaSettings settings = CreateSettings();
+                    settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages = 2;
+                    settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel = 2;
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
 
                     Pipeline reviewed = new Pipeline("Reviewed");
                     reviewed.Stages = new List<PipelineStage>
@@ -443,7 +446,10 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
                     StubGitService git = new StubGitService();
-                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
+                    ArmadaSettings settings = CreateSettings();
+                    settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages = 2;
+                    settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel = 2;
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, git);
 
                     Pipeline tested = new Pipeline("WorkerTestedJudged");
                     tested.Stages = new List<PipelineStage>

@@ -156,6 +156,8 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
+                    settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages = 2;
+                    settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel = 2;
                     StubGitService git = new StubGitService();
 
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
@@ -753,6 +755,8 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
+                    settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages = 2;
+                    settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel = 2;
                     StubGitService git = new StubGitService();
 
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);

@@ -201,7 +201,22 @@ namespace Armada.Server.Mcp.Tools
                     Vessel? dispatchVessel = await database.Vessels.ReadAsync(request.VesselId).ConfigureAwait(false);
                     List<SelectedPlaybook> callerPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>();
                     mission.SelectedPlaybooks = PlaybookMerge.MergeWithVesselDefaults(dispatchVessel?.GetDefaultPlaybooks(), callerPlaybooks);
-                    mission = await admiral.DispatchMissionAsync(mission).ConfigureAwait(false);
+                    try
+                    {
+                        mission = await admiral.DispatchMissionAsync(mission).ConfigureAwait(false);
+                    }
+                    catch (FleetCapacityAdmissionException capacity)
+                    {
+                        return (object)new
+                        {
+                            Error = capacity.Message,
+                            capacity.Code,
+                            capacity.ActiveCount,
+                            capacity.Limit,
+                            capacity.CandidateVesselId,
+                            capacity.LaneMembers
+                        };
+                    }
                     if (mission.Status == Armada.Core.Enums.MissionStatusEnum.Pending)
                     {
                         return (object)new
@@ -499,15 +514,23 @@ namespace Armada.Server.Mcp.Tools
                     if (!String.IsNullOrEmpty(request.Title)) mission.Title = request.Title;
                     if (!String.IsNullOrEmpty(request.Description)) mission.Description = request.Description;
 
-                    mission.Status = MissionStatusEnum.Pending;
-                    mission.CaptainId = null;
-                    mission.BranchName = null;
-                    mission.PrUrl = null;
-                    mission.CommitHash = null;
-                    mission.StartedUtc = null;
-                    mission.CompletedUtc = null;
-                    mission.LastUpdateUtc = DateTime.UtcNow;
-                    mission = await database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    try
+                    {
+                        MissionRestartService restarts = new MissionRestartService(database, settings ?? new ArmadaSettings());
+                        mission = await restarts.RestartAsync(mission, mission.Title, mission.Description).ConfigureAwait(false);
+                    }
+                    catch (FleetCapacityAdmissionException capacity)
+                    {
+                        return (object)new
+                        {
+                            Error = capacity.Message,
+                            capacity.Code,
+                            capacity.ActiveCount,
+                            capacity.Limit,
+                            capacity.CandidateVesselId,
+                            capacity.LaneMembers
+                        };
+                    }
 
                     Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + missionId + " restarted");
                     signal.TenantId = ArmadaConstants.DefaultTenantId;

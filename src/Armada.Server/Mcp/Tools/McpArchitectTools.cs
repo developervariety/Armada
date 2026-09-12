@@ -8,6 +8,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using SyslogLogging;
@@ -165,12 +166,28 @@ namespace Armada.Server.Mcp.Tools
                         codeIndexEnabled).ConfigureAwait(false);
                     if (codeContextError != null) return (object)new { Error = codeContextError };
 
-                    Voyage voyage = await admiral.DispatchVoyageAsync(
-                        title,
-                        "Architect-mode decomposition for " + specBasename,
-                        vesselId,
-                        new List<MissionDescription> { missionDesc },
-                        mergedPlaybooks).ConfigureAwait(false);
+                    Voyage voyage;
+                    try
+                    {
+                        voyage = await admiral.DispatchVoyageAsync(
+                            title,
+                            "Architect-mode decomposition for " + specBasename,
+                            vesselId,
+                            new List<MissionDescription> { missionDesc },
+                            mergedPlaybooks).ConfigureAwait(false);
+                    }
+                    catch (FleetCapacityAdmissionException capacity)
+                    {
+                        return (object)new
+                        {
+                            Error = capacity.Message,
+                            capacity.Code,
+                            capacity.ActiveCount,
+                            capacity.Limit,
+                            capacity.CandidateVesselId,
+                            capacity.LaneMembers
+                        };
+                    }
 
                     List<Mission> missions = await database.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
                     string architectMissionId = "";

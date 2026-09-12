@@ -423,7 +423,23 @@ namespace Armada.Server.Routes
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Mission.");
                 mission.TenantId = ctx.TenantId;
                 mission.UserId = ctx.UserId;
-                mission = await _admiral.DispatchMissionAsync(mission).ConfigureAwait(false);
+                try
+                {
+                    mission = await _admiral.DispatchMissionAsync(mission).ConfigureAwait(false);
+                }
+                catch (FleetCapacityAdmissionException capacity)
+                {
+                    req.Http.Response.StatusCode = 409;
+                    return new
+                    {
+                        Error = capacity.Message,
+                        capacity.Code,
+                        capacity.ActiveCount,
+                        capacity.Limit,
+                        capacity.CandidateVesselId,
+                        capacity.LaneMembers
+                    };
+                }
                 req.Http.Response.StatusCode = 201;
                 if (mission.Status == MissionStatusEnum.Pending)
                 {
@@ -630,8 +646,12 @@ namespace Armada.Server.Routes
                 existing.Title = incoming.Title;
                 existing.Description = incoming.Description;
                 existing.Priority = incoming.Priority;
-                existing.VesselId = incoming.VesselId;
-                existing.VoyageId = incoming.VoyageId;
+                if (!String.Equals(existing.VesselId, incoming.VesselId, StringComparison.OrdinalIgnoreCase)
+                    || !String.Equals(existing.VoyageId, incoming.VoyageId, StringComparison.OrdinalIgnoreCase))
+                {
+                    req.Http.Response.StatusCode = 409;
+                    return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = "Mission vesselId and voyageId cannot be changed by the metadata update route." };
+                }
                 existing.BranchName = incoming.BranchName;
                 existing.PrUrl = incoming.PrUrl;
                 existing.ParentMissionId = incoming.ParentMissionId;
@@ -1033,19 +1053,24 @@ namespace Armada.Server.Routes
                 }
                 catch { }
 
-                mission.Status = MissionStatusEnum.Pending;
-                mission.CreatedUtc = DateTime.UtcNow;
-                mission.CaptainId = null;
-                mission.BranchName = null;
-                mission.PrUrl = null;
-                mission.CommitHash = null;
-                mission.DockId = null;
-                mission.ProcessId = null;
-                mission.DiffSnapshot = null;
-                mission.StartedUtc = null;
-                mission.CompletedUtc = null;
-                mission.LastUpdateUtc = DateTime.UtcNow;
-                mission = await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                try
+                {
+                    MissionRestartService restarts = new MissionRestartService(_database, _settings, _logging);
+                    mission = await restarts.RestartAsync(mission, mission.Title, mission.Description).ConfigureAwait(false);
+                }
+                catch (FleetCapacityAdmissionException capacity)
+                {
+                    req.Http.Response.StatusCode = 409;
+                    return new
+                    {
+                        Error = capacity.Message,
+                        capacity.Code,
+                        capacity.ActiveCount,
+                        capacity.Limit,
+                        capacity.CandidateVesselId,
+                        capacity.LaneMembers
+                    };
+                }
 
                 Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " restarted");
                 await _database.Signals.CreateAsync(signal).ConfigureAwait(false);

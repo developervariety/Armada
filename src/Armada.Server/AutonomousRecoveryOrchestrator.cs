@@ -1497,36 +1497,59 @@ namespace Armada.Server
                 Status = VoyageStatusEnum.InProgress
             }, token).ConfigureAwait(false);
 
-            await LinkRescueVoyageToObjectivesAsync(failedMission, rescueVoyage, token).ConfigureAwait(false);
-
             workerRescue.VoyageId = rescueVoyage.Id;
-            Mission dispatchedWorker = await _Admiral.DispatchMissionQueuedAsync(workerRescue, token).ConfigureAwait(false);
-
-            string upstreamMissionId = dispatchedWorker.Id;
-
-            if (await VesselPipelineHasTestEngineerAsync(failedMission, token).ConfigureAwait(false))
+            try
             {
-                Mission testStage = await _Database.Missions.CreateAsync(
-                    BuildChainedRescueStage(failedMission, rescueVoyage.Id, upstreamMissionId, "TestEngineer", attemptNumber),
+                Mission dispatchedWorker = await _Admiral.DispatchMissionQueuedAsync(workerRescue, token).ConfigureAwait(false);
+
+                await LinkRescueVoyageToObjectivesAsync(failedMission, rescueVoyage, token).ConfigureAwait(false);
+
+                string upstreamMissionId = dispatchedWorker.Id;
+
+                if (await VesselPipelineHasTestEngineerAsync(failedMission, token).ConfigureAwait(false))
+                {
+                    Mission testStage = await _Database.Missions.CreateAsync(
+                        BuildChainedRescueStage(failedMission, rescueVoyage.Id, upstreamMissionId, "TestEngineer", attemptNumber),
+                        token).ConfigureAwait(false);
+                    upstreamMissionId = testStage.Id;
+                }
+
+                await _Database.Missions.CreateAsync(
+                    BuildChainedRescueStage(failedMission, rescueVoyage.Id, upstreamMissionId, "Judge", attemptNumber),
                     token).ConfigureAwait(false);
-                upstreamMissionId = testStage.Id;
+
+                // A rescue-Judge PASS is subject to the real-signal gate: it needs independent green
+                // Build/UnitTest Checks, and a rescue voyage has none unless something creates them.
+                await ArmRescueChecksAsync(failedMission, rescueVoyage, token).ConfigureAwait(false);
+
+                return dispatchedWorker;
             }
-
-            await _Database.Missions.CreateAsync(
-                BuildChainedRescueStage(failedMission, rescueVoyage.Id, upstreamMissionId, "Judge", attemptNumber),
-                token).ConfigureAwait(false);
-
-            // A rescue-Judge PASS is subject to the real-signal gate: it needs independent green
-            // Build/UnitTest Checks, and a rescue voyage has none unless something creates them
-            // (a recovery judge with no Checks was rejected at the gate and misreported as a judge
-            // FAIL). The checks are ARMED here, never run: at this moment the rescue Worker has not
-            // started, so a check run now measures the vessel's default branch and hands the Judge
-            // a green that says nothing about the revision. An armed record is stamped with the
-            // rescue's branch and commit by the check executor once a stage has committed, and
-            // runs against that. A failure here must not break the rescue dispatch.
-            await ArmRescueChecksAsync(failedMission, rescueVoyage, token).ConfigureAwait(false);
-
-            return dispatchedWorker;
+            catch (FleetCapacityAdmissionException capacity)
+            {
+                await VoyageCancellation.CancelVoyageAsync(
+                    _Database,
+                    rescueVoyage,
+                    "Rescue deferred: " + capacity.Code + ".",
+                    CancellationToken.None,
+                    _Admiral.RecallCaptainAsync).ConfigureAwait(false);
+                await EmitEventAsync(
+                    "autonomous_recovery.capacity_deferred",
+                    capacity.Message,
+                    failedMission,
+                    null,
+                    token).ConfigureAwait(false);
+                throw;
+            }
+            catch
+            {
+                await VoyageCancellation.CancelVoyageAsync(
+                    _Database,
+                    rescueVoyage,
+                    "Rescue cancelled: initial mission graph creation failed.",
+                    CancellationToken.None,
+                    _Admiral.RecallCaptainAsync).ConfigureAwait(false);
+                throw;
+            }
         }
 
         /// <summary>

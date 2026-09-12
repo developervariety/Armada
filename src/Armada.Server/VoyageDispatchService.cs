@@ -312,6 +312,19 @@ namespace Armada.Server
                     return linkConflict;
                 }
             }
+            catch (FleetCapacityAdmissionException capacity)
+            {
+                if (voyage != null && ObjectiveService.IsActiveVoyageStatus(voyage.Status))
+                {
+                    await VoyageCancellation.CancelVoyageAsync(
+                        _Database,
+                        voyage,
+                        "Voyage cancelled: " + capacity.Code + ".",
+                        CancellationToken.None,
+                        _Admiral.RecallCaptainAsync).ConfigureAwait(false);
+                }
+                return CapacityConflictResult(capacity);
+            }
             catch
             {
                 if (voyage != null && ObjectiveService.IsActiveVoyageStatus(voyage.Status))
@@ -1162,6 +1175,19 @@ namespace Armada.Server
             });
         }
 
+        private static VoyageDispatchResult CapacityConflictResult(FleetCapacityAdmissionException capacity)
+        {
+            return VoyageDispatchResult.Conflict(new
+            {
+                Error = capacity.Message,
+                capacity.Code,
+                capacity.ActiveCount,
+                capacity.Limit,
+                capacity.CandidateVesselId,
+                capacity.LaneMembers
+            });
+        }
+
         private async Task<object> DispatchWithAliasesAsync(
             string title,
             string description,
@@ -1203,9 +1229,11 @@ namespace Armada.Server
             Dictionary<string, string> aliasToMsnId = new Dictionary<string, string>(StringComparer.Ordinal);
             bool anyAssigned = false;
 
-            foreach (MissionDescription md in sortedMissions)
+            try
             {
-                string? externalDep = null;
+                foreach (MissionDescription md in sortedMissions)
+                {
+                    string? externalDep = null;
                 if (!String.IsNullOrEmpty(md.DependsOnMissionAlias))
                     externalDep = aliasToMsnId[md.DependsOnMissionAlias];
                 else if (!String.IsNullOrEmpty(md.DependsOnMissionId))
@@ -1315,15 +1343,28 @@ namespace Armada.Server
                     previousOrderLastMissionId = lastMissionInGroup;
                 }
 
-                if (!String.IsNullOrEmpty(md.Alias) && lastStageMissionId != null)
-                    aliasToMsnId[md.Alias] = lastStageMissionId;
+                    if (!String.IsNullOrEmpty(md.Alias) && lastStageMissionId != null)
+                        aliasToMsnId[md.Alias] = lastStageMissionId;
+                }
+
+                voyage.Status = anyAssigned ? VoyageStatusEnum.InProgress : VoyageStatusEnum.Open;
+                voyage.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
+
+                return voyage;
             }
-
-            voyage.Status = anyAssigned ? VoyageStatusEnum.InProgress : VoyageStatusEnum.Open;
-            voyage.LastUpdateUtc = DateTime.UtcNow;
-            await _Database.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
-
-            return voyage;
+            catch (Exception ex)
+            {
+                await VoyageCancellation.CancelVoyageAsync(
+                    _Database,
+                    voyage,
+                    ex is FleetCapacityAdmissionException capacity
+                        ? "Voyage cancelled: " + capacity.Code + "."
+                        : "Voyage cancelled: initial mission graph creation failed.",
+                    CancellationToken.None,
+                    _Admiral.RecallCaptainAsync).ConfigureAwait(false);
+                throw;
+            }
         }
 
         private static List<SelectedPlaybook> ClonePlaybookSelectionsLocal(List<SelectedPlaybook>? selections)

@@ -15,6 +15,11 @@ replaced.
 Focus: operator signal fidelity - make a failure say what actually failed.
 
 ### Operator documentation
+- All voyage, mission, recovery, reflection, Architect, and restart entry points
+  now share one tenant-scoped durable capacity admission lease. The gate counts
+  actual work-bearing voyages and standalone missions, resolves transitive
+  sibling lanes, returns typed capacity refusals, verifies lease ownership at
+  the commit boundary, and cancels partial graphs when creation fails.
 - Objective dispatch preparation can now be mandatory. Preview verifies full
   immutable source and target commits, evidence and timestamps for required
   claims, and structured sibling repository and artifact requirements. Runtime

@@ -313,7 +313,24 @@ namespace Armada.Server.WebSocket
                     }
                     else
                     {
-                        createdVoyage = await _Admiral.DispatchVoyageAsync(voyTitle, voyDesc, voyVesselId, missionDescs).ConfigureAwait(false);
+                        try
+                        {
+                            createdVoyage = await _Admiral.DispatchVoyageAsync(voyTitle, voyDesc, voyVesselId, missionDescs).ConfigureAwait(false);
+                        }
+                        catch (FleetCapacityAdmissionException capacity)
+                        {
+                            return new
+                            {
+                                type = "command.error",
+                                action = "create_voyage",
+                                error = capacity.Message,
+                                code = capacity.Code,
+                                activeCount = capacity.ActiveCount,
+                                limit = capacity.Limit,
+                                candidateVesselId = capacity.CandidateVesselId,
+                                laneMembers = capacity.LaneMembers
+                            };
+                        }
                     }
                     return new { type = "command.result", action = "create_voyage", data = (object)createdVoyage };
 
@@ -455,7 +472,24 @@ namespace Armada.Server.WebSocket
                 case "create_mission":
                 {
                     Mission newMission = JsonSerializer.Deserialize<WebSocketDataCommand<Mission>>(rawBody, _JsonOptions)?.Data!;
-                    newMission = await _Admiral.DispatchMissionAsync(newMission).ConfigureAwait(false);
+                    try
+                    {
+                        newMission = await _Admiral.DispatchMissionAsync(newMission).ConfigureAwait(false);
+                    }
+                    catch (FleetCapacityAdmissionException capacity)
+                    {
+                        return new
+                        {
+                            type = "command.error",
+                            action = "create_mission",
+                            error = capacity.Message,
+                            code = capacity.Code,
+                            activeCount = capacity.ActiveCount,
+                            limit = capacity.Limit,
+                            candidateVesselId = capacity.CandidateVesselId,
+                            laneMembers = capacity.LaneMembers
+                        };
+                    }
                     if (newMission.Status == MissionStatusEnum.Pending)
                     {
                         return new { type = "command.result", action = "create_mission", data = (object)newMission, warning = "Mission created but could not be assigned to any captain. It will be retried on the next health check cycle." };
@@ -617,14 +651,29 @@ namespace Armada.Server.WebSocket
                             if (!String.IsNullOrEmpty(rmData.Data.Description)) rmMission.Description = rmData.Data.Description;
                         }
 
-                        rmMission.Status = MissionStatusEnum.Pending;
-                        rmMission.CaptainId = null;
-                        rmMission.BranchName = null;
-                        rmMission.PrUrl = null;
-                        rmMission.StartedUtc = null;
-                        rmMission.CompletedUtc = null;
-                        rmMission.LastUpdateUtc = DateTime.UtcNow;
-                        rmMission = await _Database.Missions.UpdateAsync(rmMission).ConfigureAwait(false);
+                        try
+                        {
+                            MissionRestartService restarts = new MissionRestartService(_Database, _Settings ?? new ArmadaSettings());
+                            rmMission = await restarts.RestartAsync(
+                                rmMission,
+                                rmMission.Title,
+                                rmMission.Description,
+                                allowLandingFailed: true).ConfigureAwait(false);
+                        }
+                        catch (FleetCapacityAdmissionException capacity)
+                        {
+                            return new
+                            {
+                                type = "command.error",
+                                action = "restart_mission",
+                                error = capacity.Message,
+                                code = capacity.Code,
+                                activeCount = capacity.ActiveCount,
+                                limit = capacity.Limit,
+                                candidateVesselId = capacity.CandidateVesselId,
+                                laneMembers = capacity.LaneMembers
+                            };
+                        }
 
                         Signal rmSignal = new Signal(SignalTypeEnum.Progress, "Mission " + rmId + " restarted");
                         await _Database.Signals.CreateAsync(rmSignal).ConfigureAwait(false);

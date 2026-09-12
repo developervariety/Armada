@@ -96,6 +96,7 @@ namespace Armada.Core.Services
         private IBuildDriftService? _BuildDrift;
         private ICaptainQuarantineService _CaptainQuarantine;
         private IResourcePressureAdmission _ResourcePressureAdmission;
+        private readonly FleetCapacityAdmission _FleetCapacityAdmission;
         private readonly DispatchHold? _DispatchHold;
         private IGitService _Git;
         private bool _RetryDispatchNeeded = false;
@@ -132,6 +133,9 @@ namespace Armada.Core.Services
         /// <param name="buildDrift">Optional build drift service.</param>
         /// <param name="captainQuarantine">Optional captain quarantine service.</param>
         /// <param name="resourcePressureAdmission">Optional resource-pressure admission policy updated on OOM classification.</param>
+        /// <param name="git">Optional git service.</param>
+        /// <param name="dispatchHold">Optional emergency dispatch hold.</param>
+        /// <param name="fleetCapacityAdmission">Optional universal fleet-capacity admission service.</param>
         public AdmiralService(
             LoggingModule logging,
             DatabaseDriver database,
@@ -145,7 +149,8 @@ namespace Armada.Core.Services
             ICaptainQuarantineService? captainQuarantine = null,
             IResourcePressureAdmission? resourcePressureAdmission = null,
             IGitService? git = null,
-            DispatchHold? dispatchHold = null)
+            DispatchHold? dispatchHold = null,
+            FleetCapacityAdmission? fleetCapacityAdmission = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -162,6 +167,8 @@ namespace Armada.Core.Services
                 ?? new ResourcePressureAdmission(_Settings.ResourcePressureAdmission, new HostResourcePressureProbe(), _Logging);
             _Git = git ?? new GitService(_Logging);
             _DispatchHold = dispatchHold;
+            _FleetCapacityAdmission = fleetCapacityAdmission
+                ?? new FleetCapacityAdmission(_Database, _Settings, _Logging);
         }
 
         #endregion
@@ -224,8 +231,15 @@ namespace Armada.Core.Services
             await ValidateDependsOnReferencesOrThrowAsync(missionDescriptions, token).ConfigureAwait(false);
             await ValidateStartFromRefsOrThrowAsync(vessel, missionDescriptions, token).ConfigureAwait(false);
 
+            await using FleetCapacityReservation capacityAdmission = await _FleetCapacityAdmission
+                .AcquireAsync(vessel, null, token).ConfigureAwait(false);
+
+            Voyage? voyage = null;
+            List<string> assignmentMissionIds = new List<string>();
+            try
+            {
             // Create voyage
-            Voyage voyage = new Voyage(title, description);
+            voyage = new Voyage(title, description);
             voyage.TenantId = vessel.TenantId;
             voyage.UserId = vessel.UserId;
             voyage.Status = VoyageStatusEnum.Open;
@@ -260,30 +274,24 @@ namespace Armada.Core.Services
                 await PersistMissionPlaybooksAsync(mission, perMissionPlaybooks, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "created mission " + mission.Id + ": " + md.Title);
 
-                // Schedule assignment as background task so dispatch returns immediately after persistence.
-                string capturedMissionId = mission.Id;
-                Vessel capturedVessel = vessel;
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        Mission? toAssign = await _Database.Missions.ReadAsync(capturedMissionId).ConfigureAwait(false);
-                        if (toAssign == null) return;
-                        await _Missions.TryAssignAsync(toAssign, capturedVessel).ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        _Logging.Error(_Header + "background assignment threw for mission " + capturedMissionId + ": " + ex.Message);
-                    }
-                });
+                assignmentMissionIds.Add(mission.Id);
             }
 
             // Voyage remains Open; background assignment transitions it when a mission starts.
             _Logging.Info(_Header + "voyage " + voyage.Id + " left at Open -- assignment state transitions are deferred to background tasks");
             voyage.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
+            await capacityAdmission.VerifyOwnershipAsync(token).ConfigureAwait(false);
+            QueueVoyageAssignments(voyage.Id, vessel.Id, assignmentMissionIds);
 
             return voyage;
+            }
+            catch
+            {
+                if (voyage != null)
+                    await CancelPartiallyCreatedVoyageAsync(voyage).ConfigureAwait(false);
+                throw;
+            }
         }
 
         /// <inheritdoc />
@@ -339,10 +347,17 @@ namespace Armada.Core.Services
             await ValidateDependsOnReferencesOrThrowAsync(missionDescriptions, token).ConfigureAwait(false);
             await ValidateStartFromRefsOrThrowAsync(vessel, missionDescriptions, token).ConfigureAwait(false);
 
+            await using FleetCapacityReservation capacityAdmission = await _FleetCapacityAdmission
+                .AcquireAsync(vessel, null, token).ConfigureAwait(false);
+
             _Logging.Info(_Header + "resolved pipeline " + pipeline.Name + " with " + pipeline.Stages.Count + " stage(s) for voyage dispatch of " + missionDescriptions.Count + " mission(s)");
 
+            Voyage? voyage = null;
+            List<string> assignmentMissionIds = new List<string>();
+            try
+            {
             // Multi-stage pipeline: create voyage, then for each mission create a chain of persona stages
-            Voyage voyage = new Voyage(title, description);
+            voyage = new Voyage(title, description);
             voyage.TenantId = vessel.TenantId;
             voyage.UserId = vessel.UserId;
             voyage.Status = VoyageStatusEnum.Open;
@@ -419,25 +434,8 @@ namespace Armada.Core.Services
                             " (stage " + stage.Order + "/" + pipeline.Stages.Count + ", persona: " + stage.PersonaName +
                             (groupDependencyId != null ? ", depends on: " + groupDependencyId : "") + ")");
 
-                        // Schedule assignment as background task for the first chain mission only.
                         if (isFirstChainMission)
-                        {
-                            string capturedPipelineMissionId = mission.Id;
-                            Vessel capturedPipelineVessel = vessel;
-                            _ = Task.Run(async () =>
-                            {
-                                try
-                                {
-                                    Mission? toAssign = await _Database.Missions.ReadAsync(capturedPipelineMissionId).ConfigureAwait(false);
-                                    if (toAssign == null) return;
-                                    await _Missions.TryAssignAsync(toAssign, capturedPipelineVessel).ConfigureAwait(false);
-                                }
-                                catch (Exception ex)
-                                {
-                                    _Logging.Error(_Header + "background assignment threw for mission " + capturedPipelineMissionId + ": " + ex.Message);
-                                }
-                            });
-                        }
+                            assignmentMissionIds.Add(mission.Id);
 
                         lastMissionInGroup = mission.Id;
                     }
@@ -450,8 +448,17 @@ namespace Armada.Core.Services
             _Logging.Info(_Header + "voyage " + voyage.Id + " left at Open -- assignment state transitions are deferred to background tasks");
             voyage.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
+            await capacityAdmission.VerifyOwnershipAsync(token).ConfigureAwait(false);
+            QueueVoyageAssignments(voyage.Id, vessel.Id, assignmentMissionIds);
 
             return voyage;
+            }
+            catch
+            {
+                if (voyage != null)
+                    await CancelPartiallyCreatedVoyageAsync(voyage).ConfigureAwait(false);
+                throw;
+            }
         }
 
         /// <inheritdoc />
@@ -482,11 +489,17 @@ namespace Armada.Core.Services
             await ValidateDependsOnReferencesOrThrowAsync(missionDescriptions, token).ConfigureAwait(false);
             await ValidateStartFromRefsOrThrowAsync(vessel, missionDescriptions, token).ConfigureAwait(false);
 
+            await using FleetCapacityReservation capacityAdmission = await _FleetCapacityAdmission
+                .AcquireAsync(vessel, null, token).ConfigureAwait(false);
+
             Pipeline? pipeline = await ResolvePipelineAsync(pipelineId, vessel, missionDescriptions, token).ConfigureAwait(false);
             bool isMultiStage = pipeline != null
                 && !(pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker");
 
-            Voyage voyage = new Voyage(title, description);
+            Voyage? voyage = null;
+            try
+            {
+            voyage = new Voyage(title, description);
             voyage.TenantId = vessel.TenantId;
             voyage.UserId = vessel.UserId;
             voyage.Status = VoyageStatusEnum.Open;
@@ -594,9 +607,17 @@ namespace Armada.Core.Services
 
             voyage.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
+            await capacityAdmission.VerifyOwnershipAsync(token).ConfigureAwait(false);
             QueueVoyageAssignments(voyage.Id, vessel.Id, assignmentMissionIds);
 
             return voyage;
+            }
+            catch
+            {
+                if (voyage != null)
+                    await CancelPartiallyCreatedVoyageAsync(voyage).ConfigureAwait(false);
+                throw;
+            }
         }
 
         /// <inheritdoc />
@@ -630,8 +651,30 @@ namespace Armada.Core.Services
                 }
             }
 
-            mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
-            await PersistMissionPlaybooksAsync(mission, mission.SelectedPlaybooks, token).ConfigureAwait(false);
+            Vessel? capacityVessel = String.IsNullOrWhiteSpace(mission.VesselId)
+                ? null
+                : await _Database.Vessels.ReadAsync(mission.VesselId!, token).ConfigureAwait(false);
+            if (!String.IsNullOrWhiteSpace(mission.VesselId) && capacityVessel == null)
+                throw new InvalidOperationException("Vessel not found: " + mission.VesselId);
+            await using FleetCapacityReservation? capacityAdmission = capacityVessel == null
+                ? null
+                : await _FleetCapacityAdmission.AcquireAsync(capacityVessel, mission.VoyageId, token).ConfigureAwait(false);
+
+            Mission? createdMission = null;
+            try
+            {
+                createdMission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
+                await PersistMissionPlaybooksAsync(createdMission, createdMission.SelectedPlaybooks, token).ConfigureAwait(false);
+                if (capacityAdmission != null)
+                    await capacityAdmission.VerifyOwnershipAsync(token).ConfigureAwait(false);
+                mission = createdMission;
+            }
+            catch
+            {
+                if (createdMission != null)
+                    await CancelPartiallyCreatedMissionAsync(createdMission).ConfigureAwait(false);
+                throw;
+            }
             _Logging.Info(_Header + "created queued mission " + mission.Id + ": " + mission.Title);
 
             if (!String.IsNullOrEmpty(mission.VesselId))
@@ -674,13 +717,35 @@ namespace Armada.Core.Services
                 }
             }
 
-            mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
-            await PersistMissionPlaybooksAsync(mission, mission.SelectedPlaybooks, token).ConfigureAwait(false);
+            Vessel? capacityVessel = String.IsNullOrWhiteSpace(mission.VesselId)
+                ? null
+                : await _Database.Vessels.ReadAsync(mission.VesselId!, token).ConfigureAwait(false);
+            if (!String.IsNullOrWhiteSpace(mission.VesselId) && capacityVessel == null)
+                throw new InvalidOperationException("Vessel not found: " + mission.VesselId);
+            await using FleetCapacityReservation? capacityAdmission = capacityVessel == null
+                ? null
+                : await _FleetCapacityAdmission.AcquireAsync(capacityVessel, mission.VoyageId, token).ConfigureAwait(false);
+
+            Mission? createdMission = null;
+            try
+            {
+                createdMission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
+                await PersistMissionPlaybooksAsync(createdMission, createdMission.SelectedPlaybooks, token).ConfigureAwait(false);
+                if (capacityAdmission != null)
+                    await capacityAdmission.VerifyOwnershipAsync(token).ConfigureAwait(false);
+                mission = createdMission;
+            }
+            catch
+            {
+                if (createdMission != null)
+                    await CancelPartiallyCreatedMissionAsync(createdMission).ConfigureAwait(false);
+                throw;
+            }
             _Logging.Info(_Header + "created mission " + mission.Id + ": " + mission.Title);
 
             if (!String.IsNullOrEmpty(mission.VesselId))
             {
-                Vessel? vessel = await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+                Vessel? vessel = capacityVessel;
                 if (vessel != null)
                 {
                     bool assigned = await _Missions.TryAssignAsync(mission, vessel, token).ConfigureAwait(false);
@@ -703,6 +768,41 @@ namespace Armada.Core.Services
             }
 
             return mission;
+        }
+
+        private async Task CancelPartiallyCreatedVoyageAsync(Voyage voyage)
+        {
+            try
+            {
+                await VoyageCancellation.CancelVoyageAsync(
+                    _Database,
+                    voyage,
+                    "Voyage cancelled because its initial work graph was not created completely.",
+                    CancellationToken.None,
+                    RecallCaptainAsync).ConfigureAwait(false);
+            }
+            catch (Exception cleanupEx)
+            {
+                _Logging.Error(_Header + "could not cancel partially created voyage " + voyage.Id
+                    + ": " + cleanupEx.Message);
+            }
+        }
+
+        private async Task CancelPartiallyCreatedMissionAsync(Mission mission)
+        {
+            try
+            {
+                mission.Status = MissionStatusEnum.Cancelled;
+                mission.FailureReason = "Mission cancelled because its initial durable creation did not complete.";
+                mission.CompletedUtc = DateTime.UtcNow;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission, CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception cleanupEx)
+            {
+                _Logging.Error(_Header + "could not cancel partially created mission " + mission.Id
+                    + ": " + cleanupEx.Message);
+            }
         }
 
         private void QueueVoyageAssignments(string? voyageId, string vesselId, List<string> missionIds)

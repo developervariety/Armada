@@ -40,6 +40,7 @@ namespace Armada.Core.Recovery
         private readonly IRebaseCaptainDockSetup _DockSetup;
         private readonly IMergeQueueService _MergeQueue;
         private readonly IPlaybookService? _Playbooks;
+        private readonly FleetCapacityAdmission _FleetCapacityAdmission;
 
         #endregion
 
@@ -76,6 +77,7 @@ namespace Armada.Core.Recovery
             _DockSetup = dockSetup ?? throw new ArgumentNullException(nameof(dockSetup));
             _MergeQueue = mergeQueue ?? throw new ArgumentNullException(nameof(mergeQueue));
             _Playbooks = playbooks;
+            _FleetCapacityAdmission = new FleetCapacityAdmission(_Database, _Settings, _Logging);
         }
 
         #endregion
@@ -204,12 +206,30 @@ namespace Armada.Core.Recovery
                 UserId = mission.UserId
             };
 
+            Vessel? capacityVessel = String.IsNullOrWhiteSpace(rebase.VesselId)
+                ? null
+                : await _Database.Vessels.ReadAsync(rebase.VesselId, token).ConfigureAwait(false);
+            await using FleetCapacityReservation? admission = capacityVessel == null
+                ? null
+                : await _FleetCapacityAdmission.AcquireAsync(capacityVessel, rebase.VoyageId, token).ConfigureAwait(false);
+
             try
             {
-                await _Database.Missions.CreateAsync(rebase, token).ConfigureAwait(false);
+                rebase = await _Database.Missions.CreateAsync(rebase, token).ConfigureAwait(false);
+                if (admission != null)
+                    await admission.VerifyOwnershipAsync(token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
+                if (!String.IsNullOrWhiteSpace(rebase.Id))
+                {
+                    rebase.Status = MissionStatusEnum.Cancelled;
+                    rebase.FailureReason = "Rebase recovery cancelled because durable capacity admission did not complete.";
+                    rebase.CompletedUtc = DateTime.UtcNow;
+                    rebase.LastUpdateUtc = DateTime.UtcNow;
+                    try { await _Database.Missions.UpdateAsync(rebase, CancellationToken.None).ConfigureAwait(false); }
+                    catch { }
+                }
                 _Logging.Warn(_Header + "CreateAsync failed for rebase mission of " + mission.Id + ": " + ex.Message);
                 await SurfaceAsync(entry, "recovery_unstartable", token).ConfigureAwait(false);
                 return;

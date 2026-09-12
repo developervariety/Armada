@@ -766,7 +766,27 @@ namespace Armada.Server
                 }
             }
 
-            Mission created = await _Admiral.DispatchMissionAsync(mission, token).ConfigureAwait(false);
+            Mission created;
+            try
+            {
+                created = await _Admiral.DispatchMissionAsync(mission, token).ConfigureAwait(false);
+            }
+            catch (FleetCapacityAdmissionException capacity)
+            {
+                return new RemoteTunnelRequestResult
+                {
+                    StatusCode = 409,
+                    ErrorCode = capacity.Code,
+                    Message = capacity.Message,
+                    Payload = new
+                    {
+                        capacity.ActiveCount,
+                        capacity.Limit,
+                        capacity.CandidateVesselId,
+                        capacity.LaneMembers
+                    }
+                };
+            }
             await _EmitEventAsync("mission.created", "Mission created from proxy: " + created.Title, "mission", created.Id, created.CaptainId, created.Id, created.VesselId, created.VoyageId).ConfigureAwait(false);
             return Created(created, "Mission created.");
         }
@@ -794,8 +814,14 @@ namespace Armada.Server
             existing.Title = request.Mission.Title;
             existing.Description = request.Mission.Description;
             existing.Priority = request.Mission.Priority;
-            existing.VesselId = request.Mission.VesselId;
-            existing.VoyageId = request.Mission.VoyageId;
+            if (!String.Equals(existing.VesselId, request.Mission.VesselId, StringComparison.OrdinalIgnoreCase)
+                || !String.Equals(existing.VoyageId, request.Mission.VoyageId, StringComparison.OrdinalIgnoreCase))
+                return new RemoteTunnelRequestResult
+                {
+                    StatusCode = 409,
+                    ErrorCode = "mission_topology_immutable",
+                    Message = "Mission vesselId and voyageId cannot be changed by the metadata update route."
+                };
             existing.BranchName = request.Mission.BranchName;
             existing.PrUrl = request.Mission.PrUrl;
             existing.ParentMissionId = request.Mission.ParentMissionId;
@@ -875,21 +901,27 @@ namespace Armada.Server
                 mission.Description = request.Description;
             }
 
-            mission.Status = MissionStatusEnum.Pending;
-            mission.BranchName = null;
-            mission.PrUrl = null;
-            mission.CommitHash = null;
-            mission.DockId = null;
-            mission.ProcessId = null;
-            mission.DiffSnapshot = null;
-            mission.FailureReason = null;
-            mission.CaptainId = null;
-            mission.StartedUtc = null;
-            mission.CompletedUtc = null;
-            mission.LastUpdateUtc = _UtcNow();
-            mission.CreatedUtc = _UtcNow();
-
-            mission = await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            try
+            {
+                MissionRestartService restarts = new MissionRestartService(_Database, _Settings ?? new Armada.Core.Settings.ArmadaSettings());
+                mission = await restarts.RestartAsync(mission, mission.Title, mission.Description, token: token).ConfigureAwait(false);
+            }
+            catch (FleetCapacityAdmissionException capacity)
+            {
+                return new RemoteTunnelRequestResult
+                {
+                    StatusCode = 409,
+                    ErrorCode = capacity.Code,
+                    Message = capacity.Message,
+                    Payload = new
+                    {
+                        capacity.ActiveCount,
+                        capacity.Limit,
+                        capacity.CandidateVesselId,
+                        capacity.LaneMembers
+                    }
+                };
+            }
             mission.DiffSnapshot = null;
 
             await _EmitEventAsync("mission.restarted", "Mission restarted from proxy: " + mission.Title, "mission", mission.Id, null, mission.Id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
