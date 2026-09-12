@@ -1383,7 +1383,7 @@ namespace Armada.Server
                         "AutonomousRecoveryOrchestrator",
                         principalDisplay: "Armada Autonomous Recovery");
 
-                    await objectiveService.LinkVoyageAsync(auth, objective.Id, rescueVoyage.Id, token).ConfigureAwait(false);
+                    await objectiveService.LinkVoyageAsync(auth, objective.Id, rescueVoyage.Id, token, isRescueLink: true).ConfigureAwait(false);
                     linked++;
                     _Logging.Info(_Header + "rescue voyage " + rescueVoyage.Id + " linked to objective " + objective.Id
                         + " (rescues voyage " + failedMission.VoyageId + ")");

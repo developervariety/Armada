@@ -103,9 +103,20 @@ namespace Armada.Test.Unit.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
-                        "objective-pipeline-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+                        "objective-pipeline-vessel", "https://github.com/test/repo.git")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.Pipelines.CreateAsync(new Pipeline("Objective pipeline")
+                    {
+                        Id = "pln_objective",
+                        TenantId = Constants.DefaultTenantId
+                    }).ConfigureAwait(false);
                     Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
                     {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
                         Title = "Objective pipeline",
                         VesselIds = new List<string> { vessel.Id },
                         SuggestedPipelineId = "pln_objective"
@@ -130,7 +141,7 @@ namespace Armada.Test.Unit.Suites.Services
                         }
                     }).ConfigureAwait(false);
 
-                    AssertTrue(result.Succeeded);
+                    AssertTrue(result.Succeeded, "Dispatch failed: " + JsonSerializer.Serialize(result.Value));
                     AssertEqual("pln_objective", preview.RequestedPipelineId);
                     AssertEqual("pln_objective", admiral.LastPipelineId);
                 }
@@ -1092,6 +1103,280 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNull(dispatchable, "a dispatchable request must pass preconditions so it can be backgrounded");
                 }
             });
+
+            await RunTest("DispatchAsync_ObjectiveAlreadyHasActiveVoyage_ReturnsConflictBeforeCreatingVoyage", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("already-dispatched-vessel", "https://github.com/test/already.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                Voyage winner = await testDb.Driver.Voyages.CreateAsync(new Voyage("Winning voyage")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Already dispatched",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VesselIds = new List<string> { vessel.Id },
+                    VoyageIds = new List<string> { winner.Id }
+                }).ConfigureAwait(false);
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                VoyageDispatchService service = new VoyageDispatchService(
+                    testDb.Driver,
+                    admiral,
+                    objectiveService: objectives,
+                    settings: new ArmadaSettings { CodeIndex = { Enabled = false } });
+
+                VoyageDispatchResult result = await service.DispatchAsync(new SharedVoyageDispatchRequest
+                {
+                    Title = "Operator duplicate",
+                    VesselId = vessel.Id,
+                    ObjectiveId = objective.Id,
+                    Missions = new List<MissionDescription>
+                    {
+                        new MissionDescription("Implement", "Duplicate work.")
+                    }
+                }).ConfigureAwait(false);
+
+                AssertFalse(result.Succeeded, "The duplicate operator dispatch must not report success.");
+                AssertEqual(409, result.StatusCode, "The already-dispatched outcome must surface as a conflict.");
+                string payload = JsonSerializer.Serialize(result.Value);
+                AssertContains("objective_already_dispatched", payload);
+                AssertContains(winner.Id, payload, "The response must identify the existing winning voyage.");
+                AssertFalse(admiral.DispatchVoyageCalled,
+                    "Admission must reject the duplicate before Admiral creates a voyage.");
+
+                Objective stored = (await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false))!;
+                AssertEqual(1, stored.VoyageIds.Count, "The duplicate must not be linked to the objective.");
+
+                List<Voyage> allVoyages = await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false);
+                AssertEqual(1, allVoyages.Count,
+                    "Admission must leave only the existing winner; it must not create a duplicate voyage.");
+                AssertEqual(winner.Id, allVoyages[0].Id);
+            });
+
+            await RunTest("DispatchAsync_ObjectiveLinkFailureCancelsCreatedVoyageAndMissions", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                    "link-failure-vessel", "https://github.com/test/link-failure.git")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId
+                }).ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Invalid linked objective",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    VesselIds = new List<string> { vessel.Id },
+                    SuggestedPipelineId = "ppl_missing"
+                }).ConfigureAwait(false);
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                VoyageDispatchService service = new VoyageDispatchService(
+                    testDb.Driver,
+                    admiral,
+                    objectiveService: new ObjectiveService(testDb.Driver),
+                    settings: new ArmadaSettings { CodeIndex = { Enabled = false } });
+
+                VoyageDispatchResult result = await service.DispatchAsync(new SharedVoyageDispatchRequest
+                {
+                    Title = "Must be cleaned up",
+                    VesselId = vessel.Id,
+                    ObjectiveId = objective.Id,
+                    Missions = new List<MissionDescription>
+                    {
+                        new MissionDescription("Implement", "This voyage must not survive a link failure.")
+                    }
+                }).ConfigureAwait(false);
+
+                AssertFalse(result.Succeeded);
+                AssertEqual(500, result.StatusCode);
+                AssertContains("objective_link_failed", JsonSerializer.Serialize(result.Value));
+                List<Voyage> voyages = await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false);
+                AssertEqual(1, voyages.Count);
+                AssertEqual(VoyageStatusEnum.Cancelled, voyages[0].Status,
+                    "A voyage that cannot be linked must be terminal.");
+                List<Mission> missions = await testDb.Driver.Missions
+                    .EnumerateByVoyageAsync(voyages[0].Id).ConfigureAwait(false);
+                AssertTrue(missions.Count > 0, "The fake must prove cleanup after mission creation.");
+                AssertTrue(missions.All(mission => mission.Status == MissionStatusEnum.Cancelled),
+                    "No mission from an unlinked voyage may remain Pending, Assigned, or InProgress.");
+                string leaseName = ObjectiveService.BuildDispatchAdmissionLeaseName(
+                    Constants.DefaultTenantId,
+                    objective.Id);
+                AssertNull(await testDb.Driver.CoordinationLeases.ReadAsync(leaseName).ConfigureAwait(false),
+                    "Cleanup must release objective admission so a corrected retry can run.");
+            });
+
+            await RunTest("DispatchAsync_LostAdmissionAfterCreateCancelsVoyageBeforeLeaseRelease", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                    "lost-admission-vessel", "https://github.com/test/lost-admission.git")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId
+                }).ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Lose admission after create",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    VesselIds = new List<string> { vessel.Id }
+                }).ConfigureAwait(false);
+                string leaseName = ObjectiveService.BuildDispatchAdmissionLeaseName(
+                    Constants.DefaultTenantId,
+                    objective.Id);
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver)
+                {
+                    AfterVoyageCreateAsync = async () =>
+                    {
+                        CoordinationLease lease = (await testDb.Driver.CoordinationLeases
+                            .ReadAsync(leaseName).ConfigureAwait(false))!;
+                        await testDb.Driver.CoordinationLeases.ReleaseAsync(
+                            leaseName,
+                            lease.Holder).ConfigureAwait(false);
+                        await Task.Delay(100).ConfigureAwait(false);
+                    }
+                };
+                VoyageDispatchService service = new VoyageDispatchService(
+                    testDb.Driver,
+                    admiral,
+                    objectiveService: new ObjectiveService(
+                        testDb.Driver,
+                        dispatchAdmissionTtl: TimeSpan.FromMilliseconds(90)),
+                    settings: new ArmadaSettings { CodeIndex = { Enabled = false } });
+
+                Exception? failure = null;
+                try
+                {
+                    await service.DispatchAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "Lose the lease",
+                        VesselId = vessel.Id,
+                        ObjectiveId = objective.Id,
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("Implement", "Create, then lose admission.")
+                        }
+                    }).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    failure = ex;
+                }
+
+                AssertNotNull(failure, "Lost durable ownership must fail the dispatch.");
+                AssertContains("admission was lost", failure!.Message);
+                List<Voyage> voyages = await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false);
+                AssertEqual(1, voyages.Count);
+                AssertEqual(VoyageStatusEnum.Cancelled, voyages[0].Status,
+                    "The voyage must be terminal before the lost admission is released.");
+                List<Mission> missions = await testDb.Driver.Missions
+                    .EnumerateByVoyageAsync(voyages[0].Id).ConfigureAwait(false);
+                AssertTrue(missions.All(mission => mission.Status == MissionStatusEnum.Cancelled),
+                    "No mission may remain active after admission ownership is lost.");
+            });
+
+            await RunTest("VoyageCancellation_RecallsRunningCaptainBeforePublishingTerminalState", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Running orphan")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("running-captain")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    State = CaptainStateEnum.Working
+                }).ConfigureAwait(false);
+                Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Running", "Must stop first.")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = voyage.Id,
+                    CaptainId = captain.Id,
+                    Status = MissionStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                captain.CurrentMissionId = mission.Id;
+                captain = await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                bool recalledWhileActive = false;
+
+                await VoyageCancellation.CancelVoyageAsync(
+                    testDb.Driver,
+                    voyage,
+                    "cleanup",
+                    recallCaptain: async (captainId, _) =>
+                    {
+                        Mission active = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                        Captain owner = (await testDb.Driver.Captains.ReadAsync(captainId).ConfigureAwait(false))!;
+                        Voyage activeVoyage = (await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false))!;
+                        recalledWhileActive = active.Status == MissionStatusEnum.InProgress
+                            && owner.State == CaptainStateEnum.Working
+                            && activeVoyage.Status == VoyageStatusEnum.InProgress;
+                    }).ConfigureAwait(false);
+
+                AssertTrue(recalledWhileActive,
+                    "Cleanup must invoke the process-stop seam before it marks the mission terminal or captain idle.");
+                Mission storedMission = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                Captain storedCaptain = (await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false))!;
+                AssertEqual(MissionStatusEnum.Cancelled, storedMission.Status);
+                AssertEqual(CaptainStateEnum.Idle, storedCaptain.State);
+            });
+
+            await RunTest("VoyageCancellation_RecallFailureLeavesVoyageActiveAndEscapes", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Recall failure")
+                {
+                    Status = VoyageStatusEnum.InProgress
+                }).ConfigureAwait(false);
+                Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("recall-failure-captain"))
+                    .ConfigureAwait(false);
+                Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Still writing", "Recall fails.")
+                {
+                    VoyageId = voyage.Id,
+                    CaptainId = captain.Id,
+                    Status = MissionStatusEnum.InProgress
+                }).ConfigureAwait(false);
+
+                Exception? failure = null;
+                try
+                {
+                    await VoyageCancellation.CancelVoyageAsync(
+                        testDb.Driver,
+                        voyage,
+                        "cleanup",
+                        recallCaptain: (_, _) => throw new InvalidOperationException("stop failed"))
+                        .ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    failure = ex;
+                }
+
+                AssertNotNull(failure, "A failed process recall must escape cleanup.");
+                AssertContains("stop failed", failure!.Message);
+                Voyage storedVoyage = (await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false))!;
+                Mission storedMission = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                AssertEqual(VoyageStatusEnum.InProgress, storedVoyage.Status,
+                    "Occupancy must remain active while the writer could still run.");
+                AssertEqual(MissionStatusEnum.InProgress, storedMission.Status);
+            });
         }
 
         private static VoyageDispatchService NewService(TestDatabase testDb, ArmadaSettings? settings = null)
@@ -1179,6 +1464,8 @@ namespace Armada.Test.Unit.Suites.Services
 
             public bool DispatchVoyageCalled { get; private set; }
 
+            public int DispatchVoyageCallCount { get; private set; }
+
             public string? LastPipelineId { get; private set; }
 
             public List<Mission> CreatedMissions { get; } = new List<Mission>();
@@ -1191,6 +1478,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Func<Mission, Task<bool>>? OnReconcilePullRequest { get; set; }
             public Func<Task<int>>? OnReconcileMergeEntries { get; set; }
             public Func<int, bool>? OnIsProcessExitHandled { get; set; }
+            public Func<Task>? AfterVoyageCreateAsync { get; set; }
 
             public Task<Voyage> DispatchVoyageAsync(
                 string title,
@@ -1234,6 +1522,7 @@ namespace Armada.Test.Unit.Suites.Services
                 CancellationToken token = default)
             {
                 DispatchVoyageCalled = true;
+                DispatchVoyageCallCount++;
                 LastPipelineId = pipelineId;
                 Voyage voyage = await _Database.Voyages.CreateAsync(new Voyage(title, description)
                 {
@@ -1255,6 +1544,9 @@ namespace Armada.Test.Unit.Suites.Services
                     mission = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
                     CreatedMissions.Add(mission);
                 }
+
+                if (AfterVoyageCreateAsync != null)
+                    await AfterVoyageCreateAsync().ConfigureAwait(false);
 
                 return voyage;
             }

@@ -214,6 +214,15 @@ voyage and mission rows exist. Assignment, dock provisioning, and captain
 launch continue asynchronously. Save the voyage ID. Do not redispatch only
 because the first status call shows `Pending`.
 
+An objective can have only one normal nonterminal voyage. Scheduler, operator,
+bare REST, and remote-control dispatch paths take the same tenant-scoped
+database admission lease before they create a voyage and hold it until the
+objective link is durable. A competing request returns
+`objective_already_dispatched` and names the winning voyage without creating a
+losing voyage. A link failure cancels the new voyage and its active mission
+rows. A terminal voyage permits an intentional successor. Recovery uses a
+separate explicit rescue link because it continues a failed chain.
+
 When `voyageDispatch.rejectStagePersonaTitlePrefixes` is true and the
 prefix list is not empty, a mission title that already carries a listed
 stage-persona prefix such as `[Worker] ` is rejected with 400 and code

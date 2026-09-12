@@ -251,37 +251,88 @@ namespace Armada.Server
 
             bool hasAliases = missions.Any(m =>
                 !String.IsNullOrEmpty(m.Alias) || !String.IsNullOrEmpty(m.DependsOnMissionAlias));
-            object dispatchResult;
-            if (hasAliases)
+            ObjectiveDispatchAdmission? admission = null;
+            if (!String.IsNullOrEmpty(objectiveId) && _ObjectiveService != null)
             {
-                dispatchResult = await DispatchWithAliasesAsync(
-                    title,
-                    description,
-                    vesselId,
-                    dispatchVessel,
-                    missions,
-                    mergedPlaybooks,
-                    pipelineId,
-                    request.Settings ?? _Settings).ConfigureAwait(false);
+                try
+                {
+                    admission = await _ObjectiveService.AcquireDispatchAdmissionAsync(
+                        request.ObjectiveAuthContext ?? McpToolHelpers.CreateDefaultTenantAdminContext(),
+                        objectiveId,
+                        token).ConfigureAwait(false);
+                }
+                catch (ObjectiveAlreadyDispatchedException alreadyDispatched)
+                {
+                    return AlreadyDispatchedResult(objectiveId, alreadyDispatched.WinningVoyageId);
+                }
             }
-            else
+
+            Voyage? voyage = null;
+            try
             {
-                dispatchResult = await _Admiral.DispatchVoyageQueuedAsync(
-                    title,
-                    description,
-                    vesselId,
-                    missions,
-                    pipelineId,
-                    mergedPlaybooks,
+                object dispatchResult;
+                if (hasAliases)
+                {
+                    dispatchResult = await DispatchWithAliasesAsync(
+                        title,
+                        description,
+                        vesselId,
+                        dispatchVessel,
+                        missions,
+                        mergedPlaybooks,
+                        pipelineId,
+                        request.Settings ?? _Settings).ConfigureAwait(false);
+                }
+                else
+                {
+                    dispatchResult = await _Admiral.DispatchVoyageQueuedAsync(
+                        title,
+                        description,
+                        vesselId,
+                        missions,
+                        pipelineId,
+                        mergedPlaybooks,
+                        token).ConfigureAwait(false);
+                }
+
+                if (dispatchResult is not Voyage createdVoyage)
+                    return VoyageDispatchResult.BadRequest(dispatchResult);
+                voyage = createdVoyage;
+
+                admission?.ThrowIfOwnershipLost();
+
+                VoyageDispatchResult? linkConflict = await LinkObjectiveToVoyageAsync(
+                    objectiveId,
+                    request.ObjectiveAuthContext,
+                    voyage,
                     token).ConfigureAwait(false);
+                if (linkConflict != null)
+                {
+                    LogDispatchInfo("dispatch conflict voyage " + voyage.Id + " totalMs=" + dispatchWatch.ElapsedMilliseconds + " objective_already_dispatched=true");
+                    return linkConflict;
+                }
             }
-
-            if (dispatchResult is not Voyage voyage)
+            catch
             {
-                return VoyageDispatchResult.BadRequest(dispatchResult);
+                if (voyage != null && ObjectiveService.IsActiveVoyageStatus(voyage.Status))
+                {
+                    await VoyageCancellation.CancelVoyageAsync(
+                        _Database,
+                        voyage,
+                        "Voyage cancelled: objective dispatch did not complete.",
+                        CancellationToken.None,
+                        _Admiral.RecallCaptainAsync).ConfigureAwait(false);
+                }
+                throw;
+            }
+            finally
+            {
+                if (admission != null)
+                    await admission.DisposeAsync().ConfigureAwait(false);
             }
 
-            await LinkObjectiveToVoyageAsync(objectiveId, request.ObjectiveAuthContext, voyage).ConfigureAwait(false);
+            if (voyage == null)
+                throw new InvalidOperationException("Dispatch did not return a voyage.");
 
             // Persist per-persona captain overrides so assignment resolves the preferred captain and
             // fallback tier for every mission of a step, including fan-out missions created later. Both
@@ -1023,25 +1074,92 @@ namespace Armada.Server
             return value.Trim();
         }
 
-        private async Task LinkObjectiveToVoyageAsync(string? objectiveId, AuthContext? authContext, Voyage voyage)
+        /// <summary>
+        /// Link a freshly dispatched voyage to its objective. Returns a conflict result when the
+        /// objective already has a nonterminal voyage (another dispatch won the race): the losing
+        /// voyage is cancelled and the winner is named so the caller does not report success for a
+        /// duplicate. Returns null when the link succeeded or did not apply.
+        /// </summary>
+        private async Task<VoyageDispatchResult?> LinkObjectiveToVoyageAsync(
+            string? objectiveId,
+            AuthContext? authContext,
+            Voyage voyage,
+            CancellationToken token)
         {
-            if (String.IsNullOrEmpty(objectiveId)) return;
-            if (_ObjectiveService == null) return;
+            if (String.IsNullOrEmpty(objectiveId)) return null;
+            if (_ObjectiveService == null) return null;
 
             AuthContext auth = authContext ?? McpToolHelpers.CreateDefaultTenantAdminContext();
             try
             {
                 await _ObjectiveService.LinkVoyageAsync(auth, objectiveId, voyage.Id).ConfigureAwait(false);
+                return null;
+            }
+            catch (ObjectiveAlreadyDispatchedException alreadyDispatched)
+            {
+                // The scheduler (or a parallel operator dispatch) won the race for this objective.
+                // The atomic guard refused the link; cancel this duplicate voyage and identify the
+                // winning voyage so the caller sees the objective is already in flight.
+                try
+                {
+                    await VoyageCancellation.CancelVoyageAsync(
+                        _Database,
+                        voyage,
+                        "Voyage cancelled: objective " + objectiveId + " already dispatched as voyage " + alreadyDispatched.WinningVoyageId + ".",
+                        CancellationToken.None,
+                        _Admiral.RecallCaptainAsync).ConfigureAwait(false);
+                }
+                catch (Exception cancelEx)
+                {
+                    _Logging?.Warn("[VoyageDispatchService] could not cancel duplicate voyage " + voyage.Id + ": " + cancelEx.Message);
+                }
+
+                _Logging?.Warn("[VoyageDispatchService] voyage " + voyage.Id + " cancelled: objective " + objectiveId +
+                    " already dispatched as voyage " + alreadyDispatched.WinningVoyageId + ".");
+                return AlreadyDispatchedResult(objectiveId, alreadyDispatched.WinningVoyageId);
             }
             catch (Exception ex)
             {
-                // This runs AFTER the voyage exists and its missions are dispatched. Letting a
-                // bookkeeping failure escape here turned a live voyage into a generic internal error
-                // (HTTP 500 / JSON-RPC -32603) with no voyage id returned to the caller, so the work
-                // was running but unreachable. Record the voyage; report the link failure separately.
-                _Logging?.Warn("[VoyageDispatchService] voyage " + voyage.Id + " dispatched but could not be linked to objective " +
-                    objectiveId + ": " + ex.Message);
+                string cleanupError = String.Empty;
+                try
+                {
+                    await VoyageCancellation.CancelVoyageAsync(
+                        _Database,
+                        voyage,
+                        "Voyage cancelled: objective " + objectiveId + " could not be linked.",
+                        CancellationToken.None,
+                        _Admiral.RecallCaptainAsync).ConfigureAwait(false);
+                }
+                catch (Exception cleanupEx)
+                {
+                    cleanupError = " Cleanup also failed: " + cleanupEx.Message;
+                }
+
+                _Logging?.Warn("[VoyageDispatchService] voyage " + voyage.Id + " could not be linked to objective "
+                    + objectiveId + " and was cancelled: " + ex.Message + cleanupError);
+                return VoyageDispatchResult.InternalError(new
+                {
+                    Error = "Objective link failed; the new voyage was cancelled.",
+                    Code = "objective_link_failed",
+                    Reason = ex.Message,
+                    CleanupError = String.IsNullOrEmpty(cleanupError) ? null : cleanupError.Trim(),
+                    ObjectiveId = objectiveId,
+                    VoyageId = voyage.Id
+                });
             }
+        }
+
+        private static VoyageDispatchResult AlreadyDispatchedResult(string objectiveId, string winningVoyageId)
+        {
+            return VoyageDispatchResult.Conflict(new
+            {
+                Error = "Objective already dispatched.",
+                Code = "objective_already_dispatched",
+                Reason = "Objective " + objectiveId + " already has a nonterminal voyage " + winningVoyageId + ".",
+                Action = "Cancel the winning voyage first if you intend to re-dispatch this objective.",
+                ObjectiveId = objectiveId,
+                VoyageId = winningVoyageId
+            });
         }
 
         private async Task<object> DispatchWithAliasesAsync(

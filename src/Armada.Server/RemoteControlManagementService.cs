@@ -526,6 +526,7 @@ namespace Armada.Server
             {
                 AuthContext? objectiveAuth = null;
                 Objective? bareObjective = null;
+                ObjectiveDispatchAdmission? bareAdmission = null;
                 if (!String.IsNullOrWhiteSpace(request.ObjectiveId))
                 {
                     objectiveAuth = Mcp.Tools.McpToolHelpers.CreateDefaultTenantAdminContext();
@@ -553,20 +554,64 @@ namespace Armada.Server
                             };
                         }
                     }
+
+                    try
+                    {
+                        bareAdmission = await _ObjectiveService.AcquireDispatchAdmissionAsync(
+                            objectiveAuth,
+                            request.ObjectiveId!,
+                            token).ConfigureAwait(false);
+                    }
+                    catch (ObjectiveAlreadyDispatchedException alreadyDispatched)
+                    {
+                        return new RemoteTunnelRequestResult
+                        {
+                            StatusCode = 409,
+                            ErrorCode = "objective_already_dispatched",
+                            Message = "Objective already dispatched as voyage " + alreadyDispatched.WinningVoyageId + ".",
+                            Payload = new { VoyageId = alreadyDispatched.WinningVoyageId }
+                        };
+                    }
                 }
 
-                voyage = new Voyage(request.Title, request.Description);
-                voyage.TenantId = bareObjective?.TenantId;
-                voyage.UserId = bareObjective?.UserId;
-                voyage.SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>();
-                voyage.LastUpdateUtc = _UtcNow();
-                voyage = await _Database.Voyages.CreateAsync(voyage, token).ConfigureAwait(false);
-                if (voyage.SelectedPlaybooks.Count > 0)
+                Voyage? bareVoyage = null;
+                try
                 {
-                    await _Database.Playbooks.SetVoyageSelectionsAsync(voyage.Id, voyage.SelectedPlaybooks, token).ConfigureAwait(false);
+                    bareVoyage = new Voyage(request.Title, request.Description);
+                    bareVoyage.TenantId = bareObjective?.TenantId;
+                    bareVoyage.UserId = bareObjective?.UserId;
+                    bareVoyage.SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>();
+                    bareVoyage.LastUpdateUtc = _UtcNow();
+                    bareVoyage = await _Database.Voyages.CreateAsync(bareVoyage, token).ConfigureAwait(false);
+                    if (bareVoyage.SelectedPlaybooks.Count > 0)
+                    {
+                        await _Database.Playbooks.SetVoyageSelectionsAsync(bareVoyage.Id, bareVoyage.SelectedPlaybooks, token).ConfigureAwait(false);
+                    }
+                    if (objectiveAuth != null)
+                    {
+                        bareAdmission?.ThrowIfOwnershipLost();
+                        await _ObjectiveService.LinkVoyageAsync(objectiveAuth, request.ObjectiveId!, bareVoyage.Id, token).ConfigureAwait(false);
+                    }
+                    voyage = bareVoyage;
                 }
-                if (objectiveAuth != null)
-                    await _ObjectiveService.LinkVoyageAsync(objectiveAuth, request.ObjectiveId!, voyage.Id, token).ConfigureAwait(false);
+                catch
+                {
+                    if (bareVoyage != null)
+                    {
+                        await VoyageCancellation.CancelVoyageAsync(
+                            _Database,
+                            bareVoyage,
+                            "Voyage cancelled: objective " + request.ObjectiveId + " dispatch did not complete.",
+                            CancellationToken.None,
+                            _Admiral.RecallCaptainAsync).ConfigureAwait(false);
+                    }
+                    throw;
+                }
+                finally
+                {
+                    if (bareAdmission != null)
+                        await bareAdmission.DisposeAsync().ConfigureAwait(false);
+                }
             }
             else
             {

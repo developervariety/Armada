@@ -59,6 +59,26 @@ namespace Armada.Server
         }
 
         /// <summary>
+        /// Create a conflict result: the request collides with existing state.
+        /// </summary>
+        /// <param name="value">Response payload.</param>
+        /// <returns>Conflict result.</returns>
+        public static VoyageDispatchResult Conflict(object value)
+        {
+            return new VoyageDispatchResult(value, 409);
+        }
+
+        /// <summary>
+        /// Create an internal-error result after dispatch cleanup has completed.
+        /// </summary>
+        /// <param name="value">Response payload.</param>
+        /// <returns>Internal-error result.</returns>
+        public static VoyageDispatchResult InternalError(object value)
+        {
+            return new VoyageDispatchResult(value, 500);
+        }
+
+        /// <summary>
         /// Create a not-found result.
         /// </summary>
         /// <param name="value">Response payload.</param>

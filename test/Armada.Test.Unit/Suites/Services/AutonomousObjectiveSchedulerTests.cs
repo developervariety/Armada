@@ -2265,6 +2265,101 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(ObjectiveStatusEnum.InProgress, still!.Status,
                     "An objective whose failed voyage was never rescued must not reconcile to Completed.");
             }).ConfigureAwait(false);
+
+            await RunTest("A scheduler-owned admission blocks an operator before it creates a voyage", async () =>
+            {
+                // Production failure: a scheduler sweep and an operator dispatch both read one
+                // ReadyForDispatch objective with no active voyage, both created one, and both
+                // linked - eight active voyages for four objectives. Both paths must settle on
+                // one winner through the same atomic link guard.
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("race-vessel", "https://github.com/test/race.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Raced objective",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id }
+                }).ConfigureAwait(false);
+
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                ArmadaSettings settings = EnabledSchedulerSettings();
+
+                RecordingAdmiralService schedulerAdmiral = new RecordingAdmiralService(testDb.Driver);
+                TaskCompletionSource<bool> schedulerEnteredCreate = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                TaskCompletionSource<bool> releaseSchedulerCreate = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                schedulerAdmiral.BeforeVoyageCreateAsync = async () =>
+                {
+                    schedulerEnteredCreate.TrySetResult(true);
+                    await releaseSchedulerCreate.Task.ConfigureAwait(false);
+                };
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, schedulerAdmiral, settings);
+
+                RecordingAdmiralService operatorAdmiral = new RecordingAdmiralService(testDb.Driver);
+                VoyageDispatchService dispatchService = new VoyageDispatchService(
+                    testDb.Driver,
+                    operatorAdmiral,
+                    objectiveService: objectives,
+                    settings: new ArmadaSettings { CodeIndex = { Enabled = false } });
+
+                Task schedulerTask = scheduler.SweepAsync();
+                await schedulerEnteredCreate.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                string leaseName = ObjectiveService.BuildDispatchAdmissionLeaseName(
+                    Constants.DefaultTenantId,
+                    objective.Id);
+                AssertNotNull(await testDb.Driver.CoordinationLeases.ReadAsync(leaseName).ConfigureAwait(false),
+                    "The scheduler must hold the durable admission before Admiral creates the voyage.");
+                AssertEqual(0, (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Count,
+                    "The test gate must pause before voyage creation.");
+
+                Task<VoyageDispatchResult> operatorTask = dispatchService.DispatchAsync(new SharedVoyageDispatchRequest
+                {
+                    Title = "Operator dispatch",
+                    VesselId = vessel.Id,
+                    ObjectiveId = objective.Id,
+                    Missions = new List<MissionDescription>
+                    {
+                        new MissionDescription("Implement", "Operator work for the raced objective.")
+                    }
+                });
+                Task earlyCompletion = await Task.WhenAny(operatorTask, Task.Delay(100)).ConfigureAwait(false);
+                AssertFalse(ReferenceEquals(earlyCompletion, operatorTask),
+                    "The operator must wait while the scheduler owns durable admission.");
+                AssertEqual(0, operatorAdmiral.DispatchVoyageCallCount,
+                    "The waiting operator must not reach Admiral before admission settles.");
+                releaseSchedulerCreate.TrySetResult(true);
+                await Task.WhenAll(schedulerTask, operatorTask).ConfigureAwait(false);
+                VoyageDispatchResult operatorResult = operatorTask.Result;
+
+                Objective stored = (await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false))!;
+                AssertEqual(1, stored.VoyageIds.Count,
+                    "Exactly one voyage may be linked to the objective after the race.");
+                Voyage winner = (await testDb.Driver.Voyages.ReadAsync(stored.VoyageIds[0]).ConfigureAwait(false))!;
+                AssertTrue(ObjectiveService.IsActiveVoyageStatus(winner.Status),
+                    "The winning voyage stays nonterminal; no duplicate active voyage may exist.");
+
+                List<Voyage> allVoyages = await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false);
+                AssertEqual(1, allVoyages.Count,
+                    "The losing operator must be refused before it creates any voyage.");
+                AssertEqual(1, schedulerAdmiral.DispatchVoyageCallCount);
+                AssertEqual(0, operatorAdmiral.DispatchVoyageCallCount);
+                AssertFalse(operatorResult.Succeeded);
+                AssertEqual(409, operatorResult.StatusCode,
+                    "The operator dispatch must surface the objective_already_dispatched conflict.");
+                AssertContains("objective_already_dispatched", JsonSerializer.Serialize(operatorResult.Value));
+                AssertContains(winner.Id, JsonSerializer.Serialize(operatorResult.Value),
+                    "The conflict must identify the winning voyage.");
+                AssertNull(await testDb.Driver.CoordinationLeases.ReadAsync(leaseName).ConfigureAwait(false),
+                    "The winning scheduler must release admission after linking.");
+            }).ConfigureAwait(false);
         }
 
         private static RecordingObjectiveDispatchPreview DependencyBlockedPreview(
@@ -2400,6 +2495,7 @@ namespace Armada.Test.Unit.Suites.Services
             }
 
             public Exception? ThrowOnDispatch { get; set; }
+            public Func<Task>? BeforeVoyageCreateAsync { get; set; }
             public int DispatchVoyageCallCount { get; private set; }
             public List<string> DispatchedTitles { get; } = new List<string>();
 
@@ -2428,6 +2524,8 @@ namespace Armada.Test.Unit.Suites.Services
                 DispatchVoyageCallCount++;
                 DispatchedTitles.Add(title);
                 LastMissionDescriptions = missionDescriptions;
+                if (BeforeVoyageCreateAsync != null)
+                    await BeforeVoyageCreateAsync().ConfigureAwait(false);
                 Voyage voyage = new Voyage
                 {
                     TenantId = Constants.DefaultTenantId,

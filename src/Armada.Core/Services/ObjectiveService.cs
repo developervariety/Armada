@@ -1,6 +1,9 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Collections.Concurrent;
+    using System.Security.Cryptography;
+    using System.Text;
     using System.Collections.Generic;
     using System.Linq;
     using System.Threading;
@@ -33,6 +36,14 @@ namespace Armada.Core.Services
         private const string _Header = "[ObjectiveService] ";
         private readonly SemaphoreSlim _BackfillLock = new SemaphoreSlim(1, 1);
         private static readonly SemaphoreSlim _DependencyWriteLock = new SemaphoreSlim(1, 1);
+        // Serializes voyage linking per objective. The autonomous scheduler and every operator
+        // dispatch path link through LinkVoyageAsync, so a scheduler sweep racing an operator
+        // dispatch for one row settles on a single winner through this one guard. Static so every
+        // ObjectiveService instance in the process shares it; each instance owns a separate
+        // DatabaseDriver handle to the same store.
+        private static readonly ConcurrentDictionary<string, SemaphoreSlim> _VoyageLinkLocks =
+            new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
+        private readonly TimeSpan _DispatchAdmissionTtl;
         private bool _BackfillCompleted = false;
         private const string _ObjectiveDeletedEventType = "objective.deleted";
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
@@ -46,10 +57,89 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="database">Database driver.</param>
         /// <param name="logging">Optional logging module used to warn about tolerated dangling links.</param>
-        public ObjectiveService(DatabaseDriver database, LoggingModule? logging = null)
+        /// <param name="dispatchAdmissionTtl">Optional lease duration override for deterministic tests.</param>
+        public ObjectiveService(
+            DatabaseDriver database,
+            LoggingModule? logging = null,
+            TimeSpan? dispatchAdmissionTtl = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Logging = logging;
+            _DispatchAdmissionTtl = dispatchAdmissionTtl ?? TimeSpan.FromMinutes(2);
+            if (_DispatchAdmissionTtl <= TimeSpan.Zero)
+                throw new ArgumentOutOfRangeException(nameof(dispatchAdmissionTtl));
+        }
+
+        /// <summary>
+        /// Acquire the durable reservation shared by scheduler and operator dispatch. The caller
+        /// must hold the returned lease from before voyage creation until after objective linking.
+        /// </summary>
+        public async Task<ObjectiveDispatchAdmission> AcquireDispatchAdmissionAsync(
+            AuthContext auth,
+            string objectiveId,
+            CancellationToken token = default)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (String.IsNullOrWhiteSpace(objectiveId)) throw new ArgumentNullException(nameof(objectiveId));
+
+            string leaseName = BuildDispatchAdmissionLeaseName(auth.TenantId, objectiveId);
+            string holder = "dispatch-" + Guid.NewGuid().ToString("N");
+            bool acquired = false;
+            try
+            {
+                while (!acquired)
+                {
+                    token.ThrowIfCancellationRequested();
+                    acquired = await _Database.CoordinationLeases.TryAcquireAsync(
+                        leaseName,
+                        holder,
+                        _DispatchAdmissionTtl,
+                        auth.TenantId,
+                        token).ConfigureAwait(false);
+                    if (!acquired)
+                        await Task.Delay(25, token).ConfigureAwait(false);
+                }
+
+                Objective objective = await ReadAsync(auth, objectiveId, token).ConfigureAwait(false)
+                    ?? throw new InvalidOperationException("Objective not found.");
+                string? activeVoyageId = await FindActiveLinkedVoyageIdAsync(objective, token).ConfigureAwait(false);
+                if (activeVoyageId != null)
+                    throw new ObjectiveAlreadyDispatchedException(objectiveId, activeVoyageId);
+
+                return new ObjectiveDispatchAdmission(
+                    _Database.CoordinationLeases,
+                    leaseName,
+                    holder,
+                    _DispatchAdmissionTtl,
+                    objective,
+                    _Logging);
+            }
+            catch
+            {
+                if (acquired)
+                {
+                    try
+                    {
+                        await _Database.CoordinationLeases.ReleaseAsync(leaseName, holder, CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch (Exception releaseEx)
+                    {
+                        _Logging?.Warn("[ObjectiveService] could not release failed dispatch admission "
+                            + leaseName + ": " + releaseEx.Message);
+                    }
+                }
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Build the tenant-scoped durable lease name used by every objective dispatch path.
+        /// </summary>
+        public static string BuildDispatchAdmissionLeaseName(string? tenantId, string objectiveId)
+        {
+            if (String.IsNullOrWhiteSpace(objectiveId)) throw new ArgumentNullException(nameof(objectiveId));
+            byte[] input = Encoding.UTF8.GetBytes((tenantId ?? String.Empty).Trim() + "\n" + objectiveId.Trim());
+            return "objective-dispatch:" + Convert.ToHexString(SHA256.HashData(input)).ToLowerInvariant();
         }
 
         /// <summary>
@@ -571,35 +661,92 @@ namespace Armada.Core.Services
         /// <summary>
         /// Link a voyage and its current mission scope to an objective.
         /// </summary>
+        /// <remarks>
+        /// This is the objective-level dispatch admission guard. A scheduler sweep and an operator
+        /// dispatch can race for the same ReadyForDispatch row: both read no active voyage, both
+        /// create one, and both link, leaving two active voyages. Linking is therefore serialized
+        /// per objective and re-reads the objective inside the guard; a second nonterminal voyage
+        /// is refused with <see cref="ObjectiveAlreadyDispatchedException"/> naming the winner.
+        /// Terminal (cancelled, failed, completed) voyages never block an intentional successor,
+        /// and a rescue voyage (the recovery orchestrator's own continuation of failed work) is
+        /// exempt because it deliberately runs beside a parent voyage that may still be active.
+        /// </remarks>
         public async Task<Objective> LinkVoyageAsync(
             AuthContext auth,
             string objectiveId,
             string voyageId,
-            CancellationToken token = default)
+            CancellationToken token = default,
+            bool isRescueLink = false)
         {
             if (auth == null) throw new ArgumentNullException(nameof(auth));
             if (String.IsNullOrWhiteSpace(objectiveId)) throw new ArgumentNullException(nameof(objectiveId));
             if (String.IsNullOrWhiteSpace(voyageId)) throw new ArgumentNullException(nameof(voyageId));
 
-            Objective objective = await ReadAsync(auth, objectiveId, token).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("Objective not found.");
-            Voyage? voyage = await ReadVoyageEntityAsync(auth, voyageId, token).ConfigureAwait(false);
-            if (voyage == null)
-                throw new InvalidOperationException("Voyage not found or not accessible: " + voyageId);
-
-            AddIfMissing(objective.VoyageIds, voyage.Id);
-
-            List<Mission> missions = await ReadAccessibleMissionsForVoyageAsync(auth, voyage.Id, token).ConfigureAwait(false);
-            foreach (Mission mission in missions)
+            SemaphoreSlim linkLock = _VoyageLinkLocks.GetOrAdd(objectiveId, _ => new SemaphoreSlim(1, 1));
+            await linkLock.WaitAsync(token).ConfigureAwait(false);
+            try
             {
-                AddIfMissing(objective.MissionIds, mission.Id);
-                AddIfMissing(objective.VesselIds, mission.VesselId);
-                await AppendFleetForVesselAsync(auth, objective, mission.VesselId, token).ConfigureAwait(false);
+                Objective objective = await ReadAsync(auth, objectiveId, token).ConfigureAwait(false)
+                    ?? throw new InvalidOperationException("Objective not found.");
+                Voyage? voyage = await ReadVoyageEntityAsync(auth, voyageId, token).ConfigureAwait(false);
+                if (voyage == null)
+                    throw new InvalidOperationException("Voyage not found or not accessible: " + voyageId);
+
+                if (!isRescueLink)
+                {
+                    string? activeVoyageId = await FindActiveLinkedVoyageIdAsync(objective, token).ConfigureAwait(false);
+                    if (activeVoyageId != null
+                        && !String.Equals(activeVoyageId, voyage.Id, StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new ObjectiveAlreadyDispatchedException(objectiveId, activeVoyageId);
+                    }
+                }
+
+                AddIfMissing(objective.VoyageIds, voyage.Id);
+
+                List<Mission> missions = await ReadAccessibleMissionsForVoyageAsync(auth, voyage.Id, token).ConfigureAwait(false);
+                foreach (Mission mission in missions)
+                {
+                    AddIfMissing(objective.MissionIds, mission.Id);
+                    AddIfMissing(objective.VesselIds, mission.VesselId);
+                    await AppendFleetForVesselAsync(auth, objective, mission.VesselId, token).ConfigureAwait(false);
+                }
+
+                PromoteStatus(objective, ObjectiveStatusEnum.InProgress);
+                objective.BacklogState = ObjectiveBacklogStateEnum.Dispatched;
+                return await PersistLinkedObjectiveAsync(auth, objective, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                linkLock.Release();
+            }
+        }
+
+        /// <summary>
+        /// True when a voyage is still running and therefore counts as an active dispatch.
+        /// </summary>
+        public static bool IsActiveVoyageStatus(VoyageStatusEnum status)
+        {
+            return status == VoyageStatusEnum.Open || status == VoyageStatusEnum.InProgress;
+        }
+
+        /// <summary>
+        /// Return the id of the first nonterminal voyage already linked to the objective, or null
+        /// when every linked voyage has ended. Shared by the link admission guard and the
+        /// scheduler's pre-dispatch check so both read one definition of "already dispatched".
+        /// </summary>
+        public async Task<string?> FindActiveLinkedVoyageIdAsync(Objective objective, CancellationToken token = default)
+        {
+            if (objective == null || objective.VoyageIds == null) return null;
+
+            foreach (string voyageId in objective.VoyageIds)
+            {
+                Voyage? voyage = await _Database.Voyages.ReadAsync(voyageId, token).ConfigureAwait(false);
+                if (voyage != null && IsActiveVoyageStatus(voyage.Status))
+                    return voyage.Id;
             }
 
-            PromoteStatus(objective, ObjectiveStatusEnum.InProgress);
-            objective.BacklogState = ObjectiveBacklogStateEnum.Dispatched;
-            return await PersistLinkedObjectiveAsync(auth, objective, token).ConfigureAwait(false);
+            return null;
         }
 
         /// <summary>

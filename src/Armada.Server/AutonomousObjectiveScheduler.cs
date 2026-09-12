@@ -806,7 +806,7 @@ namespace Armada.Server
                 }
 
                 // A voyage still running blocks completion.
-                if (IsActiveVoyageStatus(voyage.Status)) return false;
+                if (ObjectiveService.IsActiveVoyageStatus(voyage.Status)) return false;
 
                 if (!AreFailedChainsRecovered(
                     missionsByVoyage[voyage.Id],
@@ -1185,17 +1185,61 @@ namespace Armada.Server
 
             List<MissionDescription> missionDescriptions = new List<MissionDescription> { md };
 
-            Voyage voyage = await _Admiral.DispatchVoyageAsync(
-                objective.Title,
-                missionDescription,
-                vesselId,
-                missionDescriptions,
-                objective.SuggestedPipelineId,
-                objective.SuggestedPlaybooks.Count > 0 ? objective.SuggestedPlaybooks : null,
-                token).ConfigureAwait(false);
-
             AuthContext objectiveAuth = BuildAuth(objective);
-            await _Objectives.LinkVoyageAsync(objectiveAuth, objective.Id, voyage.Id, token).ConfigureAwait(false);
+            ObjectiveDispatchAdmission admission;
+            try
+            {
+                admission = await _Objectives.AcquireDispatchAdmissionAsync(objectiveAuth, objective.Id, token).ConfigureAwait(false);
+            }
+            catch (ObjectiveAlreadyDispatchedException alreadyDispatched)
+            {
+                await EmitObjectiveEventAsync("objective_scheduler.skipped_already_dispatched",
+                    "Autonomous scheduler skipped objective " + objective.Id + ": already dispatched as voyage "
+                        + alreadyDispatched.WinningVoyageId + ".",
+                    objective, vesselId, token).ConfigureAwait(false);
+                throw new ObjectiveSkippedException("already_dispatched");
+            }
+
+            Voyage voyage;
+            await using (admission.ConfigureAwait(false))
+            {
+                Objective admittedObjective = admission.Objective;
+                if (!admittedObjective.AutoDispatchEnabled
+                    || (admittedObjective.Status != ObjectiveStatusEnum.Scoped
+                        && admittedObjective.Status != ObjectiveStatusEnum.Planned))
+                {
+                    await EmitObjectiveEventAsync("objective_scheduler.skipped_stale_snapshot",
+                        "Autonomous scheduler skipped objective " + objective.Id
+                            + ": its dispatch state changed while admission waited.",
+                        admittedObjective, vesselId, token).ConfigureAwait(false);
+                    throw new ObjectiveSkippedException("stale_snapshot");
+                }
+
+                voyage = await _Admiral.DispatchVoyageAsync(
+                    objective.Title,
+                    missionDescription,
+                    vesselId,
+                    missionDescriptions,
+                    objective.SuggestedPipelineId,
+                    objective.SuggestedPlaybooks.Count > 0 ? objective.SuggestedPlaybooks : null,
+                    token).ConfigureAwait(false);
+
+                try
+                {
+                    admission.ThrowIfOwnershipLost();
+                    await _Objectives.LinkVoyageAsync(objectiveAuth, objective.Id, voyage.Id, token).ConfigureAwait(false);
+                }
+                catch
+                {
+                    await VoyageCancellation.CancelVoyageAsync(
+                        _Database,
+                        voyage,
+                        "Voyage cancelled: objective " + objective.Id + " could not be linked.",
+                        CancellationToken.None,
+                        _Admiral.RecallCaptainAsync).ConfigureAwait(false);
+                    throw;
+                }
+            }
 
             // Arm this voyage's Checks through the same seam the operator dispatch paths use. The
             // scheduler dispatches through the admiral directly rather than through
@@ -1243,19 +1287,9 @@ namespace Armada.Server
 
         private async Task<bool> HasActiveLinkedVoyageAsync(Objective objective, CancellationToken token)
         {
-            foreach (string voyageId in objective.VoyageIds)
-            {
-                Voyage? voyage = await _Database.Voyages.ReadAsync(voyageId, token).ConfigureAwait(false);
-                if (voyage != null && IsActiveVoyageStatus(voyage.Status))
-                    return true;
-            }
-
-            return false;
-        }
-
-        private static bool IsActiveVoyageStatus(VoyageStatusEnum status)
-        {
-            return status == VoyageStatusEnum.Open || status == VoyageStatusEnum.InProgress;
+            // One definition of "already dispatched" for the scheduler's early-out and for the
+            // atomic link admission guard both paths use: delegate to the shared objective check.
+            return await _Objectives.FindActiveLinkedVoyageIdAsync(objective, token).ConfigureAwait(false) != null;
         }
 
         private async Task EmitSystemEventAsync(string eventType, string message, CancellationToken token)

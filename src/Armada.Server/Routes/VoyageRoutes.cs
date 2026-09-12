@@ -220,6 +220,7 @@ namespace Armada.Server.Routes
                 Voyage voyage;
                 if (isBareVoyage)
                 {
+                    ObjectiveDispatchAdmission? admission = null;
                     if (linkedObjective != null && _objectiveDispatchPreview != null)
                     {
                         ObjectiveDispatchPreview preview = await _objectiveDispatchPreview.PreviewAsync(
@@ -241,19 +242,67 @@ namespace Armada.Server.Routes
                         }
                     }
 
-                    // Bare voyage creation (missions added separately)
-                    voyage = new Voyage(voyageReq.Title, voyageReq.Description);
-                    voyage.TenantId = ctx.TenantId;
-                    voyage.UserId = ctx.UserId;
-                    voyage = await _database.Voyages.CreateAsync(voyage).ConfigureAwait(false);
-                    voyage.SelectedPlaybooks = voyageReq.SelectedPlaybooks ?? new List<SelectedPlaybook>();
-                    if (voyage.SelectedPlaybooks.Count > 0)
+                    if (linkedObjective != null)
                     {
-                        PlaybookService playbookService = new PlaybookService(_database, _logging);
-                        await playbookService.ResolveSelectionsAsync(ctx.TenantId!, voyage.SelectedPlaybooks).ConfigureAwait(false);
-                        await _database.Playbooks.SetVoyageSelectionsAsync(voyage.Id, voyage.SelectedPlaybooks).ConfigureAwait(false);
+                        try
+                        {
+                            admission = await _objectives.AcquireDispatchAdmissionAsync(ctx, linkedObjective.Id).ConfigureAwait(false);
+                        }
+                        catch (ObjectiveAlreadyDispatchedException alreadyDispatched)
+                        {
+                            req.Http.Response.StatusCode = 409;
+                            return new
+                            {
+                                Error = "Objective already dispatched.",
+                                Code = "objective_already_dispatched",
+                                ObjectiveId = linkedObjective.Id,
+                                VoyageId = alreadyDispatched.WinningVoyageId
+                            };
+                        }
                     }
-                    _logging.Info(_Header + "created bare voyage " + voyage.Id + ": " + voyageReq.Title);
+
+                    Voyage? bareVoyage = null;
+                    try
+                    {
+                        // Bare voyage creation (missions added separately)
+                        bareVoyage = new Voyage(voyageReq.Title, voyageReq.Description);
+                        bareVoyage.TenantId = ctx.TenantId;
+                        bareVoyage.UserId = ctx.UserId;
+                        bareVoyage = await _database.Voyages.CreateAsync(bareVoyage).ConfigureAwait(false);
+                        bareVoyage.SelectedPlaybooks = voyageReq.SelectedPlaybooks ?? new List<SelectedPlaybook>();
+                        if (bareVoyage.SelectedPlaybooks.Count > 0)
+                        {
+                            PlaybookService playbookService = new PlaybookService(_database, _logging);
+                            await playbookService.ResolveSelectionsAsync(ctx.TenantId!, bareVoyage.SelectedPlaybooks).ConfigureAwait(false);
+                            await _database.Playbooks.SetVoyageSelectionsAsync(bareVoyage.Id, bareVoyage.SelectedPlaybooks).ConfigureAwait(false);
+                        }
+                        _logging.Info(_Header + "created bare voyage " + bareVoyage.Id + ": " + voyageReq.Title);
+
+                        if (linkedObjective != null)
+                        {
+                            admission?.ThrowIfOwnershipLost();
+                            await _objectives.LinkVoyageAsync(ctx, linkedObjective.Id, bareVoyage.Id).ConfigureAwait(false);
+                        }
+                        voyage = bareVoyage;
+                    }
+                    catch
+                    {
+                        if (bareVoyage != null)
+                        {
+                            await VoyageCancellation.CancelVoyageAsync(
+                                _database,
+                                bareVoyage,
+                                "Voyage cancelled: objective " + linkedObjective?.Id + " dispatch did not complete.",
+                                CancellationToken.None,
+                                _admiral.RecallCaptainAsync).ConfigureAwait(false);
+                        }
+                        throw;
+                    }
+                    finally
+                    {
+                        if (admission != null)
+                            await admission.DisposeAsync().ConfigureAwait(false);
+                    }
                 }
                 else
                 {
@@ -277,11 +326,6 @@ namespace Armada.Server.Routes
 
                     voyage = dispatchResult.Voyage
                         ?? throw new InvalidOperationException("Dispatch succeeded without a voyage response.");
-                }
-
-                if (isBareVoyage && !String.IsNullOrWhiteSpace(voyageReq.ObjectiveId))
-                {
-                    await _objectives.LinkVoyageAsync(ctx, voyageReq.ObjectiveId, voyage.Id).ConfigureAwait(false);
                 }
 
                 req.Http.Response.StatusCode = 201;
