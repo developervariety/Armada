@@ -1713,7 +1713,7 @@ namespace Armada.Core.Services
                 bool judgeGateRejected = false;
                 if (verdict == JudgeVerdict.Pass)
                 {
-                    if (!TryValidateJudgePassOutput(mission.AgentOutput, out verdictFailureReason))
+                    if (!TryValidateJudgePassOutput(mission.AgentOutput, mission.IsReadOnlyMode, out verdictFailureReason))
                     {
                         // A PASS that fails structural validation degrades to a re-run request
                         // (NEEDS_REVISION semantics) so the mission stays non-terminal and the
@@ -7159,7 +7159,7 @@ namespace Armada.Core.Services
             return JudgeVerdict.None;
         }
 
-        private bool TryValidateJudgePassOutput(string? agentOutput, out string? failureReason)
+        private bool TryValidateJudgePassOutput(string? agentOutput, bool reportOnly, out string? failureReason)
         {
             failureReason = null;
 
@@ -7172,8 +7172,16 @@ namespace Armada.Core.Services
             List<string> missingSections = new List<string>();
             if (!ContainsJudgeReviewSection(agentOutput, "Completeness")) missingSections.Add("Completeness");
             if (!ContainsJudgeReviewSection(agentOutput, "Correctness")) missingSections.Add("Correctness");
-            if (!ContainsJudgeReviewSection(agentOutput, "Tests")) missingSections.Add("Tests");
-            if (!ContainsJudgeReviewSection(agentOutput, "Failure Modes")) missingSections.Add("Failure Modes");
+            if (reportOnly)
+            {
+                if (!ContainsJudgeReviewSection(agentOutput, "Evidence")) missingSections.Add("Evidence");
+                if (!ContainsJudgeReviewSection(agentOutput, "Residual Risks")) missingSections.Add("Residual Risks");
+            }
+            else
+            {
+                if (!ContainsJudgeReviewSection(agentOutput, "Tests")) missingSections.Add("Tests");
+                if (!ContainsJudgeReviewSection(agentOutput, "Failure Modes")) missingSections.Add("Failure Modes");
+            }
 
             if (missingSections.Count > 0)
             {

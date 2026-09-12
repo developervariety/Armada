@@ -643,6 +643,92 @@ namespace Armada.Test.Unit
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("ReportOnlyJudgeCompletion_UsesReportSectionsAndCompletesVoyage", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService svc, Voyage voyage) = await SeedReportOnlyJudgePassedVoyageAsync(
+                        testDb, MissionModeEnum.Audit).ConfigureAwait(false);
+                    Mission? judge = (await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id, CancellationToken.None).ConfigureAwait(false))
+                        .FirstOrDefault(m => m.Persona == "Judge");
+                    AssertNotNull(judge, "judge mission should exist");
+
+                    Captain captain = new Captain("report-only-judge-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    judge!.Status = MissionStatusEnum.Pending;
+                    judge.CaptainId = captain.Id;
+                    await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+                    captain.CurrentMissionId = judge.Id;
+                    await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                    svc.OnGetMissionOutput = _ =>
+                        "## Completeness\n" +
+                        "The report covers every requested finding and its conclusion.\n\n" +
+                        "## Correctness\n" +
+                        "The cited observations support the report without contradiction.\n\n" +
+                        "## Evidence\n" +
+                        "Each claim names the checked source and the exact supporting evidence.\n\n" +
+                        "## Residual Risks\n" +
+                        "No unresolved risk changes the report conclusion.\n\n" +
+                        "## Verdict\n" +
+                        "The report is ready for acceptance.\n\n" +
+                        "[ARMADA:VERDICT] PASS";
+
+                    await svc.HandleCompletionAsync(captain, judge.Id).ConfigureAwait(false);
+                    await svc.UpdateVoyageTerminalStatusAsync(voyage.Id, CancellationToken.None).ConfigureAwait(false);
+
+                    Mission? completedJudge = await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false);
+                    Voyage? completedVoyage = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    AssertNotNull(completedJudge, "judge mission should remain readable");
+                    AssertNotNull(completedVoyage, "voyage should remain readable");
+                    AssertEqual(MissionStatusEnum.WorkProduced, completedJudge!.Status,
+                        "a report-only Judge PASS must pass structural validation before terminal handling");
+                    AssertEqual(VoyageStatusEnum.Complete, completedVoyage!.Status,
+                        "a report-only Judge PASS must complete its voyage without code Checks");
+                    AssertTrue(String.IsNullOrEmpty(completedJudge.FailureReason),
+                        "a contract-compliant report-only PASS must not be degraded to NEEDS_REVISION");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("ReportOnlyJudgeCompletion_RejectsMissingEvidenceSection", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService svc, Voyage voyage) = await SeedReportOnlyJudgePassedVoyageAsync(
+                        testDb, MissionModeEnum.Research).ConfigureAwait(false);
+                    Mission? judge = (await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id, CancellationToken.None).ConfigureAwait(false))
+                        .FirstOrDefault(m => m.Persona == "Judge");
+                    AssertNotNull(judge, "judge mission should exist");
+
+                    Captain captain = new Captain("report-only-invalid-judge-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    judge!.Status = MissionStatusEnum.Pending;
+                    judge.CaptainId = captain.Id;
+                    await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+                    captain.CurrentMissionId = judge.Id;
+                    await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                    svc.OnGetMissionOutput = _ =>
+                        "## Completeness\n" +
+                        "The report covers the requested finding.\n\n" +
+                        "## Correctness\n" +
+                        "The conclusion follows from the reviewed material.\n\n" +
+                        "## Residual Risks\n" +
+                        "No unresolved risk changes the conclusion.\n\n" +
+                        "[ARMADA:VERDICT] PASS";
+
+                    await svc.HandleCompletionAsync(captain, judge.Id).ConfigureAwait(false);
+                    Mission? rejectedJudge = await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false);
+                    AssertNotNull(rejectedJudge, "judge mission should remain readable");
+                    AssertEqual(MissionStatusEnum.Failed, rejectedJudge!.Status,
+                        "a report-only PASS without Evidence must be rejected");
+                    AssertContains("Evidence", rejectedJudge.FailureReason ?? String.Empty,
+                        "the failure reason must name the missing report-only section");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("ReportOnlyVoyage_LegacyFailedChecks_DoNotFailTerminalization", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
