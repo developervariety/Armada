@@ -69,6 +69,11 @@ Skipped from upstream (already equal or richer here): captain-map, token-usage c
 - When no tier list and no family rule is configured, `SelectModel` picks randomly among idle persona-eligible captains so a fresh clone still assigns work. Low still maps to mid (platform two-tier architecture).
 
 ### Dispatch and model selection
+- Long pipeline reports now use a bounded head/tail preview with a durable
+  `mission-output:<id>` reference, total length, full UTF-8 SHA-256 digest, and
+  explicit completeness state. Authenticated REST and default-tenant MCP readers
+  page the redacted persisted output so downstream stages can verify the complete
+  safe artifact.
 - Start-ref validation and branch creation now verify that the requested revision
   names a commit object in the dock-owning repository and keep its full object
   ID. A raw hexadecimal name for an absent object can no longer pass

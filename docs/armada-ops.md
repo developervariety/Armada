@@ -1070,11 +1070,16 @@ shows only critical items).
 
 | Risk | Tools |
 | --- | --- |
-| Read | `armada_voyage_status`, `armada_mission_status`, `armada_get_mission_diff`, `armada_get_mission_log` |
+| Read | `armada_voyage_status`, `armada_mission_status`, `armada_mission_output`, `armada_get_mission_diff`, `armada_get_mission_log` |
 | Write | `armada_create_mission`, `armada_update_mission`, `armada_transition_mission_status` |
 | Execute | `armada_dispatch`, `armada_restart_mission`, `armada_retry_landing` |
 | Interrupt | `armada_cancel_mission`, `armada_cancel_voyage` |
 | Destructive | `armada_purge_mission`, `armada_delete_missions`, `armada_purge_voyage`, `armada_delete_voyages` |
+
+`armada_mission_output` pages the authoritative safe report artifact. Follow
+`nextOffset` until `hasMore` is false. Then verify `sha256`, `finalized`, and
+`complete`. A missing page, incomplete artifact, or digest mismatch is an
+evidence gap.
 
 ### 8.5 Planning, Objectives, And Backlog
 

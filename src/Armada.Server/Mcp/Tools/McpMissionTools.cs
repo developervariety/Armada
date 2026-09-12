@@ -11,6 +11,7 @@ namespace Armada.Server.Mcp.Tools
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Runtimes;
@@ -101,6 +102,37 @@ namespace Armada.Server.Mcp.Tools
                         // Non-fatal; leave ContextPackUsage and PromptBudget null.
                     }
                     return (object)mission;
+                });
+
+            register(
+                "armada_mission_output",
+                "Read a digest-backed page of the authoritative safe output artifact for a mission. Secret-shaped values are redacted. Continue at nextOffset until hasMore is false, then verify sha256 and complete before treating the report as complete.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        missionId = new { type = "string", description = "Mission ID (msn_ prefix)" },
+                        offset = new { type = "integer", description = "Zero-based character offset (default 0)" },
+                        length = new { type = "integer", description = "Characters to return (default 16000, maximum 64000)" }
+                    },
+                    required = new[] { "missionId" }
+                },
+                async (args) =>
+                {
+                    MissionOutputArgs request = JsonSerializer.Deserialize<MissionOutputArgs>(args!.Value, _JsonOptions)!;
+                    Mission? mission = await database.Missions.ReadAsync(
+                        ArmadaConstants.DefaultTenantId,
+                        request.MissionId).ConfigureAwait(false);
+                    if (mission == null) return (object)new { Error = "Mission not found" };
+                    try
+                    {
+                        return MissionOutputArtifact.Build(mission, request.Offset, request.Length);
+                    }
+                    catch (ArgumentOutOfRangeException ex)
+                    {
+                        return (object)new { Error = ex.ParamName + " is outside the valid output page range" };
+                    }
                 });
 
             register(

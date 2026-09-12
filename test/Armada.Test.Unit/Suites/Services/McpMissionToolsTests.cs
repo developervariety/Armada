@@ -24,6 +24,41 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("MissionOutput_ReturnsPersistedDigestBackedPage", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Mission mission = new Mission("persisted output")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        AgentOutput = "page one 🙂 page two",
+                        Status = MissionStatusEnum.Complete
+                    };
+                    mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? outputHandler = null;
+                    McpMissionTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_mission_output") outputHandler = handler; },
+                        testDb.Driver,
+                        new RecordingAdmiralDouble(),
+                        null,
+                        null);
+
+                    AssertNotNull(outputHandler, "armada_mission_output handler must be registered");
+                    object result = await outputHandler!(JsonSerializer.SerializeToElement(new
+                    {
+                        missionId = mission.Id,
+                        offset = 0,
+                        length = 9
+                    })).ConfigureAwait(false);
+                    string json = JsonSerializer.Serialize(result);
+                    AssertContains("mission-output:" + mission.Id, json);
+                    AssertContains("\"HasMore\":true", json);
+                    AssertContains("\"Complete\":true", json);
+                    AssertContains("\"Sha256\":", json);
+                }
+            });
+
             await RunTest("CreateMission_VesselWithDefaultPlaybooks_MergesIntoMission", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

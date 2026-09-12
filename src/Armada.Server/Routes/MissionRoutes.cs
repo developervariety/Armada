@@ -472,6 +472,53 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
+            app.Get("/api/v1/missions/{id}/output", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+
+                string id = req.Parameters["id"];
+                Mission? mission = ctx.IsAdmin
+                    ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                if (mission == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" };
+                }
+
+                int offset = Int32.TryParse(req.Query.GetValueOrDefault("offset"), out int parsedOffset) ? parsedOffset : 0;
+                int length = Int32.TryParse(req.Query.GetValueOrDefault("length"), out int parsedLength)
+                    ? parsedLength
+                    : MissionOutputArtifact.DefaultPageLength;
+                try
+                {
+                    return (object)MissionOutputArtifact.Build(mission, offset, length);
+                }
+                catch (ArgumentOutOfRangeException ex)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.ParamName + " is outside the valid output page range" };
+                }
+            },
+            api => api
+                .WithTag("Missions")
+                .WithSummary("Read persisted mission output")
+                .WithDescription("Returns one redacted page plus the full safe artifact UTF-8 SHA-256 digest and explicit completeness state.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
+                .WithParameter(OpenApiParameterMetadata.Query("offset", "Zero-based character offset", false))
+                .WithParameter(OpenApiParameterMetadata.Query("length", "Characters to return (maximum 64000)", false))
+                .WithResponse(200, OpenApiJson.For<MissionOutputArtifactPage>("Mission output page"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
             app.Get("/api/v1/missions/{id}/github/pull-request", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);

@@ -1399,6 +1399,27 @@ Get a single mission by ID.
 
 ---
 
+#### GET /api/v1/missions/{id}/output
+
+Returns one page of the mission's authoritative safe output artifact. The
+response includes the full UTF-8 SHA-256 digest, total character and byte
+counts, and explicit finalization and completeness fields. Secret-shaped values
+are redacted before persistence and again when legacy output is read.
+
+Use the returned `NextOffset` until `HasMore` is `false`. Verify `Sha256` after
+you join all pages. Do not accept the report when a page is missing,
+`Complete` is `false`, or the digest does not match.
+
+| Query parameter | Type | Default | Description |
+|---|---|---|---|
+| `offset` | integer | 0 | Zero-based UTF-16 character offset. |
+| `length` | integer | 16000 | Requested character count, with a maximum of 64000. |
+
+**Errors:** `400` for an invalid page range; `401` or `403` for an unauthorized
+request; `404` when the mission is outside the caller's scope or does not exist.
+
+---
+
 #### PUT /api/v1/missions/{id}
 
 Update mission fields (title, description, priority, etc.). Does not change status -- use the status transition endpoint for that.

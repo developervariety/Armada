@@ -1562,7 +1562,7 @@ namespace Armada.Core.Services
                 string? agentOutput = OnGetMissionOutput(mission.Id);
                 if (!String.IsNullOrEmpty(agentOutput))
                 {
-                    mission.AgentOutput = agentOutput;
+                    mission.AgentOutput = RuntimeLogFormatter.RedactSecrets(agentOutput);
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                 }
             }
@@ -4647,17 +4647,26 @@ namespace Armada.Core.Services
             // Use the canonical persisted AgentOutput for handoff instead of reparsing
             // the mission log file. AgentOutput is captured from accumulated stdout by
             // HandleCompletionAsync and is the single source of truth for agent output.
+            MissionOutputArtifactPage outputArtifact = MissionOutputArtifact.Build(completedMission, 0, 1);
             if (!String.IsNullOrEmpty(completedMission.AgentOutput))
             {
-                string agentOutput = completedMission.AgentOutput.Trim();
+                string agentOutput = RuntimeLogFormatter.RedactSecrets(completedMission.AgentOutput);
                 int maxOutputChars = 8000;
                 if (agentOutput.Length > maxOutputChars)
                 {
-                    // Truncate from the end (keep the beginning which typically contains
-                    // the plan/structure) rather than the beginning
-                    agentOutput = agentOutput.Substring(0, maxOutputChars) + "\n...(truncated)";
+                    agentOutput = BuildBoundedMissionOutputPreview(agentOutput, 3400)
+                        + BuildMissionOutputArtifactInstructions(outputArtifact);
+                }
+                else if (!outputArtifact.Complete)
+                {
+                    agentOutput += BuildMissionOutputArtifactInstructions(outputArtifact);
                 }
                 handoffContext += "\n### Agent Output (from " + completedMission.Persona + " stage)\n```\n" + agentOutput + "\n```\n";
+            }
+            else
+            {
+                handoffContext += "\n### Agent Output Evidence Gap\nNo persisted agent output is available."
+                    + BuildMissionOutputArtifactInstructions(outputArtifact) + "\n";
             }
 
             // Include the diff snapshot if available, scoped so a large generated-output diff (e.g. a
@@ -4753,6 +4762,34 @@ namespace Armada.Core.Services
             _Logging.Info(_Header + "pipeline handoff: prepared mission " + nextMission.Id +
                 " (" + nextMission.Persona + ") with context from " + completedMission.Id +
                 " (" + completedMission.Persona + ")");
+        }
+
+        private static string BuildMissionOutputArtifactInstructions(MissionOutputArtifactPage artifact)
+        {
+            return "\n\nAuthoritative safe artifact: " + artifact.ArtifactRef
+                + "\nTotal characters: " + artifact.TotalLength
+                + "\nTotal UTF-8 bytes: " + artifact.TotalUtf8Bytes
+                + "\nUTF-8 SHA-256: " + artifact.Sha256
+                + "\nFinalized: " + artifact.Finalized
+                + "\nComplete: " + artifact.Complete
+                + (artifact.TruncationReason == null ? String.Empty : "\nTruncation reason: " + artifact.TruncationReason)
+                + "\nRetrieve every page with armada_mission_output (or GET /api/v1/missions/"
+                + artifact.MissionId + "/output), follow nextOffset until hasMore=false, and verify the digest before review. "
+                + "A missing page, incomplete artifact, or digest mismatch is an evidence gap and must not pass review.";
+        }
+
+        private static string BuildBoundedMissionOutputPreview(string output, int sectionLength)
+        {
+            if (String.IsNullOrEmpty(output) || output.Length <= sectionLength * 2) return output;
+
+            int headEnd = sectionLength;
+            if (headEnd < output.Length && Char.IsHighSurrogate(output[headEnd - 1])) headEnd++;
+            int tailStart = output.Length - sectionLength;
+            if (tailStart > 0 && tailStart < output.Length && Char.IsLowSurrogate(output[tailStart])) tailStart--;
+
+            return output.Substring(0, headEnd)
+                + "\n\n...(bounded head/tail preview; middle omitted)...\n\n"
+                + output.Substring(tailStart);
         }
 
         /// <summary>

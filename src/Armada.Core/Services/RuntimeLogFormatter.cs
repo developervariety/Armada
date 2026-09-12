@@ -63,6 +63,23 @@ namespace Armada.Core.Services
             return result;
         }
 
+        /// <summary>
+        /// Redact secret-shaped values without changing the remaining text or applying a display limit.
+        /// Use this before free-form runtime output is persisted or returned as an artifact.
+        /// </summary>
+        /// <param name="text">Free-form runtime output.</param>
+        /// <returns>Deterministically redacted text.</returns>
+        public static string RedactSecrets(string? text)
+        {
+            string safe = text ?? String.Empty;
+            foreach ((Regex pattern, string replacement) in _Redactions)
+            {
+                safe = pattern.Replace(safe, replacement);
+            }
+
+            return safe;
+        }
+
         #endregion
 
         #region Private-Methods
@@ -116,12 +133,9 @@ namespace Armada.Core.Services
         private static void ApplyRedactionAndTruncation(FormattedLogLine result)
         {
             string text = result.Text;
-            foreach ((Regex pattern, string replacement) in _Redactions)
-            {
-                string next = pattern.Replace(text, replacement);
-                if (!ReferenceEquals(next, text) && next != text) result.Redacted = true;
-                text = next;
-            }
+            string redacted = RedactSecrets(text);
+            if (!String.Equals(redacted, text, StringComparison.Ordinal)) result.Redacted = true;
+            text = redacted;
 
             if (text.Length > _MaxLineChars)
             {

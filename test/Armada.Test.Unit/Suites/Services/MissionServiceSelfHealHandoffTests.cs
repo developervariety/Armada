@@ -142,6 +142,67 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("TryAssign_LongReport_HandoffCarriesVerifiableArtifactReference", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Mission worker = await CreateUpstreamAsync(
+                        testDb.Driver, vessel, "Worker", "armada/long-report").ConfigureAwait(false);
+                    worker.AgentOutput = "HEAD-SENTINEL\n" + new string('m', 9000) + "\nTAIL-SENTINEL";
+                    worker = await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+                    Mission judge = await CreateDependentAsync(
+                        testDb.Driver, vessel, "Judge", worker.Id, "Review the complete report.").ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(judge, vessel).ConfigureAwait(false);
+                    Mission readBack = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!;
+                    string description = readBack.Description ?? String.Empty;
+
+                    AssertFalse(assigned, "No captain exists, but the handoff must still be prepared.");
+                    AssertContains("HEAD-SENTINEL", description);
+                    AssertContains("TAIL-SENTINEL", description);
+                    AssertContains("bounded head/tail preview; middle omitted", description);
+                    AssertContains("Authoritative safe artifact: mission-output:" + worker.Id, description);
+                    AssertContains("UTF-8 SHA-256:", description);
+                    AssertContains("Complete: True", description);
+                    AssertContains("follow nextOffset until hasMore=false", description);
+                    AssertContains("digest mismatch is an evidence gap", description);
+                    AssertFalse(description.Contains(new string('m', 8001), StringComparison.Ordinal),
+                        "The handoff must not inline the complete oversized report.");
+                }
+            });
+
+            await RunTest("TryAssign_LongReportPreview_DoesNotSplitUnicodeScalars", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Mission worker = await CreateUpstreamAsync(testDb.Driver, vessel, "Worker", "armada/unicode-report").ConfigureAwait(false);
+                    worker.AgentOutput = new string('h', 3399) + "🙂" + new string('m', 2202) + "🙂" + new string('t', 3399);
+                    worker = await testDb.Driver.Missions.UpdateAsync(worker).ConfigureAwait(false);
+                    Mission judge = await CreateDependentAsync(testDb.Driver, vessel, "Judge", worker.Id, "Review Unicode.").ConfigureAwait(false);
+
+                    await missions.TryAssignAsync(judge, vessel).ConfigureAwait(false);
+                    string description = (await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false))!.Description ?? String.Empty;
+                    for (int i = 0; i < description.Length; i++)
+                    {
+                        if (Char.IsHighSurrogate(description[i]))
+                        {
+                            AssertTrue(i + 1 < description.Length && Char.IsLowSurrogate(description[i + 1]), "Preview has an unpaired high surrogate.");
+                            i++;
+                        }
+                        else
+                        {
+                            AssertFalse(Char.IsLowSurrogate(description[i]), "Preview has an unpaired low surrogate.");
+                        }
+                    }
+                }
+            });
+
             await RunTest("TryAssign_TestEngineerToJudge_MissedHandoff_SelfHealsGenerically", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
