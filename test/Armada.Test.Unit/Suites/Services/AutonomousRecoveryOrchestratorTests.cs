@@ -1402,6 +1402,58 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(incidentId, repeatedIncidentPage.Objects[0].Id, "A repeated sweep must retain the original incident record.");
             }).ConfigureAwait(false);
 
+            await RunTest("Sweep dispatches recovery for a recoverable Failed-voyage failure and links its objective", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_sweep_failed_recovery", "usr_sweep_failed_recovery").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_sweep_failed_recovery", "usr_sweep_failed_recovery").ConfigureAwait(false);
+                Voyage failedVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Failed voyage")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Failed,
+                    CompletedUtc = DateTime.UtcNow.AddMinutes(-1),
+                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-1)
+                }).ConfigureAwait(false);
+                Objective owner = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Title = "Objective with recoverable failed voyage",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VesselIds = new List<string> { vessel.Id },
+                    VoyageIds = new List<string> { failedVoyage.Id }
+                }).ConfigureAwait(false);
+
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                failed.Persona = "Worker";
+                failed.VoyageId = failedVoyage.Id;
+                failed.CommitHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "A recoverable failure in a Failed voyage must dispatch one rescue.");
+                Mission rescue = admiral.DispatchedMissions[0];
+                AssertEqual(failed.Id, rescue.ParentMissionId, "The rescue must preserve failed-mission lineage.");
+                AssertEqual(failed.CommitHash, rescue.StartFromRef, "The rescue must start from the failed mission's recorded commit.");
+                AssertTrue(!String.IsNullOrWhiteSpace(rescue.VoyageId), "The recovery must run in a dedicated rescue voyage.");
+                AssertFalse(String.Equals(failedVoyage.Id, rescue.VoyageId, StringComparison.Ordinal), "The rescue must not reuse the terminal parent voyage.");
+
+                Objective? ownerAfter = await testDb.Driver.Objectives.ReadAsync(owner.Id).ConfigureAwait(false);
+                AssertTrue(ownerAfter!.VoyageIds.Contains(failedVoyage.Id), "The objective must retain the failed voyage as evidence.");
+                AssertTrue(ownerAfter.VoyageIds.Contains(rescue.VoyageId!), "The objective must expose the active recovery voyage.");
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+                AssertEqual(1, admiral.DispatchedMissions.Count, "A repeat sweep must not dispatch a duplicate rescue.");
+            }).ConfigureAwait(false);
+
             await RunTest("PolicyBlock skips incident and closes existing for rescue_produced_no_commits auto-rescue", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
