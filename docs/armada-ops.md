@@ -613,6 +613,13 @@ mirrors the audit result when delivery metadata becomes available. A linked
 follow-up and merge entry appear as one queue item. The older `entryId` verdict
 form resolves the linked canonical follow-up and remains safe to use.
 
+If a transient write fault predates this durable capture path, run
+`armada_backfill_judge_followups` with an explicit `fromUtc` and optional
+`toUtc`. Start with `dryRun: true`, check `incomplete` and `errors`, then run
+the same bounded range with `dryRun: false`. A second write pass must report
+zero `created` rows. The repair records explicit `(none)` sections as durable
+reconciliation evidence with an empty recommendation.
+
 Use `armada_process_merge_entry` for one reviewed entry. Use
 `armada_process_merge_queue` only when the operator intends to start queue
 processing. It returns an accepted job and can no-op when a queue run is

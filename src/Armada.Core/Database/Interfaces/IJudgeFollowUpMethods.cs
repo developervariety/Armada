@@ -13,6 +13,9 @@ namespace Armada.Core.Database.Interfaces
         /// <summary>Read an item by identifier.</summary>
         Task<JudgeFollowUp?> ReadAsync(string id, CancellationToken token = default);
 
+        /// <summary>Read the canonical item produced by one Judge mission.</summary>
+        Task<JudgeFollowUp?> ReadByJudgeMissionAsync(string judgeMissionId, CancellationToken token = default);
+
         /// <summary>Read the newest canonical follow-up associated with a merge entry.</summary>
         Task<JudgeFollowUp?> ReadByMergeEntryAsync(string mergeEntryId, CancellationToken token = default);
 

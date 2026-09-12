@@ -59,6 +59,13 @@ namespace Armada.Core.Database.SqlServer.Implementations
         }
 
         /// <inheritdoc />
+        public Task<JudgeFollowUp?> ReadByJudgeMissionAsync(string judgeMissionId, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(judgeMissionId)) throw new ArgumentNullException(nameof(judgeMissionId));
+            return ReadSingleAsync("judge_mission_id", judgeMissionId, token);
+        }
+
+        /// <inheritdoc />
         public async Task<JudgeFollowUp?> ReadByMergeEntryAsync(string mergeEntryId, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(mergeEntryId)) throw new ArgumentNullException(nameof(mergeEntryId));

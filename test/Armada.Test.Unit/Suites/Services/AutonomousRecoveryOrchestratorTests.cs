@@ -212,6 +212,60 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("audit-only", preservedEvent.Message, "The preservation event must state the scope.");
             }).ConfigureAwait(false);
 
+            await RunTest("ReadOnlyJudgeFollowUpCapture failure is contained and cancellation propagates", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_capture_seam", "usr_auto_capture_seam").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_capture_seam", "usr_auto_capture_seam").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                failed.Mode = MissionModeEnum.Research;
+                failed.ReviewComment = "Retain this recommendation.";
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                RunbookService runbooks = new RunbookService(testDb.Driver, logging);
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator contained = new AutonomousRecoveryOrchestrator(
+                    testDb.Driver, admiral, incidents, runbooks, new ArmadaSettings(), logging,
+                    null, null, null, null, null, null, null,
+                    (_, _, _, _) => throw new InvalidOperationException("injected capture failure"));
+
+                await contained.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+                AuthContext auth = AuthContext.Authenticated("ten_auto_capture_seam", "usr_auto_capture_seam", false, true, "UnitTest");
+                EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = failed.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(1, incidentPage.Objects.Count, "A capture write fault must not stop recovery bookkeeping");
+
+                using CancellationTokenSource cts = new CancellationTokenSource();
+                Mission cancelled = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                cancelled.Persona = "Judge";
+                cancelled.Mode = MissionModeEnum.Research;
+                cancelled.ReviewComment = "Cancellation seam.";
+                await testDb.Driver.Missions.UpdateAsync(cancelled).ConfigureAwait(false);
+                AutonomousRecoveryOrchestrator cancelling = new AutonomousRecoveryOrchestrator(
+                    testDb.Driver, admiral, incidents, runbooks, new ArmadaSettings(), logging,
+                    null, null, null, null, null, null, null,
+                    (_, _, _, _) =>
+                    {
+                        cts.Cancel();
+                        throw new OperationCanceledException(cts.Token);
+                    });
+                System.Reflection.MethodInfo captureMethod = typeof(AutonomousRecoveryOrchestrator).GetMethod(
+                    "EnsureReadOnlyJudgeFollowUpAsync",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                await AssertThrowsAsync<OperationCanceledException>(
+                    async () => await ((Task)captureMethod.Invoke(cancelling, new object[] { cancelled, cts.Token })!)
+                        .ConfigureAwait(false),
+                    "Requested cancellation must escape the capture seam").ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
             await RunTest("AuditJudgeFailure_PreservesAuditModeWithoutRecommendation", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

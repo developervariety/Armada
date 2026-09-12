@@ -39,6 +39,49 @@ namespace Armada.Server.Mcp.Tools
             ReflectionDispatcher? reflectionDispatcher = null)
         {
             JudgeFollowUpService followUpService = new JudgeFollowUpService(database, new SyslogLogging.LoggingModule());
+            JudgeFollowUpBackfillService backfillService = new JudgeFollowUpBackfillService(database, new SyslogLogging.LoggingModule());
+            register(
+                "armada_backfill_judge_followups",
+                "Backfills missed durable Judge follow-up captures over a bounded UTC time range; safe to repeat",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        fromUtc = new { type = "string", description = "Exclusive UTC range start in ISO-8601 format" },
+                        toUtc = new { type = "string", description = "Exclusive UTC range end in ISO-8601 format; defaults to now" },
+                        dryRun = new { type = "boolean", description = "Report missing rows without writing them" },
+                        maxPages = new { type = "integer", description = "Maximum 500-row pages to scan (default 100, max 1000)" }
+                    },
+                    required = new[] { "fromUtc" }
+                },
+                async (args) =>
+                {
+                    if (!args.HasValue
+                        || !args.Value.TryGetProperty("fromUtc", out JsonElement fromElement)
+                        || fromElement.ValueKind != JsonValueKind.String
+                        || !DateTime.TryParse(fromElement.GetString(), null, System.Globalization.DateTimeStyles.RoundtripKind, out DateTime fromUtc))
+                        return (object)new { Error = "fromUtc must be an ISO-8601 timestamp" };
+
+                    DateTime toUtc = DateTime.UtcNow;
+                    if (args.Value.TryGetProperty("toUtc", out JsonElement toElement)
+                        && (toElement.ValueKind != JsonValueKind.String
+                            || !DateTime.TryParse(toElement.GetString(), null, System.Globalization.DateTimeStyles.RoundtripKind, out toUtc)))
+                        return (object)new { Error = "toUtc must be an ISO-8601 timestamp" };
+                    bool dryRun = args.Value.TryGetProperty("dryRun", out JsonElement dryRunElement)
+                        && dryRunElement.ValueKind == JsonValueKind.True;
+                    int maxPages = 100;
+                    if (args.Value.TryGetProperty("maxPages", out JsonElement maxPagesElement)
+                        && maxPagesElement.ValueKind == JsonValueKind.Number)
+                        maxPages = Math.Clamp(maxPagesElement.GetInt32(), 1, 1000);
+                    if (toUtc <= fromUtc) return (object)new { Error = "toUtc must be later than fromUtc" };
+
+                    return await backfillService.RunAsync(
+                        fromUtc.ToUniversalTime(),
+                        toUtc.ToUniversalTime(),
+                        dryRun,
+                        maxPages).ConfigureAwait(false);
+                });
             register(
                 "armada_drain_audit_queue",
                 "Returns Pending deep-review merge entries oldest-first for orchestrator audit processing",

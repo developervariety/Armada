@@ -176,7 +176,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
             return EnumerateAsync("merge_entry_id IS NULL AND judge_mission_id = @value", judgeMissionId, token);
         }
 
-        private Task<JudgeFollowUp?> ReadByJudgeMissionAsync(string judgeMissionId, CancellationToken token)
+        /// <inheritdoc />
+        public Task<JudgeFollowUp?> ReadByJudgeMissionAsync(string judgeMissionId, CancellationToken token = default)
         {
             return ReadSingleAsync("judge_mission_id", judgeMissionId, token);
         }

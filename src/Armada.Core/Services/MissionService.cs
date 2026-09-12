@@ -7040,35 +7040,7 @@ namespace Armada.Core.Services
         /// </summary>
         private static string? ExtractSuggestedFollowUps(string? agentOutput)
         {
-            if (String.IsNullOrEmpty(agentOutput)) return null;
-            string normalized = agentOutput.Replace("\r\n", "\n");
-            string[] lines = normalized.Split('\n');
-            int startIndex = -1;
-            for (int i = 0; i < lines.Length; i++)
-            {
-                string trimmed = lines[i].Trim();
-                if (trimmed.StartsWith("## ", StringComparison.Ordinal) &&
-                    trimmed.Substring(3).Trim().Equals("Suggested Follow-ups", StringComparison.OrdinalIgnoreCase))
-                {
-                    startIndex = i + 1;
-                    break;
-                }
-            }
-            if (startIndex < 0) return null;
-
-            System.Text.StringBuilder body = new System.Text.StringBuilder();
-            for (int i = startIndex; i < lines.Length; i++)
-            {
-                string line = lines[i];
-                if (line.TrimStart().StartsWith("## ", StringComparison.Ordinal)) break;
-                body.Append(line);
-                body.Append('\n');
-            }
-            string text = body.ToString().Trim();
-            if (String.IsNullOrEmpty(text)) return null;
-            // The prompt asks captains to write `(none)` when there are no follow-ups.
-            if (text.Equals("(none)", StringComparison.OrdinalIgnoreCase)) return null;
-            return text;
+            return JudgeOutputParser.ParseSuggestedFollowUps(agentOutput).Body;
         }
 
         private async Task ReplayJudgeFollowUpCaptureAsync(Mission mission, CancellationToken token)

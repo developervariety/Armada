@@ -66,6 +66,65 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Bounded backfill records actionable and explicit-none sections exactly once", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    DateTime fromUtc = DateTime.UtcNow.AddHours(-2);
+                    Mission actionable = new Mission("Backfill actionable", "Review")
+                    {
+                        Persona = "Judge",
+                        Status = Armada.Core.Enums.MissionStatusEnum.Complete,
+                        AgentOutput = "[ARMADA:VERDICT] PASS\n\n## Suggested Follow-ups\n- Add the missed guard.",
+                        CreatedUtc = DateTime.UtcNow.AddHours(-1)
+                    };
+                    Mission explicitNone = new Mission("Backfill none", "Review")
+                    {
+                        Persona = "Judge",
+                        Status = Armada.Core.Enums.MissionStatusEnum.Complete,
+                        AgentOutput = "[ARMADA:VERDICT] PASS\n\n## Suggested Follow-ups\n(none)",
+                        CreatedUtc = DateTime.UtcNow.AddMinutes(-50)
+                    };
+                    Mission missingSection = new Mission("Backfill missing", "Review")
+                    {
+                        Persona = "Judge",
+                        Status = Armada.Core.Enums.MissionStatusEnum.Complete,
+                        AgentOutput = "[ARMADA:VERDICT] PASS",
+                        CreatedUtc = DateTime.UtcNow.AddMinutes(-40)
+                    };
+                    actionable = await testDb.Driver.Missions.CreateAsync(actionable).ConfigureAwait(false);
+                    explicitNone = await testDb.Driver.Missions.CreateAsync(explicitNone).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(missingSection).ConfigureAwait(false);
+
+                    JudgeFollowUpBackfillService service = new JudgeFollowUpBackfillService(testDb.Driver, logging);
+                    JudgeFollowUpBackfillService.Result preview = await service.RunAsync(
+                        fromUtc, DateTime.UtcNow.AddMinutes(1), true, 10).ConfigureAwait(false);
+                    AssertEqual(2, preview.WouldCreate, "Dry run must report both missing durable rows");
+                    AssertEqual(0, preview.Created, "Dry run must not claim that it wrote rows");
+                    AssertEqual(1, preview.Actionable);
+                    AssertEqual(1, preview.ExplicitNone);
+                    AssertEqual(0, (await testDb.Driver.JudgeFollowUps.EnumeratePendingAsync().ConfigureAwait(false)).Count);
+
+                    JudgeFollowUpBackfillService.Result first = await service.RunAsync(
+                        fromUtc, DateTime.UtcNow.AddMinutes(1), false, 10).ConfigureAwait(false);
+                    AssertEqual(2, first.Created);
+                    AssertEqual(0, first.Errors);
+                    AssertFalse(first.Incomplete);
+                    AssertNotNull(await testDb.Driver.JudgeFollowUps.ReadByJudgeMissionAsync(actionable.Id).ConfigureAwait(false));
+                    JudgeFollowUp? noneRow = await testDb.Driver.JudgeFollowUps
+                        .ReadByJudgeMissionAsync(explicitNone.Id).ConfigureAwait(false);
+                    AssertNotNull(noneRow, "Explicit (none) is durable reconciliation evidence");
+                    AssertNull(noneRow!.SuggestedFollowUps);
+
+                    JudgeFollowUpBackfillService.Result second = await service.RunAsync(
+                        fromUtc, DateTime.UtcNow.AddMinutes(1), false, 10).ConfigureAwait(false);
+                    AssertEqual(0, second.Created, "A repeat pass must create no rows");
+                    AssertEqual(2, second.AlreadyPresent);
+                }
+            });
+
             await RunTest("Post-work replay recovers a failed FAIL follow-up write", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -320,6 +379,7 @@ namespace Armada.Test.Unit.Suites.Services
             }
 
             public Task<JudgeFollowUp?> ReadAsync(string id, CancellationToken token = default) => _Inner.ReadAsync(id, token);
+            public Task<JudgeFollowUp?> ReadByJudgeMissionAsync(string judgeMissionId, CancellationToken token = default) => _Inner.ReadByJudgeMissionAsync(judgeMissionId, token);
             public Task<JudgeFollowUp?> ReadByMergeEntryAsync(string mergeEntryId, CancellationToken token = default) => _Inner.ReadByMergeEntryAsync(mergeEntryId, token);
             public Task<JudgeFollowUp> UpdateAsync(JudgeFollowUp followUp, CancellationToken token = default) => _Inner.UpdateAsync(followUp, token);
             public Task<bool> TryAssociateAsync(string followUpId, string mergeEntryId, CancellationToken token = default) => _Inner.TryAssociateAsync(followUpId, mergeEntryId, token);

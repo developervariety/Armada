@@ -50,6 +50,7 @@ namespace Armada.Server
         private readonly ConcurrentDictionary<string, SemaphoreSlim> _MissionLocks = new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal);
         private readonly SemaphoreSlim _SweepLock = new SemaphoreSlim(1, 1);
         private readonly CheckRunService? _CheckRuns;
+        private readonly Func<Mission, string, string?, CancellationToken, Task<JudgeFollowUp>> _CaptureJudgeFollowUp;
 
         /// <summary>
         /// Instantiate.
@@ -109,7 +110,8 @@ namespace Armada.Server
             IConventionChecker? conventionChecker,
             ICriticalTriggerEvaluator? criticalTriggerEvaluator,
             ProviderProgressTracker? providerProgress,
-            CheckRunService? checkRuns = null)
+            CheckRunService? checkRuns = null,
+            Func<Mission, string, string?, CancellationToken, Task<JudgeFollowUp>>? captureJudgeFollowUp = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
@@ -124,6 +126,10 @@ namespace Armada.Server
             _CriticalTriggerEvaluator = criticalTriggerEvaluator;
             _ProviderProgress = providerProgress;
             _CheckRuns = checkRuns;
+            _CaptureJudgeFollowUp = captureJudgeFollowUp
+                ?? ((mission, verdict, recommendation, token) =>
+                    new JudgeFollowUpService(_Database, _Logging)
+                        .CaptureAsync(mission, verdict, recommendation, token));
         }
 
         /// <summary>
@@ -1139,8 +1145,8 @@ namespace Armada.Server
                     .Contains("NEEDS_REVISION", StringComparison.OrdinalIgnoreCase)
                     ? "NEEDS_REVISION"
                     : "FAIL";
-                JudgeFollowUp followUp = await new JudgeFollowUpService(_Database, _Logging)
-                    .CaptureAsync(mission, verdict, recommendation, token).ConfigureAwait(false);
+                JudgeFollowUp followUp = await _CaptureJudgeFollowUp(mission, verdict, recommendation, token)
+                    .ConfigureAwait(false);
                 _Logging.Info(_Header + "persisted read-only Judge follow-up " + followUp.Id +
                     " for mission " + mission.Id + "; implementation remains outside the audit-only scope.");
             }
