@@ -15,11 +15,12 @@ replaced.
 Focus: operator signal fidelity - make a failure say what actually failed.
 
 ### Operator documentation
-- Fully report-only voyages now use one shared classifier across stage shaping,
-  Check arming, and Judge validation. A voyage whose effective stages are all
-  `Audit` or `Research` does not arm Build or UnitTest Checks, keeps a
-  read-only Judge, and can accept a no-commit report without a Check-exclusion
-  marker. Any Implementation stage keeps the normal code and Check gates.
+- Audit and Research missions now preserve every stage declared by the
+  selected pipeline. Reference analysts, test reviewers, and Judges all run
+  read-only and pass reports through the configured graph. A fully report-only
+  voyage does not arm Build or UnitTest Checks and can accept a no-commit
+  report without a Check-exclusion marker. Any Implementation stage keeps the
+  normal code and Check gates.
 - Monitoring guidance now uses the WebSocket watcher instead of a foreground
   polling loop. It also states that Mail and Nudge reach a Pending downstream
   stage at handoff and cannot change a running stage's frozen brief.

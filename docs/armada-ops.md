@@ -160,17 +160,18 @@ every other Kind runs `Implementation`. Autonomous (scheduler) dispatch has no
 per-mission `mode` argument and relies on this entirely. Operator dispatch
 (`armada_dispatch` / REST) applies the same rule to any mission linked through
 `objectiveId` that omits `mode`, so a `Research` objective dispatched through an
-Implementation pipeline (for example `Tested`) drops the diff-dependent Test
-Engineer stage and keeps a read-only Judge that accepts a no-commit report; an
-explicit per-mission `mode` overrides it.
+Implementation pipeline keeps every declared stage, but each effective stage
+runs read-only and produces or reviews reports instead of code. This preserves
+specialist analysis, test review, and Judge coverage. An explicit per-mission
+`mode` overrides the objective-derived mode.
 
 Armada classifies a voyage as fully report-only only when every effective
-stage is `Audit` or `Research`. The same classifier controls pipeline stage
-shaping, automatic Check arming, and Judge validation. A fully report-only
-voyage does not arm Build or UnitTest Checks and its Judge can accept a
-no-commit report without `[JUDGE-CHECK-EXCLUSION]`. If any effective stage is
-`Implementation`, the complete implementation Check and delivery contract
-still applies.
+stage is `Audit` or `Research`. Pipeline shaping keeps the complete declared
+graph for every mode. The classifier controls automatic Check arming and Judge
+validation: a fully report-only voyage does not arm Build or UnitTest Checks,
+and its Judge can accept a no-commit report without
+`[JUDGE-CHECK-EXCLUSION]`. If any effective stage is `Implementation`, the
+complete implementation Check and delivery contract still applies.
 
 Operator and autonomous dispatch use the same server-rendered objective brief.
 The brief includes prepared research, constraints, and evidence. An operator

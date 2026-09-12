@@ -25,8 +25,7 @@ namespace Armada.Test.Unit.Suites.Services
     /// bug was that the operator dispatch path did not, so a Research objective linked to an
     /// <c>armada_dispatch</c> produced Implementation missions on an Implementation pipeline. These
     /// tests pin the single shared derivation rule, the operator path deriving from the linked
-    /// objective, and the pipeline dropping the diff-dependent Test Engineer stage while keeping a
-    /// read-only Judge.
+    /// objective, and complete read-only pipeline stage materialization.
     /// </summary>
     public sealed class DispatchObjectiveModeTests : TestSuite
     {
@@ -230,7 +229,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("A Research mission on a Tested pipeline drops the Test Engineer and keeps a read-only Judge", async () =>
+            await RunTest("A Research mission on a Tested pipeline preserves every stage and dependency", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -249,14 +248,82 @@ namespace Armada.Test.Unit.Suites.Services
                         "research pipeline voyage", "report only", harness.Vessel.Id, missions, tested.Id).ConfigureAwait(false);
 
                     List<Mission> created = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
-                    List<string?> personas = created.Select(m => m.Persona).ToList();
+                    List<Mission> ordered = created.OrderBy(m => m.StageOrder).ToList();
 
-                    AssertFalse(personas.Contains("TestEngineer"),
-                        "a read-only mission must drop the diff-dependent Test Engineer stage");
-                    AssertTrue(personas.Contains("Worker"), "the Worker stage must remain");
-                    AssertTrue(personas.Contains("Judge"), "the reviewing Judge stage must remain so the report is still judged");
+                    AssertEqual(3, ordered.Count, "a read-only mission must preserve every declared pipeline stage");
+                    AssertEqual("Worker", ordered[0].Persona, "the Worker stage must be first");
+                    AssertEqual("TestEngineer", ordered[1].Persona, "the TestEngineer verification stage must be preserved");
+                    AssertEqual("Judge", ordered[2].Persona, "the Judge review stage must be preserved");
+                    AssertNull(ordered[0].DependsOnMissionId, "the first stage must have no dependency");
+                    AssertEqual(ordered[0].Id, ordered[1].DependsOnMissionId, "the TestEngineer must depend on Worker");
+                    AssertEqual(ordered[1].Id, ordered[2].DependsOnMissionId, "the Judge must depend on TestEngineer");
                     AssertTrue(created.All(m => m.IsReadOnlyMode),
                         "every materialized stage of a Research mission must be read-only");
+                }
+            });
+
+            await RunTest("Autonomous and operator dispatch preserve the ReferencePortingTested graph", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ServiceHarness harness = await ServiceHarness.CreateAsync(testDb).ConfigureAwait(false);
+                    Pipeline referencePipeline = new Pipeline("ReferencePortingTested");
+                    referencePipeline.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "PortingReferenceAnalyst"),
+                        new PipelineStage(3, "TestEngineer"),
+                        new PipelineStage(4, "Judge")
+                    };
+                    referencePipeline = await testDb.Driver.Pipelines.CreateAsync(referencePipeline).ConfigureAwait(false);
+
+                    MissionModeEnum[] readOnlyModes = new[] { MissionModeEnum.Audit, MissionModeEnum.Research };
+                    foreach (MissionModeEnum mode in readOnlyModes)
+                    {
+                        List<MissionDescription> autonomousDescriptions = new List<MissionDescription>
+                        {
+                            new MissionDescription(mode + " through the reference pipeline", "Inspect and report.")
+                            {
+                                Mode = mode.ToString()
+                            }
+                        };
+                        Voyage autonomousVoyage = await harness.Admiral.DispatchVoyageAsync(
+                            "autonomous " + mode + " reference voyage", "report only", harness.Vessel.Id,
+                            autonomousDescriptions, referencePipeline.Id).ConfigureAwait(false);
+
+                        VoyageDispatchResult operatorResult = await harness.NewDispatchService().DispatchAsync(
+                            new SharedVoyageDispatchRequest
+                            {
+                                Title = "operator " + mode + " reference voyage",
+                                VesselId = harness.Vessel.Id,
+                                PipelineId = referencePipeline.Id,
+                                CodeContextMode = "off",
+                                Missions = new List<MissionDescription>
+                                {
+                                    new MissionDescription(mode + " through the reference pipeline", "Inspect and report.")
+                                    {
+                                        Mode = mode.ToString()
+                                    }
+                                }
+                            }).ConfigureAwait(false);
+
+                        AssertTrue(operatorResult.Succeeded, mode + " operator dispatch should succeed");
+                        List<Mission> autonomousMissions = await testDb.Driver.Missions
+                            .EnumerateByVoyageAsync(autonomousVoyage.Id).ConfigureAwait(false);
+                        List<Mission> operatorMissions = await testDb.Driver.Missions
+                            .EnumerateByVoyageAsync(operatorResult.Voyage!.Id).ConfigureAwait(false);
+
+                        string autonomousGraph = String.Join(";", DescribePipelineGraph(autonomousMissions));
+                        string operatorGraph = String.Join(";", DescribePipelineGraph(operatorMissions));
+                        AssertEqual("Worker|1|none;PortingReferenceAnalyst|2|Worker;TestEngineer|3|PortingReferenceAnalyst;Judge|4|TestEngineer",
+                            autonomousGraph, mode + " autonomous dispatch must persist the complete ordered graph");
+                        AssertEqual(autonomousGraph, operatorGraph,
+                            mode + " autonomous and operator dispatch must persist equivalent stage dependencies");
+                        AssertTrue(autonomousMissions.All(m => m.IsReadOnlyMode),
+                            mode + " must remain read-only across every autonomous stage");
+                        AssertTrue(operatorMissions.All(m => m.IsReadOnlyMode),
+                            mode + " must remain read-only across every operator stage");
+                    }
                 }
             });
 
@@ -308,6 +375,19 @@ namespace Armada.Test.Unit.Suites.Services
                 offset += search.Length;
             }
             return count;
+        }
+
+        private static List<string> DescribePipelineGraph(List<Mission> missions)
+        {
+            List<Mission> ordered = missions.OrderBy(m => m.StageOrder).ToList();
+            List<string> graph = new List<string>();
+            foreach (Mission mission in ordered)
+            {
+                Mission? dependency = ordered.FirstOrDefault(candidate =>
+                    String.Equals(candidate.Id, mission.DependsOnMissionId, StringComparison.Ordinal));
+                graph.Add((mission.Persona ?? "") + "|" + mission.StageOrder + "|" + (dependency?.Persona ?? "none"));
+            }
+            return graph;
         }
 
         private static async Task<Pipeline> CreateTestedPipelineAsync(TestDatabase testDb)

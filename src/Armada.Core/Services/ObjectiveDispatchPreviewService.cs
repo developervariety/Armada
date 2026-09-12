@@ -159,7 +159,7 @@ namespace Armada.Core.Services
             }
 
             List<Captain> captains = await ReadCaptainsAsync(auth, token).ConfigureAwait(false);
-            EvaluateCaptainCoverage(objective, pipeline, captains, captainAssignments, effectiveMissionModes, result);
+            EvaluateCaptainCoverage(pipeline, captains, captainAssignments, result);
             await EvaluateChecksAsync(auth, vessel, result, token).ConfigureAwait(false);
 
             FinalizeResult(result);
@@ -491,20 +491,15 @@ namespace Armada.Core.Services
         }
 
         private void EvaluateCaptainCoverage(
-            Objective objective,
             Pipeline? pipeline,
             List<Captain> captains,
             IReadOnlyList<CaptainAssignmentOverride>? captainAssignments,
-            IReadOnlyList<string> effectiveMissionModes,
             ObjectiveDispatchPreview result)
         {
             List<PipelineStage> stages = pipeline?.Stages?.ToList()
                 ?? new List<PipelineStage> { new PipelineStage(1, "Worker") };
-            List<string> missionModes = effectiveMissionModes.Count > 0
-                ? effectiveMissionModes.ToList()
-                : new List<string> { MissionModes.FromObjectiveKind(objective.Kind) ?? MissionModeEnum.Implementation.ToString() };
             foreach (PipelineStage stage in stages
-                .Where(item => item != null && missionModes.Any(mode => !AdmiralService.StageIsUnusableOnMode(item.PersonaName, mode)))
+                .Where(item => item != null)
                 .OrderBy(item => item.Order))
             {
                 string? preferredModel = PreferredModelTierSelector.EnforceHighTierForPersona(

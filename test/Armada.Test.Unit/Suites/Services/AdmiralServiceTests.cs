@@ -434,10 +434,9 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            // A read-only mission produces no diff, so the stage that exists to cover a diff has
-            // nothing to do. It used to be created anyway, and the captain could only report the
-            // contradiction. The reviewing stages read a report as readily as a diff and stay.
-            await RunTest("DispatchVoyageAsync ReadOnlyMissionDropsTheTestEngineerStage", async () =>
+            // Read-only missions still run every declared pipeline stage. Review and verification
+            // stages consume the report and must remain in the dependency chain.
+            await RunTest("DispatchVoyageAsync ReadOnlyMissionPreservesTheTestEngineerStage", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -467,10 +466,14 @@ namespace Armada.Test.Unit.Suites.Services
 
                     List<Mission> auditMissions = await db.Missions.EnumerateByVoyageAsync(auditVoyage.Id).ConfigureAwait(false);
 
-                    AssertEqual(2, auditMissions.Count, "The diff-dependent stage must not be materialized for a read-only mission");
-                    AssertFalse(
-                        auditMissions.Any(m => String.Equals(m.Persona, "TestEngineer", StringComparison.OrdinalIgnoreCase)),
-                        "A TestEngineer stage has no diff to cover on an Audit mission");
+                    List<Mission> orderedAuditMissions = auditMissions.OrderBy(m => m.StageOrder).ToList();
+                    AssertEqual(3, orderedAuditMissions.Count, "Every declared pipeline stage must be materialized for a read-only mission");
+                    AssertTrue(
+                        orderedAuditMissions.Any(m => String.Equals(m.Persona, "TestEngineer", StringComparison.OrdinalIgnoreCase)),
+                        "A TestEngineer verification stage must remain on an Audit mission");
+                    AssertNull(orderedAuditMissions[0].DependsOnMissionId, "The first stage must have no dependency");
+                    AssertEqual(orderedAuditMissions[0].Id, orderedAuditMissions[1].DependsOnMissionId, "The TestEngineer must depend on Worker");
+                    AssertEqual(orderedAuditMissions[1].Id, orderedAuditMissions[2].DependsOnMissionId, "The Judge must depend on TestEngineer");
                     AssertTrue(
                         auditMissions.Any(m => String.Equals(m.Persona, "Judge", StringComparison.OrdinalIgnoreCase)),
                         "The review stage still has a report to read and must survive");
