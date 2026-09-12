@@ -1293,6 +1293,18 @@ namespace Armada.Server
         {
             int attemptNumber = failedMission.RecoveryAttempts + 1;
             string rescuePersona = ResolveRescuePersona(failedMission.Persona);
+            Objective? owningObjective = await ResolveOwningObjectiveAsync(failedMission, token).ConfigureAwait(false);
+            List<SelectedPlaybook> rescuePlaybooks = await ResolveRescuePlaybooksAsync(
+                failedMission,
+                owningObjective,
+                token).ConfigureAwait(false);
+            Pipeline? recoveryPipeline = await ResolveRecoveryPipelineAsync(
+                failedMission,
+                owningObjective,
+                token).ConfigureAwait(false);
+            PipelineStage? recoveryWorkerStage = recoveryPipeline?.Stages
+                .OrderBy(item => item.Order)
+                .FirstOrDefault(item => String.Equals(item.PersonaName, rescuePersona, StringComparison.OrdinalIgnoreCase));
             Mission rescue = new Mission
             {
                 TenantId = failedMission.TenantId,
@@ -1306,12 +1318,17 @@ namespace Armada.Server
                 // rescue queues forever instead of running. Resolve the tier against the persona
                 // the rescue will actually run as.
                 PreferredModel = PreferredModelTierSelector.ResolveTierForPersona(
-                    failedMission.PreferredModel,
+                    recoveryWorkerStage?.PreferredModel ?? failedMission.PreferredModel,
                     rescuePersona),
+                StageOrder = recoveryWorkerStage?.Order,
                 Priority = Math.Max(0, failedMission.Priority - 10),
                 Title = "Rescue " + attemptNumber + ": " + Truncate(failedMission.Title, 100),
                 Description = BuildRescueDescription(failedMission, incident, attemptNumber),
                 StartFromRef = startFromRef,
+                Mode = failedMission.Mode,
+                RequiresReview = recoveryWorkerStage?.RequiresReview ?? false,
+                ReviewDenyAction = recoveryWorkerStage?.ReviewDenyAction ?? ReviewDenyActionEnum.RetryStage,
+                SelectedPlaybooks = ClonePlaybookSelections(rescuePlaybooks),
                 // Carry the recovery budget forward onto the rescue itself. A rescue stage that
                 // fails again is picked up by the sweep with RecoveryAttempts already at the
                 // attempt count, so Classify blocks further rescues once the budget is spent and
@@ -1333,7 +1350,70 @@ namespace Armada.Server
             if (!chainReReview)
                 return await _Admiral.DispatchMissionAsync(rescue, token).ConfigureAwait(false);
 
-            return await DispatchRescueReviewLoopAsync(failedMission, rescue, attemptNumber, token).ConfigureAwait(false);
+            return await DispatchRescueReviewLoopAsync(
+                failedMission,
+                rescue,
+                attemptNumber,
+                recoveryPipeline,
+                rescuePlaybooks,
+                token).ConfigureAwait(false);
+        }
+
+        private async Task<Objective?> ResolveOwningObjectiveAsync(Mission failedMission, CancellationToken token)
+        {
+            List<Objective> objectives = await _Database.Objectives.EnumerateAsync(token).ConfigureAwait(false);
+            List<Objective> matches = objectives
+                .Where(item => item != null
+                    && ((item.MissionIds?.Contains(failedMission.Id, StringComparer.Ordinal) ?? false)
+                        || (!String.IsNullOrWhiteSpace(failedMission.VoyageId)
+                            && (item.VoyageIds?.Contains(failedMission.VoyageId, StringComparer.Ordinal) ?? false))))
+                .OrderByDescending(item => !String.IsNullOrWhiteSpace(item.SuggestedPipelineId))
+                .ThenByDescending(item => item.MissionIds?.Contains(failedMission.Id, StringComparer.Ordinal) ?? false)
+                .ThenBy(item => item.Id, StringComparer.Ordinal)
+                .ToList();
+            return matches.FirstOrDefault();
+        }
+
+        private async Task<Pipeline?> ResolveRecoveryPipelineAsync(
+            Mission failedMission,
+            Objective? owningObjective,
+            CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(failedMission.VesselId)) return null;
+
+            Vessel? vessel = await _Database.Vessels.ReadAsync(failedMission.VesselId, token).ConfigureAwait(false);
+            if (vessel == null) return null;
+
+            return await _Admiral.ResolvePipelineAsync(
+                owningObjective?.SuggestedPipelineId,
+                vessel,
+                token).ConfigureAwait(false);
+        }
+
+        private async Task<List<SelectedPlaybook>> ResolveRescuePlaybooksAsync(
+            Mission failedMission,
+            Objective? owningObjective,
+            CancellationToken token)
+        {
+            if (failedMission.PlaybookSnapshots != null && failedMission.PlaybookSnapshots.Count > 0)
+            {
+                return failedMission.PlaybookSnapshots.Select(snapshot => new SelectedPlaybook
+                {
+                    PlaybookId = snapshot.PlaybookId ?? snapshot.FileName,
+                    DeliveryMode = PlaybookDeliveryModeEnum.InlineFullContent,
+                    InlineFullContent = snapshot.Content
+                }).ToList();
+            }
+
+            if (!String.IsNullOrWhiteSpace(failedMission.VoyageId))
+            {
+                List<SelectedPlaybook> voyageSelections = await _Database.Playbooks
+                    .GetVoyageSelectionsAsync(failedMission.VoyageId, token).ConfigureAwait(false);
+                if (voyageSelections.Count > 0)
+                    return ClonePlaybookSelections(voyageSelections);
+            }
+
+            return ClonePlaybookSelections(owningObjective?.SuggestedPlaybooks);
         }
 
         private async Task<string?> ResolveRescueStartFromRefAsync(Mission failedMission, CancellationToken token)
@@ -1474,8 +1554,8 @@ namespace Armada.Server
             return linked;
         }
 
-        // Dispatch the Worker revision rescue as the root of a dedicated rescue voyage, then chain
-        // the verification stages onto it via DependsOnMissionId. The standard pipeline handoff
+        // Dispatch the Worker revision rescue as the root of a dedicated rescue voyage, then rebuild
+        // every downstream stage from the owning objective's selected pipeline. The standard handoff
         // (MissionService) stamps each downstream stage with the revision branch and assigns it
         // once the prior stage produces work, so the re-Judge reviews exactly the branch the
         // revision lands on. Branch choice: the revision runs on a fresh captain branch (the
@@ -1494,7 +1574,13 @@ namespace Armada.Server
         // dependents parked at WaitingForDependency forever. Deferring the Worker assignment closes
         // that window. (MissionService.TryAssignAsync also self-heals a missed handoff lazily, so
         // this ordering plus that lazy path are belt-and-suspenders.)
-        private async Task<Mission> DispatchRescueReviewLoopAsync(Mission failedMission, Mission workerRescue, int attemptNumber, CancellationToken token)
+        private async Task<Mission> DispatchRescueReviewLoopAsync(
+            Mission failedMission,
+            Mission workerRescue,
+            int attemptNumber,
+            Pipeline? recoveryPipeline,
+            List<SelectedPlaybook> rescuePlaybooks,
+            CancellationToken token)
         {
             Voyage rescueVoyage = await _Database.Voyages.CreateAsync(new Voyage(
                 "Rescue " + attemptNumber + ": " + Truncate(failedMission.Title, 80),
@@ -1508,23 +1594,46 @@ namespace Armada.Server
             workerRescue.VoyageId = rescueVoyage.Id;
             try
             {
+                rescueVoyage.SelectedPlaybooks = ClonePlaybookSelections(rescuePlaybooks);
+                if (rescueVoyage.SelectedPlaybooks.Count > 0)
+                {
+                    await _Database.Playbooks.SetVoyageSelectionsAsync(
+                        rescueVoyage.Id,
+                        rescueVoyage.SelectedPlaybooks,
+                        token).ConfigureAwait(false);
+                }
+
                 Mission dispatchedWorker = await _Admiral.DispatchMissionQueuedAsync(workerRescue, token).ConfigureAwait(false);
 
                 await LinkRescueVoyageToObjectivesAsync(failedMission, rescueVoyage, token).ConfigureAwait(false);
 
                 string upstreamMissionId = dispatchedWorker.Id;
-
-                if (await VesselPipelineHasTestEngineerAsync(failedMission, token).ConfigureAwait(false))
-                {
-                    Mission testStage = await _Database.Missions.CreateAsync(
-                        BuildChainedRescueStage(failedMission, rescueVoyage.Id, upstreamMissionId, "TestEngineer", attemptNumber),
-                        token).ConfigureAwait(false);
-                    upstreamMissionId = testStage.Id;
-                }
-
-                await _Database.Missions.CreateAsync(
-                    BuildChainedRescueStage(failedMission, rescueVoyage.Id, upstreamMissionId, "Judge", attemptNumber),
+                List<PipelineStage> downstreamStages = await ResolveRecoveryStagesAsync(
+                    failedMission,
+                    recoveryPipeline,
                     token).ConfigureAwait(false);
+                foreach (IGrouping<int, PipelineStage> stageGroup in downstreamStages.GroupBy(item => item.Order).OrderBy(item => item.Key))
+                {
+                    string groupDependencyId = upstreamMissionId;
+                    string? lastMissionInGroup = null;
+                    foreach (PipelineStage stage in stageGroup)
+                    {
+                        Mission chainedStage = await _Database.Missions.CreateAsync(
+                            BuildChainedRescueStage(
+                                failedMission,
+                                rescueVoyage.Id,
+                                groupDependencyId,
+                                stage,
+                                attemptNumber,
+                                rescuePlaybooks),
+                            token).ConfigureAwait(false);
+                        await PersistRescuePlaybookSnapshotsAsync(chainedStage, token).ConfigureAwait(false);
+                        lastMissionInGroup = chainedStage.Id;
+                    }
+
+                    if (!String.IsNullOrWhiteSpace(lastMissionInGroup))
+                        upstreamMissionId = lastMissionInGroup;
+                }
 
                 // A rescue-Judge PASS is subject to the real-signal gate: it needs independent green
                 // Build/UnitTest Checks, and a rescue voyage has none unless something creates them.
@@ -1597,14 +1706,20 @@ namespace Armada.Server
             }
         }
 
-        // Build a downstream verification stage (TestEngineer / Judge) for the rescue loop. The
+        // Build a downstream objective-pipeline stage for the rescue loop. The
         // stage carries the auto-rescue marker (so it is recognised as rescue work) and the
         // recovery budget, but no ParentMissionId -- it is a pipeline dependent of the Worker
         // rescue (via DependsOnMissionId), not a direct rescue of the original failure, so it does
         // not inflate the original failure's rescue accounting. The persona preamble and prior-
         // stage diff are injected by the standard MissionService handoff when the upstream stage
         // completes.
-        private Mission BuildChainedRescueStage(Mission failedMission, string voyageId, string dependsOnMissionId, string persona, int attemptNumber)
+        internal Mission BuildChainedRescueStage(
+            Mission failedMission,
+            string voyageId,
+            string dependsOnMissionId,
+            PipelineStage stage,
+            int attemptNumber,
+            List<SelectedPlaybook> rescuePlaybooks)
         {
             return new Mission
             {
@@ -1613,21 +1728,82 @@ namespace Armada.Server
                 VesselId = failedMission.VesselId,
                 VoyageId = voyageId,
                 DependsOnMissionId = dependsOnMissionId,
-                Persona = persona,
+                StageOrder = stage.Order,
+                Persona = stage.PersonaName,
                 // Same persona/tier mismatch as the rescue itself: this stage runs as its own
                 // persona, so the tier must be resolved against that persona rather than copied
                 // from the failed mission.
                 PreferredModel = PreferredModelTierSelector.ResolveTierForPersona(
-                    failedMission.PreferredModel,
-                    persona),
+                    stage.PreferredModel ?? failedMission.PreferredModel,
+                    stage.PersonaName),
                 Priority = Math.Max(0, failedMission.Priority - 10),
                 Status = MissionStatusEnum.Pending,
                 RecoveryAttempts = attemptNumber,
-                Title = "Rescue " + attemptNumber + " " + persona + ": " + Truncate(failedMission.Title, 90),
+                Mode = failedMission.Mode,
+                RequiresReview = stage.RequiresReview,
+                ReviewDenyAction = stage.ReviewDenyAction,
+                SelectedPlaybooks = ClonePlaybookSelections(rescuePlaybooks),
+                Title = "Rescue " + attemptNumber + " " + stage.PersonaName + ": " + Truncate(failedMission.Title, 90),
                 Description = _RescueMarker + Environment.NewLine +
                     "Re-verification stage for the autonomous revision rescue of failed mission " + failedMission.Id + "." + Environment.NewLine +
                     "Confirm the revised branch resolves the original reviewer feedback before it lands."
             };
+        }
+
+        private async Task<List<PipelineStage>> ResolveRecoveryStagesAsync(
+            Mission failedMission,
+            Pipeline? recoveryPipeline,
+            CancellationToken token)
+        {
+            if (recoveryPipeline != null)
+            {
+                PipelineStage? workerStage = recoveryPipeline.Stages
+                    .OrderBy(item => item.Order)
+                    .FirstOrDefault(item => String.Equals(item.PersonaName, "Worker", StringComparison.OrdinalIgnoreCase));
+                if (workerStage != null)
+                {
+                    List<PipelineStage> selectedStages = recoveryPipeline.Stages
+                        .Where(item => item.Order > workerStage.Order)
+                        .OrderBy(item => item.Order)
+                        .ThenBy(item => item.Id, StringComparer.Ordinal)
+                        .ToList();
+                    if (selectedStages.Count > 0)
+                        return selectedStages;
+                }
+            }
+
+            List<PipelineStage> fallback = new List<PipelineStage>();
+            int order = 2;
+            if (await VesselPipelineHasTestEngineerAsync(failedMission, token).ConfigureAwait(false))
+                fallback.Add(new PipelineStage(order++, "TestEngineer"));
+            fallback.Add(new PipelineStage(order, "Judge"));
+            return fallback;
+        }
+
+        private async Task PersistRescuePlaybookSnapshotsAsync(Mission mission, CancellationToken token)
+        {
+            if (mission.SelectedPlaybooks == null
+                || mission.SelectedPlaybooks.Count == 0
+                || String.IsNullOrWhiteSpace(mission.TenantId)) return;
+
+            PlaybookService playbooks = new PlaybookService(_Database, _Logging);
+            List<MissionPlaybookSnapshot> snapshots = await playbooks.CreateSnapshotsAsync(
+                mission.TenantId,
+                mission.SelectedPlaybooks,
+                token).ConfigureAwait(false);
+            await _Database.Playbooks.SetMissionSnapshotsAsync(mission.Id, snapshots, token).ConfigureAwait(false);
+        }
+
+        private static List<SelectedPlaybook> ClonePlaybookSelections(List<SelectedPlaybook>? selections)
+        {
+            if (selections == null || selections.Count == 0) return new List<SelectedPlaybook>();
+
+            return selections.Select(item => new SelectedPlaybook
+            {
+                PlaybookId = item.PlaybookId,
+                DeliveryMode = item.DeliveryMode,
+                InlineFullContent = item.InlineFullContent
+            }).ToList();
         }
 
         private async Task<bool> VesselPipelineHasTestEngineerAsync(Mission failedMission, CancellationToken token)

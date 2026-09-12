@@ -1396,6 +1396,159 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(String.IsNullOrEmpty(judge.StartFromRef), "The downstream re-Judge inherits the rescue branch through its dependency, not a second start ref.");
             }).ConfigureAwait(false);
 
+            await RunTest("Recovery preserves objective pipeline tip mode playbooks and remains idempotent", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_recovery_context", "usr_recovery_context").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_recovery_context", "usr_recovery_context").ConfigureAwait(false);
+
+                Pipeline pipeline = new Pipeline("ReferencePortingTestedRecovery")
+                {
+                    TenantId = vessel.TenantId,
+                    Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "PortingReferenceAnalyst") { PreferredModel = "high" },
+                        new PipelineStage(3, "TestEngineer"),
+                        new PipelineStage(4, "Judge") { RequiresReview = true }
+                    }
+                };
+                pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+
+                Playbook playbook = await testDb.Driver.Playbooks.CreateAsync(new Playbook(
+                    "reference-porting.md",
+                    "Use the verified source and preserve the fixed target tip.")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId
+                }).ConfigureAwait(false);
+
+                Voyage parentVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Parent reference port")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Failed
+                }).ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel, "Judge verdict: NEEDS_REVISION").ConfigureAwait(false);
+                failed.Persona = "Judge";
+                failed.VoyageId = parentVoyage.Id;
+                failed.CommitHash = "9999999999999999999999999999999999999999";
+                failed.Mode = MissionModeEnum.Implementation;
+                await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+                Objective owner = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Title = "Reference port owner",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    VesselIds = new List<string> { vessel.Id },
+                    VoyageIds = new List<string> { parentVoyage.Id },
+                    SuggestedPipelineId = pipeline.Id,
+                    SuggestedPlaybooks = new List<SelectedPlaybook>
+                    {
+                        new SelectedPlaybook
+                        {
+                            PlaybookId = playbook.Id,
+                            DeliveryMode = PlaybookDeliveryModeEnum.InlineFullContent
+                        }
+                    }
+                }).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count,
+                    "A repeated outcome callback must not create a second recovery graph.");
+                Mission worker = admiral.DispatchedMissions[0];
+                AssertEqual(failed.CommitHash, worker.StartFromRef,
+                    "The recovery Worker must start from the reviewed commit, not the default branch.");
+                AssertEqual(failed.Mode, worker.Mode, "The recovery Worker must preserve the original mission mode.");
+                AssertEqual(1, worker.SelectedPlaybooks.Count, "The recovery Worker must retain the objective playbook.");
+
+                List<Mission> recoveryMissions = await testDb.Driver.Missions
+                    .EnumerateByVoyageAsync(worker.VoyageId!).ConfigureAwait(false);
+                AssertEqual(4, recoveryMissions.Count,
+                    "The recovery graph must contain every stage from the selected four-stage pipeline.");
+                AssertEqual(
+                    "Worker,PortingReferenceAnalyst,TestEngineer,Judge",
+                    String.Join(",", recoveryMissions.OrderBy(item => item.StageOrder ?? 0).Select(item => item.Persona)),
+                    "Recovery must not skip the PortingReferenceAnalyst stage.");
+
+                Mission analyst = recoveryMissions.Single(item => item.Persona == "PortingReferenceAnalyst");
+                Mission testEngineer = recoveryMissions.Single(item => item.Persona == "TestEngineer");
+                Mission judge = recoveryMissions.Single(item => item.Persona == "Judge");
+                AssertEqual(worker.Id, analyst.DependsOnMissionId, "The analyst must follow the recovery Worker.");
+                AssertEqual(analyst.Id, testEngineer.DependsOnMissionId, "The TestEngineer must follow the analyst.");
+                AssertEqual(testEngineer.Id, judge.DependsOnMissionId, "The Judge must follow the TestEngineer.");
+                AssertTrue(recoveryMissions.All(item => item.Mode == failed.Mode),
+                    "Every recovery stage must preserve the original mission mode.");
+
+                List<SelectedPlaybook> voyagePlaybooks = await testDb.Driver.Playbooks
+                    .GetVoyageSelectionsAsync(worker.VoyageId!).ConfigureAwait(false);
+                AssertEqual(playbook.Id, voyagePlaybooks.Single().PlaybookId,
+                    "The rescue voyage must record the selected playbook.");
+                foreach (Mission stage in recoveryMissions)
+                {
+                    List<MissionPlaybookSnapshot> snapshots = await testDb.Driver.Playbooks
+                        .GetMissionSnapshotsAsync(stage.Id).ConfigureAwait(false);
+                    AssertEqual(playbook.Id, snapshots.Single().PlaybookId,
+                        "Each deferred recovery stage must have an immutable playbook snapshot.");
+                }
+
+                Objective? ownerAfter = await testDb.Driver.Objectives.ReadAsync(owner.Id).ConfigureAwait(false);
+                AssertEqual(2, ownerAfter!.VoyageIds.Count,
+                    "A repeat callback must link exactly one recovery voyage to the objective.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Chained rescue stage preserves Research mode and playbook context", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_recovery_research", "usr_recovery_research").ConfigureAwait(false);
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(
+                    testDb.Driver,
+                    admiral,
+                    new IncidentService(testDb.Driver),
+                    new RunbookService(testDb.Driver, new LoggingModule()));
+                Mission failed = new Mission("Research source review", "Read-only source comparison")
+                {
+                    TenantId = "ten_recovery_research",
+                    UserId = "usr_recovery_research",
+                    VesselId = "vessel-recovery-research",
+                    Mode = MissionModeEnum.Research,
+                    PreferredModel = "medium",
+                    Priority = 80
+                };
+                SelectedPlaybook selection = new SelectedPlaybook
+                {
+                    PlaybookId = "playbook-research-context",
+                    DeliveryMode = PlaybookDeliveryModeEnum.InlineFullContent,
+                    InlineFullContent = "Keep the work read-only."
+                };
+
+                Mission stage = orchestrator.BuildChainedRescueStage(
+                    failed,
+                    "vyg_research",
+                    "msn_worker",
+                    new PipelineStage(2, "PortingReferenceAnalyst"),
+                    1,
+                    new List<SelectedPlaybook> { selection });
+
+                AssertEqual(MissionModeEnum.Research, stage.Mode,
+                    "A chained stage must not widen Research mode to Implementation.");
+                AssertEqual(selection.PlaybookId, stage.SelectedPlaybooks.Single().PlaybookId,
+                    "A chained Research stage must retain its playbook selection.");
+                AssertEqual(selection.InlineFullContent, stage.SelectedPlaybooks.Single().InlineFullContent,
+                    "The cloned selection must retain immutable inline content.");
+                await Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await RunTest("ReviseRetestRejudge_BudgetExhausted_OpensHighIncidentWithoutDispatch", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -2394,12 +2547,36 @@ namespace Armada.Test.Unit.Suites.Services
                     mission.CaptainId = AssignedRescueCaptainId;
 
                 Mission created = await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
+                if (created.SelectedPlaybooks.Count > 0 && !String.IsNullOrWhiteSpace(created.TenantId))
+                {
+                    PlaybookService playbooks = new PlaybookService(_Database, new LoggingModule());
+                    List<MissionPlaybookSnapshot> snapshots = await playbooks.CreateSnapshotsAsync(
+                        created.TenantId,
+                        created.SelectedPlaybooks,
+                        token).ConfigureAwait(false);
+                    await _Database.Playbooks.SetMissionSnapshotsAsync(created.Id, snapshots, token).ConfigureAwait(false);
+                }
                 DispatchedMissions.Add(created);
                 return created;
             }
 
-            public Task<Pipeline?> ResolvePipelineAsync(string? pipelineIdOrName, Vessel vessel, CancellationToken token = default)
-                => Task.FromResult<Pipeline?>(null);
+            public async Task<Pipeline?> ResolvePipelineAsync(string? pipelineIdOrName, Vessel vessel, CancellationToken token = default)
+            {
+                if (!String.IsNullOrWhiteSpace(pipelineIdOrName))
+                {
+                    Pipeline? byId = await _Database.Pipelines.ReadAsync(pipelineIdOrName, token).ConfigureAwait(false);
+                    if (byId != null) return byId;
+                    if (!String.IsNullOrWhiteSpace(vessel.TenantId))
+                    {
+                        return await _Database.Pipelines
+                            .ReadByNameAsync(vessel.TenantId, pipelineIdOrName, token).ConfigureAwait(false);
+                    }
+                }
+
+                if (!String.IsNullOrWhiteSpace(vessel.DefaultPipelineId))
+                    return await _Database.Pipelines.ReadAsync(vessel.DefaultPipelineId, token).ConfigureAwait(false);
+                return null;
+            }
 
             public Task<ArmadaStatus> GetStatusAsync(CancellationToken token = default)
                 => Task.FromResult(new ArmadaStatus());
