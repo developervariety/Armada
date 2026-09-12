@@ -971,6 +971,53 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, suppressionEvents, "Repeated suppression must persist zero suppression events.");
             }).ConfigureAwait(false);
 
+            await RunTest("Sweep does not let handled failures consume the recovery cap", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_sweep_handled", "usr_auto_sweep_handled").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_sweep_handled", "usr_auto_sweep_handled").ConfigureAwait(false);
+                DateTime oldest = DateTime.UtcNow.AddMinutes(-20);
+
+                for (int idx = 0; idx < 11; idx++)
+                {
+                    Mission handled = await CreateFailedMissionAsync(testDb, vessel, "Previously handled failure " + idx).ConfigureAwait(false);
+                    handled.RecoveryAttempts = 1;
+                    handled.LastRecoveryActionUtc = oldest.AddSeconds(idx);
+                    handled.CompletedUtc = oldest.AddSeconds(idx);
+                    handled.LastUpdateUtc = oldest.AddSeconds(idx);
+                    await testDb.Driver.Missions.UpdateAsync(handled).ConfigureAwait(false);
+                }
+
+                Mission unhandled = await CreateFailedMissionAsync(testDb, vessel, "New report-only failure").ConfigureAwait(false);
+                unhandled.Persona = "Judge";
+                unhandled.Mode = MissionModeEnum.Research;
+                unhandled.CompletedUtc = oldest.AddMinutes(1);
+                unhandled.LastUpdateUtc = oldest.AddMinutes(1);
+                await testDb.Driver.Missions.UpdateAsync(unhandled).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                Mission? after = await testDb.Driver.Missions.ReadAsync(unhandled.Id).ConfigureAwait(false);
+                AssertTrue(after!.LastRecoveryActionUtc.HasValue, "Handled failures ahead of the candidate must not starve it.");
+                AssertEqual(1, after.RecoveryAttempts, "The unhandled read-only failure should receive one bounded policy action.");
+                AssertEqual(0, admiral.DispatchedMissions.Count, "Research failures must preserve read-only mode and never dispatch a rescue.");
+
+                AuthContext auth = AuthContext.Authenticated("ten_auto_sweep_handled", "usr_auto_sweep_handled", false, true, "UnitTest");
+                EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = unhandled.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(1, incidentPage.Objects.Count, "The unhandled failure must receive its incident in the same sweep.");
+            }).ConfigureAwait(false);
+
             await RunTest("Sweep excludes terminal-voyage candidates and still processes a non-terminal failure", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

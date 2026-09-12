@@ -15,6 +15,9 @@ replaced.
 Focus: operator signal fidelity - make a failure say what actually failed.
 
 ### Operator documentation
+- Autonomous recovery no longer lets old, already-handled failures consume the
+  ten-item sweep budget. New failures behind a large handled backlog now reach
+  their incident, follow-up, or rescue policy in the same sweep.
 - Missed Judge follow-up captures can now be repaired with the bounded,
   idempotent `armada_backfill_judge_followups` operator tool. It distinguishes
   actionable sections from explicit `(none)` evidence and reports incomplete

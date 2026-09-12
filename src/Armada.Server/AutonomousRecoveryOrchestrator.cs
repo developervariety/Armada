@@ -242,8 +242,8 @@ namespace Armada.Server
                         continue;
                 }
 
-                await ApplyFailurePolicyAsync(candidate.TenantId, candidate.Id, token).ConfigureAwait(false);
-                processed++;
+                if (await ApplyFailurePolicyAsync(candidate.TenantId, candidate.Id, token).ConfigureAwait(false))
+                    processed++;
             }
         }
 
@@ -846,7 +846,7 @@ namespace Armada.Server
                 .ToList();
         }
 
-        private async Task ApplyFailurePolicyAsync(string? tenantId, string missionId, CancellationToken token)
+        private async Task<bool> ApplyFailurePolicyAsync(string? tenantId, string missionId, CancellationToken token)
         {
             SemaphoreSlim missionLock = _MissionLocks.GetOrAdd(missionId, _ => new SemaphoreSlim(1, 1));
             await missionLock.WaitAsync(token).ConfigureAwait(false);
@@ -855,13 +855,13 @@ namespace Armada.Server
             {
                 Mission? latest = await ReadMissionAsync(tenantId, missionId, token).ConfigureAwait(false);
                 if (latest == null || !IsRecoverableTerminalStatus(latest.Status))
-                    return;
+                    return false;
 
                 if (await SuppressCancelledVoyageRecoveryAsync(latest, token).ConfigureAwait(false))
-                    return;
+                    return true;
 
                 if (await IsAlreadyHandledAsync(latest, token).ConfigureAwait(false))
-                    return;
+                    return false;
 
                 RecoveryDecision decision = Classify(latest);
                 AuthContext auth = BuildAuth(latest);
@@ -882,7 +882,7 @@ namespace Armada.Server
                     await EmitEventAsync("autonomous_recovery.blocked",
                         "Autonomous recovery blocked for no-op rescue mission " + latest.Id + ": rescue_produced_no_commits",
                         latest, null, token).ConfigureAwait(false);
-                    return;
+                    return true;
                 }
 
                 Incident incident = await EnsureIncidentAsync(auth, latest, decision, token).ConfigureAwait(false);
@@ -896,7 +896,7 @@ namespace Armada.Server
                     await EmitEventAsync("autonomous_recovery.read_only_preserved",
                         "Autonomous recovery preserved read-only mode " + latest.Mode + " and audit-only scope for mission " + latest.Id + "; no rescue was dispatched.",
                         latest, incident.Id, token).ConfigureAwait(false);
-                    return;
+                    return true;
                 }
 
                 if (!decision.DispatchRescue)
@@ -905,7 +905,7 @@ namespace Armada.Server
                     await EmitEventAsync("autonomous_recovery.blocked",
                         "Autonomous recovery opened incident " + incident.Id + " but did not dispatch a rescue for mission " + latest.Id + ": " + decision.Reason,
                         latest, incident.Id, token).ConfigureAwait(false);
-                    return;
+                    return true;
                 }
 
                 string? rescueStartFromRef = await ResolveRescueStartFromRefAsync(latest, token).ConfigureAwait(false);
@@ -921,7 +921,7 @@ namespace Armada.Server
                     await EmitEventAsync("autonomous_recovery.blocked",
                         "Autonomous recovery opened incident " + incident.Id + " but did not dispatch a rescue for mission " + latest.Id + ": " + missingTipReason,
                         latest, incident.Id, token).ConfigureAwait(false);
-                    return;
+                    return true;
                 }
 
                 Mission rescue = await DispatchRescueMissionAsync(latest, incident, rescueStartFromRef, token).ConfigureAwait(false);
@@ -941,10 +941,12 @@ namespace Armada.Server
                 await EmitEventAsync("autonomous_recovery.rescue_dispatched",
                     "Autonomous rescue mission " + rescue.Id + " dispatched for failed mission " + latest.Id,
                     latest, incident.Id, token).ConfigureAwait(false);
+                return true;
             }
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "failed to apply recovery policy for mission " + missionId + ": " + ex.Message);
+                return false;
             }
             finally
             {
