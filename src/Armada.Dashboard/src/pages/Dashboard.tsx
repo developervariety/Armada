@@ -1,16 +1,17 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   getStatus,
-  listMissions,
+  getMission,
+  getVoyageMissionSummary,
+  listMissionSummaries,
   listVessels,
   listCaptains,
-  listSignals,
   listFleets,
   deleteMission,
   restartMission,
 } from '../api/client';
-import type { Mission, Vessel, Captain, Signal, Fleet } from '../types/models';
+import type { MissionSummary, Vessel, Captain, Fleet } from '../types/models';
 import { useWebSocket } from '../context/WebSocketContext';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -18,11 +19,13 @@ import type { WebSocketMessage } from '../types/models';
 import StatusBadge from '../components/shared/StatusBadge';
 import ActionMenu from '../components/shared/ActionMenu';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import CopyButton, { copyToClipboard } from '../components/shared/CopyButton';
 import JsonViewer from '../components/shared/JsonViewer';
 import FilterBar from '../components/shared/FilterBar';
 import MissionHistoryChart from '../components/MissionHistoryChart';
 import { useLocale } from '../context/LocaleContext';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 
 interface VoyageProgress {
   voyage: {
@@ -52,6 +55,13 @@ interface StatusData {
   }>;
 }
 
+/** Number of newest missions shown on the home page. */
+const RECENT_MISSION_COUNT = 10;
+/** Vessel IDs read per voyage; the voyage summary endpoint caps a page at 100. */
+const VOYAGE_VESSEL_PAGE_SIZE = 100;
+/** Home keeps its previous 30-second cadence unless the operator chooses another interval. */
+const HOME_DEFAULT_REFRESH_SECONDS = 30;
+
 function voyagePercent(vp: VoyageProgress): number {
   if (!vp.totalMissions) return 0;
   return Math.round((vp.completedMissions / vp.totalMissions) * 100);
@@ -66,8 +76,8 @@ export default function Dashboard() {
   }, []);
 
   const [status, setStatus] = useState<StatusData | null>(null);
-  const [recentMissions, setRecentMissions] = useState<Mission[]>([]);
-  const [allMissions, setAllMissions] = useState<Mission[]>([]);
+  const [recentMissions, setRecentMissions] = useState<MissionSummary[]>([]);
+  const [voyageVesselIds, setVoyageVesselIds] = useState<Record<string, string[]>>({});
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [fleets, setFleets] = useState<Fleet[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
@@ -107,11 +117,11 @@ export default function Dashboard() {
   const voyageVesselNames = useCallback(
     (voyageId: string | null | undefined) => {
       if (!voyageId) return '-';
-      const vesselIds = [...new Set(recentMissions.filter(m => m.voyageId === voyageId).map(m => m.vesselId))];
-      if (vesselIds.length === 0) return '-';
-      return vesselIds.map(id => vesselName(id)).join(', ');
+      const ids = voyageVesselIds[voyageId];
+      if (!ids || ids.length === 0) return '-';
+      return ids.map((id) => vesselName(id)).join(', ');
     },
-    [recentMissions, vesselName],
+    [voyageVesselIds, vesselName],
   );
 
   const captainName = useCallback(
@@ -123,27 +133,41 @@ export default function Dashboard() {
     [captains],
   );
 
-  const loadAll = useCallback(async () => {
+  const fetchAll = useCallback(async () => {
     try {
       const [statusRes, missionRes, vesselRes, captainRes, fleetRes] = await Promise.all([
         getStatus().catch(() => null),
-        listMissions({ pageSize: 200 }).catch(() => null),
+        listMissionSummaries({ pageSize: RECENT_MISSION_COUNT }).catch(() => null),
         listVessels({ pageSize: 9999 }).catch(() => null),
         listCaptains({ pageSize: 9999 }).catch(() => null),
         listFleets({ pageSize: 9999 }).catch(() => null),
       ]);
-      if (statusRes) setStatus(statusRes as unknown as StatusData);
-      if (missionRes) {
-        const sorted = [...missionRes.objects].sort(
-          (a, b) => new Date(b.createdUtc).getTime() - new Date(a.createdUtc).getTime(),
-        );
-        setAllMissions(sorted);
-        setRecentMissions(sorted.slice(0, 10));
-      }
+      const statusData = statusRes as unknown as StatusData | null;
+      if (statusData) setStatus(statusData);
+      // The summaries endpoint returns the newest missions first, so no client-side sort is needed.
+      if (missionRes) setRecentMissions(missionRes.objects);
       if (vesselRes) setVessels(vesselRes.objects);
       if (fleetRes) setFleets(fleetRes.objects);
       if (captainRes) setCaptains(captainRes.objects);
       if (!statusRes && !missionRes) setError(t('Failed to load dashboard data.'));
+
+      // Voyage vessels come from the voyage's own mission summary, so a voyage whose missions are older than
+      // the recent slice still shows its vessels.
+      const voyageIds = (statusData?.voyages ?? [])
+        .map((vp) => vp.voyage?.id)
+        .filter((id): id is string => Boolean(id));
+      const summaries = await Promise.all(
+        voyageIds.map((id) =>
+          getVoyageMissionSummary(id, { pageSize: VOYAGE_VESSEL_PAGE_SIZE })
+            .then((summary) => ({ id, vesselIds: summary.vessels?.objects ?? [] }))
+            .catch(() => null),
+        ),
+      );
+      const next: Record<string, string[]> = {};
+      for (const entry of summaries) {
+        if (entry) next[entry.id] = entry.vesselIds;
+      }
+      setVoyageVesselIds(next);
     } catch {
       setError(t('Failed to load dashboard data.'));
     } finally {
@@ -151,11 +175,33 @@ export default function Dashboard() {
     }
   }, [t]);
 
+  // One refresh path. A trigger that arrives while a load is running is folded into a single follow-up load,
+  // so bursts of events, timer ticks and clicks never start overlapping requests.
+  const inFlightRef = useRef<Promise<void> | null>(null);
+  const pendingRef = useRef(false);
+  const loadAll = useCallback((): Promise<void> => {
+    if (inFlightRef.current) {
+      pendingRef.current = true;
+      return inFlightRef.current;
+    }
+    const run = async () => {
+      do {
+        pendingRef.current = false;
+        await fetchAll();
+      } while (pendingRef.current);
+    };
+    const promise = run().finally(() => {
+      inFlightRef.current = null;
+    });
+    inFlightRef.current = promise;
+    return promise;
+  }, [fetchAll]);
+
   useEffect(() => {
     loadAll();
   }, [loadAll]);
 
-  // Auto-refresh on WebSocket messages
+  // Refresh on WebSocket messages through the same coalesced path.
   useEffect(() => {
     const unsubscribe = subscribe((_msg: WebSocketMessage) => {
       loadAll();
@@ -163,11 +209,7 @@ export default function Dashboard() {
     return unsubscribe;
   }, [subscribe, loadAll]);
 
-  // Polling fallback: refresh every 30 seconds
-  useEffect(() => {
-    const timer = setInterval(loadAll, 30000);
-    return () => clearInterval(timer);
-  }, [loadAll]);
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('dashboard', loadAll, HOME_DEFAULT_REFRESH_SECONDS);
 
   // Compute alerts from status data
   const alerts = useMemo(() => {
@@ -252,9 +294,20 @@ export default function Dashboard() {
     }
   };
 
+  // The home page holds only summaries; read the full mission when its JSON is requested.
+  const openMissionJson = async (m: MissionSummary) => {
+    try {
+      const full = await getMission(m.id);
+      setJsonViewer({ open: true, title: `Mission: ${m.title}`, data: full });
+    } catch {
+      setError(t('Failed to load mission detail.'));
+    }
+  };
+
   const copyId = (id: string) => {
     copyToClipboard(id);
   };
+  void copyId;
 
   const missionStatuses = [
     'Pending',
@@ -308,6 +361,7 @@ export default function Dashboard() {
           <button className="btn btn-primary btn-sm" onClick={() => navigate('/voyages/create')} title={t('Create a new voyage with multiple missions')}>
             + {t('Voyage')}
           </button>
+          <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
           <RefreshButton onRefresh={loadAll} title="Refresh all dashboard data" />
         </div>
       </div>
@@ -555,8 +609,7 @@ export default function Dashboard() {
                           },
                           {
                             label: 'View JSON',
-                            onClick: () =>
-                              setJsonViewer({ open: true, title: `Mission: ${m.title}`, data: m }),
+                            onClick: () => { void openMissionJson(m); },
                           },
                           ...(m.status === 'Failed' || m.status === 'Cancelled' || m.status === 'LandingFailed' ? [{
                             label: 'Restart',

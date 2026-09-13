@@ -305,6 +305,14 @@ export interface MissionSummary {
   lastUpdateUtc: string;
 }
 
+/** Scoped status counts and a page of distinct vessel IDs for one voyage. */
+export interface VoyageMissionSummary {
+  /** Count per present mission status across all visible missions, regardless of the vessel page. */
+  statusCounts: Record<string, number>;
+  /** Distinct non-null vessel IDs; totals cover every page. */
+  vessels: EnumerationResult<string>;
+}
+
 export interface MissionHistoryBucket {
   startUtc: string;
   completeCount: number;

@@ -16,6 +16,7 @@ import type {
   MissionSummary,
   MissionHistorySummaryResult,
   Voyage,
+  VoyageMissionSummary,
   Objective,
   GitHubActionsSyncRequest,
   GitHubActionsSyncResult,
@@ -781,6 +782,9 @@ export const getMissionInstructions = (id: string) => get<InstructionsResult>(`/
 export const listVoyages = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Voyage>>(`/api/v1/voyages${buildQuery(params)}`);
 export const getVoyage = (id: string) => get<Voyage>(`/api/v1/voyages/${id}`);
+/** Scoped mission status counts and a page of distinct vessel IDs for one voyage (page size 1 to 100). */
+export const getVoyageMissionSummary = (id: string, params?: { pageNumber?: number; pageSize?: number }) =>
+  get<VoyageMissionSummary>(`/api/v1/voyages/${encodeURIComponent(id)}/mission-summary${buildQuery(params)}`);
 export const getVoyageStatus = (id: string) => get<Record<string, unknown>>(`/api/v1/voyages/${id}/status`);
 export const createVoyage = (data: VoyageCreateRequest) => post<Voyage>('/api/v1/voyages', data);
 export const cancelVoyage = (id: string) => del<void>(`/api/v1/voyages/${id}`);

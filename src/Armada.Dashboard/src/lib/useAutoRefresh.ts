@@ -8,7 +8,7 @@ function storageKey(key: string): string {
   return `armada_autorefresh_${key}`;
 }
 
-function readStored(key: string): number {
+function readStored(key: string, fallback: number): number {
   try {
     const raw = localStorage.getItem(storageKey(key));
     if (raw != null) {
@@ -18,16 +18,17 @@ function readStored(key: string): number {
   } catch {
     // Ignore storage access errors (private mode, disabled storage) and fall back to the default.
   }
-  return DEFAULT_AUTO_REFRESH_SECONDS;
+  return fallback;
 }
 
 /**
- * Per-table auto-refresh timer. Persists the chosen interval per `key` in localStorage (default 15s) and
- * calls `onRefresh` on that cadence. Selecting "None" (0) disables the timer. The latest `onRefresh` is
- * always used, so callers can pass a fresh closure each render without resetting the interval.
+ * Per-table auto-refresh timer. Persists the chosen interval per `key` in localStorage (default 15s, or
+ * `defaultSeconds` when given) and calls `onRefresh` on that cadence. Selecting "None" (0) disables the timer.
+ * The latest `onRefresh` is always used, so callers can pass a fresh closure each render without resetting the
+ * interval.
  */
-export function useAutoRefresh(key: string, onRefresh: () => void) {
-  const [seconds, setSeconds] = useState<number>(() => readStored(key));
+export function useAutoRefresh(key: string, onRefresh: () => void, defaultSeconds: number = DEFAULT_AUTO_REFRESH_SECONDS) {
+  const [seconds, setSeconds] = useState<number>(() => readStored(key, defaultSeconds));
   const callbackRef = useRef(onRefresh);
   callbackRef.current = onRefresh;
 

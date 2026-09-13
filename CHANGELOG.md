@@ -14,6 +14,18 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Bounded dashboard home
+
+- The home page reads the 10 newest mission summaries instead of 200 full
+  missions, and reads each active voyage's vessels from
+  `GET /api/v1/voyages/{id}/mission-summary`. Before, a voyage whose missions
+  were older than the recent slice showed no vessel.
+- Home refresh uses one path: WebSocket events, the timer and the refresh button
+  fold into at most one follow-up load while a load runs. Before, every event
+  started another full reload. The timer is now the shared auto-refresh
+  selector (default 30 seconds, "None" stops it). A mission's full JSON is read
+  only when opened.
+
 ### Events carry their owner's scope
 
 - The generic admiral and server event helpers, the architect over-cap event
