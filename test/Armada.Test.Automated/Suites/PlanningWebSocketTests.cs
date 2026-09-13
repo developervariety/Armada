@@ -17,6 +17,7 @@ namespace Armada.Test.Automated.Suites
 
         private readonly HttpClient _AuthClient;
         private readonly int _RestPort;
+        private readonly string _ApiKey;
         private readonly List<string> _CreatedCaptainIds = new List<string>();
         private readonly List<string> _CreatedVesselIds = new List<string>();
         private readonly List<string> _CreatedFleetIds = new List<string>();
@@ -27,7 +28,7 @@ namespace Armada.Test.Automated.Suites
         {
             _AuthClient = authClient ?? throw new ArgumentNullException(nameof(authClient));
             _ = unauthClient ?? throw new ArgumentNullException(nameof(unauthClient));
-            _ = apiKey ?? throw new ArgumentNullException(nameof(apiKey));
+            _ApiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey));
             _RestPort = restPort;
         }
 
@@ -162,6 +163,9 @@ namespace Armada.Test.Automated.Suites
         {
             ClientWebSocket ws = new ClientWebSocket();
             await ws.ConnectAsync(new Uri("ws://127.0.0.1:" + _RestPort + "/ws"), CancellationToken.None).ConfigureAwait(false);
+            byte[] bytes = Encoding.UTF8.GetBytes(JsonHelper.Serialize(new { Route = "authenticate", apiKey = _ApiKey }));
+            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+            await WaitForEventAsync(ws, root => root.GetProperty("type").GetString() == "auth.result").ConfigureAwait(false);
             return ws;
         }
 

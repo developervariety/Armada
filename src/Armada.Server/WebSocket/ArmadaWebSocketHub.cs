@@ -31,6 +31,7 @@ namespace Armada.Server.WebSocket
         private LoggingModule _Logging;
         private IAdmiralService _Admiral;
         private readonly DatabaseDriver _Database;
+        private readonly IAuthenticationService _Authentication;
         private WebSocketCommandHandler _CommandHandler;
         private const int ClientOutputQueueCapacity = 256;
         private ConcurrentDictionary<Guid, ClientConnection> _Sessions = new ConcurrentDictionary<Guid, ClientConnection>();
@@ -57,14 +58,16 @@ namespace Armada.Server.WebSocket
         /// <param name="admiral">Admiral service for command handling.</param>
         /// <param name="database">Database driver for data access.</param>
         /// <param name="mergeQueue">Merge queue service.</param>
+        /// <param name="authentication">Authentication service that resolves session credentials.</param>
         /// <param name="settings">Optional Armada settings for log/diff paths.</param>
         /// <param name="git">Optional git service for diff generation.</param>
         /// <param name="onStop">Optional callback invoked when stop_server is requested.</param>
-        public ArmadaWebSocketHub(LoggingModule logging, IAdmiralService admiral, DatabaseDriver database, IMergeQueueService mergeQueue, ArmadaSettings? settings = null, IGitService? git = null, Action? onStop = null)
+        public ArmadaWebSocketHub(LoggingModule logging, IAdmiralService admiral, DatabaseDriver database, IMergeQueueService mergeQueue, IAuthenticationService authentication, ArmadaSettings? settings = null, IGitService? git = null, Action? onStop = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
+            _Authentication = authentication ?? throw new ArgumentNullException(nameof(authentication));
             _SnapshotService = new FleetReconciliationSnapshotService(_Database);
 
             _CommandHandler = new WebSocketCommandHandler(
@@ -106,6 +109,8 @@ namespace Armada.Server.WebSocket
 
             try
             {
+                if (!await AuthenticateFromHeadersAsync(session.Id, connection, ctx).ConfigureAwait(false)) return;
+
                 await foreach (WebSocketMessage message in session.ReadMessagesAsync(ctx.Token))
                 {
                     if (message.MessageType != WebSocketMessageType.Text) continue;
@@ -390,8 +395,24 @@ namespace Armada.Server.WebSocket
                 // Non-JSON or missing route falls through to default branch below.
             }
 
+            if (!_Sessions.TryGetValue(sessionId, out ClientConnection? connection)) return;
+
             try
             {
+                if (string.Equals(route, "authenticate", StringComparison.OrdinalIgnoreCase))
+                {
+                    await AuthenticateSessionAsync(sessionId, connection, body).ConfigureAwait(false);
+                    return;
+                }
+
+                // Every other route reads or changes fleet state, so an anonymous session
+                // gets nothing: no snapshot, no broadcasts and no command.
+                if (connection.Auth == null)
+                {
+                    await RefuseAsync(sessionId, connection, "auth.required", "Authenticate this session before sending route '" + (route ?? "null") + "'.").ConfigureAwait(false);
+                    return;
+                }
+
                 if (string.Equals(route, "subscribe", StringComparison.OrdinalIgnoreCase))
                 {
                     WebSocketSubscribeRequest request = JsonSerializer.Deserialize<WebSocketSubscribeRequest>(body, _JsonOptions)
@@ -402,6 +423,16 @@ namespace Armada.Server.WebSocket
 
                 if (string.Equals(route, "command", StringComparison.OrdinalIgnoreCase))
                 {
+                    // The command handler applies no tenant or user scope, so only a global
+                    // administrator may drive it.
+                    if (!connection.Auth.IsAdmin)
+                    {
+                        EnqueueOrDisconnect(sessionId, JsonSerializer.Serialize(
+                            new { type = "command.error", error = "WebSocket commands require a global administrator." },
+                            _JsonOptions));
+                        return;
+                    }
+
                     WebSocketCommand command = JsonSerializer.Deserialize<WebSocketCommand>(body, _JsonOptions) ?? new WebSocketCommand();
                     object result = await _CommandHandler.HandleCommandAsync(command.Action, command, body).ConfigureAwait(false);
                     EnqueueOrDisconnect(sessionId, JsonSerializer.Serialize(result, _JsonOptions));
@@ -604,12 +635,109 @@ namespace Armada.Server.WebSocket
             }
         }
 
+        /// <summary>
+        /// Authenticate from upgrade request headers when a non-browser client sends them.
+        /// A session without headers stays unauthenticated until it sends an authenticate route.
+        /// </summary>
+        /// <returns>False when header credentials were supplied and refused.</returns>
+        private async Task<bool> AuthenticateFromHeadersAsync(Guid sessionId, ClientConnection connection, HttpContextBase ctx)
+        {
+            string? authorization = ctx.Request.Headers.Get("Authorization");
+            string? sessionToken = ctx.Request.Headers.Get("X-Token");
+            string? apiKey = ctx.Request.Headers.Get("X-Api-Key");
+            if (String.IsNullOrEmpty(authorization) && String.IsNullOrEmpty(sessionToken) && String.IsNullOrEmpty(apiKey))
+                return true;
+
+            AuthContext auth = await _Authentication.AuthenticateAsync(authorization, sessionToken, apiKey).ConfigureAwait(false);
+            if (!auth.IsAuthenticated)
+            {
+                await RefuseAsync(sessionId, connection, "auth.failed", "The supplied credentials are not valid.").ConfigureAwait(false);
+                return false;
+            }
+
+            connection.Auth = auth;
+            EnqueueOrDisconnect(sessionId, BuildAuthResult(auth));
+            return true;
+        }
+
+        private async Task AuthenticateSessionAsync(Guid sessionId, ClientConnection connection, string body)
+        {
+            if (connection.Auth != null)
+            {
+                EnqueueOrDisconnect(sessionId, JsonSerializer.Serialize(
+                    new { type = "error", message = "This WebSocket session is already authenticated." },
+                    _JsonOptions));
+                return;
+            }
+
+            WebSocketAuthenticateRequest request = JsonSerializer.Deserialize<WebSocketAuthenticateRequest>(body, _JsonOptions)
+                ?? new WebSocketAuthenticateRequest();
+            string? token = String.IsNullOrWhiteSpace(request.Token) ? null : request.Token.Trim();
+            string? apiKey = String.IsNullOrWhiteSpace(request.ApiKey) ? null : request.ApiKey.Trim();
+            string? bearer = token == null ? null : "Bearer " + token;
+
+            AuthContext auth = await _Authentication.AuthenticateAsync(bearer, token, apiKey).ConfigureAwait(false);
+            if (!auth.IsAuthenticated)
+            {
+                await RefuseAsync(sessionId, connection, "auth.failed", "The supplied credentials are not valid.").ConfigureAwait(false);
+                return;
+            }
+
+            connection.Auth = auth;
+            EnqueueOrDisconnect(sessionId, BuildAuthResult(auth));
+        }
+
+        private string BuildAuthResult(AuthContext auth)
+        {
+            return JsonSerializer.Serialize(new
+            {
+                type = "auth.result",
+                data = new
+                {
+                    authenticated = true,
+                    tenantId = auth.TenantId,
+                    userId = auth.UserId,
+                    isAdmin = auth.IsAdmin,
+                    isTenantAdmin = auth.IsTenantAdmin
+                },
+                timestamp = DateTime.UtcNow
+            }, _JsonOptions);
+        }
+
+        /// <summary>
+        /// Send one refusal frame and close. The frame is sent directly because stopping the
+        /// output queue discards queued frames; an unauthenticated session has no queued frames
+        /// that the direct send could overtake.
+        /// </summary>
+        private async Task RefuseAsync(Guid sessionId, ClientConnection connection, string type, string message)
+        {
+            RemoveConnection(sessionId, connection);
+            connection.Output.Stop();
+            _Logging.Warn(_Header + "refusing client " + sessionId + " " + connection.Session.RemoteIp + ": " + type);
+
+            string json = JsonSerializer.Serialize(new { type = type, message = message, timestamp = DateTime.UtcNow }, _JsonOptions);
+            try
+            {
+                using (CancellationTokenSource timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5)))
+                {
+                    await connection.Session.SendTextAsync(json, timeout.Token).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "refusal frame not delivered to " + sessionId + ": " + ex.Message);
+            }
+
+            await CloseSessionAsync(connection.Session, message).ConfigureAwait(false);
+        }
+
         private sealed class ClientConnection
         {
             public WebSocketSession Session { get; }
             public WebSocketClientOutputQueue Output { get; }
             public bool Subscribed { get; set; }
             public bool SubscriptionRequested { get; set; }
+            public AuthContext? Auth { get; set; }
 
             public ClientConnection(WebSocketSession session, WebSocketClientOutputQueue output)
             {

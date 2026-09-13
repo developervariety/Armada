@@ -23,6 +23,11 @@
 // Configuration:
 //   ARMADA_WS_URL           Admiral WebSocket URL (default ws://127.0.0.1:7890/ws)
 //   ARMADA_PARTICIPANT_KEY  report board notes addressed to this key
+//   ARMADA_API_KEY          admiral API key sent in the authenticate frame
+//   ARMADA_TOKEN            bearer credential token; used instead of the API key
+//
+// The hub refuses a session that does not authenticate. A refusal ends the watch
+// with a hint, because reconnecting with the same credentials cannot succeed.
 //
 // Usage (run ON the Armada server; the hub is loopback-bound):
 //   watch-armada.mjs [--voyage <id>] [--participant <key>] [--all-notes]
@@ -148,6 +153,8 @@ export async function watch(options = {}) {
   const settings = {
     voyageId: options.voyageId ?? null,
     participantKey: options.participantKey ?? environment.ARMADA_PARTICIPANT_KEY ?? null,
+    apiKey: environment.ARMADA_API_KEY || null,
+    token: environment.ARMADA_TOKEN || null,
     allNotes: Boolean(options.allNotes),
     quietCaptains: Boolean(options.quietCaptains),
     exitOnTerminal: Boolean(options.exitOnTerminal),
@@ -248,6 +255,12 @@ export async function watch(options = {}) {
         backoffMs = RECONNECT_MIN_MS;
         note(`watching ${url}${settings.voyageId ? ` voyage=${settings.voyageId}` : ""}` +
           `${settings.participantKey ? ` mail=${settings.participantKey}` : ""}`);
+        if (settings.apiKey || settings.token) {
+          const authenticate = { route: "authenticate" };
+          if (settings.token) authenticate.token = settings.token;
+          else authenticate.apiKey = settings.apiKey;
+          socket.send(JSON.stringify(authenticate));
+        }
         const subscription = { route: "subscribe" };
         if (streamId) subscription.streamId = streamId;
         if (cursor !== null) subscription.cursor = cursor;
@@ -260,6 +273,17 @@ export async function watch(options = {}) {
         try {
           event = JSON.parse(typeof frame.data === "string" ? frame.data : String(frame.data));
         } catch {
+          return;
+        }
+
+        if (event.type === "auth.result") return;
+
+        if (event.type === "auth.required" || event.type === "auth.failed") {
+          // Retrying with the same credentials cannot succeed, so stop instead of
+          // reconnecting forever.
+          note(`AUTH ${event.type}: ${shorten(event.message, 200)}; set ARMADA_API_KEY or ARMADA_TOKEN`);
+          stop = true;
+          try { socket.close(); } catch { /* already closing */ }
           return;
         }
 

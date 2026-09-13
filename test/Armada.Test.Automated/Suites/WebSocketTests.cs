@@ -57,6 +57,116 @@ namespace Armada.Test.Automated.Suites
         protected override async Task RunTestsAsync()
         {
             // Subscribe Tests
+            await RunTest("Anonymous_Subscribe_IsRefusedWithoutSnapshot", async () =>
+            {
+                using (ClientWebSocket ws = await ConnectAnonymousAsync().ConfigureAwait(false))
+                {
+                    await SendJsonAsync(ws, new { Route = "subscribe" }).ConfigureAwait(false);
+                    JsonElement? frame = await ReceiveFrameOrCloseAsync(ws, 10).ConfigureAwait(false);
+                    AssertTrue(frame.HasValue, "Expected a refusal frame before the close");
+                    AssertEqual("auth.required", frame!.Value.GetProperty("type").GetString());
+                    JsonElement? after = await ReceiveFrameOrCloseAsync(ws, 10).ConfigureAwait(false);
+                    AssertFalse(after.HasValue, "Expected the server to close an unauthenticated session");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Anonymous_Command_IsRefused", async () =>
+            {
+                using (ClientWebSocket ws = await ConnectAnonymousAsync().ConfigureAwait(false))
+                {
+                    await SendJsonAsync(ws, new { Route = "command", action = "status" }).ConfigureAwait(false);
+                    JsonElement? frame = await ReceiveFrameOrCloseAsync(ws, 10).ConfigureAwait(false);
+                    AssertTrue(frame.HasValue, "Expected a refusal frame before the close");
+                    AssertEqual("auth.required", frame!.Value.GetProperty("type").GetString());
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Authenticate_InvalidApiKey_IsRefused", async () =>
+            {
+                using (ClientWebSocket ws = await ConnectAnonymousAsync().ConfigureAwait(false))
+                {
+                    await SendJsonAsync(ws, new { Route = "authenticate", apiKey = "invalid-" + Guid.NewGuid().ToString("N") }).ConfigureAwait(false);
+                    JsonElement? frame = await ReceiveFrameOrCloseAsync(ws, 10).ConfigureAwait(false);
+                    AssertTrue(frame.HasValue, "Expected a refusal frame before the close");
+                    AssertEqual("auth.failed", frame!.Value.GetProperty("type").GetString());
+                    JsonElement? after = await ReceiveFrameOrCloseAsync(ws, 10).ConfigureAwait(false);
+                    AssertFalse(after.HasValue, "Expected the server to close a session with invalid credentials");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Authenticate_ValidApiKey_AllowsSubscribe", async () =>
+            {
+                using (ClientWebSocket ws = await ConnectAnonymousAsync().ConfigureAwait(false))
+                {
+                    JsonElement result = await AuthenticateAsync(ws, new { Route = "authenticate", apiKey = _ApiKey }).ConfigureAwait(false);
+                    AssertEqual("auth.result", result.GetProperty("type").GetString());
+                    AssertTrue(result.GetProperty("data").GetProperty("isAdmin").GetBoolean(), "API key session should be a global administrator");
+
+                    await SendJsonAsync(ws, new { Route = "subscribe" }).ConfigureAwait(false);
+                    JsonElement snapshot = await WaitForTypeAsync(ws, "status.snapshot").ConfigureAwait(false);
+                    AssertEqual("status.snapshot", snapshot.GetProperty("type").GetString());
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Authenticate_NonAdminUser_SubscribesButCannotRunCommands", async () =>
+            {
+                string email = "ws-user-" + Guid.NewGuid().ToString("N").Substring(0, 8) + "@test.armada";
+                using (StringContent content = new StringContent(
+                    JsonHelper.Serialize(new { TenantId = "default", Email = email, Password = "testpass123", FirstName = "Socket", LastName = "User" }),
+                    Encoding.UTF8,
+                    "application/json"))
+                {
+                    HttpResponseMessage onboard = await _UnauthClient.PostAsync("/api/v1/onboarding", content).ConfigureAwait(false);
+                    AssertEqual(System.Net.HttpStatusCode.OK, onboard.StatusCode);
+                    OnboardingResult onboarded = JsonHelper.Deserialize<OnboardingResult>(await onboard.Content.ReadAsStringAsync().ConfigureAwait(false));
+                    AssertTrue(onboarded.Success, "Expected onboarding to succeed");
+                    string bearer = onboarded.Credential!.BearerToken;
+
+                    using (ClientWebSocket ws = await ConnectAnonymousAsync().ConfigureAwait(false))
+                    {
+                        JsonElement result = await AuthenticateAsync(ws, new { Route = "authenticate", token = bearer }).ConfigureAwait(false);
+                        AssertEqual("auth.result", result.GetProperty("type").GetString());
+                        AssertFalse(result.GetProperty("data").GetProperty("isAdmin").GetBoolean(), "Onboarded user should not be a global administrator");
+
+                        await SendJsonAsync(ws, new { Route = "command", action = "status" }).ConfigureAwait(false);
+                        JsonElement refused = await WaitForTypeAsync(ws, "command.error").ConfigureAwait(false);
+                        AssertContains("administrator", refused.GetProperty("error").GetString() ?? "");
+
+                        await SendJsonAsync(ws, new { Route = "subscribe" }).ConfigureAwait(false);
+                        JsonElement snapshot = await WaitForTypeAsync(ws, "status.snapshot").ConfigureAwait(false);
+                        AssertEqual("status.snapshot", snapshot.GetProperty("type").GetString());
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Authenticate_ApiKeyHeaderOnUpgrade_AllowsSubscribe", async () =>
+            {
+                using (ClientWebSocket ws = new ClientWebSocket())
+                {
+                    ws.Options.SetRequestHeader("X-Api-Key", _ApiKey);
+                    await ws.ConnectAsync(new Uri("ws://localhost:" + _RestPort + "/ws"), CancellationToken.None).ConfigureAwait(false);
+                    JsonElement? frame = await ReceiveFrameOrCloseAsync(ws, 10).ConfigureAwait(false);
+                    AssertTrue(frame.HasValue, "Expected an authentication reply for header credentials");
+                    AssertEqual("auth.result", frame!.Value.GetProperty("type").GetString());
+
+                    await SendJsonAsync(ws, new { Route = "subscribe" }).ConfigureAwait(false);
+                    JsonElement snapshot = await WaitForTypeAsync(ws, "status.snapshot").ConfigureAwait(false);
+                    AssertEqual("status.snapshot", snapshot.GetProperty("type").GetString());
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Authenticate_InvalidApiKeyHeaderOnUpgrade_IsRefused", async () =>
+            {
+                using (ClientWebSocket ws = new ClientWebSocket())
+                {
+                    ws.Options.SetRequestHeader("X-Api-Key", "invalid-" + Guid.NewGuid().ToString("N"));
+                    await ws.ConnectAsync(new Uri("ws://localhost:" + _RestPort + "/ws"), CancellationToken.None).ConfigureAwait(false);
+                    JsonElement? frame = await ReceiveFrameOrCloseAsync(ws, 10).ConfigureAwait(false);
+                    AssertTrue(frame.HasValue, "Expected a refusal frame before the close");
+                    AssertEqual("auth.failed", frame!.Value.GetProperty("type").GetString());
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Subscribe_ReturnsStatusSnapshot", async () =>
             {
                 using ClientWebSocket ws = await ConnectAsync().ConfigureAwait(false);
@@ -1025,10 +1135,63 @@ namespace Armada.Test.Automated.Suites
 
         private async Task<ClientWebSocket> ConnectAsync()
         {
+            ClientWebSocket ws = await ConnectAnonymousAsync().ConfigureAwait(false);
+            JsonElement result = await AuthenticateAsync(ws, new { Route = "authenticate", apiKey = _ApiKey }).ConfigureAwait(false);
+            if (result.GetProperty("type").GetString() != "auth.result")
+                throw new InvalidOperationException("WebSocket authentication failed: " + result.GetRawText());
+            return ws;
+        }
+
+        private async Task<ClientWebSocket> ConnectAnonymousAsync()
+        {
             ClientWebSocket ws = new ClientWebSocket();
             Uri uri = new Uri("ws://localhost:" + _RestPort + "/ws");
             await ws.ConnectAsync(uri, CancellationToken.None).ConfigureAwait(false);
             return ws;
+        }
+
+        private static async Task<JsonElement> AuthenticateAsync(ClientWebSocket socket, object authenticateMessage)
+        {
+            await SendJsonAsync(socket, authenticateMessage).ConfigureAwait(false);
+            JsonElement? frame = await ReceiveFrameOrCloseAsync(socket, 10).ConfigureAwait(false);
+            if (!frame.HasValue) throw new InvalidOperationException("WebSocket closed before an authentication reply.");
+            return frame.Value;
+        }
+
+        private static async Task<JsonElement?> ReceiveFrameOrCloseAsync(ClientWebSocket socket, int timeoutSeconds)
+        {
+            byte[] buffer = new byte[1048576];
+            using (CancellationTokenSource cts = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds)))
+            {
+                try
+                {
+                    WebSocketReceiveResult result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), cts.Token).ConfigureAwait(false);
+                    if (result.MessageType == WebSocketMessageType.Close) return null;
+                    string json = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                    using (JsonDocument document = JsonDocument.Parse(json))
+                    {
+                        return document.RootElement.Clone();
+                    }
+                }
+                catch (WebSocketException)
+                {
+                    return null;
+                }
+            }
+        }
+
+        private static async Task<JsonElement> WaitForTypeAsync(ClientWebSocket socket, string type)
+        {
+            DateTime deadline = DateTime.UtcNow.AddSeconds(15);
+            while (DateTime.UtcNow < deadline)
+            {
+                JsonElement? frame = await ReceiveFrameOrCloseAsync(socket, 15).ConfigureAwait(false);
+                if (!frame.HasValue) throw new InvalidOperationException("WebSocket closed while waiting for " + type + ".");
+                if (frame.Value.TryGetProperty("type", out JsonElement typeElement) && typeElement.GetString() == type)
+                    return frame.Value;
+            }
+
+            throw new TimeoutException("Timed out waiting for " + type + ".");
         }
 
         private static async Task SendJsonAsync(ClientWebSocket socket, object value)

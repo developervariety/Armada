@@ -1421,9 +1421,16 @@ prints `RECONCILED` after each connect or reconnect. A scoped snapshot for a
 purged voyage is empty and does not stop future live delivery.
 
 ```sh
-ssh <server> 'node <armada-checkout>/scripts/autonomy/watch-armada.mjs \
+ssh <server> 'ARMADA_API_KEY="$(<read the admiral API key>)" \
+    node <armada-checkout>/scripts/autonomy/watch-armada.mjs \
     --voyage <voyage-id> --participant <your-key> --exit-on-terminal'
 ```
+
+The hub refuses a session that does not authenticate. Set `ARMADA_API_KEY` to
+the admiral API key, or `ARMADA_TOKEN` to a bearer credential token. Without
+either, the watcher prints the refusal and exits instead of reconnecting.
+Do not put the key on a command line that other users can read; export it from
+a protected environment file.
 
 Drive it with the harness's Monitor tool, so every line becomes a notification.
 Each mission line is a stage boundary, which is the only window where a

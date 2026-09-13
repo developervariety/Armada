@@ -14,6 +14,22 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### WebSocket sessions authenticate before they read or change state
+
+- The `/ws` hub now requires an `authenticate` message (bearer or session
+  `token`, or `apiKey`) before any other route. Before, any client that reached
+  the admiral port received the status snapshot and every broadcast, and could
+  run `stop_server`, `restore` and every create, update and delete command
+  without credentials.
+- Invalid credentials receive `auth.failed`, and any other route before
+  authentication receives `auth.required`; the server then closes the session.
+- WebSocket commands require a global administrator, because the command
+  handler applies no tenant or user scope. Broadcasts are not yet filtered by
+  tenant.
+- The dashboard authenticates with its session token. `watch-armada.mjs` reads
+  `ARMADA_API_KEY` or `ARMADA_TOKEN`, and exits with a hint when the hub
+  refuses it instead of reconnecting.
+
 ### Vessel updates keep what the form does not edit
 
 - `PUT /api/v1/vessels/{id}` keeps the stored tenant, user, creation time,

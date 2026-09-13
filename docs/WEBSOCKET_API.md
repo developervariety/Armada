@@ -111,6 +111,42 @@ wss://localhost:7890/ws
 
 SSL applies to both the REST API and the WebSocket server.
 
+### Authentication
+
+A session must authenticate before it can subscribe or send a command. The
+server resolves the credentials through the same authentication service as the
+REST API. Send an `authenticate` message as the first frame:
+
+```json
+{
+  "Route": "authenticate",
+  "token": "<bearer credential token or dashboard session token>"
+}
+```
+
+```json
+{
+  "Route": "authenticate",
+  "apiKey": "<admiral API key>"
+}
+```
+
+A browser cannot set WebSocket request headers, so the credentials travel in
+this frame and not in the URL. Query strings appear in request logs.
+
+- Valid credentials: the server sends `auth.result` with `authenticated`,
+  `tenantId`, `userId`, `isAdmin` and `isTenantAdmin`.
+- Invalid credentials: the server sends `auth.failed` and closes the session.
+- Any other route before authentication: the server sends `auth.required` and
+  closes the session.
+- `command` requires a global administrator, because the command handler does
+  not apply tenant or user scope. Other sessions receive `command.error`.
+- An authenticated session can `subscribe`. Every authenticated subscriber
+  receives every broadcast event; broadcasts are not yet filtered by tenant.
+
+The server handles frames in order, so a client can send `authenticate` and
+`subscribe` together.
+
 ---
 
 ## Message Format

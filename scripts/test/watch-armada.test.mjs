@@ -143,6 +143,89 @@ test("subscribes on open and stops on the terminal voyage event", async () => {
   ]);
 });
 
+test("authenticates before subscribing when an API key is configured", async () => {
+  const listeners = new Map();
+  const sent = [];
+  const socket = {
+    addEventListener: (name, handler) => listeners.set(name, handler),
+    send: (payload) => sent.push(payload),
+    close: () => listeners.get("close")?.({ code: 1000 }),
+  };
+
+  const done = watch({
+    environment: { ARMADA_API_KEY: "key-1" },
+    voyageId: "vyg_1",
+    exitOnTerminal: true,
+    openSocket: () => socket,
+    write: () => {},
+    note: () => {},
+  });
+
+  listeners.get("open")();
+  listeners.get("message")({ data: JSON.stringify({ type: "auth.result", data: { authenticated: true } }) });
+  listeners.get("message")({ data: JSON.stringify({ type: "voyage.changed", data: { id: "vyg_1", status: "Complete" } }) });
+  await done;
+
+  assert.deepEqual(JSON.parse(sent[0]), { route: "authenticate", apiKey: "key-1" });
+  assert.deepEqual(JSON.parse(sent[1]), { route: "subscribe", voyageId: "vyg_1" });
+});
+
+test("a bearer token is sent instead of the API key when both are configured", async () => {
+  const listeners = new Map();
+  const sent = [];
+  const socket = {
+    addEventListener: (name, handler) => listeners.set(name, handler),
+    send: (payload) => sent.push(payload),
+    close: () => listeners.get("close")?.({ code: 1000 }),
+  };
+
+  const done = watch({
+    environment: { ARMADA_API_KEY: "key-1", ARMADA_TOKEN: "token-1" },
+    voyageId: "vyg_1",
+    exitOnTerminal: true,
+    openSocket: () => socket,
+    write: () => {},
+    note: () => {},
+  });
+
+  listeners.get("open")();
+  listeners.get("message")({ data: JSON.stringify({ type: "voyage.changed", data: { id: "vyg_1", status: "Failed" } }) });
+  await done;
+
+  assert.deepEqual(JSON.parse(sent[0]), { route: "authenticate", token: "token-1" });
+});
+
+test("an authentication refusal stops the watch instead of reconnecting", async () => {
+  let opened = 0;
+  const notes = [];
+  const makeSocket = () => {
+    opened += 1;
+    const listeners = new Map();
+    const socket = {
+      addEventListener: (name, handler) => listeners.set(name, handler),
+      send: () => {},
+      close: () => listeners.get("close")?.({ code: 1008 }),
+    };
+    queueMicrotask(() => {
+      listeners.get("open")();
+      listeners.get("message")({ data: JSON.stringify({ type: "auth.required", message: "Authenticate this session" }) });
+      listeners.get("close")?.({ code: 1008 });
+    });
+    return socket;
+  };
+
+  await watch({
+    environment: {},
+    openSocket: makeSocket,
+    write: () => {},
+    note: (line) => notes.push(line),
+    wait: async () => {},
+  });
+
+  assert.equal(opened, 1);
+  assert.ok(notes.some((line) => /ARMADA_API_KEY/.test(line)), `expected a credential hint, got ${JSON.stringify(notes)}`);
+});
+
 test("reconnects with the last cursor and tracked voyage", async () => {
   const sockets = [];
   const makeSocket = () => {

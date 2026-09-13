@@ -483,7 +483,7 @@ namespace Armada.Server
             };
 
             // Initialize WebSocket hub (before routes so it's available for injection)
-            _WebSocketHub = new ArmadaWebSocketHub(_Logging, _Admiral, _Database, _MergeQueue, _Settings, _Git, () => { OnStopping?.Invoke(); _TokenSource.Cancel(); });
+            _WebSocketHub = new ArmadaWebSocketHub(_Logging, _Admiral, _Database, _MergeQueue, _AuthenticationService, _Settings, _Git, () => { OnStopping?.Invoke(); _TokenSource.Cancel(); });
             _AgentLifecycle.SetWebSocketHub(_WebSocketHub);
             _MissionLanding.SetWebSocketHub(_WebSocketHub);
             missionService.OnReviewRequested = _WebSocketHub.BroadcastApprovalNeeded;

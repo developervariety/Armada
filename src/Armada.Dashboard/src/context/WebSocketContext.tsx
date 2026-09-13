@@ -15,7 +15,9 @@ const WebSocketContext = createContext<WebSocketState | null>(null);
 const RECONNECT_DELAY = 3000;
 
 export function WebSocketProvider({ children }: { children: ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, sessionToken } = useAuth();
+  const sessionTokenRef = useRef<string | null>(sessionToken);
+  sessionTokenRef.current = sessionToken;
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const handlersRef = useRef<Set<MessageHandler>>(new Set());
@@ -45,6 +47,9 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       ws.onopen = () => {
         if (!mountedRef.current) { ws.close(); return; }
         setConnected(true);
+        // The server refuses every other route until the session authenticates,
+        // and it handles frames in order, so subscribe follows authentication.
+        ws.send(JSON.stringify({ Route: 'authenticate', token: sessionTokenRef.current }));
         ws.send(JSON.stringify({ Route: 'subscribe' }));
       };
 
