@@ -42,6 +42,31 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   details and summaries. Reads do not run admission checks. Revision checks
   reject stale writes; a refusal and its waiting state are written together.
   Preserve Unicode IDs, existing policy limits and process ownership.
+### Removed the learned-facts / Reflections implementation
+
+- Removed the fork learned-facts and Reflections memory feature. Native captain
+  memory (the Recorder persona and the Recorded pipeline) is the replacement and
+  is unchanged.
+- Deleted the reflection dispatcher, the reflection memory service and its
+  bootstrap, the reflection sweeper, and the whole learned-facts library
+  (learned-facts file, memory anchors, pack and habit miners, the reflection
+  output parser, and the curate candidate helpers).
+- Removed the four learned-facts MCP tools: `armada_consolidate_memory`,
+  `armada_accept_memory_proposal`, `armada_reject_memory_proposal`, and
+  `armada_check_stale_memory`.
+- Removed the `MemoryConsolidator` persona seed and the `Reflections` and
+  `ReflectionsDualJudge` pipeline seeds. Inactive learned playbooks and any
+  existing reflection pipeline rows remain as data for an operator to retire.
+- Removed the learned-facts settings (the enable flag, thresholds, token
+  budgets, curate settings and prune options) and the `[LEARNED-FACT-PROPOSAL]`
+  mission guidance. The native "Recall Existing Memory" guidance stays.
+- Removed the reflection-threshold vessel routes and MCP arguments and the
+  fleet curate MCP arguments.
+- Reflection-coupled database columns (the vessel reflection and reorganize
+  thresholds, the last-reflection anchor, the per-scope curate thresholds and
+  learned-playbook references, and the pack-hint table) are retained as inert
+  data. No destructive migration is added; an operator retires the leftover
+  rows separately.
 
 ### Captain brief AI-Memory repository folder
 

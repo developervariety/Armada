@@ -792,8 +792,8 @@ namespace Armada.Test.Unit.Suites.Services
 
                 ModelTierSettings fleet = Fleet();
                 AssertTrue(fleet.IsSpecialistPersona("Judge"), "fleet overlay treats Judge as a specialist");
-                AssertTrue(fleet.IsSpecialistPersona("memoryconsolidator"), "specialist match is case-insensitive");
-                AssertEqual(10, fleet.SpecialistPersonas.Count, "fleet specialist set has the 10 reserved personas");
+                AssertTrue(fleet.IsSpecialistPersona("architect"), "specialist match is case-insensitive");
+                AssertEqual(9, fleet.SpecialistPersonas.Count, "fleet specialist set has the 9 reserved personas");
 
                 ModelTierSettings custom = new ModelTierSettings();
                 custom.SpecialistPersonas = new List<string> { "Curator" };

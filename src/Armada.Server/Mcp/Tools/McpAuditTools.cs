@@ -6,7 +6,6 @@ namespace Armada.Server.Mcp.Tools
     using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core.Database;
-    using Armada.Core.Memory;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
@@ -31,12 +30,10 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="register">Delegate to register each tool.</param>
         /// <param name="database">Database driver for data access.</param>
         /// <param name="remoteTriggerService">Optional remote trigger service; when provided, fires FireCriticalAsync on Critical verdicts.</param>
-        /// <param name="reflectionDispatcher">Optional reflection dispatcher; when null, audit drain does not auto-dispatch reflections.</param>
         public static void Register(
             RegisterToolDelegate register,
             DatabaseDriver database,
-            IRemoteTriggerService? remoteTriggerService = null,
-            ReflectionDispatcher? reflectionDispatcher = null)
+            IRemoteTriggerService? remoteTriggerService = null)
         {
             JudgeFollowUpService followUpService = new JudgeFollowUpService(database, new SyslogLogging.LoggingModule());
             JudgeFollowUpBackfillService backfillService = new JudgeFollowUpBackfillService(database, new SyslogLogging.LoggingModule());
@@ -193,148 +190,7 @@ namespace Armada.Server.Mcp.Tools
                         });
                     }
 
-                    List<object> reflectionsDispatched = new List<object>();
-                    if (reflectionDispatcher != null)
-                    {
-                        List<Vessel> vesselsToCheck;
-                        if (!String.IsNullOrEmpty(vesselId))
-                        {
-                            Vessel? single = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
-                            vesselsToCheck = single != null ? new List<Vessel> { single } : new List<Vessel>();
-                        }
-                        else
-                        {
-                            List<Vessel> allVessels = await database.Vessels.EnumerateAsync().ConfigureAwait(false);
-                            vesselsToCheck = new List<Vessel>();
-                            foreach (Vessel v in allVessels)
-                            {
-                                if (v.Active)
-                                    vesselsToCheck.Add(v);
-                            }
-                        }
-
-                        foreach (Vessel checkVessel in vesselsToCheck)
-                        {
-                            ReflectionDispatcher.DispatchResult? consolidateDispatched = await reflectionDispatcher
-                                .TryAutoDispatchAfterAuditDrainAsync(checkVessel)
-                                .ConfigureAwait(false);
-                            if (consolidateDispatched != null)
-                            {
-                                reflectionsDispatched.Add(new
-                                {
-                                    vesselId = checkVessel.Id,
-                                    missionId = consolidateDispatched.MissionId,
-                                    mode = "consolidate"
-                                });
-                                continue;
-                            }
-
-                            ReflectionDispatcher.DispatchResult? reorganizeDispatched = await reflectionDispatcher
-                                .TryAutoDispatchReorganizeAfterAuditDrainAsync(checkVessel)
-                                .ConfigureAwait(false);
-                            if (reorganizeDispatched != null)
-                            {
-                                reflectionsDispatched.Add(new
-                                {
-                                    vesselId = checkVessel.Id,
-                                    missionId = reorganizeDispatched.MissionId,
-                                    mode = "reorganize"
-                                });
-                                continue;
-                            }
-
-                            ReflectionDispatcher.DispatchResult? packCurateDispatched = await reflectionDispatcher
-                                .TryAutoDispatchPackCurateAfterAuditDrainAsync(checkVessel)
-                                .ConfigureAwait(false);
-                            if (packCurateDispatched != null)
-                            {
-                                reflectionsDispatched.Add(new
-                                {
-                                    vesselId = checkVessel.Id,
-                                    missionId = packCurateDispatched.MissionId,
-                                    mode = "pack-curate"
-                                });
-                            }
-                        }
-
-                        // v2-F2: identity-scope auto-triggers (persona-curate / captain-curate).
-                        // Pick the first active vessel as the worktree anchor for cross-vessel
-                        // identity dispatches; the brief itself is vessel-agnostic.
-                        Vessel? identityAnchor = vesselsToCheck.Count > 0 ? vesselsToCheck[0] : null;
-                        if (identityAnchor != null)
-                        {
-                            List<Persona> personas = await database.Personas.EnumerateAsync().ConfigureAwait(false);
-                            foreach (Persona p in personas)
-                            {
-                                if (!p.Active) continue;
-                                if (String.Equals(p.Name, "MemoryConsolidator", StringComparison.OrdinalIgnoreCase)) continue;
-                                ReflectionDispatcher.DispatchResult? personaDispatched = await reflectionDispatcher
-                                    .TryAutoDispatchPersonaCurateAfterAuditDrainAsync(p, identityAnchor)
-                                    .ConfigureAwait(false);
-                                if (personaDispatched != null)
-                                {
-                                    reflectionsDispatched.Add(new
-                                    {
-                                        personaName = p.Name,
-                                        missionId = personaDispatched.MissionId,
-                                        mode = "persona-curate"
-                                    });
-                                }
-                            }
-
-                            List<Captain> captains = await database.Captains.EnumerateAsync().ConfigureAwait(false);
-                            foreach (Captain c in captains)
-                            {
-                                if (!c.CurateThreshold.HasValue) continue;
-                                ReflectionDispatcher.DispatchResult? captainDispatched = await reflectionDispatcher
-                                    .TryAutoDispatchCaptainCurateAfterAuditDrainAsync(c, identityAnchor)
-                                    .ConfigureAwait(false);
-                                if (captainDispatched != null)
-                                {
-                                    reflectionsDispatched.Add(new
-                                    {
-                                        captainId = c.Id,
-                                        missionId = captainDispatched.MissionId,
-                                        mode = "captain-curate"
-                                    });
-                                }
-                            }
-
-                            // v2-F3: fleet-scope auto-trigger. Iterate active fleets; require
-                            // CurateThreshold be set per fleet (NULL disables the trigger).
-                            // Anchor-vessel resolution: prefer an active vessel from the same
-                            // fleet so worktree provisioning lands in a fleet member.
-                            List<Fleet> fleets = await database.Fleets.EnumerateAsync().ConfigureAwait(false);
-                            foreach (Fleet f in fleets)
-                            {
-                                if (!f.Active) continue;
-                                if (!f.CurateThreshold.HasValue) continue;
-                                List<Vessel> fleetVessels = await database.Vessels.EnumerateByFleetAsync(f.Id).ConfigureAwait(false);
-                                Vessel? fleetAnchor = null;
-                                foreach (Vessel fv in fleetVessels)
-                                {
-                                    if (fv.Active) { fleetAnchor = fv; break; }
-                                }
-                                fleetAnchor ??= identityAnchor;
-                                if (fleetAnchor == null) continue;
-
-                                ReflectionDispatcher.DispatchResult? fleetDispatched = await reflectionDispatcher
-                                    .TryAutoDispatchFleetCurateAfterAuditDrainAsync(f, fleetAnchor)
-                                    .ConfigureAwait(false);
-                                if (fleetDispatched != null)
-                                {
-                                    reflectionsDispatched.Add(new
-                                    {
-                                        fleetId = f.Id,
-                                        missionId = fleetDispatched.MissionId,
-                                        mode = "fleet-curate"
-                                    });
-                                }
-                            }
-                        }
-                    }
-
-                    return (object)new { entries = results, reflectionsDispatched };
+                    return (object)new { entries = results };
                 });
 
             register(

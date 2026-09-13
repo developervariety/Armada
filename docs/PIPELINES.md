@@ -29,8 +29,6 @@ concurrently.
 | `ReferencePortingTested` | Worker, PortingReferenceAnalyst, TestEngineer, Judge |
 | `FrontendWorkflowTested` | Worker, FrontendWorkflowReviewer, TestEngineer, Judge |
 | `Recorded` | Worker, Recorder |
-| `Reflections` | MemoryConsolidator |
-| `ReflectionsDualJudge` | MemoryConsolidator, then two parallel Judge stages |
 
 The startup seed service creates or reconciles these definitions. Built-in
 pipelines cannot be deleted.
@@ -79,8 +77,6 @@ execution is intentional.
 - Use `ProductDevelopment` when product and usability decisions are part of
   the requested outcome.
 - Use the matching specialist pipeline for its risk area.
-- Use reflection pipelines only through the memory-consolidation workflow and
-  only when owner policy enables learned facts.
 
 The pipeline does not replace workflow Checks. Mission roles produce work and
 review. Workflow profiles and Checks provide command evidence.

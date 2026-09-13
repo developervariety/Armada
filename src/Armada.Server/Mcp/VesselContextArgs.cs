@@ -27,7 +27,7 @@ namespace Armada.Server.Mcp
 
         /// <summary>
         /// Orchestrator/operator opt-in permitting a direct <see cref="ModelContext"/> write. Captains must
-        /// NOT set this -- they emit [CLAUDE.MD-PROPOSAL] / [LEARNED-FACT-PROPOSAL] instead and the
+        /// NOT set this -- they emit [CLAUDE.MD-PROPOSAL] instead and the
         /// orchestrator applies approved edits with this flag. When true, a null/empty modelContext is a
         /// deliberate clear.
         /// </summary>

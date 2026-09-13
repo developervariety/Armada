@@ -173,30 +173,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Seed defaults preserves existing memory consolidator template content", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    LoggingModule logging = new LoggingModule();
-                    logging.Settings.EnableConsole = false;
-
-                    PromptTemplate existing = new PromptTemplate("persona.memory_consolidator", "CUSTOM MEMORY CONTENT");
-                    existing.Category = "custom";
-                    existing.Description = "Custom memory consolidator prompt";
-                    existing.IsBuiltIn = false;
-                    await testDb.Driver.PromptTemplates.CreateAsync(existing).ConfigureAwait(false);
-
-                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
-                    await service.SeedDefaultsAsync().ConfigureAwait(false);
-
-                    PromptTemplate? resolved = await service.ResolveAsync("persona.memory_consolidator").ConfigureAwait(false);
-                    AssertNotNull(resolved, "Memory consolidator template should still resolve");
-                    AssertEqual("CUSTOM MEMORY CONTENT", resolved!.Content, "Seeding should not overwrite database-edited MemoryConsolidator content");
-                    AssertEqual("persona", resolved.Category, "Seeding should reconcile MemoryConsolidator category metadata");
-                    AssertTrue(resolved.IsBuiltIn, "Seeding should reconcile MemoryConsolidator built-in metadata");
-                }
-            });
-
             await RunTest("Working persona templates carry the memory-recall note; the Recorder does not", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -220,9 +196,6 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(recorder!.Content.Contains("## Recall Existing Memory", StringComparison.Ordinal), "The Recorder writes memory and takes no recall note");
                     AssertContains("create_memory", recorder.Content, "The Recorder should name the write tool");
 
-                    PromptTemplate? consolidator = await service.ResolveAsync("persona.memory_consolidator").ConfigureAwait(false);
-                    AssertNotNull(consolidator, "persona.memory_consolidator should be seeded");
-                    AssertFalse(consolidator!.Content.Contains("## Recall Existing Memory", StringComparison.Ordinal), "The learned-facts curator is left unchanged");
                 }
             });
 
@@ -363,49 +336,6 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(usabilityEngineer, "Usability engineer template should resolve");
                     AssertContains("## Usability", usabilityEngineer!.Content, "Usability engineer template should require a Usability section");
                     AssertContains("## Consistency", usabilityEngineer.Content, "Usability engineer template should require a Consistency section");
-                }
-            });
-
-            await RunTest("Memory consolidator embedded default declares evidence and write-surface restrictions", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    LoggingModule logging = new LoggingModule();
-                    logging.Settings.EnableConsole = false;
-
-                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
-
-                    PromptTemplate? resolved = await service.ResolveAsync("persona.memory_consolidator").ConfigureAwait(false);
-                    AssertNotNull(resolved, "Memory consolidator template should resolve from embedded defaults");
-                    AssertEqual("persona.memory_consolidator", resolved!.Name, "Memory consolidator template name");
-                    AssertEqual("persona", resolved.Category, "Memory consolidator template category");
-                    AssertTrue(resolved.IsBuiltIn, "Memory consolidator template should be built in");
-                    AssertContains("MemoryConsolidator", resolved.Content, "Memory consolidator content should identify the role");
-                    AssertContains("read-only", resolved.Content, "Memory consolidator content should describe read-only evidence surface");
-                    AssertContains("AgentOutput", resolved.Content, "Memory consolidator content should restrict writes to AgentOutput");
-                    AssertContains("reflections-candidate", resolved.Content, "Memory consolidator content should require the reflections-candidate block");
-                    AssertContains("reflections-diff", resolved.Content, "Memory consolidator content should require the reflections-diff block");
-                    AssertContains("CLAUDE.md", resolved.Content, "Memory consolidator content should explicitly forbid CLAUDE.md edits");
-                    AssertContains("[ARMADA:RESULT] COMPLETE", resolved.Content, "Memory consolidator content should include completion signal");
-                    AssertTrue(IsAscii(resolved.Content), "Memory consolidator content should be ASCII only");
-                }
-            });
-
-            await RunTest("Seed defaults includes memory consolidator persona template", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    LoggingModule logging = new LoggingModule();
-                    logging.Settings.EnableConsole = false;
-
-                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
-                    await service.SeedDefaultsAsync().ConfigureAwait(false);
-
-                    List<PromptTemplate> personaTemplates = await service.ListAsync("persona").ConfigureAwait(false);
-                    PromptTemplate? seeded = personaTemplates.FirstOrDefault(t => t.Name == "persona.memory_consolidator");
-                    AssertNotNull(seeded, "Memory consolidator template should be seeded under the persona category");
-                    AssertEqual("persona", seeded!.Category, "Seeded memory consolidator category");
-                    AssertTrue(seeded.IsBuiltIn, "Seeded memory consolidator should be built in");
                 }
             });
 

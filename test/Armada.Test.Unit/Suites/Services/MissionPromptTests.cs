@@ -1090,52 +1090,12 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("GenerateClaudeMdAsync includes ModelContext when enabled and set", async () =>
+            await RunTest("GenerateClaudeMdAsync_OmitsProposalAndLearnedPlaybook", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
-                    StubGitService git = new StubGitService();
-                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
-
-                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
-                    Directory.CreateDirectory(tempDir);
-
-                    try
-                    {
-                        Vessel vessel = new Vessel("ModelContextVessel", "https://github.com/test/repo");
-                        vessel.EnableModelContext = true;
-                        vessel.ModelContext = "The test suite takes 4 minutes. Auth module was recently refactored.";
-
-                        Mission mission = new Mission();
-                        mission.Title = "Fix tests";
-                        mission.Description = "Fix broken integration tests.";
-
-                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
-
-                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
-                        AssertContains("## Model Context", content);
-                        AssertContains("The test suite takes 4 minutes.", content);
-                        AssertContains("## Learned-Fact Proposals", content);
-                        AssertContains("[LEARNED-FACT-PROPOSAL]", content);
-                        AssertContains("read-only background", content);
-                        AssertFalse(content.Contains("COMPLETE updated model context"), "Prompt must not ask captains to append raw ModelContext");
-                    }
-                    finally
-                    {
-                        try { Directory.Delete(tempDir, true); } catch { }
-                    }
-                }
-            });
-
-            await RunTest("GenerateClaudeMdAsync_LearnedFactsDisabled_OmitsProposalAndLearnedPlaybook", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    LoggingModule logging = CreateLogging();
-                    ArmadaSettings settings = CreateSettings();
-                    settings.LearnedFactsEnabled = false;
                     StubGitService git = new StubGitService();
                     MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
 
@@ -1185,7 +1145,6 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     LoggingModule logging = CreateLogging();
                     ArmadaSettings settings = CreateSettings();
-                    settings.LearnedFactsEnabled = false;
                     StubGitService git = new StubGitService();
                     MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
 
@@ -1249,43 +1208,6 @@ namespace Armada.Test.Unit.Suites.Services
                         string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
                         AssertFalse(content.Contains("## Model Context"), "Should not contain Model Context when disabled");
                         AssertFalse(content.Contains("## Learned-Fact Proposals"), "Should not contain learned-fact proposal instructions when disabled");
-                    }
-                    finally
-                    {
-                        try { Directory.Delete(tempDir, true); } catch { }
-                    }
-                }
-            });
-
-            await RunTest("GenerateClaudeMdAsync includes update instructions even when ModelContext is empty", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    LoggingModule logging = CreateLogging();
-                    ArmadaSettings settings = CreateSettings();
-                    StubGitService git = new StubGitService();
-                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
-
-                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
-                    Directory.CreateDirectory(tempDir);
-
-                    try
-                    {
-                        Vessel vessel = new Vessel("EmptyModelContextVessel", "https://github.com/test/repo");
-                        vessel.EnableModelContext = true;
-                        vessel.ModelContext = null;
-
-                        Mission mission = new Mission();
-                        mission.Title = "First mission";
-                        mission.Description = "First mission on this vessel.";
-
-                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
-
-                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
-                        AssertFalse(content.Contains("## Model Context\n"), "Should not contain Model Context section when null");
-                        AssertContains("## Learned-Fact Proposals", content);
-                        AssertContains("[LEARNED-FACT-PROPOSAL]", content);
-                        AssertFalse(content.Contains("COMPLETE updated model context"), "Prompt must not ask captains to append raw ModelContext");
                     }
                     finally
                     {
@@ -1399,7 +1321,6 @@ namespace Armada.Test.Unit.Suites.Services
                         string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CODEX.md"));
                         AssertEqual(1, Regex.Matches(content, "^## Project Context$", RegexOptions.Multiline).Count);
                         AssertEqual(1, Regex.Matches(content, "^## Code Style$", RegexOptions.Multiline).Count);
-                        AssertEqual(1, Regex.Matches(content, "^## Model Context$", RegexOptions.Multiline).Count);
                         AssertEqual(1, Regex.Matches(content, "^## Repository$", RegexOptions.Multiline).Count);
                     }
                     finally
@@ -1535,44 +1456,6 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertTrue(
                             content.Contains("decompose") || content.Contains("analyze"),
                             "Architect persona should contain 'decompose' or 'analyze'");
-                    }
-                    finally
-                    {
-                        try { Directory.Delete(tempDir, true); } catch { }
-                    }
-                }
-            });
-
-            await RunTest("Template-resolved CLAUDE.md contains model context updates when enabled", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    LoggingModule logging = CreateLogging();
-                    ArmadaSettings settings = CreateSettings();
-                    StubGitService git = new StubGitService();
-                    IPromptTemplateService templateService;
-                    MissionService service = CreateMissionServiceWithTemplates(logging, testDb.Driver, settings, git, out templateService);
-                    await templateService.SeedDefaultsAsync();
-
-                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
-                    Directory.CreateDirectory(tempDir);
-
-                    try
-                    {
-                        Vessel vessel = new Vessel("TemplateModelContextVessel", "https://github.com/test/repo");
-                        vessel.EnableModelContext = true;
-                        vessel.ModelContext = "The auth module was recently refactored to use JWT tokens.";
-
-                        Mission mission = new Mission();
-                        mission.Title = "Model context test";
-                        mission.Description = "Verify model context section from templates.";
-
-                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
-
-                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
-                        AssertContains("## Learned-Fact Proposals", content);
-                        AssertContains("[LEARNED-FACT-PROPOSAL]", content);
-                        AssertContains("The auth module was recently refactored to use JWT tokens.", content);
                     }
                     finally
                     {

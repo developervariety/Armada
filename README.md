@@ -172,7 +172,6 @@ Built-in pipelines let work move through the right level of review:
 - `ProductDevelopment`: Product Manager, Architect, Worker, Usability Engineer, TestEngineer, then Judge.
 - `Recorded`: Worker, then Recorder -- do the work, then record what is worth remembering.
 - Specialist-tested pipelines add a domain reviewer before tests and Judge.
-- Reflection pipelines: MemoryConsolidator alone or MemoryConsolidator with parallel Judges.
 
 Personas are stored records, not hardcoded prompt strings. Custom personas and prompt templates can be added through REST or MCP and then referenced by custom pipeline stages.
 
@@ -250,8 +249,6 @@ Playbooks are reusable markdown guidance that can be delivered inline, reference
 The built-in `Recorder` persona reviews the finished work of a voyage and records what is worth remembering. It is seeded and available, and the `Recorded` pipeline runs it after a Worker. No existing pipeline gains a Recorder stage: where the Recorder belongs is an owner decision. Every other built-in persona is told to recall existing memory before it acts.
 
 Native captain memory keeps what earlier work learned: a vessel fact, a prior finding, or a procedure worth repeating, classified as episodic, semantic or procedural, with provenance, tags and a salience that orders recall. A stable key makes recording the same finding twice correct one record instead of scattering copies. Manage it over MCP (`search_memory`, `get_memory`, `create_memory`, `update_memory`, `delete_memory`) or REST (`/api/v1/memories`). Where a fleet keeps a shared external memory repository, that repository stays the authority for accepted rules and wins over a native record on conflict.
-
-Reflection memory turns accepted mission evidence into reviewable learned notes for future missions. Vessel learned facts, persona notes, captain behavior anchors, pack hints, and fleet hints can be consolidated and reviewed instead of rediscovered by each new captain.
 
 ### Interfaces
 
@@ -443,7 +440,7 @@ Common MCP tool groups:
 - Code index status, update, search, context pack, fleet context pack, graph symbols, callers, callees, impact, and affected tests.
 - Objective/backlog CRUD, refinement, planning, dispatch linkage, and the autonomous objective scheduler.
 - Check run, release, deployment, incident, and runbook operations.
-- Playbook management, mission playbook snapshots, and reflection memory.
+- Playbook management and mission playbook snapshots.
 - Captain diagnostics, quarantine controls, AgentWake registration, long-running-job status, and directed wake delivery.
 
 Send `X-Armada-Participant: <participantKey>` on MCP requests to receive pending

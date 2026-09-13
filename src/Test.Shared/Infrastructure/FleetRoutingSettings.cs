@@ -25,8 +25,7 @@ namespace Test.Shared.Infrastructure
             "MigrationDataReviewer",
             "PerformanceMemoryReviewer",
             "PortingReferenceAnalyst",
-            "FrontendWorkflowReviewer",
-            "MemoryConsolidator"
+            "FrontendWorkflowReviewer"
         };
 
         /// <summary>

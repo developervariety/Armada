@@ -74,16 +74,15 @@ namespace Armada.Core.Models
 
         /// <summary>
         /// JSON-serialized list of <see cref="SelectedPlaybook"/> entries automatically merged
-        /// into every mission whose stage runs this persona (Reflections v2-F2). Layered between
+        /// into every mission whose stage runs this persona. Layered between
         /// vessel.DefaultPlaybooks and captain.DefaultPlaybooks during brief assembly.
         /// Use <see cref="GetDefaultPlaybooks"/> to obtain a parsed list.
         /// </summary>
         public string? DefaultPlaybooks { get; set; } = null;
 
         /// <summary>
-        /// Per-persona persona-curate trigger threshold (mission-count window since last
-        /// accepted persona-curate). Null disables the audit-drain auto-trigger for this
-        /// persona (Reflections v2-F2).
+        /// Legacy per-persona curate trigger threshold. Retained as inert data for backward
+        /// compatibility; no longer drives dispatch.
         /// </summary>
         public int? CurateThreshold { get; set; } = null;
 

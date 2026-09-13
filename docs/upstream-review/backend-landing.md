@@ -41,3 +41,11 @@ explicit None, vessel/global fallback, cleanup and an unreadable linked voyage.
 The combined tree passed 4,115 unit, 967 API and 183 runtime tests with no
 failures or skips. The solution build reported 105 warnings and zero errors.
 No migration or deployment is included.
+
+After integration with the separate learned-facts/Reflections removal, the
+combined tree passed 3,809 unit, 967 API and 183 runtime tests with no failures
+or skips. The unit manifest has 306 fewer cases, all from paths changed by
+that removal; no registered suite was left unselected. The solution build
+reported 105 warnings and zero errors. All 274 protected migration declarations
+and the ten migration-guard controls still passed. This does not claim a new
+four-provider matrix or deployment on the merged tree.

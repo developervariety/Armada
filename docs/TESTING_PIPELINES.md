@@ -57,8 +57,7 @@ succeed. Confirm that mission evidence and result markers pass to later stages.
 
 ## Parallel Sibling Test
 
-Use a disposable custom pipeline with two personas at the same stage order, or
-use the controlled reflection test when learned facts are enabled.
+Use a disposable custom pipeline with two personas at the same stage order.
 
 Verify:
 
@@ -66,8 +65,6 @@ Verify:
 - neither sibling waits for the other to start;
 - the next order waits for both siblings;
 - one required sibling failure prevents normal advancement.
-
-Do not enable learned facts only to run a general pipeline test.
 
 ## Specialist Test
 

@@ -68,7 +68,7 @@ namespace Armada.Server.Mcp.Tools
                         styleGuide = new { type = "string", description = "Style guide describing naming conventions, patterns, and library preferences" },
                         workingDirectory = new { type = "string", description = "Optional local directory where completed mission changes will be pulled after merge" },
                         allowConcurrentMissions = new { type = "boolean", description = "Allow multiple concurrent missions on this vessel (default false)" },
-                        enableModelContext = new { type = "boolean", description = "Enable legacy model context injection and learned-fact proposal routing for mission discoveries (default false)" },
+                        enableModelContext = new { type = "boolean", description = "Enable legacy model context injection into mission briefs (default false)" },
                         defaultPipelineId = new { type = "string", description = "Default pipeline ID for dispatches to this vessel (ppl_ prefix)" },
                         protectedPaths = new
                         {
@@ -81,16 +81,6 @@ namespace Armada.Server.Mcp.Tools
                             type = "object",
                             description = "Optional auto-land predicate config. Null = orchestrator-triggered lands only. Schema: { enabled: bool, maxAddedLines?: int, maxFiles?: int, allowPaths?: string[], denyPaths?: string[] }.",
                             additionalProperties = true
-                        },
-                        reflectionThreshold = new
-                        {
-                            type = "integer",
-                            description = "Per-vessel override for the number of completed missions that triggers an auto-reflection. Null = use the global default (15). Must be >= 0; pass 0 only if you intend to disable auto-triggering."
-                        },
-                        reorganizeThreshold = new
-                        {
-                            type = "integer",
-                            description = "Per-vessel override for the number of completed missions that triggers an auto-reorganize of the learned playbook. Null = use the global default. Must be a positive integer (>= 1)."
                         },
                         defaultPlaybooks = new
                         {
@@ -203,24 +193,6 @@ namespace Armada.Server.Mcp.Tools
                     vessel.EnableModelContext = request.EnableModelContext ?? true;
                     vessel.DefaultPipelineId = request.DefaultPipelineId;
                     vessel.ProtectedPaths = (request.ProtectedPaths != null && request.ProtectedPaths.Count > 0) ? request.ProtectedPaths : null;
-                    if (args.HasValue && args.Value.TryGetProperty("reflectionThreshold", out JsonElement addRtElem)
-                        && addRtElem.ValueKind != JsonValueKind.Null)
-                    {
-                        if (addRtElem.ValueKind != JsonValueKind.Number || !addRtElem.TryGetInt32(out int addRtVal))
-                            return (object)new { Error = "reflectionThreshold must be an integer" };
-                        if (addRtVal < 0)
-                            return (object)new { Error = "reflectionThreshold must not be negative" };
-                        vessel.ReflectionThreshold = addRtVal;
-                    }
-                    if (args.HasValue && args.Value.TryGetProperty("reorganizeThreshold", out JsonElement addRorgElem)
-                        && addRorgElem.ValueKind != JsonValueKind.Null)
-                    {
-                        if (addRorgElem.ValueKind != JsonValueKind.Number || !addRorgElem.TryGetInt32(out int addRorgVal))
-                            return (object)new { Error = "reorganizeThreshold must be an integer" };
-                        if (addRorgVal < 1)
-                            return (object)new { Error = "reorganizeThreshold must be a positive integer" };
-                        vessel.ReorganizeThreshold = addRorgVal;
-                    }
                     vessel.AutoLandPredicate = autoLandPredicateJson;
                     vessel.DefaultPlaybooks = defaultPlaybooksJson;
                     vessel.SiblingRepos = siblingReposJson;
@@ -245,9 +217,9 @@ namespace Armada.Server.Mcp.Tools
                         workingDirectory = new { type = "string", description = "New local directory where completed mission changes will be pulled after merge" },
                         localPath = new { type = "string", description = "New path to the local bare repository Armada cuts dock worktrees from. Set this when the bare repo is renamed or relocated (e.g. onto another drive); otherwise DockService keeps resolving the stale path and re-clones from repoUrl into it." },
                         allowConcurrentMissions = new { type = "boolean", description = "Allow multiple concurrent missions on this vessel" },
-                        enableModelContext = new { type = "boolean", description = "Enable or disable legacy model context injection and learned-fact proposal routing" },
-                        modelContext = new { type = "string", description = "Legacy model context retained for backward compatibility; mission discoveries should use [LEARNED-FACT-PROPOSAL]. Writing it requires operatorOverride=true." },
-                        operatorOverride = new { type = "boolean", description = "Orchestrator/operator only: set true to apply a direct modelContext edit. Captains must NOT set this -- emit [CLAUDE.MD-PROPOSAL] / [LEARNED-FACT-PROPOSAL] instead." },
+                        enableModelContext = new { type = "boolean", description = "Enable or disable legacy model context injection" },
+                        modelContext = new { type = "string", description = "Legacy model context retained for backward compatibility. Writing it requires operatorOverride=true." },
+                        operatorOverride = new { type = "boolean", description = "Orchestrator/operator only: set true to apply a direct modelContext edit. Captains must NOT set this -- emit [CLAUDE.MD-PROPOSAL] instead." },
                         defaultPipelineId = new { type = "string", description = "Default pipeline ID for dispatches to this vessel (ppl_ prefix)" },
                         protectedPaths = new
                         {
@@ -265,16 +237,6 @@ namespace Armada.Server.Mcp.Tools
                             type = "object",
                             description = "Optional auto-land predicate config. Null = orchestrator-triggered lands only. Schema: { enabled: bool, maxAddedLines?: int, maxFiles?: int, allowPaths?: string[], denyPaths?: string[] }. Omit to leave the existing predicate unchanged; pass null to clear it.",
                             additionalProperties = true
-                        },
-                        reflectionThreshold = new
-                        {
-                            type = "integer",
-                            description = "Per-vessel reflection trigger threshold. Omit to leave unchanged; pass null to clear (revert to global default); pass an integer >= 0 to set."
-                        },
-                        reorganizeThreshold = new
-                        {
-                            type = "integer",
-                            description = "Per-vessel reorganize trigger threshold. Omit to leave unchanged; pass null to clear (revert to global default); pass a positive integer (>= 1) to set."
                         },
                         defaultPlaybooks = new
                         {
@@ -325,7 +287,7 @@ namespace Armada.Server.Mcp.Tools
                     VesselUpdateArgs request = JsonSerializer.Deserialize<VesselUpdateArgs>(args!.Value, _JsonOptions)!;
                     string vesselId = request.VesselId;
                     if (!String.IsNullOrEmpty(request.ModelContext) && !request.OperatorOverride)
-                        return (object)new { Error = "Direct modelContext mutation is blocked for captains. Emit a [CLAUDE.MD-PROPOSAL] block in your final response to propose learned-fact additions; the orchestrator applies approved proposals with operatorOverride=true." };
+                        return (object)new { Error = "Direct modelContext mutation is blocked for captains. Emit a [CLAUDE.MD-PROPOSAL] block in your final response to propose changes; the orchestrator applies approved proposals with operatorOverride=true." };
                     Vessel? vessel = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
                     if (vessel == null) return (object)new { Error = "Vessel not found" };
                     if (request.Name != null)
@@ -429,36 +391,6 @@ namespace Armada.Server.Mcp.Tools
                             }
                         }
                     }
-                    if (args.HasValue && args.Value.TryGetProperty("reflectionThreshold", out JsonElement updRtElem))
-                    {
-                        if (updRtElem.ValueKind == JsonValueKind.Null)
-                        {
-                            vessel.ReflectionThreshold = null;
-                        }
-                        else
-                        {
-                            if (updRtElem.ValueKind != JsonValueKind.Number || !updRtElem.TryGetInt32(out int updRtVal))
-                                return (object)new { Error = "reflectionThreshold must be an integer" };
-                            if (updRtVal < 0)
-                                return (object)new { Error = "reflectionThreshold must not be negative" };
-                            vessel.ReflectionThreshold = updRtVal;
-                        }
-                    }
-                    if (args.HasValue && args.Value.TryGetProperty("reorganizeThreshold", out JsonElement updRorgElem))
-                    {
-                        if (updRorgElem.ValueKind == JsonValueKind.Null)
-                        {
-                            vessel.ReorganizeThreshold = null;
-                        }
-                        else
-                        {
-                            if (updRorgElem.ValueKind != JsonValueKind.Number || !updRorgElem.TryGetInt32(out int updRorgVal))
-                                return (object)new { Error = "reorganizeThreshold must be an integer" };
-                            if (updRorgVal < 1)
-                                return (object)new { Error = "reorganizeThreshold must be a positive integer" };
-                            vessel.ReorganizeThreshold = updRorgVal;
-                        }
-                    }
                     vessel = await database.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
                     return (object)vessel;
                 });
@@ -533,7 +465,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_update_vessel_context",
-                "Update a vessel's project context, style guide, or legacy model context without modifying other properties. Mission discoveries should be emitted as [LEARNED-FACT-PROPOSAL] instead of appended to modelContext.",
+                "Update a vessel's project context, style guide, or legacy model context without modifying other properties.",
                 new
                 {
                     type = "object",
@@ -542,8 +474,8 @@ namespace Armada.Server.Mcp.Tools
                         vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix)" },
                         projectContext = new { type = "string", description = "Project context describing architecture, key files, and dependencies" },
                         styleGuide = new { type = "string", description = "Style guide describing naming conventions, patterns, and library preferences" },
-                        modelContext = new { type = "string", description = "Legacy model context retained for backward compatibility; do not use for mission-discovered learned facts. Writing it requires operatorOverride=true." },
-                        operatorOverride = new { type = "boolean", description = "Orchestrator/operator only: set true to apply a direct modelContext edit (or clear it with an empty string). Captains must NOT set this -- emit [CLAUDE.MD-PROPOSAL] / [LEARNED-FACT-PROPOSAL] instead." }
+                        modelContext = new { type = "string", description = "Legacy model context retained for backward compatibility. Writing it requires operatorOverride=true." },
+                        operatorOverride = new { type = "boolean", description = "Orchestrator/operator only: set true to apply a direct modelContext edit (or clear it with an empty string). Captains must NOT set this -- emit [CLAUDE.MD-PROPOSAL] instead." }
                     },
                     required = new[] { "vesselId" }
                 },
@@ -552,7 +484,7 @@ namespace Armada.Server.Mcp.Tools
                     VesselContextArgs request = JsonSerializer.Deserialize<VesselContextArgs>(args!.Value, _JsonOptions)!;
                     string vesselId = request.VesselId;
                     if (!String.IsNullOrEmpty(request.ModelContext) && !request.OperatorOverride)
-                        return (object)new { Error = "Direct modelContext mutation is blocked for captains. Emit a [CLAUDE.MD-PROPOSAL] block in your final response to propose learned-fact additions; the orchestrator applies approved proposals with operatorOverride=true." };
+                        return (object)new { Error = "Direct modelContext mutation is blocked for captains. Emit a [CLAUDE.MD-PROPOSAL] block in your final response to propose changes; the orchestrator applies approved proposals with operatorOverride=true." };
                     Vessel? vessel = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
                     if (vessel == null) return (object)new { Error = "Vessel not found" };
                     if (request.ProjectContext != null)

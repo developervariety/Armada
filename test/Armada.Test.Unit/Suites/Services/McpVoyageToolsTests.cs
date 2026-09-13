@@ -153,7 +153,7 @@ namespace Armada.Test.Unit.Suites.Services
                         VesselIds = new List<string> { vessel.Id }
                     }).ConfigureAwait(false);
 
-                    ReflectionDrainRecordingAdmiral admiralDouble = new ReflectionDrainRecordingAdmiral(testDb.Driver);
+                    DrainRecordingAdmiral admiralDouble = new DrainRecordingAdmiral(testDb.Driver);
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
@@ -842,47 +842,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("RegisterAll_NullReflectionDispatcher_AuditDrainStillAutoDispatchesReflections", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    ArmadaSettings settings = new ArmadaSettings { DefaultReflectionThreshold = 5 };
-                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
-                        new Vessel("registrar-reflection-drain-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
-                    vessel.TenantId = Constants.DefaultTenantId;
-                    vessel.ReflectionThreshold = 5;
-                    vessel = await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
-
-                    for (int i = 0; i < 5; i++)
-                    {
-                        Mission mission = new Mission("terminal " + i, "desc " + i);
-                        mission.VesselId = vessel.Id;
-                        mission.Persona = "Worker";
-                        mission.Status = MissionStatusEnum.Complete;
-                        mission.CompletedUtc = DateTime.UtcNow.AddMinutes(-10 + i);
-                        mission.DiffSnapshot = "diff " + i;
-                        mission.AgentOutput = "output " + i;
-                        await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
-                    }
-
-                    ReflectionDrainRecordingAdmiral admiral = new ReflectionDrainRecordingAdmiral(testDb.Driver);
-                    Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
-                    McpToolRegistrar.RegisterAll(
-                        (name, _, _, handler) => { handlers[name] = handler; },
-                        testDb.Driver,
-                        admiral,
-                        settings: settings,
-                        reflectionDispatcher: null);
-
-                    JsonElement drainArgs = JsonSerializer.SerializeToElement(new { vesselId = vessel.Id, limit = 10 });
-                    object drainResult = await handlers["armada_drain_audit_queue"](drainArgs).ConfigureAwait(false);
-                    JsonDocument drainDoc = JsonDocument.Parse(JsonSerializer.Serialize(drainResult));
-                    JsonElement reflectionsEl = drainDoc.RootElement.GetProperty("reflectionsDispatched");
-                    AssertEqual(JsonValueKind.Array, reflectionsEl.ValueKind);
-                    AssertEqual(1, reflectionsEl.GetArrayLength());
-                    AssertEqual(1, admiral.DispatchCount);
-                }
-            });
 
             await RunTest("Dispatch_InvalidAliasCycle_ReturnsError", async () =>
             {
@@ -2016,11 +1975,11 @@ namespace Armada.Test.Unit.Suites.Services
         /// Persists voyages and missions from DispatchVoyageAsync for reflection drain coverage
         /// (matches the RecordingAdmiralService pattern used in reflection audit drain tests).
         /// </summary>
-        private sealed class ReflectionDrainRecordingAdmiral : IAdmiralService
+        private sealed class DrainRecordingAdmiral : IAdmiralService
         {
             private readonly DatabaseDriver _Database;
 
-            public ReflectionDrainRecordingAdmiral(DatabaseDriver database)
+            public DrainRecordingAdmiral(DatabaseDriver database)
             {
                 _Database = database;
             }

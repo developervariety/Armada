@@ -5,7 +5,6 @@ namespace Armada.Core.Services
     using SyslogLogging;
     using Armada.Core.Database;
     using Armada.Core.Enums;
-    using Armada.Core.Memory;
     using Armada.Core.Models;
     using Armada.Core.Settings;
     using Armada.Core.Services.Interfaces;
@@ -1983,7 +1982,6 @@ namespace Armada.Core.Services
             }
 
             await EmitMissionOutcomeTelemetryAsync(mission, captain, token).ConfigureAwait(false);
-            await EmitContextPackUsageTelemetryAsync(mission, captain, token).ConfigureAwait(false);
 
             bool shouldAttemptLanding =
                 !preparedDownstreamStages &&
@@ -2216,14 +2214,6 @@ namespace Armada.Core.Services
                 content += "\n";
             }
 
-            if (_Settings.LearnedFactsEnabled &&
-                vessel.EnableModelContext &&
-                !String.IsNullOrEmpty(vessel.ModelContext))
-            {
-                content += ledger.Track("mission.model_context_wrapper", await ResolveSectionAsync("mission.model_context_wrapper", templateParams, token).ConfigureAwait(false));
-                content += "\n";
-            }
-
             if (playbookSnapshots.Count > 0)
             {
                 string playbooksMarkdown = await RenderSelectedPlaybooksMarkdownAsync(
@@ -2232,8 +2222,8 @@ namespace Armada.Core.Services
                     playbookSnapshots,
                     token).ConfigureAwait(false);
 
-                // The renderer can drop every snapshot: a learned-fact playbook while learned facts are
-                // disabled, or a body that holds only a heading or a placeholder line. The wrapper calls
+                // The renderer can drop every snapshot: a suppressed legacy learned-fact playbook,
+                // or a body that holds only a heading or a placeholder line. The wrapper calls
                 // its content required reading, so emitting it empty tells a captain to read material
                 // that the brief does not contain.
                 if (!String.IsNullOrWhiteSpace(playbooksMarkdown))
@@ -2350,7 +2340,7 @@ namespace Armada.Core.Services
             //
             // An Audit or Research mission gets the read-only rule set instead of the implementation
             // one. The modules dropped here are the ones a read-only captain cannot use: commit and push
-            // rules, merge-conflict avoidance (nothing is edited), and the learned-fact request. Keeping
+            // rules and merge-conflict avoidance (nothing is edited). Keeping
             // them produces a brief that contradicts its own mission, which captains report as a conflict
             // rather than silently obeying.
             if (mission.IsReadOnlyMode)
@@ -2411,14 +2401,6 @@ namespace Armada.Core.Services
                 content += ledger.Track("mission.notes", BuildProgressNotesSection());
             }
 
-            // Model context updates. A read-only mission discovers nothing durable about the repository
-            // by definition, so it is never asked for learned-fact proposals.
-            if (vessel.EnableModelContext && _Settings.LearnedFactsEnabled && !mission.IsReadOnlyMode)
-            {
-                content += "\n";
-                content += ledger.Track("mission.model_context_updates", await ResolveSectionAsync("mission.model_context_updates", templateParams, token).ConfigureAwait(false));
-            }
-
             // If there's an existing repository instruction file, preserve it as read-only
             // context and write Armada's generated mission file elsewhere. Do not overwrite
             // tracked root instruction files such as CLAUDE.md.
@@ -2430,7 +2412,7 @@ namespace Armada.Core.Services
                 // A root file that is itself a stale Armada model-context dump is not project
                 // instructions and must not be re-fed to a captain. Such a file survives
                 // SanitizeExistingInstructions because it carries no "Mission Instructions" header to
-                // cut at, and it can reach tens of kilobytes of accumulated learned facts.
+                // cut at, and it can reach tens of kilobytes of accumulated model context.
                 if (IsGeneratedModelContextDump(sanitizedExisting))
                 {
                     _Logging.Warn(_Header + "root instruction file " + rootInstructionsPath +
@@ -3542,7 +3524,8 @@ namespace Armada.Core.Services
             for (int i = 0; i < snapshots.Count; i++)
             {
                 MissionPlaybookSnapshot snapshot = snapshots[i];
-                if (!_Settings.LearnedFactsEnabled && IsLearnedFactsPlaybook(snapshot.FileName)) continue;
+                // Legacy learned-fact playbooks are retained as inert data and never rendered into a brief.
+                if (IsLearnedFactsPlaybook(snapshot.FileName)) continue;
 
                 // A playbook whose body is only a heading, or a "no accepted notes yet"
                 // placeholder, costs the captain a read (or prompt tokens) to learn nothing.
@@ -4210,25 +4193,6 @@ namespace Armada.Core.Services
                         "- `[ARMADA:VERDICT] NEEDS_REVISION` -- judge requests follow-up changes\n" +
                         "Architect missions must not emit `[ARMADA:RESULT]` or `[ARMADA:VERDICT]`; they must output only real `[ARMADA:MISSION]` blocks.\n";
 
-                case "mission.model_context_updates":
-                    return
-                        "## Learned-Fact Proposals\n" +
-                        "\n" +
-                        "Legacy model context is enabled for this vessel. Before you finish your mission, " +
-                        "review the existing model context above (if any) as read-only background and consider " +
-                        "whether you have discovered key information that would help future agents work on this repository more effectively. " +
-                        "Examples include: architectural insights, code style conventions, naming conventions, " +
-                        "logging patterns, error handling patterns, testing patterns, build quirks, common pitfalls, " +
-                        "important dependencies, interdependencies between modules, concurrency patterns, " +
-                        "and performance considerations.\n" +
-                        "\n" +
-                        "If you have useful additions, emit one or more `[LEARNED-FACT-PROPOSAL]` blocks in your final answer. " +
-                        "Each proposal should contain only durable, non-obvious repository knowledge, written as concise markdown. " +
-                        "Do not call `armada_update_vessel_context` for mission discoveries; proposals are routed through " +
-                        "the reviewed learned-facts pipeline instead of appending to raw ModelContext.\n" +
-                        "\n" +
-                        "If you have nothing to propose, skip this step.\n";
-
                 case "mission.playbooks_wrapper":
                     return
                         "## Playbooks\n" +
@@ -4250,14 +4214,6 @@ namespace Armada.Core.Services
                     return
                         "## Code Style\n" +
                         "{StyleGuide}\n";
-
-                case "mission.model_context_wrapper":
-                    return
-                        "## Model Context\n" +
-                        "The following context was accumulated by AI agents during previous missions on this repository. " +
-                        "Use this information to work more effectively.\n" +
-                        "\n" +
-                        "{ModelContext}\n";
 
                 case "mission.metadata":
                     return
@@ -5413,7 +5369,6 @@ namespace Armada.Core.Services
             "mission.existing_instructions_wrapper",
             "mission.project_context_wrapper",
             "mission.code_style_wrapper",
-            "mission.model_context_wrapper",
             "mission.playbooks_wrapper"
         };
 
@@ -7553,51 +7508,6 @@ namespace Armada.Core.Services
             catch (Exception evtEx)
             {
                 _Logging.Warn(_Header + "error emitting mission outcome event for " + mission.Id + ": " + evtEx.Message);
-            }
-        }
-
-        private async Task EmitContextPackUsageTelemetryAsync(Mission mission, Captain captain, CancellationToken token)
-        {
-            if (mission == null) throw new ArgumentNullException(nameof(mission));
-            if (captain == null) throw new ArgumentNullException(nameof(captain));
-
-            try
-            {
-                string missionLogDir = Path.Combine(_Settings.LogDirectory, "missions");
-                PackUsageMiner miner = new PackUsageMiner(missionLogDir);
-                PackUsageTriple usage = await miner.MineAsync(mission, token).ConfigureAwait(false);
-
-                ArmadaEvent usageEvent = new ArmadaEvent(
-                    "mission.context_pack_usage",
-                    "Context pack usage: " + usage.ContextPackCompliance);
-                usageEvent.TenantId = mission.TenantId;
-                usageEvent.UserId = mission.UserId;
-                usageEvent.EntityType = "mission";
-                usageEvent.EntityId = mission.Id;
-                usageEvent.CaptainId = captain.Id;
-                usageEvent.MissionId = mission.Id;
-                usageEvent.VesselId = mission.VesselId;
-                usageEvent.VoyageId = mission.VoyageId;
-                usageEvent.Payload = JsonSerializer.Serialize(new
-                {
-                    usage.MissionId,
-                    usage.LogAvailable,
-                    usage.ContextPackStaged,
-                    usage.ContextPackCompliance,
-                    usage.FirstContextPackReadOffset,
-                    usage.FirstSearchToolOffset,
-                    usage.SearchToolCallCount,
-                    usage.FilesReadFromPack,
-                    usage.FilesIgnoredFromPack,
-                    usage.FilesGrepDiscovered,
-                    usage.FilesEdited
-                });
-
-                await _Database.Events.CreateAsync(usageEvent, token).ConfigureAwait(false);
-            }
-            catch (Exception evtEx)
-            {
-                _Logging.Warn(_Header + "error emitting context pack usage event for " + mission.Id + ": " + evtEx.Message);
             }
         }
 

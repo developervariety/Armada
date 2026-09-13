@@ -24,9 +24,6 @@ Use a specialist only when the change has that risk:
 Use `ProductDevelopment` for a broad product change that needs requirements,
 architecture, implementation, usability, tests, and review.
 
-Do not dispatch `MemoryConsolidator` as ordinary delivery work. The reflection
-workflow owns it. Learned facts and reflection can also be disabled by policy.
-
 ## Inspect Before Dispatch
 
 1. Call `armada_enumerate` for personas and pipelines.
