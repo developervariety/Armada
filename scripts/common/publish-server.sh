@@ -3,15 +3,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
-# shellcheck source=resolve-insecure.sh
-. "${SCRIPT_DIR}/resolve-insecure.sh"
-armada_resolve_insecure "$@"
+# shellcheck source=resolve-framework.sh
+. "${SCRIPT_DIR}/resolve-framework.sh"
+armada_resolve_framework "$@"
+shift "${ARMADA_FRAMEWORK_ARGS_CONSUMED}"
 PUBLISH_DIR="${HOME}/.armada/bin"
 SERVER_EXE="${PUBLISH_DIR}/Armada.Server"
 
 echo
-echo "[publish-server] Publishing Armada.Server to ${PUBLISH_DIR}..."
-dotnet publish "${REPO_ROOT}/src/Armada.Server" -c Release -f net10.0 -o "${PUBLISH_DIR}"
+echo "[publish-server] Publishing Armada.Server (${ARMADA_TARGET_FRAMEWORK}) to ${PUBLISH_DIR}..."
+dotnet publish "${REPO_ROOT}/src/Armada.Server" -c Release -f "${ARMADA_TARGET_FRAMEWORK}" -o "${PUBLISH_DIR}"
 
 echo
 echo "[publish-server] Deploying dashboard assets..."

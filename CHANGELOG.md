@@ -31,6 +31,25 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   they sent a PUT with only the context fields, which reset the rest of the
   vessel.
 
+### Framework selection in POSIX scripts
+
+- `publish-server.sh`, `install-mcp.sh`, `remove-mcp.sh` and `update.sh`
+  accept `-f <framework>`, `--framework <framework>`, a leading bare `net*`
+  value, or `ARMADA_TARGET_FRAMEWORK`, and default to `net10.0`, as the
+  Windows scripts already did. Before, they always used `net10.0`. Only a
+  leading `net*` token is read as a bare framework, and `publish-server.sh`
+  still forwards the remaining arguments to `deploy-dashboard.sh`.
+
+### Telemetry log export
+
+- When telemetry is enabled with a Loki or OTLP endpoint, the Admiral log
+  stream is exported at Information level and above. Before, the Loki exporter
+  was configured but received no Admiral log entries.
+- Exported text passes through the shared secret redactor, includes exception
+  text with its stack, and is kept to 16,000 characters; the exception object
+  is not exported. Forwarding failures are counted, forwarding cannot recurse,
+  and a restart exports each entry once. Telemetry stays disabled by default.
+
 ### Chat and planning tool activity
 
 - Ask Armada and Planning keep runtime activity records out of the captain's
