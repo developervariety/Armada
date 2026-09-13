@@ -24,8 +24,11 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Invalid credentials receive `auth.failed`, and any other route before
   authentication receives `auth.required`; the server then closes the session.
 - WebSocket commands require a global administrator, because the command
-  handler applies no tenant or user scope. Broadcasts are not yet filtered by
-  tenant.
+  handler applies no tenant or user scope.
+- `subscribe` also requires a global administrator, because the status snapshot
+  and broadcast events are not yet filtered by tenant or user. A session with
+  narrower rights receives `subscribe.forbidden` and keeps its connection, so
+  the dashboard does not reconnect in a loop; its pages refresh through REST.
 - The dashboard authenticates with its session token. `watch-armada.mjs` reads
   `ARMADA_API_KEY` or `ARMADA_TOKEN`, and exits with a hint when the hub
   refuses it instead of reconnecting.

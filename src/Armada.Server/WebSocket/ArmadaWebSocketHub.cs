@@ -415,6 +415,17 @@ namespace Armada.Server.WebSocket
 
                 if (string.Equals(route, "subscribe", StringComparison.OrdinalIgnoreCase))
                 {
+                    // The status snapshot and broadcasts are not filtered by tenant or user, so
+                    // only a global administrator may receive them. The connection stays open
+                    // so a client does not reconnect in a loop.
+                    if (!connection.Auth.IsAdmin)
+                    {
+                        EnqueueOrDisconnect(sessionId, JsonSerializer.Serialize(
+                            new { type = "subscribe.forbidden", message = "Live WebSocket events require a global administrator." },
+                            _JsonOptions));
+                        return;
+                    }
+
                     WebSocketSubscribeRequest request = JsonSerializer.Deserialize<WebSocketSubscribeRequest>(body, _JsonOptions)
                         ?? new WebSocketSubscribeRequest { Route = "subscribe" };
                     await ActivateSubscriptionAsync(sessionId, request).ConfigureAwait(false);

@@ -108,7 +108,7 @@ namespace Armada.Test.Automated.Suites
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("Authenticate_NonAdminUser_SubscribesButCannotRunCommands", async () =>
+            await RunTest("Authenticate_NonAdminUser_CannotSubscribeOrRunCommands", async () =>
             {
                 string email = "ws-user-" + Guid.NewGuid().ToString("N").Substring(0, 8) + "@test.armada";
                 using (StringContent content = new StringContent(
@@ -132,9 +132,17 @@ namespace Armada.Test.Automated.Suites
                         JsonElement refused = await WaitForTypeAsync(ws, "command.error").ConfigureAwait(false);
                         AssertContains("administrator", refused.GetProperty("error").GetString() ?? "");
 
+                        // The snapshot and broadcasts are not filtered by tenant or user, so a
+                        // narrower session must not receive them.
                         await SendJsonAsync(ws, new { Route = "subscribe" }).ConfigureAwait(false);
-                        JsonElement snapshot = await WaitForTypeAsync(ws, "status.snapshot").ConfigureAwait(false);
-                        AssertEqual("status.snapshot", snapshot.GetProperty("type").GetString());
+                        JsonElement? subscribeReply = await ReceiveFrameOrCloseAsync(ws, 10).ConfigureAwait(false);
+                        AssertTrue(subscribeReply.HasValue, "Expected a subscribe reply on an open connection");
+                        AssertEqual("subscribe.forbidden", subscribeReply!.Value.GetProperty("type").GetString());
+
+                        // The connection stays open, so the dashboard does not reconnect in a loop.
+                        await SendJsonAsync(ws, new { Route = "command", action = "status" }).ConfigureAwait(false);
+                        JsonElement stillOpen = await WaitForTypeAsync(ws, "command.error").ConfigureAwait(false);
+                        AssertEqual("command.error", stillOpen.GetProperty("type").GetString());
                     }
                 }
             }).ConfigureAwait(false);

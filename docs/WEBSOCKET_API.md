@@ -141,8 +141,10 @@ this frame and not in the URL. Query strings appear in request logs.
   closes the session.
 - `command` requires a global administrator, because the command handler does
   not apply tenant or user scope. Other sessions receive `command.error`.
-- An authenticated session can `subscribe`. Every authenticated subscriber
-  receives every broadcast event; broadcasts are not yet filtered by tenant.
+- `subscribe` also requires a global administrator. The status snapshot and
+  the broadcast events are not yet filtered by tenant or user, so a session
+  with narrower rights receives `subscribe.forbidden` and keeps its connection.
+  Dashboard pages for such a session refresh through the REST API.
 
 The server handles frames in order, so a client can send `authenticate` and
 `subscribe` together.
