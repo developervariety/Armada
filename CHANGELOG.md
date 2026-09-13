@@ -16,6 +16,9 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 
 ### Typed client route coverage
 
+- Added typed methods for workflow and project profiles, skills, Ask, objectives,
+  and refinement sessions. Both objective and backlog refinement aliases remain
+  available, with route, query, request, and response contract tests.
 - Added typed `ArmadaApiClient` methods for existing fork routes covering
   readiness, landing previews, environments, deployments, releases, checks,
   token summaries, mission pull requests, and jobs.

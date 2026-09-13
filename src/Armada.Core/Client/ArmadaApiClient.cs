@@ -1025,6 +1025,245 @@ namespace Armada.Core.Client
 
         #endregion
 
+        #region Public-Methods-SupportedProfilesAndObjectives
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<WorkflowProfile?> GetWorkflowProfileAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<WorkflowProfile>("/api/v1/workflow-profiles/" + EscapePathSegment(id), token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<WorkflowProfileValidationResult?> ValidateWorkflowProfileAsync(WorkflowProfile profile, CancellationToken token = default)
+        {
+            return await PostAsync<WorkflowProfileValidationResult, WorkflowProfile>("/api/v1/workflow-profiles/validate", profile, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<WorkflowProfileResolutionPreviewResult?> PreviewWorkflowProfileForVesselAsync(string vesselId, string? workflowProfileId = null, CancellationToken token = default)
+        {
+            string path = "/api/v1/workflow-profiles/preview/vessels/" + EscapePathSegment(vesselId);
+            if (!String.IsNullOrWhiteSpace(workflowProfileId))
+                path += "?workflowProfileId=" + Uri.EscapeDataString(workflowProfileId);
+            return await GetAsync<WorkflowProfileResolutionPreviewResult>(path, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<WorkflowProfile?> ResolveWorkflowProfileAsync(string vesselId, string? workflowProfileId = null, CancellationToken token = default)
+        {
+            string path = "/api/v1/workflow-profiles/resolve/vessels/" + EscapePathSegment(vesselId);
+            if (!String.IsNullOrWhiteSpace(workflowProfileId))
+                path += "?workflowProfileId=" + Uri.EscapeDataString(workflowProfileId);
+            return await GetAsync<WorkflowProfile>(path, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<WorkflowProfile?> CreateWorkflowProfileAsync(WorkflowProfile profile, CancellationToken token = default)
+        {
+            return await PostAsync<WorkflowProfile, WorkflowProfile>("/api/v1/workflow-profiles", profile, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<WorkflowProfile?> UpdateWorkflowProfileAsync(string id, WorkflowProfile profile, CancellationToken token = default)
+        {
+            return await PutAsync<WorkflowProfile, WorkflowProfile>("/api/v1/workflow-profiles/" + EscapePathSegment(id), profile, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task DeleteWorkflowProfileAsync(string id, CancellationToken token = default)
+        {
+            await DeleteAsync("/api/v1/workflow-profiles/" + EscapePathSegment(id), token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<ProjectProfile?> GetProjectProfileAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<ProjectProfile>("/api/v1/project-profiles/" + EscapePathSegment(id), token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<ProjectProfileValidationResult?> ValidateProjectProfileAsync(ProjectProfile profile, CancellationToken token = default)
+        {
+            return await PostAsync<ProjectProfileValidationResult, ProjectProfile>("/api/v1/project-profiles/validate", profile, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<ProjectProfileResolutionResult?> ResolveProjectProfileAsync(string vesselId, string? projectProfileId = null, CancellationToken token = default)
+        {
+            string path = "/api/v1/project-profiles/resolve/vessels/" + EscapePathSegment(vesselId);
+            if (!String.IsNullOrWhiteSpace(projectProfileId))
+                path += "?projectProfileId=" + Uri.EscapeDataString(projectProfileId);
+            return await GetAsync<ProjectProfileResolutionResult>(path, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<PersonaPromptPreview?> PreviewPersonaPromptAsync(string projectProfileId, string persona, CancellationToken token = default)
+        {
+            string path = "/api/v1/project-profiles/" + EscapePathSegment(projectProfileId) + "/persona-preview/" + Uri.EscapeDataString(persona);
+            return await GetAsync<PersonaPromptPreview>(path, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<ProjectProfile?> CreateProjectProfileAsync(ProjectProfile profile, CancellationToken token = default)
+        {
+            return await PostAsync<ProjectProfile, ProjectProfile>("/api/v1/project-profiles", profile, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<ProjectProfile?> UpdateProjectProfileAsync(string id, ProjectProfile profile, CancellationToken token = default)
+        {
+            return await PutAsync<ProjectProfile, ProjectProfile>("/api/v1/project-profiles/" + EscapePathSegment(id), profile, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task DeleteProjectProfileAsync(string id, CancellationToken token = default)
+        {
+            await DeleteAsync("/api/v1/project-profiles/" + EscapePathSegment(id), token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<Skill?> GetSkillAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<Skill>("/api/v1/skills/" + EscapePathSegment(id), token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<Skill?> CreateSkillAsync(Skill skill, CancellationToken token = default)
+        {
+            return await PostAsync<Skill, Skill>("/api/v1/skills", skill, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<Skill?> UpdateSkillAsync(string id, Skill skill, CancellationToken token = default)
+        {
+            return await PutAsync<Skill, Skill>("/api/v1/skills/" + EscapePathSegment(id), skill, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task DeleteSkillAsync(string id, CancellationToken token = default)
+        {
+            await DeleteAsync("/api/v1/skills/" + EscapePathSegment(id), token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<AskResponse?> AskAsync(string message, CancellationToken token = default)
+        {
+            return await PostAsync<AskResponse, AskRequest>("/api/v1/ask", new AskRequest { Message = message }, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<Objective?> GetObjectiveAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<Objective>("/api/v1/objectives/" + EscapePathSegment(id), token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<Objective?> CreateObjectiveAsync(ObjectiveUpsertRequest request, CancellationToken token = default)
+        {
+            return await PostAsync<Objective, ObjectiveUpsertRequest>("/api/v1/objectives", request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<Objective?> UpdateObjectiveAsync(string id, ObjectiveUpsertRequest request, CancellationToken token = default)
+        {
+            return await PutAsync<Objective, ObjectiveUpsertRequest>("/api/v1/objectives/" + EscapePathSegment(id), request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task DeleteObjectiveAsync(string id, CancellationToken token = default)
+        {
+            await DeleteAsync("/api/v1/objectives/" + EscapePathSegment(id), token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<Objective?> ImportObjectiveFromGitHubAsync(GitHubObjectiveImportRequest request, CancellationToken token = default)
+        {
+            return await PostAsync<Objective, GitHubObjectiveImportRequest>("/api/v1/objectives/import/github", request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<ObjectiveRefinementSessionDetail?> CreateObjectiveRefinementSessionAsync(
+            string objectiveId,
+            ObjectiveRefinementSessionCreateRequest request,
+            CancellationToken token = default)
+        {
+            return await PostAsync<ObjectiveRefinementSessionDetail, ObjectiveRefinementSessionCreateRequest>(
+                "/api/v1/objectives/" + EscapePathSegment(objectiveId) + "/refinement-sessions",
+                request,
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<ObjectiveRefinementSessionDetail?> CreateBacklogRefinementSessionAsync(
+            string objectiveId,
+            ObjectiveRefinementSessionCreateRequest request,
+            CancellationToken token = default)
+        {
+            return await PostAsync<ObjectiveRefinementSessionDetail, ObjectiveRefinementSessionCreateRequest>(
+                "/api/v1/backlog/" + EscapePathSegment(objectiveId) + "/refinement-sessions",
+                request,
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<ObjectiveRefinementSessionDetail?> GetObjectiveRefinementSessionAsync(string sessionId, CancellationToken token = default)
+        {
+            return await GetAsync<ObjectiveRefinementSessionDetail>("/api/v1/objective-refinement-sessions/" + EscapePathSegment(sessionId), token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<ObjectiveRefinementSessionDetail?> SendObjectiveRefinementMessageAsync(
+            string sessionId,
+            ObjectiveRefinementMessageRequest request,
+            CancellationToken token = default)
+        {
+            return await PostAsync<ObjectiveRefinementSessionDetail, ObjectiveRefinementMessageRequest>(
+                "/api/v1/objective-refinement-sessions/" + EscapePathSegment(sessionId) + "/messages",
+                request,
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<ObjectiveRefinementSummaryResponse?> SummarizeObjectiveRefinementSessionAsync(
+            string sessionId,
+            ObjectiveRefinementSummaryRequest? request = null,
+            CancellationToken token = default)
+        {
+            return await PostAsync<ObjectiveRefinementSummaryResponse, ObjectiveRefinementSummaryRequest>(
+                "/api/v1/objective-refinement-sessions/" + EscapePathSegment(sessionId) + "/summarize",
+                request ?? new ObjectiveRefinementSummaryRequest(),
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<ObjectiveRefinementApplyResponse?> ApplyObjectiveRefinementSummaryAsync(
+            string sessionId,
+            ObjectiveRefinementApplyRequest? request = null,
+            CancellationToken token = default)
+        {
+            return await PostAsync<ObjectiveRefinementApplyResponse, ObjectiveRefinementApplyRequest>(
+                "/api/v1/objective-refinement-sessions/" + EscapePathSegment(sessionId) + "/apply",
+                request ?? new ObjectiveRefinementApplyRequest(),
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<ObjectiveRefinementSessionDetail?> StopObjectiveRefinementSessionAsync(string sessionId, CancellationToken token = default)
+        {
+            return await PostAsync<ObjectiveRefinementSessionDetail>(
+                "/api/v1/objective-refinement-sessions/" + EscapePathSegment(sessionId) + "/stop",
+                new { },
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task DeleteObjectiveRefinementSessionAsync(string sessionId, CancellationToken token = default)
+        {
+            await DeleteAsync("/api/v1/objective-refinement-sessions/" + EscapePathSegment(sessionId), token).ConfigureAwait(false);
+        }
+
+        #endregion
+
         #region Public-Methods-Dispose
 
         /// <summary>

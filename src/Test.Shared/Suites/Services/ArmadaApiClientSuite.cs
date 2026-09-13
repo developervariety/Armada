@@ -85,6 +85,7 @@ namespace Test.Shared.Suites.Services
                 }
             }));
             AddContractCases(cases);
+            AddProfileObjectiveCases(cases);
             return new TestSuiteDescriptor(
                 suiteId: "Services.ArmadaApiClient",
                 displayName: "Armada API Client",
@@ -121,6 +122,85 @@ namespace Test.Shared.Suites.Services
             cases.Add(ContractCaseVoid("check_delete", "DELETE", "/api/v1/check-runs/chk_test", async (client, token) => { await client.DeleteCheckRunAsync("chk_test", token); }));
             cases.Add(ContractCase("job_get", "GET", "/api/v1/jobs/job_test", (client, token) => client.GetJobAsync("job_test", token)));
             cases.Add(ContractCase("job_cancel", "POST", "/api/v1/jobs/job_test/cancel", (client, token) => client.CancelJobAsync("job_test", token)));
+        }
+
+        private static void AddProfileObjectiveCases(List<TestCaseDescriptor> cases)
+        {
+            cases.Add(ContractCaseTyped("workflow_get", "GET", "/api/v1/workflow-profiles/wf_test", "{\"id\":\"wf_response\",\"name\":\"workflow response\"}", (ArmadaApiClient c, CancellationToken t) => c.GetWorkflowProfileAsync("wf_test", t), r => AssertEqual("wf_response", r.Id), null));
+            cases.Add(ContractCaseTyped("workflow_validate", "POST", "/api/v1/workflow-profiles/validate", "{\"isValid\":true}", (ArmadaApiClient c, CancellationToken t) => c.ValidateWorkflowProfileAsync(new WorkflowProfile { Name = "workflow request" }, t), r => AssertTrue(r.IsValid, "Workflow validation must deserialize."), b => AssertJsonProperty(b, "Name", "workflow request")));
+            cases.Add(ContractCaseTyped("workflow_preview", "GET", "/api/v1/workflow-profiles/preview/vessels/vsl_test?workflowProfileId=wf%2Ftest", "{\"resolutionMode\":\"Global\",\"resolvedProfile\":{\"id\":\"wf_response\",\"name\":\"workflow response\"}}", (ArmadaApiClient c, CancellationToken t) => c.PreviewWorkflowProfileForVesselAsync("vsl_test", "wf/test", t), r => AssertEqual("wf_response", r.ResolvedProfile!.Id), null));
+            cases.Add(ContractCaseTyped("workflow_resolve", "GET", "/api/v1/workflow-profiles/resolve/vessels/vsl_test?workflowProfileId=wf%2Ftest", "{\"id\":\"wf_response\",\"name\":\"workflow response\"}", (ArmadaApiClient c, CancellationToken t) => c.ResolveWorkflowProfileAsync("vsl_test", "wf/test", t), r => AssertEqual("wf_response", r.Id), null));
+            cases.Add(ContractCaseTyped("workflow_create", "POST", "/api/v1/workflow-profiles", "{\"id\":\"wf_response\",\"name\":\"workflow response\"}", (ArmadaApiClient c, CancellationToken t) => c.CreateWorkflowProfileAsync(new WorkflowProfile { Name = "workflow request" }, t), r => AssertEqual("wf_response", r.Id), b => AssertJsonProperty(b, "Name", "workflow request")));
+            cases.Add(ContractCaseTyped("workflow_update", "PUT", "/api/v1/workflow-profiles/wf_test", "{\"id\":\"wf_response\",\"name\":\"workflow response\"}", (ArmadaApiClient c, CancellationToken t) => c.UpdateWorkflowProfileAsync("wf_test", new WorkflowProfile { Name = "workflow request" }, t), r => AssertEqual("wf_response", r.Id), b => AssertJsonProperty(b, "Name", "workflow request")));
+            cases.Add(ContractCaseVoid("workflow_delete", "DELETE", "/api/v1/workflow-profiles/wf_test", (c,t) => c.DeleteWorkflowProfileAsync("wf_test",t)));
+            cases.Add(ContractCaseTyped("project_get", "GET", "/api/v1/project-profiles/pp_test", "{\"id\":\"pp_response\",\"name\":\"project response\"}", (ArmadaApiClient c, CancellationToken t) => c.GetProjectProfileAsync("pp_test",t), r => AssertEqual("pp_response",r.Id), null));
+            cases.Add(ContractCaseTyped("project_validate", "POST", "/api/v1/project-profiles/validate", "{\"isValid\":true}", (c,t) => c.ValidateProjectProfileAsync(new ProjectProfile { Name="project request" },t), r=>AssertTrue(r.IsValid,"Project validation must deserialize."), b=>AssertJsonProperty(b,"Name","project request")));
+            cases.Add(ContractCaseTyped("project_resolve", "GET", "/api/v1/project-profiles/resolve/vessels/vsl_test?projectProfileId=pp%2Ftest", "{\"mode\":\"Global\",\"profile\":{\"id\":\"pp_response\",\"name\":\"project response\"}}", (c,t)=>c.ResolveProjectProfileAsync("vsl_test","pp/test",t), r=>AssertEqual("pp_response",r.Profile!.Id),null));
+            cases.Add(ContractCaseTyped("persona_preview", "GET", "/api/v1/project-profiles/pp%2Ftest/persona-preview/Architect%2FLead", "{\"personaName\":\"Architect\",\"effectiveTemplateName\":\"effective\"}", (c,t)=>c.PreviewPersonaPromptAsync("pp/test","Architect/Lead",t), r=>AssertEqual("effective",r.EffectiveTemplateName),null));
+            cases.Add(ContractCaseTyped("project_create", "POST", "/api/v1/project-profiles", "{\"id\":\"pp_response\",\"name\":\"project response\"}", (c,t)=>c.CreateProjectProfileAsync(new ProjectProfile {Name="project request"},t), r=>AssertEqual("pp_response",r.Id), b=>AssertJsonProperty(b,"Name","project request")));
+            cases.Add(ContractCaseTyped("project_update", "PUT", "/api/v1/project-profiles/pp_test", "{\"id\":\"pp_response\",\"name\":\"project response\"}", (c,t)=>c.UpdateProjectProfileAsync("pp_test",new ProjectProfile {Name="project request"},t), r=>AssertEqual("pp_response",r.Id), b=>AssertJsonProperty(b,"Name","project request")));
+            cases.Add(ContractCaseVoid("project_delete", "DELETE", "/api/v1/project-profiles/pp_test", (c,t)=>c.DeleteProjectProfileAsync("pp_test",t)));
+            cases.Add(ContractCaseTyped("skill_get", "GET", "/api/v1/skills/sk_test", "{\"id\":\"sk_response\",\"name\":\"skill response\"}", (c,t)=>c.GetSkillAsync("sk_test",t), r=>AssertEqual("sk_response",r.Id),null));
+            cases.Add(ContractCaseTyped("skill_create", "POST", "/api/v1/skills", "{\"id\":\"sk_response\",\"name\":\"skill response\"}", (c,t)=>c.CreateSkillAsync(new Skill {Name="skill request",Content="content"},t), r=>AssertEqual("sk_response",r.Id),b=>{AssertJsonProperty(b,"Name","skill request");AssertJsonProperty(b,"Content","content");}));
+            cases.Add(ContractCaseTyped("skill_update", "PUT", "/api/v1/skills/sk_test", "{\"id\":\"sk_response\",\"name\":\"skill response\"}", (c,t)=>c.UpdateSkillAsync("sk_test",new Skill {Name="skill request",Content="content"},t), r=>AssertEqual("sk_response",r.Id),b=>{AssertJsonProperty(b,"Name","skill request");AssertJsonProperty(b,"Content","content");}));
+            cases.Add(ContractCaseVoid("skill_delete", "DELETE", "/api/v1/skills/sk_test", (c,t)=>c.DeleteSkillAsync("sk_test",t)));
+            cases.Add(ContractCaseTyped("ask", "POST", "/api/v1/ask", "{\"reply\":\"answer\",\"kind\":\"Answer\"}", (c,t)=>c.AskAsync("question",t), r=>AssertEqual("answer",r.Reply),b=>AssertJsonProperty(b,"Message","question")));
+            cases.Add(ContractCaseTyped("objective_get", "GET", "/api/v1/objectives/obj_test", "{\"id\":\"obj_response\",\"title\":\"objective response\"}", (c,t)=>c.GetObjectiveAsync("obj_test",t), r=>AssertEqual("obj_response",r.Id),null));
+            cases.Add(ContractCaseTyped("objective_create", "POST", "/api/v1/objectives", "{\"id\":\"obj_response\",\"title\":\"objective response\"}", (c,t)=>c.CreateObjectiveAsync(new ObjectiveUpsertRequest {Title="objective request"},t), r=>AssertEqual("obj_response",r.Id),b=>AssertJsonProperty(b,"Title","objective request")));
+            cases.Add(ContractCaseTyped("objective_update", "PUT", "/api/v1/objectives/obj_test", "{\"id\":\"obj_response\",\"title\":\"objective response\"}", (c,t)=>c.UpdateObjectiveAsync("obj_test",new ObjectiveUpsertRequest {Title="objective request"},t), r=>AssertEqual("obj_response",r.Id),b=>AssertJsonProperty(b,"Title","objective request")));
+            cases.Add(ContractCaseVoid("objective_delete", "DELETE", "/api/v1/objectives/obj_test", (c,t)=>c.DeleteObjectiveAsync("obj_test",t)));
+            cases.Add(ContractCaseTyped("objective_import", "POST", "/api/v1/objectives/import/github", "{\"id\":\"obj_response\",\"title\":\"objective response\"}", (c,t)=>c.ImportObjectiveFromGitHubAsync(new GitHubObjectiveImportRequest {VesselId="vsl_test",Number=7},t), r=>AssertEqual("obj_response",r.Id),b=>{AssertJsonProperty(b,"VesselId","vsl_test");AssertJsonPropertyNumber(b,"Number",7);}));
+            string sessionBody = "{\"session\":{\"id\":\"ses_response\"}}";
+            cases.Add(ContractCaseTyped("objective_refine_create", "POST", "/api/v1/objectives/obj_test/refinement-sessions", sessionBody, (c,t)=>c.CreateObjectiveRefinementSessionAsync("obj_test",new ObjectiveRefinementSessionCreateRequest {CaptainId="cap_test",Title="session"},t), r=>AssertEqual("ses_response",r.Session.Id), b=>{AssertJsonProperty(b,"CaptainId","cap_test");AssertJsonProperty(b,"Title","session");}));
+            cases.Add(ContractCaseTyped("backlog_refine_create", "POST", "/api/v1/backlog/obj_test/refinement-sessions", sessionBody, (c,t)=>c.CreateBacklogRefinementSessionAsync("obj_test",new ObjectiveRefinementSessionCreateRequest {CaptainId="cap_test",Title="session"},t), r=>AssertEqual("ses_response",r.Session.Id), b=>AssertJsonProperty(b,"CaptainId","cap_test")));
+            cases.Add(ContractCaseTyped("refine_get", "GET", "/api/v1/objective-refinement-sessions/ses_test", sessionBody, (c,t)=>c.GetObjectiveRefinementSessionAsync("ses_test",t), r=>AssertEqual("ses_response",r.Session.Id),null));
+            cases.Add(ContractCaseTyped("refine_message", "POST", "/api/v1/objective-refinement-sessions/ses_test/messages", sessionBody, (c,t)=>c.SendObjectiveRefinementMessageAsync("ses_test",new ObjectiveRefinementMessageRequest {Content="message"},t), r=>AssertEqual("ses_response",r.Session.Id),b=>AssertJsonProperty(b,"Content","message")));
+            cases.Add(ContractCaseTyped("refine_summarize", "POST", "/api/v1/objective-refinement-sessions/ses_test/summarize", "{\"sessionId\":\"ses_test\",\"summary\":\"summary\"}", (c,t)=>c.SummarizeObjectiveRefinementSessionAsync("ses_test",new ObjectiveRefinementSummaryRequest {MessageId="msg_test"},t), r=>AssertEqual("summary",r.Summary),b=>AssertJsonProperty(b,"MessageId","msg_test")));
+            cases.Add(ContractCaseTyped("refine_apply", "POST", "/api/v1/objective-refinement-sessions/ses_test/apply", "{\"summary\":{\"summary\":\"summary\"},\"objective\":{\"id\":\"obj_response\",\"title\":\"objective response\"}}", (c,t)=>c.ApplyObjectiveRefinementSummaryAsync("ses_test",new ObjectiveRefinementApplyRequest {MessageId="msg_test",MarkMessageSelected=false},t), r=>AssertEqual("summary",r.Summary.Summary),b=>AssertJsonProperty(b,"MessageId","msg_test")));
+            cases.Add(ContractCaseTyped("refine_stop", "POST", "/api/v1/objective-refinement-sessions/ses_test/stop", sessionBody, (c,t)=>c.StopObjectiveRefinementSessionAsync("ses_test",t), r=>AssertEqual("ses_response",r.Session.Id),b=>AssertEmptyJson(b)));
+            cases.Add(ContractCaseVoid("refine_delete", "DELETE", "/api/v1/objective-refinement-sessions/ses_test", (c,t)=>c.DeleteObjectiveRefinementSessionAsync("ses_test",t)));
+        }
+
+        private static TestCaseDescriptor ContractCaseTyped<T>(string id, string method, string path, string responseJson, Func<ArmadaApiClient, CancellationToken, Task<T?>> call, Action<T> assertResponse, Action<string>? assertBody)
+        {
+            return CaseAsync(id, "ArmadaApiClient " + id + " contract", TestTags.Positive, async () =>
+            {
+                RecordingHandler handler = new RecordingHandler(HttpStatusCode.OK, responseJson);
+                using (ArmadaApiClient client = CreateClient(handler))
+                {
+                    T? result = await call(client, CancellationToken.None);
+                    AssertEqual(method, handler.Method);
+                    AssertEqual(path, handler.PathAndQuery);
+                    AssertNotNull(result);
+                    assertResponse(result!);
+                    if (assertBody != null) assertBody(handler.Body);
+                }
+            });
+        }
+
+        private static void AssertJsonProperty(string body, string name, string expected)
+        {
+            using (JsonDocument document = JsonDocument.Parse(body))
+            {
+                AssertEqual(expected, document.RootElement.GetProperty(name).GetString());
+            }
+        }
+
+        private static void AssertJsonPropertyNumber(string body, string name, int expected)
+        {
+            using (JsonDocument document = JsonDocument.Parse(body))
+            {
+                AssertEqual(expected, document.RootElement.GetProperty(name).GetInt32());
+            }
+        }
+
+        private static void AssertEmptyJson(string body)
+        {
+            using (JsonDocument document = JsonDocument.Parse(body))
+            {
+                AssertEqual(JsonValueKind.Object, document.RootElement.ValueKind);
+                int count = 0; foreach (JsonProperty _ in document.RootElement.EnumerateObject()) count++; AssertEqual(0, count);
+            }
         }
 
         private static TestCaseDescriptor ContractCase<T>(string id, string method, string path, Func<ArmadaApiClient, CancellationToken, Task<T?>> call)

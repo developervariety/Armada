@@ -24,3 +24,24 @@ The client contract must stay aligned with the registered routes. Add a route
 contract test before adding a new public client method. Verify both the HTTP
 method and path, request JSON, typed response, non-success status, encoded IDs,
 and cancellation behavior.
+
+## Profiles, skills, Ask, and refinement
+
+The second SDK slice covers the supported fork routes for workflow profiles,
+project profiles, skills, Ask, objectives, and objective refinement. Objective
+refinement is exposed through both objective and backlog creation aliases so
+callers can preserve the route family they use.
+
+| Client method group | Fork route(s) |
+| --- | --- |
+| Workflow profiles | `GET /api/v1/workflow-profiles/{id}`, `POST /api/v1/workflow-profiles/validate`, `GET /api/v1/workflow-profiles/preview/vessels/{vesselId}`, `GET /api/v1/workflow-profiles/resolve/vessels/{vesselId}`, `POST /api/v1/workflow-profiles`, `PUT/DELETE /api/v1/workflow-profiles/{id}` |
+| Project profiles | `GET /api/v1/project-profiles/{id}`, `POST /api/v1/project-profiles/validate`, `GET /api/v1/project-profiles/resolve/vessels/{vesselId}`, `GET /api/v1/project-profiles/{id}/persona-preview/{persona}`, `POST /api/v1/project-profiles`, `PUT/DELETE /api/v1/project-profiles/{id}` |
+| Skills | `GET /api/v1/skills/{id}`, `POST /api/v1/skills`, `PUT/DELETE /api/v1/skills/{id}` |
+| Ask | `POST /api/v1/ask` |
+| Objectives | `GET /api/v1/objectives/{id}`, `POST /api/v1/objectives`, `PUT/DELETE /api/v1/objectives/{id}`, `POST /api/v1/objectives/import/github` |
+| Refinement sessions | `POST /api/v1/objectives/{id}/refinement-sessions`, `POST /api/v1/backlog/{id}/refinement-sessions`, `GET/DELETE /api/v1/objective-refinement-sessions/{id}`, `POST /api/v1/objective-refinement-sessions/{id}/messages`, `/summarize`, `/apply`, and `/stop` |
+
+Each added wrapper has a route contract test with exact path and query,
+non-default typed response assertions, and populated request JSON assertions.
+IDs and persona path segments are URL encoded. No unsupported upstream list,
+enumeration, Harbor, or branch operation was added.
