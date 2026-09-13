@@ -38,6 +38,8 @@ namespace Armada.Test.Automated.Suites
             await File.WriteAllTextAsync(Path.Combine(workingDirectory, "version.txt"), "2.3.4").ConfigureAwait(false);
             await File.WriteAllTextAsync(Path.Combine(workingDirectory, "artifacts", "app.zip"), "artifact").ConfigureAwait(false);
 
+            await TestGit.InitializeAsync(workingDirectory).ConfigureAwait(false);
+
             string vesselId = String.Empty;
             string workflowProfileId = String.Empty;
             string voyageId = String.Empty;
@@ -52,12 +54,12 @@ namespace Armada.Test.Automated.Suites
                         JsonHelper.ToJsonContent(new
                         {
                             Name = "Release Vessel",
-                            RepoUrl = "file:///tmp/release-vessel.git",
+                            RepoUrl = new Uri(workingDirectory + Path.DirectorySeparatorChar).AbsoluteUri,
                             LocalPath = workingDirectory,
                             WorkingDirectory = workingDirectory,
                             DefaultBranch = "main"
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, vesselResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, vesselResponse).ConfigureAwait(false);
 
                     Vessel vessel = await JsonHelper.DeserializeAsync<Vessel>(vesselResponse).ConfigureAwait(false);
                     vesselId = vessel.Id;
@@ -72,7 +74,7 @@ namespace Armada.Test.Automated.Suites
                             ReleaseVersioningCommand = BuildEmitFileCommand("version.txt"),
                             ExpectedArtifacts = new[] { "artifacts/app.zip" }
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, workflowProfileResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, workflowProfileResponse).ConfigureAwait(false);
 
                     WorkflowProfile workflowProfile = await JsonHelper.DeserializeAsync<WorkflowProfile>(workflowProfileResponse).ConfigureAwait(false);
                     workflowProfileId = workflowProfile.Id;
@@ -89,7 +91,7 @@ namespace Armada.Test.Automated.Suites
                             Type = CheckRunTypeEnum.ReleaseVersioning,
                             Label = "Version Check"
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, checkRunResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, checkRunResponse).ConfigureAwait(false);
 
                     CheckRun checkRun = await JsonHelper.DeserializeAsync<CheckRun>(checkRunResponse).ConfigureAwait(false);
                     checkRunId = checkRun.Id;
@@ -103,7 +105,7 @@ namespace Armada.Test.Automated.Suites
                             CheckRunIds = new[] { checkRunId },
                             Status = ReleaseStatusEnum.Candidate
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, createReleaseResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, createReleaseResponse).ConfigureAwait(false);
 
                     Release release = await JsonHelper.DeserializeAsync<Release>(createReleaseResponse).ConfigureAwait(false);
                     releaseId = release.Id;
@@ -115,13 +117,13 @@ namespace Armada.Test.Automated.Suites
                     AssertTrue(release.Artifacts.Count == 1, "Expected one derived artifact.");
 
                     HttpResponseMessage getReleaseResponse = await _AuthClient.GetAsync("/api/v1/releases/" + releaseId).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, getReleaseResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, getReleaseResponse).ConfigureAwait(false);
                     Release loadedRelease = await JsonHelper.DeserializeAsync<Release>(getReleaseResponse).ConfigureAwait(false);
                     AssertEqual(releaseId, loadedRelease.Id);
 
                     HttpResponseMessage listResponse = await _AuthClient.GetAsync(
                         "/api/v1/releases?status=Candidate&checkRunId=" + Uri.EscapeDataString(checkRunId) + "&pageSize=100").ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, listResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, listResponse).ConfigureAwait(false);
                     EnumerationResult<Release> releases = await JsonHelper.DeserializeAsync<EnumerationResult<Release>>(listResponse).ConfigureAwait(false);
                     AssertTrue(releases.Objects.Exists(current => current.Id == releaseId), "Expected release to appear in filtered list.");
 
@@ -140,7 +142,7 @@ namespace Armada.Test.Automated.Suites
                             MissionIds = release.MissionIds,
                             CheckRunIds = new[] { checkRunId }
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, updateReleaseResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, updateReleaseResponse).ConfigureAwait(false);
 
                     Release updatedRelease = await JsonHelper.DeserializeAsync<Release>(updateReleaseResponse).ConfigureAwait(false);
                     AssertEqual(ReleaseStatusEnum.Shipped, updatedRelease.Status);
@@ -148,17 +150,17 @@ namespace Armada.Test.Automated.Suites
                     AssertEqual("Edited release notes", updatedRelease.Notes);
 
                     HttpResponseMessage refreshResponse = await _AuthClient.PostAsync("/api/v1/releases/" + releaseId + "/refresh", null).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, refreshResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, refreshResponse).ConfigureAwait(false);
                     Release refreshedRelease = await JsonHelper.DeserializeAsync<Release>(refreshResponse).ConfigureAwait(false);
                     AssertEqual(releaseId, refreshedRelease.Id);
                     AssertTrue(refreshedRelease.Artifacts.Count == 1, "Expected refreshed release to keep derived artifact metadata.");
 
                     HttpResponseMessage deleteReleaseResponse = await _AuthClient.DeleteAsync("/api/v1/releases/" + releaseId).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.NoContent, deleteReleaseResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.NoContent, deleteReleaseResponse).ConfigureAwait(false);
                     releaseId = String.Empty;
 
                     HttpResponseMessage deletedReleaseResponse = await _AuthClient.GetAsync("/api/v1/releases/" + refreshedRelease.Id).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.NotFound, deletedReleaseResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.NotFound, deletedReleaseResponse).ConfigureAwait(false);
                 }).ConfigureAwait(false);
 
                 await RunTest("Releases_CreateWithoutAuthReturns401", async () =>
@@ -168,7 +170,7 @@ namespace Armada.Test.Automated.Suites
                         {
                             Title = "Unauthorized Release"
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Unauthorized, response).ConfigureAwait(false);
                 }).ConfigureAwait(false);
             }
             finally
@@ -226,7 +228,7 @@ namespace Armada.Test.Automated.Suites
                     VesselId = vesselId,
                     Missions = missions
                 })).ConfigureAwait(false);
-            AssertEqual(HttpStatusCode.Created, response.StatusCode);
+            await AssertStatusCodeAsync(HttpStatusCode.Created, response).ConfigureAwait(false);
             return await JsonHelper.DeserializeAsync<Voyage>(response).ConfigureAwait(false);
         }
 

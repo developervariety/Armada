@@ -17,15 +17,34 @@ namespace Armada.Test.Unit
             TestDataDirectory.Redirect();
             TestDataDirectory.Verify();
 
-            bool noCleanup = args.Contains("--no-cleanup");
-            List<string> suiteFilters = new List<string>();
-            for (int i = 0; i < args.Length; i++)
+            List<string> suiteFilters;
+            try
             {
-                if (!String.Equals(args[i], "--suite", StringComparison.OrdinalIgnoreCase)) continue;
-                if (i + 1 < args.Length) suiteFilters.Add(args[++i]);
+                suiteFilters = SuiteCommandLineOptions.Parse(args);
+            }
+            catch (ArgumentException ex)
+            {
+                Console.Error.WriteLine(ex.Message);
+                return 1;
             }
 
             TestRunner runner = new TestRunner("ARMADA UNIT TEST SUITE");
+
+            runner.AddSuite(new TestRunnerContractTests());
+
+            // Previously compiled suites are explicit registrations until discovery parity is proved.
+            runner.AddSuite(new RequestHistoryDatabaseTests());
+            runner.AddSuite(new ObjectiveModelTests());
+            runner.AddSuite(new ObjectiveRefinementModelTests());
+            runner.AddSuite(new DeploymentEnvironmentServiceTests());
+            runner.AddSuite(new DeploymentServiceTests());
+            runner.AddSuite(new HistoricalTimelineServiceTests());
+            runner.AddSuite(new ProxyAuthServiceTests());
+            runner.AddSuite(new ProxyDashboardRelayIntegrationTests());
+            runner.AddSuite(new ProxyRoutePolicyServiceTests());
+            runner.AddSuite(new RemoteDashboardRelayServiceTests());
+            runner.AddSuite(new RequestHistoryCaptureServiceTests());
+            runner.AddSuite(new ReviewGateTests());
 
             // Database tests
             runner.AddSuite(new FleetDatabaseTests());
@@ -363,6 +382,8 @@ namespace Armada.Test.Unit
             runner.AddSuite(new SchedulerMissionModeTests());
             runner.AddSuite(new DispatchObjectiveModeTests());
             runner.AddSuite(new ObjectiveDispatchPreviewServiceTests());
+
+            runner.VerifyRegistration(typeof(Program).Assembly);
 
             int exitCode = await runner.RunAllAsync(suiteFilters).ConfigureAwait(false);
             return exitCode;

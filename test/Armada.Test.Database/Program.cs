@@ -22,7 +22,13 @@ namespace Armada.Test.Database
         /// <returns>Exit code.</returns>
         public static async Task<int> Main(string[] args)
         {
-            CommandLineOptions options = CommandLineOptions.Parse(args);
+            CommandLineOptions options;
+            try { options = CommandLineOptions.Parse(args); }
+            catch (ArgumentException ex)
+            {
+                Console.Error.WriteLine(ex.Message);
+                return 2;
+            }
 
             if (options.Help)
             {
@@ -74,7 +80,8 @@ namespace Armada.Test.Database
                     {
                         DatabaseTestRunner runner = new DatabaseTestRunner(driver, settings, options.NoCleanup);
                         List<TestResult> results = await runner.RunAllAsync(cts.Token).ConfigureAwait(false);
-                        return PrintResults(results);
+                        WriteManifest(results, settings, driver, options.MigrationScenario);
+                        return results.Count == 0 ? 1 : PrintResults(results);
                     }
                 }
                 catch (OperationCanceledException)
@@ -181,6 +188,28 @@ namespace Armada.Test.Database
         /// <summary>
         /// Print test results and return the appropriate exit code.
         /// </summary>
+        private static void WriteManifest(List<TestResult> results, DatabaseSettings settings, DatabaseDriver driver, string scenario)
+        {
+            string? directory = Environment.GetEnvironmentVariable("ARMADA_TEST_RESULTS_DIRECTORY");
+            if (String.IsNullOrWhiteSpace(directory)) return;
+            System.IO.Directory.CreateDirectory(directory);
+            string json = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                SchemaVersion = 1,
+                ExecutableSha256 = Armada.Test.Common.TestBuildEvidence.ReadExecutableChecksum(),
+                BuildSources = Armada.Test.Common.TestBuildEvidence.ReadSourceChecksums(), RunId = Guid.NewGuid().ToString("N"), Executable = "Armada.Test.Database",
+                Provider = settings.Type.ToString(), ActualDriver = driver.GetType().FullName,
+                MigrationScenario = scenario,
+                Cases = System.Linq.Enumerable.Select(results, result => new
+                {
+                    SuiteId = "Armada.Test.Database." + result.Category, CaseId = result.TestName,
+                    result.SourcePath, result.SourceLine, Outcome = result.Passed ? "passed" : "failed",
+                    ElapsedMs = result.Duration.TotalMilliseconds
+                })
+            }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+            System.IO.File.WriteAllText(System.IO.Path.Combine(directory, "Armada.Test.Database." + settings.Type + ".json"), json);
+        }
+
         private static int PrintResults(List<TestResult> results)
         {
             int total = results.Count;

@@ -26,6 +26,7 @@ without constructing a scenario, omit `--migration-scenario`.
 | `partial-52` | All four | Populated objective normalization interrupted before commit, data rollback and successful restart |
 | `concurrent-fresh` | All four | Two initializers; SQLite explicitly synchronizes both initial version reads |
 | `partial-identity` | All four | Failure between default user and credential inserts; atomic retry and deliberate credential removal |
+| `preview-migration` | All four | Populated upgrade, equivalent values, incompatible type/null/default, interrupted restart; MySQL also rejects restricted text encodings |
 | `catalog-guards` | Server providers | Wrong type, nullability, default and index rejection; corrected restart |
 | `mysql-compat` | MySQL | Populated Unicode backfill, no repeat row update, damaged mapping, duplicate/orphan/FK/default rejection |
 | `sqlserver-corrections` | SQL Server | Equivalent and incompatible pre-staged v59/v68 objects; separate correction evidence and complete model value |
@@ -42,8 +43,18 @@ not a production backup. Applied version, description and timestamp rows must
 remain unchanged across restart and upgrade.
 
 Scenario assertions fail the process before the ordinary runner if they fail.
-They are separate from the 47 ordinary cases (48 on MySQL). Ordinary cases cover
+They are separate from the 53 ordinary cases (54 on MySQL). Ordinary cases cover
 selected fields and behavior, not every property or every provider capability.
 See [the foundation field matrix](../../docs/upstream-review/foundation.md) and
 [additional entity fields](../../docs/upstream-review/foundation-entities.md)
 for known gaps and the boundary of this evidence.
+
+The six added ordinary cases verify each vessel preview setting through create,
+reopen, update and another reopen. They do not certify landing enforcement.
+Unknown options, missing values and invalid ports fail before database work.
+
+Set `ARMADA_TEST_RESULTS_DIRECTORY` to a new empty directory to write a JSON
+case manifest. Keep the executable's portable PDB beside it: source checksums
+come from the build, not from files read after the run. Each provider manifest
+names the actual driver and selected migration scenario. Failed initialization
+can produce no manifest; require both a zero process exit and a fresh manifest.

@@ -332,12 +332,11 @@ namespace Armada.Test.Unit.Suites.Services
 
             public static async Task<ProxyTestHarness> StartAsync(IEnumerable<string>? tunnelCapabilities = null)
             {
-                EnsureStaticProxyAssets();
-
                 int port = ReservePort();
                 string password = "proxy-smoke-password";
                 string dataDirectory = Path.Combine(Path.GetTempPath(), "armada-proxy-smoke-" + Guid.NewGuid().ToString("N"));
                 Directory.CreateDirectory(dataDirectory);
+                EnsureStaticProxyAssets(dataDirectory);
 
                 ProxySettings settings = new ProxySettings
                 {
@@ -350,11 +349,9 @@ namespace Armada.Test.Unit.Suites.Services
                 settings.InitializeDirectories();
 
                 LoggingModule logging = CreateLogging();
-                ArmadaProxyServer proxy = new ArmadaProxyServer(logging, settings, quiet: true);
-                await proxy.StartAsync().ConfigureAwait(false);
-
+                ArmadaProxyServer proxy = new ArmadaProxyServer(logging, settings, true, dataDirectory);
                 FakeTunnelClient tunnel = new FakeTunnelClient(port, password, "smoke-instance", tunnelCapabilities);
-                await tunnel.ConnectAsync().ConfigureAwait(false);
+
 
                 HttpClientHandler handler = new HttpClientHandler
                 {
@@ -370,7 +367,18 @@ namespace Armada.Test.Unit.Suites.Services
                     Timeout = TimeSpan.FromSeconds(15)
                 };
 
-                return new ProxyTestHarness(proxy, tunnel, browser, handler, baseUri, logging, dataDirectory);
+                ProxyTestHarness harness = new ProxyTestHarness(proxy, tunnel, browser, handler, baseUri, logging, dataDirectory);
+                try
+                {
+                    await proxy.StartAsync().ConfigureAwait(false);
+                    await tunnel.ConnectAsync().ConfigureAwait(false);
+                    return harness;
+                }
+                catch
+                {
+                    await harness.DisposeAsync().ConfigureAwait(false);
+                    throw;
+                }
             }
 
             public async Task LoginAsync()
@@ -462,15 +470,14 @@ namespace Armada.Test.Unit.Suites.Services
             public async ValueTask DisposeAsync()
             {
                 Browser.Dispose();
-                await Tunnel.DisposeAsync().ConfigureAwait(false);
-                Proxy.Dispose();
-
                 try
                 {
-                    Directory.Delete(_DataDirectory, true);
+                    await Tunnel.DisposeAsync().ConfigureAwait(false);
                 }
-                catch
+                finally
                 {
+                    Proxy.Dispose();
+                    Directory.Delete(_DataDirectory, true);
                 }
             }
 
@@ -480,9 +487,8 @@ namespace Armada.Test.Unit.Suites.Services
                 return new StringContent(json, Encoding.UTF8, "application/json");
             }
 
-            private static void EnsureStaticProxyAssets()
+            private static void EnsureStaticProxyAssets(string baseDirectory)
             {
-                string baseDirectory = AppContext.BaseDirectory;
 
                 string wwwroot = Path.Combine(baseDirectory, "wwwroot");
                 Directory.CreateDirectory(wwwroot);

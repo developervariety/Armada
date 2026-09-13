@@ -5,6 +5,7 @@ namespace Armada.Test.Database
     using System;
     using System.Collections.Generic;
     using System.Diagnostics;
+    using System.Runtime.CompilerServices;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -89,6 +90,8 @@ namespace Armada.Test.Database
             await RunTest("Fleet_Create_Read_Update_Enumerate", "Operational", () => TestFleetCrudAsync(token), token);
             await RunTest("Fleet_ReadByName_Exists_UnscopedEnumerate", "Operational", () => TestFleetLookupAsync(token), token);
             await RunTest("Vessel_Create_Read_Update_Enumerate", "Operational", () => TestVesselCrudAsync(token), token);
+            foreach (string field in new[] { "RequirePassingChecksToLand", "ProtectedBranchPatterns", "ReleaseBranchPrefix", "HotfixBranchPrefix", "RequirePullRequestForProtectedBranches", "RequireMergeQueueForReleaseBranches" })
+                await RunTest("Vessel_Preview_" + field + "_Create_Update_Reopen", "Operational", () => TestVesselPreviewFieldAsync(field, token), token);
             await RunTest("Captain_Create_Read_Update", "Operational", () => TestCaptainCrudAsync(token), token);
             await RunTest("Voyage_Create_Read_Update", "Operational", () => TestVoyageCrudAsync(token), token);
             await RunTest("Mission_Create_Read_Update", "Operational", () => TestMissionCrudAsync(token), token);
@@ -121,9 +124,10 @@ namespace Armada.Test.Database
             return _Results;
         }
 
-        private async Task RunTest(string name, string category, Func<Task> action, CancellationToken token)
+        private async Task RunTest(string name, string category, Func<Task> action, CancellationToken token, [CallerFilePath] string sourcePath = "", [CallerLineNumber] int sourceLine = 0)
         {
             TestResult result = new TestResult(name, category);
+            result.SetSource(sourcePath, sourceLine);
             Stopwatch sw = Stopwatch.StartNew();
 
             try
@@ -466,6 +470,40 @@ namespace Armada.Test.Database
             {
                 await fixture.CleanupAsync(token).ConfigureAwait(false);
             }
+        }
+
+        private async Task TestVesselPreviewFieldAsync(string field, CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                System.Reflection.PropertyInfo property = typeof(Vessel).GetProperty(field)
+                    ?? throw new InvalidOperationException("Missing fixture property " + field);
+                object createdValue = property.PropertyType == typeof(bool) ? true
+                    : property.PropertyType == typeof(List<string>) ? new List<string> { "protected/日本語/**", "stable" }
+                    : "created/日本語/";
+                object updatedValue = property.PropertyType == typeof(bool) ? false
+                    : property.PropertyType == typeof(List<string>) ? new List<string> { "updated/**" }
+                    : "updated/Unicode/";
+                Vessel vessel = await fixture.CreateVesselAsync(graph.Tenant.Id, graph.User.Id, graph.Fleet.Id,
+                    "preview", token, value => property.SetValue(value, createdValue)).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    Vessel persisted = DatabaseAssert.NotNull(await reopened.Vessels.ReadAsync(vessel.Id, token).ConfigureAwait(false), "Created preview vessel");
+                    DatabaseAssert.Equal(System.Text.Json.JsonSerializer.Serialize(createdValue),
+                        System.Text.Json.JsonSerializer.Serialize(property.GetValue(persisted)), field + " create/reopen");
+                    property.SetValue(persisted, updatedValue);
+                    await reopened.Vessels.UpdateAsync(persisted, token).ConfigureAwait(false);
+                }
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    Vessel persisted = DatabaseAssert.NotNull(await reopened.Vessels.ReadAsync(vessel.Id, token).ConfigureAwait(false), "Updated preview vessel");
+                    DatabaseAssert.Equal(System.Text.Json.JsonSerializer.Serialize(updatedValue),
+                        System.Text.Json.JsonSerializer.Serialize(property.GetValue(persisted)), field + " update/reopen");
+                }
+            }
+            finally { await fixture.CleanupAsync(token).ConfigureAwait(false); }
         }
 
         private async Task TestCaptainCrudAsync(CancellationToken token)

@@ -337,7 +337,7 @@ namespace Armada.Core.Services
             Pipeline? pipeline = await ResolvePipelineAsync(pipelineId, vessel, missionDescriptions, token).ConfigureAwait(false);
 
             // If pipeline is single-stage Worker (or null), use the standard dispatch path
-            if (pipeline == null || (pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker"))
+            if (pipeline == null || (pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker" && !pipeline.Stages[0].RequiresReview))
             {
                 return await DispatchVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, token).ConfigureAwait(false);
             }
@@ -402,6 +402,8 @@ namespace Armada.Core.Services
                         mission.Persona = stage.PersonaName;
                         mission.DependsOnMissionId = groupDependencyId;
                         mission.StageOrder = stage.Order;
+                        mission.RequiresReview = stage.RequiresReview;
+                        mission.ReviewDenyAction = stage.ReviewDenyAction;
                         mission.PreferredModel = PreferredModelTierSelector.ResolveEffectivePreferredModel(
                             stage.PreferredModel,
                             md.PreferredModel,
@@ -494,7 +496,7 @@ namespace Armada.Core.Services
 
             Pipeline? pipeline = await ResolvePipelineAsync(pipelineId, vessel, missionDescriptions, token).ConfigureAwait(false);
             bool isMultiStage = pipeline != null
-                && !(pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker");
+                && !(pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker" && !pipeline.Stages[0].RequiresReview);
 
             Voyage? voyage = null;
             try
@@ -566,6 +568,8 @@ namespace Armada.Core.Services
                             mission.Persona = stage.PersonaName;
                             mission.DependsOnMissionId = groupDependencyId;
                             mission.StageOrder = stage.Order;
+                            mission.RequiresReview = stage.RequiresReview;
+                            mission.ReviewDenyAction = stage.ReviewDenyAction;
                             mission.PreferredModel = PreferredModelTierSelector.ResolveEffectivePreferredModel(
                                 stage.PreferredModel,
                                 md.PreferredModel,

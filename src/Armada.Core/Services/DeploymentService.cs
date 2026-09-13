@@ -1241,7 +1241,8 @@ namespace Armada.Core.Services
 
         private static string BuildAbsoluteUrl(string baseUrl, string healthEndpoint)
         {
-            if (Uri.TryCreate(healthEndpoint, UriKind.Absolute, out Uri? absolute))
+            if (Uri.TryCreate(healthEndpoint, UriKind.Absolute, out Uri? absolute)
+                && (absolute.Scheme == Uri.UriSchemeHttp || absolute.Scheme == Uri.UriSchemeHttps))
                 return absolute.ToString();
             if (!baseUrl.EndsWith("/", StringComparison.Ordinal))
                 baseUrl += "/";

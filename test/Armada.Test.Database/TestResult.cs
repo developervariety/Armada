@@ -48,6 +48,20 @@ namespace Armada.Test.Database
         /// </summary>
         public Exception Exception { get; set; } = null;
 
+        /// <summary>Repository-relative case declaration path.</summary>
+        public string SourcePath { get; set; } = "";
+
+        /// <summary>Case declaration line.</summary>
+        public int SourceLine { get; set; }
+
+        internal void SetSource(string path, int line)
+        {
+            string normalized = path.Replace('\\', '/');
+            int root = normalized.LastIndexOf("/test/", StringComparison.Ordinal);
+            SourcePath = root < 0 ? System.IO.Path.GetFileName(normalized) : normalized.Substring(root + 1);
+            SourceLine = line;
+        }
+
         #endregion
 
         #region Private-Members

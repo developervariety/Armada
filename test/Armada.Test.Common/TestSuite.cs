@@ -2,6 +2,7 @@ namespace Armada.Test.Common
 {
     using System.Diagnostics;
     using System.Net;
+    using System.Runtime.CompilerServices;
 
     /// <summary>
     /// Abstract base class for test suites. Provides assertion helpers and test execution wrappers.
@@ -31,7 +32,20 @@ namespace Armada.Test.Common
         public async Task<List<TestResult>> RunAsync()
         {
             _Results = new List<TestResult>();
-            await RunTestsAsync().ConfigureAwait(false);
+            try
+            {
+                await RunTestsAsync().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Results.Add(new TestResult
+                {
+                    Name = "[suite infrastructure]",
+                    SuiteId = GetType().FullName ?? GetType().Name,
+                    Message = ex.GetType().Name + ": " + ex.Message,
+                    Exception = ex
+                });
+            }
             return _Results;
         }
 
@@ -47,10 +61,19 @@ namespace Armada.Test.Common
         /// <summary>
         /// Wraps a test in try/catch with timing. Prints PASS/FAIL with elapsed milliseconds.
         /// </summary>
-        protected async Task RunTest(string name, Func<Task> action)
+        protected async Task RunTest(string name, Func<Task> action, [CallerFilePath] string sourcePath = "", [CallerLineNumber] int sourceLine = 0)
         {
+            if (String.IsNullOrWhiteSpace(name) || _Results.Any(result => result.Name == name))
+                throw new InvalidOperationException("Blank or duplicate test case identity: " + name);
             Stopwatch sw = Stopwatch.StartNew();
-            TestResult result = new TestResult { Name = name };
+            string normalizedPath = sourcePath.Replace('\\', '/');
+            int sourceRoot = normalizedPath.LastIndexOf("/test/", StringComparison.Ordinal);
+            TestResult result = new TestResult
+            {
+                Name = name, SuiteId = GetType().FullName ?? GetType().Name,
+                SourcePath = sourceRoot < 0 ? Path.GetFileName(normalizedPath) : normalizedPath.Substring(sourceRoot + 1),
+                SourceLine = sourceLine
+            };
 
             try
             {
@@ -84,16 +107,28 @@ namespace Armada.Test.Common
             _Results.Add(result);
         }
 
+        /// <summary>Record a named skip; empty reasons and duplicate identities are errors.</summary>
+        protected void SkipTest(string name, string reason, [CallerFilePath] string sourcePath = "", [CallerLineNumber] int sourceLine = 0)
+        {
+            if (String.IsNullOrWhiteSpace(name) || String.IsNullOrWhiteSpace(reason) || _Results.Any(result => result.Name == name))
+                throw new InvalidOperationException("A skip requires a unique case name and a nonblank reason.");
+            string normalizedPath = sourcePath.Replace('\\', '/');
+            int sourceRoot = normalizedPath.LastIndexOf("/test/", StringComparison.Ordinal);
+            _Results.Add(new TestResult { Name = name, SkipReason = reason, SuiteId = GetType().FullName ?? GetType().Name,
+                SourcePath = sourceRoot < 0 ? Path.GetFileName(normalizedPath) : normalizedPath.Substring(sourceRoot + 1), SourceLine = sourceLine });
+            Console.WriteLine("  SKIP  " + name + ": " + reason);
+        }
+
         /// <summary>
         /// Wraps a synchronous test in try/catch with timing.
         /// </summary>
-        protected async Task RunTest(string name, Action action)
+        protected async Task RunTest(string name, Action action, [CallerFilePath] string sourcePath = "", [CallerLineNumber] int sourceLine = 0)
         {
             await RunTest(name, () =>
             {
                 action();
                 return Task.CompletedTask;
-            }).ConfigureAwait(false);
+            }, sourcePath, sourceLine).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -188,6 +223,14 @@ namespace Armada.Test.Common
             }
         }
 
+        /// <summary>Assert an HTTP status, including the error response when it differs.</summary>
+        protected async Task AssertStatusCodeAsync(HttpStatusCode expected, HttpResponseMessage response)
+        {
+            if (response.StatusCode != expected)
+                throw new Exception("Assertion failed: expected " + expected + " but got " + response.StatusCode
+                    + ": " + await response.Content.ReadAsStringAsync().ConfigureAwait(false));
+        }
+
         /// <summary>
         /// Assert that the given action throws the specified exception type.
         /// </summary>
@@ -196,15 +239,16 @@ namespace Armada.Test.Common
             try
             {
                 action();
-                string msg = label != null
-                    ? label + ": expected " + typeof(TException).Name + " but no exception was thrown"
-                    : "Expected " + typeof(TException).Name + " but no exception was thrown";
-                throw new Exception("Assertion failed: " + msg);
             }
             catch (TException)
             {
-                // Expected
+                return;
             }
+
+            string msg = label != null
+                ? label + ": expected " + typeof(TException).Name + " but no exception was thrown"
+                : "Expected " + typeof(TException).Name + " but no exception was thrown";
+            throw new Exception("Assertion failed: " + msg);
         }
 
         /// <summary>
@@ -215,15 +259,16 @@ namespace Armada.Test.Common
             try
             {
                 await action().ConfigureAwait(false);
-                string msg = label != null
-                    ? label + ": expected " + typeof(TException).Name + " but no exception was thrown"
-                    : "Expected " + typeof(TException).Name + " but no exception was thrown";
-                throw new Exception("Assertion failed: " + msg);
             }
             catch (TException)
             {
-                // Expected
+                return;
             }
+
+            string msg = label != null
+                ? label + ": expected " + typeof(TException).Name + " but no exception was thrown"
+                : "Expected " + typeof(TException).Name + " but no exception was thrown";
+            throw new Exception("Assertion failed: " + msg);
         }
 
         /// <summary>

@@ -859,6 +859,14 @@ namespace Armada.Core.Database.SqlServer.Queries
                     77,
                     "Add objective preparation",
                     @"IF COL_LENGTH('objectives', 'preparation_json') IS NULL ALTER TABLE objectives ADD preparation_json NVARCHAR(MAX) NOT NULL CONSTRAINT DF_objectives_preparation_json DEFAULT '{}';"
+                ),
+                new SchemaMigration(78, "Persist vessel preview configuration",
+                    @"ALTER TABLE vessels ADD require_passing_checks_to_land BIT NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE vessels ADD protected_branch_patterns NVARCHAR(MAX) NOT NULL DEFAULT '[]';",
+                    @"ALTER TABLE vessels ADD release_branch_prefix NVARCHAR(MAX) NOT NULL DEFAULT 'release/';",
+                    @"ALTER TABLE vessels ADD hotfix_branch_prefix NVARCHAR(MAX) NOT NULL DEFAULT 'hotfix/';",
+                    @"ALTER TABLE vessels ADD require_pull_request_for_protected_branches BIT NOT NULL DEFAULT 0;",
+                    @"ALTER TABLE vessels ADD require_merge_queue_for_release_branches BIT NOT NULL DEFAULT 0;"
                 )
             };
         }

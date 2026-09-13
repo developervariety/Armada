@@ -7,6 +7,17 @@ namespace Armada.Test.Runtimes
     {
         public static async Task<int> Main(string[] args)
         {
+            List<string> suiteFilters;
+            try
+            {
+                suiteFilters = SuiteCommandLineOptions.Parse(args);
+            }
+            catch (ArgumentException ex)
+            {
+                Console.Error.WriteLine(ex.Message);
+                return 1;
+            }
+
             TestRunner runner = new TestRunner("ARMADA RUNTIME TEST SUITE");
 
             runner.AddSuite(new AgentRuntimeFactoryTests());
@@ -18,7 +29,9 @@ namespace Armada.Test.Runtimes
             runner.AddSuite(new OpenCodeRuntimeTests());
             runner.AddSuite(new MuxRuntimeTests());
 
-            int exitCode = await runner.RunAllAsync().ConfigureAwait(false);
+            runner.VerifyRegistration(typeof(Program).Assembly);
+
+            int exitCode = await runner.RunAllAsync(suiteFilters).ConfigureAwait(false);
             return exitCode;
         }
     }

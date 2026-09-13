@@ -81,7 +81,7 @@ namespace Armada.Test.Database
             return fleet;
         }
 
-        public async Task<Vessel> CreateVesselAsync(string tenantId, string userId, string fleetId, string namePrefix, CancellationToken token = default)
+        public async Task<Vessel> CreateVesselAsync(string tenantId, string userId, string fleetId, string namePrefix, CancellationToken token = default, Action<Vessel>? configure = null)
         {
             Vessel vessel = new Vessel(namePrefix + "-" + Token(), "https://github.com/example/" + namePrefix + ".git")
             {
@@ -92,6 +92,7 @@ namespace Armada.Test.Database
                 Active = true
             };
 
+            configure?.Invoke(vessel);
             await _Driver.Vessels.CreateAsync(vessel, token).ConfigureAwait(false);
             RegisterCleanup(async ct => await _Driver.Vessels.DeleteAsync(vessel.Id, ct).ConfigureAwait(false));
             return vessel;

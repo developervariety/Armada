@@ -42,15 +42,23 @@ class MigrationGateTests(unittest.TestCase):
         self.check(1)
 
     def test_removed_history(self):
-        self.edit('Sqlite', 'new SchemaMigration(82,', 'new SchemaMigration(83,')
+        self.edit('Sqlite', 'new SchemaMigration(82,', 'new RemovedMigration(82,')
         self.check(1)
 
     def test_append_above_maximum(self):
         path = self.root / GATE.SOURCES['Sqlite']
         source = path.read_text()
         # A declaration is sufficient here: this test checks numbering, not C# compilation.
-        path.write_text(source + '\nnew SchemaMigration(83, "sentinel", "SELECT 1");\n')
+        version = max(row['version'] for row in GATE.declarations(source)) + 1
+        path.write_text(source + f'\nnew SchemaMigration({version}, "sentinel", "SELECT 1");\n')
         self.check(0)
+
+    def test_duplicate_version(self):
+        path = self.root / GATE.SOURCES['Sqlite']
+        source = path.read_text()
+        version = max(row['version'] for row in GATE.declarations(source))
+        path.write_text(source + f'\nnew SchemaMigration({version}, "sentinel", "SELECT 1");\n')
+        self.check(2)
 
     def test_reused_gap(self):
         self.edit('Postgresql', 'new SchemaMigration(26,',

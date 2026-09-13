@@ -642,7 +642,8 @@ namespace Armada.Core.Database.Mysql
                     74,
                     "Add objective preparation",
                     TableQueries.MigrationV74Statements
-                )
+                ),
+                new SchemaMigration(75, "Persist vessel preview configuration", VesselPreviewSchema.MigrationV75Statements)
             };
         }
 
@@ -789,6 +790,7 @@ namespace Armada.Core.Database.Mysql
                 vessel.BranchCleanupPolicy = bcp;
             try { vessel.AllowConcurrentMissions = Convert.ToInt64(reader["allow_concurrent_missions"]) == 1; }
             catch { vessel.AllowConcurrentMissions = false; }
+            VesselPreviewPersistence.Read(reader, vessel);
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToInt64(reader["active"]) == 1;
             vessel.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);

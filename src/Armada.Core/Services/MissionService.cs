@@ -2001,7 +2001,7 @@ namespace Armada.Core.Services
                 preparedDownstreamStages &&
                 String.Equals(mission.Persona, "Architect", StringComparison.OrdinalIgnoreCase);
 
-            if (!String.IsNullOrEmpty(completionDockId))
+            if (!String.IsNullOrEmpty(completionDockId) && !(awaitingManualReview && !hasDependentPipelineStages))
             {
                 try
                 {

@@ -41,6 +41,7 @@ namespace Armada.Test.Automated.Suites
             string refinementSessionId = String.Empty;
             string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-objective-follow-through-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(workingDirectory);
+            await TestGit.InitializeAsync(workingDirectory).ConfigureAwait(false);
 
             try
             {
@@ -56,7 +57,7 @@ namespace Armada.Test.Automated.Suites
                             Tags = new[] { "history", "objective" },
                             AcceptanceCriteria = new[] { "REST CRUD", "History linkage" }
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, createResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, createResponse).ConfigureAwait(false);
 
                     Objective created = await JsonHelper.DeserializeAsync<Objective>(createResponse).ConfigureAwait(false);
                     objectiveId = created.Id;
@@ -64,18 +65,18 @@ namespace Armada.Test.Automated.Suites
                     AssertEqual(ObjectiveStatusEnum.Scoped, created.Status);
 
                     HttpResponseMessage getResponse = await _AuthClient.GetAsync("/api/v1/objectives/" + objectiveId).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, getResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, getResponse).ConfigureAwait(false);
                     Objective loaded = await JsonHelper.DeserializeAsync<Objective>(getResponse).ConfigureAwait(false);
                     AssertEqual(objectiveId, loaded.Id);
 
                     HttpResponseMessage listResponse = await _AuthClient.GetAsync("/api/v1/objectives?pageSize=100").ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, listResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, listResponse).ConfigureAwait(false);
                     EnumerationResult<Objective> objectives = await JsonHelper.DeserializeAsync<EnumerationResult<Objective>>(listResponse).ConfigureAwait(false);
                     AssertTrue(objectives.Objects.Exists(current => current.Id == objectiveId), "Expected objective in list.");
 
                     HttpResponseMessage historyResponse = await _AuthClient.GetAsync(
                         "/api/v1/history?objectiveId=" + Uri.EscapeDataString(objectiveId) + "&pageSize=100").ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, historyResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, historyResponse).ConfigureAwait(false);
                     EnumerationResult<HistoricalTimelineEntry> history = await JsonHelper.DeserializeAsync<EnumerationResult<HistoricalTimelineEntry>>(historyResponse).ConfigureAwait(false);
                     AssertTrue(history.Objects.Exists(entry => entry.SourceType == "Objective" && entry.SourceId == objectiveId), "Expected objective timeline entry.");
 
@@ -85,17 +86,17 @@ namespace Armada.Test.Automated.Suites
                             Status = ObjectiveStatusEnum.Completed,
                             EvidenceLinks = new[] { "https://example.test/objective/rest" }
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, updateResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, updateResponse).ConfigureAwait(false);
                     Objective updated = await JsonHelper.DeserializeAsync<Objective>(updateResponse).ConfigureAwait(false);
                     AssertEqual(ObjectiveStatusEnum.Completed, updated.Status);
                     AssertTrue(updated.CompletedUtc.HasValue, "Expected completion timestamp.");
 
                     HttpResponseMessage deleteResponse = await _AuthClient.DeleteAsync("/api/v1/objectives/" + objectiveId).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.NoContent, deleteResponse).ConfigureAwait(false);
                     objectiveId = String.Empty;
 
                     HttpResponseMessage deletedResponse = await _AuthClient.GetAsync("/api/v1/objectives/" + updated.Id).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.NotFound, deletedResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.NotFound, deletedResponse).ConfigureAwait(false);
                 }).ConfigureAwait(false);
 
                 await RunTest("Objectives_CreateWithoutAuthReturns401", async () =>
@@ -105,7 +106,7 @@ namespace Armada.Test.Automated.Suites
                         {
                             Title = "Unauthorized Objective"
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Unauthorized, response).ConfigureAwait(false);
                 }).ConfigureAwait(false);
 
                 await RunTest("BacklogAlias_CreateReadReorderAndDelete", async () =>
@@ -123,7 +124,7 @@ namespace Armada.Test.Automated.Suites
                             Effort = ObjectiveEffortEnum.M,
                             TargetVersion = "0.8.0"
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, createResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, createResponse).ConfigureAwait(false);
 
                     Objective created = await JsonHelper.DeserializeAsync<Objective>(createResponse).ConfigureAwait(false);
                     objectiveId = created.Id;
@@ -134,34 +135,34 @@ namespace Armada.Test.Automated.Suites
                     AssertEqual(ObjectiveBacklogStateEnum.Inbox, created.BacklogState);
 
                     HttpResponseMessage getBacklogResponse = await _AuthClient.GetAsync("/api/v1/backlog/" + objectiveId).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, getBacklogResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, getBacklogResponse).ConfigureAwait(false);
                     Objective loadedBacklog = await JsonHelper.DeserializeAsync<Objective>(getBacklogResponse).ConfigureAwait(false);
                     AssertEqual(objectiveId, loadedBacklog.Id);
                     AssertEqual("0.8.0", loadedBacklog.TargetVersion);
 
                     HttpResponseMessage objectiveCompatibilityResponse = await _AuthClient.GetAsync("/api/v1/objectives/" + objectiveId).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, objectiveCompatibilityResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, objectiveCompatibilityResponse).ConfigureAwait(false);
                     Objective compatibilityLoad = await JsonHelper.DeserializeAsync<Objective>(objectiveCompatibilityResponse).ConfigureAwait(false);
                     AssertEqual(objectiveId, compatibilityLoad.Id);
 
                     HttpResponseMessage listResponse = await _AuthClient.GetAsync("/api/v1/backlog?pageSize=100").ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, listResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, listResponse).ConfigureAwait(false);
                     EnumerationResult<Objective> listed = await JsonHelper.DeserializeAsync<EnumerationResult<Objective>>(listResponse).ConfigureAwait(false);
                     AssertTrue(listed.Objects.Exists(current => current.Id == objectiveId), "Expected backlog item in backlog list.");
 
                     HttpResponseMessage sessionsResponse = await _AuthClient.GetAsync("/api/v1/backlog/" + objectiveId + "/refinement-sessions").ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, sessionsResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, sessionsResponse).ConfigureAwait(false);
                     List<ObjectiveRefinementSession> sessions = await JsonHelper.DeserializeAsync<List<ObjectiveRefinementSession>>(sessionsResponse).ConfigureAwait(false);
                     AssertEqual(0, sessions.Count);
 
                     HttpResponseMessage objectivePreviewResponse = await _AuthClient.GetAsync(
                         "/api/v1/objectives/" + objectiveId + "/dispatch-preview").ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, objectivePreviewResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, objectivePreviewResponse).ConfigureAwait(false);
                     ObjectiveDispatchPreview objectivePreview = await JsonHelper.DeserializeAsync<ObjectiveDispatchPreview>(objectivePreviewResponse).ConfigureAwait(false);
 
                     HttpResponseMessage backlogPreviewResponse = await _AuthClient.GetAsync(
                         "/api/v1/backlog/" + objectiveId + "/dispatch-preview").ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, backlogPreviewResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, backlogPreviewResponse).ConfigureAwait(false);
                     ObjectiveDispatchPreview backlogPreview = await JsonHelper.DeserializeAsync<ObjectiveDispatchPreview>(backlogPreviewResponse).ConfigureAwait(false);
                     AssertEqual(objectiveId, objectivePreview.ObjectiveId);
                     AssertEqual(objectivePreview.ObjectiveId, backlogPreview.ObjectiveId);
@@ -181,17 +182,17 @@ namespace Armada.Test.Automated.Suites
                                 }
                             }
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, reorderResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, reorderResponse).ConfigureAwait(false);
                     List<Objective> reordered = await JsonHelper.DeserializeAsync<List<Objective>>(reorderResponse).ConfigureAwait(false);
                     AssertEqual(1, reordered.Count);
                     AssertEqual(5, reordered[0].Rank);
 
                     HttpResponseMessage deleteResponse = await _AuthClient.DeleteAsync("/api/v1/backlog/" + objectiveId).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.NoContent, deleteResponse).ConfigureAwait(false);
                     objectiveId = String.Empty;
                 }).ConfigureAwait(false);
 
-                await RunTest("BacklogRefinementRoutes_CreateSendSummarizeApplyAndDelete", async () =>
+                await RunTest("BacklogRefinementRoutes_RecordRuntimeFailureSummarizeApplyAndDelete", async () =>
                 {
                     HttpResponseMessage createResponse = await _AuthClient.PostAsync("/api/v1/backlog",
                         JsonHelper.ToJsonContent(new
@@ -202,7 +203,7 @@ namespace Armada.Test.Automated.Suites
                             Kind = ObjectiveKindEnum.Feature,
                             BacklogState = ObjectiveBacklogStateEnum.Inbox
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, createResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, createResponse).ConfigureAwait(false);
                     Objective created = await JsonHelper.DeserializeAsync<Objective>(createResponse).ConfigureAwait(false);
                     objectiveId = created.Id;
 
@@ -216,7 +217,7 @@ namespace Armada.Test.Automated.Suites
                             CaptainId = captainId,
                             Title = "Backlog refinement REST coverage session"
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, createSessionResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, createSessionResponse).ConfigureAwait(false);
                     ObjectiveRefinementSessionDetail createdSession = await JsonHelper.DeserializeAsync<ObjectiveRefinementSessionDetail>(createSessionResponse).ConfigureAwait(false);
                     refinementSessionId = createdSession.Session.Id;
                     AssertEqual(objectiveId, createdSession.Session.ObjectiveId);
@@ -231,7 +232,7 @@ namespace Armada.Test.Automated.Suites
                         {
                             Content = "Clarify rollout constraints and acceptance criteria for the backlog item."
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, sendResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, sendResponse).ConfigureAwait(false);
 
                     ObjectiveRefinementSessionDetail activeDetail = await WaitForSessionDetailAsync(
                         refinementSessionId,
@@ -249,7 +250,7 @@ namespace Armada.Test.Automated.Suites
                         {
                             MessageId = assistantMessage.Id
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, summarizeResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, summarizeResponse).ConfigureAwait(false);
                     ObjectiveRefinementSummaryResponse summary = await JsonHelper.DeserializeAsync<ObjectiveRefinementSummaryResponse>(summarizeResponse).ConfigureAwait(false);
                     AssertEqual("assistant-fallback", summary.Method);
                     AssertEqual(refinementSessionId, summary.SessionId);
@@ -263,7 +264,7 @@ namespace Armada.Test.Automated.Suites
                             MarkMessageSelected = true,
                             PromoteBacklogState = true
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, applyResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, applyResponse).ConfigureAwait(false);
                     ObjectiveRefinementApplyResponse applied = await JsonHelper.DeserializeAsync<ObjectiveRefinementApplyResponse>(applyResponse).ConfigureAwait(false);
                     AssertEqual(ObjectiveStatusEnum.Scoped, applied.Objective.Status);
                     AssertEqual(ObjectiveBacklogStateEnum.Triaged, applied.Objective.BacklogState);
@@ -276,23 +277,23 @@ namespace Armada.Test.Automated.Suites
                     AssertTrue(selectedDetail.Messages.Exists(message => message.Id == assistantMessage.Id && message.IsSelected), "Expected selected refinement message.");
 
                     HttpResponseMessage deleteSessionResponse = await _AuthClient.DeleteAsync("/api/v1/objective-refinement-sessions/" + refinementSessionId).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.NoContent, deleteSessionResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.NoContent, deleteSessionResponse).ConfigureAwait(false);
                     refinementSessionId = String.Empty;
 
                     HttpResponseMessage deletedSessionResponse = await _AuthClient.GetAsync("/api/v1/objective-refinement-sessions/" + createdSession.Session.Id).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.NotFound, deletedSessionResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.NotFound, deletedSessionResponse).ConfigureAwait(false);
 
                     HttpResponseMessage objectiveResponse = await _AuthClient.GetAsync("/api/v1/backlog/" + objectiveId).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, objectiveResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, objectiveResponse).ConfigureAwait(false);
                     Objective updatedObjective = await JsonHelper.DeserializeAsync<Objective>(objectiveResponse).ConfigureAwait(false);
                     AssertFalse(updatedObjective.RefinementSessionIds.Contains(createdSession.Session.Id), "Expected refinement session unlink after delete.");
 
                     HttpResponseMessage deleteObjectiveResponse = await _AuthClient.DeleteAsync("/api/v1/backlog/" + objectiveId).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.NoContent, deleteObjectiveResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.NoContent, deleteObjectiveResponse).ConfigureAwait(false);
                     objectiveId = String.Empty;
 
                     HttpResponseMessage deleteCaptainResponse = await _AuthClient.DeleteAsync("/api/v1/captains/" + captainId).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.NoContent, deleteCaptainResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.NoContent, deleteCaptainResponse).ConfigureAwait(false);
                     captainId = String.Empty;
                 }).ConfigureAwait(false);
 
@@ -302,25 +303,47 @@ namespace Armada.Test.Automated.Suites
                         JsonHelper.ToJsonContent(new
                         {
                             Name = "Objective Follow Through Vessel",
-                            RepoUrl = "file:///tmp/objective-follow-through.git",
+                            RepoUrl = new Uri(workingDirectory + Path.DirectorySeparatorChar).AbsoluteUri,
                             LocalPath = workingDirectory,
                             WorkingDirectory = workingDirectory,
                             DefaultBranch = "main"
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, vesselResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, vesselResponse).ConfigureAwait(false);
                     Vessel vessel = await JsonHelper.DeserializeAsync<Vessel>(vesselResponse).ConfigureAwait(false);
                     vesselId = vessel.Id;
+
+                    HttpResponseMessage profileResponse = await _AuthClient.PostAsync("/api/v1/workflow-profiles",
+                        JsonHelper.ToJsonContent(new
+                        {
+                            Name = "Objective linkage checks", Scope = "Vessel", VesselId = vesselId,
+                            IsDefault = true, BuildCommand = "echo fixture", UnitTestCommand = "echo fixture"
+                        })).ConfigureAwait(false);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, profileResponse).ConfigureAwait(false);
 
                     HttpResponseMessage createObjectiveResponse = await _AuthClient.PostAsync("/api/v1/objectives",
                         JsonHelper.ToJsonContent(new
                         {
                             Title = "Objective Follow Through",
+                            Description = "Verify local objective, voyage and release linkage.",
+                            AcceptanceCriteria = new[] { "Linked voyage and release IDs are retained." },
+                            RefinementSummary = "Create isolated local records and read their links through the API.",
+                            AutoDispatchEnabled = false,
                             Status = ObjectiveStatusEnum.Scoped,
                             VesselIds = new[] { vesselId }
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, createObjectiveResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, createObjectiveResponse).ConfigureAwait(false);
                     Objective createdObjective = await JsonHelper.DeserializeAsync<Objective>(createObjectiveResponse).ConfigureAwait(false);
                     objectiveId = createdObjective.Id;
+
+                    HttpResponseMessage fixtureCaptainResponse = await _AuthClient.PostAsync("/api/v1/captains",
+                        JsonHelper.ToJsonContent(new
+                        {
+                            Name = "Linkage fixture captain", Runtime = "Custom", Model = String.Empty,
+                            State = "Working", AllowedPersonas = "[\"Worker\"]"
+                        })).ConfigureAwait(false);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, fixtureCaptainResponse).ConfigureAwait(false);
+                    Captain fixtureCaptain = await JsonHelper.DeserializeAsync<Captain>(fixtureCaptainResponse).ConfigureAwait(false);
+                    captainId = fixtureCaptain.Id;
 
                     HttpResponseMessage createVoyageResponse = await _AuthClient.PostAsync("/api/v1/voyages",
                         JsonHelper.ToJsonContent(new
@@ -338,7 +361,7 @@ namespace Armada.Test.Automated.Suites
                                 }
                             }
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, createVoyageResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, createVoyageResponse).ConfigureAwait(false);
                     Voyage voyage = await JsonHelper.DeserializeAsync<Voyage>(createVoyageResponse).ConfigureAwait(false);
                     voyageId = voyage.Id;
 
@@ -349,12 +372,12 @@ namespace Armada.Test.Automated.Suites
                             Title = "Objective Draft Release",
                             ObjectiveIds = new[] { objectiveId }
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, createReleaseResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, createReleaseResponse).ConfigureAwait(false);
                     Release release = await JsonHelper.DeserializeAsync<Release>(createReleaseResponse).ConfigureAwait(false);
                     releaseId = release.Id;
 
                     HttpResponseMessage objectiveResponse = await _AuthClient.GetAsync("/api/v1/objectives/" + objectiveId).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, objectiveResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, objectiveResponse).ConfigureAwait(false);
                     Objective linkedObjective = await JsonHelper.DeserializeAsync<Objective>(objectiveResponse).ConfigureAwait(false);
                     AssertTrue(linkedObjective.VoyageIds.Contains(voyageId), "Expected voyage link on objective.");
                     AssertTrue(linkedObjective.ReleaseIds.Contains(releaseId), "Expected release link on objective.");
@@ -375,14 +398,17 @@ namespace Armada.Test.Automated.Suites
                 {
                     try { await _AuthClient.DeleteAsync("/api/v1/objective-refinement-sessions/" + refinementSessionId).ConfigureAwait(false); } catch { }
                 }
-                if (!String.IsNullOrWhiteSpace(captainId))
-                {
-                    try { await _AuthClient.DeleteAsync("/api/v1/captains/" + captainId).ConfigureAwait(false); } catch { }
-                }
                 if (!String.IsNullOrWhiteSpace(voyageId))
                 {
                     try { await _AuthClient.DeleteAsync("/api/v1/voyages/" + voyageId).ConfigureAwait(false); } catch { }
                     try { await _AuthClient.DeleteAsync("/api/v1/voyages/" + voyageId + "/purge").ConfigureAwait(false); } catch { }
+                }
+                if (!String.IsNullOrWhiteSpace(captainId))
+                {
+                    HttpResponseMessage stopResponse = await _AuthClient.PostAsync("/api/v1/captains/" + captainId + "/stop", null).ConfigureAwait(false);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, stopResponse).ConfigureAwait(false);
+                    HttpResponseMessage deleteResponse = await _AuthClient.DeleteAsync("/api/v1/captains/" + captainId).ConfigureAwait(false);
+                    await AssertStatusCodeAsync(HttpStatusCode.NoContent, deleteResponse).ConfigureAwait(false);
                 }
                 if (!String.IsNullOrWhiteSpace(vesselId))
                 {
@@ -406,16 +432,17 @@ namespace Armada.Test.Automated.Suites
                 JsonHelper.ToJsonContent(new
                 {
                     Name = prefix + "-" + Guid.NewGuid().ToString("N").Substring(0, 8),
-                    Runtime = runtime
+                    Runtime = runtime,
+                    Model = String.Empty
                 })).ConfigureAwait(false);
-            AssertEqual(HttpStatusCode.Created, response.StatusCode);
+            await AssertStatusCodeAsync(HttpStatusCode.Created, response).ConfigureAwait(false);
             return await JsonHelper.DeserializeAsync<Captain>(response).ConfigureAwait(false);
         }
 
         private async Task SetCaptainRuntimeAsync(string captainId, string runtime)
         {
             HttpResponseMessage getResponse = await _AuthClient.GetAsync("/api/v1/captains/" + captainId).ConfigureAwait(false);
-            AssertEqual(HttpStatusCode.OK, getResponse.StatusCode);
+            await AssertStatusCodeAsync(HttpStatusCode.OK, getResponse).ConfigureAwait(false);
             Captain captain = await JsonHelper.DeserializeAsync<Captain>(getResponse).ConfigureAwait(false);
 
             HttpResponseMessage updateResponse = await _AuthClient.PutAsync(
@@ -423,9 +450,10 @@ namespace Armada.Test.Automated.Suites
                 JsonHelper.ToJsonContent(new
                 {
                     Name = captain.Name,
-                    Runtime = runtime
+                    Runtime = runtime,
+                    Model = String.Empty
                 })).ConfigureAwait(false);
-            AssertEqual(HttpStatusCode.OK, updateResponse.StatusCode);
+            await AssertStatusCodeAsync(HttpStatusCode.OK, updateResponse).ConfigureAwait(false);
         }
 
         private async Task<ObjectiveRefinementSessionDetail> WaitForSessionDetailAsync(
@@ -437,7 +465,7 @@ namespace Armada.Test.Automated.Suites
             while (DateTime.UtcNow < deadline)
             {
                 HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/objective-refinement-sessions/" + sessionId).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                await AssertStatusCodeAsync(HttpStatusCode.OK, response).ConfigureAwait(false);
                 ObjectiveRefinementSessionDetail detail = await JsonHelper.DeserializeAsync<ObjectiveRefinementSessionDetail>(response).ConfigureAwait(false);
                 if (predicate(detail))
                     return detail;

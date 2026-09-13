@@ -58,7 +58,7 @@ namespace Armada.Test.Automated.Suites
                             WorkingDirectory = workingDirectory,
                             DefaultBranch = "main"
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, vesselResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, vesselResponse).ConfigureAwait(false);
 
                     Vessel vessel = await JsonHelper.DeserializeAsync<Vessel>(vesselResponse).ConfigureAwait(false);
                     vesselId = vessel.Id;
@@ -92,7 +92,7 @@ namespace Armada.Test.Automated.Suites
                                 }
                             }
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, workflowProfileResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, workflowProfileResponse).ConfigureAwait(false);
 
                     WorkflowProfile workflowProfile = await JsonHelper.DeserializeAsync<WorkflowProfile>(workflowProfileResponse).ConfigureAwait(false);
                     workflowProfileId = workflowProfile.Id;
@@ -109,7 +109,7 @@ namespace Armada.Test.Automated.Suites
                             IsDefault = true,
                             Active = true
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, stagingEnvironmentResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, stagingEnvironmentResponse).ConfigureAwait(false);
 
                     DeploymentEnvironment stagingEnvironment = await JsonHelper.DeserializeAsync<DeploymentEnvironment>(stagingEnvironmentResponse).ConfigureAwait(false);
                     stagingEnvironmentId = stagingEnvironment.Id;
@@ -126,7 +126,7 @@ namespace Armada.Test.Automated.Suites
                             IsDefault = false,
                             Active = true
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, productionEnvironmentResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, productionEnvironmentResponse).ConfigureAwait(false);
 
                     DeploymentEnvironment productionEnvironment = await JsonHelper.DeserializeAsync<DeploymentEnvironment>(productionEnvironmentResponse).ConfigureAwait(false);
                     productionEnvironmentId = productionEnvironment.Id;
@@ -143,7 +143,7 @@ namespace Armada.Test.Automated.Suites
                             Notes = "Automated deployment test",
                             AutoExecute = true
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, createResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, createResponse).ConfigureAwait(false);
 
                     Deployment created = await JsonHelper.DeserializeAsync<Deployment>(createResponse).ConfigureAwait(false);
                     firstDeploymentId = created.Id;
@@ -158,7 +158,7 @@ namespace Armada.Test.Automated.Suites
                     AssertNotNull(created.RequestHistorySummary);
 
                     HttpResponseMessage getResponse = await _AuthClient.GetAsync("/api/v1/deployments/" + firstDeploymentId).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, getResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, getResponse).ConfigureAwait(false);
                     Deployment loaded = await JsonHelper.DeserializeAsync<Deployment>(getResponse).ConfigureAwait(false);
                     AssertEqual(firstDeploymentId, loaded.Id);
 
@@ -166,19 +166,19 @@ namespace Armada.Test.Automated.Suites
                         "/api/v1/deployments?vesselId=" + Uri.EscapeDataString(vesselId)
                         + "&status=" + Uri.EscapeDataString(DeploymentStatusEnum.Succeeded.ToString())
                         + "&pageSize=100").ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, listResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, listResponse).ConfigureAwait(false);
                     EnumerationResult<Deployment> deployments = await JsonHelper.DeserializeAsync<EnumerationResult<Deployment>>(listResponse).ConfigureAwait(false);
                     AssertTrue(deployments.Objects.Exists(current => current.Id == firstDeploymentId), "Expected created deployment in filtered list.");
 
                     HttpResponseMessage verifyResponse = await _AuthClient.PostAsync("/api/v1/deployments/" + firstDeploymentId + "/verify", null).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, verifyResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, verifyResponse).ConfigureAwait(false);
                     Deployment verified = await JsonHelper.DeserializeAsync<Deployment>(verifyResponse).ConfigureAwait(false);
                     AssertEqual(DeploymentStatusEnum.Succeeded, verified.Status);
                     AssertEqual(DeploymentVerificationStatusEnum.Passed, verified.VerificationStatus);
                     AssertTrue(verified.CheckRunIds.Count > created.CheckRunIds.Count, "Expected re-verification to append more check runs.");
 
                     HttpResponseMessage rollbackResponse = await _AuthClient.PostAsync("/api/v1/deployments/" + firstDeploymentId + "/rollback", null).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, rollbackResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, rollbackResponse).ConfigureAwait(false);
                     Deployment rolledBack = await JsonHelper.DeserializeAsync<Deployment>(rollbackResponse).ConfigureAwait(false);
                     AssertEqual(DeploymentStatusEnum.RolledBack, rolledBack.Status);
                     AssertFalse(String.IsNullOrWhiteSpace(rolledBack.RollbackCheckRunId), "Expected rollback check run id.");
@@ -193,7 +193,7 @@ namespace Armada.Test.Automated.Suites
                             Title = "Deploy Production",
                             AutoExecute = true
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, pendingCreateResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, pendingCreateResponse).ConfigureAwait(false);
 
                     Deployment pendingApproval = await JsonHelper.DeserializeAsync<Deployment>(pendingCreateResponse).ConfigureAwait(false);
                     secondDeploymentId = pendingApproval.Id;
@@ -206,7 +206,7 @@ namespace Armada.Test.Automated.Suites
                         {
                             Comment = "Approved for production test"
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, approveResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, approveResponse).ConfigureAwait(false);
                     Deployment approved = await JsonHelper.DeserializeAsync<Deployment>(approveResponse).ConfigureAwait(false);
                     AssertEqual(DeploymentStatusEnum.Succeeded, approved.Status);
                     AssertEqual(DeploymentVerificationStatusEnum.Passed, approved.VerificationStatus);
@@ -221,7 +221,7 @@ namespace Armada.Test.Automated.Suites
                             Title = "Deploy Production Later",
                             AutoExecute = true
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, deniedCreateResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, deniedCreateResponse).ConfigureAwait(false);
 
                     Deployment pendingDenial = await JsonHelper.DeserializeAsync<Deployment>(deniedCreateResponse).ConfigureAwait(false);
                     thirdDeploymentId = pendingDenial.Id;
@@ -233,17 +233,17 @@ namespace Armada.Test.Automated.Suites
                         {
                             Comment = "Denied for this test run"
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.OK, denyResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.OK, denyResponse).ConfigureAwait(false);
                     Deployment denied = await JsonHelper.DeserializeAsync<Deployment>(denyResponse).ConfigureAwait(false);
                     AssertEqual(DeploymentStatusEnum.Denied, denied.Status);
                     AssertEqual("Denied for this test run", denied.ApprovalComment);
 
                     HttpResponseMessage deleteResponse = await _AuthClient.DeleteAsync("/api/v1/deployments/" + firstDeploymentId).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.NoContent, deleteResponse).ConfigureAwait(false);
                     firstDeploymentId = String.Empty;
 
                     HttpResponseMessage deletedResponse = await _AuthClient.GetAsync("/api/v1/deployments/" + rolledBack.Id).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.NotFound, deletedResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.NotFound, deletedResponse).ConfigureAwait(false);
                 }).ConfigureAwait(false);
 
                 await RunTest("Deployments_CreateWithoutAuthReturns401", async () =>
@@ -253,7 +253,7 @@ namespace Armada.Test.Automated.Suites
                         {
                             Title = "Unauthorized Deployment"
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Unauthorized, response).ConfigureAwait(false);
                 }).ConfigureAwait(false);
             }
             finally

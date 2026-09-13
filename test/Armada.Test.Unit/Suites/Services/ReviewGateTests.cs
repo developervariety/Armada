@@ -26,6 +26,8 @@ namespace Armada.Test.Unit.Suites.Services
         /// </summary>
         public override string Name => "Review Gate Workflows";
 
+        private readonly List<string> _FixtureDirectories = new List<string>();
+
         private LoggingModule CreateLogging()
         {
             LoggingModule logging = new LoggingModule();
@@ -38,6 +40,8 @@ namespace Armada.Test.Unit.Suites.Services
             ArmadaSettings settings = new ArmadaSettings();
             settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_review_docks_" + Guid.NewGuid().ToString("N"));
             settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_review_repos_" + Guid.NewGuid().ToString("N"));
+            _FixtureDirectories.Add(settings.DocksDirectory);
+            _FixtureDirectories.Add(settings.ReposDirectory);
             return settings;
         }
 
@@ -45,6 +49,20 @@ namespace Armada.Test.Unit.Suites.Services
         /// Run the review-gate workflow tests.
         /// </summary>
         protected override async Task RunTestsAsync()
+        {
+            try
+            {
+                await RunReviewCasesAsync().ConfigureAwait(false);
+            }
+            finally
+            {
+                foreach (string path in _FixtureDirectories)
+                    if (Directory.Exists(path)) Directory.Delete(path, true);
+                _FixtureDirectories.Clear();
+            }
+        }
+
+        private async Task RunReviewCasesAsync()
         {
             await RunTest("Reviewed stage enters Review and blocks downstream dispatch", async () =>
             {
@@ -157,7 +175,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Single-stage reviewed Worker pipeline retains dock until approval and then lands", async () =>
+            await RunTest("Single-stage review retains dock until approval invokes completion callback", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -191,9 +209,9 @@ namespace Armada.Test.Unit.Suites.Services
                         : await testDb.Driver.Docks.ReadAsync(retainedDock.Id).ConfigureAwait(false);
 
                     AssertNotNull(completed, "Approved single-stage mission should still exist");
-                    AssertEqual(MissionStatusEnum.Complete, completed!.Status, "Approved terminal review should proceed through landing");
+                    AssertEqual(MissionStatusEnum.Complete, completed!.Status, "Completion callback should run after review approval");
                     AssertNotNull(reclaimedDock, "Dock row should remain readable after reclaim");
-                    AssertFalse(reclaimedDock!.Active, "Dock should be reclaimed after landing approval");
+                    AssertFalse(reclaimedDock!.Active, "Dock should be reclaimed after the completion callback");
                 }
             });
         }
@@ -224,6 +242,8 @@ namespace Armada.Test.Unit.Suites.Services
             Vessel vessel = new Vessel("review-vessel", "https://github.com/test/repo.git");
             vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_review_bare_" + Guid.NewGuid().ToString("N"));
             vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_review_work_" + Guid.NewGuid().ToString("N"));
+            _FixtureDirectories.Add(vessel.LocalPath);
+            _FixtureDirectories.Add(vessel.WorkingDirectory);
             vessel.DefaultBranch = "main";
             vessel = await db.Vessels.CreateAsync(vessel).ConfigureAwait(false);
 
@@ -271,16 +291,27 @@ namespace Armada.Test.Unit.Suites.Services
             Mission workerMission = voyageMissions.First(m => String.Equals(m.Persona ?? "Worker", "Worker", StringComparison.OrdinalIgnoreCase));
             Mission? downstreamMission = voyageMissions.FirstOrDefault(m => String.Equals(m.Persona, "Judge", StringComparison.OrdinalIgnoreCase));
 
-            Captain? assignedWorker = await db.Captains.ReadAsync(workerCaptain.Id).ConfigureAwait(false);
-            AssertNotNull(assignedWorker, "Worker captain should be readable after dispatch");
-
-            workerMission = await db.Missions.ReadAsync(workerMission.Id).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("Expected worker mission to be readable after dispatch.");
+            Captain? assignedWorker = null;
+            DateTime assignmentDeadline = DateTime.UtcNow.AddSeconds(10);
+            while (DateTime.UtcNow < assignmentDeadline)
+            {
+                workerMission = await db.Missions.ReadAsync(workerMission.Id).ConfigureAwait(false)
+                    ?? throw new InvalidOperationException("Expected worker mission after dispatch.");
+                assignedWorker = await db.Captains.ReadAsync(workerCaptain.Id).ConfigureAwait(false);
+                if (workerMission.Status == MissionStatusEnum.InProgress && workerMission.DockId != null
+                    && workerMission.AssignmentState == MissionAssignmentStateEnum.Assigned && workerMission.ProcessId != null
+                    && assignedWorker?.CurrentMissionId == workerMission.Id
+                    && assignedWorker.ProcessId != null) break;
+                await Task.Delay(20).ConfigureAwait(false);
+            }
 
             if (includeDownstreamStage)
             {
                 AssertNotNull(downstreamMission, "Downstream judge stage should exist");
             }
+
+            AssertEqual(MissionStatusEnum.InProgress, workerMission.Status, "Fixture assignment: " + workerMission.FailureReason);
+            AssertNotNull(workerMission.DockId, "Fixture mission dock");
 
             return new ReviewScenario
             {

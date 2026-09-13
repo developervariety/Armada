@@ -358,3 +358,9 @@ Update the closest docs in each implementation commit, including a capability-ba
 To resume, find the campaign titled **Evaluate and selectively adopt current Armada upstream capabilities** in Armada. Read its children and blockers. Read this report and the exact source at its anchors. Fetch both remotes, compare the new tips, and invalidate only findings whose dependencies changed. First direct-edit objective: **Define fork preservation gates and append-only schema integration**. Do not dispatch the objectives.
 
 The assessment validates inventory and documentation, not production behavior. Builds, database upgrades, browser workflows, cloud endpoints, process launches and security transport tests remain implementation proof. A successful state-write response is not proof a control works. No service restart or deployment is part of this assessment.
+
+## Test discovery implementation
+
+See [test discovery and provider parity](test-discovery.md) for retained runner
+ownership, activated suites, fixture repairs and evidence limits. This does not
+complete the remaining capability implementation or deployment review.

@@ -93,50 +93,48 @@ namespace Armada.Test.Database
                 {
                     case "--type":
                     case "-t":
-                        if (i + 1 < args.Length) options.Type = args[++i].ToLowerInvariant();
+                        options.Type = ReadValue(args, ref i).ToLowerInvariant();
                         break;
 
                     case "--filename":
                     case "-f":
-                        if (i + 1 < args.Length) options.Filename = args[++i];
+                        options.Filename = ReadValue(args, ref i);
                         break;
 
                     case "--hostname":
                     case "-h":
-                        if (i + 1 < args.Length) options.Hostname = args[++i];
+                        options.Hostname = ReadValue(args, ref i);
                         break;
 
                     case "--port":
                     case "-p":
-                        if (i + 1 < args.Length && Int32.TryParse(args[i + 1], out int port))
-                        {
-                            options.Port = port;
-                            i++;
-                        }
+                        if (!Int32.TryParse(ReadValue(args, ref i), out int port) || port < 1 || port > 65535)
+                            throw new ArgumentException("--port requires a number from 1 to 65535");
+                        options.Port = port;
                         break;
 
                     case "--username":
                     case "-u":
-                        if (i + 1 < args.Length) options.Username = args[++i];
+                        options.Username = ReadValue(args, ref i);
                         break;
 
                     case "--password":
                     case "-w":
-                        if (i + 1 < args.Length) options.Password = args[++i];
+                        options.Password = ReadValue(args, ref i);
                         break;
 
                     case "--database":
                     case "-d":
-                        if (i + 1 < args.Length) options.Database = args[++i];
+                        options.Database = ReadValue(args, ref i);
                         break;
 
                     case "--schema":
                     case "-s":
-                        if (i + 1 < args.Length) options.Schema = args[++i];
+                        options.Schema = ReadValue(args, ref i);
                         break;
 
                     case "--migration-scenario":
-                        if (i + 1 < args.Length) options.MigrationScenario = args[++i];
+                        options.MigrationScenario = ReadValue(args, ref i);
                         break;
 
                     case "--no-cleanup":
@@ -147,6 +145,9 @@ namespace Armada.Test.Database
                     case "-?":
                         options.Help = true;
                         break;
+
+                    default:
+                        throw new ArgumentException("Unknown argument: " + arg);
                 }
             }
 
@@ -154,6 +155,13 @@ namespace Armada.Test.Database
         }
 
         #endregion
+
+        private static string ReadValue(string[] args, ref int index)
+        {
+            if (index + 1 >= args.Length || String.IsNullOrWhiteSpace(args[index + 1]) || args[index + 1].StartsWith("--"))
+                throw new ArgumentException(args[index] + " requires a nonblank value");
+            return args[++index];
+        }
 
         #region Public-Methods
 
@@ -222,7 +230,7 @@ namespace Armada.Test.Database
             if (MigrationScenario == "catalog-guards" && Type == "sqlite")
                 errors.Add(MigrationScenario + " requires a server provider.");
 
-            if (MigrationScenario.Length > 0 && !new HashSet<string> { "fresh", "concurrent-fresh", "upgrade-51", "partial-first", "partial-52", "catalog-guards", "mysql-compat", "partial-identity", "sqlserver-corrections" }.Contains(MigrationScenario))
+            if (MigrationScenario.Length > 0 && !new HashSet<string> { "fresh", "concurrent-fresh", "upgrade-51", "partial-first", "partial-52", "catalog-guards", "mysql-compat", "partial-identity", "sqlserver-corrections", "preview-migration" }.Contains(MigrationScenario))
                 errors.Add("Unknown migration scenario: " + MigrationScenario);
 
             if (Port < 0 || Port > 65535)
@@ -278,7 +286,7 @@ namespace Armada.Test.Database
             Console.WriteLine("  --password, -w   Database password");
             Console.WriteLine("  --database, -d   Database name");
             Console.WriteLine("  --schema, -s     Database schema");
-            Console.WriteLine("  --migration-scenario fresh|concurrent-fresh|upgrade-51|partial-first|partial-52|partial-identity|catalog-guards|mysql-compat|sqlserver-corrections (empty database only)");
+            Console.WriteLine("  --migration-scenario fresh|concurrent-fresh|upgrade-51|partial-first|partial-52|partial-identity|catalog-guards|mysql-compat|sqlserver-corrections|preview-migration (empty database only)");
             Console.WriteLine("  --no-cleanup     Do not clean up test data after execution");
             Console.WriteLine("  --help, -?       Show this help message");
             Console.WriteLine();

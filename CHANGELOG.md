@@ -14,6 +14,21 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Test discovery and provider persistence
+
+- Register 12 existing Unit suites and eight existing API suites. Retain the
+  existing executables and reject missing registrations, empty runs, duplicate
+  identities and unmatched filters. Record named skips and build source evidence.
+- Correct exception assertions that could accept their own missing-exception
+  failure. Keep completed results when suite setup or teardown fails.
+- Preserve review requirements when expanding pipelines, retain terminal review
+  docks until approval, and resolve relative deployment health URLs correctly.
+- Isolate proxy assets and Git fixtures; verify request-history cleanup and wait
+  for captured records before asserting or deleting them.
+- Persist six vessel preview settings on all four providers through new additive
+  migrations. Reject incompatible columns, including restricted MySQL text
+  encodings. These settings describe previews; existing landing gates still apply.
+
 ### Upstream preservation gates
 
 - Repair server startup prerequisites and pending DDL without rewriting applied

@@ -32,6 +32,19 @@ namespace Armada.Test.Common
         /// </summary>
         public long ElapsedMs { get; set; } = 0;
 
+        /// <summary>Full owning suite type.</summary>
+        public string SuiteId { get; set; } = "";
+
+        /// <summary>Explicit reason for a named, unexecuted case.</summary>
+        public string? SkipReason { get; set; }
+
+
+        /// <summary>Repository-relative declaration path, without host directory prefixes.</summary>
+        public string SourcePath { get; set; } = "";
+
+        /// <summary>Source line containing the case declaration.</summary>
+        public int SourceLine { get; set; }
+
         #endregion
 
         #region Public-Methods

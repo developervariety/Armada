@@ -172,33 +172,33 @@ namespace Armada.Core.Models
         public bool AllowConcurrentMissions { get; set; } = false;
 
         /// <summary>
-        /// Whether successful landing requires at least one passing structured check
-        /// for the current branch or mission context.
+        /// Whether the landing preview requests a passing structured check.
+        /// Actual landing uses the immutable Check and landing service gates.
         /// </summary>
         public bool RequirePassingChecksToLand { get; set; } = false;
 
         /// <summary>
-        /// Optional protected-branch glob or exact-match patterns.
+        /// Protected-branch patterns used by landing preview and readiness.
         /// </summary>
         public List<string> ProtectedBranchPatterns { get; set; } = new List<string>();
 
         /// <summary>
-        /// Prefix used to classify release branches.
+        /// Prefix used by the preview to classify release branches.
         /// </summary>
         public string ReleaseBranchPrefix { get; set; } = "release/";
 
         /// <summary>
-        /// Prefix used to classify hotfix branches.
+        /// Prefix used by the preview to classify hotfix branches.
         /// </summary>
         public string HotfixBranchPrefix { get; set; } = "hotfix/";
 
         /// <summary>
-        /// Whether protected branches must land via PR-oriented flow.
+        /// Whether the preview requests PR-oriented flow for protected branches.
         /// </summary>
         public bool RequirePullRequestForProtectedBranches { get; set; } = false;
 
         /// <summary>
-        /// Whether release branches must land via merge queue.
+        /// Whether the preview requests a merge queue for release branches.
         /// </summary>
         public bool RequireMergeQueueForReleaseBranches { get; set; } = false;
 

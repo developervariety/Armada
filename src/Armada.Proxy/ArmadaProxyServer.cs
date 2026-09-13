@@ -47,6 +47,11 @@ namespace Armada.Proxy
         /// Instantiate.
         /// </summary>
         public ArmadaProxyServer(LoggingModule logging, ProxySettings settings, bool quiet = false)
+            : this(logging, settings, quiet, AppContext.BaseDirectory)
+        {
+        }
+
+        internal ArmadaProxyServer(LoggingModule logging, ProxySettings settings, bool quiet, string staticAssetDirectory)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
@@ -54,8 +59,8 @@ namespace Armada.Proxy
             _Registry = new InstanceRegistry(_Settings);
             _Auth = new ProxyAuthService(_Settings);
             _RoutePolicy = new ProxyRoutePolicyService();
-            _WwwrootDirectory = Path.Combine(AppContext.BaseDirectory, "wwwroot");
-            _DashboardDirectory = Path.Combine(AppContext.BaseDirectory, "dashboard");
+            _WwwrootDirectory = Path.Combine(staticAssetDirectory, "wwwroot");
+            _DashboardDirectory = Path.Combine(staticAssetDirectory, "dashboard");
             _Registry.EventReceived += HandleInstanceEvent;
         }
 

@@ -51,6 +51,8 @@ namespace Armada.Test.Common
             Console.WriteLine("  No Cleanup: " + _NoCleanup);
             Console.WriteLine("================================================================================");
 
+            _Results.Clear();
+            _TestCounter = 0;
             _TotalStopwatch = Stopwatch.StartNew();
 
             await RunFleetTestsAsync(token).ConfigureAwait(false);
@@ -139,7 +141,7 @@ namespace Armada.Test.Common
             Console.WriteLine();
             Console.WriteLine("================================================================================");
 
-            if (failed == 0)
+            if (failed == 0 && total > 0)
             {
                 Console.ForegroundColor = ConsoleColor.Green;
                 Console.WriteLine("RESULT: PASS");
@@ -154,7 +156,7 @@ namespace Armada.Test.Common
             Console.WriteLine("================================================================================");
             Console.WriteLine();
 
-            return failed == 0 ? 0 : 1;
+            return failed == 0 && total > 0 ? 0 : 1;
         }
 
         private async Task RunFleetTestsAsync(CancellationToken token)

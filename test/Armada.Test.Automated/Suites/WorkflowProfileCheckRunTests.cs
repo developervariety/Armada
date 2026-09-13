@@ -36,6 +36,12 @@ namespace Armada.Test.Automated.Suites
             Directory.CreateDirectory(Path.Combine(workingDirectory, "artifacts"));
             await File.WriteAllTextAsync(Path.Combine(workingDirectory, "artifacts", "existing.txt"), "artifact").ConfigureAwait(false);
 
+            await TestGit.RunAsync(workingDirectory, "init", "--initial-branch=main").ConfigureAwait(false);
+            await TestGit.RunAsync(workingDirectory, "add", ".").ConfigureAwait(false);
+            await TestGit.RunAsync(workingDirectory, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-m", "Fixture artifacts").ConfigureAwait(false);
+            await TestGit.RunAsync(workingDirectory, "branch", "feature/workflow-check").ConfigureAwait(false);
+            string initialCommit = await TestGit.RunAsync(workingDirectory, "rev-parse", "HEAD").ConfigureAwait(false);
+
             string vesselId = String.Empty;
             string globalProfileId = String.Empty;
             string vesselProfileId = String.Empty;
@@ -51,7 +57,7 @@ namespace Armada.Test.Automated.Suites
                         JsonHelper.ToJsonContent(new
                         {
                             Name = "Workflow Check Vessel",
-                            RepoUrl = "file:///tmp/workflow-check-vessel.git",
+                            RepoUrl = new Uri(workingDirectory + Path.DirectorySeparatorChar).AbsoluteUri,
                             LocalPath = workingDirectory,
                             WorkingDirectory = workingDirectory,
                             DefaultBranch = "main",
@@ -320,7 +326,7 @@ namespace Armada.Test.Automated.Suites
                             Type = CheckRunTypeEnum.Build,
                             Label = "Build Check",
                             BranchName = "feature/workflow-check",
-                            CommitHash = "abc123"
+                            CommitHash = initialCommit
                         })).ConfigureAwait(false);
                     AssertEqual(HttpStatusCode.Created, runResponse.StatusCode);
 
@@ -382,6 +388,10 @@ namespace Armada.Test.Automated.Suites
                         <coverage line-rate="0.8" branch-rate="0.5" lines-covered="8" lines-valid="10" branches-covered="2" branches-valid="4"></coverage>
                         """).ConfigureAwait(false);
 
+                    await TestGit.RunAsync(workingDirectory, "add", ".").ConfigureAwait(false);
+                    await TestGit.RunAsync(workingDirectory, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "commit", "-m", "Fixture structured output").ConfigureAwait(false);
+                    string summaryCommit = await TestGit.RunAsync(workingDirectory, "rev-parse", "HEAD").ConfigureAwait(false);
+
                     HttpResponseMessage profileResponse = await _AuthClient.PostAsync("/api/v1/workflow-profiles",
                         JsonHelper.ToJsonContent(new
                         {
@@ -403,7 +413,9 @@ namespace Armada.Test.Automated.Suites
                                 VesselId = vesselId,
                                 WorkflowProfileId = parseProfile.Id,
                                 Type = CheckRunTypeEnum.UnitTest,
-                                Label = "Structured Unit Tests"
+                                Label = "Structured Unit Tests",
+                                BranchName = "main",
+                                CommitHash = summaryCommit
                             })).ConfigureAwait(false);
                         AssertEqual(HttpStatusCode.Created, runResponse.StatusCode);
 

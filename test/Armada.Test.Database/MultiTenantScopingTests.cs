@@ -3,6 +3,7 @@ namespace Armada.Test.Database
     using System;
     using System.Collections.Generic;
     using System.Diagnostics;
+    using System.Runtime.CompilerServices;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -345,9 +346,10 @@ namespace Armada.Test.Database
 
         #region Private-Methods
 
-        private async Task RunTest(string category, string testName, Func<Task> action)
+        private async Task RunTest(string category, string testName, Func<Task> action, [CallerFilePath] string sourcePath = "", [CallerLineNumber] int sourceLine = 0)
         {
             TestResult result = new TestResult(category + " / " + testName, category);
+            result.SetSource(sourcePath, sourceLine);
             Stopwatch sw = Stopwatch.StartNew();
 
             try

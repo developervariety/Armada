@@ -156,9 +156,14 @@ namespace Armada.Core.Database.SqlServer
                                 using (SqlCommand cmd = conn.CreateCommand())
                                 {
                                     cmd.Transaction = tx;
-                                    await HistoricalMigrationCorrections.ExecuteSqlServerAsync(cmd, migration.Version, sql, token).ConfigureAwait(false);
-                                    await HistoricalMigrationCorrections.RecordSqlServerAsync(conn, tx, migration.Version,
-                                        statementOrdinal, sql, cmd.CommandText, token).ConfigureAwait(false);
+                                    if (migration.Version == 78)
+                                        await AdditiveVesselPreviewMigration.ExecuteAsync(conn, tx, DatabaseTypeEnum.SqlServer, sql, token).ConfigureAwait(false);
+                                    else
+                                    {
+                                        await HistoricalMigrationCorrections.ExecuteSqlServerAsync(cmd, migration.Version, sql, token).ConfigureAwait(false);
+                                        await HistoricalMigrationCorrections.RecordSqlServerAsync(conn, tx, migration.Version,
+                                            statementOrdinal, sql, cmd.CommandText, token).ConfigureAwait(false);
+                                    }
                                     MigrationCheckpoint?.Invoke(migration.Version, statementOrdinal);
                                 }
                             }
@@ -412,6 +417,7 @@ namespace Armada.Core.Database.SqlServer
             try { vessel.ReorganizeThreshold = reader["reorganize_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["reorganize_threshold"]); } catch { }
             try { vessel.PackCurateThreshold = reader["pack_curate_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["pack_curate_threshold"]); } catch { }
             try { vessel.ArchitectMaxMissionsPerVoyage = reader["architect_max_missions_per_voyage"] == DBNull.Value ? null : Convert.ToInt32(reader["architect_max_missions_per_voyage"]); } catch { }
+            VesselPreviewPersistence.Read(reader, vessel);
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToBoolean(reader["active"]);
             vessel.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);

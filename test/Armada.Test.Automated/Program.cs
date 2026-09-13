@@ -82,6 +82,7 @@ namespace Armada.Test.Automated
             settings.HeartbeatIntervalSeconds = 300;
             // CRUD and paging suites retain a bounded corpus of active rows until suite cleanup.
             // Dedicated admission tests exercise the production capacity limits separately.
+            settings.AutonomousObjectiveScheduler.Enabled = false;
             settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages = 100;
             settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel = 50;
             settings.InitializeDirectories();
@@ -109,6 +110,15 @@ namespace Armada.Test.Automated
             {
                 TestRunner runner = new TestRunner("ARMADA AUTOMATED TEST SUITE");
 
+                runner.AddSuite(new DeploymentTests(authClient, unauthClient, baseUrl));
+                runner.AddSuite(new EnvironmentTests(authClient, unauthClient));
+                runner.AddSuite(new GitHubIntegrationTests(authClient, unauthClient, baseUrl));
+                runner.AddSuite(new IncidentTests(authClient, unauthClient, baseUrl));
+                runner.AddSuite(new ObjectiveTests(authClient, unauthClient));
+                runner.AddSuite(new ReleaseTests(authClient, unauthClient));
+                runner.AddSuite(new RequestHistoryTests(authClient, unauthClient, baseUrl));
+                runner.AddSuite(new WorkflowProfileCheckRunTests(authClient, unauthClient));
+
                 runner.AddSuite(new FleetTests(authClient, unauthClient));
                 runner.AddSuite(new VesselTests(authClient, unauthClient));
                 runner.AddSuite(new CaptainTests(authClient, unauthClient));
@@ -132,7 +142,9 @@ namespace Armada.Test.Automated
                 runner.AddSuite(new WorkflowTests(authClient, unauthClient));
                 runner.AddSuite(new LandingPipelineTests(authClient, unauthClient));
 
-                exitCode = await runner.RunAllAsync().ConfigureAwait(false);
+                runner.VerifyRegistration(typeof(Program).Assembly);
+
+                exitCode = await runner.RunAllAsync(options.SuiteFilters).ConfigureAwait(false);
             }
             finally
             {

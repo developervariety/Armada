@@ -62,7 +62,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("UpdateAsync clears previous default on same vessel", async () =>
+            await RunTest("CreateAsync clears previous default on same vessel", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 LoggingModule logging = CreateLogging();

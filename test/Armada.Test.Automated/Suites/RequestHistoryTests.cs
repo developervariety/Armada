@@ -84,7 +84,7 @@ namespace Armada.Test.Automated.Suites
                 {
                     Name = "rqh-" + label + "-" + Guid.NewGuid().ToString("N").Substring(0, 8)
                 })).ConfigureAwait(false);
-            AssertEqual(HttpStatusCode.Created, response.StatusCode);
+            await AssertStatusCodeAsync(HttpStatusCode.Created, response).ConfigureAwait(false);
 
             TenantMetadata tenant = await JsonHelper.DeserializeAsync<TenantMetadata>(response).ConfigureAwait(false);
             return tenant.Id;
@@ -104,7 +104,7 @@ namespace Armada.Test.Automated.Suites
                     PasswordSha256 = UserMaster.ComputePasswordHash("testpass"),
                     IsTenantAdmin = isTenantAdmin
                 })).ConfigureAwait(false);
-            AssertEqual(HttpStatusCode.Created, userResponse.StatusCode);
+            await AssertStatusCodeAsync(HttpStatusCode.Created, userResponse).ConfigureAwait(false);
 
             UserMaster user = await JsonHelper.DeserializeAsync<UserMaster>(userResponse).ConfigureAwait(false);
 
@@ -115,7 +115,7 @@ namespace Armada.Test.Automated.Suites
                     UserId = user.Id,
                     Name = label + "-credential"
                 })).ConfigureAwait(false);
-            AssertEqual(HttpStatusCode.Created, credentialResponse.StatusCode);
+            await AssertStatusCodeAsync(HttpStatusCode.Created, credentialResponse).ConfigureAwait(false);
 
             Credential credential = await JsonHelper.DeserializeAsync<Credential>(credentialResponse).ConfigureAwait(false);
             AssertNotNull(credential.BearerToken, "Bearer token");
@@ -138,7 +138,7 @@ namespace Armada.Test.Automated.Suites
         private async Task InvokeStatusAsync(HttpClient client, string trace)
         {
             HttpResponseMessage response = await client.GetAsync("/api/v1/status?trace=" + Uri.EscapeDataString(trace)).ConfigureAwait(false);
-            AssertEqual(HttpStatusCode.OK, response.StatusCode);
+            await AssertStatusCodeAsync(HttpStatusCode.OK, response).ConfigureAwait(false);
         }
 
         private async Task InvokeAuthenticateFailureAsync(string trace, string password)
@@ -151,7 +151,7 @@ namespace Armada.Test.Automated.Suites
                     Email = "admin@armada",
                     Password = password
                 })).ConfigureAwait(false);
-            AssertEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+            await AssertStatusCodeAsync(HttpStatusCode.Unauthorized, response).ConfigureAwait(false);
         }
 
         private async Task<RequestHistoryEntry?> FindEntryByTraceAsync(
@@ -172,7 +172,7 @@ namespace Armada.Test.Automated.Suites
                     url += "&statusCode=" + statusCode.Value;
 
                 HttpResponseMessage response = await client.GetAsync(url).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                await AssertStatusCodeAsync(HttpStatusCode.OK, response).ConfigureAwait(false);
 
                 EnumerationResult<RequestHistoryEntry> result =
                     await JsonHelper.DeserializeAsync<EnumerationResult<RequestHistoryEntry>>(response).ConfigureAwait(false);
@@ -194,7 +194,7 @@ namespace Armada.Test.Automated.Suites
         private async Task<RequestHistoryRecord> ReadEntryAsync(HttpClient client, string id)
         {
             HttpResponseMessage response = await client.GetAsync("/api/v1/request-history/" + id).ConfigureAwait(false);
-            AssertEqual(HttpStatusCode.OK, response.StatusCode);
+            await AssertStatusCodeAsync(HttpStatusCode.OK, response).ConfigureAwait(false);
             return await JsonHelper.DeserializeAsync<RequestHistoryRecord>(response).ConfigureAwait(false);
         }
 
@@ -205,6 +205,8 @@ namespace Armada.Test.Automated.Suites
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            try
+            {
             #region Setup
 
             await RunTest("Setup_CreateTenantAAdmin", async () =>
@@ -247,7 +249,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("RequestHistory_ListWithoutAuth_Returns401", async () =>
             {
                 HttpResponseMessage response = await _UnauthClient.GetAsync("/api/v1/request-history").ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+                await AssertStatusCodeAsync(HttpStatusCode.Unauthorized, response).ConfigureAwait(false);
             }).ConfigureAwait(false);
 
             await RunTest("RequestHistory_CapturesStatusRequest_AndRedactsAuthorizationHeader", async () =>
@@ -315,7 +317,7 @@ namespace Armada.Test.Automated.Suites
                     + Uri.EscapeDataString(fromUtc)
                     + "&toUtc=" + Uri.EscapeDataString(toUtc)
                     + "&bucketMinutes=5").ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                await AssertStatusCodeAsync(HttpStatusCode.OK, response).ConfigureAwait(false);
 
                 RequestHistorySummaryResult summary =
                     await JsonHelper.DeserializeAsync<RequestHistorySummaryResult>(response).ConfigureAwait(false);
@@ -333,11 +335,11 @@ namespace Armada.Test.Automated.Suites
 
                 HttpResponseMessage releaseResponse = await _TenantAAdminClient!.GetAsync(
                     "/api/v1/releases?trace=" + Uri.EscapeDataString(releaseTrace)).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, releaseResponse.StatusCode);
+                await AssertStatusCodeAsync(HttpStatusCode.OK, releaseResponse).ConfigureAwait(false);
 
                 HttpResponseMessage historyResponse = await _TenantAAdminClient.GetAsync(
                     "/api/v1/history?trace=" + Uri.EscapeDataString(historyTrace)).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, historyResponse.StatusCode);
+                await AssertStatusCodeAsync(HttpStatusCode.OK, historyResponse).ConfigureAwait(false);
 
                 RequestHistoryEntry? releaseEntry = await FindEntryByTraceAsync(
                     _TenantAAdminClient,
@@ -371,7 +373,7 @@ namespace Armada.Test.Automated.Suites
                             Title = "RequestHistory Backlog",
                             Description = "Track backlog route capture."
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, backlogResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, backlogResponse).ConfigureAwait(false);
                     Objective objective = await JsonHelper.DeserializeAsync<Objective>(backlogResponse).ConfigureAwait(false);
                     objectiveId = objective.Id;
 
@@ -380,9 +382,10 @@ namespace Armada.Test.Automated.Suites
                         JsonHelper.ToJsonContent(new
                         {
                             Name = "RequestHistoryRefinement-" + Guid.NewGuid().ToString("N").Substring(0, 8),
-                            Runtime = "ClaudeCode"
+                            Runtime = "ClaudeCode",
+                            Model = String.Empty
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, captainResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, captainResponse).ConfigureAwait(false);
                     Captain captain = await JsonHelper.DeserializeAsync<Captain>(captainResponse).ConfigureAwait(false);
                     captainId = captain.Id;
 
@@ -393,7 +396,7 @@ namespace Armada.Test.Automated.Suites
                             CaptainId = captainId,
                             Title = "Request history refinement"
                         })).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Created, refinementResponse.StatusCode);
+                    await AssertStatusCodeAsync(HttpStatusCode.Created, refinementResponse).ConfigureAwait(false);
                     ObjectiveRefinementSessionDetail detail = await JsonHelper.DeserializeAsync<ObjectiveRefinementSessionDetail>(refinementResponse).ConfigureAwait(false);
                     sessionId = detail.Session.Id;
 
@@ -441,7 +444,7 @@ namespace Armada.Test.Automated.Suites
                     {
                         Name = fleetName
                     })).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Created, fleetResponse.StatusCode);
+                await AssertStatusCodeAsync(HttpStatusCode.Created, fleetResponse).ConfigureAwait(false);
                 Fleet fleet = await JsonHelper.DeserializeAsync<Fleet>(fleetResponse).ConfigureAwait(false);
 
                 string trace = "vessel-github-token-" + Guid.NewGuid().ToString("N").Substring(0, 10);
@@ -455,7 +458,7 @@ namespace Armada.Test.Automated.Suites
                         RepoUrl = "https://github.com/test/request-history-github-override",
                         GitHubTokenOverride = token
                     })).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Created, vesselResponse.StatusCode);
+                await AssertStatusCodeAsync(HttpStatusCode.Created, vesselResponse).ConfigureAwait(false);
 
                 RequestHistoryEntry? entry = await FindEntryByTraceAsync(
                     _TenantAAdminClient,
@@ -490,10 +493,11 @@ namespace Armada.Test.Automated.Suites
                     "GET").ConfigureAwait(false);
                 AssertNotNull(otherTenantEntry, "Other-tenant entry");
                 _OtherTenantEntryId = otherTenantEntry!.Id;
+                AssertNotNull(await FindEntryByTraceAsync(_TenantAUserClient!, "/api/v1/status", _TenantUserTrace, "GET").ConfigureAwait(false), "Own-user capture must finish");
 
                 HttpResponseMessage response = await _TenantAUserClient!.GetAsync(
                     "/api/v1/request-history?route=/api/v1/status&pageSize=250").ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                await AssertStatusCodeAsync(HttpStatusCode.OK, response).ConfigureAwait(false);
 
                 EnumerationResult<RequestHistoryEntry> result =
                     await JsonHelper.DeserializeAsync<EnumerationResult<RequestHistoryEntry>>(response).ConfigureAwait(false);
@@ -510,7 +514,7 @@ namespace Armada.Test.Automated.Suites
             {
                 HttpResponseMessage response = await _TenantAAdminClient!.GetAsync(
                     "/api/v1/request-history?route=/api/v1/status&pageSize=250").ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                await AssertStatusCodeAsync(HttpStatusCode.OK, response).ConfigureAwait(false);
 
                 EnumerationResult<RequestHistoryEntry> result =
                     await JsonHelper.DeserializeAsync<EnumerationResult<RequestHistoryEntry>>(response).ConfigureAwait(false);
@@ -526,14 +530,14 @@ namespace Armada.Test.Automated.Suites
             await RunTest("RequestHistory_Scope_TenantAdmin_CannotReadOtherTenantEntry", async () =>
             {
                 HttpResponseMessage response = await _TenantAAdminClient!.GetAsync("/api/v1/request-history/" + _OtherTenantEntryId).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.NotFound, response.StatusCode);
+                await AssertStatusCodeAsync(HttpStatusCode.NotFound, response).ConfigureAwait(false);
             }).ConfigureAwait(false);
 
             await RunTest("RequestHistory_Scope_GlobalAdmin_CanFilterByTenant", async () =>
             {
                 HttpResponseMessage response = await _AdminClient.GetAsync(
                     "/api/v1/request-history?route=/api/v1/status&tenantId=" + Uri.EscapeDataString(_TenantAId!) + "&pageSize=250").ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                await AssertStatusCodeAsync(HttpStatusCode.OK, response).ConfigureAwait(false);
 
                 EnumerationResult<RequestHistoryEntry> result =
                     await JsonHelper.DeserializeAsync<EnumerationResult<RequestHistoryEntry>>(response).ConfigureAwait(false);
@@ -559,10 +563,10 @@ namespace Armada.Test.Automated.Suites
                 AssertNotNull(entry, "Delete-single entry");
 
                 HttpResponseMessage deleteResponse = await _TenantAAdminClient!.DeleteAsync("/api/v1/request-history/" + entry!.Id).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+                await AssertStatusCodeAsync(HttpStatusCode.NoContent, deleteResponse).ConfigureAwait(false);
 
                 HttpResponseMessage readResponse = await _TenantAAdminClient.GetAsync("/api/v1/request-history/" + entry.Id).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.NotFound, readResponse.StatusCode);
+                await AssertStatusCodeAsync(HttpStatusCode.NotFound, readResponse).ConfigureAwait(false);
             }).ConfigureAwait(false);
 
             await RunTest("RequestHistory_DeleteMultiple_RemovesEntries_AndSkipsUnknown", async () =>
@@ -584,7 +588,7 @@ namespace Armada.Test.Automated.Suites
                     {
                         Ids = new[] { entryOne!.Id, entryTwo!.Id, "req_missing" }
                     })).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                await AssertStatusCodeAsync(HttpStatusCode.OK, response).ConfigureAwait(false);
 
                 DeleteMultipleResult result = await JsonHelper.DeserializeAsync<DeleteMultipleResult>(response).ConfigureAwait(false);
                 AssertEqual(2, result.Deleted);
@@ -592,8 +596,8 @@ namespace Armada.Test.Automated.Suites
 
                 HttpResponseMessage readOne = await _TenantAAdminClient.GetAsync("/api/v1/request-history/" + entryOne.Id).ConfigureAwait(false);
                 HttpResponseMessage readTwo = await _TenantAAdminClient.GetAsync("/api/v1/request-history/" + entryTwo.Id).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.NotFound, readOne.StatusCode);
-                AssertEqual(HttpStatusCode.NotFound, readTwo.StatusCode);
+                await AssertStatusCodeAsync(HttpStatusCode.NotFound, readOne).ConfigureAwait(false);
+                await AssertStatusCodeAsync(HttpStatusCode.NotFound, readTwo).ConfigureAwait(false);
             }).ConfigureAwait(false);
 
             await RunTest("RequestHistory_DeleteByFilter_RemovesScopedEntries", async () =>
@@ -604,6 +608,8 @@ namespace Armada.Test.Automated.Suites
 
                 await InvokeStatusAsync(_TenantAUserClient!, traceOne).ConfigureAwait(false);
                 await InvokeStatusAsync(_TenantAUserClient!, traceTwo).ConfigureAwait(false);
+                AssertNotNull(await FindEntryByTraceAsync(_TenantAUserClient!, "/api/v1/status", traceOne, "GET").ConfigureAwait(false), "First filtered capture");
+                AssertNotNull(await FindEntryByTraceAsync(_TenantAUserClient!, "/api/v1/status", traceTwo, "GET").ConfigureAwait(false), "Second filtered capture");
                 string toUtc = DateTime.UtcNow.AddMinutes(1).ToString("o");
 
                 HttpResponseMessage response = await _TenantAAdminClient!.PostAsync(
@@ -615,14 +621,14 @@ namespace Armada.Test.Automated.Suites
                         FromUtc = fromUtc,
                         ToUtc = toUtc
                     })).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                await AssertStatusCodeAsync(HttpStatusCode.OK, response).ConfigureAwait(false);
 
                 DeleteMultipleResult result = await JsonHelper.DeserializeAsync<DeleteMultipleResult>(response).ConfigureAwait(false);
                 AssertTrue(result.Deleted >= 2, "Expected at least the two scoped user requests to be deleted");
 
                 HttpResponseMessage listResponse = await _TenantAUserClient!.GetAsync(
                     "/api/v1/request-history?route=/api/v1/status&pageSize=250").ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, listResponse.StatusCode);
+                await AssertStatusCodeAsync(HttpStatusCode.OK, listResponse).ConfigureAwait(false);
 
                 EnumerationResult<RequestHistoryEntry> remaining =
                     await JsonHelper.DeserializeAsync<EnumerationResult<RequestHistoryEntry>>(listResponse).ConfigureAwait(false);
@@ -635,6 +641,9 @@ namespace Armada.Test.Automated.Suites
 
             #endregion
 
+            }
+            finally
+            {
             #region Cleanup
 
             await RunTest("Cleanup_DeleteRequestHistoryTenants", async () =>
@@ -643,27 +652,42 @@ namespace Armada.Test.Automated.Suites
                 _TenantAUserClient?.Dispose();
                 _TenantBAdminClient?.Dispose();
 
-                if (_TenantAUserCredentialId != null)
-                    await _AdminClient.DeleteAsync("/api/v1/credentials/" + _TenantAUserCredentialId).ConfigureAwait(false);
-                if (_TenantAAdminCredentialId != null)
-                    await _AdminClient.DeleteAsync("/api/v1/credentials/" + _TenantAAdminCredentialId).ConfigureAwait(false);
-                if (_TenantBAdminCredentialId != null)
-                    await _AdminClient.DeleteAsync("/api/v1/credentials/" + _TenantBAdminCredentialId).ConfigureAwait(false);
-
-                if (_TenantAUserId != null)
-                    await _AdminClient.DeleteAsync("/api/v1/users/" + _TenantAUserId).ConfigureAwait(false);
-                if (_TenantAAdminUserId != null)
-                    await _AdminClient.DeleteAsync("/api/v1/users/" + _TenantAAdminUserId).ConfigureAwait(false);
-                if (_TenantBAdminUserId != null)
-                    await _AdminClient.DeleteAsync("/api/v1/users/" + _TenantBAdminUserId).ConfigureAwait(false);
-
-                if (_TenantAId != null)
-                    await _AdminClient.DeleteAsync("/api/v1/tenants/" + _TenantAId).ConfigureAwait(false);
-                if (_TenantBId != null)
-                    await _AdminClient.DeleteAsync("/api/v1/tenants/" + _TenantBId).ConfigureAwait(false);
+                List<string> failures = new List<string>();
+                string?[] routes = new string?[]
+                {
+                    _TenantAUserCredentialId == null ? null : "/api/v1/credentials/" + _TenantAUserCredentialId,
+                    _TenantAAdminCredentialId == null ? null : "/api/v1/credentials/" + _TenantAAdminCredentialId,
+                    _TenantBAdminCredentialId == null ? null : "/api/v1/credentials/" + _TenantBAdminCredentialId,
+                    _TenantAUserId == null ? null : "/api/v1/users/" + _TenantAUserId,
+                    _TenantAAdminUserId == null ? null : "/api/v1/users/" + _TenantAAdminUserId,
+                    _TenantBAdminUserId == null ? null : "/api/v1/users/" + _TenantBAdminUserId,
+                    _TenantAId == null ? null : "/api/v1/tenants/" + _TenantAId,
+                    _TenantBId == null ? null : "/api/v1/tenants/" + _TenantBId
+                };
+                foreach (string? route in routes)
+                {
+                    if (route == null) continue;
+                    try
+                    {
+                        using (HttpResponseMessage response = await _AdminClient.DeleteAsync(route).ConfigureAwait(false))
+                        {
+                            await AssertStatusCodeAsync(HttpStatusCode.OK, response).ConfigureAwait(false);
+                        }
+                        using (HttpResponseMessage response = await _AdminClient.GetAsync(route).ConfigureAwait(false))
+                        {
+                            await AssertStatusCodeAsync(HttpStatusCode.NotFound, response).ConfigureAwait(false);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        failures.Add(route + ": " + ex.Message);
+                    }
+                }
+                AssertEqual(0, failures.Count, String.Join("; ", failures));
             }).ConfigureAwait(false);
 
             #endregion
+            }
         }
 
         #endregion

@@ -399,7 +399,7 @@ namespace Armada.Test.Unit.Suites.Services
                     "REST API extractor should fail when the health section heading is missing");
                 AssertThrows<Exception>(
                     () => ExtractPostmanHealthyResponseBody(
-                        postmanContents.Replace("\"name\": \"Healthy\"", "\"name\": \"HealthyExample\"", StringComparison.Ordinal)),
+                        Regex.Replace(postmanContents, @"""name"":\s*""Healthy""", "\"name\": \"HealthyExample\"")),
                     "Postman extractor should fail when the healthy response example is missing");
                 AssertThrows<Exception>(
                     () => AssertNoStaleVersionSurfaces("Version: 0.4.0", "synthetic release surface", staleVersion => staleVersion),

@@ -44,6 +44,9 @@ namespace Armada.Test.Database
                 DatabaseAssert.Equal(0L, Convert.ToInt64(await ScalarAsync(connection, census, token).ConfigureAwait(false)), "Scenario requires an empty database");
             }
 
+            if (scenario == "preview-migration")
+                await new VesselPreviewMigrationTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
+
             if (scenario == "mysql-compat")
                 await new MysqlLegacyCompatibilityTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
 
@@ -74,7 +77,7 @@ namespace Armada.Test.Database
                     await Task.WhenAll(firstStart, secondStart).ConfigureAwait(false);
                 }
             }
-            else if (scenario != "fresh" && scenario != "catalog-guards" && scenario != "mysql-compat" && scenario != "sqlserver-corrections")
+            else if (scenario != "fresh" && scenario != "catalog-guards" && scenario != "mysql-compat" && scenario != "sqlserver-corrections" && scenario != "preview-migration")
             {
                 bool stopped = false;
                 using (DatabaseDriver driver = CreateDriver())

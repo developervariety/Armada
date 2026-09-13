@@ -64,6 +64,9 @@ namespace Armada.Test.Common
         /// </summary>
         public bool Help { get; set; } = false;
 
+        /// <summary>Suite name filters. Every filter must match at least one registered suite.</summary>
+        public List<string> SuiteFilters { get; set; } = new List<string>();
+
         #endregion
 
         #region Public-Methods
@@ -131,6 +134,12 @@ namespace Armada.Test.Common
                     case "-s":
                         if (i + 1 >= args.Length) throw new ArgumentException("--schema requires a value");
                         options.Schema = args[++i];
+                        break;
+
+                    case "--suite":
+                        if (i + 1 >= args.Length || String.IsNullOrWhiteSpace(args[i + 1]) || args[i + 1].StartsWith("--"))
+                            throw new ArgumentException("--suite requires a nonblank value");
+                        options.SuiteFilters.Add(args[++i]);
                         break;
 
                     case "--no-cleanup":
@@ -225,6 +234,7 @@ namespace Armada.Test.Common
             Console.WriteLine("  --schema, -s <schema>    Database schema (default: public)");
             Console.WriteLine();
             Console.WriteLine("Other Options:");
+            Console.WriteLine("  --suite NAME            Select matching suite names (repeatable)");
             Console.WriteLine("  --no-cleanup             Preserve test data after execution");
             Console.WriteLine("  --help, -?               Show this help message");
             Console.WriteLine();

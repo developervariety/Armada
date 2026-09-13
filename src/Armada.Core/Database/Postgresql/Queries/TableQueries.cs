@@ -994,6 +994,14 @@ namespace Armada.Core.Database.Postgresql.Queries
                 ),
                 new SchemaMigration(83, "Add objective preparation",
                     @"ALTER TABLE objectives ADD COLUMN IF NOT EXISTS preparation_json TEXT NOT NULL DEFAULT '{}';"
+                ),
+                new SchemaMigration(84, "Persist vessel preview configuration",
+                    @"ALTER TABLE vessels ADD COLUMN require_passing_checks_to_land BOOLEAN NOT NULL DEFAULT FALSE;",
+                    @"ALTER TABLE vessels ADD COLUMN protected_branch_patterns TEXT NOT NULL DEFAULT '[]';",
+                    @"ALTER TABLE vessels ADD COLUMN release_branch_prefix TEXT NOT NULL DEFAULT 'release/';",
+                    @"ALTER TABLE vessels ADD COLUMN hotfix_branch_prefix TEXT NOT NULL DEFAULT 'hotfix/';",
+                    @"ALTER TABLE vessels ADD COLUMN require_pull_request_for_protected_branches BOOLEAN NOT NULL DEFAULT FALSE;",
+                    @"ALTER TABLE vessels ADD COLUMN require_merge_queue_for_release_branches BOOLEAN NOT NULL DEFAULT FALSE;"
                 )
             };
         }
