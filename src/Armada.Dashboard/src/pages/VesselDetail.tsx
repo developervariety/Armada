@@ -365,7 +365,7 @@ export default function VesselDetail() {
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" checked={form.requirePassingChecksToLand} onChange={e => setForm({ ...form, requirePassingChecksToLand: e.target.checked })} style={{ width: 'auto' }} />
-              {t('Require Passing Checks To Land')}
+              {t('Require Passing Checks To Land (advisory preview)')}
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" checked={form.requirePullRequestForProtectedBranches} onChange={e => setForm({ ...form, requirePullRequestForProtectedBranches: e.target.checked })} style={{ width: 'auto' }} />
@@ -439,7 +439,7 @@ export default function VesselDetail() {
         <div className="detail-field"><span className="detail-label">{t('Auto-Land')}</span><span>{describeAutoLand(autoLandFormFromPredicate(vessel.autoLandPredicate))}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Release Branch Prefix')}</span><span className="mono">{vessel.releaseBranchPrefix || 'release/'}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Hotfix Branch Prefix')}</span><span className="mono">{vessel.hotfixBranchPrefix || 'hotfix/'}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Require Passing Checks To Land')}</span><span>{vessel.requirePassingChecksToLand ? t('Yes') : t('No')}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Require Passing Checks To Land (advisory preview)')}</span><span>{vessel.requirePassingChecksToLand ? t('Yes') : t('No')}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Require PR For Protected Branches')}</span><span>{vessel.requirePullRequestForProtectedBranches ? t('Yes') : t('No')}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Require Merge Queue For Release Branches')}</span><span>{vessel.requireMergeQueueForReleaseBranches ? t('Yes') : t('No')}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Allow Concurrent Missions')}</span><span>{vessel.allowConcurrentMissions ? t('Yes') : t('No')}</span></div>

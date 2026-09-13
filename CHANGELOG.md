@@ -14,6 +14,11 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Advisory landing setting
+
+- Vessel forms, details, and the shared landing preview identify the passing
+  Check preference as advisory. Actual Check and landing gates are unchanged.
+
 ### Generic crash-loop protection
 
 - Repeated distinct runtime crashes use the existing quarantine service.

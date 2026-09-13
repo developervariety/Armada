@@ -49,7 +49,7 @@ export default function LandingPreviewCard({ preview, loading, meta, unavailable
             <span>{t('Landing mode')}: {preview.landingMode || t('Inherited')}</span>
             <span>{t('Cleanup')}: {preview.branchCleanupPolicy || t('Inherited')}</span>
             {preview.expectedLandingAction && <span>{t('Action')}: {preview.expectedLandingAction}</span>}
-            <span>{preview.requirePassingChecksToLand ? t('Vessel setting: passing checks required') : t('Vessel setting: passing checks optional')}</span>
+            <span>{preview.requirePassingChecksToLand ? t('Advisory preview setting: passing checks required') : t('Advisory preview setting: passing checks optional')}</span>
           </div>
           <div className="readiness-summary-row">
             <span>{preview.targetBranchProtected ? t('Protected target branch') : t('Target branch not protected')}</span>

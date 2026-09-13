@@ -40,9 +40,10 @@ preview issues" instead of "Ready To Land", and states that its Check evidence
 is not the Check gate for the landed commit.
 
 The vessel setting `RequirePassingChecksToLand` is read only by this preview.
-No landing, merge-queue, Judge or Check execution path reads it. Whether to
-enforce it at landing, keep it as a preview signal, or retire it is recorded
-as an open owner decision.
+No landing, merge-queue, Judge or Check execution path reads it. The accepted
+disposition keeps it as an advisory preview signal. It does not enable or
+disable actual Check, Judge or landing gates. Dashboard labels must state this
+limit wherever they display or edit the setting.
 
 ## Validation
 

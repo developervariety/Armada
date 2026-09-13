@@ -44,7 +44,7 @@ describe('LandingPreviewCard', () => {
     render(<LandingPreviewCard preview={preview({})} loading={false} meta="feature/work -> main" {...messages} />);
 
     expect(screen.getByText(/not the Check gate for the landed commit/)).toBeTruthy();
-    expect(screen.getByText('Vessel setting: passing checks required')).toBeTruthy();
+    expect(screen.getByText('Advisory preview setting: passing checks required')).toBeTruthy();
   });
 
   it('lists preview issues with their severity, including a newer check that did not pass', () => {
