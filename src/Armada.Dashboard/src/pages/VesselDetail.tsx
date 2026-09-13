@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { listVessels, listFleets, listMissionSummaries, listPipelines, createVessel, updateVessel, deleteVessel, getVesselReadiness, getVesselLandingPreview } from '../api/client';
+import { buildVesselUpdatePayload } from '../lib/vesselUpdatePayload';
 import type { Fleet, Vessel, MissionSummary, Pipeline, VesselReadinessResult, LandingPreviewResult } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -154,12 +155,10 @@ export default function VesselDetail() {
     if (!vessel) return;
     try {
       const payload: Record<string, unknown> = { ...form };
-      if (!payload.localPath) delete payload.localPath;
-      if (!payload.workingDirectory) delete payload.workingDirectory;
-      if (!payload.projectContext) delete payload.projectContext;
-      if (!payload.styleGuide) delete payload.styleGuide;
-      if (!payload.modelContext) delete payload.modelContext;
-      if (!payload.defaultPipelineId) delete payload.defaultPipelineId;
+      // The update is built on the loaded vessel, so a cleared optional field is sent as null to clear it.
+      for (const key of ['localPath', 'workingDirectory', 'projectContext', 'styleGuide', 'modelContext', 'defaultPipelineId']) {
+        if (!payload[key]) payload[key] = null;
+      }
       delete payload.clearGitHubTokenOverride;
       if (form.clearGitHubTokenOverride)
         payload.gitHubTokenOverride = '';
@@ -179,7 +178,7 @@ export default function VesselDetail() {
         .split(/\r?\n/)
         .map((item) => item.trim())
         .filter((item) => item.length > 0);
-      await updateVessel(vessel.id, payload);
+      await updateVessel(vessel.id, buildVesselUpdatePayload(vessel, payload));
       setShowForm(false);
       pushToast('success', t('Vessel "{{name}}" saved.', { name: form.name }));
       load();

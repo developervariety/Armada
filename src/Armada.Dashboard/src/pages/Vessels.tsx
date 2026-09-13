@@ -12,6 +12,8 @@ import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { autoLandFormFromPredicate, autoLandPredicatePayload, EMPTY_AUTO_LAND_FORM, type AutoLandForm } from '../lib/vesselAutoLand';
+import { buildVesselUpdatePayload } from '../lib/vesselUpdatePayload';
 import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
@@ -39,18 +41,15 @@ interface VesselForm {
   secretScanEnabled: boolean;
   protectedPathPatterns: string;
   privateIdentifierDenylist: string;
-  autoLandEnabled: boolean;
-  autoLandMaxFiles: string;
-  autoLandMaxLines: string;
-  autoLandPathAllowGlobs: string;
-  autoLandPathDenyGlobs: string;
+  /** Auto-land rules, stored on the server as the vessel's autoLandPredicate. */
+  autoLand: AutoLandForm;
 }
 
 const emptyForm: VesselForm = {
   name: '', fleetId: '', repoUrl: '', defaultBranch: 'main', localPath: '', workingDirectory: '',
   projectContext: '', styleGuide: '', enableModelContext: true, modelContext: '', gitHubTokenOverride: '', clearGitHubTokenOverride: false, landingMode: 'LocalMerge', branchCleanupPolicy: 'LocalAndRemote', allowConcurrentMissions: false, defaultPipelineId: '',
   secretScanEnabled: false, protectedPathPatterns: '', privateIdentifierDenylist: '',
-  autoLandEnabled: false, autoLandMaxFiles: '', autoLandMaxLines: '', autoLandPathAllowGlobs: '', autoLandPathDenyGlobs: '',
+  autoLand: { ...EMPTY_AUTO_LAND_FORM },
 };
 
 export default function Vessels() {
@@ -167,11 +166,7 @@ export default function Vessels() {
       secretScanEnabled: v.secretScanEnabled ?? false,
       protectedPathPatterns: (v.protectedPathPatterns || []).join('\n'),
       privateIdentifierDenylist: (v.privateIdentifierDenylist || []).join('\n'),
-      autoLandEnabled: v.autoLandEnabled ?? false,
-      autoLandMaxFiles: v.autoLandMaxFiles ? String(v.autoLandMaxFiles) : '',
-      autoLandMaxLines: v.autoLandMaxLines ? String(v.autoLandMaxLines) : '',
-      autoLandPathAllowGlobs: (v.autoLandPathAllowGlobs || []).join('\n'),
-      autoLandPathDenyGlobs: (v.autoLandPathDenyGlobs || []).join('\n'),
+      autoLand: autoLandFormFromPredicate(v.autoLandPredicate),
     });
     setEditing(v);
     setShowForm(true);
@@ -181,20 +176,18 @@ export default function Vessels() {
     e.preventDefault();
     try {
       const payload: Record<string, unknown> = { ...form };
-      if (!payload.localPath) delete payload.localPath;
-      if (!payload.workingDirectory) delete payload.workingDirectory;
-      if (!payload.projectContext) delete payload.projectContext;
-      if (!payload.styleGuide) delete payload.styleGuide;
-      if (!payload.landingMode) delete payload.landingMode;
-      if (!payload.branchCleanupPolicy) delete payload.branchCleanupPolicy;
-      if (!payload.modelContext) delete payload.modelContext;
-      if (!payload.defaultPipelineId) delete payload.defaultPipelineId;
+      delete payload.autoLand;
+      // A create omits empty optional values. An update sends null instead, because the update is built on the
+      // loaded vessel and an omitted key would keep the old value rather than clear it.
+      for (const key of ['localPath', 'workingDirectory', 'projectContext', 'styleGuide', 'landingMode', 'branchCleanupPolicy', 'modelContext', 'defaultPipelineId']) {
+        if (payload[key]) continue;
+        if (editing) payload[key] = null;
+        else delete payload[key];
+      }
       payload.protectedPathPatterns = form.protectedPathPatterns.split(/\r?\n/).map((s) => s.trim()).filter((s) => s.length > 0);
       payload.privateIdentifierDenylist = form.privateIdentifierDenylist.split(/\r?\n/).map((s) => s.trim()).filter((s) => s.length > 0);
-      payload.autoLandMaxFiles = form.autoLandMaxFiles.trim() ? Math.max(0, parseInt(form.autoLandMaxFiles, 10) || 0) : 0;
-      payload.autoLandMaxLines = form.autoLandMaxLines.trim() ? Math.max(0, parseInt(form.autoLandMaxLines, 10) || 0) : 0;
-      payload.autoLandPathAllowGlobs = form.autoLandPathAllowGlobs.split(/\r?\n/).map((s) => s.trim()).filter((s) => s.length > 0);
-      payload.autoLandPathDenyGlobs = form.autoLandPathDenyGlobs.split(/\r?\n/).map((s) => s.trim()).filter((s) => s.length > 0);
+      // An unparsable stored predicate is not sent back; the form warns that saving removes it.
+      if (!form.autoLand.unparsable) payload.autoLandPredicate = autoLandPredicatePayload(form.autoLand);
       delete payload.clearGitHubTokenOverride;
       if (editing)
       {
@@ -213,7 +206,7 @@ export default function Vessels() {
       {
         payload.gitHubTokenOverride = form.gitHubTokenOverride.trim();
       }
-      if (editing) await updateVessel(editing.id, payload);
+      if (editing) await updateVessel(editing.id, buildVesselUpdatePayload(editing, payload));
       else await createVessel(payload);
       setShowForm(false);
       pushToast('success', editing
@@ -418,28 +411,33 @@ export default function Vessels() {
               </label>
             </div>
 
-            {/* Auto-land rules */}
+            {/* Auto-land rules, stored as the vessel's autoLandPredicate */}
             <div style={{ marginBottom: '0.5rem' }}>
+              {form.autoLand.unparsable && (
+                <p className="text-dim" style={{ margin: '0 0 0.5rem' }}>
+                  {t('The stored auto-land predicate cannot be parsed. Saving removes it unless you set new rules.')}
+                </p>
+              )}
               <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginBottom: '0.5rem', lineHeight: 1, cursor: 'pointer' }} title={t('When enabled, a passing mission must satisfy the rules below to land unattended; otherwise it holds for review.')}>
-                <input type="checkbox" checked={form.autoLandEnabled} onChange={e => setForm({ ...form, autoLandEnabled: e.target.checked })} style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }} />
+                <input type="checkbox" checked={form.autoLand.enabled} onChange={e => setForm({ ...form, autoLand: { ...form.autoLand, enabled: e.target.checked, unparsable: false } })} style={{ width: 'auto', margin: 0, verticalAlign: 'middle' }} />
                 <span style={{ verticalAlign: 'middle' }}>{t('Auto-land small changes')}</span>
               </label>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1.5rem' }}>
                 <label style={{ display: 'flex', flexDirection: 'column' }}>
-                  {t('Max Files (0 = no limit)')}
-                  <input type="number" min={0} value={form.autoLandMaxFiles} onChange={e => setForm({ ...form, autoLandMaxFiles: e.target.value })} placeholder="0" />
+                  {t('Max Files (empty = no limit)')}
+                  <input type="number" min={0} value={form.autoLand.maxFiles} onChange={e => setForm({ ...form, autoLand: { ...form.autoLand, maxFiles: e.target.value, unparsable: false } })} placeholder="" />
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column' }}>
-                  {t('Max Lines (0 = no limit)')}
-                  <input type="number" min={0} value={form.autoLandMaxLines} onChange={e => setForm({ ...form, autoLandMaxLines: e.target.value })} placeholder="0" />
+                  {t('Max Added Lines (empty = no limit)')}
+                  <input type="number" min={0} value={form.autoLand.maxAddedLines} onChange={e => setForm({ ...form, autoLand: { ...form.autoLand, maxAddedLines: e.target.value, unparsable: false } })} placeholder="" />
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column' }}>
                   {t('Auto-land Allowed Paths')}
-                  <textarea value={form.autoLandPathAllowGlobs} onChange={e => setForm({ ...form, autoLandPathAllowGlobs: e.target.value })} rows={2} placeholder={t('One glob per line, e.g. src/**')} style={{ resize: 'vertical' }} />
+                  <textarea value={form.autoLand.allowPaths} onChange={e => setForm({ ...form, autoLand: { ...form.autoLand, allowPaths: e.target.value, unparsable: false } })} rows={2} placeholder={t('One glob per line, e.g. src/**')} style={{ resize: 'vertical' }} />
                 </label>
                 <label style={{ display: 'flex', flexDirection: 'column' }}>
                   {t('Auto-land Denied Paths')}
-                  <textarea value={form.autoLandPathDenyGlobs} onChange={e => setForm({ ...form, autoLandPathDenyGlobs: e.target.value })} rows={2} placeholder={t('One glob per line, e.g. infra/**')} style={{ resize: 'vertical' }} />
+                  <textarea value={form.autoLand.denyPaths} onChange={e => setForm({ ...form, autoLand: { ...form.autoLand, denyPaths: e.target.value, unparsable: false } })} rows={2} placeholder={t('One glob per line, e.g. infra/**')} style={{ resize: 'vertical' }} />
                 </label>
               </div>
             </div>

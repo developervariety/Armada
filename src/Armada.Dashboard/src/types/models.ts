@@ -122,11 +122,8 @@ export interface Vessel {
   secretScanEnabled?: boolean;
   protectedPathPatterns?: string[];
   privateIdentifierDenylist?: string[];
-  autoLandEnabled?: boolean;
-  autoLandMaxFiles?: number;
-  autoLandMaxLines?: number;
-  autoLandPathAllowGlobs?: string[];
-  autoLandPathDenyGlobs?: string[];
+  /** Auto-land predicate as stored: a JSON string, or null. Updates send it as an object. */
+  autoLandPredicate?: string | null;
   releaseBranchPrefix: string;
   hotfixBranchPrefix: string;
   requirePullRequestForProtectedBranches: boolean;

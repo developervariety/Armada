@@ -10,7 +10,7 @@ import {
   listVessels,
   renameWorkspaceEntry,
   saveWorkspaceFile,
-  updateVessel,
+  updateVesselContext,
 } from '../api/client';
 import type {
   Vessel,
@@ -667,7 +667,7 @@ export default function Workspace() {
 
     try {
       setSavingContext(true);
-      const updated = await updateVessel(currentVessel.id, {
+      const updated = await updateVesselContext(currentVessel.id, {
         projectContext: contextDrafts.projectContext,
         styleGuide: contextDrafts.styleGuide,
         modelContext: contextDrafts.modelContext,

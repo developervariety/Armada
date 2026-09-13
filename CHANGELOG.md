@@ -14,6 +14,23 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Vessel updates keep what the form does not edit
+
+- `PUT /api/v1/vessels/{id}` keeps the stored tenant, user, creation time,
+  auto-land calibration count and last reflection mission. Before, an update
+  wrote them from the body, so a normal save reset the tenant and user to null.
+- Vessel create and update accept the `autoLandPredicate` object under a key
+  in any letter case. Before, the route bound the body to the vessel model
+  before the handler ran, so a PascalCase key returned `400`.
+- Dashboard vessel saves send the vessel as loaded with the form changes
+  applied, so protected paths, sibling repositories, default playbooks and
+  thresholds survive a save. Auto-land rules are edited as the vessel's
+  `autoLandPredicate`. The copied flat auto-land fields the server never
+  stored were removed; before, each save cleared the stored predicate.
+- Workspace context saves use `PATCH /api/v1/vessels/{id}/context`. Before,
+  they sent a PUT with only the context fields, which reset the rest of the
+  vessel.
+
 ### Captain assignment for inherited pipelines
 
 - A voyage captain assignment with persona `*` (or an empty persona) now applies

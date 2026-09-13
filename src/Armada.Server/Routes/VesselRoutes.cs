@@ -120,7 +120,10 @@ namespace Armada.Server.Routes
                 .WithRequestBody(OpenApiJson.BodyFor<EnumerationQuery>("Enumeration query", false))
                 .WithSecurity("ApiKey"));
 
-            app.Post<Vessel>("/api/v1/vessels", async (ApiRequest req) =>
+            // Vessel create and update register without a body type: the framework binds a typed body
+            // case-sensitively before the handler runs, which rejects an autoLandPredicate object sent under a
+            // PascalCase key. The handlers extract the predicate and deserialize the rest themselves.
+            app.Post("/api/v1/vessels", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -185,7 +188,7 @@ namespace Armada.Server.Routes
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
-            app.Put<Vessel>("/api/v1/vessels/{id}", async (ApiRequest req) =>
+            app.Put("/api/v1/vessels/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
@@ -213,6 +216,13 @@ namespace Armada.Server.Routes
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Vessel.");
                 updated.Id = id;
                 updated.AutoLandPredicate = updateAlpJson;
+                // The body replaces client-editable fields only. Ownership, creation time and server-maintained
+                // counters come from the stored record, because the providers write every column on update.
+                updated.TenantId = existing.TenantId;
+                updated.UserId = existing.UserId;
+                updated.CreatedUtc = existing.CreatedUtc;
+                updated.AutoLandCalibrationLandedCount = existing.AutoLandCalibrationLandedCount;
+                updated.LastReflectionMissionId = existing.LastReflectionMissionId;
                 updated = await _database.Vessels.UpdateAsync(updated).ConfigureAwait(false);
                 return (object)updated;
             },
@@ -642,10 +652,24 @@ namespace Armada.Server.Routes
             try
             {
                 JsonNode? bodyNode = JsonNode.Parse(rawBody);
-                if (bodyNode is JsonObject bodyObj && bodyObj.ContainsKey("autoLandPredicate"))
+                string? alpKey = null;
+                if (bodyNode is JsonObject candidate)
                 {
-                    JsonNode? alpNode = bodyObj["autoLandPredicate"];
-                    bodyObj.Remove("autoLandPredicate");
+                    // The vessel body binds case-insensitively, so the predicate key must match the same way;
+                    // an unmatched object key would reach the string property and fail deserialization.
+                    foreach (KeyValuePair<string, JsonNode?> property in candidate)
+                    {
+                        if (String.Equals(property.Key, "autoLandPredicate", StringComparison.OrdinalIgnoreCase))
+                        {
+                            alpKey = property.Key;
+                            break;
+                        }
+                    }
+                }
+                if (bodyNode is JsonObject bodyObj && alpKey != null)
+                {
+                    JsonNode? alpNode = bodyObj[alpKey];
+                    bodyObj.Remove(alpKey);
                     cleanedBody = bodyObj.ToJsonString();
                     if (alpNode != null)
                     {

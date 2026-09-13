@@ -957,6 +957,104 @@ namespace Armada.Test.Automated.Suites
 
             #endregion
 
+            #region Auto-Land Predicate
+
+            await RunTest("Update Keeps Server-Owned Vessel Fields", async () =>
+            {
+                string fleetId = await CreateFleetAsync("OwnerFleet");
+                Vessel created = await CreateVesselAsync("OwnerVessel", fleetId: fleetId, repoUrl: "https://github.com/test/ownervessel");
+                _CreatedVesselIds.Add(created.Id);
+                AssertNotNull(created.TenantId, "The created vessel has a tenant");
+
+                StringContent updateContent = JsonHelper.ToJsonContent(new
+                {
+                    Name = "OwnerVesselRenamed",
+                    FleetId = fleetId,
+                    RepoUrl = "https://github.com/test/ownervessel"
+                });
+                HttpResponseMessage updated = await _Client.PutAsync("/api/v1/vessels/" + created.Id, updateContent);
+                AssertEqual(HttpStatusCode.OK, updated.StatusCode);
+
+                HttpResponseMessage read = await _Client.GetAsync("/api/v1/vessels/" + created.Id);
+                Vessel stored = await JsonHelper.DeserializeAsync<Vessel>(read);
+                Console.WriteLine("OWNER before/after tenant: " + (created.TenantId ?? "<null>") + " -> " + (stored.TenantId ?? "<null>")
+                    + "; user: " + (created.UserId ?? "<null>") + " -> " + (stored.UserId ?? "<null>")
+                    + "; created: " + created.CreatedUtc.ToString("o") + " -> " + stored.CreatedUtc.ToString("o"));
+                AssertEqual("OwnerVesselRenamed", stored.Name, "The update applied");
+                AssertEqual(created.TenantId, stored.TenantId, "An update keeps the vessel tenant");
+                AssertEqual(created.UserId, stored.UserId, "An update keeps the vessel owner");
+                AssertEqual(created.CreatedUtc.ToString("o"), stored.CreatedUtc.ToString("o"), "An update keeps the creation time");
+            });
+
+            await RunTest("Update With CamelCase AutoLandPredicate Object Keeps The Predicate", async () =>
+            {
+                string fleetId = await CreateFleetAsync();
+                string vesselId = await CreateVesselAndReturnIdAsync("AutoLandCamel", fleetId: fleetId, repoUrl: "https://github.com/test/autolandcamel");
+
+                StringContent updateContent = JsonHelper.ToJsonContent(new
+                {
+                    Name = "AutoLandCamel",
+                    FleetId = fleetId,
+                    RepoUrl = "https://github.com/test/autolandcamel",
+                    autoLandPredicate = new { enabled = true, maxFiles = 5, maxAddedLines = 100, allowPaths = new[] { "src/**" }, denyPaths = new string[0] }
+                });
+                HttpResponseMessage updated = await _Client.PutAsync("/api/v1/vessels/" + vesselId, updateContent);
+                AssertEqual(HttpStatusCode.OK, updated.StatusCode);
+
+                HttpResponseMessage read = await _Client.GetAsync("/api/v1/vessels/" + vesselId);
+                Vessel stored = await JsonHelper.DeserializeAsync<Vessel>(read);
+                Armada.Core.Models.AutoLandPredicate? parsed = stored.GetAutoLandPredicate();
+                AssertNotNull(parsed, "The camelCase predicate object sent on update is stored and parses");
+                AssertEqual(5, parsed!.MaxFiles ?? -1, "MaxFiles survives the update");
+            });
+
+            await RunTest("Update With PascalCase AutoLandPredicate Key Keeps The Predicate", async () =>
+            {
+                string fleetId = await CreateFleetAsync();
+                string vesselId = await CreateVesselAndReturnIdAsync("AutoLandKeep", fleetId: fleetId, repoUrl: "https://github.com/test/autolandkeep");
+
+                // The rest of the vessel body binds case-insensitively; the predicate key must too.
+                StringContent updateContent = JsonHelper.ToJsonContent(new
+                {
+                    Name = "AutoLandKeep",
+                    FleetId = fleetId,
+                    RepoUrl = "https://github.com/test/autolandkeep",
+                    AutoLandPredicate = new { enabled = true, maxFiles = 5, maxAddedLines = 100, allowPaths = new[] { "src/**" }, denyPaths = new string[0] }
+                });
+                HttpResponseMessage updated = await _Client.PutAsync("/api/v1/vessels/" + vesselId, updateContent);
+                AssertEqual(HttpStatusCode.OK, updated.StatusCode);
+
+                HttpResponseMessage read = await _Client.GetAsync("/api/v1/vessels/" + vesselId);
+                Vessel stored = await JsonHelper.DeserializeAsync<Vessel>(read);
+                AssertNotNull(stored.AutoLandPredicate, "The predicate object sent on update is stored");
+                Armada.Core.Models.AutoLandPredicate? parsed = stored.GetAutoLandPredicate();
+                AssertNotNull(parsed, "The stored predicate parses");
+                AssertEqual(5, parsed!.MaxFiles ?? -1, "MaxFiles survives the update");
+                AssertEqual(100, parsed.MaxAddedLines ?? -1, "MaxAddedLines survives the update");
+            });
+
+            await RunTest("Create With PascalCase AutoLandPredicate Key Stores The Predicate", async () =>
+            {
+                string fleetId = await CreateFleetAsync();
+                StringContent createContent = JsonHelper.ToJsonContent(new
+                {
+                    Name = "AutoLandCreatePascal",
+                    FleetId = fleetId,
+                    RepoUrl = "https://github.com/test/autolandcreatepascal",
+                    AutoLandPredicate = new { enabled = true, maxFiles = 7, allowPaths = new[] { "docs/**" } }
+                });
+                HttpResponseMessage created = await _Client.PostAsync("/api/v1/vessels", createContent);
+                AssertEqual(HttpStatusCode.Created, created.StatusCode);
+                Vessel vessel = await JsonHelper.DeserializeAsync<Vessel>(created);
+                _CreatedVesselIds.Add(vessel.Id);
+
+                Armada.Core.Models.AutoLandPredicate? parsed = vessel.GetAutoLandPredicate();
+                AssertNotNull(parsed, "The predicate object sent on create is stored and parses");
+                AssertEqual(7, parsed!.MaxFiles ?? -1, "MaxFiles is stored on create");
+            });
+
+            #endregion
+
             #region Enumerate - Edge Cases
 
             await RunTest("Enumerate Empty Database Returns Empty Result", async () =>

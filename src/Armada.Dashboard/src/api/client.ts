@@ -589,6 +589,9 @@ export const listVessels = (params?: { pageNumber?: number; pageSize?: number; f
 export const getVessel = (id: string) => get<Vessel>(`/api/v1/vessels/${id}`);
 export const createVessel = (data: Partial<Vessel>) => post<Vessel>('/api/v1/vessels', data);
 export const updateVessel = (id: string, data: Partial<Vessel>) => put<Vessel>(`/api/v1/vessels/${id}`, data);
+/** Update only the context fields; the full PUT replaces every field the body omits. */
+export const updateVesselContext = (id: string, data: Pick<Vessel, 'projectContext' | 'styleGuide' | 'modelContext'>) =>
+  request<Vessel>('PATCH', `/api/v1/vessels/${id}/context`, data);
 export const deleteVessel = (id: string) => del<void>(`/api/v1/vessels/${id}`);
 export const getVesselReadiness = (
   id: string,
