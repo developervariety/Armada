@@ -608,8 +608,7 @@ namespace Armada.Core.Services
                     stage, missionDescriptions, specialistPersonas);
                 foreach (string? preferredModel in resolvedPreferences.Distinct(StringComparer.OrdinalIgnoreCase))
                 {
-                    CaptainAssignmentOverride? assignment = captainAssignments?.FirstOrDefault(item => item != null
-                        && PersonaCatalog.Matches(item.Persona, stage.PersonaName));
+                    CaptainAssignmentOverride? assignment = MissionService.SelectCaptainOverride(captainAssignments, stage.PersonaName);
                     CaptainTierEnum? fallbackTier = assignment?.FallbackTier;
                     List<Captain> configured = captains
                         .Where(IsConfiguredUsableCaptain)

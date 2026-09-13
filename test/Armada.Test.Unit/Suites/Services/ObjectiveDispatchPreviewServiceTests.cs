@@ -486,6 +486,64 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("A wildcard captain assignment applies to every role", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    harness.Captain.Tier = CaptainTierEnum.Standard;
+                    await testDb.Driver.Captains.UpdateAsync(harness.Captain).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("wildcard-assignment-preview");
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(
+                        harness.Auth,
+                        objective,
+                        null,
+                        null,
+                        new List<CaptainAssignmentOverride>
+                        {
+                            new CaptainAssignmentOverride("*", null, CaptainTierEnum.Premium)
+                        },
+                        new List<MissionDescription>
+                        {
+                            new MissionDescription("Implement", "Change code") { Mode = "Implementation" }
+                        }).ConfigureAwait(false);
+
+                    AssertFalse(result.IsReady, "The wildcard assignment's Premium fallback tier applies to the Worker role.");
+                    AssertEqual(0, result.RequiredRoles.Single().EligibleConfiguredCaptainIds.Count,
+                        "A Standard captain does not cover the wildcard Premium fallback requirement.");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("An exact persona assignment wins over a wildcard assignment", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    harness.Captain.Tier = CaptainTierEnum.Standard;
+                    await testDb.Driver.Captains.UpdateAsync(harness.Captain).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("exact-over-wildcard-preview");
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(
+                        harness.Auth,
+                        objective,
+                        null,
+                        null,
+                        new List<CaptainAssignmentOverride>
+                        {
+                            new CaptainAssignmentOverride("*", null, CaptainTierEnum.Premium),
+                            new CaptainAssignmentOverride("Worker", null, null)
+                        },
+                        new List<MissionDescription>
+                        {
+                            new MissionDescription("Implement", "Change code") { Mode = "Implementation" }
+                        }).ConfigureAwait(false);
+
+                    AssertEqual(1, result.RequiredRoles.Single().EligibleConfiguredCaptainIds.Count,
+                        "The exact Worker assignment has no fallback tier, so the Standard captain covers the role.");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Preview inherits mission tier and caps high to mid for Worker coverage", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

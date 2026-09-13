@@ -8253,12 +8253,11 @@ namespace Armada.Core.Services
             CaptainTierEnum? resolvedTier = null;
 
             List<CaptainAssignmentOverride> overrides = await ReadVoyageCaptainOverridesAsync(mission.VoyageId, token).ConfigureAwait(false);
-            foreach (CaptainAssignmentOverride ov in overrides)
+            CaptainAssignmentOverride? chosen = SelectCaptainOverride(overrides, mission.Persona);
+            if (chosen != null)
             {
-                if (!PersonaCatalog.Matches(ov.Persona, mission.Persona)) continue;
-                resolvedCaptainId = String.IsNullOrEmpty(ov.CaptainId) ? null : ov.CaptainId;
-                resolvedTier = ov.FallbackTier;
-                break;
+                resolvedCaptainId = String.IsNullOrEmpty(chosen.CaptainId) ? null : chosen.CaptainId;
+                resolvedTier = chosen.FallbackTier;
             }
 
             if (String.IsNullOrEmpty(resolvedCaptainId))
@@ -8358,6 +8357,35 @@ namespace Armada.Core.Services
         {
             if (overrides == null || overrides.Count == 0) return null;
             return JsonSerializer.Serialize(overrides);
+        }
+
+        /// <summary>
+        /// Select the captain override that applies to a persona. An override naming the persona wins. An override
+        /// whose persona is "*" or empty applies to every persona without its own override, so a dispatch can pin one
+        /// captain when the pipeline is inherited and its steps are unknown. Mission captain resolution and the
+        /// dispatch preview both use this rule.
+        /// </summary>
+        /// <param name="overrides">Voyage or dispatch captain overrides, or null.</param>
+        /// <param name="persona">Persona of the step being resolved.</param>
+        /// <returns>The applicable override, or null when none applies.</returns>
+        public static CaptainAssignmentOverride? SelectCaptainOverride(IEnumerable<CaptainAssignmentOverride>? overrides, string? persona)
+        {
+            if (overrides == null) return null;
+
+            CaptainAssignmentOverride? wildcard = null;
+            foreach (CaptainAssignmentOverride ov in overrides)
+            {
+                if (ov == null) continue;
+                if (String.IsNullOrWhiteSpace(ov.Persona) || ov.Persona.Trim() == "*")
+                {
+                    if (wildcard == null) wildcard = ov;
+                    continue;
+                }
+
+                if (PersonaCatalog.Matches(ov.Persona, persona)) return ov;
+            }
+
+            return wildcard;
         }
 
         private async Task DispatchPendingMissionsAsync(CancellationToken token)

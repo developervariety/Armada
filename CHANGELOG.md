@@ -14,6 +14,16 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Captain assignment for inherited pipelines
+
+- A voyage captain assignment with persona `*` (or an empty persona) now applies
+  to every step that has no exact persona assignment; an exact assignment still
+  wins. Mission captain resolution and the objective dispatch preview use the
+  same rule. Before, both matched persona names exactly, so a wildcard
+  assignment was stored and ignored.
+- Dispatch with an inherited pipeline offers one "All steps" captain assignment
+  row that sends the `*` persona.
+
 ### Incident recovery detail
 
 - An incident that names a mission shows that mission's recovery report from
