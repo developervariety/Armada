@@ -57,13 +57,14 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO captains (id, tenant_id, user_id, name, runtime, model, api_key, api_base_url, system_instructions, allowed_personas, preferred_persona, runtime_options_json, default_playbooks, curate_threshold, learned_playbook_id, state, current_mission_id, current_dock_id, process_id, recovery_attempts, last_heartbeat_utc, quarantine_until_utc, quarantine_reason, created_utc, last_update_utc)
-                            VALUES (@id, @tenant_id, @user_id, @name, @runtime, @model, @api_key, @api_base_url, @system_instructions, @allowed_personas, @preferred_persona, @runtime_options_json, @default_playbooks, @curate_threshold, @learned_playbook_id, @state, @current_mission_id, @current_dock_id, @process_id, @recovery_attempts, @last_heartbeat_utc, @quarantine_until_utc, @quarantine_reason, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO captains (id, tenant_id, user_id, name, runtime, model, api_key, api_base_url, system_instructions, allowed_personas, preferred_persona, runtime_options_json, default_playbooks, curate_threshold, learned_playbook_id, state, current_mission_id, current_dock_id, process_id, recovery_attempts, last_heartbeat_utc, quarantine_until_utc, quarantine_reason, created_utc, last_update_utc, tier)
+                            VALUES (@id, @tenant_id, @user_id, @name, @runtime, @model, @api_key, @api_base_url, @system_instructions, @allowed_personas, @preferred_persona, @runtime_options_json, @default_playbooks, @curate_threshold, @learned_playbook_id, @state, @current_mission_id, @current_dock_id, @process_id, @recovery_attempts, @last_heartbeat_utc, @quarantine_until_utc, @quarantine_reason, @created_utc, @last_update_utc, @tier);";
                     cmd.Parameters.AddWithValue("@id", captain.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)captain.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)captain.UserId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@name", captain.Name);
                     cmd.Parameters.AddWithValue("@runtime", captain.Runtime.ToString());
+                    BackendMetadataPersistence.AddCaptain(cmd, captain);
                     cmd.Parameters.AddWithValue("@model", (object?)captain.Model ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@api_key", (object?)captain.ApiKey ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@api_base_url", (object?)captain.ApiBaseUrl ?? DBNull.Value);
@@ -164,7 +165,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.Transaction = tx;
-                    cmd.CommandText = @"UPDATE captains SET
+                    cmd.CommandText = @"UPDATE captains SET tier = @tier,
                             tenant_id = @tenant_id,
                             user_id = @user_id,
                             name = @name,
@@ -194,6 +195,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.Parameters.AddWithValue("@user_id", (object?)captain.UserId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@name", captain.Name);
                     cmd.Parameters.AddWithValue("@runtime", captain.Runtime.ToString());
+                    BackendMetadataPersistence.AddCaptain(cmd, captain);
                     cmd.Parameters.AddWithValue("@model", (object?)captain.Model ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@api_key", (object?)captain.ApiKey ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@api_base_url", (object?)captain.ApiBaseUrl ?? DBNull.Value);

@@ -231,8 +231,8 @@ namespace Armada.Core.Database.Sqlite
                                 cmd.CommandText = sql;
                                 try
                                 {
-                                    if (migration.Version == 83)
-                                        await AdditiveVesselPreviewMigration.ExecuteAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, sql, token).ConfigureAwait(false);
+                                    if (migration.Version == 83 || migration.Version == 84)
+                                        await AdditiveColumnMigration.ExecuteAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, sql, token).ConfigureAwait(false);
                                     else
                                         await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                                     MigrationCheckpoint?.Invoke(migration.Version, statementOrdinal);
@@ -517,6 +517,7 @@ namespace Armada.Core.Database.Sqlite
             try { vessel.PackCurateThreshold = reader["pack_curate_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["pack_curate_threshold"]); } catch { }
             try { vessel.ArchitectMaxMissionsPerVoyage = reader["architect_max_missions_per_voyage"] == DBNull.Value ? null : Convert.ToInt32(reader["architect_max_missions_per_voyage"]); } catch { }
             VesselPreviewPersistence.Read(reader, vessel);
+            BackendMetadataPersistence.ReadVessel(reader, vessel);
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToInt64(reader["active"]) == 1;
             vessel.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
@@ -532,6 +533,7 @@ namespace Armada.Core.Database.Sqlite
         internal static Captain CaptainFromReader(SqliteDataReader reader)
         {
             Captain captain = new Captain();
+            BackendMetadataPersistence.ReadCaptain(reader, captain);
             captain.Id = reader["id"].ToString()!;
             captain.TenantId = NullableString(reader["tenant_id"]);
             captain.UserId = NullableString(reader["user_id"]);
@@ -571,6 +573,7 @@ namespace Armada.Core.Database.Sqlite
         internal static Mission MissionFromReader(SqliteDataReader reader)
         {
             Mission mission = new Mission();
+            BackendMetadataPersistence.ReadMission(reader, mission);
             mission.Id = reader["id"].ToString()!;
             mission.TenantId = NullableString(reader["tenant_id"]);
             mission.UserId = NullableString(reader["user_id"]);

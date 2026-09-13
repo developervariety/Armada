@@ -186,6 +186,7 @@ namespace Armada.Core.Database
         {
             if (String.IsNullOrWhiteSpace(value)) return String.Empty;
             string normalized = Regex.Replace(value.Trim(), @"::[a-z ]+$", "", RegexOptions.IgnoreCase).Trim('(', ')');
+            if (normalized.Equals("NULL", StringComparison.OrdinalIgnoreCase)) return String.Empty;
             if (normalized.StartsWith("N'", StringComparison.OrdinalIgnoreCase)) normalized = normalized.Substring(1);
             if (normalized.Equals("TRUE", StringComparison.OrdinalIgnoreCase) || normalized.Equals("FALSE", StringComparison.OrdinalIgnoreCase))
                 return normalized.ToLowerInvariant();

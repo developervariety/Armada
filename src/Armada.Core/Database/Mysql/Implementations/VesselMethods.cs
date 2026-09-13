@@ -53,8 +53,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO vessels (id, tenant_id, user_id, fleet_id, name, repo_url, local_path, working_directory, project_context, style_guide, enable_model_context, model_context, landing_mode, branch_cleanup_policy, allow_concurrent_missions, require_passing_checks_to_land, protected_branch_patterns, release_branch_prefix, hotfix_branch_prefix, require_pull_request_for_protected_branches, require_merge_queue_for_release_branches, default_pipeline_id, protected_paths, auto_land_predicate, auto_land_calibration_landed_count, default_playbooks, sibling_repos, last_reflection_mission_id, reflection_threshold, reorganize_threshold, pack_curate_threshold, architect_max_missions_per_voyage, default_branch, active, created_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @fleet_id, @name, @repo_url, @local_path, @working_directory, @project_context, @style_guide, @enable_model_context, @model_context, @landing_mode, @branch_cleanup_policy, @allow_concurrent_missions, @require_passing_checks_to_land, @protected_branch_patterns, @release_branch_prefix, @hotfix_branch_prefix, @require_pull_request_for_protected_branches, @require_merge_queue_for_release_branches, @default_pipeline_id, @protected_paths, @auto_land_predicate, @auto_land_calibration_landed_count, @default_playbooks, @sibling_repos, @last_reflection_mission_id, @reflection_threshold, @reorganize_threshold, @pack_curate_threshold, @architect_max_missions_per_voyage, @default_branch, @active, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO vessels (id, tenant_id, user_id, fleet_id, name, repo_url, local_path, working_directory, project_context, style_guide, enable_model_context, model_context, landing_mode, branch_cleanup_policy, allow_concurrent_missions, require_passing_checks_to_land, protected_branch_patterns, release_branch_prefix, hotfix_branch_prefix, require_pull_request_for_protected_branches, require_merge_queue_for_release_branches, default_pipeline_id, protected_paths, auto_land_predicate, auto_land_calibration_landed_count, default_playbooks, sibling_repos, last_reflection_mission_id, reflection_threshold, reorganize_threshold, pack_curate_threshold, architect_max_missions_per_voyage, default_branch, active, created_utc, last_update_utc, secret_scan_enabled, protected_path_patterns_json, private_identifier_denylist_json)
+                        VALUES (@id, @tenant_id, @user_id, @fleet_id, @name, @repo_url, @local_path, @working_directory, @project_context, @style_guide, @enable_model_context, @model_context, @landing_mode, @branch_cleanup_policy, @allow_concurrent_missions, @require_passing_checks_to_land, @protected_branch_patterns, @release_branch_prefix, @hotfix_branch_prefix, @require_pull_request_for_protected_branches, @require_merge_queue_for_release_branches, @default_pipeline_id, @protected_paths, @auto_land_predicate, @auto_land_calibration_landed_count, @default_playbooks, @sibling_repos, @last_reflection_mission_id, @reflection_threshold, @reorganize_threshold, @pack_curate_threshold, @architect_max_missions_per_voyage, @default_branch, @active, @created_utc, @last_update_utc, @secret_scan_enabled, @protected_path_patterns_json, @private_identifier_denylist_json);";
                     cmd.Parameters.AddWithValue("@id", vessel.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)vessel.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)vessel.UserId ?? DBNull.Value);
@@ -71,6 +71,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@branch_cleanup_policy", vessel.BranchCleanupPolicy.HasValue ? vessel.BranchCleanupPolicy.Value.ToString() : DBNull.Value);
                     cmd.Parameters.AddWithValue("@allow_concurrent_missions", vessel.AllowConcurrentMissions ? 1 : 0);
                     VesselPreviewPersistence.AddParameters(cmd, vessel);
+                    BackendMetadataPersistence.AddVessel(cmd, vessel);
                     cmd.Parameters.AddWithValue("@default_pipeline_id", (object?)vessel.DefaultPipelineId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@protected_paths", (object?)SerializeProtectedPaths(vessel.ProtectedPaths) ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@auto_land_predicate", (object?)vessel.AutoLandPredicate ?? DBNull.Value);
@@ -165,7 +166,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"UPDATE vessels SET
+                    cmd.CommandText = @"UPDATE vessels SET secret_scan_enabled = @secret_scan_enabled, protected_path_patterns_json = @protected_path_patterns_json, private_identifier_denylist_json = @private_identifier_denylist_json,
                         tenant_id = @tenant_id,
                             user_id = @user_id,
                         fleet_id = @fleet_id,
@@ -217,6 +218,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@branch_cleanup_policy", vessel.BranchCleanupPolicy.HasValue ? vessel.BranchCleanupPolicy.Value.ToString() : DBNull.Value);
                     cmd.Parameters.AddWithValue("@allow_concurrent_missions", vessel.AllowConcurrentMissions ? 1 : 0);
                     VesselPreviewPersistence.AddParameters(cmd, vessel);
+                    BackendMetadataPersistence.AddVessel(cmd, vessel);
                     cmd.Parameters.AddWithValue("@default_pipeline_id", (object?)vessel.DefaultPipelineId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@protected_paths", (object?)SerializeProtectedPaths(vessel.ProtectedPaths) ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@auto_land_predicate", (object?)vessel.AutoLandPredicate ?? DBNull.Value);
@@ -817,6 +819,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             try { vessel.PackCurateThreshold = reader["pack_curate_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["pack_curate_threshold"]); } catch { }
             try { vessel.ArchitectMaxMissionsPerVoyage = reader["architect_max_missions_per_voyage"] == DBNull.Value ? null : Convert.ToInt32(reader["architect_max_missions_per_voyage"]); } catch { }
             VesselPreviewPersistence.Read(reader, vessel);
+            BackendMetadataPersistence.ReadVessel(reader, vessel);
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToInt64(reader["active"]) == 1;
             vessel.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);

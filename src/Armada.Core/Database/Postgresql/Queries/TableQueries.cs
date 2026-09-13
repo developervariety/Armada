@@ -1002,6 +1002,12 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"ALTER TABLE vessels ADD COLUMN hotfix_branch_prefix TEXT NOT NULL DEFAULT 'hotfix/';",
                     @"ALTER TABLE vessels ADD COLUMN require_pull_request_for_protected_branches BOOLEAN NOT NULL DEFAULT FALSE;",
                     @"ALTER TABLE vessels ADD COLUMN require_merge_queue_for_release_branches BOOLEAN NOT NULL DEFAULT FALSE;"
+                ),
+                new SchemaMigration(85, "Persist routing metadata and planning provenance",
+                    @"ALTER TABLE captains ADD COLUMN tier TEXT NULL;",
+                    @"ALTER TABLE missions ADD COLUMN tier TEXT NULL;",
+                    @"ALTER TABLE voyages ADD COLUMN source_planning_session_id TEXT NULL;",
+                    @"ALTER TABLE voyages ADD COLUMN source_planning_message_id TEXT NULL;"
                 )
             };
         }

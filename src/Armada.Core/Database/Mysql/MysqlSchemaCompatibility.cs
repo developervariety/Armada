@@ -115,6 +115,10 @@ namespace Armada.Core.Database.Mysql
             Match defaultMatch = Regex.Match(declaration, @"\bDEFAULT (.+?)(?:\s+UNIQUE)?$", RegexOptions.IgnoreCase);
             string? expectedDefault = defaultMatch.Success ? defaultMatch.Groups[1].Value : null;
             string actualType = column["column_type"] ?? String.Empty;
+            if (table == "voyages" && version == 76
+                && name is "source_planning_session_id" or "source_planning_message_id"
+                && !SupportsFullUnicode(column["character_set_name"]))
+                throw Incompatible(table, name + " requires a full Unicode character set");
             if (table == "vessels" && version == 75
                 && name is "protected_branch_patterns" or "release_branch_prefix" or "hotfix_branch_prefix"
                 && !SupportsFullUnicode(column["character_set_name"]))

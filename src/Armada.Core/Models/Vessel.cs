@@ -271,20 +271,17 @@ namespace Armada.Core.Models
         public int AutoLandCalibrationLandedCount { get; set; } = 0;
 
         /// <summary>
-        /// When true, the dock-boundary scanner scans mission diffs for secret and
-        /// protected-path violations before allowing landing.
+        /// Stored vessel scan preference. Enforcement currently uses global dock-boundary settings.
         /// </summary>
         public bool SecretScanEnabled { get; set; } = false;
 
         /// <summary>
-        /// Glob patterns for paths the dock-boundary scanner protects. A mission that
-        /// touches a matching path is blocked from landing.
+        /// Stored vessel path preferences. Enforcement currently uses ProtectedPaths and global scanner settings.
         /// </summary>
         public List<string> ProtectedPathPatterns { get; set; } = new List<string>();
 
         /// <summary>
-        /// Identifiers (names, URLs, partial keys) the dock-boundary scanner redacts
-        /// or blocks. A mission diff containing a matching string is blocked.
+        /// Stored vessel identifier preferences. Enforcement currently uses the global scanner denylist.
         /// </summary>
         public List<string> PrivateIdentifierDenylist { get; set; } = new List<string>();
 

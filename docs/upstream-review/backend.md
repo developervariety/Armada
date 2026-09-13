@@ -124,3 +124,9 @@ No service was started, no exploit was attempted, no runtime was launched, and n
 The file census is exhaustive within the stated path scope. The semantic review is family-based, with deep reads of high-risk call paths. It does not prove every hunk is safe. Before implementation, the owning objective must recheck its exact method changes against both fixed tips and the then-current fork tip.
 
 Open questions include: identity propagation on WebSocket broadcast and Harbor upgrade; cross-user prompt/profile references; global-admin user-only filtering (`EnumerationScope.Resolve` ignores a user-only filter without tenant); required-Harbor eligibility races; provider-specific endpoint credentials; scoped chat events; native-memory key uniqueness; behavior of backups on each provider; and package/runtime compatibility. These require targeted tests, not a broad merge.
+
+## Backend storage implementation
+
+See [backend metadata persistence](backend-storage.md) for verified field losses,
+new additive migrations and preserved behavior. Storage does not activate routing
+or scanner policy, and does not complete the remaining backend enrichment.

@@ -14,7 +14,8 @@ runs, omitted registration, duplicate identities, invalid filters and missing
 exceptions. Named skips require a reason; an all-skipped run fails.
 
 The [case ownership map](test-case-ownership.json) compares exact baseline case
-identities with current execution. Baseline console registrations and database
+identities with discovery execution at `2fdca8e1`. It is a fixed evidence snapshot;
+later test additions need new run manifests. Baseline console registrations and database
 case declarations are retained. The baseline is the accepted foundation tree.
 Portable PDB checksums bind current manifests to entry-project test sources used
 at build. Symbol identity must match the executing assembly. This does not

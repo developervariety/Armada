@@ -138,8 +138,8 @@ namespace Armada.Core.Database.Postgresql
                                     cmd.Connection = conn;
                                     cmd.Transaction = tx;
                                     cmd.CommandText = sql;
-                                    if (migration.Version == 84)
-                                        await AdditiveVesselPreviewMigration.ExecuteAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Postgresql, sql, token).ConfigureAwait(false);
+                                    if (migration.Version == 84 || migration.Version == 85)
+                                        await AdditiveColumnMigration.ExecuteAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Postgresql, sql, token).ConfigureAwait(false);
                                     else
                                         await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                                     MigrationCheckpoint?.Invoke(migration.Version, statementOrdinal);

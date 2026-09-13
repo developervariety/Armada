@@ -1,8 +1,10 @@
 # Fork preservation and provider foundation
 
-Evidence date: 2026-09-13 UTC. This is an implementation checkpoint, not
-four-provider certification. The foundation remains open. Provider repairs are
-in review and test. They have not been deployed.
+Evidence date: 2026-09-13 UTC. The provider foundation was accepted at `11fd66a2`
+after the checks in [provider repair acceptance results](#provider-repair-acceptance-results).
+It has not been deployed and does not complete the upstream campaign. Earlier
+checkpoint findings below describe the repair baseline; later backend storage
+changes have [separate evidence](backend-storage.md).
 
 ## Source boundary and migration ownership
 
@@ -222,8 +224,8 @@ ISO text column. This produced a non-ISO value and a paging failure. The fixture
 now preserves the historical ISO representation. Tenant paging also has an ID
 tie-breaker and a deliberate tied-time regression case.
 Populated compatibility, incompatible-schema, lease and first-boot recovery
-fixtures are now implemented. Final checks are in progress; the foundation
-remains open until those checks pass. The campaign continues after foundation.
+fixtures were implemented before the final acceptance checks recorded below.
+The campaign continues after foundation.
 
 See [additional entity fields](foundation-entities.md) for the source matrix and
 explicit missing capabilities. Source presence alone does not prove service
@@ -306,3 +308,10 @@ FullPipeline or ProductDevelopment definitions, enable Recorder memory writes,
 or change active pipeline policy as a side effect of these database fixes.
 The original path/commit inventory stays pinned; this note records the later
 change without rewriting that evidence.
+
+## Later backend storage repairs
+
+[Backend storage evidence](backend-storage.md) records nullable tier and requested
+captain persistence, vessel scanner metadata and voyage planning provenance.
+Those repairs preserve routing policy and existing landing enforcement. Historical
+source findings in the original matrix remain provenance, not current defect status.

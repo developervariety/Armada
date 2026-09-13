@@ -92,6 +92,13 @@ namespace Armada.Test.Database
             await RunTest("Vessel_Create_Read_Update_Enumerate", "Operational", () => TestVesselCrudAsync(token), token);
             foreach (string field in new[] { "RequirePassingChecksToLand", "ProtectedBranchPatterns", "ReleaseBranchPrefix", "HotfixBranchPrefix", "RequirePullRequestForProtectedBranches", "RequireMergeQueueForReleaseBranches" })
                 await RunTest("Vessel_Preview_" + field + "_Create_Update_Reopen", "Operational", () => TestVesselPreviewFieldAsync(field, token), token);
+            foreach (string field in new[] { "SecretScanEnabled", "ProtectedPathPatterns", "PrivateIdentifierDenylist" })
+                await RunTest("Vessel_Scanner_" + field + "_Create_Update_Reopen", "Operational", () => TestVesselPreviewFieldAsync(field, token), token);
+            await RunTest("Captain_Tier_Create_Update_Clear_Reopen", "Operational", () => TestBackendFieldAsync("Captain", "Tier", token), token);
+            foreach (string field in new[] { "RequestedCaptainId", "Tier" })
+                await RunTest("Mission_" + field + "_Create_Update_Clear_Reopen", "Operational", () => TestBackendFieldAsync("Mission", field, token), token);
+            foreach (string field in new[] { "SourcePlanningSessionId", "SourcePlanningMessageId" })
+                await RunTest("Voyage_" + field + "_Create_Update_Clear_Reopen", "Operational", () => TestBackendFieldAsync("Voyage", field, token), token);
             await RunTest("Captain_Create_Read_Update", "Operational", () => TestCaptainCrudAsync(token), token);
             await RunTest("Voyage_Create_Read_Update", "Operational", () => TestVoyageCrudAsync(token), token);
             await RunTest("Mission_Create_Read_Update", "Operational", () => TestMissionCrudAsync(token), token);
@@ -501,6 +508,62 @@ namespace Armada.Test.Database
                     Vessel persisted = DatabaseAssert.NotNull(await reopened.Vessels.ReadAsync(vessel.Id, token).ConfigureAwait(false), "Updated preview vessel");
                     DatabaseAssert.Equal(System.Text.Json.JsonSerializer.Serialize(updatedValue),
                         System.Text.Json.JsonSerializer.Serialize(property.GetValue(persisted)), field + " update/reopen");
+                }
+            }
+            finally { await fixture.CleanupAsync(token).ConfigureAwait(false); }
+        }
+
+        private async Task TestBackendFieldAsync(string entity, string field, CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                Captain other = await fixture.CreateCaptainAsync(graph.Tenant.Id, graph.User.Id, "other-target", token).ConfigureAwait(false);
+                object createdValue = field == "Tier" ? CaptainTierEnum.Premium
+                    : field == "RequestedCaptainId" ? graph.Captain.Id : "created-日本語-" + Guid.NewGuid().ToString("N");
+                object updatedValue = field == "Tier" ? CaptainTierEnum.Economy
+                    : field == "RequestedCaptainId" ? other.Id : "updated-日本語-" + Guid.NewGuid().ToString("N");
+                Type type = entity == "Captain" ? typeof(Captain) : entity == "Mission" ? typeof(Mission) : typeof(Voyage);
+                System.Reflection.PropertyInfo property = type.GetProperty(field) ?? throw new InvalidOperationException(field);
+                string id;
+                if (entity == "Captain")
+                {
+                    Captain value = await fixture.CreateCaptainAsync(graph.Tenant.Id, graph.User.Id, "tier", token,
+                        configure: item => property.SetValue(item, createdValue)).ConfigureAwait(false);
+                    id = value.Id;
+                }
+                else if (entity == "Mission")
+                {
+                    Mission value = await fixture.CreateMissionAsync(graph.Tenant.Id, graph.User.Id, graph.Voyage.Id,
+                        graph.Vessel.Id, graph.Captain.Id, "provenance", token,
+                        configure: item => property.SetValue(item, createdValue)).ConfigureAwait(false);
+                    id = value.Id;
+                }
+                else
+                {
+                    Voyage value = await fixture.CreateVoyageAsync(graph.Tenant.Id, graph.User.Id, "provenance", token,
+                        configure: item => property.SetValue(item, createdValue)).ConfigureAwait(false);
+                    id = value.Id;
+                }
+                object?[] expectedValues = new object?[] { createdValue, updatedValue, null };
+                for (int step = 0; step < expectedValues.Length; step++)
+                {
+                    using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                    {
+                        object persisted = entity switch
+                        {
+                            "Captain" => DatabaseAssert.NotNull(await reopened.Captains.ReadAsync(id, token).ConfigureAwait(false), "Captain missing"),
+                            "Mission" => DatabaseAssert.NotNull(await reopened.Missions.ReadAsync(id, token).ConfigureAwait(false), "Mission missing"),
+                            _ => DatabaseAssert.NotNull(await reopened.Voyages.ReadAsync(id, token).ConfigureAwait(false), "Voyage missing")
+                        };
+                        DatabaseAssert.Equal(expectedValues[step], property.GetValue(persisted), entity + "." + field + " reopen step " + step);
+                        if (step + 1 == expectedValues.Length) continue;
+                        property.SetValue(persisted, expectedValues[step + 1]);
+                        if (persisted is Captain captain) await reopened.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
+                        else if (persisted is Mission mission) await reopened.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                        else await reopened.Voyages.UpdateAsync((Voyage)persisted, token).ConfigureAwait(false);
+                    }
                 }
             }
             finally { await fixture.CleanupAsync(token).ConfigureAwait(false); }

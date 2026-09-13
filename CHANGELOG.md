@@ -14,6 +14,15 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Backend metadata persistence
+
+- Preserve nullable captain tier, mission requested captain and tier, vessel scan
+  preferences, and voyage planning provenance across provider reloads.
+- Append schema versions without changing applied history. Retain PostgreSQL's
+  existing integer scanner column and reject restricted MySQL provenance encoding.
+- Add non-default create/update/clear/reopen cases and interrupted migration proof.
+  Routing selection, process ownership and active landing protections are preserved.
+
 ### Test discovery and provider persistence
 
 - Register 12 existing Unit suites and eight existing API suites. Retain the

@@ -867,6 +867,12 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"ALTER TABLE vessels ADD hotfix_branch_prefix NVARCHAR(MAX) NOT NULL DEFAULT 'hotfix/';",
                     @"ALTER TABLE vessels ADD require_pull_request_for_protected_branches BIT NOT NULL DEFAULT 0;",
                     @"ALTER TABLE vessels ADD require_merge_queue_for_release_branches BIT NOT NULL DEFAULT 0;"
+                ),
+                new SchemaMigration(79, "Persist routing metadata and planning provenance",
+                    @"ALTER TABLE captains ADD tier NVARCHAR(32) NULL;",
+                    @"ALTER TABLE missions ADD tier NVARCHAR(32) NULL;",
+                    @"ALTER TABLE voyages ADD source_planning_session_id NVARCHAR(450) NULL;",
+                    @"ALTER TABLE voyages ADD source_planning_message_id NVARCHAR(450) NULL;"
                 )
             };
         }

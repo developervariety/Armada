@@ -113,6 +113,18 @@ namespace Armada.Test.Database
             Dictionary<int, string> interrupted = await history.ReadHistoryAsync(token).ConfigureAwait(false);
             DatabaseAssert.Equal(before.Count, interrupted.Count, "Interrupted preview version is not applied");
             MigrationScenarioRunner.AssertHistory(before, interrupted);
+            using (DatabaseDriver driver = CreateDriver())
+            {
+                driver.MigrationCheckpoint = (current, ordinal) =>
+                {
+                    if (current == version && ordinal == -2) throw new StopException();
+                };
+                try { await driver.InitializeAsync(token).ConfigureAwait(false); throw new Exception("Fixture did not stop after preview commit"); }
+                catch (StopException) { }
+            }
+            Dictionary<int, string> previewCommitted = await history.ReadHistoryAsync(token).ConfigureAwait(false);
+            DatabaseAssert.Equal(before.Count + 1, previewCommitted.Count, "Only the preview version is committed at its checkpoint");
+            MigrationScenarioRunner.AssertHistory(before, previewCommitted);
             using (DatabaseDriver driver = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
             {
                 Vessel legacy = DatabaseAssert.NotNull(await driver.Vessels.ReadAsync(id, token).ConfigureAwait(false), "Legacy vessel retained");
@@ -124,7 +136,7 @@ namespace Armada.Test.Database
                 DatabaseAssert.True(!legacy.RequirePullRequestForProtectedBranches && !legacy.RequireMergeQueueForReleaseBranches, "New boolean defaults");
                 await driver.InitializeAsync(token).ConfigureAwait(false);
                 Dictionary<int, string> after = await history.ReadHistoryAsync(token).ConfigureAwait(false);
-                DatabaseAssert.Equal(before.Count + 1, after.Count, "Only the append-only preview version added");
+                MigrationScenarioRunner.AssertHistory(previewCommitted, after);
                 MigrationScenarioRunner.AssertHistory(before, after);
                 await driver.Vessels.DeleteAsync(id, token).ConfigureAwait(false);
             }

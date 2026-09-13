@@ -643,7 +643,8 @@ namespace Armada.Core.Database.Mysql
                     "Add objective preparation",
                     TableQueries.MigrationV74Statements
                 ),
-                new SchemaMigration(75, "Persist vessel preview configuration", VesselPreviewSchema.MigrationV75Statements)
+                new SchemaMigration(75, "Persist vessel preview configuration", VesselPreviewSchema.MigrationV75Statements),
+                new SchemaMigration(76, "Persist routing metadata and planning provenance", BackendMetadataSchema.MigrationV76Statements)
             };
         }
 
@@ -791,6 +792,7 @@ namespace Armada.Core.Database.Mysql
             try { vessel.AllowConcurrentMissions = Convert.ToInt64(reader["allow_concurrent_missions"]) == 1; }
             catch { vessel.AllowConcurrentMissions = false; }
             VesselPreviewPersistence.Read(reader, vessel);
+            BackendMetadataPersistence.ReadVessel(reader, vessel);
             vessel.DefaultBranch = reader["default_branch"].ToString()!;
             vessel.Active = Convert.ToInt64(reader["active"]) == 1;
             vessel.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
@@ -801,6 +803,7 @@ namespace Armada.Core.Database.Mysql
         internal static Captain CaptainFromReader(MySqlDataReader reader)
         {
             Captain captain = new Captain();
+            BackendMetadataPersistence.ReadCaptain(reader, captain);
             captain.Id = reader["id"].ToString()!;
             captain.TenantId = NullableString(reader["tenant_id"]);
             captain.UserId = NullableString(reader["user_id"]);

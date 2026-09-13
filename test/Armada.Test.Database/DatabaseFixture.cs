@@ -98,7 +98,7 @@ namespace Armada.Test.Database
             return vessel;
         }
 
-        public async Task<Captain> CreateCaptainAsync(string tenantId, string userId, string namePrefix, CancellationToken token = default, string model = null)
+        public async Task<Captain> CreateCaptainAsync(string tenantId, string userId, string namePrefix, CancellationToken token = default, string model = null, Action<Captain>? configure = null)
         {
             Captain captain = new Captain(namePrefix + "-" + Token(), AgentRuntimeEnum.Codex)
             {
@@ -108,12 +108,13 @@ namespace Armada.Test.Database
                 Model = model
             };
 
+            configure?.Invoke(captain);
             await _Driver.Captains.CreateAsync(captain, token).ConfigureAwait(false);
             RegisterCleanup(async ct => await _Driver.Captains.DeleteAsync(captain.Id, ct).ConfigureAwait(false));
             return captain;
         }
 
-        public async Task<Voyage> CreateVoyageAsync(string tenantId, string userId, string titlePrefix, CancellationToken token = default)
+        public async Task<Voyage> CreateVoyageAsync(string tenantId, string userId, string titlePrefix, CancellationToken token = default, Action<Voyage>? configure = null)
         {
             Voyage voyage = new Voyage(titlePrefix + "-" + Token(), "Voyage description")
             {
@@ -122,12 +123,13 @@ namespace Armada.Test.Database
                 Status = VoyageStatusEnum.Open
             };
 
+            configure?.Invoke(voyage);
             await _Driver.Voyages.CreateAsync(voyage, token).ConfigureAwait(false);
             RegisterCleanup(async ct => await _Driver.Voyages.DeleteAsync(voyage.Id, ct).ConfigureAwait(false));
             return voyage;
         }
 
-        public async Task<Mission> CreateMissionAsync(string tenantId, string userId, string voyageId, string vesselId, string captainId, string titlePrefix, CancellationToken token = default, DateTime? startedUtc = null, DateTime? completedUtc = null)
+        public async Task<Mission> CreateMissionAsync(string tenantId, string userId, string voyageId, string vesselId, string captainId, string titlePrefix, CancellationToken token = default, DateTime? startedUtc = null, DateTime? completedUtc = null, Action<Mission>? configure = null)
         {
             Mission mission = new Mission(titlePrefix + "-" + Token(), "Mission description")
             {
@@ -143,6 +145,7 @@ namespace Armada.Test.Database
                 CompletedUtc = completedUtc
             };
 
+            configure?.Invoke(mission);
             await _Driver.Missions.CreateAsync(mission, token).ConfigureAwait(false);
             RegisterCleanup(async ct => await _Driver.Missions.DeleteAsync(mission.Id, ct).ConfigureAwait(false));
             return mission;

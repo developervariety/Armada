@@ -122,8 +122,8 @@ namespace Armada.Core.Models
         public string? RuntimeOptionsJson { get; set; } = null;
 
         /// <summary>
-        /// Optional capability/cost tier used by dispatch to route missions of a given complexity. Null
-        /// means the tier is auto-classified from the model name at selection time (defaulting to Standard).
+        /// Optional capability/cost tier for tier-aware previews and preference resolution. Null
+        /// uses model-name classification. Assignment retains the configured routing constraints.
         /// </summary>
         public CaptainTierEnum? Tier { get; set; } = null;
 
