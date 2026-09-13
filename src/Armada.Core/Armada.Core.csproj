@@ -8,6 +8,7 @@
     <!-- Lets the unit suite exercise internal search-cost guards (SplitQueryTerms term cap,
          ComputeLexicalScore whole-query needle length gate) directly. -->
     <InternalsVisibleTo Include="Test.Unit" />
+    <InternalsVisibleTo Include="Armada.Test.Database" />
   </ItemGroup>
 
   <ItemGroup>

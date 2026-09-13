@@ -202,7 +202,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@cached_tokens", record.CachedTokens);
             cmd.Parameters.AddWithValue("@total_tokens", record.TotalTokens);
             cmd.Parameters.AddWithValue("@estimated", record.Estimated ? 1 : 0);
-            cmd.Parameters.AddWithValue("@created_utc", MysqlDatabaseDriver.ToIso8601(record.CreatedUtc));
+            cmd.Parameters.AddWithValue("@created_utc", MysqlDatabaseDriver.ToDatabaseTimestamp(record.CreatedUtc));
         }
 
         private static TokenUsageRecord RecordFromReader(MySqlDataReader reader)
@@ -274,12 +274,12 @@ namespace Armada.Core.Database.Mysql.Implementations
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc >= @from_utc");
-                parameters.Add(new MySqlParameter("@from_utc", MysqlDatabaseDriver.ToIso8601(query.FromUtc.Value)));
+                parameters.Add(new MySqlParameter("@from_utc", MysqlDatabaseDriver.ToDatabaseTimestamp(query.FromUtc.Value)));
             }
             if (query.ToUtc.HasValue)
             {
                 conditions.Add("created_utc <= @to_utc");
-                parameters.Add(new MySqlParameter("@to_utc", MysqlDatabaseDriver.ToIso8601(query.ToUtc.Value)));
+                parameters.Add(new MySqlParameter("@to_utc", MysqlDatabaseDriver.ToDatabaseTimestamp(query.ToUtc.Value)));
             }
         }
 

@@ -275,10 +275,10 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@progress", job.Progress);
             cmd.Parameters.AddWithValue("@result_json", (object?)job.ResultJson ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@error_reason", (object?)job.ErrorReason ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@created_utc", MysqlDatabaseDriver.ToIso8601(job.CreatedUtc));
-            cmd.Parameters.AddWithValue("@started_utc", job.StartedUtc.HasValue ? (object)MysqlDatabaseDriver.ToIso8601(job.StartedUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@completed_utc", job.CompletedUtc.HasValue ? (object)MysqlDatabaseDriver.ToIso8601(job.CompletedUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@last_update_utc", MysqlDatabaseDriver.ToIso8601(job.LastUpdateUtc));
+            cmd.Parameters.AddWithValue("@created_utc", MysqlDatabaseDriver.ToDatabaseTimestamp(job.CreatedUtc));
+            cmd.Parameters.AddWithValue("@started_utc", job.StartedUtc.HasValue ? (object)MysqlDatabaseDriver.ToDatabaseTimestamp(job.StartedUtc.Value) : DBNull.Value);
+            cmd.Parameters.AddWithValue("@completed_utc", job.CompletedUtc.HasValue ? (object)MysqlDatabaseDriver.ToDatabaseTimestamp(job.CompletedUtc.Value) : DBNull.Value);
+            cmd.Parameters.AddWithValue("@last_update_utc", MysqlDatabaseDriver.ToDatabaseTimestamp(job.LastUpdateUtc));
         }
 
         private static Job JobFromReader(MySqlDataReader reader)

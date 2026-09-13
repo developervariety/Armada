@@ -61,6 +61,9 @@ namespace Armada.Test.Database
 
                 try
                 {
+                    if (options.MigrationScenario.Length > 0)
+                        await new MigrationScenarioRunner(settings).RunAsync(options.MigrationScenario, cts.Token).ConfigureAwait(false);
+
                     Console.WriteLine("Initializing database driver...");
                     DatabaseDriver driver = await DatabaseDriverFactory.CreateAndInitializeAsync(settings, cts.Token).ConfigureAwait(false);
 

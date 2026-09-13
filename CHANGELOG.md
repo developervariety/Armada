@@ -16,13 +16,28 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 
 ### Upstream preservation gates
 
+- Repair server startup prerequisites and pending DDL without rewriting applied
+  migration history. Add catalog checks, schema locks and MySQL statement recovery.
+- Preserve Unicode identifiers and full-value MySQL tenant uniqueness with native
+  unique indexes over an internal tenant key and the complete original value.
+- Restore missing user-scope read mappings, SQL Server Mission retry exclusions,
+  PostgreSQL deployment boolean binding and MySQL native timestamp parameters.
+- Add isolated fresh, interrupted, historical-upgrade and concurrent-startup
+  fixtures, plus full-value Unicode uniqueness and lease lifecycle tests.
+- Make first-boot identity creation atomic, reject incompatible pre-staged
+  SQL Server corrections, and prevent concurrent SQLite migration replay.
+- Keep tied-time tenant pages stable and restore MySQL captain provider reads.
+- Build shared test dependencies in sequence before parallel suite execution.
+
+
 - Add a fixed four-provider migration manifest and a source check that rejects
   changed history, reused numbers and altered initial SQL inputs.
 - Add repeat-startup and non-default Mission persistence cases to the existing
   database runner. Raise schema checks to the preserved fork baseline.
 - Record fresh-install failures for three server providers and unresolved
   field mappings in the [foundation checkpoint](docs/upstream-review/foundation.md).
-  These gates remain open; no production schema repair or deployment is claimed.
+  The initial failures are retained as baseline evidence; provider repairs are
+  described separately. No deployment is claimed.
 - Remove stale instructions that described the retired standalone lead as an
   available operator tool. Keep generic wakes and bounded helpers.
 
@@ -186,7 +201,7 @@ Skipped from upstream (already equal or richer here): captain-map, token-usage c
 - Rescue briefs: a Judge's narration preamble is dropped before any size budget applies; a Judge report's Suggested Follow-ups and Verdict stay whole in an over-cap brief; a documentation-only rescue under a Research objective is the work, not an `ineffective_rescue`.
 - Architect handoff: a front-matter block is titled from its title line, and every spawned brief carries the plan-block-label rule.
 - A stale sibling extraction-artifact copy in a shared sibling worktree is refreshed atomically instead of skipped.
-- Each dock now owns its directory: the checkout sits at `docks/<Vessel>/<mission>/<Vessel>` and every declared sibling (`../EcuLink`) resolves beside THAT checkout, so a sibling is pinned at provisioning and is never shared with another dock. A dock created after a sibling landing therefore reads the new tip while a running dock keeps the tree its gate started on. The stale-dock sweep, reclaim and the disk-lifecycle orphan scan understand both the nested and the earlier flat shape; a flat leftover at a dock's root is removed before nesting; an empty root is removed on reclaim.
+- Each dock now owns its directory: the checkout sits at `docks/<Vessel>/<mission>/<Vessel>` and every declared sibling (`../example-sibling`) resolves beside THAT checkout, so a sibling is pinned at provisioning and is never shared with another dock. A dock created after a sibling landing therefore reads the new tip while a running dock keeps the tree its gate started on. The stale-dock sweep, reclaim and the disk-lifecycle orphan scan understand both the nested and the earlier flat shape; a flat leftover at a dock's root is removed before nesting; an empty root is removed on reclaim.
 - A dock that reuses a shared sibling worktree behind its branch tip (another dock holds a lease, so the worktree cannot move) logs both commits and emits `dock.sibling_stale`, instead of measuring the older tree silently. The per-dock sibling layout that would remove the condition is an open decision.
 - A declared `buildParticipant` sibling (a consumer that builds the sibling through a project reference) that cannot be resolved, throws during provisioning, or comes up as an empty checkout now fails the dock with a `dock.sibling_provision_failed` event, instead of being swallowed into a hollow dock that builds green while missing a required tree. A non-build-participant sibling (a read-only artifact tree whose absence is a tolerated skip boundary) keeps the warn-and-continue path. This closes the "sibling provisioned empty / whole verification stage lost" failure that surfaced as the captain's defect.
 - The `mission.git_anchors` brief no longer reports a present nested file as absent. The suffix resolver that finds a file cited by its bare name (`Foo.cs` for `src/<project>/<project>.Core/.../Foo.cs`) used a `:(glob)` pathspec with `git ls-tree`, which does not support glob pathspec magic, so the command threw on every call and the resolver returned "does not exist on this checkout" for every real nested file. It now lists the tracked paths at the revision and matches the suffix in-process, still resolving only when exactly one tracked path matches (an ambiguous bare name stays unresolved).

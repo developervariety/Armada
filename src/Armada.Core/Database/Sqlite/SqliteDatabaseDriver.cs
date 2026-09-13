@@ -204,14 +204,27 @@ namespace Armada.Core.Database.Sqlite
 
                 foreach (SchemaMigration migration in migrations)
                 {
+                    if (migration.Version == 52)
+                        await DefaultDatabaseIdentity.EnsureAsync(conn, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, MigrationCheckpoint, token).ConfigureAwait(false);
+                    if (migration.Version > currentVersion) MigrationCheckpoint?.Invoke(migration.Version, -1);
                     if (migration.Version <= currentVersion) continue;
 
                     _Logging.Info(_Header + "applying migration v" + migration.Version + ": " + migration.Description);
 
-                    using (SqliteTransaction tx = conn.BeginTransaction())
+                    using (SqliteTransaction tx = conn.BeginTransaction(deferred: false))
                     {
-                        foreach (string sql in migration.Statements)
+                        // Another initializer can commit while this connection waits for the
+                        // SQLite write lock. Read the ledger again inside that lock.
+                        using (SqliteCommand versionCommand = conn.CreateCommand())
                         {
+                            versionCommand.Transaction = tx;
+                            versionCommand.CommandText = "SELECT COALESCE(MAX(version), 0) FROM schema_migrations;";
+                            int lockedVersion = Convert.ToInt32(await versionCommand.ExecuteScalarAsync(token).ConfigureAwait(false));
+                            if (migration.Version <= lockedVersion) continue;
+                        }
+                        for (int statementOrdinal = 0; statementOrdinal < migration.Statements.Count; statementOrdinal++)
+                        {
+                            string sql = migration.Statements[statementOrdinal];
                             using (SqliteCommand cmd = conn.CreateCommand())
                             {
                                 cmd.Transaction = tx;
@@ -219,6 +232,7 @@ namespace Armada.Core.Database.Sqlite
                                 try
                                 {
                                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                                    MigrationCheckpoint?.Invoke(migration.Version, statementOrdinal);
                                 }
                                 catch (SqliteException ex) when (ex.SqliteErrorCode == 1 && ex.Message.Contains("duplicate column name"))
                                 {
@@ -243,6 +257,7 @@ namespace Armada.Core.Database.Sqlite
 
                         tx.Commit();
                         applied++;
+                        MigrationCheckpoint?.Invoke(migration.Version, -2);
                     }
                 }
 
@@ -254,46 +269,6 @@ namespace Armada.Core.Database.Sqlite
 
             _Logging.Info(_Header + "database initialized successfully");
 
-            // Seed default data on first boot (or after migration that created tenant but not user)
-            bool anyTenants = await Tenants.ExistsAnyAsync(token).ConfigureAwait(false);
-            if (!anyTenants)
-            {
-                _Logging.Info(_Header + "first boot detected, seeding default tenant, user, and credential");
-
-                TenantMetadata defaultTenant = new TenantMetadata();
-                defaultTenant.Id = Constants.DefaultTenantId;
-                defaultTenant.Name = Constants.DefaultTenantName;
-                defaultTenant.IsProtected = true;
-                await Tenants.CreateAsync(defaultTenant, token).ConfigureAwait(false);
-            }
-
-            // Ensure default user and credential exist (migration may have seeded tenant without user)
-            UserMaster? existingUser = await Users.ReadByIdAsync(Constants.DefaultUserId, token).ConfigureAwait(false);
-            if (existingUser == null)
-            {
-                _Logging.Info(_Header + "seeding default user and credential");
-
-                UserMaster defaultUser = new UserMaster();
-                defaultUser.Id = Constants.DefaultUserId;
-                defaultUser.TenantId = Constants.DefaultTenantId;
-                defaultUser.Email = Constants.DefaultUserEmail;
-                defaultUser.PasswordSha256 = UserMaster.ComputePasswordHash(Constants.DefaultUserPassword);
-                defaultUser.IsAdmin = true;
-                defaultUser.IsTenantAdmin = true;
-                defaultUser.IsProtected = true;
-                await Users.CreateAsync(defaultUser, token).ConfigureAwait(false);
-
-                Credential defaultCred = new Credential();
-                defaultCred.Id = Constants.DefaultCredentialId;
-                defaultCred.TenantId = Constants.DefaultTenantId;
-                defaultCred.UserId = Constants.DefaultUserId;
-                defaultCred.Name = Constants.DefaultCredentialName;
-            defaultCred.BearerToken = Constants.DefaultBearerToken;
-                defaultCred.IsProtected = true;
-                await Credentials.CreateAsync(defaultCred, token).ConfigureAwait(false);
-
-                _Logging.Info(_Header + "default data seeded successfully");
-            }
         }
 
         /// <inheritdoc />

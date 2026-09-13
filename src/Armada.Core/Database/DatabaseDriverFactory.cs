@@ -62,8 +62,16 @@ namespace Armada.Core.Database
             logging.Settings.EnableConsole = false;
 
             DatabaseDriver driver = Create(settings, logging);
-            await driver.InitializeAsync(token).ConfigureAwait(false);
-            return driver;
+            try
+            {
+                await driver.InitializeAsync(token).ConfigureAwait(false);
+                return driver;
+            }
+            catch
+            {
+                driver.Dispose();
+                throw;
+            }
         }
 
         #endregion

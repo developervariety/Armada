@@ -250,10 +250,10 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@status", session.Status.ToString());
             cmd.Parameters.AddWithValue("@process_id", (object?)session.ProcessId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@failure_reason", (object?)session.FailureReason ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@created_utc", MysqlDatabaseDriver.ToIso8601(session.CreatedUtc));
-            cmd.Parameters.AddWithValue("@started_utc", session.StartedUtc.HasValue ? (object)MysqlDatabaseDriver.ToIso8601(session.StartedUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@completed_utc", session.CompletedUtc.HasValue ? (object)MysqlDatabaseDriver.ToIso8601(session.CompletedUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@last_update_utc", MysqlDatabaseDriver.ToIso8601(session.LastUpdateUtc));
+            cmd.Parameters.AddWithValue("@created_utc", MysqlDatabaseDriver.ToDatabaseTimestamp(session.CreatedUtc));
+            cmd.Parameters.AddWithValue("@started_utc", session.StartedUtc.HasValue ? (object)MysqlDatabaseDriver.ToDatabaseTimestamp(session.StartedUtc.Value) : DBNull.Value);
+            cmd.Parameters.AddWithValue("@completed_utc", session.CompletedUtc.HasValue ? (object)MysqlDatabaseDriver.ToDatabaseTimestamp(session.CompletedUtc.Value) : DBNull.Value);
+            cmd.Parameters.AddWithValue("@last_update_utc", MysqlDatabaseDriver.ToDatabaseTimestamp(session.LastUpdateUtc));
         }
 
         private static ObjectiveRefinementSession FromReader(MySqlDataReader reader)

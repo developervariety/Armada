@@ -179,8 +179,8 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@sequence", message.Sequence);
             cmd.Parameters.AddWithValue("@content", message.Content);
             cmd.Parameters.AddWithValue("@is_selected", message.IsSelected ? 1 : 0);
-            cmd.Parameters.AddWithValue("@created_utc", MysqlDatabaseDriver.ToIso8601(message.CreatedUtc));
-            cmd.Parameters.AddWithValue("@last_update_utc", MysqlDatabaseDriver.ToIso8601(message.LastUpdateUtc));
+            cmd.Parameters.AddWithValue("@created_utc", MysqlDatabaseDriver.ToDatabaseTimestamp(message.CreatedUtc));
+            cmd.Parameters.AddWithValue("@last_update_utc", MysqlDatabaseDriver.ToDatabaseTimestamp(message.LastUpdateUtc));
         }
 
         private static ObjectiveRefinementMessage FromReader(MySqlDataReader reader)

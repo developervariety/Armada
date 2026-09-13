@@ -10,12 +10,17 @@ Start with compatibility and provider tests, then captain quarantine controls an
 
 ## Integration changes after assessment
 
-The [foundation checkpoint](foundation.md) adds an immutable migration source
-gate and two database cases. SQLite passes all 46 cases. Fresh PostgreSQL,
-MySQL and SQL Server runs fail during existing startup migrations, before the
-cases run. The foundation remains open; provider discovery and downstream
-implementation remain blocked. See the checkpoint for the field matrix,
-commands, exact failures and proof limits.
+The [foundation evidence](foundation.md) now includes provider startup repairs,
+unchanged migration-history checks and 29 passing isolated provider/scenario
+combinations. SQLite, PostgreSQL and SQL Server run 47 ordinary cases; MySQL
+runs 48, including full-value Unicode uniqueness. Combined unit/API/runtime and
+dashboard checks passed. No deployment is claimed. Missing field capabilities
+remain explicit in the [additional entity matrix](foundation-entities.md).
+
+A later fetch found upstream `44d3eb5e` (Linter persona and pipeline changes).
+Those 12 paths were inspected separately. The original assessment and inventory
+remain pinned to `19242085`; the later addition is deferred to persona/pipeline
+review and does not change this foundation repair.
 
 The local usage-aware routing work is now committed and integrated with the
 retirement and incident changes. Combined validation passed: 3,982 unit tests,

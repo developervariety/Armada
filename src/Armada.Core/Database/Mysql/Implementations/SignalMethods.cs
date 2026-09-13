@@ -18,7 +18,6 @@ namespace Armada.Core.Database.Mysql.Implementations
         #region Private-Members
 
         private string _ConnectionString;
-        private static readonly string _Iso8601Format = "yyyy-MM-ddTHH:mm:ss.fffffffZ";
 
         #endregion
 
@@ -62,7 +61,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@type", signal.Type.ToString());
                     cmd.Parameters.AddWithValue("@payload", (object?)signal.Payload ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@read", signal.Read);
-                    cmd.Parameters.AddWithValue("@created_utc", ToIso8601(signal.CreatedUtc));
+                    cmd.Parameters.AddWithValue("@created_utc", ToDatabaseTimestamp(signal.CreatedUtc));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -240,12 +239,12 @@ namespace Armada.Core.Database.Mysql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
                 }
                 if (!string.IsNullOrEmpty(query.ToCaptainId))
                 {
@@ -436,12 +435,12 @@ namespace Armada.Core.Database.Mysql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
                 }
                 if (!string.IsNullOrEmpty(query.ToCaptainId))
                 {
@@ -582,12 +581,12 @@ namespace Armada.Core.Database.Mysql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
                 }
                 if (!string.IsNullOrEmpty(query.ToCaptainId))
                 {
@@ -637,9 +636,9 @@ namespace Armada.Core.Database.Mysql.Implementations
 
         #region Private-Methods
 
-        private static string ToIso8601(DateTime dt)
+        private static DateTime ToDatabaseTimestamp(DateTime dt)
         {
-            return dt.ToUniversalTime().ToString(_Iso8601Format, CultureInfo.InvariantCulture);
+            return MysqlDatabaseDriver.ToDatabaseTimestamp(dt);
         }
 
         private static DateTime FromIso8601(string value)

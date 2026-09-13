@@ -18,7 +18,6 @@ namespace Armada.Core.Database.Mysql.Implementations
         #region Private-Members
 
         private string _ConnectionString;
-        private static readonly string _Iso8601Format = "yyyy-MM-dd HH:mm:ss.ffffff";
 
         #endregion
 
@@ -61,9 +60,9 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@title", voyage.Title);
                     cmd.Parameters.AddWithValue("@description", (object?)voyage.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@status", voyage.Status.ToString());
-                    cmd.Parameters.AddWithValue("@created_utc", ToIso8601(voyage.CreatedUtc));
-                    cmd.Parameters.AddWithValue("@completed_utc", voyage.CompletedUtc.HasValue ? (object)ToIso8601(voyage.CompletedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(voyage.LastUpdateUtc));
+                    cmd.Parameters.AddWithValue("@created_utc", ToDatabaseTimestamp(voyage.CreatedUtc));
+                    cmd.Parameters.AddWithValue("@completed_utc", voyage.CompletedUtc.HasValue ? (object)ToDatabaseTimestamp(voyage.CompletedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(voyage.LastUpdateUtc));
                     cmd.Parameters.AddWithValue("@auto_push", voyage.AutoPush.HasValue ? (object)(voyage.AutoPush.Value ? 1 : 0) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@auto_create_pull_requests", voyage.AutoCreatePullRequests.HasValue ? (object)(voyage.AutoCreatePullRequests.Value ? 1 : 0) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@auto_merge_pull_requests", voyage.AutoMergePullRequests.HasValue ? (object)(voyage.AutoMergePullRequests.Value ? 1 : 0) : DBNull.Value);
@@ -140,8 +139,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@title", voyage.Title);
                     cmd.Parameters.AddWithValue("@description", (object?)voyage.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@status", voyage.Status.ToString());
-                    cmd.Parameters.AddWithValue("@completed_utc", voyage.CompletedUtc.HasValue ? (object)ToIso8601(voyage.CompletedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(voyage.LastUpdateUtc));
+                    cmd.Parameters.AddWithValue("@completed_utc", voyage.CompletedUtc.HasValue ? (object)ToDatabaseTimestamp(voyage.CompletedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(voyage.LastUpdateUtc));
                     cmd.Parameters.AddWithValue("@auto_push", voyage.AutoPush.HasValue ? (object)(voyage.AutoPush.Value ? 1 : 0) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@auto_create_pull_requests", voyage.AutoCreatePullRequests.HasValue ? (object)(voyage.AutoCreatePullRequests.Value ? 1 : 0) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@auto_merge_pull_requests", voyage.AutoMergePullRequests.HasValue ? (object)(voyage.AutoMergePullRequests.Value ? 1 : 0) : DBNull.Value);
@@ -250,12 +249,12 @@ namespace Armada.Core.Database.Mysql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
                 }
                 if (!string.IsNullOrEmpty(query.Status))
                 {
@@ -409,12 +408,12 @@ namespace Armada.Core.Database.Mysql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
                 }
 
                 string whereClause = " WHERE " + string.Join(" AND ", conditions);
@@ -586,12 +585,12 @@ namespace Armada.Core.Database.Mysql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
                 }
 
                 string whereClause = " WHERE " + string.Join(" AND ", conditions);
@@ -627,9 +626,9 @@ namespace Armada.Core.Database.Mysql.Implementations
 
         #region Private-Methods
 
-        private static string ToIso8601(DateTime dt)
+        private static DateTime ToDatabaseTimestamp(DateTime dt)
         {
-            return dt.ToUniversalTime().ToString(_Iso8601Format, CultureInfo.InvariantCulture);
+            return MysqlDatabaseDriver.ToDatabaseTimestamp(dt);
         }
 
         private static DateTime FromIso8601(string value)

@@ -18,7 +18,6 @@ namespace Armada.Core.Database.Mysql.Implementations
         #region Private-Members
 
         private string _ConnectionString;
-        private static readonly string _Iso8601Format = "yyyy-MM-ddTHH:mm:ss.fffffffZ";
 
         #endregion
 
@@ -68,16 +67,16 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@test_command", (object?)entry.TestCommand ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@test_output", (object?)entry.TestOutput ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@test_exit_code", entry.TestExitCode.HasValue ? (object)entry.TestExitCode.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@created_utc", ToIso8601(entry.CreatedUtc));
-                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(entry.LastUpdateUtc));
-                    cmd.Parameters.AddWithValue("@test_started_utc", entry.TestStartedUtc.HasValue ? (object)ToIso8601(entry.TestStartedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@completed_utc", entry.CompletedUtc.HasValue ? (object)ToIso8601(entry.CompletedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@created_utc", ToDatabaseTimestamp(entry.CreatedUtc));
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(entry.LastUpdateUtc));
+                    cmd.Parameters.AddWithValue("@test_started_utc", entry.TestStartedUtc.HasValue ? (object)ToDatabaseTimestamp(entry.TestStartedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@completed_utc", entry.CompletedUtc.HasValue ? (object)ToDatabaseTimestamp(entry.CompletedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@audit_lane", (object?)entry.AuditLane ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@audit_convention_passed", entry.AuditConventionPassed.HasValue ? (object)(entry.AuditConventionPassed.Value ? 1 : 0) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@audit_convention_notes", (object?)entry.AuditConventionNotes ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@audit_critical_trigger", (object?)entry.AuditCriticalTrigger ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@audit_deep_picked", entry.AuditDeepPicked.HasValue ? (object)(entry.AuditDeepPicked.Value ? 1 : 0) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@audit_deep_completed_utc", entry.AuditDeepCompletedUtc.HasValue ? (object)ToIso8601(entry.AuditDeepCompletedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_completed_utc", entry.AuditDeepCompletedUtc.HasValue ? (object)ToDatabaseTimestamp(entry.AuditDeepCompletedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@audit_deep_verdict", (object?)entry.AuditDeepVerdict ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@audit_deep_notes", (object?)entry.AuditDeepNotes ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@audit_deep_recommended_action", (object?)entry.AuditDeepRecommendedAction ?? DBNull.Value);
@@ -183,15 +182,15 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@test_command", (object?)entry.TestCommand ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@test_output", (object?)entry.TestOutput ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@test_exit_code", entry.TestExitCode.HasValue ? (object)entry.TestExitCode.Value : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(entry.LastUpdateUtc));
-                    cmd.Parameters.AddWithValue("@test_started_utc", entry.TestStartedUtc.HasValue ? (object)ToIso8601(entry.TestStartedUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@completed_utc", entry.CompletedUtc.HasValue ? (object)ToIso8601(entry.CompletedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(entry.LastUpdateUtc));
+                    cmd.Parameters.AddWithValue("@test_started_utc", entry.TestStartedUtc.HasValue ? (object)ToDatabaseTimestamp(entry.TestStartedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@completed_utc", entry.CompletedUtc.HasValue ? (object)ToDatabaseTimestamp(entry.CompletedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@audit_lane", (object?)entry.AuditLane ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@audit_convention_passed", entry.AuditConventionPassed.HasValue ? (object)(entry.AuditConventionPassed.Value ? 1 : 0) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@audit_convention_notes", (object?)entry.AuditConventionNotes ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@audit_critical_trigger", (object?)entry.AuditCriticalTrigger ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@audit_deep_picked", entry.AuditDeepPicked.HasValue ? (object)(entry.AuditDeepPicked.Value ? 1 : 0) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@audit_deep_completed_utc", entry.AuditDeepCompletedUtc.HasValue ? (object)ToIso8601(entry.AuditDeepCompletedUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@audit_deep_completed_utc", entry.AuditDeepCompletedUtc.HasValue ? (object)ToDatabaseTimestamp(entry.AuditDeepCompletedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@audit_deep_verdict", (object?)entry.AuditDeepVerdict ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@audit_deep_notes", (object?)entry.AuditDeepNotes ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@audit_deep_recommended_action", (object?)entry.AuditDeepRecommendedAction ?? DBNull.Value);
@@ -276,12 +275,12 @@ namespace Armada.Core.Database.Mysql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
                 }
                 if (!string.IsNullOrEmpty(query.Status))
                 {
@@ -473,12 +472,12 @@ namespace Armada.Core.Database.Mysql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
                 }
                 if (!string.IsNullOrEmpty(query.Status))
                 {
@@ -665,12 +664,12 @@ namespace Armada.Core.Database.Mysql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
                 }
                 if (!string.IsNullOrEmpty(query.Status))
                 {
@@ -721,9 +720,9 @@ namespace Armada.Core.Database.Mysql.Implementations
 
         #region Private-Methods
 
-        private static string ToIso8601(DateTime dt)
+        private static DateTime ToDatabaseTimestamp(DateTime dt)
         {
-            return dt.ToUniversalTime().ToString(_Iso8601Format, CultureInfo.InvariantCulture);
+            return MysqlDatabaseDriver.ToDatabaseTimestamp(dt);
         }
 
         private static DateTime FromIso8601(string value)
@@ -758,6 +757,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             MergeEntry entry = new MergeEntry();
             entry.Id = reader["id"].ToString()!;
             entry.TenantId = NullableString(reader["tenant_id"]);
+            entry.UserId = NullableString(reader["user_id"]);
             entry.MissionId = NullableString(reader["mission_id"]);
             entry.VesselId = NullableString(reader["vessel_id"]);
             entry.BranchName = reader["branch_name"].ToString()!;

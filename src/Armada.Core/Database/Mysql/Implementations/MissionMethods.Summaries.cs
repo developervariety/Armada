@@ -374,8 +374,8 @@ CHAR_LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
                         "created_utc < @to_utc"
                     };
                     AddParameters(cmd, baseParameters);
-                    cmd.Parameters.AddWithValue("@from_utc", ToIso8601(query.FromUtc));
-                    cmd.Parameters.AddWithValue("@to_utc", ToIso8601(query.ToUtc));
+                    cmd.Parameters.AddWithValue("@from_utc", ToDatabaseTimestamp(query.FromUtc));
+                    cmd.Parameters.AddWithValue("@to_utc", ToDatabaseTimestamp(query.ToUtc));
                     if (!String.IsNullOrEmpty(query.VesselId))
                     {
                         conditions.Add("vessel_id = @vessel_id");
@@ -409,12 +409,12 @@ CHAR_LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
             if (query.CreatedAfter.HasValue)
             {
                 conditions.Add("created_utc > @created_after");
-                cmd.Parameters.AddWithValue("@created_after", ToIso8601(query.CreatedAfter.Value));
+                cmd.Parameters.AddWithValue("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value));
             }
             if (query.CreatedBefore.HasValue)
             {
                 conditions.Add("created_utc < @created_before");
-                cmd.Parameters.AddWithValue("@created_before", ToIso8601(query.CreatedBefore.Value));
+                cmd.Parameters.AddWithValue("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value));
             }
             if (!String.IsNullOrEmpty(query.Status))
             {

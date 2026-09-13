@@ -33,7 +33,7 @@ run_suite() {
   local project="$1"
   local logfile="$2"
   env -u ANTHROPIC_BASE_URL -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_API_KEY \
-    dotnet run --project "$project" --framework "$FRAMEWORK" > "$logfile" 2>&1
+    dotnet run --project "$project" --framework "$FRAMEWORK" --no-build --no-restore > "$logfile" 2>&1
 }
 
 selected="${1:-all}"
@@ -41,6 +41,21 @@ declare -a pids=()
 declare -a running=()
 
 start=$(date +%s)
+
+# The projects share Core/Server build outputs. Build in sequence before running
+# independent test processes, so parallel compilers cannot overwrite those files.
+for i in "${!SUITE_NAMES[@]}"; do
+  name="${SUITE_NAMES[$i]}"
+  if [ "$selected" != "all" ] && [ "$selected" != "$name" ]; then
+    continue
+  fi
+  if ! dotnet build "${SUITE_PROJECTS[$i]}" --framework "$FRAMEWORK" > "$LOG_DIR/$name-build.log" 2>&1; then
+    cat "$LOG_DIR/$name-build.log"
+    echo "RESULT: FAIL (build $name)"
+    echo "Full output: $LOG_DIR"
+    exit 1
+  fi
+done
 
 for i in "${!SUITE_NAMES[@]}"; do
   name="${SUITE_NAMES[$i]}"

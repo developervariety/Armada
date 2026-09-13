@@ -55,6 +55,9 @@ namespace Armada.Test.Database
         /// </summary>
         public bool NoCleanup { get; set; } = false;
 
+        /// <summary>Optional migration fixture; requires an empty test database.</summary>
+        public string MigrationScenario { get; set; } = "";
+
         /// <summary>
         /// When true, display usage information and exit.
         /// </summary>
@@ -132,6 +135,10 @@ namespace Armada.Test.Database
                         if (i + 1 < args.Length) options.Schema = args[++i];
                         break;
 
+                    case "--migration-scenario":
+                        if (i + 1 < args.Length) options.MigrationScenario = args[++i];
+                        break;
+
                     case "--no-cleanup":
                         options.NoCleanup = true;
                         break;
@@ -206,6 +213,18 @@ namespace Armada.Test.Database
                 }
             }
 
+            if (MigrationScenario == "sqlserver-corrections" && Type != "sqlserver" && Type != "mssql")
+                errors.Add("sqlserver-corrections requires SQL Server.");
+
+            if (MigrationScenario == "mysql-compat" && Type != "mysql")
+                errors.Add("mysql-compat requires MySQL.");
+
+            if (MigrationScenario == "catalog-guards" && Type == "sqlite")
+                errors.Add(MigrationScenario + " requires a server provider.");
+
+            if (MigrationScenario.Length > 0 && !new HashSet<string> { "fresh", "concurrent-fresh", "upgrade-51", "partial-first", "partial-52", "catalog-guards", "mysql-compat", "partial-identity", "sqlserver-corrections" }.Contains(MigrationScenario))
+                errors.Add("Unknown migration scenario: " + MigrationScenario);
+
             if (Port < 0 || Port > 65535)
             {
                 errors.Add("Port must be between 0 and 65535.");
@@ -259,6 +278,7 @@ namespace Armada.Test.Database
             Console.WriteLine("  --password, -w   Database password");
             Console.WriteLine("  --database, -d   Database name");
             Console.WriteLine("  --schema, -s     Database schema");
+            Console.WriteLine("  --migration-scenario fresh|concurrent-fresh|upgrade-51|partial-first|partial-52|partial-identity|catalog-guards|mysql-compat|sqlserver-corrections (empty database only)");
             Console.WriteLine("  --no-cleanup     Do not clean up test data after execution");
             Console.WriteLine("  --help, -?       Show this help message");
             Console.WriteLine();

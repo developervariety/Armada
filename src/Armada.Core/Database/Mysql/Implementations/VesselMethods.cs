@@ -19,7 +19,6 @@ namespace Armada.Core.Database.Mysql.Implementations
         #region Private-Members
 
         private string _ConnectionString;
-        private static readonly string _Iso8601Format = "yyyy-MM-ddTHH:mm:ss.fffffffZ";
 
         #endregion
 
@@ -84,8 +83,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@architect_max_missions_per_voyage", (object?)vessel.ArchitectMaxMissionsPerVoyage ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@default_branch", vessel.DefaultBranch);
                     cmd.Parameters.AddWithValue("@active", vessel.Active ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@created_utc", ToIso8601(vessel.CreatedUtc));
-                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(vessel.LastUpdateUtc));
+                    cmd.Parameters.AddWithValue("@created_utc", ToDatabaseTimestamp(vessel.CreatedUtc));
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(vessel.LastUpdateUtc));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -223,7 +222,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@architect_max_missions_per_voyage", (object?)vessel.ArchitectMaxMissionsPerVoyage ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@default_branch", vessel.DefaultBranch);
                     cmd.Parameters.AddWithValue("@active", vessel.Active ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(vessel.LastUpdateUtc));
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(vessel.LastUpdateUtc));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -299,12 +298,12 @@ namespace Armada.Core.Database.Mysql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
                 }
                 if (!string.IsNullOrEmpty(query.FleetId))
                 {
@@ -487,12 +486,12 @@ namespace Armada.Core.Database.Mysql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
                 }
                 if (!string.IsNullOrEmpty(query.FleetId))
                 {
@@ -695,12 +694,12 @@ namespace Armada.Core.Database.Mysql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
                 }
                 if (!string.IsNullOrEmpty(query.FleetId))
                 {
@@ -757,9 +756,9 @@ namespace Armada.Core.Database.Mysql.Implementations
 
         #region Private-Methods
 
-        private static string ToIso8601(DateTime dt)
+        private static DateTime ToDatabaseTimestamp(DateTime dt)
         {
-            return dt.ToUniversalTime().ToString(_Iso8601Format, CultureInfo.InvariantCulture);
+            return MysqlDatabaseDriver.ToDatabaseTimestamp(dt);
         }
 
         private static DateTime FromIso8601(string value)
@@ -779,6 +778,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             Vessel vessel = new Vessel();
             vessel.Id = reader["id"].ToString()!;
             vessel.TenantId = NullableString(reader["tenant_id"]);
+            vessel.UserId = NullableString(reader["user_id"]);
             vessel.FleetId = NullableString(reader["fleet_id"]);
             vessel.Name = reader["name"].ToString()!;
             vessel.RepoUrl = NullableString(reader["repo_url"]);

@@ -98,6 +98,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.Parameters.AddWithValue("@landing_retry_count", mission.LandingRetryCount);
                     cmd.Parameters.AddWithValue("@start_from_ref", (object?)mission.StartFromRef ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@last_recovery_action_utc", mission.LastRecoveryActionUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.LastRecoveryActionUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@retry_skip_captain_ids", (object?)mission.RetrySkipCaptainIds ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@created_utc", SqlServerDatabaseDriver.ToIso8601(mission.CreatedUtc));
                     cmd.Parameters.AddWithValue("@started_utc", mission.StartedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.StartedUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@completed_utc", mission.CompletedUtc.HasValue ? (object)SqlServerDatabaseDriver.ToIso8601(mission.CompletedUtc.Value) : DBNull.Value);

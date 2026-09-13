@@ -18,7 +18,6 @@ namespace Armada.Core.Database.Mysql.Implementations
         #region Private-Members
 
         private string _ConnectionString;
-        private static readonly string _Iso8601Format = "yyyy-MM-dd HH:mm:ss.ffffff";
 
         #endregion
 
@@ -54,8 +53,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@name", tenant.Name);
                     cmd.Parameters.AddWithValue("@active", tenant.Active ? 1 : 0);
                     cmd.Parameters.AddWithValue("@is_protected", tenant.IsProtected ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@created_utc", ToIso8601(tenant.CreatedUtc));
-                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(tenant.LastUpdateUtc));
+                    cmd.Parameters.AddWithValue("@created_utc", ToDatabaseTimestamp(tenant.CreatedUtc));
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(tenant.LastUpdateUtc));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -130,7 +129,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@name", tenant.Name);
                     cmd.Parameters.AddWithValue("@active", tenant.Active ? 1 : 0);
                     cmd.Parameters.AddWithValue("@is_protected", tenant.IsProtected ? 1 : 0);
-                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(tenant.LastUpdateUtc));
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(tenant.LastUpdateUtc));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -196,12 +195,12 @@ namespace Armada.Core.Database.Mysql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
                 }
 
                 string whereClause = " WHERE " + string.Join(" AND ", conditions);
@@ -221,7 +220,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT * FROM tenants" + whereClause +
-                        " ORDER BY created_utc " + orderDirection +
+                        " ORDER BY created_utc " + orderDirection + ", id " + orderDirection +
                         " LIMIT " + query.PageSize + " OFFSET " + query.Offset + ";";
                     foreach (MySqlParameter p in parameters) cmd.Parameters.Add(new MySqlParameter(p.ParameterName, p.Value));
                     using (MySqlDataReader reader = await cmd.ExecuteReaderAsync(token).ConfigureAwait(false))
@@ -272,9 +271,9 @@ namespace Armada.Core.Database.Mysql.Implementations
 
         #region Private-Methods
 
-        private static string ToIso8601(DateTime dt)
+        private static DateTime ToDatabaseTimestamp(DateTime dt)
         {
-            return dt.ToUniversalTime().ToString(_Iso8601Format, CultureInfo.InvariantCulture);
+            return MysqlDatabaseDriver.ToDatabaseTimestamp(dt);
         }
 
         #endregion

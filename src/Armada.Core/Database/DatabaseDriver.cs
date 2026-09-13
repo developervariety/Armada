@@ -11,6 +11,12 @@ namespace Armada.Core.Database
     /// </summary>
     public abstract class DatabaseDriver : IDisposable
     {
+        // Per-driver diagnostic seam for interrupted migration integration tests.
+        // -1 is before a pending migration; nonnegative values are statement ordinals;
+        // -2 is after its version record commits; -4 is between first-boot user and credential inserts.
+        // No callback is installed in normal use.
+        internal Action<int, int>? MigrationCheckpoint { get; set; }
+
         #region Public-Members
 
         /// <summary>

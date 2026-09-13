@@ -1,12 +1,13 @@
 # Fork preservation and provider foundation
 
 Evidence date: 2026-09-13 UTC. This is an implementation checkpoint, not
-four-provider certification. The foundation remains open. No production
-migration or runtime contract changed in this checkpoint.
+four-provider certification. The foundation remains open. Provider repairs are
+in review and test. They have not been deployed.
 
 ## Source boundary and migration ownership
 
-Both remotes were fetched. Upstream remains at the pinned `19242085`.
+Both remotes were fetched before implementation. The review remains pinned to
+`19242085`; the later fetch and its additional commits are recorded below.
 The implementation baseline is `24a23b966`, which includes Routing V2,
 standalone lead retirement and the incident mitigation guard. The original
 path census remains pinned to fork `21786ec0`, upstream `19242085` and base
@@ -125,7 +126,7 @@ means the path is present in source, not that the provider runtime test passed.
 | LandingRetryCount | landing_retry_count | Yes | Yes | Yes | Yes |
 | StartFromRef | start_from_ref | Yes | Yes | Yes | Yes |
 | LastRecoveryActionUtc | last_recovery_action_utc | Yes | Yes | Yes | Yes |
-| RetrySkipCaptainIds | retry_skip_captain_ids | Yes | Yes | Yes | Create binding absent; other paths present |
+| RetrySkipCaptainIds | retry_skip_captain_ids | Yes | Yes | Yes | Yes (create binding repaired) |
 
 The new registered Mission case sets non-default values, reopens the driver,
 checks scoped read and full query, changes values, and repeats both checks.
@@ -137,11 +138,10 @@ every query projection or every field's update path.
 `RequestedCaptainId` and `Tier` are deliberately excluded from the passing
 case. Their intended persistence and dispatch contracts need explicit failing
 tests and backend review. Do not infer a new routing policy from their model
-properties. SQL Server's create SQL references `@retry_skip_captain_ids` but
-does not bind it; this is a source finding pending startup repair and a runtime
-failure test. No repair is claimed here.
+properties. SQL Server's missing `@retry_skip_captain_ids` create binding is now
+repaired and covered by the non-default Mission case.
 
-## Executed evidence and open gates
+## Baseline evidence at `77353d49` before provider repairs
 
 The existing database runner was extended from 44 to 46 registered cases.
 The added cases check repeat startup/version and Mission field preservation.
@@ -182,3 +182,127 @@ did not provide a source commit label, so it does not prove removal of old
 endpoints. Live provider collection, deployment proof, later ports and the
 final archive decision remain separate work. Keep current review plans and
 inventories accessible until accepted implementation and dispositions finish.
+
+## Provider repair implementation
+
+The owner requires Unicode identifiers and full-value uniqueness. Do not narrow
+identifier columns to ASCII, shorten accepted values, or use unique prefixes.
+The MySQL repair maps each tenant to an internal immutable numeric key. Native
+unique indexes combine that key with the complete original email, name, or file
+name. Original tenant foreign keys and Unicode columns remain. Triggers resolve
+the tenant using its original collation and a current locking read. Duplicate
+writes are decided by the native unique constraint, including concurrent commit
+and rollback. No hash is used as evidence of value equality.
+
+Server startup holds a database schema lock. Missing operational prerequisites
+are checked before historical migration 52; their definition has a separate
+checksum ledger. Existing migration records are not rewritten. MySQL has an
+additional statement journal because DDL commits implicitly. Restart checks
+catalog definitions before accepting DDL left by a failed attempt. DML and its
+statement checkpoint commit together. SQL Server has exact pending-statement
+corrections for the invalid v59 syntax and the v68 nonunique index over an
+unbounded model value. Historical declarations remain fixed.
+
+The current repair also restores omitted user-scope row mappings, the SQL Server
+Mission retry exclusion create parameter, PostgreSQL deployment boolean binding,
+and native MySQL timestamp parameters. The historical string timestamps in
+MySQL landing jobs keep their existing representation.
+
+The database runner now accepts `--migration-scenario` with `fresh`,
+`partial-first`, `partial-52`, `upgrade-51`, or `concurrent-fresh`. Each scenario
+refuses a nonempty database. The upgrade fixture executes the preserved
+migrations through v51, adds Unicode data, and applies the remaining migrations.
+This is a reconstructed fixture, not a production backup. Checks compare every
+old version, description and applied timestamp across upgrade and repeated
+startup. Each scenario then runs the ordinary persistence tests.
+
+Initial scenario execution passed all five migration fixtures on each provider.
+The SQL Server upgrade fixture initially bound a native date into a historical
+ISO text column. This produced a non-ISO value and a paging failure. The fixture
+now preserves the historical ISO representation. Tenant paging also has an ID
+tie-breaker and a deliberate tied-time regression case.
+Populated compatibility, incompatible-schema, lease and first-boot recovery
+fixtures are now implemented. Final checks are in progress; the foundation
+remains open until those checks pass. The campaign continues after foundation.
+
+See [additional entity fields](foundation-entities.md) for the source matrix and
+explicit missing capabilities. Source presence alone does not prove service
+Check immutability, routing correctness or deployment state.
+
+First-boot identity creation is atomic on all four providers. A failed credential
+insert rolls back the new user. An existing user does not cause startup to
+restore a deliberately removed credential. Server callers hold the schema lock;
+SQLite holds an immediate write transaction. SQLite also rechecks migration
+history inside each immediate migration transaction. A deterministic test made
+two initializers read version zero before either could apply migration one. It
+failed with a duplicate version before the fix and passes after the fix.
+
+Catalog checks reject generated columns where writable columns are required,
+disabled primary keys, incomplete or disabled foreign keys, and filtered or
+otherwise incompatible indexes. SQL Server pre-staged correction fixtures check
+both accepted and rejected shapes at versions 59 and 68. The model index retains
+the complete value as an included column; its nonunique search key is bounded.
+The fixture retains a 900-character Unicode model value across upgrade.
+
+MySQL checks full 450-character domains and a charset that supports supplementary
+Unicode. It accepts `utf8mb4`, `utf16`, `utf16le`, and `utf32`, while preserving the
+existing collation. A narrower charset or column is rejected without conversion.
+[MySQL's charset reference](https://dev.mysql.com/doc/refman/8.4/en/charset-unicode-sets.html)
+defines those repertoires. Literal defaults such as an empty string, `NULL`,
+spaces or parentheses remain distinct from an absent SQL default.
+
+The [database runner guide](../../test/Armada.Test.Database/README.md) lists the
+fixtures and their safety boundary. Migration scenario success is reported
+separately from the ordinary case total. The ordinary runner has 47 cases on
+SQLite, PostgreSQL and SQL Server, and 48 on MySQL. Its additional MySQL case
+checks all five full-value keys and concurrent commit/rollback. Selected captain,
+vessel and objective cases now check non-default values after reopening the
+driver. Missing MySQL captain provider-key and URL reads were repaired after
+that expanded test failed.
+
+The combined suite runner builds shared projects in sequence before running
+tests in parallel. Concurrent builds previously failed while overwriting shared
+outputs. The test executions remain parallel and no tests are skipped.
+
+## Provider repair acceptance results
+
+Final checks on the combined provider repair tree:
+
+| Check | Result |
+| --- | --- |
+| Four-provider scenarios | 29 provider/scenario combinations passed, each followed by persistence cases |
+| SQLite | 6 scenarios; 47 ordinary cases per run |
+| PostgreSQL 16.14 | 7 scenarios; 47 ordinary cases per run |
+| MySQL 8.4.11 | 8 scenarios; 48 ordinary cases per run |
+| SQL Server 2022 16.0.4275.2 | 8 scenarios; 47 ordinary cases per run |
+| Applied migration source history | All 274 declarations unchanged; 9 gate controls pass |
+| Unit / automated API / runtime | 3,982 / 907 / 183 passed; combined wall time 250 seconds |
+| Dashboard | 77 passed across 27 files |
+| Solution build | 0 errors; 34 warnings emitted by the final incremental build |
+| Boundary and diff checks | Passed after replacing an old private sibling example with a generic name |
+
+The original full solution baseline was 212 warnings. The incremental count is
+not a clean-build warning comparison. The SQL Server primary-key fixture first
+restored only the primary index; SQL Server had also disabled secondary indexes.
+The fixture now rebuilds all indexes that it disabled. Its separate repeat passed
+all catalog checks and 47 ordinary cases. The earlier failed attempt is retained
+in test logs, not counted as a passing attempt.
+
+No image was built or deployed. The field census still names missing all-provider
+capabilities that need backend decisions and failing contract tests. The passing
+provider foundation does not certify those missing capabilities, live collection,
+all historical production backups, or the entire upstream campaign.
+
+## Later upstream changes inspected
+
+A final fetch found upstream `44d3eb5e`, with feature commit `310d6f6e` after the
+pinned `19242085`. The two commits change 12 paths: Linter persona constants,
+prompts, handoff text, seeding, FullPipeline stage order, documentation and two
+shared test suites. They do not change database migrations or provider drivers.
+
+This addition is not included in the pinned census or this provider repair.
+Evaluate it with the later persona/pipeline work. Do not replace the fork's
+FullPipeline or ProductDevelopment definitions, enable Recorder memory writes,
+or change active pipeline policy as a side effect of these database fixes.
+The original path/commit inventory stays pinned; this note records the later
+change without rewriting that evidence.

@@ -18,7 +18,6 @@ namespace Armada.Core.Database.Mysql.Implementations
         #region Private-Members
 
         private string _ConnectionString;
-        private static readonly string _Iso8601Format = "yyyy-MM-dd HH:mm:ss.ffffff";
 
         #endregion
 
@@ -61,8 +60,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@name", name);
                     cmd.Parameters.AddWithValue("@holder", holder);
                     cmd.Parameters.AddWithValue("@tenant", (object?)tenantId ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@now", ToIso8601(now));
-                    cmd.Parameters.AddWithValue("@exp", ToIso8601(expires));
+                    cmd.Parameters.AddWithValue("@now", ToDatabaseTimestamp(now));
+                    cmd.Parameters.AddWithValue("@exp", ToDatabaseTimestamp(expires));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
 
@@ -94,10 +93,10 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.CommandText = @"UPDATE coordination_leases
                         SET expires_utc = @newExp
                         WHERE name = @name AND holder = @holder AND expires_utc > @now;";
-                    cmd.Parameters.AddWithValue("@newExp", ToIso8601(newExpires));
+                    cmd.Parameters.AddWithValue("@newExp", ToDatabaseTimestamp(newExpires));
                     cmd.Parameters.AddWithValue("@name", name);
                     cmd.Parameters.AddWithValue("@holder", holder);
-                    cmd.Parameters.AddWithValue("@now", ToIso8601(now));
+                    cmd.Parameters.AddWithValue("@now", ToDatabaseTimestamp(now));
                     int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     return rowsAffected > 0;
                 }
@@ -157,7 +156,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "DELETE FROM coordination_leases WHERE expires_utc <= @now;";
-                    cmd.Parameters.AddWithValue("@now", ToIso8601(now));
+                    cmd.Parameters.AddWithValue("@now", ToDatabaseTimestamp(now));
                     return await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -167,9 +166,9 @@ namespace Armada.Core.Database.Mysql.Implementations
 
         #region Private-Methods
 
-        private static string ToIso8601(DateTime dt)
+        private static DateTime ToDatabaseTimestamp(DateTime dt)
         {
-            return dt.ToUniversalTime().ToString(_Iso8601Format, CultureInfo.InvariantCulture);
+            return MysqlDatabaseDriver.ToDatabaseTimestamp(dt);
         }
 
         private static DateTime FromIso8601(string value)

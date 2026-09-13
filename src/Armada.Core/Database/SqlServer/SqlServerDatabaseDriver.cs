@@ -114,108 +114,82 @@ namespace Armada.Core.Database.SqlServer
             {
                 await conn.OpenAsync(token).ConfigureAwait(false);
 
-                // Create migration tracking table
-                using (SqlCommand cmd = conn.CreateCommand())
+                await using (SchemaInitializationLock schemaLock = await SchemaInitializationLock.AcquireAsync(conn, DatabaseTypeEnum.SqlServer, token).ConfigureAwait(false))
                 {
-                    cmd.CommandText = TableQueries.SchemaMigrations;
-                    await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                }
-
-                // Get current schema version
-                int currentVersion = 0;
-                using (SqlCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT COALESCE(MAX(version), 0) FROM schema_migrations;";
-                    object? result = await cmd.ExecuteScalarAsync(token).ConfigureAwait(false);
-                    if (result != null && result != DBNull.Value) currentVersion = Convert.ToInt32(result);
-                }
-
-                // Apply pending migrations
-                List<SchemaMigration> migrations = TableQueries.GetMigrations();
-                int applied = 0;
-
-                foreach (SchemaMigration migration in migrations)
-                {
-                    if (migration.Version <= currentVersion) continue;
-
-                    _Logging.Info(_Header + "applying migration v" + migration.Version + ": " + migration.Description);
-
-                    using (SqlTransaction tx = (SqlTransaction)await conn.BeginTransactionAsync(token).ConfigureAwait(false))
+                    // Create migration tracking table
+                    using (SqlCommand cmd = conn.CreateCommand())
                     {
-                        foreach (string sql in migration.Statements)
+                        cmd.CommandText = TableQueries.SchemaMigrations;
+                        await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
+
+                    // Get current schema version
+                    int currentVersion = 0;
+                    using (SqlCommand cmd = conn.CreateCommand())
+                    {
+                        cmd.CommandText = "SELECT COALESCE(MAX(version), 0) FROM schema_migrations;";
+                        object? result = await cmd.ExecuteScalarAsync(token).ConfigureAwait(false);
+                        if (result != null && result != DBNull.Value) currentVersion = Convert.ToInt32(result);
+                    }
+
+                    // Apply pending migrations
+                    List<SchemaMigration> migrations = TableQueries.GetMigrations();
+                    int applied = 0;
+
+                    foreach (SchemaMigration migration in migrations)
+                    {
+                        if (migration.Version == 52)
                         {
+                            await DefaultDatabaseIdentity.EnsureAsync(conn, DatabaseTypeEnum.SqlServer, MigrationCheckpoint, token).ConfigureAwait(false);
+                            await ServerSchemaPrerequisites.EnsureAsync(conn, DatabaseTypeEnum.SqlServer, token).ConfigureAwait(false);
+                        }
+                        if (migration.Version > currentVersion) MigrationCheckpoint?.Invoke(migration.Version, -1);
+                        if (migration.Version <= currentVersion) continue;
+
+                        _Logging.Info(_Header + "applying migration v" + migration.Version + ": " + migration.Description);
+
+                        using (SqlTransaction tx = (SqlTransaction)await conn.BeginTransactionAsync(token).ConfigureAwait(false))
+                        {
+                            for (int statementOrdinal = 0; statementOrdinal < migration.Statements.Count; statementOrdinal++)
+                            {
+                                string sql = migration.Statements[statementOrdinal];
+                                using (SqlCommand cmd = conn.CreateCommand())
+                                {
+                                    cmd.Transaction = tx;
+                                    await HistoricalMigrationCorrections.ExecuteSqlServerAsync(cmd, migration.Version, sql, token).ConfigureAwait(false);
+                                    await HistoricalMigrationCorrections.RecordSqlServerAsync(conn, tx, migration.Version,
+                                        statementOrdinal, sql, cmd.CommandText, token).ConfigureAwait(false);
+                                    MigrationCheckpoint?.Invoke(migration.Version, statementOrdinal);
+                                }
+                            }
+
+                            // Record migration
                             using (SqlCommand cmd = conn.CreateCommand())
                             {
                                 cmd.Transaction = tx;
-                                cmd.CommandText = sql;
+                                cmd.CommandText = "INSERT INTO schema_migrations (version, description, applied_utc) VALUES (@v, @d, @t);";
+                                cmd.Parameters.AddWithValue("@v", migration.Version);
+                                cmd.Parameters.AddWithValue("@d", migration.Description);
+                                cmd.Parameters.AddWithValue("@t", DateTime.UtcNow);
                                 await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                             }
-                        }
 
-                        // Record migration
-                        using (SqlCommand cmd = conn.CreateCommand())
-                        {
-                            cmd.Transaction = tx;
-                            cmd.CommandText = "INSERT INTO schema_migrations (version, description, applied_utc) VALUES (@v, @d, @t);";
-                            cmd.Parameters.AddWithValue("@v", migration.Version);
-                            cmd.Parameters.AddWithValue("@d", migration.Description);
-                            cmd.Parameters.AddWithValue("@t", DateTime.UtcNow);
-                            await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                            await tx.CommitAsync(token).ConfigureAwait(false);
+                            applied++;
+                            MigrationCheckpoint?.Invoke(migration.Version, -2);
                         }
-
-                        await tx.CommitAsync(token).ConfigureAwait(false);
-                        applied++;
                     }
-                }
 
-                if (applied > 0)
-                    _Logging.Info(_Header + "applied " + applied + " migration(s), schema now at v" + migrations[migrations.Count - 1].Version);
-                else
-                    _Logging.Info(_Header + "schema is up to date at v" + currentVersion);
+                    if (applied > 0)
+                        _Logging.Info(_Header + "applied " + applied + " migration(s), schema now at v" + migrations[migrations.Count - 1].Version);
+                    else
+                        _Logging.Info(_Header + "schema is up to date at v" + currentVersion);
+                }
             }
 
             _Logging.Info(_Header + "database initialized successfully");
 
-            // Seed default data on first boot (or after migration that created tenant but not user)
-            bool anyTenants = await Tenants.ExistsAnyAsync(token).ConfigureAwait(false);
-            if (!anyTenants)
-            {
-                _Logging.Info(_Header + "first boot detected, seeding default tenant, user, and credential");
 
-                TenantMetadata defaultTenant = new TenantMetadata();
-                defaultTenant.Id = Constants.DefaultTenantId;
-                defaultTenant.Name = Constants.DefaultTenantName;
-                defaultTenant.IsProtected = true;
-                await Tenants.CreateAsync(defaultTenant, token).ConfigureAwait(false);
-            }
-
-            // Ensure default user and credential exist (migration may have seeded tenant without user)
-            UserMaster? existingUser = await Users.ReadByIdAsync(Constants.DefaultUserId, token).ConfigureAwait(false);
-            if (existingUser == null)
-            {
-                _Logging.Info(_Header + "seeding default user and credential");
-
-                UserMaster defaultUser = new UserMaster();
-                defaultUser.Id = Constants.DefaultUserId;
-                defaultUser.TenantId = Constants.DefaultTenantId;
-                defaultUser.Email = Constants.DefaultUserEmail;
-                defaultUser.PasswordSha256 = UserMaster.ComputePasswordHash(Constants.DefaultUserPassword);
-                defaultUser.IsAdmin = true;
-                defaultUser.IsTenantAdmin = true;
-                defaultUser.IsProtected = true;
-                await Users.CreateAsync(defaultUser, token).ConfigureAwait(false);
-
-                Credential defaultCred = new Credential();
-                defaultCred.Id = Constants.DefaultCredentialId;
-                defaultCred.TenantId = Constants.DefaultTenantId;
-                defaultCred.UserId = Constants.DefaultUserId;
-                defaultCred.Name = Constants.DefaultCredentialName;
-            defaultCred.BearerToken = Constants.DefaultBearerToken;
-                defaultCred.IsProtected = true;
-                await Credentials.CreateAsync(defaultCred, token).ConfigureAwait(false);
-
-                _Logging.Info(_Header + "default data seeded successfully");
-            }
         }
 
         /// <inheritdoc />
@@ -742,5 +716,6 @@ namespace Armada.Core.Database.SqlServer
         }
 
         #endregion
+
     }
 }

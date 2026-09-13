@@ -18,7 +18,6 @@ namespace Armada.Core.Database.Mysql.Implementations
         #region Private-Members
 
         private string _ConnectionString;
-        private static readonly string _Iso8601Format = "yyyy-MM-ddTHH:mm:ss.fffffffZ";
 
         #endregion
 
@@ -75,11 +74,11 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@current_dock_id", (object?)captain.CurrentDockId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@process_id", captain.ProcessId.HasValue ? (object)captain.ProcessId.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@recovery_attempts", captain.RecoveryAttempts);
-                    cmd.Parameters.AddWithValue("@last_heartbeat_utc", captain.LastHeartbeatUtc.HasValue ? (object)ToIso8601(captain.LastHeartbeatUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@quarantine_until_utc", captain.QuarantineUntilUtc.HasValue ? (object)ToIso8601(captain.QuarantineUntilUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@last_heartbeat_utc", captain.LastHeartbeatUtc.HasValue ? (object)ToDatabaseTimestamp(captain.LastHeartbeatUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@quarantine_until_utc", captain.QuarantineUntilUtc.HasValue ? (object)ToDatabaseTimestamp(captain.QuarantineUntilUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@quarantine_reason", (object?)captain.QuarantineReason ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@created_utc", ToIso8601(captain.CreatedUtc));
-                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(captain.LastUpdateUtc));
+                    cmd.Parameters.AddWithValue("@created_utc", ToDatabaseTimestamp(captain.CreatedUtc));
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(captain.LastUpdateUtc));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -204,10 +203,10 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@current_dock_id", (object?)captain.CurrentDockId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@process_id", captain.ProcessId.HasValue ? (object)captain.ProcessId.Value : DBNull.Value);
                     cmd.Parameters.AddWithValue("@recovery_attempts", captain.RecoveryAttempts);
-                    cmd.Parameters.AddWithValue("@last_heartbeat_utc", captain.LastHeartbeatUtc.HasValue ? (object)ToIso8601(captain.LastHeartbeatUtc.Value) : DBNull.Value);
-                    cmd.Parameters.AddWithValue("@quarantine_until_utc", captain.QuarantineUntilUtc.HasValue ? (object)ToIso8601(captain.QuarantineUntilUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@last_heartbeat_utc", captain.LastHeartbeatUtc.HasValue ? (object)ToDatabaseTimestamp(captain.LastHeartbeatUtc.Value) : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@quarantine_until_utc", captain.QuarantineUntilUtc.HasValue ? (object)ToDatabaseTimestamp(captain.QuarantineUntilUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@quarantine_reason", (object?)captain.QuarantineReason ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(captain.LastUpdateUtc));
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(captain.LastUpdateUtc));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -283,12 +282,12 @@ namespace Armada.Core.Database.Mysql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
                 }
                 if (!string.IsNullOrEmpty(query.Status))
                 {
@@ -374,7 +373,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.CommandText = @"UPDATE captains SET state = @state, last_update_utc = @last_update_utc WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", id);
                     cmd.Parameters.AddWithValue("@state", state.ToString());
-                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(DateTime.UtcNow));
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(DateTime.UtcNow));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -399,8 +398,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 {
                     cmd.CommandText = @"UPDATE captains SET last_heartbeat_utc = @last_heartbeat_utc, last_update_utc = @last_update_utc WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", id);
-                    cmd.Parameters.AddWithValue("@last_heartbeat_utc", ToIso8601(now));
-                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(now));
+                    cmd.Parameters.AddWithValue("@last_heartbeat_utc", ToDatabaseTimestamp(now));
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(now));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -426,8 +425,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 {
                     cmd.CommandText = @"UPDATE captains SET last_process_alive_utc = @last_process_alive_utc, last_update_utc = @last_update_utc WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", id);
-                    cmd.Parameters.AddWithValue("@last_process_alive_utc", ToIso8601(now));
-                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(now));
+                    cmd.Parameters.AddWithValue("@last_process_alive_utc", ToDatabaseTimestamp(now));
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(now));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -548,12 +547,12 @@ namespace Armada.Core.Database.Mysql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
                 }
                 if (!string.IsNullOrEmpty(query.Status))
                 {
@@ -655,7 +654,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@tenantId", tenantId);
                     cmd.Parameters.AddWithValue("@id", id);
                     cmd.Parameters.AddWithValue("@state", state.ToString());
-                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(DateTime.UtcNow));
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(DateTime.UtcNow));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -677,8 +676,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.CommandText = @"UPDATE captains SET last_heartbeat_utc = @last_heartbeat_utc, last_update_utc = @last_update_utc WHERE tenant_id = @tenantId AND id = @id;";
                     cmd.Parameters.AddWithValue("@tenantId", tenantId);
                     cmd.Parameters.AddWithValue("@id", id);
-                    cmd.Parameters.AddWithValue("@last_heartbeat_utc", ToIso8601(now));
-                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(now));
+                    cmd.Parameters.AddWithValue("@last_heartbeat_utc", ToDatabaseTimestamp(now));
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(now));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
@@ -799,12 +798,12 @@ namespace Armada.Core.Database.Mysql.Implementations
                 if (query.CreatedAfter.HasValue)
                 {
                     conditions.Add("created_utc > @created_after");
-                    parameters.Add(new MySqlParameter("@created_after", ToIso8601(query.CreatedAfter.Value)));
+                    parameters.Add(new MySqlParameter("@created_after", ToDatabaseTimestamp(query.CreatedAfter.Value)));
                 }
                 if (query.CreatedBefore.HasValue)
                 {
                     conditions.Add("created_utc < @created_before");
-                    parameters.Add(new MySqlParameter("@created_before", ToIso8601(query.CreatedBefore.Value)));
+                    parameters.Add(new MySqlParameter("@created_before", ToDatabaseTimestamp(query.CreatedBefore.Value)));
                 }
                 if (!string.IsNullOrEmpty(query.Status))
                 {
@@ -868,8 +867,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@state", CaptainStateEnum.Working.ToString());
                     cmd.Parameters.AddWithValue("@current_mission_id", missionId);
                     cmd.Parameters.AddWithValue("@current_dock_id", dockId);
-                    cmd.Parameters.AddWithValue("@last_heartbeat_utc", ToIso8601(now));
-                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(now));
+                    cmd.Parameters.AddWithValue("@last_heartbeat_utc", ToDatabaseTimestamp(now));
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(now));
                     int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     return rowsAffected > 0;
                 }
@@ -910,8 +909,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@state", CaptainStateEnum.Working.ToString());
                     cmd.Parameters.AddWithValue("@current_mission_id", missionId);
                     cmd.Parameters.AddWithValue("@current_dock_id", dockId);
-                    cmd.Parameters.AddWithValue("@last_heartbeat_utc", ToIso8601(now));
-                    cmd.Parameters.AddWithValue("@last_update_utc", ToIso8601(now));
+                    cmd.Parameters.AddWithValue("@last_heartbeat_utc", ToDatabaseTimestamp(now));
+                    cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(now));
                     int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     return rowsAffected > 0;
                 }
@@ -922,9 +921,9 @@ namespace Armada.Core.Database.Mysql.Implementations
 
         #region Private-Methods
 
-        private static string ToIso8601(DateTime dt)
+        private static DateTime ToDatabaseTimestamp(DateTime dt)
         {
-            return dt.ToUniversalTime().ToString(_Iso8601Format, CultureInfo.InvariantCulture);
+            return MysqlDatabaseDriver.ToDatabaseTimestamp(dt);
         }
 
         private static DateTime FromIso8601(string value)
@@ -959,6 +958,9 @@ namespace Armada.Core.Database.Mysql.Implementations
             Captain captain = new Captain();
             captain.Id = reader["id"].ToString()!;
             captain.TenantId = NullableString(reader["tenant_id"]);
+            captain.UserId = NullableString(reader["user_id"]);
+            captain.ApiKey = NullableString(reader["api_key"]);
+            captain.ApiBaseUrl = NullableString(reader["api_base_url"]);
             captain.Name = reader["name"].ToString()!;
             captain.Runtime = Enum.Parse<AgentRuntimeEnum>(reader["runtime"].ToString()!);
             try { captain.Model = NullableString(reader["model"]); } catch { }

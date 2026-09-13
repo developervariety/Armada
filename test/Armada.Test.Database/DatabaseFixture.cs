@@ -21,12 +21,13 @@ namespace Armada.Test.Database
             _NoCleanup = noCleanup;
         }
 
-        public async Task<TenantMetadata> CreateTenantAsync(string namePrefix, bool isProtected = false, CancellationToken token = default)
+        public async Task<TenantMetadata> CreateTenantAsync(string namePrefix, bool isProtected = false, CancellationToken token = default, DateTime? createdUtc = null)
         {
             TenantMetadata tenant = new TenantMetadata(namePrefix + "-" + Token())
             {
                 Active = true,
-                IsProtected = isProtected
+                IsProtected = isProtected,
+                CreatedUtc = createdUtc ?? DateTime.UtcNow
             };
 
             await _Driver.Tenants.CreateAsync(tenant, token).ConfigureAwait(false);

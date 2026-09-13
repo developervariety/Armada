@@ -71,6 +71,11 @@ namespace Armada.Test.Database
                 DatabaseAssert.Equal(version, await _Driver.GetSchemaVersionAsync(token).ConfigureAwait(false), "Repeated startup schema version");
             }, token);
 
+            if (_Settings.Type == Armada.Core.Enums.DatabaseTypeEnum.Mysql)
+                await RunTest("MySQL_Unicode_Full_Uniqueness_Concurrency_Rollback", "Schema", () => new MysqlUnicodeUniquenessTests(_Settings).VerifyAsync(token), token);
+
+            await RunTest("CoordinationLease_Reopen_Ownership_Expiry", "Operational", () => TestCoordinationLeaseAsync(token), token);
+
             Console.WriteLine("--- Tenant/User/Credential ---");
             await RunTest("Tenant_Create_Read_Update_Enumerate", "Auth", () => TestTenantCrudAsync(token), token);
             await RunTest("Tenant_ReadByName_Exists", "Auth", () => TestTenantLookupAsync(token), token);
@@ -147,13 +152,44 @@ namespace Armada.Test.Database
             _Results.Add(result);
         }
 
+        private async Task TestCoordinationLeaseAsync(CancellationToken token)
+        {
+            string name = "database-lease-" + Guid.NewGuid().ToString("N");
+            try
+            {
+                DatabaseAssert.True(await _Driver.CoordinationLeases.TryAcquireAsync(name, "first", TimeSpan.FromMinutes(1), token: token).ConfigureAwait(false), "Acquire lease");
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    CoordinationLease lease = DatabaseAssert.NotNull(await reopened.CoordinationLeases.ReadAsync(name, token).ConfigureAwait(false), "Lease persists after reopen");
+                    DatabaseAssert.Equal("first", lease.Holder, "Persistent lease holder");
+                    DatabaseAssert.True(lease.ExpiresUtc > DateTime.UtcNow, "Persistent lease expiry");
+                    DatabaseAssert.True(!await reopened.CoordinationLeases.TryAcquireAsync(name, "second", TimeSpan.FromMinutes(1), token: token).ConfigureAwait(false), "Live owner blocks takeover");
+                    DatabaseAssert.True(!await reopened.CoordinationLeases.TryRenewAsync(name, "second", TimeSpan.FromMinutes(1), token).ConfigureAwait(false), "Wrong holder cannot renew");
+                    await reopened.CoordinationLeases.ReleaseAsync(name, "second", token).ConfigureAwait(false);
+                    DatabaseAssert.True(await reopened.CoordinationLeases.TryRenewAsync(name, "first", TimeSpan.FromMinutes(2), token).ConfigureAwait(false), "Wrong holder cannot release");
+                    await reopened.CoordinationLeases.ReleaseAsync(name, "first", token).ConfigureAwait(false);
+                    DatabaseAssert.True(await reopened.CoordinationLeases.ReadAsync(name, token).ConfigureAwait(false) == null, "Owner release removes lease");
+                    DatabaseAssert.True(await reopened.CoordinationLeases.TryAcquireAsync(name, "expired", TimeSpan.FromSeconds(-1), token: token).ConfigureAwait(false), "Expired fixture");
+                    DatabaseAssert.True(await reopened.CoordinationLeases.TryAcquireAsync(name, "replacement", TimeSpan.FromSeconds(-1), token: token).ConfigureAwait(false), "Expired owner permits takeover");
+                    await reopened.CoordinationLeases.PurgeExpiredAsync(token).ConfigureAwait(false);
+                    DatabaseAssert.True(await reopened.CoordinationLeases.ReadAsync(name, token).ConfigureAwait(false) == null, "Purge removes expired lease");
+                }
+            }
+            finally
+            {
+                foreach (string holder in new[] { "first", "second", "expired", "replacement" })
+                    await _Driver.CoordinationLeases.ReleaseAsync(name, holder, token).ConfigureAwait(false);
+            }
+        }
+
         private async Task TestTenantCrudAsync(CancellationToken token)
         {
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
             try
             {
-                TenantMetadata tenantA = await fixture.CreateTenantAsync("crud-tenant-a", token: token).ConfigureAwait(false);
-                TenantMetadata tenantB = await fixture.CreateTenantAsync("crud-tenant-b", token: token).ConfigureAwait(false);
+                DateTime tiedCreation = DateTime.UtcNow.AddMinutes(1);
+                TenantMetadata tenantA = await fixture.CreateTenantAsync("crud-tenant-a", token: token, createdUtc: tiedCreation).ConfigureAwait(false);
+                TenantMetadata tenantB = await fixture.CreateTenantAsync("crud-tenant-b", token: token, createdUtc: tiedCreation).ConfigureAwait(false);
 
                 TenantMetadata? read = await _Driver.Tenants.ReadAsync(tenantA.Id, token).ConfigureAwait(false);
                 read = DatabaseAssert.NotNull(read, "Tenant read returned null");
@@ -406,8 +442,25 @@ namespace Armada.Test.Database
                 DatabaseAssert.Equal(vessel.RepoUrl, read.RepoUrl, "Vessel.RepoUrl");
 
                 read.DefaultBranch = "develop";
+                read.AllowConcurrentMissions = true;
+                read.ArchitectMaxMissionsPerVoyage = 7;
+                read.ProtectedPaths = new List<string> { "src/guards/**", "config/release.json" };
+                read.AutoLandPredicate = "fixture predicate";
+                read.AutoLandCalibrationLandedCount = 13;
+                read.SiblingRepos = "[\"sibling-example\"]";
                 Vessel updated = await _Driver.Vessels.UpdateAsync(read, token).ConfigureAwait(false);
                 DatabaseAssert.Equal("develop", updated.DefaultBranch, "Vessel.DefaultBranch");
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    Vessel persisted = DatabaseAssert.NotNull(await reopened.Vessels.ReadAsync(vessel.Id, token).ConfigureAwait(false), "Vessel reopened");
+                    DatabaseAssert.True(persisted.AllowConcurrentMissions, "Vessel concurrency opt-in");
+                    DatabaseAssert.Equal(read.ArchitectMaxMissionsPerVoyage, persisted.ArchitectMaxMissionsPerVoyage, "Vessel architecture bound");
+                    DatabaseAssert.Equal(String.Join("|", read.ProtectedPaths), String.Join("|", persisted.ProtectedPaths), "Vessel protected paths");
+                    DatabaseAssert.Equal(read.AutoLandPredicate, persisted.AutoLandPredicate, "Vessel landing predicate");
+                    DatabaseAssert.Equal(read.AutoLandCalibrationLandedCount, persisted.AutoLandCalibrationLandedCount, "Vessel landing calibration");
+                    DatabaseAssert.Equal(read.SiblingRepos, persisted.SiblingRepos, "Vessel sibling inputs");
+                }
+
             }
             finally
             {
@@ -437,12 +490,37 @@ namespace Armada.Test.Database
 
                 read.RecoveryAttempts = 2;
                 read.Model = "gpt-5.4-mini";
+                read.AllowedPersonas = "Worker,Reviewer";
+                read.PreferredPersona = "Reviewer";
+                read.RuntimeOptionsJson = "{\"fixture\":true}";
+                read.QuarantineUntilUtc = new DateTime(2027, 1, 2, 3, 4, 5, DateTimeKind.Utc).AddTicks(1234560);
+                read.QuarantineReason = "Fixture quarantine ownership";
+                read.ApiKey = "fixture-key";
+                read.ApiBaseUrl = "https://provider.example.test/api";
+
                 Captain updated = await _Driver.Captains.UpdateAsync(read, token).ConfigureAwait(false);
                 DatabaseAssert.Equal(2, updated.RecoveryAttempts, "Captain.RecoveryAttempts");
                 DatabaseAssert.Equal("gpt-5.4-mini", updated.Model, "Updated Captain.Model");
                 Captain? updatedRead = await _Driver.Captains.ReadAsync(read.Id, token).ConfigureAwait(false);
                 updatedRead = DatabaseAssert.NotNull(updatedRead, "Updated captain read returned null");
                 DatabaseAssert.Equal("gpt-5.4-mini", updatedRead.Model, "Persisted Captain.Model");
+                await _Driver.Captains.UpdateProcessAliveAsync(read.Id, token).ConfigureAwait(false);
+                // A stale ordinary update must not erase the independently refreshed liveness.
+                await _Driver.Captains.UpdateAsync(read, token).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    Captain persisted = DatabaseAssert.NotNull(await reopened.Captains.ReadAsync(read.Id, token).ConfigureAwait(false), "Captain reopened");
+                    DatabaseAssert.Equal(read.AllowedPersonas, persisted.AllowedPersonas, "Captain persona constraints");
+                    DatabaseAssert.Equal(read.PreferredPersona, persisted.PreferredPersona, "Captain preferred persona");
+                    DatabaseAssert.Equal(read.RuntimeOptionsJson, persisted.RuntimeOptionsJson, "Captain runtime options");
+                    DatabaseAssert.Equal(read.QuarantineUntilUtc, persisted.QuarantineUntilUtc, "Captain quarantine UTC microseconds");
+                    DatabaseAssert.Equal(read.QuarantineReason, persisted.QuarantineReason, "Captain quarantine reason");
+                    DatabaseAssert.Equal(read.ApiKey, persisted.ApiKey, "Captain provider key");
+                    DatabaseAssert.Equal(read.ApiBaseUrl, persisted.ApiBaseUrl, "Captain provider URL");
+                    DatabaseAssert.True(persisted.LastProcessAliveUtc.HasValue, "Captain independent liveness persists");
+                    DatabaseAssert.Equal(read.LastHeartbeatUtc, persisted.LastHeartbeatUtc, "Liveness does not advance output heartbeat");
+                }
+
             }
             finally
             {
@@ -1171,6 +1249,15 @@ namespace Armada.Test.Database
                 DatabaseAssert.Equal(4, updated.AcceptanceCriteria.Count, "Updated Objective.AcceptanceCriteria.Count");
                 DatabaseAssert.Equal(ObjectivePreparationClaimStateEnum.NeedsRecheck, updated.Preparation.Claims[0].State, "Updated Objective.Preparation.Claims[0].State");
                 DatabaseAssert.Equal("Fixture anchor changed.", updated.Preparation.Claims[0].InvalidationReason, "Updated Objective.Preparation.Claims[0].InvalidationReason");
+
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    Objective persisted = DatabaseAssert.NotNull(await reopened.Objectives.ReadAsync(tenant.Id, user.Id, read.Id, token).ConfigureAwait(false), "Objective reopened");
+                    DatabaseAssert.True(!persisted.AutoDispatchEnabled, "Objective dispatch remains disabled");
+                    DatabaseAssert.Equal(ObjectivePreparationClaimStateEnum.NeedsRecheck, persisted.Preparation.Claims[0].State, "Objective preparation invalidation persists");
+                    DatabaseAssert.Equal("Fixture anchor changed.", persisted.Preparation.Claims[0].InvalidationReason, "Objective invalidation evidence persists");
+                    DatabaseAssert.Equal(parent.Id, persisted.BlockedByObjectiveIds[0], "Objective blocker persists");
+                }
 
                 List<Objective> tenantObjectives = await _Driver.Objectives.EnumerateAsync(tenant.Id, token).ConfigureAwait(false);
                 DatabaseAssert.ContainsIds(tenantObjectives, item => item.Id, parent.Id, objectiveA.Id, objectiveB.Id);

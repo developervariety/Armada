@@ -317,7 +317,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@effort", objective.Effort.ToString());
             cmd.Parameters.AddWithValue("@owner", (object?)objective.Owner ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@target_version", (object?)objective.TargetVersion ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@due_utc", objective.DueUtc.HasValue ? (object)MysqlDatabaseDriver.ToIso8601(objective.DueUtc.Value) : DBNull.Value);
+            cmd.Parameters.AddWithValue("@due_utc", objective.DueUtc.HasValue ? (object)MysqlDatabaseDriver.ToDatabaseTimestamp(objective.DueUtc.Value) : DBNull.Value);
             cmd.Parameters.AddWithValue("@parent_objective_id", (object?)objective.ParentObjectiveId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@blocked_by_objective_ids_json", ObjectivePersistenceHelper.Serialize(objective.BlockedByObjectiveIds));
             cmd.Parameters.AddWithValue("@refinement_summary", (object?)objective.RefinementSummary ?? DBNull.Value);
@@ -343,10 +343,10 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@source_type", (object?)objective.SourceType ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@source_id", (object?)objective.SourceId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@source_url", (object?)objective.SourceUrl ?? DBNull.Value);
-            cmd.Parameters.AddWithValue("@source_updated_utc", objective.SourceUpdatedUtc.HasValue ? (object)MysqlDatabaseDriver.ToIso8601(objective.SourceUpdatedUtc.Value) : DBNull.Value);
-            cmd.Parameters.AddWithValue("@created_utc", MysqlDatabaseDriver.ToIso8601(objective.CreatedUtc));
-            cmd.Parameters.AddWithValue("@last_update_utc", MysqlDatabaseDriver.ToIso8601(objective.LastUpdateUtc));
-            cmd.Parameters.AddWithValue("@completed_utc", objective.CompletedUtc.HasValue ? (object)MysqlDatabaseDriver.ToIso8601(objective.CompletedUtc.Value) : DBNull.Value);
+            cmd.Parameters.AddWithValue("@source_updated_utc", objective.SourceUpdatedUtc.HasValue ? (object)MysqlDatabaseDriver.ToDatabaseTimestamp(objective.SourceUpdatedUtc.Value) : DBNull.Value);
+            cmd.Parameters.AddWithValue("@created_utc", MysqlDatabaseDriver.ToDatabaseTimestamp(objective.CreatedUtc));
+            cmd.Parameters.AddWithValue("@last_update_utc", MysqlDatabaseDriver.ToDatabaseTimestamp(objective.LastUpdateUtc));
+            cmd.Parameters.AddWithValue("@completed_utc", objective.CompletedUtc.HasValue ? (object)MysqlDatabaseDriver.ToDatabaseTimestamp(objective.CompletedUtc.Value) : DBNull.Value);
         }
 
         private static Objective ObjectiveFromReader(MySqlDataReader reader)
