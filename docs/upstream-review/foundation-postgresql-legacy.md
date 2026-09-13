@@ -1,6 +1,7 @@
 # Historical PostgreSQL operational schema repair
 
-Status: implementation and validation in progress. Foundation remains incomplete.
+Status: source repair landed at `7c71cc6b` and isolated image validation passed.
+The upstream campaign remains incomplete. Production rollout is separate.
 
 The deployment incident exposed source shapes missing from the generated upgrade
 fixtures: 21 text timestamp columns on workflow_profiles, check_runs,
@@ -31,7 +32,7 @@ cleared before the original foreign key was applied. This follows that key's
 ON DELETE SET NULL behavior. The original backups and failed restores remain
 unchanged. The corrected restore completed with ON_ERROR_STOP and all foreign
 keys enabled. This is a documented test-data correction, not the schema repair
-under test. Image validation is next. No source repair has been deployed by this session.
+under test. The isolated image validation below passed. No source repair has been deployed by this session.
 
 The native memory port is owned by another session. This repair does not alter
 memory or learned-facts behavior, automatic dispatch, routing or landing gates.
@@ -69,3 +70,31 @@ schema migrations and repairs. It starts no listeners, Admiral services,
 scheduler or captains. Use an isolated restored database for deployment preflight.
 Extra arguments fail before database initialization. The process tests verify
 successful exit, no mission/captain creation and invalid-argument refusal.
+
+## Corrected-restore image proof
+
+The owner authorized the choice of correction after both original backups failed
+strict restore. The 13:48 UTC backup was restored into a new isolated PostgreSQL
+database. Exactly four missing-pipeline references were recorded and set to NULL
+before the original foreign key was applied. No original backup or live row was
+changed. Strict restore then completed successfully.
+
+Release output from source `7c71cc6b` was placed in a separate image using the
+same runtime base as the current deployment. Image digest
+`sha256:d724d5691b085b96490c4b5b4209719cd0ea7752cfab3fe0de8b4509b4e28db4`
+passed `--validate-database` twice and exited zero at schema 87. No production
+container was replaced. The test image did not start Admiral services.
+
+Normalized row counts and SHA-256 fingerprints matched before and after for
+all common columns in workflow_profiles (13 rows), check_runs (3,291),
+environments (24), releases (0), deployments (2), objectives (1,421), pipelines
+(14), captains (18) and docks (5,133). The comparison normalizes the documented
+four objective links and the intended timestamp/boolean types. Thirteen mission
+identity/state fields matched for 6,930 rows; heavy mission payloads were not
+included. All 68 historical migration rows through version 83 matched exactly.
+This is scoped persistence evidence, not a certification of every runtime path.
+
+Final ordinary provider runs on the combined native-memory tree passed
+65 SQLite, 65 PostgreSQL, 66 MySQL and 65 SQL Server cases. The 17-scenario matrix,
+combined suites and process tests above passed. Rollback-image build automation
+and the durable deployment lesson remain separate incident follow-ups.

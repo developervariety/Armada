@@ -1,19 +1,19 @@
 # Fork preservation and provider foundation
 
-Evidence date: 2026-09-13 UTC. **Foundation is reopened and incomplete.**
-The earlier generated provider fixtures passed at `11fd66a2`, but did not
-represent the historical production PostgreSQL schema. Deployment of `0d8b05ac`
-failed prerequisite validation on text timestamp columns, integer duration and
-approval fields, and a captain foreign-key delete rule. The operator reported
-successful manual recovery and deployment; this session has not independently
-certified that running image or the recovery.
+Evidence date: 2026-09-13 UTC. The reopened historical PostgreSQL gap is now
+validated by the [source repair and corrected-restore image proof](foundation-postgresql-legacy.md).
+Source `7c71cc6b` preserves old migration rows and the original prerequisite
+checksum. The combined native-memory tree passed the 17-provider-scenario matrix,
+4,106 unit / 967 API / 183 runtime tests, and two added preflight process tests.
 
-The historical-schema deployment incident requires a repeatable source repair, a test
-against a restored pre-repair database and rollback-image retention. A passing
-synthetic matrix alone does not close this gap. Current repair work and evidence
-are in [historical PostgreSQL repair](foundation-postgresql-legacy.md). The
-upstream campaign remains incomplete. Later backend changes retain their
-[separate evidence](backend-storage.md).
+The original synthetic fixtures did not represent the historical production
+schema. That gap caused a deployment failure and manual operator recovery.
+Both available pre-repair backups also had four missing-pipeline references;
+the owner-authorized isolated correction and its exact proof scope are recorded
+with the repair evidence. The test image passed twice. This source repair has
+not been rolled out to production by this session. Rollback-image automation,
+other incident follow-ups and the upstream campaign remain incomplete.
+Later backend changes retain [separate evidence](backend-storage.md).
 
 ## Source boundary and migration ownership
 
