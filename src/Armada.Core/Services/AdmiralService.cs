@@ -1071,6 +1071,11 @@ namespace Armada.Core.Services
                     status.MissionsByStatus[missionStatus.ToString()] = count;
             }
 
+            // Pending missions the last admission evaluation deferred for resource pressure. Read from stored
+            // assignment state through lightweight summaries, so the value is current and survives restarts.
+            if (missionCounts.TryGetValue(MissionStatusEnum.Pending, out int pendingCount) && pendingCount > 0)
+                status.MissionsWaitingForResourcePressure = await CountPendingWaitingForResourcePressureAsync(token).ConfigureAwait(false);
+
             // Active voyages
             List<Voyage> activeVoyages = await _Database.Voyages.EnumerateByStatusAsync(VoyageStatusEnum.InProgress, token).ConfigureAwait(false);
             List<Voyage> openVoyages = await _Database.Voyages.EnumerateByStatusAsync(VoyageStatusEnum.Open, token).ConfigureAwait(false);
@@ -1846,6 +1851,35 @@ namespace Armada.Core.Services
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Count pending missions whose stored assignment state is WaitingForResourcePressure. Reads lightweight
+        /// summaries page by page, so no description, diff or agent output is loaded.
+        /// </summary>
+        private async Task<int> CountPendingWaitingForResourcePressureAsync(CancellationToken token)
+        {
+            const int pageSize = 1000;
+            int waiting = 0;
+            int pageNumber = 1;
+            while (true)
+            {
+                EnumerationQuery query = new EnumerationQuery
+                {
+                    Status = MissionStatusEnum.Pending.ToString(),
+                    PageNumber = pageNumber,
+                    PageSize = pageSize
+                };
+                EnumerationResult<MissionSummary> page = await _Database.Missions.EnumerateMissionSummariesAsync(query, token).ConfigureAwait(false);
+                List<MissionSummary> objects = page.Objects ?? new List<MissionSummary>();
+                waiting += objects.Count(summary =>
+                    summary.Status == MissionStatusEnum.Pending
+                    && summary.AssignmentState == MissionAssignmentStateEnum.WaitingForResourcePressure);
+                if (objects.Count < pageSize || pageNumber >= page.TotalPages) break;
+                pageNumber++;
+            }
+
+            return waiting;
         }
 
         /// <summary>

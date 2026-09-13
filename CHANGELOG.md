@@ -25,6 +25,11 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   started another full reload. The timer is now the shared auto-refresh
   selector (default 30 seconds, "None" stops it). A mission's full JSON is read
   only when opened.
+- `GET /api/v1/status` adds `MissionsWaitingForResourcePressure`: the current
+  number of pending missions whose stored assignment state is
+  `WaitingForResourcePressure`. The home Active Voyages card shows it when above
+  zero. It is not a count of refused admission checks and does not reset on
+  restart.
 
 ### Events carry their owner's scope
 

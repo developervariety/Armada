@@ -682,6 +682,7 @@ Returns aggregate status including captain counts, mission breakdown, active voy
   "WorkingCaptains": 3,
   "StalledCaptains": 0,
   "ActiveVoyages": 1,
+  "MissionsWaitingForResourcePressure": 0,
   "MissionsByStatus": {
     "Pending": 3,
     "InProgress": 2,
@@ -3958,6 +3959,7 @@ Aggregate status summary returned by the status endpoint.
   "WorkingCaptains": 3,
   "StalledCaptains": 0,
   "ActiveVoyages": 1,
+  "MissionsWaitingForResourcePressure": 0,
   "MissionsByStatus": {
     "Pending": 3,
     "InProgress": 2,

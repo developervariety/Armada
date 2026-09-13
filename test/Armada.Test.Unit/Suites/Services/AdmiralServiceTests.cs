@@ -319,6 +319,29 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("GetStatusAsync counts only pending missions waiting for resource pressure", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), new StubGitService());
+
+                    Mission waitingOne = new Mission("Waiting one") { Status = MissionStatusEnum.Pending, AssignmentState = MissionAssignmentStateEnum.WaitingForResourcePressure };
+                    Mission waitingTwo = new Mission("Waiting two") { Status = MissionStatusEnum.Pending, AssignmentState = MissionAssignmentStateEnum.WaitingForResourcePressure };
+                    Mission waitingForCaptain = new Mission("Waiting captain") { Status = MissionStatusEnum.Pending, AssignmentState = MissionAssignmentStateEnum.WaitingForIdleCaptain };
+                    Mission completedStale = new Mission("Completed stale") { Status = MissionStatusEnum.Complete, AssignmentState = MissionAssignmentStateEnum.WaitingForResourcePressure };
+
+                    await db.Missions.CreateAsync(waitingOne);
+                    await db.Missions.CreateAsync(waitingTwo);
+                    await db.Missions.CreateAsync(waitingForCaptain);
+                    await db.Missions.CreateAsync(completedStale);
+
+                    ArmadaStatus status = await service.GetStatusAsync();
+
+                    AssertEqual(2, status.MissionsWaitingForResourcePressure, "Only pending missions whose assignment waits for resource pressure are counted");
+                }
+            });
+
             await RunTest("GetStatusAsync IncludesWorkProducedAndLandingFailedAfterLightweightCounts", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

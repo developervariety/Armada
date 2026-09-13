@@ -153,6 +153,23 @@ describe('Dashboard home', () => {
     expect(getStatus).toHaveBeenCalledTimes(2);
   });
 
+  it('shows how many pending missions wait for resource pressure on the active voyages card', async () => {
+    vi.mocked(getStatus).mockResolvedValue({ ...baseStatus, missionsWaitingForResourcePressure: 2 } as never);
+
+    renderDashboard();
+
+    expect(await screen.findByText('2 waiting for resource pressure')).toBeInTheDocument();
+  });
+
+  it('hides the resource pressure chip when no mission waits for it', async () => {
+    vi.mocked(getStatus).mockResolvedValue({ ...baseStatus, missionsWaitingForResourcePressure: 0 } as never);
+
+    renderDashboard();
+    expect(await screen.findByText('Older voyage')).toBeInTheDocument();
+
+    expect(screen.queryByText(/waiting for resource pressure/)).not.toBeInTheDocument();
+  });
+
   it('registers no refresh timer when auto-refresh is set to None', async () => {
     localStorage.setItem('armada_autorefresh_dashboard', '0');
     const intervalSpy = vi.spyOn(window, 'setInterval');

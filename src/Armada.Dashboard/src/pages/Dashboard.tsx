@@ -44,6 +44,8 @@ interface StatusData {
   workingCaptains: number;
   stalledCaptains: number;
   activeVoyages: number;
+  /** Pending missions whose last admission evaluation deferred them for host resource pressure (current count). */
+  missionsWaitingForResourcePressure?: number;
   missionsByStatus: Record<string, number>;
   voyages: VoyageProgress[];
   recentSignals: Array<{
@@ -420,6 +422,16 @@ export default function Dashboard() {
         >
           <div className="card-label">{t('Active Voyages')}</div>
           <div className="card-value">{status?.activeVoyages ?? 0}</div>
+          {(status?.missionsWaitingForResourcePressure ?? 0) > 0 && (
+            <div className="card-detail">
+              <span
+                className="tag stalled"
+                title={t('Pending missions whose last admission check deferred them for host resource pressure')}
+              >
+                {t('{{count}} waiting for resource pressure', { count: status?.missionsWaitingForResourcePressure ?? 0 })}
+              </span>
+            </div>
+          )}
         </div>
 
         <div

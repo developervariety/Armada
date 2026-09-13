@@ -33,6 +33,13 @@ namespace Armada.Core.Models
         public int ActiveVoyages { get; set; } = 0;
 
         /// <summary>
+        /// Number of pending missions whose recorded assignment state is WaitingForResourcePressure: the last
+        /// admission evaluation deferred them because of host resource pressure. This is the current count from
+        /// stored mission state, not a cumulative count of refused admission checks.
+        /// </summary>
+        public int MissionsWaitingForResourcePressure { get; set; } = 0;
+
+        /// <summary>
         /// Missions grouped by status.
         /// </summary>
         public Dictionary<string, int> MissionsByStatus
