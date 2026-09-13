@@ -14,6 +14,16 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Incident recovery detail
+
+- An incident that names a mission shows that mission's recovery report from
+  `GET /api/v1/missions/{id}/recovery`: recovery attempts against the budget,
+  an exhausted budget, landing retries, the failure reason, and each rescue
+  mission as a link with its status and commit. Truncated sections and
+  unavailable reasons are stated, and a load failure is shown instead of an
+  empty report. Upstream's per-incident failure kind and rescue count were not
+  imported; the mission recovery report is the richer source.
+
 ### Dock starting point
 
 - Dock detail shows the Git evidence captured at provisioning: the provisioned

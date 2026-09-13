@@ -4,6 +4,7 @@ import {
   createIncident,
   deleteIncident,
   getIncident,
+  getMissionRecovery,
   listDeployments,
   listEnvironments,
   listReleases,
@@ -19,6 +20,7 @@ import type {
   IncidentSeverity,
   IncidentStatus,
   IncidentUpsertRequest,
+  MissionRecoveryReport,
   Release,
   RunbookExecution,
   Vessel,
@@ -28,6 +30,7 @@ import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
+import MissionRecoveryPanel from '../components/shared/MissionRecoveryPanel';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
 import PageHeader from '../components/shared/PageHeader';
@@ -174,6 +177,33 @@ export default function IncidentDetail() {
     setMitigatedUtc(toInputDateTime(state.prefill.mitigatedUtc || null));
     setClosedUtc(toInputDateTime(state.prefill.closedUtc || null));
   }, [createMode, location.state]);
+
+  // Recovery evidence comes from the named mission's recovery report, read in the caller's scope.
+  const [recoveryReport, setRecoveryReport] = useState<MissionRecoveryReport | null>(null);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
+  const recoveryMissionId = incident?.missionId || null;
+
+  useEffect(() => {
+    if (!recoveryMissionId) {
+      setRecoveryReport(null);
+      setRecoveryError(null);
+      setRecoveryLoading(false);
+      return;
+    }
+    let active = true;
+    setRecoveryLoading(true);
+    setRecoveryError(null);
+    getMissionRecovery(recoveryMissionId)
+      .then((result) => { if (active) setRecoveryReport(result); })
+      .catch((err: unknown) => {
+        if (!active) return;
+        setRecoveryReport(null);
+        setRecoveryError(t('Recovery report unavailable: {{message}}', { message: err instanceof Error ? err.message : String(err) }));
+      })
+      .finally(() => { if (active) setRecoveryLoading(false); });
+    return () => { active = false; };
+  }, [recoveryMissionId, t]);
 
   useEffect(() => {
     if (createMode || !id) return;
@@ -580,6 +610,15 @@ export default function IncidentDetail() {
             </div>
           )}
         </section>
+
+        {!createMode && incident && (
+          <MissionRecoveryPanel
+            missionId={recoveryMissionId}
+            report={recoveryReport}
+            error={recoveryError}
+            loading={recoveryLoading}
+          />
+        )}
 
         <section className="card detail-panel">
           <h3>{t('Overview')}</h3>

@@ -1282,6 +1282,74 @@ export interface Incident {
   lastUpdateUtc: string;
 }
 
+/** A rescue mission recorded for a failed mission, read in the caller's scope. */
+export interface MissionRecoveryRescue {
+  missionId: string;
+  title: string;
+  status: string;
+  voyageId: string | null;
+  captainId: string | null;
+  commitHash: string | null;
+  failureReason: string | null;
+  createdUtc: string;
+  completedUtc: string | null;
+}
+
+export interface MissionRecoveryRunbookExecution {
+  executionId: string;
+  runbookId: string;
+  title: string;
+  status: string;
+  startedUtc: string;
+  completedUtc: string | null;
+}
+
+export interface MissionRecoveryIncident {
+  incidentId: string;
+  title: string;
+  status: IncidentStatus;
+  severity: IncidentSeverity;
+  recoveryNotes: string | null;
+  detectedUtc: string;
+  mitigatedUtc: string | null;
+  closedUtc: string | null;
+  runbookExecutions: MissionRecoveryRunbookExecution[];
+  runbookExecutionsTruncated: boolean;
+}
+
+export interface MissionRecoveryEvent {
+  eventId: string;
+  eventType: string;
+  message: string;
+  createdUtc: string;
+}
+
+/** GET /api/v1/missions/{id}/recovery: recovery budget, rescues, incidents and recovery events for one mission. */
+export interface MissionRecoveryReport {
+  missionId: string;
+  status: string;
+  failureReason: string | null;
+  parentMissionId: string | null;
+  isRescue: boolean;
+  recoveryAttempts: number;
+  maxRecoveryAttempts: number;
+  recoveryBudgetExhausted: boolean;
+  autonomousRecoveryEnabled: boolean;
+  dispatchRescueMissions: boolean;
+  landingRetryCount: number;
+  maxLandingRetries: number;
+  lastRecoveryActionUtc: string | null;
+  rescues: MissionRecoveryRescue[];
+  rescuesTruncated: boolean;
+  rescuesUnavailableReason: string | null;
+  incidents: MissionRecoveryIncident[];
+  incidentsTruncated: boolean;
+  incidentsUnavailableReason: string | null;
+  events: MissionRecoveryEvent[];
+  eventsWindowFull: boolean;
+  eventsUnavailableReason: string | null;
+}
+
 export interface IncidentQuery {
   tenantId?: string | null;
   userId?: string | null;

@@ -17,6 +17,7 @@ import type {
   MissionHistorySummaryResult,
   Voyage,
   VoyageMissionSummary,
+  MissionRecoveryReport,
   Objective,
   GitHubActionsSyncRequest,
   GitHubActionsSyncResult,
@@ -781,6 +782,8 @@ export const getMissionDiff = (id: string) => get<DiffResult>(`/api/v1/missions/
 export const getMissionLog = (id: string, lines = 500, formatted = false) =>
   get<LogResult>(`/api/v1/missions/${encodeURIComponent(id)}/log?lines=${lines}${formatted ? '&formatted=true' : ''}`);
 export const getMissionInstructions = (id: string) => get<InstructionsResult>(`/api/v1/missions/${id}/instructions`);
+/** Recovery budget, rescues, incidents and recovery events for one mission, read in the caller's scope. */
+export const getMissionRecovery = (id: string) => get<MissionRecoveryReport>(`/api/v1/missions/${encodeURIComponent(id)}/recovery`);
 
 // ==================== Voyages ====================
 export const listVoyages = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
