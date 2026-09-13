@@ -105,7 +105,6 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = new ArmadaSettings();
                     settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_mode_docks_" + Guid.NewGuid().ToString("N"));
                     settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_mode_repos_" + Guid.NewGuid().ToString("N"));
-                    settings.LearnedFactsEnabled = true;
 
                     StubGitService git = new StubGitService();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
@@ -241,7 +240,6 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = new ArmadaSettings();
                     settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_mode_docks_" + Guid.NewGuid().ToString("N"));
                     settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_mode_repos_" + Guid.NewGuid().ToString("N"));
-                    settings.LearnedFactsEnabled = true;
 
                     StubGitService git = new StubGitService();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);

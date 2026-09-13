@@ -27,12 +27,9 @@ namespace Armada.Server.Mcp.Tools
         /// </summary>
         /// <param name="register">Delegate to register each tool.</param>
         /// <param name="database">Database driver for persona data access.</param>
-        /// <param name="bootstrap">Optional reflection-memory bootstrap service used to lazily
-        ///   create the persona-&lt;name&gt;-learned playbook for newly-registered personas (v2-F2).</param>
         public static void Register(
             RegisterToolDelegate register,
-            DatabaseDriver database,
-            IReflectionMemoryBootstrapService? bootstrap = null)
+            DatabaseDriver database)
         {
             register(
                 "create_persona",
@@ -62,20 +59,6 @@ namespace Armada.Server.Mcp.Tools
                     if (request.DefaultPlaybooks != null)
                         persona.DefaultPlaybooks = SerializeDefaultPlaybooks(request.DefaultPlaybooks);
                     persona = await database.Personas.CreateAsync(persona).ConfigureAwait(false);
-
-                    // v2-F2: lazy-bootstrap the persona-learned playbook for the new persona.
-                    if (bootstrap != null)
-                    {
-                        try
-                        {
-                            await bootstrap.BootstrapPersonaAsync(persona).ConfigureAwait(false);
-                            persona = await database.Personas.ReadAsync(persona.Id).ConfigureAwait(false) ?? persona;
-                        }
-                        catch (Exception)
-                        {
-                            // Best-effort; persona creation succeeded.
-                        }
-                    }
 
                     return (object)persona;
                 });

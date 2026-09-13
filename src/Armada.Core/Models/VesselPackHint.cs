@@ -6,8 +6,8 @@ namespace Armada.Core.Models
 
     /// <summary>
     /// A context-pack curation hint for a vessel: pre-selection rules that <see cref="ContextPackResponse"/>
-    /// applies before lexical/semantic ranking. Hints are produced by Reflections v2-F1 pack-curate
-    /// missions and applied when the dispatch goal text matches <see cref="GoalPattern"/>.
+    /// applies before lexical/semantic ranking, when the dispatch goal text matches <see cref="GoalPattern"/>.
+    /// Legacy: retained as inert data; no producer writes these hints.
     /// </summary>
     public sealed class VesselPackHint
     {

@@ -27,15 +27,9 @@ namespace Armada.Server.Mcp
 
         /// <summary>
         /// JSON-serialized list of <see cref="Armada.Core.Models.SelectedPlaybook"/> entries
-        /// that auto-merge into every mission whose vessel belongs to this fleet
-        /// (Reflections v2-F3). Layered FIRST in the four-way merge.
+        /// that auto-merge into every mission whose vessel belongs to this fleet.
+        /// Layered FIRST in the fleet -> vessel -> persona -> captain merge.
         /// </summary>
         public string? DefaultPlaybooks { get; set; }
-
-        /// <summary>
-        /// Per-fleet fleet-curate trigger threshold in mission count across active vessels
-        /// (Reflections v2-F3). Null disables the audit-drain auto-trigger.
-        /// </summary>
-        public int? CurateThreshold { get; set; }
     }
 }

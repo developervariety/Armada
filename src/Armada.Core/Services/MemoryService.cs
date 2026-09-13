@@ -21,7 +21,7 @@ namespace Armada.Core.Services
     /// administrator may also change tenant-wide records. Search and paging run over the caller-visible
     /// set, which suits the modest volume of distilled records.
     ///
-    /// The service is independent of the learned-facts feature and reads no setting of it.
+    /// The service is self-contained and reads no global enable setting.
     /// </summary>
     public class MemoryService
     {

@@ -141,17 +141,6 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest(".armada/LEARNED.md is blocked by built-in protected paths", () =>
-            {
-                // .armada/LEARNED.md is the LearnedFactsFile path
-                string learnedPath = Armada.Core.Memory.LearnedFactsFile.RelativePath;
-                string diff = MakeDiff(learnedPath, "placeholder");
-                DockBoundaryScanResult result = scanner.Scan(
-                    diff, null, null, null, null, null, DefaultSettings());
-                AssertFalse(result.Passed, learnedPath + " must be blocked by built-in paths");
-                AssertEqual(DockBoundaryFindingKindEnum.ProtectedPath, result.Findings[0].Kind);
-                return Task.CompletedTask;
-            });
 
             await RunTest("_briefing/context-pack.md is blocked by built-in protected paths", () =>
             {

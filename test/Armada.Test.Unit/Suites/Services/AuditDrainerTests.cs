@@ -49,9 +49,6 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("branch-1", entriesJson);
                     AssertFalse(entriesJson.Contains("branch-2"), "Picked+Pass entry should be excluded");
                     AssertFalse(entriesJson.Contains("branch-3"), "Not-Picked entry should be excluded");
-                    JsonArray? reflections = root?["reflectionsDispatched"]?.AsArray();
-                    AssertNotNull(reflections, "Drain response should include reflectionsDispatched");
-                    AssertEqual(0, reflections!.Count, "Without reflection dispatcher nothing auto-dispatches");
                 }
             });
 

@@ -49,7 +49,6 @@ Check these settings before you depend on the related workflow:
 | Setting or record | Effect |
 | --- | --- |
 | `codeIndex.enabled` | Enables code search, graph search, and context packs. |
-| `learnedFactsEnabled` | Enables learned-playbook injection and reflection workflows. |
 | `seedDockRuntimeMcpConfig` | Gives supported captains the local Armada MCP URL through runtime-appropriate dock or launch configuration. Default: enabled. |
 | `autonomousRecovery.enabled` | Enables bounded server-side mission recovery. |
 | `incidentLifecycle.enabled` | Enables evidence-driven incident transitions. |
@@ -1505,22 +1504,14 @@ authentication before approving a real release.
 | Read | `armada_index_status`, `armada_code_search`, `armada_context_pack`, `armada_fleet_code_search`, `armada_fleet_context_pack`, `armada_graph_search_symbols`, `armada_graph_get_callers`, `armada_graph_get_callees`, `armada_graph_get_impact`, `armada_graph_suggest_affected_tests`, `armada_graph_get_node`, `armada_graph_get_files`, `armada_graph_explore` |
 | Execute | `armada_index_update` |
 
-### 8.17 Reflection Memory
-
-| Risk | Tools |
-| --- | --- |
-| Read | `armada_check_stale_memory` |
-| Execute | `armada_consolidate_memory` |
-| Write | `armada_accept_memory_proposal`, `armada_reject_memory_proposal` |
-
-### 8.18 AgentWake
+### 8.17 AgentWake
 
 | Risk | Tools |
 | --- | --- |
 | Read | `armada_agentwake_status` |
 | Write | `armada_register_agentwake_session` |
 
-### 8.19 Dispatch Hold
+### 8.18 Dispatch Hold
 
 | Risk | Tools |
 | --- | --- |
@@ -1678,7 +1669,6 @@ it and changes nothing else, so an operator edit is kept.
 - Do not retry a dispatch until you know whether the first request created a
   voyage.
 - Do not call `resolve_check` to turn an unknown or failed result green.
-- Do not accept a reflection proposal without reading the proposed content.
 - Do not change vessel context or shared instructions from a captain mission.
 - Do not push, deploy, release, or roll back without the applicable operator
   authority.

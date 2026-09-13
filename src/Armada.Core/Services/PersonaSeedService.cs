@@ -71,7 +71,6 @@ namespace Armada.Core.Services
             await SeedPersonaAsync("Judge", "Reviews completed mission diffs for correctness and completeness.", "persona.judge", token).ConfigureAwait(false);
             await SeedPersonaAsync("TestEngineer", "Writes and updates tests for mission changes.", "persona.test_engineer", token).ConfigureAwait(false);
             await SeedPersonaAsync(PersonaCatalog.Recorder, "Reviews the finished work of a voyage and records what is worth remembering into native captain memory.", "persona.recorder", token).ConfigureAwait(false);
-            await SeedPersonaAsync("MemoryConsolidator", "Curates the per-vessel learned-facts playbook from completed-mission evidence. Read-only on logs/diffs/notes; writes proposals to AgentOutput only.", "persona.memory_consolidator", token).ConfigureAwait(false);
 
             foreach (AdditionalPersonaSettings extra in _AdditionalPersonas)
             {
@@ -160,23 +159,6 @@ namespace Armada.Core.Services
                 "Recorded",
                 "Worker then Recorder -- do the work, then record what is worth remembering.",
                 new List<PipelineStage> { new PipelineStage(1, "Worker"), new PipelineStage(2, PersonaCatalog.Recorder) },
-                token).ConfigureAwait(false);
-
-            await SeedPipelineAsync(
-                "Reflections",
-                "Single-stage memory consolidation. Output is the candidate playbook + diff; orchestrator reviews. No TestEngineer or Judge stage runs.",
-                new List<PipelineStage> { new PipelineStage(1, "MemoryConsolidator") { PreferredModel = "high" } },
-                token).ConfigureAwait(false);
-
-            await SeedPipelineAsync(
-                "ReflectionsDualJudge",
-                "Dual-Judge memory consolidation. MemoryConsolidator produces the candidate; two Judge siblings review in parallel at the same order. Used when dualJudge is enabled on armada_consolidate_memory.",
-                new List<PipelineStage>
-                {
-                    new PipelineStage(1, "MemoryConsolidator") { PreferredModel = "high" },
-                    new PipelineStage(2, "Judge") { PreferredModel = "high" },
-                    new PipelineStage(2, "Judge") { PreferredModel = "high" }
-                },
                 token).ConfigureAwait(false);
 
             foreach (AdditionalPipelineSettings extra in _AdditionalPipelines)

@@ -60,24 +60,21 @@ namespace Armada.Core.Models
 
         /// <summary>
         /// JSON-serialized list of <see cref="SelectedPlaybook"/> entries automatically merged
-        /// into every mission whose vessel belongs to this fleet (Reflections v2-F3). Layered
+        /// into every mission whose vessel belongs to this fleet. Layered
         /// FIRST in the four-way merge (least specific): fleet -&gt; vessel -&gt; persona -&gt; captain.
         /// Use <see cref="GetDefaultPlaybooks"/> to obtain a parsed list.
         /// </summary>
         public string? DefaultPlaybooks { get; set; } = null;
 
         /// <summary>
-        /// Per-fleet fleet-curate trigger threshold (mission-count window across all active
-        /// vessels in the fleet since the last accepted fleet-curate). Null disables the
-        /// audit-drain auto-trigger for this fleet (Reflections v2-F3).
+        /// Legacy per-fleet curate trigger threshold. Retained as inert data for backward
+        /// compatibility; no longer drives dispatch.
         /// </summary>
         public int? CurateThreshold { get; set; } = null;
 
         /// <summary>
-        /// FK reference to the fleet-&lt;id&gt;-learned playbook. Lazy-created on the first
-        /// accepted fleet-curate reflection (Reflections v2-F3); null until then. There is
-        /// no bootstrap migration for this column — fleets are stable but few, so pre-creating
-        /// empty playbooks adds little value vs lazy creation.
+        /// Legacy FK reference to a per-fleet learned playbook. Retained as inert data for
+        /// backward compatibility; no longer populated.
         /// </summary>
         public string? LearnedPlaybookId { get; set; } = null;
 

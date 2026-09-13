@@ -139,13 +139,11 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Every memory path works while learned facts are disabled", async () =>
+            await RunTest("Every native memory path works", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     ArmadaSettings settings = new ArmadaSettings();
-                    settings.LearnedFactsEnabled = false;
-                    AssertFalse(settings.LearnedFactsEnabled, "The feature under test is off");
 
                     Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
                     McpToolRegistrar.RegisterAll(
@@ -155,7 +153,7 @@ namespace Armada.Test.Unit.Suites.Services
                         settings: settings);
 
                     foreach (string name in new[] { "search_memory", "get_memory", "create_memory", "update_memory", "delete_memory" })
-                        AssertTrue(handlers.ContainsKey(name), "Memory tools register with learned facts disabled: " + name);
+                        AssertTrue(handlers.ContainsKey(name), "Native memory tool registered: " + name);
 
                     string created = await CallAsync(handlers, "create_memory", new { content = "a finding recorded with learned facts off", key = "off/one" }).ConfigureAwait(false);
                     string memoryId = ValueOf(created, "id");

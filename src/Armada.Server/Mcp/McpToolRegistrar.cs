@@ -9,7 +9,6 @@ namespace Armada.Server.Mcp
     using System.Threading.Tasks;
     using Armada.Server;
     using Armada.Core.Database;
-    using Armada.Core.Memory;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
@@ -55,8 +54,6 @@ namespace Armada.Server.Mcp
         /// <param name="logging">Logging module for tools that need validation services.</param>
         /// <param name="remoteTriggerService">Remote trigger service for event-driven wake-up integration.</param>
         /// <param name="codeIndexService">Code index service for search and context-pack tools.</param>
-        /// <param name="reflectionDispatcher">Optional shared reflection dispatcher.</param>
-        /// <param name="reflectionBootstrap">Optional reflection memory bootstrap service used to lazy-bootstrap persona-learned playbooks on persona creation (v2-F2).</param>
         /// <param name="checkRunService">Optional structured check-run service for delivery checks.</param>
         /// <param name="objectiveService">Optional objective service for scope capture workflows.</param>
         /// <param name="planningSessionCoordinator">Optional planning coordinator for scope readiness workflows.</param>
@@ -85,8 +82,6 @@ namespace Armada.Server.Mcp
             LoggingModule? logging = null,
             IRemoteTriggerService? remoteTriggerService = null,
             ICodeIndexService? codeIndexService = null,
-            ReflectionDispatcher? reflectionDispatcher = null,
-            IReflectionMemoryBootstrapService? reflectionBootstrap = null,
             CheckRunService? checkRunService = null,
             ObjectiveService? objectiveService = null,
             PlanningSessionCoordinator? planningSessionCoordinator = null,
@@ -106,8 +101,6 @@ namespace Armada.Server.Mcp
             ObjectiveDispatchPreviewService? objectiveDispatchPreviewService = null)
         {
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
-            ReflectionDispatcher effectiveReflectionDispatcher = reflectionDispatcher
-                ?? new ReflectionDispatcher(database, admiral, effectiveSettings, new ReflectionMemoryService(database));
             longRunningJobs = longRunningJobs ?? new LongRunningJobService();
 
             McpStatusTools.Register(register, admiral, onStop);
@@ -148,17 +141,13 @@ namespace Armada.Server.Mcp
             if (incidentService != null) McpIncidentTools.Register(register, incidentService, objectiveService);
             if (objectiveScheduler != null && objectiveService != null) McpObjectiveSchedulerTools.Register(register, objectiveScheduler, database, objectiveService, coordinationService);
             if (templateService != null) McpPromptTemplateTools.Register(register, database, templateService);
-            McpPersonaTools.Register(
-                register,
-                database,
-                effectiveSettings.LearnedFactsEnabled ? reflectionBootstrap : null);
+            McpPersonaTools.Register(register, database);
             McpPipelineTools.Register(register, database);
             McpMemoryTools.Register(register, database, logging);
             if (settings != null) McpBackupTools.Register(register, database, settings);
             McpAgentWakeTools.Register(register, remoteTriggerService);
-            McpAuditTools.Register(register, database, remoteTriggerService, effectiveReflectionDispatcher);
+            McpAuditTools.Register(register, database, remoteTriggerService);
             McpArchitectTools.Register(register, database, new ArchitectOutputParser(), admiral, codeIndexService, logging, settings);
-            McpReflectionTools.Register(register, database, effectiveReflectionDispatcher, effectiveSettings);
             if (codeIndexService != null) McpCodeIndexTools.Register(register, codeIndexService, longRunningJobs);
             if (diskLifecycle != null) McpDiskLifecycleTools.Register(register, diskLifecycle, longRunningJobs);
         }
@@ -191,8 +180,6 @@ namespace Armada.Server.Mcp
             LoggingModule? logging = null,
             IRemoteTriggerService? remoteTriggerService = null,
             ICodeIndexService? codeIndexService = null,
-            ReflectionDispatcher? reflectionDispatcher = null,
-            IReflectionMemoryBootstrapService? reflectionBootstrap = null,
             ObjectiveDispatchPreviewService? objectiveDispatchPreviewService = null)
         {
             List<CaptainToolSummary> tools = new List<CaptainToolSummary>();
@@ -221,8 +208,6 @@ namespace Armada.Server.Mcp
                 logging,
                 remoteTriggerService,
                 codeIndexService,
-                reflectionDispatcher,
-                reflectionBootstrap,
                 checkRunService,
                 objectiveService,
                 planningSessionCoordinator,

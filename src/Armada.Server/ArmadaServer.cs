@@ -13,7 +13,6 @@ namespace Armada.Server
     using ArmadaConstants = Armada.Core.Constants;
     using Armada.Core.Database;
     using Armada.Core.Enums;
-    using Armada.Core.Memory;
     using Armada.Core.Models;
     using Armada.Core.Recovery;
     using Armada.Core.Services;
@@ -71,10 +70,6 @@ namespace Armada.Server
         private IMessageTemplateService _TemplateService = null!;
         private IPromptTemplateService _PromptTemplateService = null!;
         private ICodeIndexService _CodeIndex = null!;
-        private IReflectionMemoryService _ReflectionMemory = null!;
-        private ReflectionDispatcher _ReflectionDispatcher = null!;
-        private ReflectionSweeper _ReflectionSweeper = null!;
-        private IReflectionMemoryBootstrapService _ReflectionBootstrap = null!;
         private PersonaSeedService _PersonaSeedService = null!;
         private LogRotationService _LogRotation = null!;
         private DataExpiryService _DataExpiry = null!;
@@ -301,24 +296,6 @@ namespace Armada.Server
 
             await _EnvironmentService.SeedDefaultsAsync().ConfigureAwait(false);
             _Logging.Info(_Header + "deployment environment seeding completed");
-
-            _ReflectionBootstrap = new ReflectionMemoryBootstrapService(_Database, _Logging);
-            if (_Settings.LearnedFactsEnabled)
-            {
-                await _ReflectionBootstrap.BootstrapAsync().ConfigureAwait(false);
-                _Logging.Info(_Header + "reflection memory bootstrap completed");
-            }
-            else
-            {
-                _Logging.Info(_Header + "reflection memory bootstrap skipped: learned facts disabled");
-            }
-            _ReflectionMemory = new ReflectionMemoryService(_Database);
-            string missionLogDirectory = System.IO.Path.Combine(_Settings.LogDirectory, "missions");
-            PackUsageMiner packUsageMiner = new PackUsageMiner(missionLogDirectory);
-            HabitPatternMiner habitPatternMiner = new HabitPatternMiner(_Database, packUsageMiner);
-            _ReflectionDispatcher = new ReflectionDispatcher(_Database, _Admiral, _Settings, _ReflectionMemory, packUsageMiner, habitPatternMiner);
-            _ReflectionSweeper = new ReflectionSweeper(_Database, _ReflectionDispatcher, _Settings, _Logging);
-            if (!_Settings.LearnedFactsEnabled) _ReflectionSweeper.Disable();
 
             ArchitectPersonaSyncService architectSync = new ArchitectPersonaSyncService(_Database, _Logging);
             bool architectSynced = await architectSync.SyncAsync().ConfigureAwait(false);
@@ -1366,8 +1343,6 @@ namespace Armada.Server
                 _Logging,
                 _RemoteTriggerService,
                 _CodeIndex,
-                _ReflectionDispatcher,
-                _ReflectionBootstrap,
                 checkRunService: _CheckRunService,
                 objectiveService: _ObjectiveService,
                 planningSessionCoordinator: _PlanningSessions,
@@ -1510,7 +1485,6 @@ namespace Armada.Server
                 _AutonomousRecovery.TriggerBackgroundSweep(token);
                 _IncidentLifecycle.TriggerBackgroundSweep(token);
                 _ObjectiveScheduler.TriggerBackgroundSweep(token);
-                _ReflectionSweeper.TriggerBackgroundSweep(token);
                 _Logging.Info(_Header + "startup health check completed");
             }
             catch (Exception ex)
@@ -1528,7 +1502,6 @@ namespace Armada.Server
                     _AutonomousRecovery.TriggerBackgroundSweep(token);
                     _IncidentLifecycle.TriggerBackgroundSweep(token);
                     _ObjectiveScheduler.TriggerBackgroundSweep(token);
-                    _ReflectionSweeper.TriggerBackgroundSweep(token);
 
                     // Reap background jobs whose worker died so they do not hang in Running.
                     try { await _JobService.MaintainAsync(token).ConfigureAwait(false); }

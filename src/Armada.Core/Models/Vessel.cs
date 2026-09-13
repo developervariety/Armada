@@ -132,16 +132,13 @@ namespace Armada.Core.Models
         public string? StyleGuide { get; set; } = null;
 
         /// <summary>
-        /// Whether mission-discovered durable knowledge is routed into the
-        /// reviewed learned-facts proposal pipeline for this vessel.
-        /// Existing model context remains readable as legacy mission context.
+        /// Whether legacy model context is injected into mission briefs for this vessel.
         /// </summary>
         public bool EnableModelContext { get; set; } = true;
 
         /// <summary>
         /// Legacy agent-accumulated context about this repository. Existing content
-        /// is still injected into mission prompts for backward compatibility, but
-        /// new mission discoveries should be proposed via the learned-facts pipeline.
+        /// is still injected into mission prompts for backward compatibility.
         /// </summary>
         public string? ModelContext { get; set; } = null;
 
