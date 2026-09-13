@@ -28,6 +28,12 @@ namespace Armada.Core.Models
         /// </summary>
         public int TotalLines { get; set; }
 
+        /// <summary>Typed readable entries when formatted=true; null for the legacy text view.</summary>
+        public List<Armada.Core.Services.FormattedLogLine>? Entries { get; set; }
+
+        /// <summary>True when the formatted page omitted entries at its output limit.</summary>
+        public bool EntriesTruncated { get; set; }
+
         /// <summary>
         /// Error message if log retrieval failed.
         /// </summary>

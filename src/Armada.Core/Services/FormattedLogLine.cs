@@ -9,6 +9,10 @@ namespace Armada.Core.Services
     {
         #region Public-Members
 
+        /// <summary>Observed event category; does not indicate a mission result.</summary>
+        public Armada.Core.Enums.LogEntryKindEnum Kind { get; set; } = Armada.Core.Enums.LogEntryKindEnum.Text;
+
+
         /// <summary>
         /// The formatted display text. Empty when <see cref="Dropped"/> is true.
         /// </summary>

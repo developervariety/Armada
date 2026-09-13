@@ -138,3 +138,8 @@ association and status-count contract. Dashboard wiring remains separate.
 
 See [backend-anchors.md](backend-anchors.md) for the source contract and current
 validation status. Backend enrichment remains in progress.
+
+## Runtime log implementation
+
+See [backend-logs.md](backend-logs.md) for typed response fields, shared redaction,
+validation and remaining consumer work.

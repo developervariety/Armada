@@ -1251,9 +1251,10 @@ namespace Armada.Server.Routes
                         : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
 
+                bool formatted = String.Equals(req.Query.GetValueOrDefault("formatted"), "true", StringComparison.OrdinalIgnoreCase);
                 string? logPath = ResolveMissionLogPath(id);
                 if (String.IsNullOrEmpty(logPath))
-                    return (object)new { MissionId = id, Log = "", Lines = 0, TotalLines = 0 };
+                    return new MissionLogResponse { MissionId = id, Log = "", Lines = 0, TotalLines = 0, Entries = formatted ? new List<FormattedLogLine>() : null };
 
                 try
                 {
@@ -1273,14 +1274,25 @@ namespace Armada.Server.Routes
                         lineCount = Math.Max(1, parsedLines);
 
                     string[] slice = allLines.Skip(offset).Take(lineCount).ToArray();
-                    string log = String.Join("\n", slice);
+                    if (formatted)
+                    {
+                        // A mission can outlive its captain assignment. Use observed event shapes,
+                        // not the current captain's mutable runtime, to interpret historical logs.
+                        List<FormattedLogLine> entries = RuntimeLogFormatter.FormatPage(slice, AgentRuntimeEnum.Custom, out bool truncated);
+                        return new MissionLogResponse
+                        {
+                            MissionId = id, Log = String.Join("\n", entries.Select(entry => entry.Text)),
+                            Lines = entries.Count, TotalLines = totalLines, Entries = entries, EntriesTruncated = truncated
+                        };
+                    }
+                    string log = RuntimeLogFormatter.RedactSecrets(String.Join("\n", slice));
 
-                    return (object)new { MissionId = id, Log = log, Lines = slice.Length, TotalLines = totalLines };
+                    return new MissionLogResponse { MissionId = id, Log = log, Lines = slice.Length, TotalLines = totalLines };
                 }
                 catch (IOException)
                 {
                     // File may be locked, deleted, or in use -- return empty rather than 500
-                    return (object)new { MissionId = id, Log = "", Lines = 0, TotalLines = 0 };
+                    return new MissionLogResponse { MissionId = id, Log = "", Lines = 0, TotalLines = 0, Entries = formatted ? new List<FormattedLogLine>() : null };
                 }
             },
             api => api

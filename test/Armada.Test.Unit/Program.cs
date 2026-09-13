@@ -31,6 +31,7 @@ namespace Armada.Test.Unit
             TestRunner runner = new TestRunner("ARMADA UNIT TEST SUITE");
 
             runner.AddSuite(new TestRunnerContractTests());
+            runner.AddSuite(new RuntimeLogFormatterTests());
 
             // Previously compiled suites are explicit registrations until discovery parity is proved.
             runner.AddSuite(new RequestHistoryDatabaseTests());

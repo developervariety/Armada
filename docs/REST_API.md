@@ -2086,6 +2086,19 @@ Skipped entries include the entity ID and the reason (e.g., "Not found" or "Empt
 
 ---
 
+### Formatted runtime log entries
+
+Both `/api/v1/captains/{id}/log` and `/api/v1/missions/{id}/log` accept
+`formatted=true`. The response keeps `Log`, `Lines` and `TotalLines`, and adds
+`Entries` plus `EntriesTruncated`. Each entry has `Text`, `Kind`, `IsToolCall`,
+`ToolName`, `Redacted` and `Truncated`. Kind is `Text`, `Thinking`, `ToolCall`,
+`ToolResult`, `Status` or `Mixed`; none is a mission outcome.
+
+Formatted pages return at most 500 entries. Offset addresses input lines using
+the route's existing filtering rules; Lines counts returned entries and Log joins
+their text. Legacy text mode retains line pagination and applies shared secret
+redaction. See [the complete log contract](upstream-review/backend-logs.md).
+
 ### Docks
 
 Docks are git worktrees provisioned for captains. These endpoints provide access to dock state and management.

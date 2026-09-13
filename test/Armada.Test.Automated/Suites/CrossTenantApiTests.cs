@@ -271,6 +271,17 @@ namespace Armada.Test.Automated.Suites
                 AssertFalse(found, "Expected captain " + captainAId + " NOT to appear in tenant-B list");
             }).ConfigureAwait(false);
 
+            await RunTest("Captain_FormattedLog_PreservesAuthorization", async () =>
+            {
+                string url = "/api/v1/captains/" + captainAId + "/log?formatted=true";
+                HttpResponseMessage denied = await _ClientB!.GetAsync(url).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, denied.StatusCode);
+                denied = await _UnauthClient.GetAsync(url).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Unauthorized, denied.StatusCode);
+                HttpResponseMessage allowed = await _ClientA!.GetAsync(url).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, allowed.StatusCode);
+            }).ConfigureAwait(false);
+
             await RunTest("Captain_ReadFromTenantB_Returns404", async () =>
             {
                 HttpResponseMessage response = await _ClientB!.GetAsync("/api/v1/captains/" + captainAId).ConfigureAwait(false);
@@ -532,6 +543,17 @@ namespace Armada.Test.Automated.Suites
                 EnumerationResult<Mission> result = await JsonHelper.DeserializeAsync<EnumerationResult<Mission>>(response).ConfigureAwait(false);
                 bool found = result.Objects.Any(m => m.Id == missionAId);
                 AssertFalse(found, "Expected mission " + missionAId + " NOT to appear in tenant-B list");
+            }).ConfigureAwait(false);
+
+            await RunTest("Mission_FormattedLog_PreservesAuthorization", async () =>
+            {
+                string url = "/api/v1/missions/" + missionAId + "/log?formatted=true";
+                HttpResponseMessage denied = await _ClientB!.GetAsync(url).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, denied.StatusCode);
+                denied = await _UnauthClient.GetAsync(url).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Unauthorized, denied.StatusCode);
+                HttpResponseMessage allowed = await _ClientA!.GetAsync(url).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, allowed.StatusCode);
             }).ConfigureAwait(false);
 
             await RunTest("Mission_ReadFromTenantB_Returns404", async () =>

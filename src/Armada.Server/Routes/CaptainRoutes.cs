@@ -492,6 +492,7 @@ namespace Armada.Server.Routes
                         : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (captain == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" }; }
 
+                bool formatted = String.Equals(req.Query.GetValueOrDefault("formatted"), "true", StringComparison.OrdinalIgnoreCase);
                 string pointerPath = Path.Combine(_settings.LogDirectory, "captains", id + ".current");
                 string? logPath = null;
 
@@ -503,7 +504,7 @@ namespace Armada.Server.Routes
                 }
 
                 if (logPath == null)
-                    return (object)new { CaptainId = id, Log = "", Lines = 0, TotalLines = 0 };
+                    return new CaptainLogResponse { CaptainId = id, Log = "", Lines = 0, TotalLines = 0, Entries = formatted ? new List<Armada.Core.Services.FormattedLogLine>() : null };
 
                 try
                 {
@@ -525,26 +526,23 @@ namespace Armada.Server.Routes
 
                     // ?formatted=true applies the readable formatter: resolves tool names out of runtime
                     // JSONL, redacts secret-shaped values, truncates oversized payloads, and drops noise.
-                    bool formatted = String.Equals(req.Query.GetValueOrDefault("formatted"), "true", StringComparison.OrdinalIgnoreCase);
                     if (formatted)
                     {
-                        List<string> formattedLines = new List<string>();
-                        foreach (string raw in slice)
+                        List<Armada.Core.Services.FormattedLogLine> entries = Armada.Core.Services.RuntimeLogFormatter.FormatPage(slice, captain.Runtime, out bool truncated);
+                        return new CaptainLogResponse
                         {
-                            Armada.Core.Services.FormattedLogLine fl = Armada.Core.Services.RuntimeLogFormatter.Format(raw, captain.Runtime);
-                            if (fl.Dropped) continue;
-                            formattedLines.Add(fl.Text);
-                        }
-                        return (object)new { CaptainId = id, Log = String.Join("\n", formattedLines), Lines = formattedLines.Count, TotalLines = totalLines };
+                            CaptainId = id, Log = String.Join("\n", entries.Select(entry => entry.Text)),
+                            Lines = entries.Count, TotalLines = totalLines, Entries = entries, EntriesTruncated = truncated
+                        };
                     }
 
-                    string log = String.Join("\n", slice);
+                    string log = Armada.Core.Services.RuntimeLogFormatter.RedactSecrets(String.Join("\n", slice));
 
-                    return (object)new { CaptainId = id, Log = log, Lines = slice.Length, TotalLines = totalLines };
+                    return new CaptainLogResponse { CaptainId = id, Log = log, Lines = slice.Length, TotalLines = totalLines };
                 }
                 catch (IOException)
                 {
-                    return (object)new { CaptainId = id, Log = "", Lines = 0, TotalLines = 0 };
+                    return new CaptainLogResponse { CaptainId = id, Log = "", Lines = 0, TotalLines = 0, Entries = formatted ? new List<Armada.Core.Services.FormattedLogLine>() : null };
                 }
             },
             api => api

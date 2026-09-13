@@ -122,6 +122,92 @@ namespace Armada.Test.Automated.Suites
         {
             #region Mission-Log-Tests
 
+            await RunTest("Log_RawResponses_RedactEscapedCredentials", async () =>
+            {
+                string missionId = await CreateMissionAsync("escaped log").ConfigureAwait(false);
+                string captainId = await CreateCaptainAsync("escaped log").ConfigureAwait(false);
+                string path = Path.Combine(EnsureMissionLogDir(), missionId + ".log");
+                string secret = "example-" + "secret-value";
+                await File.WriteAllLinesAsync(path, new[]
+                {
+                    "{\"pass\\u0077ord\":\"" + secret + "\"}",
+                    "{\"password\":\"abcdef\\\"" + secret + "\"}",
+                    "password=\"abcdef\\\"" + secret + "\"",
+                    "sk-proj-" + new string('a', 24) + "-" + new string('b', 24),
+                    "{\"output\":[\"sk-\\u0070roj-" + new string('b', 24) + "\"]}"
+                }).ConfigureAwait(false);
+                WriteCaptainPointer(captainId, path);
+                foreach (string url in new[] { "/api/v1/missions/" + missionId + "/log", "/api/v1/captains/" + captainId + "/log" })
+                {
+                    HttpResponseMessage response = await _AuthClient.GetAsync(url).ConfigureAwait(false);
+                    response.EnsureSuccessStatusCode();
+                    string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    AssertFalse(body.Contains(secret));
+                    AssertFalse(body.Contains(new string('b', 24)));
+                    AssertContains("REDACTED", body);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Log_FormattedEmptyPage_HasEmptyEntries", async () =>
+            {
+                string missionId = await CreateMissionAsync("empty formatted log").ConfigureAwait(false);
+                string captainId = await CreateCaptainAsync("empty formatted log").ConfigureAwait(false);
+                HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/missions/" + missionId + "/log?formatted=true").ConfigureAwait(false);
+                MissionLogResponse mission = await JsonHelper.DeserializeAsync<MissionLogResponse>(response).ConfigureAwait(false);
+                AssertNotNull(mission.Entries);
+                AssertEqual(0, mission.Entries!.Count);
+                response = await _AuthClient.GetAsync("/api/v1/captains/" + captainId + "/log?formatted=true").ConfigureAwait(false);
+                CaptainLogResponse captain = await JsonHelper.DeserializeAsync<CaptainLogResponse>(response).ConfigureAwait(false);
+                AssertNotNull(captain.Entries);
+                AssertEqual(0, captain.Entries!.Count);
+            }).ConfigureAwait(false);
+
+            await RunTest("CaptainLog_FormattedEntries_RedactNamesAndPreserveTextContract", async () =>
+            {
+                string captainId = await CreateCaptainAsync("typed-log").ConfigureAwait(false);
+                string path = Path.Combine(EnsureMissionLogDir(), "msn_typed_captain.log");
+                string secret = "example-" + "secret-value";
+                await File.WriteAllLinesAsync(path, new[]
+                {
+                    "Determining projects to restore",
+                    "{\"eventType\":\"tool_call_proposed\",\"toolCall\":{\"name\":\"token=" + secret + "\"}}"
+                }).ConfigureAwait(false);
+                WriteCaptainPointer(captainId, path);
+                HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/captains/" + captainId + "/log?formatted=true").ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+                CaptainLogResponse result = await JsonHelper.DeserializeAsync<CaptainLogResponse>(response).ConfigureAwait(false);
+                AssertNotNull(result.Entries);
+                AssertEqual(1, result.Entries!.Count);
+                AssertEqual(1, result.Lines);
+                AssertEqual(2, result.TotalLines);
+                AssertEqual(result.Entries[0].Text, result.Log);
+                AssertTrue(result.Entries[0].Redacted);
+                AssertFalse(result.Entries[0].ToolName!.Contains(secret));
+                response = await _AuthClient.GetAsync("/api/v1/captains/" + captainId + "/log").ConfigureAwait(false);
+                result = await JsonHelper.DeserializeAsync<CaptainLogResponse>(response).ConfigureAwait(false);
+                AssertEqual(2, result.Lines);
+                AssertFalse(result.Log!.Contains(secret), "Legacy output is also redacted");
+            }).ConfigureAwait(false);
+
+            await RunTest("MissionLog_FormattedEntries_DistinguishThinkingWithoutCurrentCaptain", async () =>
+            {
+                string missionId = await CreateMissionAsync("typed mission log").ConfigureAwait(false);
+                string path = Path.Combine(EnsureMissionLogDir(), missionId + ".log");
+                await File.WriteAllLinesAsync(path, new[]
+                {
+                    "{\"type\":\"reasoning\",\"part\":{\"text\":\"Inspect evidence\"}}",
+                    "{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"Observed result\"}}"
+                }).ConfigureAwait(false);
+                HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/missions/" + missionId + "/log?formatted=true").ConfigureAwait(false);
+                response.EnsureSuccessStatusCode();
+                MissionLogResponse result = await JsonHelper.DeserializeAsync<MissionLogResponse>(response).ConfigureAwait(false);
+                AssertNotNull(result.Entries);
+                AssertEqual(2, result.Entries!.Count);
+                AssertEqual(Armada.Core.Enums.LogEntryKindEnum.Thinking, result.Entries[0].Kind);
+                AssertEqual(Armada.Core.Enums.LogEntryKindEnum.Text, result.Entries[1].Kind);
+                AssertEqual(String.Join("\n", result.Entries.Select(entry => entry.Text)), result.Log);
+            }).ConfigureAwait(false);
+
             await RunTest("MissionLog_NotFound_ReturnsError", async () =>
             {
                 HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/missions/msn_nonexistent/log").ConfigureAwait(false);

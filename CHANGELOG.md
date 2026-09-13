@@ -14,6 +14,13 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Readable runtime log responses
+
+- Add typed text, thinking and tool entries to formatted captain and mission logs,
+  with explicit display limits and omission flags.
+- Keep legacy text responses and the shared redaction entry point. Protect tool
+  names, raw REST/MCP log output and escaped JSON credential forms.
+
 ### Durable dock Git anchors
 
 - Record the actual provisioning commit and reuse bounded typed evidence during

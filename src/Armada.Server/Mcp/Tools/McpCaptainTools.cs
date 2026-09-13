@@ -482,7 +482,7 @@ namespace Armada.Server.Mcp.Tools
                         int lineCount = Math.Max(1, request.Lines ?? 100);
 
                         string[] slice = allLines.Skip(offset).Take(lineCount).ToArray();
-                        string log = String.Join("\n", slice);
+                        string log = Armada.Core.Services.RuntimeLogFormatter.RedactSecrets(String.Join("\n", slice));
                         return (object)new { CaptainId = captainId, Log = log, Lines = slice.Length, TotalLines = totalLines };
                     });
             }
