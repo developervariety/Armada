@@ -69,7 +69,7 @@ are not shipped features.
 | Operator experience | Consolidated dashboard, Ask/Planning, workspace terminal/diff, Needs You, background jobs and token usage | The fork adds coordination, claims, directed wakes and preparation evidence. Upstream has useful summary, readable-log, anchor and control displays still to adapt. |
 | Identity and configuration | Tenants, users, skills, project profiles and operational assets | Upstream adds broader per-user ownership and scoped controls. Integration must preserve fork resources and deny invalid credentials through the official MCP transport. |
 | Execution and deployment | Local runtime execution and process supervision | Upstream adds model endpoints, API captains, detached Harbor runners and A/B rebuild. These need separate compatibility and acceptance work before use in the fork. |
-| Repository context and autonomy | Supplied repository context and shared git-anchor concepts | The fork adds code index, symbol graph, context packs, bounded objective scheduling, prepared claims, sibling lanes and an optional lead cycle. |
+| Repository context and autonomy | Supplied repository context and shared git-anchor concepts | The fork adds code index, symbol graph, context packs, bounded objective scheduling, prepared claims and sibling lanes. |
 
 Features first developed in the fork now also exist upstream: boundary
 scanning, auto-land, quarantine, model tiers, OpenCode, no-op handling,
@@ -90,11 +90,11 @@ different meanings for the same migration numbers; accepted additions need
 new fork migrations. Do not replace schema history, test registrations or
 runtime files wholesale.
 
-The fork's autonomy layer provides bounded lead cycles, timer and wake
-triggers, single-flight execution, unattended permission policy, full-stream
-logs, bounded helpers, persistent ownership and safe lane admission. Directed
-wakes reach an identified operator on its next tool result. Armada's current stateless MCP endpoint does not push an unsolicited
-notification to an idle client.
+The fork provides bounded helpers, shared coordination, persistent ownership
+and safe lane admission. The standalone lead and Grok runtime are retired.
+Directed wakes reach an identified operator on its next tool result. Armada's
+current stateless MCP endpoint does not push an unsolicited notification to an
+idle client.
 
 Native upstream memory and Recorder guidance remain separate decision work.
 Deployments with one external durable memory source must not enable a second

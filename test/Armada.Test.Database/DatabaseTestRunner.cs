@@ -64,6 +64,13 @@ namespace Armada.Test.Database
             await RunTest("Schema_Verify_Core_Columns_And_Indexes", "Schema", () => new SchemaVerificationTests(_Settings).VerifyAsync(token), token);
 
             Console.WriteLine();
+            await RunTest("Schema_Repeat_Startup_Preserves_Version", "Schema", async () =>
+            {
+                int version = await _Driver.GetSchemaVersionAsync(token).ConfigureAwait(false);
+                await _Driver.InitializeAsync(token).ConfigureAwait(false);
+                DatabaseAssert.Equal(version, await _Driver.GetSchemaVersionAsync(token).ConfigureAwait(false), "Repeated startup schema version");
+            }, token);
+
             Console.WriteLine("--- Tenant/User/Credential ---");
             await RunTest("Tenant_Create_Read_Update_Enumerate", "Auth", () => TestTenantCrudAsync(token), token);
             await RunTest("Tenant_ReadByName_Exists", "Auth", () => TestTenantLookupAsync(token), token);
@@ -80,6 +87,7 @@ namespace Armada.Test.Database
             await RunTest("Captain_Create_Read_Update", "Operational", () => TestCaptainCrudAsync(token), token);
             await RunTest("Voyage_Create_Read_Update", "Operational", () => TestVoyageCrudAsync(token), token);
             await RunTest("Mission_Create_Read_Update", "Operational", () => TestMissionCrudAsync(token), token);
+            await RunTest("Mission_Fork_Fields_Create_Update_Reopen_Query", "Operational", () => TestMissionForkFieldsAsync(token), token);
             await RunTest("Dock_Create_Read_Update", "Operational", () => TestDockCrudAsync(token), token);
             await RunTest("Signal_Create_Read_Enumerate_MarkRead", "Operational", () => TestSignalCrudAsync(token), token);
             await RunTest("Signal_EnumerateRecent_Recipient_Unread", "Operational", () => TestSignalLookupAsync(token), token);
@@ -513,6 +521,117 @@ namespace Armada.Test.Database
             {
                 await fixture.CleanupAsync(token).ConfigureAwait(false);
             }
+        }
+
+        private async Task TestMissionForkFieldsAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            Mission? preserved = null;
+            try
+            {
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                preserved = new Mission("Preserved mission fields")
+                {
+                    TenantId = graph.Tenant.Id,
+                    UserId = graph.User.Id,
+                    VesselId = graph.Vessel.Id,
+                    VoyageId = graph.Voyage.Id,
+                    CaptainId = graph.Captain.Id,
+                    DependsOnMissionId = graph.Mission.Id,
+                    StageOrder = 3,
+                    AssignmentState = MissionAssignmentStateEnum.WaitingForProviderUsage,
+                    ProcessId = 12345,
+                    Persona = "Judge",
+                    PreferredModel = "high",
+                    CapabilityHint = "review",
+                    Mode = MissionModeEnum.Audit,
+                    RequiresReview = true,
+                    ReviewDenyAction = ReviewDenyActionEnum.FailPipeline,
+                    ReviewComment = "Review evidence",
+                    ReviewedByUserId = graph.User.Id,
+                    ReviewRequestedUtc = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc),
+                    ReviewedUtc = new DateTime(2026, 1, 2, 3, 5, 5, DateTimeKind.Utc),
+                    PrestagedFiles = new List<PrestagedFile> { PrestagedFile.FromContent("input.txt", "preserved input") },
+                    RecoveryAttempts = 2,
+                    LandingRetryCount = 3,
+                    StartFromRef = "refs/heads/accepted-source",
+                    LastRecoveryActionUtc = new DateTime(2026, 1, 2, 3, 6, 5, DateTimeKind.Utc),
+                    RetrySkipCaptainIds = graph.Captain.Id
+                };
+                await _Driver.Missions.CreateAsync(preserved, token).ConfigureAwait(false);
+                await AssertReopenedMissionAsync(preserved, token).ConfigureAwait(false);
+
+                preserved.StageOrder = 7;
+                preserved.AssignmentState = MissionAssignmentStateEnum.WaitingForVesselMutex;
+                preserved.ProcessId = 23456;
+                preserved.Persona = "Worker";
+                preserved.PreferredModel = "mid";
+                preserved.CapabilityHint = "implementation";
+                preserved.Mode = MissionModeEnum.Research;
+                preserved.RequiresReview = false;
+                preserved.ReviewDenyAction = ReviewDenyActionEnum.RetryStage;
+                preserved.ReviewedByUserId = null;
+                preserved.ReviewRequestedUtc = preserved.ReviewRequestedUtc.Value.AddDays(1);
+                preserved.ReviewedUtc = preserved.ReviewedUtc.Value.AddDays(1);
+                preserved.LastRecoveryActionUtc = preserved.LastRecoveryActionUtc.Value.AddDays(1);
+                preserved.ReviewComment = "Updated review evidence";
+                preserved.PrestagedFiles[0].Content = "updated input";
+                preserved.RecoveryAttempts = 4;
+                preserved.LandingRetryCount = 5;
+                preserved.StartFromRef = "refs/heads/updated-source";
+                preserved.RetrySkipCaptainIds = null;
+                await _Driver.Missions.UpdateAsync(preserved, token).ConfigureAwait(false);
+                await AssertReopenedMissionAsync(preserved, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (!_NoCleanup && preserved != null)
+                    await _Driver.Missions.DeleteAsync(preserved.Id, token).ConfigureAwait(false);
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task AssertReopenedMissionAsync(Mission expected, CancellationToken token)
+        {
+            using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+            {
+                Mission read = DatabaseAssert.NotNull(await reopened.Missions.ReadAsync(expected.TenantId, expected.UserId, expected.Id, token).ConfigureAwait(false), "Reopened mission missing");
+                AssertMissionForkFields(expected, read);
+                EnumerationResult<Mission> page = await reopened.Missions.EnumerateAsync(expected.TenantId, expected.UserId,
+                    new EnumerationQuery { PageSize = 100 }, token).ConfigureAwait(false);
+                Mission queried = page.Objects.Find(item => item.Id == expected.Id);
+                AssertMissionForkFields(expected, DatabaseAssert.NotNull(queried, "Queried mission missing"));
+                DatabaseAssert.True(await reopened.Missions.ReadAsync("other-tenant", expected.UserId, expected.Id, token).ConfigureAwait(false) == null,
+                    "Cross-tenant mission read must be denied");
+            }
+        }
+
+        private static void AssertMissionForkFields(Mission expected, Mission actual)
+        {
+            DatabaseAssert.Equal(expected.TenantId, actual.TenantId, "Mission.TenantId");
+            DatabaseAssert.Equal(expected.UserId, actual.UserId, "Mission.UserId");
+            DatabaseAssert.Equal(expected.CaptainId, actual.CaptainId, "Mission.CaptainId");
+            DatabaseAssert.Equal(expected.DependsOnMissionId, actual.DependsOnMissionId, "Mission.DependsOnMissionId");
+            DatabaseAssert.Equal(expected.StageOrder, actual.StageOrder, "Mission.StageOrder");
+            DatabaseAssert.Equal(expected.AssignmentState, actual.AssignmentState, "Mission.AssignmentState");
+            DatabaseAssert.Equal(expected.ProcessId, actual.ProcessId, "Mission.ProcessId");
+            DatabaseAssert.Equal(expected.Persona, actual.Persona, "Mission.Persona");
+            DatabaseAssert.Equal(expected.PreferredModel, actual.PreferredModel, "Mission.PreferredModel");
+            DatabaseAssert.Equal(expected.CapabilityHint, actual.CapabilityHint, "Mission.CapabilityHint");
+            DatabaseAssert.Equal(expected.Mode, actual.Mode, "Mission.Mode");
+            DatabaseAssert.Equal(expected.RequiresReview, actual.RequiresReview, "Mission.RequiresReview");
+            DatabaseAssert.Equal(expected.ReviewDenyAction, actual.ReviewDenyAction, "Mission.ReviewDenyAction");
+            DatabaseAssert.Equal(expected.ReviewComment, actual.ReviewComment, "Mission.ReviewComment");
+            DatabaseAssert.Equal(expected.ReviewedByUserId, actual.ReviewedByUserId, "Mission.ReviewedByUserId");
+            DatabaseAssert.Equal(expected.ReviewRequestedUtc, actual.ReviewRequestedUtc, "Mission.ReviewRequestedUtc");
+            DatabaseAssert.Equal(expected.ReviewedUtc, actual.ReviewedUtc, "Mission.ReviewedUtc");
+            DatabaseAssert.Equal(expected.PrestagedFiles.Count, actual.PrestagedFiles?.Count ?? 0, "Mission.PrestagedFiles.Count");
+            DatabaseAssert.Equal(expected.PrestagedFiles[0].Content, actual.PrestagedFiles[0].Content, "Mission.PrestagedFiles.Content");
+            DatabaseAssert.Equal(expected.RecoveryAttempts, actual.RecoveryAttempts, "Mission.RecoveryAttempts");
+            DatabaseAssert.Equal(expected.LandingRetryCount, actual.LandingRetryCount, "Mission.LandingRetryCount");
+            DatabaseAssert.Equal(expected.StartFromRef, actual.StartFromRef, "Mission.StartFromRef");
+            DatabaseAssert.Equal(expected.LastRecoveryActionUtc, actual.LastRecoveryActionUtc, "Mission.LastRecoveryActionUtc");
+            DatabaseAssert.Equal(expected.RetrySkipCaptainIds, actual.RetrySkipCaptainIds, "Mission.RetrySkipCaptainIds");
         }
 
         private async Task TestDockCrudAsync(CancellationToken token)

@@ -14,6 +14,18 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Upstream preservation gates
+
+- Add a fixed four-provider migration manifest and a source check that rejects
+  changed history, reused numbers and altered initial SQL inputs.
+- Add repeat-startup and non-default Mission persistence cases to the existing
+  database runner. Raise schema checks to the preserved fork baseline.
+- Record fresh-install failures for three server providers and unresolved
+  field mappings in the [foundation checkpoint](docs/upstream-review/foundation.md).
+  These gates remain open; no production schema repair or deployment is claimed.
+- Remove stale instructions that described the retired standalone lead as an
+  available operator tool. Keep generic wakes and bounded helpers.
+
 ### Routing V2
 
 - Preserve omitted vessel and voyage bindings during mission metadata updates; reject explicit rebinding or clearing. API tests now isolate their capacity fixtures and report failed creates directly.

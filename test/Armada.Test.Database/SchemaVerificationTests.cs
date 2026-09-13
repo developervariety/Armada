@@ -27,7 +27,7 @@ namespace Armada.Test.Database
             await conn.OpenAsync(token).ConfigureAwait(false);
 
             DatabaseAssert.True(await TableExistsAsync(conn, "schema_migrations", token).ConfigureAwait(false), "schema_migrations table missing");
-            DatabaseAssert.True(await GetMaxSchemaVersionAsync(conn, token).ConfigureAwait(false) >= GetExpectedMinimumSchemaVersion(), "Expected schema version >= backlog baseline");
+            DatabaseAssert.True(await GetMaxSchemaVersionAsync(conn, token).ConfigureAwait(false) >= GetExpectedMinimumSchemaVersion(), "Expected schema version >= preserved fork baseline");
 
             DatabaseAssert.True(await TableExistsAsync(conn, "releases", token).ConfigureAwait(false), "releases table missing");
             DatabaseAssert.True(await TableExistsAsync(conn, "environments", token).ConfigureAwait(false), "environments table missing");
@@ -85,6 +85,20 @@ namespace Armada.Test.Database
             await AssertColumnAsync(conn, "objective_refinement_messages", "sequence", token).ConfigureAwait(false);
             await AssertColumnAsync(conn, "objective_refinement_messages", "is_selected", token).ConfigureAwait(false);
 
+            foreach (string column in new[] { "mission_assignment_state", "stage_order", "mission_mode", "start_from_ref",
+                "retry_skip_captain_ids", "recovery_attempts", "landing_retry_count", "last_recovery_action_utc",
+                "prestaged_files", "preferred_model", "capabilityhint", "requires_review", "process_id" })
+            {
+                await AssertColumnAsync(conn, "missions", column, token).ConfigureAwait(false);
+            }
+            await AssertColumnAsync(conn, "objectives", "preparation_json", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "objectives", "auto_dispatch_enabled", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "captains", "quarantine_until_utc", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "captains", "quarantine_reason", token).ConfigureAwait(false);
+            await AssertColumnAsync(conn, "captains", "last_process_alive_utc", token).ConfigureAwait(false);
+            DatabaseAssert.True(await TableExistsAsync(conn, "coordination_leases", token).ConfigureAwait(false), "coordination_leases table missing");
+            DatabaseAssert.True(await TableExistsAsync(conn, "judge_follow_ups", token).ConfigureAwait(false), "judge_follow_ups table missing");
+
             foreach (string table in new[] { "fleets", "vessels", "captains", "voyages", "missions", "docks", "signals", "events", "merge_entries" })
             {
                 await AssertColumnAsync(conn, table, "tenant_id", token).ConfigureAwait(false);
@@ -114,7 +128,14 @@ namespace Armada.Test.Database
 
         private long GetExpectedMinimumSchemaVersion()
         {
-            return _Settings.Type == DatabaseTypeEnum.Sqlite ? 43 : 42;
+            switch (_Settings.Type)
+            {
+                case DatabaseTypeEnum.Sqlite: return 82;
+                case DatabaseTypeEnum.Postgresql: return 83;
+                case DatabaseTypeEnum.Mysql: return 74;
+                case DatabaseTypeEnum.SqlServer: return 77;
+                default: throw new NotSupportedException("Unsupported database provider");
+            }
         }
 
         private DbConnection CreateConnection()

@@ -264,7 +264,7 @@ writable lanes ready when the fleet has enough safe work. Keep
 `maxConcurrentVoyagesPerVessel=1` unless one vessel is proven safe for parallel
 docks and suites.
 
-Before a lead auto-enables a lane, confirm:
+Before an operator enables a lane, confirm:
 
 - a different active voyage does not own the same files or objective;
 - no other active voyage uses the same vessel unless its suite and worktree
@@ -757,21 +757,19 @@ Operating rules:
 5. Answer "where does this stand" with `armada_campaign_status`, not ten
    enumerations.
 
-### 4.11 Helper Sessions And The Lead Roster
+### 4.11 Helper Sessions And Operator Ownership
 
-A lead session that runs host-side helper sessions owns their complete
-lifecycle. This is separate from the autonomous objective scheduler: the
-scheduler selects ready objectives and dispatches captains inside Armada. An
-optional lead cycle reviews the inbox, refills campaigns, and delegates narrow
-read-only investigations. Armada does not schedule that lead cycle by itself;
-an operator starts a fresh cycle directly, through an external scheduler, or by
-registering it for AgentWake process delivery.
+An operator session that starts host-side helpers owns their complete
+lifecycle. The autonomous objective scheduler selects ready objectives and
+dispatches captains inside Armada. The standalone lead cycle and its external
+launcher are retired. Do not restore them through an external timer or
+AgentWake registration. Generic operator wakes and bounded helpers remain.
 
 Use `scripts/autonomy/spawn-helper.sh` for bounded host-side helpers:
 
 ```bash
 scripts/autonomy/spawn-helper.sh spawn census /tmp/census-task.md /path/to/repo
-scripts/autonomy/spawn-helper.sh offer ready /tmp/fallback-task.md armada-lead /path/to/repo
+scripts/autonomy/spawn-helper.sh offer ready /tmp/fallback-task.md operator-session /path/to/repo
 scripts/autonomy/spawn-helper.sh list
 scripts/autonomy/spawn-helper.sh kill census
 scripts/autonomy/spawn-helper.sh cull
@@ -786,10 +784,10 @@ participant key, drain and acknowledge addressed wakes, stay read-only, post
 one outcome, release claims, and exit. Run
 `scripts/autonomy/test-spawn-helper.sh` after launcher changes.
 
-`offer` mode posts availability to the named lead and gives it a bounded
+`offer` mode posts availability to the named operator and gives it a bounded
 four-minute reassignment window. The helper checks for directed Wakes at most
 every 25 seconds during that window. It then runs the fallback, accepts the
-lead's replacement task, or stands down. `list` shows each helper's mode and
+operator's replacement task, or stands down. `list` shows each helper's mode and
 lead key. See `docs/autonomy/helper-offer-prompt.md` for the manual-session
 equivalent.
 
@@ -1466,11 +1464,10 @@ authentication before approving a real release.
 The hold is fleet-wide: while it is engaged every new dispatch is refused,
 whichever session or scheduler asks, and in-flight voyages continue. Engage it
 with your session name and a reason before an Admiral rebuild; a successful
-restart clears it by design. The autonomous lead is denied this tool and never
-clears a hold, stale or otherwise.
+restart clears it by design. Hold changes require an authorized operator.
 
 AgentWake is a process-delivery transport, not the work queue or the source of
-truth. Put the stable lead key in `remoteTrigger.agentWake.participantKey` when
+truth. Put the authorized operator key in `remoteTrigger.agentWake.participantKey` when
 addressed process wakes must work after an Admiral restart. A registration with
 its own `participantKey` temporarily overrides the configured key and remains
 useful for a controlled probe or a resumable Claude or Codex session. An

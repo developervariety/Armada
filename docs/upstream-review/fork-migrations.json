@@ -1,0 +1,1410 @@
+{
+  "baselineCommit": "24a23b966c836c67f126ae187973c3bb4363ce57",
+  "scope": "Immutable declarations; not provider runtime proof",
+  "providers": {
+    "Sqlite": {
+      "source": "src/Armada.Core/Database/Sqlite/Queries/TableQueries.cs",
+      "maximumVersion": 82,
+      "migrations": [
+        {
+          "version": 1,
+          "description": "Initial schema: fleets, vessels, captains, voyages, missions, docks, signals, events",
+          "sha256": "7d07957f4eb19c512f12d1666d05d52b4cda8246125d91a3366adfc90ce56762"
+        },
+        {
+          "version": 2,
+          "description": "Add working_directory to vessels for local merge support",
+          "sha256": "be21e9d479ce72af54ed4ab7f5212bf3ca6360b1750115c98def6a576e55c177"
+        },
+        {
+          "version": 3,
+          "description": "Add per-voyage push/PR/merge override columns",
+          "sha256": "9d8cc0c4a9560d4742186fdeec2e57b102a46e5d32ff872200bce724e957927a"
+        },
+        {
+          "version": 4,
+          "description": "Add captain MaxParallelism and per-mission process/dock tracking",
+          "sha256": "b54355f8a0776bec120d37dfad536efa3cf1e9ccad116a098a8cf7b43300361b"
+        },
+        {
+          "version": 5,
+          "description": "Add commit_hash to missions for tracking completed work",
+          "sha256": "e8a21ca504cd5ae5a0de97fa733014d0ff7fa96a69a2a29c8f9d0e02d2bde070"
+        },
+        {
+          "version": 6,
+          "description": "Add project_context and style_guide to vessels",
+          "sha256": "706c0596b69ba049399265ce7013ac880fcfad71fe61dc5f2b17879b86b567b7"
+        },
+        {
+          "version": 7,
+          "description": "Add diff_snapshot to missions for persisting diffs before worktree reclamation",
+          "sha256": "e6f899f5ab5165702e64748fed650ec70cb31f2e2bfabaae15ad934b78c11170"
+        },
+        {
+          "version": 8,
+          "description": "Remove max_parallelism from captains",
+          "sha256": "18aaed5e68e650a8db0266bfd1884ae31ff2330cf51102b0965abc92ab8d0beb"
+        },
+        {
+          "version": 9,
+          "description": "Add merge_entries table for persistent merge queue",
+          "sha256": "5b378363d569dd57bc59eb59fea72a981caf7788902943c2ba84957daaf5b490"
+        },
+        {
+          "version": 10,
+          "description": "Add landing_mode to vessels and voyages",
+          "sha256": "d14cbd7e78eae711e7e6535c30be8ddb90eb05522fde6a0aaacda432d4ac59e5"
+        },
+        {
+          "version": 11,
+          "description": "Add branch_cleanup_policy to vessels",
+          "sha256": "72996e324c36744a15a1506ebc182eccc5a56125b6a10664841d3b7d6ab3570e"
+        },
+        {
+          "version": 12,
+          "description": "Add allow_concurrent_missions to vessels",
+          "sha256": "5123e23dbba8cf86dc437407c419af235c579fb7cede8a4f1c93c9eee474829e"
+        },
+        {
+          "version": 13,
+          "description": "Multi-tenant: add tenants, users, credentials tables and tenant_id columns",
+          "sha256": "9635447df206e7097b7f29024343c5cf0330c739b072158df7682fa637f6330f"
+        },
+        {
+          "version": 14,
+          "description": "Protected resources and user ownership",
+          "sha256": "b451f861ac9dc4d12394d99b006c80c605ab69ce9d79436e692a3209cffe387a"
+        },
+        {
+          "version": 15,
+          "description": "Add tenant and user foreign keys to operational tables",
+          "sha256": "e1f4f6fbc14067f9e27081065f2f3bfb91e99253fc4401f80d71f1ea32e9cf5e"
+        },
+        {
+          "version": 16,
+          "description": "Add tenant admin role to users",
+          "sha256": "f3da4e950cfd86c24607d67b0f6bc1fc19add4beed25acb5856e002a7f331881"
+        },
+        {
+          "version": 17,
+          "description": "Add enable_model_context and model_context to vessels",
+          "sha256": "242a5b7993e232db29d09448f4d203b9cea4a6f45648970ba6c39e3ff2429236"
+        },
+        {
+          "version": 18,
+          "description": "Add system_instructions to captains",
+          "sha256": "cd5a105b503ccf9307f0a4528f0812978d23c3a6084b4488fba66a379f522b34"
+        },
+        {
+          "version": 19,
+          "description": "Add prompt_templates table",
+          "sha256": "98be40203db0cf975dd72b4959d36c43595200f023f16cfd345f522093e14b1b"
+        },
+        {
+          "version": 20,
+          "description": "Add personas table",
+          "sha256": "872908816a36df74cf3612c85690e48c9444b3332699132d82bac274b67cd37a"
+        },
+        {
+          "version": 21,
+          "description": "Add captain persona fields",
+          "sha256": "91ad8674118bcd4e110fce551d4a88f871e04c03f654a00cf222a0dab7111fd8"
+        },
+        {
+          "version": 22,
+          "description": "Add mission persona and dependency fields",
+          "sha256": "0121eef4ef5791f6f944f79603878e4f8cf46ca9b7021ae9ccc01a0b6240577b"
+        },
+        {
+          "version": 23,
+          "description": "Add pipelines and pipeline_stages tables",
+          "sha256": "53f3be4d099927398358b2f1b66dab81fcab93c2378f3d3c26e5a577615cf3d6"
+        },
+        {
+          "version": 24,
+          "description": "Add failure_reason to missions",
+          "sha256": "e5bdfb4c844f5b54044e79aa6e82c5327e4ad903d6187ac8dfad86efde190c3d"
+        },
+        {
+          "version": 25,
+          "description": "Add agent_output to missions for capturing stdout",
+          "sha256": "c0536b62316f7df9fdf2fbd7ef262d48022df2f99da35c8112b84eba0c118b17"
+        },
+        {
+          "version": 26,
+          "description": "Add model to captains",
+          "sha256": "d945c8efac516198253f934911b2eb0e95f7c1e019ecfd0848c3cbaff9f3abca"
+        },
+        {
+          "version": 27,
+          "description": "Add total_runtime_ms to missions",
+          "sha256": "62207381604f5b6cb94cc6647c59fb6d5ccaa55f1cef25648273798c2bf63173"
+        },
+        {
+          "version": 28,
+          "description": "Add playbooks and mission/voyage playbook associations",
+          "sha256": "b552e0a13d720640afa1667f5f6bc2b0904469dc1048e31becfc692ffcce37f4"
+        },
+        {
+          "version": 29,
+          "description": "Add prestaged_files JSON column to missions",
+          "sha256": "2241056c4fb3ab35c2c9228aa3a1ea1cd3be1cf99b4f2a510d152fb7114133de"
+        },
+        {
+          "version": 30,
+          "description": "Add protected_paths JSON column to vessels",
+          "sha256": "bcd0d5eea4de8b95bff62aa097e226a461b09f8a7db09a2aab91dcb34f5e78ab"
+        },
+        {
+          "version": 31,
+          "description": "Add preferred_model column to missions",
+          "sha256": "5c1ac8ffbaaa99597d30450a98471a174e84e22b041dccfd6473008d295845a6"
+        },
+        {
+          "version": 32,
+          "description": "Add auto_land_predicate JSON column to vessels",
+          "sha256": "34f2df276ba6e29dc1a8b9cde99117012a6e750e36a84ec764052315a4909a3e"
+        },
+        {
+          "version": 33,
+          "description": "Add audit columns to merge_entries and calibration counter to vessels",
+          "sha256": "dc1881759b2a96eff555592fd8588f8adf77ad2c5586737e07f4379590fb5811"
+        },
+        {
+          "version": 34,
+          "description": "Add default_playbooks JSON column to vessels",
+          "sha256": "03357e1eaa1326ea065870b225ef043caa28d093d702bb0a563896b861c276c5"
+        },
+        {
+          "version": 35,
+          "description": "Add preferred_model column to pipeline_stages for per-stage model override",
+          "sha256": "4d9b747fa775a6b50bf7d151e38a23a76251fc9c495e4df461a38d68de8f752a"
+        },
+        {
+          "version": 36,
+          "description": "Add pr_url and pr_base_branch columns to merge_entries for PR-fallback path",
+          "sha256": "0e10b77f743d590481d2b90f941bc59dad1b2f87bb8bf3e1b9541d2ecdc24b0e"
+        },
+        {
+          "version": 37,
+          "description": "Add planning sessions, transcript messages, and voyage planning lineage",
+          "sha256": "49888df158171b2aed5eeff0bae94d56e38ba1427ef7e2003b78b02e986f241c"
+        },
+        {
+          "version": 38,
+          "description": "Add merge failure classification columns and mission recovery attempts",
+          "sha256": "03c8447546c6bb99cda3aaae4a9c08f68d0bc6c993c374a5ab14bac0043b7d4b"
+        },
+        {
+          "version": 39,
+          "description": "Add runtime_options_json to captains",
+          "sha256": "a82321fc95b0097ec5569f87c5f902f9dc787d7a229e9e34ad443ea66762f2d0"
+        },
+        {
+          "version": 40,
+          "description": "Add reflection tracking columns to vessels",
+          "sha256": "f3c7ebbff31667886485fea9e6fbced4ac7223faa79c267377c8e1dd57eb0940"
+        },
+        {
+          "version": 41,
+          "description": "Add reorganize_threshold column to vessels",
+          "sha256": "871fd0f661add959d48aae801e3c211a1bf676d84a7991751e8766c5cac94142"
+        },
+        {
+          "version": 42,
+          "description": "Allow same-order parallel stages in pipeline_stages",
+          "sha256": "35245c653e9399d3fcc4de83580ecf29e0dd4ea70292b5244bf851e4bd00c5c2"
+        },
+        {
+          "version": 43,
+          "description": "Add vessel_pack_hints table and pack_curate_threshold column to vessels (v2-F1)",
+          "sha256": "fe64cd3a82eb2219a15126d20f4f884cd8a77e98bf250d3f8eed5f8a2d80a3a6"
+        },
+        {
+          "version": 44,
+          "description": "Add identity-memory columns to personas and captains (Reflections v2-F2)",
+          "sha256": "956ae83ea08fefcb9d3610558eab1352485b7faf688ce77dfb9849e81ce487af"
+        },
+        {
+          "version": 45,
+          "description": "Add fleet-memory columns to fleets (Reflections v2-F3)",
+          "sha256": "e01a4c2027183195ff269c5940f282a6d1cff6cf9b778d5c0633744b9ff3341e"
+        },
+        {
+          "version": 46,
+          "description": "Add pipeline and mission review gates",
+          "sha256": "eb41add22eb54b829fdc58ecba4eb73c52deb5747e8879f79a4fb14d8b77fe8a"
+        },
+        {
+          "version": 47,
+          "description": "Add workflow, delivery, request history, and objective tables",
+          "sha256": "4d9f86b8eec4180248136692b1ca6515277f59fdb64aa01cec49a5546abc956e"
+        },
+        {
+          "version": 48,
+          "description": "Add mission assignment state column to missions",
+          "sha256": "e4355896f3d33632f38611990450ad7e9bf377da45ca611f258fd8b2eaff30ce"
+        },
+        {
+          "version": 49,
+          "description": "Add sibling_repos JSON column to vessels",
+          "sha256": "1b460827029328c67c248404c5991abfb95454571e359ed16f547871e30499fb"
+        },
+        {
+          "version": 50,
+          "description": "Add landing retry counter to missions",
+          "sha256": "970e9a5ddba9716c6f19aa63d840dab5093b619546279d2d4a73a6056455fdc0"
+        },
+        {
+          "version": 51,
+          "description": "Add durable landing jobs",
+          "sha256": "83c1ff0561b0e3c2545d22cbe385addc160bd59c607cc047de9d276592b09f55"
+        },
+        {
+          "version": 52,
+          "description": "Normalize NULL objective tenant_id/user_id to default",
+          "sha256": "02fa4838080bd2155305f2651a348363fd8c24a13b07d1e8f206871abaf0df98"
+        },
+        {
+          "version": 53,
+          "description": "Add auto_dispatch_enabled opt-in flag to objectives",
+          "sha256": "7e03e1dcb149e5d8f244585fbaafcfeaad26f0d8f98d3303a9b766e6a4b264e3"
+        },
+        {
+          "version": 54,
+          "description": "Add architect_max_missions_per_voyage column to vessels",
+          "sha256": "5b381f3314cec8f0142c412061ea0d6c286518b8d394eb92f197925834fd0122"
+        },
+        {
+          "version": 55,
+          "description": "Add captain quarantine columns",
+          "sha256": "19167b9e68587662f4d86bd8aec0d31ff1c20187dd6ad30ffaa2637a0fc528a8"
+        },
+        {
+          "version": 56,
+          "description": "Add capabilityhint column to missions",
+          "sha256": "2873a17831ab8e357f519be1794f25c029dd94e8f41ada7fbad2a4c3756e8522"
+        },
+        {
+          "version": 57,
+          "description": "Add containerless_unit_test_command column to workflow_profiles",
+          "sha256": "03707aff318d173814bc6cd979789a93d2d3af97ac11e8e42cf66974acca6b03"
+        },
+        {
+          "version": 58,
+          "description": "Add stage_order to missions so parallel sibling stages form an identifiable group",
+          "sha256": "0fff89100c428299eac34ca497a326a7d9ca2de4a308a2574123e409be4e3952"
+        },
+        {
+          "version": 59,
+          "description": "Add mission_mode column to missions",
+          "sha256": "786c3b1183719a4b7caff37b54a0a1e4a6dec205466ac3e5724b1cc59471588a"
+        },
+        {
+          "version": 60,
+          "description": "Add per-captain provider credential columns to captains",
+          "sha256": "8f2def879f59d80a65732279c36f7955bdd566d50e48751812019587ac58b44c"
+        },
+        {
+          "version": 61,
+          "description": "Add retry_skip_captain_ids column to missions so in-place judge re-runs route to a different captain without consuming the rescue budget",
+          "sha256": "da4654d9f5b89d391ab868cd4cf956fb27e17daea68b4c5dbe11a045b6af86fd"
+        },
+        {
+          "version": 62,
+          "description": "Add skills directory",
+          "sha256": "8a1a8f5ffb85d84b0d93d7dbdf6d48fdd3e72f721be470d67c0d1c9d039465cb"
+        },
+        {
+          "version": 63,
+          "description": "Add reasoning_effort to captains",
+          "sha256": "8589ff11a1d2dab600839e364f279d934aa38329bc113713fadfcef1acabe197"
+        },
+        {
+          "version": 64,
+          "description": "Add redispatch_attempts to missions for no-op completion recovery",
+          "sha256": "97ec3df69e36ba0dc4eb5b0b9a6090e5e524682d4fb79896f762fd01f9a77cbd"
+        },
+        {
+          "version": 65,
+          "description": "Add dock-boundary scanner config to vessels",
+          "sha256": "04ab665536f8c7279336a8de8f0c04c75aed47996de6ca126376054b935a53a9"
+        },
+        {
+          "version": 66,
+          "description": "Add jobs table for background job tracking",
+          "sha256": "9eaee4b5183c4891fa45d57dac52e409e4a34530f2f35009808c69c2b07a6e9c"
+        },
+        {
+          "version": 67,
+          "description": "Add per-step captain selection (persona default captain, mission requested captain, voyage captain overrides)",
+          "sha256": "a464dd99998cbbc030d11661a9ad11b33632aa07ed8623ac3d6c8de18db86677"
+        },
+        {
+          "version": 68,
+          "description": "Add token_usage table for per-model token accounting",
+          "sha256": "d9f0634933d4fa863134b9db23568e4f24443b733fbd42a3963641b7c27ac029"
+        },
+        {
+          "version": 69,
+          "description": "Add project profiles for layered persona resolution",
+          "sha256": "e03e930d3cd360b9eb072ad4780802c79f5f7f9288947dcd64ac990b8a099869"
+        },
+        {
+          "version": 70,
+          "description": "Add coordination leases for distributed locking",
+          "sha256": "e5648fb5ccf55795ea977282a3a499d0efe02eba96c86dff7a94f6650f3b05d3"
+        },
+        {
+          "version": 71,
+          "description": "Add reasoning_effort to captains",
+          "sha256": "d19f911712cb5f2e7e6ce1e57e6e524f55e9ac6f6d3edd5b68da9e061e4fd1c4"
+        },
+        {
+          "version": 72,
+          "description": "Add redispatch_attempts to missions",
+          "sha256": "45caab702db394ec28b2578f65b5cadad9c9d4c860e1e6765810acd7e20eef56"
+        },
+        {
+          "version": 73,
+          "description": "Add dock-boundary scanner config to vessels",
+          "sha256": "88ea8f899183e636afc833ff31df874b80971b969c72a3b5cf1149117460fd41"
+        },
+        {
+          "version": 74,
+          "description": "Add last_process_alive_utc to captains",
+          "sha256": "a1c2a3e1fbe553c20da32ac005245d5a34284b794ee836a73e215c1cae1ac89a"
+        },
+        {
+          "version": 75,
+          "description": "Add coordination rooms, messages, and participant presence for the shared session chatroom",
+          "sha256": "0089700949e1d3aff206dca1e65ee8ccb57bed0be173059c7fe514739b12c910"
+        },
+        {
+          "version": 76,
+          "description": "Add environment_variables_json to workflow_profiles",
+          "sha256": "19fcef28d0e812446f3cbd0b397ec70cb02dafeaa1160fe1acd0b2c9cfc8dfe9"
+        },
+        {
+          "version": 77,
+          "description": "Add coordination claims for cross-session work reservations",
+          "sha256": "cb8f82899ec6324557026475eef72cd76af7836f1c529ec4b7f67f05f616d1d1"
+        },
+        {
+          "version": 78,
+          "description": "Add addressed-to-participant column to coordination messages for session work handoffs",
+          "sha256": "f76c8c4d1caf48aa82b61258fa4244226aac3a9e2a5dad4ee6bbfb190aada9a6"
+        },
+        {
+          "version": 79,
+          "description": "Add start_from_ref to objectives and missions",
+          "sha256": "e918d6dc55af80904ce538aa384ba21e33deeeda43302bb5de16b7e3003d38ab"
+        },
+        {
+          "version": 80,
+          "description": "Add durable Judge follow-ups",
+          "sha256": "521d5af989a548efa1a1e0a4b715444603d70c9067854926b1979906d8e2990e"
+        },
+        {
+          "version": 81,
+          "description": "Add objective preparation",
+          "sha256": "6eaa40b1845aa1d2e153b19adfc231442eb09c921326042eb0fd75c159b08be7"
+        },
+        {
+          "version": 82,
+          "description": "Preserve planning objective linkage through dispatch",
+          "sha256": "bceb73b6f3a79f6c5ea692942a3a63e79a48fb17c6c49ed9c258c61bd76279dc"
+        }
+      ]
+    },
+    "Postgresql": {
+      "source": "src/Armada.Core/Database/Postgresql/Queries/TableQueries.cs",
+      "maximumVersion": 83,
+      "migrations": [
+        {
+          "version": 1,
+          "description": "Full schema with multi-tenant support: all tables, indexes, and tenant columns",
+          "sha256": "f9335d52f97473d969eef58a8becaa189c09637e7fe66356d610a4b5d951eafa"
+        },
+        {
+          "version": 2,
+          "description": "Protected resources and user ownership",
+          "sha256": "48865593a3436b60847f959a912e22d69db52d0fa41016c153880e6e19d7fab9"
+        },
+        {
+          "version": 3,
+          "description": "Add operational tenant foreign keys",
+          "sha256": "936e6d49012a3696e51691be29f23c58adc4750191611255dc4528da5846ee1d"
+        },
+        {
+          "version": 4,
+          "description": "Add tenant admin role to users",
+          "sha256": "139584ddf4a7c75510ea5bd479502642f458ad07d2e068965ffb3069a2595418"
+        },
+        {
+          "version": 5,
+          "description": "Add enable_model_context and model_context to vessels",
+          "sha256": "a3d70d62d5a6ee249aed41c23c4b18d61dd2eb57b4fff12dcf95a5cb4e040e38"
+        },
+        {
+          "version": 6,
+          "description": "Add system_instructions to captains",
+          "sha256": "7cd0f2913176fefa4a91ebe9da84173a6b04942b280fc0d3792e99533156f4cd"
+        },
+        {
+          "version": 7,
+          "description": "Add prompt_templates table",
+          "sha256": "8dd9470cdb881b0d507ce59ab38b9136583bb30ff08e16445f9f7968460ca843"
+        },
+        {
+          "version": 8,
+          "description": "Add personas table",
+          "sha256": "b8b38d16c1841dd1697949195000d8f40c334245a45388fe8086d3de0b8e0c8d"
+        },
+        {
+          "version": 9,
+          "description": "Add captain persona fields",
+          "sha256": "e240d4c888157fb29e1378ba1f92be0b996f120ac46689d21902be273e8b9ec4"
+        },
+        {
+          "version": 10,
+          "description": "Add mission persona and dependency fields",
+          "sha256": "563407d125164d58a8018bcd8863f89c7987d05c44952e5ad7426cb115bc9482"
+        },
+        {
+          "version": 11,
+          "description": "Add pipelines and pipeline_stages tables",
+          "sha256": "b10dc9f7d20b48fa573500bcf30fa4216b7ad5ad4681831b61acde19b4f97baa"
+        },
+        {
+          "version": 12,
+          "description": "Add failure_reason to missions",
+          "sha256": "88b405a5d93789d6941ef0151dbf1e92f7a55b44191b3c99526be461de913b75"
+        },
+        {
+          "version": 13,
+          "description": "Add agent_output to missions",
+          "sha256": "09ffb0eed5df6bbee11210ac7fd2085f99da71eb3ff8c303cf40972fd89d121a"
+        },
+        {
+          "version": 26,
+          "description": "Add model to captains",
+          "sha256": "d945c8efac516198253f934911b2eb0e95f7c1e019ecfd0848c3cbaff9f3abca"
+        },
+        {
+          "version": 27,
+          "description": "Add total_runtime_ms to missions",
+          "sha256": "62207381604f5b6cb94cc6647c59fb6d5ccaa55f1cef25648273798c2bf63173"
+        },
+        {
+          "version": 28,
+          "description": "Add playbooks and mission/voyage playbook associations",
+          "sha256": "f0689925b233769cca3dab4c538387e33e63e462ce1fb67282b9da5128a6d53d"
+        },
+        {
+          "version": 29,
+          "description": "Add prestaged_files JSON column to missions",
+          "sha256": "ff9d3d09392ee705751da2dc0e006299c6093049e1cdfe0f7dbe7476ab089060"
+        },
+        {
+          "version": 30,
+          "description": "Add protected_paths JSON column to vessels",
+          "sha256": "b02a484771e80c4da59394626dcb782e2d11ef04f7ba626e777bb38f6daab5c4"
+        },
+        {
+          "version": 31,
+          "description": "Add preferred_model column to missions",
+          "sha256": "25b7bdec2b9f274c77ce6bfda0399917fc8793837b355abfffb87c1e518aff0a"
+        },
+        {
+          "version": 32,
+          "description": "Add auto_land_predicate JSON column to vessels",
+          "sha256": "521059b33721d62d58d70246e70f16881c03bfdf7528f39542cb9c649da88b8b"
+        },
+        {
+          "version": 33,
+          "description": "Add audit columns to merge_entries and calibration counter to vessels",
+          "sha256": "3c676f9b2a418f1f3681a794adececa4fd0611f6eba49220f3049f874ec6db7f"
+        },
+        {
+          "version": 34,
+          "description": "Add default_playbooks JSON column to vessels",
+          "sha256": "1c609fb61167bb2ce144e984289b91eb55d7f53ff768a85630b5c102ff2f687f"
+        },
+        {
+          "version": 35,
+          "description": "Add preferred_model column to pipeline_stages for per-stage model override",
+          "sha256": "cf1af14a71daea6fb95e0e7c70774117719eaba04b19e4f1b86609286f51c1fa"
+        },
+        {
+          "version": 36,
+          "description": "Add pr_url and pr_base_branch columns to merge_entries for PR-fallback path",
+          "sha256": "f028b19e64ea45b50d8908c566e4c7f82936d8725a12ef9397feefa5eafd9360"
+        },
+        {
+          "version": 38,
+          "description": "Add merge failure classification columns and mission recovery attempts",
+          "sha256": "f4e2a920252d1af804498d14f3b019b528df07edd73555859c49212950b91b00"
+        },
+        {
+          "version": 39,
+          "description": "Add runtime_options_json to captains",
+          "sha256": "b49f3260fc7be078c1a535fe1a758ba1d5a38f07ff0095fac5fa124692662b83"
+        },
+        {
+          "version": 40,
+          "description": "Add reflection tracking columns to vessels",
+          "sha256": "bf05c8cee5fd46facfd6219b5188ef5e0b338c514573e359dfe82fb494697a7b"
+        },
+        {
+          "version": 41,
+          "description": "Add reorganize_threshold column to vessels",
+          "sha256": "d64e6e1d0ef14e19d47400c19bf2cbd193731697dbe176ee38a294c74c211235"
+        },
+        {
+          "version": 42,
+          "description": "Allow same-order parallel stages in pipeline_stages",
+          "sha256": "35245c653e9399d3fcc4de83580ecf29e0dd4ea70292b5244bf851e4bd00c5c2"
+        },
+        {
+          "version": 43,
+          "description": "Add vessel_pack_hints table and pack_curate_threshold column to vessels (v2-F1)",
+          "sha256": "78fd979b817e0ed0eaea550628e9c3f07fe6cc5197ee6f825e0590f6d3939f32"
+        },
+        {
+          "version": 44,
+          "description": "Add identity-memory columns to personas and captains (Reflections v2-F2)",
+          "sha256": "ad31ecd925e0eba097eea59605de6ebbb6ce1c391b4d0690527e5e22cae62a22"
+        },
+        {
+          "version": 45,
+          "description": "Add fleet-memory columns to fleets (Reflections v2-F3)",
+          "sha256": "7158017e4cdb77c4db4fe1a63fd1782ff5d102708368bae5580e66ed2cae0194"
+        },
+        {
+          "version": 46,
+          "description": "Add pipeline and mission review gates",
+          "sha256": "886943742d658bd3fbc06c0b0857b410c0a05738d9a9106a517b4302a79bfbe7"
+        },
+        {
+          "version": 48,
+          "description": "Add mission assignment state column to missions",
+          "sha256": "ca550b0ddce5868680312cd57529d892fc673b409555edbe1e52641e52527018"
+        },
+        {
+          "version": 49,
+          "description": "Add sibling_repos JSON column to vessels",
+          "sha256": "80830b1695ee50488b841b3cc84c3926f4ae4a9e167bf6d4c21b670da9c4eda3"
+        },
+        {
+          "version": 50,
+          "description": "Add landing retry counter to missions",
+          "sha256": "674ed7a2eb429f38a1c15cfa8fa0dca231df62077fa6dd637f909fa60264cdf8"
+        },
+        {
+          "version": 51,
+          "description": "Add durable landing jobs",
+          "sha256": "49f69e267c5d349634b7d3d7e09a595b9be2855cc10f0fdd2bc0a08f3f1114a2"
+        },
+        {
+          "version": 52,
+          "description": "Normalize NULL objective tenant_id/user_id to default",
+          "sha256": "02fa4838080bd2155305f2651a348363fd8c24a13b07d1e8f206871abaf0df98"
+        },
+        {
+          "version": 53,
+          "description": "Add auto_dispatch_enabled opt-in flag to objectives",
+          "sha256": "a11d2913e29290b04455fb103395ba0febcbf77ce86f7e68d22cfd7fc2fb1133"
+        },
+        {
+          "version": 54,
+          "description": "Add architect_max_missions_per_voyage column to vessels",
+          "sha256": "5d244ddb1ab62394a135a94dd9b9440bc1ae2a63c8088cbbda7bfa617600d94e"
+        },
+        {
+          "version": 55,
+          "description": "Add captain quarantine columns",
+          "sha256": "05cd104bc6ddf93581e96778ac6673ac937ecfc047534c9e38cb54916e051dd8"
+        },
+        {
+          "version": 56,
+          "description": "Add capabilityhint column to missions",
+          "sha256": "60b956b70de08830e7239ba64fa56bb164a5892c6127174313681748c8914ce5"
+        },
+        {
+          "version": 57,
+          "description": "Add stage_order to missions so parallel sibling stages form an identifiable group",
+          "sha256": "6abf0fac2aab5d8da1cde3b5ad250c7aaf4683306b557179811dae081b1b4033"
+        },
+        {
+          "version": 59,
+          "description": "Add mission_mode column to missions",
+          "sha256": "786c3b1183719a4b7caff37b54a0a1e4a6dec205466ac3e5724b1cc59471588a"
+        },
+        {
+          "version": 60,
+          "description": "Add per-captain provider credential columns to captains",
+          "sha256": "cbd39a4db2c66b78d186a39170bff332f6e037eee110d6bedf0574fade2e0e0e"
+        },
+        {
+          "version": 61,
+          "description": "Add retry_skip_captain_ids column to missions so in-place judge re-runs route to a different captain without consuming the rescue budget",
+          "sha256": "f57b6df3150db97cca2e7c5aef5b3cee1831b64639f303772032a6426a960f2b"
+        },
+        {
+          "version": 62,
+          "description": "Add skills directory",
+          "sha256": "372e920cbf0f38a573ec8c80df3b5745136b0f97965c32c230d6ed94d65967b4"
+        },
+        {
+          "version": 63,
+          "description": "Add reasoning_effort to captains",
+          "sha256": "f141a86856382e875100a7934d167fe339a65643acec83bd51bb686117178a3a"
+        },
+        {
+          "version": 64,
+          "description": "Add redispatch_attempts to missions for no-op completion recovery",
+          "sha256": "c6f57ec14134796adc6ac0e41bddd2fe8ded55aba57a4478b121ce222cdf498c"
+        },
+        {
+          "version": 65,
+          "description": "Add dock-boundary scanner config to vessels",
+          "sha256": "e362a682d6eb69155d715a2cca43123f6728319240c65d76a87e00201c9a6e88"
+        },
+        {
+          "version": 66,
+          "description": "Add jobs table for background job tracking",
+          "sha256": "9eaee4b5183c4891fa45d57dac52e409e4a34530f2f35009808c69c2b07a6e9c"
+        },
+        {
+          "version": 67,
+          "description": "Add per-step captain selection (persona default captain, mission requested captain, voyage captain overrides)",
+          "sha256": "d496fbe3a076ccba904171407caac8564d696a30c02b60217bd1044c245befb3"
+        },
+        {
+          "version": 68,
+          "description": "Add token_usage table for per-model token accounting",
+          "sha256": "d9f0634933d4fa863134b9db23568e4f24443b733fbd42a3963641b7c27ac029"
+        },
+        {
+          "version": 69,
+          "description": "Add project profiles for layered persona resolution",
+          "sha256": "befd0b71c1370203e66567a92a0617652a53d8bcdd7746dc2fd360acc6fcec2b"
+        },
+        {
+          "version": 70,
+          "description": "Add coordination leases for distributed locking",
+          "sha256": "ea0ac098c105b534a09eb9c052fc9cb33772e524cd6fd4e5fe9a92f7b431ecd2"
+        },
+        {
+          "version": 71,
+          "description": "Add reasoning_effort to captains",
+          "sha256": "4b7f351402bec095ee32a123dd71e3249844d815499dfc74730f2539ed86eb0b"
+        },
+        {
+          "version": 72,
+          "description": "Add redispatch_attempts to missions",
+          "sha256": "651a7ac8dd49b7ceb433ad96d4db4affdb3e71ff8804bbb1150cddb2853a5555"
+        },
+        {
+          "version": 73,
+          "description": "Add dock-boundary scanner config to vessels",
+          "sha256": "1409f2a7c6c9e1ad80373f6072923015f6c438228dbd3dc85677181b0b64b12a"
+        },
+        {
+          "version": 74,
+          "description": "Add last_process_alive_utc to captains",
+          "sha256": "545178ced1dfa1a583dddcf9181bf6348256af6840254e2138ce863fd81a3127"
+        },
+        {
+          "version": 75,
+          "description": "Correct skills and project_profiles boolean columns typed as INTEGER by the upstream port",
+          "sha256": "54769d1243b5dcec9f6c798d1806760e86679b555d52aab03c6a07eaeedd67d3"
+        },
+        {
+          "version": 76,
+          "description": "Add coordination rooms, messages, and participant presence for the shared session chatroom",
+          "sha256": "092cf9d7e3ce6f965cab0c1eb9f3cf12f241043e57bb6ca2b6c412072fa13a43"
+        },
+        {
+          "version": 77,
+          "description": "Add environment_variables_json to workflow_profiles",
+          "sha256": "6395b5007283a343f4243d96b188dbdaaf8b50b7092ae696c19fd6b07820df32"
+        },
+        {
+          "version": 78,
+          "description": "Add coordination claims for cross-session work reservations",
+          "sha256": "f4c53338f66900ec2b407b2c666764518248738783ae911e4ffb34d428647d8d"
+        },
+        {
+          "version": 79,
+          "description": "Add addressed-to-participant column to coordination messages for session work handoffs",
+          "sha256": "d82f2bf72e5ebc7f4d16e34effba993e9862431656fc35ae76bf7373b38e4d1f"
+        },
+        {
+          "version": 80,
+          "description": "Add start_from_ref to objectives and missions",
+          "sha256": "f4ca89d27d494bd38f1c93649da7219debc34439b80083f80fe5e82f4f0e5366"
+        },
+        {
+          "version": 81,
+          "description": "Request history tables: create if missing and make the truncation flags BOOLEAN",
+          "sha256": "18267da3ede2d75e29f777867b6b63c1875272bb40d309bd27a7aac0840e2ac0"
+        },
+        {
+          "version": 82,
+          "description": "Add durable Judge follow-ups",
+          "sha256": "68affcae22c742465fe1044249bd7aa406122c0e388c8d359cd7ebd5aa65905c"
+        },
+        {
+          "version": 83,
+          "description": "Add objective preparation",
+          "sha256": "c1743a8f67d90de887b15efde25c5a12b4c86fbf8d4672b2825d347422d238ed"
+        }
+      ]
+    },
+    "SqlServer": {
+      "source": "src/Armada.Core/Database/SqlServer/Queries/TableQueries.cs",
+      "maximumVersion": 77,
+      "migrations": [
+        {
+          "version": 1,
+          "description": "Initial schema: tenants, users, credentials, fleets, vessels, captains, voyages, missions, docks, signals, events, merge_entries with full multi-tenant support",
+          "sha256": "ed72dd5449c0eb6c050cb6dfb2530764925b68c4adad9a07cc99717a9620d5a2"
+        },
+        {
+          "version": 2,
+          "description": "Protected resources and user ownership",
+          "sha256": "2cc59a7bfb95e31679eaf67f7575b425b3ad7698cd8b38645dd5c3b6f6c879fe"
+        },
+        {
+          "version": 3,
+          "description": "Operational tenant foreign keys",
+          "sha256": "2f5114026bda8117fd9d7cbddc4330fd056211d5a1d353768de2ebc1f150792f"
+        },
+        {
+          "version": 4,
+          "description": "Add tenant admin role to users",
+          "sha256": "c03e0b441d0f16e3747825d491b84c651f2334e6d700d5d3b5a2cdfb60a3165f"
+        },
+        {
+          "version": 5,
+          "description": "Add enable_model_context and model_context to vessels",
+          "sha256": "ccf795626ab5a966e3bffc6f8344f951c431702ba8b504357ed51926c491d756"
+        },
+        {
+          "version": 6,
+          "description": "Add system_instructions to captains",
+          "sha256": "bd116f6d42eb53476f747d2d1df3148eccfd3ae61495dafadbadc54673473b30"
+        },
+        {
+          "version": 7,
+          "description": "Add prompt_templates table",
+          "sha256": "891be8eb70d7e7cec3e7add319e3f2d45cc0e8a8b25a638884e54d6c54ae89b1"
+        },
+        {
+          "version": 8,
+          "description": "Add personas table",
+          "sha256": "1a89e5446a30efcc88316bbef58ce9024dbb5ef14fd8f047bb30fba8a145165b"
+        },
+        {
+          "version": 9,
+          "description": "Add captain persona fields",
+          "sha256": "5e75e34f09224a64b4fa92aa1c798844db00840c0b7642246d9f431ce737becc"
+        },
+        {
+          "version": 10,
+          "description": "Add mission persona and dependency fields",
+          "sha256": "69832fa05acf8e47dae3073e80a43f646651b429d4027632aa8ef830812c1870"
+        },
+        {
+          "version": 11,
+          "description": "Add pipelines and pipeline_stages tables",
+          "sha256": "3f4eb2578f5b145bd04c2cf95650cfd88de6f7dec53ee355ea73dd83ccc01d80"
+        },
+        {
+          "version": 12,
+          "description": "Add failure_reason to missions",
+          "sha256": "f56b94203efc4f0b95cf9ae955ae89aca217530557cfb4363d5516753a959919"
+        },
+        {
+          "version": 13,
+          "description": "Add agent_output to missions",
+          "sha256": "dfbe6c52199b11f382920091e5acfb923d18aad693183ad318aa361c12f347a9"
+        },
+        {
+          "version": 26,
+          "description": "Add model to captains",
+          "sha256": "537c3f8c0853e3ffbdb4a5df9d35b90059654423c055476954f362bb9afb820d"
+        },
+        {
+          "version": 27,
+          "description": "Add total_runtime_ms to missions",
+          "sha256": "c3f558189fdc5eca85e2e35e5521f7e5ee0046dad8c2738198f21bf5d4eda196"
+        },
+        {
+          "version": 28,
+          "description": "Add playbooks and mission/voyage playbook associations",
+          "sha256": "6a845b9db9bdb914c023397c47004b4d78fb5d0014cbc87ed78d396c9d2cda19"
+        },
+        {
+          "version": 29,
+          "description": "Add prestaged_files JSON column to missions",
+          "sha256": "ac04c5086f67dbbaac8cc0d1733beaba63a2de1842ebff1bb43c3b3fb1ef31a4"
+        },
+        {
+          "version": 30,
+          "description": "Add protected_paths JSON column to vessels",
+          "sha256": "8dc44aafab222d5a9cfb348dcc33205dcbe64f2b4698b4ff345e3e0d55c0bac1"
+        },
+        {
+          "version": 31,
+          "description": "Add preferred_model column to missions",
+          "sha256": "2d3dee5ec93841e71ad57cc3a453802e4db025704fef3a523a533ed5f8b2630d"
+        },
+        {
+          "version": 32,
+          "description": "Add auto_land_predicate JSON column to vessels",
+          "sha256": "d36da9e4fe92032b77ba30ca3ba090a1ff3c829bb9f4b1657b77c0ad3c7e6a7f"
+        },
+        {
+          "version": 33,
+          "description": "Add audit columns to merge_entries and calibration counter to vessels",
+          "sha256": "a9982f709304dfa3b673b98ba00ad686ff49e262a87cef78c13dd6d7c4a61add"
+        },
+        {
+          "version": 34,
+          "description": "Add default_playbooks JSON column to vessels",
+          "sha256": "ee009683ea08cb097499f07af8c7b5615a744de72cef5351423672c286ca4c81"
+        },
+        {
+          "version": 35,
+          "description": "Add preferred_model column to pipeline_stages for per-stage model override",
+          "sha256": "49164bbbb24d5fb265575d030b975a922c110cd0673c6aeb2a1aab7f2c55920d"
+        },
+        {
+          "version": 36,
+          "description": "Add pr_url and pr_base_branch columns to merge_entries for PR-fallback path",
+          "sha256": "f73a6b22d33e97cd133405088b4776dadf26bde7947a08f81e37ccb4c1867042"
+        },
+        {
+          "version": 38,
+          "description": "Add merge failure classification columns and mission recovery attempts",
+          "sha256": "8881428b5f4ec6b84cf607ebc06a77ac79650b2517c3f82a9eac182f1c1e08c4"
+        },
+        {
+          "version": 39,
+          "description": "Add runtime_options_json to captains",
+          "sha256": "7d7753b24902dd43e40984a9dfb4e16f6a6bbd2694b45fcd8c0293bee2219729"
+        },
+        {
+          "version": 40,
+          "description": "Add reflection tracking columns to vessels",
+          "sha256": "2c4c91090ffbbe7b4bd664e4ce25a7f7f3b2afc6c8c77e6e5d459191b58d6929"
+        },
+        {
+          "version": 41,
+          "description": "Add reorganize_threshold column to vessels",
+          "sha256": "f40122e583423536fd9b4a614616faf330777c46490a86436361230b74241f89"
+        },
+        {
+          "version": 42,
+          "description": "Allow same-order parallel stages in pipeline_stages",
+          "sha256": "dcfe232fde4d2a683e0f257eeb92f4f333698ad57e6e9f7b7badadfd4e43532e"
+        },
+        {
+          "version": 43,
+          "description": "Add vessel_pack_hints table and pack_curate_threshold column to vessels (v2-F1)",
+          "sha256": "756a2a5777dd593a82ef9a4c5081af10b5ddd7fb0265f25825588a9b94c5030e"
+        },
+        {
+          "version": 44,
+          "description": "Add identity-memory columns to personas and captains (Reflections v2-F2)",
+          "sha256": "110e9b3ba9ab81046341e3451a526d237e53787768250123850f895e4a1dfcf8"
+        },
+        {
+          "version": 45,
+          "description": "Add fleet-memory columns to fleets (Reflections v2-F3)",
+          "sha256": "33b13933415554479d37c15982a8d9a4c8d4f87573b02b91dcf59a7142f5139c"
+        },
+        {
+          "version": 46,
+          "description": "Add pipeline and mission review gates",
+          "sha256": "822f6d2b02b8bd3c88e4a231c2f86be9865ac4d725a86c17c237205b57ed825f"
+        },
+        {
+          "version": 48,
+          "description": "Add mission assignment state column to missions",
+          "sha256": "2e90e8c7411bbcf4e2271c183f63059abc51fe51cfc524844c64d434f00e5884"
+        },
+        {
+          "version": 49,
+          "description": "Add sibling_repos JSON column to vessels",
+          "sha256": "ad44c28f333c7c75484758a88935097bed65d5bdec21d7abe2e95c2f953f4e33"
+        },
+        {
+          "version": 50,
+          "description": "Add landing retry counter to missions",
+          "sha256": "335379728619a0e95eb36baa654b0cc0407f3efe9b9c2c7b9778e2c38a7a8f2c"
+        },
+        {
+          "version": 51,
+          "description": "Add durable landing jobs",
+          "sha256": "d553f30d51841addfef413ad6bac87cdddaf140c476d0c6e6c47efa0d2ed6080"
+        },
+        {
+          "version": 52,
+          "description": "Normalize NULL objective tenant_id/user_id to default",
+          "sha256": "02fa4838080bd2155305f2651a348363fd8c24a13b07d1e8f206871abaf0df98"
+        },
+        {
+          "version": 53,
+          "description": "Add auto_dispatch_enabled opt-in flag to objectives",
+          "sha256": "c7213a29acd332af7c4fe70b582ee6402c9e525799df3ed0a5de99e91fb5b5b0"
+        },
+        {
+          "version": 54,
+          "description": "Add architect_max_missions_per_voyage column to vessels",
+          "sha256": "fa5e126f38e0c64cb7ad16b06cfe6810618cdd288d382013b3b4099b2f9f8fe3"
+        },
+        {
+          "version": 55,
+          "description": "Add captain quarantine columns",
+          "sha256": "20e932e608d957a77444a47e9f184c21132e72d9862a1f1738803631b38b2d62"
+        },
+        {
+          "version": 56,
+          "description": "Add capabilityhint column to missions",
+          "sha256": "bd2392f5242a5c799b7ab6ecf50df7a967947a2c094b284e500d0915e2ee4d50"
+        },
+        {
+          "version": 57,
+          "description": "Add stage_order to missions so parallel sibling stages form an identifiable group",
+          "sha256": "9d7ba10eba929a56b9aa89c8f3f71abedb880484ce465fd9860c39c69ba25c18"
+        },
+        {
+          "version": 59,
+          "description": "Add mission_mode column to missions",
+          "sha256": "786c3b1183719a4b7caff37b54a0a1e4a6dec205466ac3e5724b1cc59471588a"
+        },
+        {
+          "version": 60,
+          "description": "Add per-captain provider credential columns to captains",
+          "sha256": "2a2fc1b2a1d35fc75578c78c728ca0f17ded10c29d4b14daf8bf936a4fe94777"
+        },
+        {
+          "version": 61,
+          "description": "Add retry_skip_captain_ids column to missions so in-place judge re-runs route to a different captain without consuming the rescue budget",
+          "sha256": "245ffd2ac9aa93749294055961fd5c86bcf1de15fcb9395b3d0486668fb14add"
+        },
+        {
+          "version": 62,
+          "description": "Add skills directory",
+          "sha256": "1a2f253dcf7461ad0bee1816190daf5f863f99c9e5e77200eecf57acbca3d0fa"
+        },
+        {
+          "version": 63,
+          "description": "Add reasoning_effort to captains",
+          "sha256": "27562d83be866d97d2e4efd631b2390d5cab532d662d3266816d17d10d9aa7cc"
+        },
+        {
+          "version": 64,
+          "description": "Add redispatch_attempts to missions for no-op completion recovery",
+          "sha256": "0fb1102905251b414853b328b89456089305ff50103576936d15f1719d3034c0"
+        },
+        {
+          "version": 65,
+          "description": "Add dock-boundary scanner config to vessels",
+          "sha256": "8f04eaff8272aacc997bb08bfeebd8a8d2fa06d1f5ed822e7eed58470e6f9bf1"
+        },
+        {
+          "version": 66,
+          "description": "Add jobs table for background job tracking",
+          "sha256": "ea6acb2fc185bdcc1774f46b1eb0f362da9405d20631af24025ee9ca1be9626a"
+        },
+        {
+          "version": 67,
+          "description": "Add per-step captain selection (persona default captain, mission requested captain, voyage captain overrides)",
+          "sha256": "4515c1cb6eb283ae608f51df01558d7b6594d150052f1a9ed50ee5361b78ff1c"
+        },
+        {
+          "version": 68,
+          "description": "Add token_usage table for per-model token accounting",
+          "sha256": "cdf4d342782e9a24acf48fca0a2a1cd7ef45699a7954510a348870e58f3e946f"
+        },
+        {
+          "version": 69,
+          "description": "Add project profiles for layered persona resolution",
+          "sha256": "1c7e7509b30b11583ff73d253e8b1a583fa5871fd5a43a07a53984cce732d7e5"
+        },
+        {
+          "version": 70,
+          "description": "Add coordination leases for distributed locking",
+          "sha256": "1b24a395cf118a14ef8f5e10a5c335ff01d0e2ed0ee8b6da7ccadb71b7e53fb4"
+        },
+        {
+          "version": 71,
+          "description": "Add reasoning_effort to captains",
+          "sha256": "65892f04329501ae4c3d9f488aee73ac623b49d0454d7f50125550610174eb4a"
+        },
+        {
+          "version": 72,
+          "description": "Add redispatch_attempts to missions",
+          "sha256": "0088fd7ca5b63987cb00cae482e46861819ed272863520d9994aa45e0966acd8"
+        },
+        {
+          "version": 73,
+          "description": "Add dock-boundary scanner config to vessels",
+          "sha256": "07307fa7d91ec455873778fd51c8a1202a48051c921ad2c1753759d1e6820dba"
+        },
+        {
+          "version": 74,
+          "description": "Add last_process_alive_utc to captains",
+          "sha256": "649ae3f5a2f1847fa16164e82c850d986363e3d97cdaf75932e6f9b013a49c9d"
+        },
+        {
+          "version": 75,
+          "description": "Add start_from_ref to objectives and missions",
+          "sha256": "901dd0d5b7ef952a96452bf46514d787c5e6e736d416bc69c2da5021c29998de"
+        },
+        {
+          "version": 76,
+          "description": "Add durable Judge follow-ups",
+          "sha256": "5f70188a4f89589367ac8b5d6d4de6ea5d270e8800a19293d3a74a47c4ac69d2"
+        },
+        {
+          "version": 77,
+          "description": "Add objective preparation",
+          "sha256": "b5263acea3bf58a31dd639e64ea7b0531eda70e90099fbb77aabb4fba6945d4a"
+        }
+      ]
+    },
+    "Mysql": {
+      "source": "src/Armada.Core/Database/Mysql/MysqlDatabaseDriver.cs",
+      "maximumVersion": 74,
+      "migrations": [
+        {
+          "version": 1,
+          "description": "Initial schema: fleets, vessels, captains, voyages, missions, docks, signals, events, merge_entries",
+          "sha256": "9bcb0d616a2098aac78da3c81058f5fbd5a05275ef2431243263492251cbb157"
+        },
+        {
+          "version": 2,
+          "description": "Add allow_concurrent_missions to vessels",
+          "sha256": "e9ae0717101db8d5b79cd9b7cd44ffdba30181f12de9aff2bcf5dd8238545aad"
+        },
+        {
+          "version": 3,
+          "description": "Multi-tenant: add tenants, users, credentials tables and tenant_id columns",
+          "sha256": "9fcbaca20ab41391ab8b00c766654cd05cc5971a802d86022d4742668a94446b"
+        },
+        {
+          "version": 4,
+          "description": "Protected resources and user ownership",
+          "sha256": "55a84bcb774ff0d7f9b70f6e4732f917d231ae229be0eb0712e240b8e91c9452"
+        },
+        {
+          "version": 5,
+          "description": "Operational tenant foreign keys",
+          "sha256": "3e1488dd92191b87102c11d3bc3c3147339e3cdde65fe2921d1c993cb16f0d67"
+        },
+        {
+          "version": 6,
+          "description": "Add tenant admin role to users",
+          "sha256": "978fab1788cebf2759185b6c3f535cc5db0703dbf48e31424baea3c1a4f33c8b"
+        },
+        {
+          "version": 7,
+          "description": "Add enable_model_context and model_context to vessels",
+          "sha256": "5c3d4a773610dc148bf5d69ab2cd724ccf147a72f6be56ee7af817e2454d5775"
+        },
+        {
+          "version": 8,
+          "description": "Add system_instructions to captains",
+          "sha256": "4821fc57c8efe45072ae858a890b6cbfb9557cf8d3ea29f4b4ffd19372003c18"
+        },
+        {
+          "version": 9,
+          "description": "Add prompt_templates table",
+          "sha256": "f6dc93137985729f08242758da3ba97dc9758c46d16168b3d0abb5919a8cff98"
+        },
+        {
+          "version": 10,
+          "description": "Add personas table",
+          "sha256": "6b6d2deab4faf838f142ab37fa4362bee5524f0d3185a8b50dc66b76f6bb7932"
+        },
+        {
+          "version": 11,
+          "description": "Add captain persona fields",
+          "sha256": "a7dece1a3fa0768f788779be5d62d88597334bab53084f2fbc0b7a6890f6c1fb"
+        },
+        {
+          "version": 12,
+          "description": "Add mission persona and dependency fields",
+          "sha256": "8f01854262ec08ba98510bd0c1fec677849e47e8918ba00129e76ae103a3086c"
+        },
+        {
+          "version": 13,
+          "description": "Add pipelines and pipeline_stages tables",
+          "sha256": "04ebe5678a3dddd9ca051f6072cff17296984773b4fde03e8483d281d8e819a9"
+        },
+        {
+          "version": 14,
+          "description": "Add failure_reason to missions",
+          "sha256": "ef3b9ef926ee66bdec6879dee2f94f979def9f4588f8394967b60f6787979217"
+        },
+        {
+          "version": 15,
+          "description": "Add agent_output to missions",
+          "sha256": "97a670594f7d8050d130ce1c547171a6e53996095a79dac2c3a6a2c534f5c850"
+        },
+        {
+          "version": 26,
+          "description": "Add model to captains",
+          "sha256": "b11cb64bd7da247ba99de5b53286f5110642d48ce614100d9e9ac204c1c7fc26"
+        },
+        {
+          "version": 27,
+          "description": "Add total_runtime_ms to missions",
+          "sha256": "423f76011674ce4e34fbf71f165a548ddf04c3c9c5dcdd42bb612b2faebc1dc7"
+        },
+        {
+          "version": 28,
+          "description": "Add playbooks and mission/voyage playbook associations",
+          "sha256": "1f20d6e85025e3bbf8eb36ffbdbc77b881599b3097445a954cdce785194683e8"
+        },
+        {
+          "version": 29,
+          "description": "Add prestaged_files JSON column to missions",
+          "sha256": "97ed9ab291fab53537bb87310f2592719e83827ec12fa63ff54e52aead6c0d30"
+        },
+        {
+          "version": 30,
+          "description": "Add protected_paths JSON column to vessels",
+          "sha256": "a1bc8537437094019104ed68d579c3af2ea2a790920182d0fb7ce4599d8b07d0"
+        },
+        {
+          "version": 31,
+          "description": "Add preferred_model column to missions",
+          "sha256": "24e7e3dba2fcfc92b21c93653ff872b3fc33f11368237460e7a61a19ec8235e0"
+        },
+        {
+          "version": 32,
+          "description": "Add auto_land_predicate JSON column to vessels",
+          "sha256": "4ae1a4b86b7d4e9b0735070f0db9735be87a7e51cbf1f5a5276a65fd1085c0d3"
+        },
+        {
+          "version": 33,
+          "description": "Add audit columns to merge_entries and calibration counter to vessels",
+          "sha256": "bf22ef458cb4aa12886630900a532f535d48c30168643ec89eec1ef63e3a1015"
+        },
+        {
+          "version": 34,
+          "description": "Add default_playbooks JSON column to vessels",
+          "sha256": "ef8b496b0bce371b7bdcb9f50accd2f737c8a216f49c845c0b1cf2e6624c6645"
+        },
+        {
+          "version": 35,
+          "description": "Add preferred_model column to pipeline_stages for per-stage model override",
+          "sha256": "2522ed1a122669f288593f8e7c119ff7d4412f143440571ef701832727ca9371"
+        },
+        {
+          "version": 36,
+          "description": "Add pr_url and pr_base_branch columns to merge_entries for PR-fallback path",
+          "sha256": "60f554e4b0038437f213d3c892a0f80b164567ac7c7a56e58e157e81a6d8a838"
+        },
+        {
+          "version": 38,
+          "description": "Add merge failure classification columns and mission recovery attempts",
+          "sha256": "d814279ee6ea4c1e1752e305d50b80bee2f45815205afc208a21e22f7e173494"
+        },
+        {
+          "version": 39,
+          "description": "Add runtime_options_json to captains",
+          "sha256": "4282953197ed4921d780beac1ebd19553807a38132ecad4520493faf3bb1196b"
+        },
+        {
+          "version": 40,
+          "description": "Add reflection tracking columns to vessels",
+          "sha256": "d5038fcc1e37326fe636d3a592c391b6749ffb7de936c895f6dcec6b6a8201eb"
+        },
+        {
+          "version": 41,
+          "description": "Add reorganize_threshold column to vessels",
+          "sha256": "78d7485c33ed24467e4a4041319d2b11d05876356b38c3ba96571c5a2d5e187a"
+        },
+        {
+          "version": 42,
+          "description": "Allow same-order parallel stages in pipeline_stages",
+          "sha256": "6938faaf06c872c6cd854b460b60d45bac13f87dc76860004b87736fe801c0f3"
+        },
+        {
+          "version": 43,
+          "description": "Add vessel_pack_hints table and pack_curate_threshold column to vessels (v2-F1)",
+          "sha256": "ffc8c78a9f033391e84c8f8daa37a6cdda35ec4b0f708e84757c79e330e584a8"
+        },
+        {
+          "version": 44,
+          "description": "Add identity-memory columns to personas and captains (Reflections v2-F2)",
+          "sha256": "13ce4f5c62fd76f8131f83c4dc7b7a9a2728bfeecfdaa604848b05aaec76a31b"
+        },
+        {
+          "version": 45,
+          "description": "Add fleet-memory columns to fleets (Reflections v2-F3)",
+          "sha256": "4dab933de6d94b56006b01f64b715a8f32d8769e39f5e4594cabe016ec43283d"
+        },
+        {
+          "version": 46,
+          "description": "Add pipeline and mission review gates",
+          "sha256": "9088fbb3445d24535ef40a8c580b179b538487e8186779e8fb02a4047d499258"
+        },
+        {
+          "version": 48,
+          "description": "Add mission assignment state column to missions",
+          "sha256": "97d81f6aa1a93b887b46eac1c5399d6732f91f62ce5008ea14eeb213e7b5b7ee"
+        },
+        {
+          "version": 49,
+          "description": "Add sibling_repos JSON column to vessels",
+          "sha256": "c80a452a77790d7fdd9daf9e443dc7077ae5cd59f0bdaf7c6dc4059d543cc946"
+        },
+        {
+          "version": 50,
+          "description": "Add landing retry counter to missions",
+          "sha256": "8ac0e266f541ae04f5a4ee9f73baa138b1e8d6295fc1c56e1b2f6ebd45390199"
+        },
+        {
+          "version": 51,
+          "description": "Add durable landing jobs",
+          "sha256": "52ee4bd9399ecac05eb8bd6558a995115dbf41d961e5c109879d396f970eeac9"
+        },
+        {
+          "version": 52,
+          "description": "Normalize NULL objective tenant_id/user_id to default",
+          "sha256": "8bad613c991b983083a58e3e529fec63e0a7c6c4410ef3383456db9f0dfddd9e"
+        },
+        {
+          "version": 53,
+          "description": "Add auto_dispatch_enabled opt-in flag to objectives",
+          "sha256": "0ad0fbeea61415795a19fe6d0cc8ac9bbcf80c96cdc8741b22050db3e5c7818d"
+        },
+        {
+          "version": 54,
+          "description": "Add architect_max_missions_per_voyage column to vessels",
+          "sha256": "bbfbff7c15be906997660cd8769c5cffb26fcc86bfa3469140e7baa382d79ada"
+        },
+        {
+          "version": 55,
+          "description": "Add captain quarantine columns",
+          "sha256": "dd82342720164c0a5429cb607ef9a91d44342b3cbd38ec7a8dce240d35aa4e74"
+        },
+        {
+          "version": 56,
+          "description": "Add capabilityhint column to missions",
+          "sha256": "687e725f38dfdd1a12b9d59cf11a1f26ab060ab2fadd9aedb95b31194427dddb"
+        },
+        {
+          "version": 57,
+          "description": "Add stage_order to missions so parallel sibling stages form an identifiable group",
+          "sha256": "25fcf30b142ffad1352729b443a372c1868fc05faa981e65e2e73a2defc8c85f"
+        },
+        {
+          "version": 58,
+          "description": "Add mission_mode column to missions",
+          "sha256": "519c56850b7656c8916ecdfe52548e9a2dfad7beefb68cfd4db02a2e0b1afc39"
+        },
+        {
+          "version": 59,
+          "description": "Add per-captain provider credential columns to captains",
+          "sha256": "967ba425e83a124ab910cd8f87a09284d367d4b0c11403dacaf85091561a3ad7"
+        },
+        {
+          "version": 60,
+          "description": "Add retry_skip_captain_ids column to missions so in-place judge re-runs route to a different captain without consuming the rescue budget",
+          "sha256": "d704bf1a251368ac19b54bae2bf4bf0ea8f3f5b00dd836b7c8d3402cc3d1ebcd"
+        },
+        {
+          "version": 61,
+          "description": "Add skills directory",
+          "sha256": "20014528d79dc0ba0c6a55a4863ce2e6d010ff2a820ae4075fa634a6c3389f99"
+        },
+        {
+          "version": 62,
+          "description": "Add reasoning_effort to captains",
+          "sha256": "092abffafbba1553c0484c6b1685511a592db941feaae4f472c1c6e81abb828a"
+        },
+        {
+          "version": 63,
+          "description": "Add redispatch_attempts to missions for no-op completion recovery",
+          "sha256": "6b3c43f7d9939845937f102dd7e7c4973a3450a40c553b49836b0c5b4e0733f6"
+        },
+        {
+          "version": 64,
+          "description": "Add dock-boundary scanner config to vessels",
+          "sha256": "8e84fa5c869d599027f26cef58771d4230ec3a7b7aa17e9e6574224637b7861a"
+        },
+        {
+          "version": 65,
+          "description": "Add jobs table for background job tracking",
+          "sha256": "ec02cea6b1c70a143c3c08a399bd7450c3b1601d3de22c9a4879d3e177867327"
+        },
+        {
+          "version": 66,
+          "description": "Add per-step captain selection (persona default captain, mission requested captain, voyage captain overrides)",
+          "sha256": "d2e7a2ae5a98ccf4af2c5a1e5448486146e7f182bae4692bfa61b7ac4f131049"
+        },
+        {
+          "version": 67,
+          "description": "Add token_usage table for per-model token accounting",
+          "sha256": "b442af82edf8c109869d954eb901dc1f71e390dc89e304b865b700e93485a139"
+        },
+        {
+          "version": 68,
+          "description": "Add project profiles for layered persona resolution",
+          "sha256": "3469fc3053eff65f93a4588db4e1e9c2313af9e6bfec102e152b598181aaf4ea"
+        },
+        {
+          "version": 69,
+          "description": "Add coordination leases for distributed locking",
+          "sha256": "7e8cd43b5477e4b89b396fed1ffb01c3d39ad3e81a86c4f733c573dbf682ccb0"
+        },
+        {
+          "version": 70,
+          "description": "Add reasoning_effort to captains, redispatch_attempts to missions, dock-boundary config to vessels",
+          "sha256": "a488b7b4b9f025633964d276fbb2621cd544d1b0891e7f0e04bf7f6fb8a1b136"
+        },
+        {
+          "version": 71,
+          "description": "Add last_process_alive_utc to captains",
+          "sha256": "643a23395085b2c4ddfce3e26f8ee334f2b167fa90b86ae8bd1006df3139535e"
+        },
+        {
+          "version": 72,
+          "description": "Add start_from_ref to objectives and missions",
+          "sha256": "82448febedc3e4a959a7b24f964904bc35e0d1a24c9e335ef8b8c86c638fae6d"
+        },
+        {
+          "version": 73,
+          "description": "Add durable Judge follow-ups",
+          "sha256": "87de655f87fbd084a4350a6f73659466d8d1a4f04596c66586758b8f70ec8166"
+        },
+        {
+          "version": 74,
+          "description": "Add objective preparation",
+          "sha256": "ad36bcd50827f5c53741a3b93d03edae11a0590ea87a174963a6edac8b1e006c"
+        }
+      ]
+    }
+  },
+  "referencedMysqlDdl": {
+    "source": "src/Armada.Core/Database/Mysql/Queries/TableQueries.cs",
+    "sha256": "9321a353c17a6c7f824a2e3968c1ee5286b04a99ae81aa1a9d01205c82c7e48a",
+    "initializerSha256": "50cc8e80a003a0e1c151631917b866307844a1bbdb1ac873648c546d7714a36a"
+  },
+  "referencedSqlServerDdl": {
+    "source": "src/Armada.Core/Database/SqlServer/Queries/TableQueries.cs",
+    "sha256": "3786b7bb2e28c323d8d2c52772b5999e57d8180fd4c19a1ea68d91d75a11f686",
+    "initializerSha256": "40808c82dff080a451f635058be591b26cb79211698e4276f2b465ac7932f83f"
+  }
+}

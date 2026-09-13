@@ -10,6 +10,13 @@ Start with compatibility and provider tests, then captain quarantine controls an
 
 ## Integration changes after assessment
 
+The [foundation checkpoint](foundation.md) adds an immutable migration source
+gate and two database cases. SQLite passes all 46 cases. Fresh PostgreSQL,
+MySQL and SQL Server runs fail during existing startup migrations, before the
+cases run. The foundation remains open; provider discovery and downstream
+implementation remain blocked. See the checkpoint for the field matrix,
+commands, exact failures and proof limits.
+
 The local usage-aware routing work is now committed and integrated with the
 retirement and incident changes. Combined validation passed: 3,982 unit tests,
 907 automated API tests, 183 runtime tests, and 77 dashboard tests. The solution
