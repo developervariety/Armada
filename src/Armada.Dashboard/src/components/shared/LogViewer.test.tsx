@@ -47,6 +47,53 @@ describe('LogViewer', () => {
     expect((window as unknown as { injected?: boolean }).injected).toBeUndefined();
   });
 
+  it('shows readable entries with kind labels and a raw toggle when entries are given', () => {
+    const onReadableChange = vi.fn();
+    render(
+      <LogViewer
+        open
+        title="Mission log"
+        content={'raw line one\nraw line two'}
+        completed
+        readable
+        onReadableChange={onReadableChange}
+        entriesTruncated={false}
+        entries={[
+          { kind: 'Thinking', text: 'Weighing options', isToolCall: false, toolName: null, redacted: false, truncated: false, dropped: false },
+          { kind: 'ToolCall', text: 'git status', isToolCall: true, toolName: 'Bash', redacted: false, truncated: false, dropped: false },
+        ]}
+        onClose={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText('thinking')).toBeInTheDocument();
+    expect(screen.getByText('tool call: Bash')).toBeInTheDocument();
+    expect(screen.queryByText(/raw line one/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show Raw' }));
+    expect(onReadableChange).toHaveBeenCalledWith(false);
+  });
+
+  it('copies the raw log text while readable entries are shown', async () => {
+    render(
+      <LogViewer
+        open
+        title="Mission log"
+        content="raw log text"
+        completed
+        readable
+        onReadableChange={() => undefined}
+        entriesTruncated={false}
+        entries={[{ kind: 'Text', text: 'answer', isToolCall: false, toolName: null, redacted: false, truncated: false, dropped: false }]}
+        onClose={() => undefined}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
+
+    await waitFor(() => expect(copyToClipboard).toHaveBeenCalledWith('raw log text'));
+  });
+
   it('copies the raw source, not the rendered text', async () => {
     renderViewer(true);
 

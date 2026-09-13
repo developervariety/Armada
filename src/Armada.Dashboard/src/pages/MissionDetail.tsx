@@ -21,7 +21,7 @@ import {
   listCaptains,
   listDeployments,
 } from '../api/client';
-import type { Captain, CheckRun, Deployment, GitHubPullRequestDetail, LandingPreviewResult, Mission, Vessel } from '../types/models';
+import type { Captain, CheckRun, Deployment, FormattedLogEntry, GitHubPullRequestDetail, LandingPreviewResult, Mission, Vessel } from '../types/models';
 import ErrorModal from '../components/shared/ErrorModal';
 import StatusBadge from '../components/shared/StatusBadge';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -62,7 +62,7 @@ export default function MissionDetail() {
   const [diffModal, setDiffModal] = useState<{ open: boolean; title: string; rawDiff: string; loading: boolean }>({ open: false, title: '', rawDiff: '', loading: false });
 
   // Log viewer (shared modal)
-  const [logModal, setLogModal] = useState<{ open: boolean; title: string; missionId: string; content: string; totalLines: number; lineCount: number }>({ open: false, title: '', missionId: '', content: '', totalLines: 0, lineCount: 200 });
+  const [logModal, setLogModal] = useState<{ open: boolean; title: string; missionId: string; content: string; totalLines: number; lineCount: number; readable: boolean; entries: FormattedLogEntry[] | null; entriesTruncated: boolean }>({ open: false, title: '', missionId: '', content: '', totalLines: 0, lineCount: 200, readable: true, entries: null, entriesTruncated: false });
   const [instructionsModal, setInstructionsModal] = useState<{ open: boolean; title: string; content: string }>({ open: false, title: '', content: '' });
   const missionLoadedRef = useRef(false);
 
@@ -195,10 +195,17 @@ export default function MissionDetail() {
     }
   }
 
-  const fetchLog = useCallback(async (missionId: string, lines: number) => {
+  // Readable mode asks the server for typed entries; raw mode keeps the redacted text view.
+  const fetchLog = useCallback(async (missionId: string, lines: number, readable: boolean) => {
     try {
-      const result = await getMissionLog(missionId, lines);
-      setLogModal(l => ({ ...l, content: result.log || t('No log output'), totalLines: result.totalLines || 0 }));
+      const result = await getMissionLog(missionId, lines, readable);
+      setLogModal(l => ({
+        ...l,
+        content: result.log || t('No log output'),
+        totalLines: result.totalLines || 0,
+        entries: readable && result.entries ? result.entries : null,
+        entriesTruncated: readable && result.entriesTruncated === true,
+      }));
     } catch (e: unknown) {
       // Don't replace existing log content on transient fetch failure
       setLogModal(l => ({
@@ -212,8 +219,8 @@ export default function MissionDetail() {
 
   function handleViewLog() {
     if (!id) return;
-    setLogModal({ open: true, title: t('Log: {{title}}', { title: mission?.title || id }), missionId: id, content: t('Loading...'), totalLines: 0, lineCount: 200 });
-    fetchLog(id, 200);
+    setLogModal({ open: true, title: t('Log: {{title}}', { title: mission?.title || id }), missionId: id, content: t('Loading...'), totalLines: 0, lineCount: 200, readable: true, entries: null, entriesTruncated: false });
+    fetchLog(id, 200, true);
   }
 
   async function handleViewInstructions() {
@@ -240,16 +247,21 @@ export default function MissionDetail() {
   loadMissionRef.current = loadMission;
   const logRefreshCountRef = useRef(0);
   const handleLogRefresh = useCallback(() => {
-    if (logModal.missionId) fetchLog(logModal.missionId, logModal.lineCount);
+    if (logModal.missionId) fetchLog(logModal.missionId, logModal.lineCount, logModal.readable);
     // Refresh mission status every 5th poll (~5 seconds) to detect completion
     logRefreshCountRef.current++;
     if (logRefreshCountRef.current % 5 === 0) loadMissionRef.current();
-  }, [logModal.missionId, logModal.lineCount, fetchLog]);
+  }, [logModal.missionId, logModal.lineCount, logModal.readable, fetchLog]);
 
   const handleLogLineCountChange = useCallback((lines: number) => {
     setLogModal(l => ({ ...l, lineCount: lines }));
-    if (logModal.missionId) fetchLog(logModal.missionId, lines);
-  }, [logModal.missionId, fetchLog]);
+    if (logModal.missionId) fetchLog(logModal.missionId, lines, logModal.readable);
+  }, [logModal.missionId, logModal.readable, fetchLog]);
+
+  const handleLogReadableChange = useCallback((readable: boolean) => {
+    setLogModal(l => ({ ...l, readable, entries: null, entriesTruncated: false }));
+    if (logModal.missionId) fetchLog(logModal.missionId, logModal.lineCount, readable);
+  }, [logModal.missionId, logModal.lineCount, fetchLog]);
 
   function openEdit() {
     if (!mission) return;
@@ -494,8 +506,12 @@ export default function MissionDetail() {
         title={logModal.title}
         content={logModal.content}
         totalLines={logModal.totalLines}
+        readable={logModal.readable}
+        entries={logModal.entries}
+        entriesTruncated={logModal.entriesTruncated}
+        onReadableChange={handleLogReadableChange}
         completed={mission != null && ['Complete', 'Failed', 'Cancelled', 'WorkProduced', 'LandingFailed', 'Review'].includes(mission.status)}
-        onClose={() => setLogModal({ open: false, title: '', missionId: '', content: '', totalLines: 0, lineCount: 200 })}
+        onClose={() => setLogModal({ open: false, title: '', missionId: '', content: '', totalLines: 0, lineCount: 200, readable: true, entries: null, entriesTruncated: false })}
         onRefresh={handleLogRefresh}
         onLineCountChange={handleLogLineCountChange}
       />

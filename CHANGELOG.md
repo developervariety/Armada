@@ -31,6 +31,8 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   chip, dropped noise is hidden, and a page cut at the server limit says so.
   "Show Raw" returns the redacted raw text view. Kinds are runtime
   observations, not mission outcomes.
+- The mission log viewer uses the same readable entries by default, keeps
+  follow mode and line-count selection in both views, and copies the raw text.
 
 ### Bounded dashboard home
 

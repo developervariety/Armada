@@ -777,7 +777,9 @@ export const approveMissionReview = (id: string, options?: { comment?: string; c
 export const denyMissionReview = (id: string, options?: { comment?: string; action?: 'RetryStage' | 'FailPipeline' }) =>
   post<Mission>(`/api/v1/missions/${id}/review/deny`, { comment: options?.comment || undefined, action: options?.action || undefined });
 export const getMissionDiff = (id: string) => get<DiffResult>(`/api/v1/missions/${id}/diff`, { timeout: 30000 });
-export const getMissionLog = (id: string, lines = 500) => get<LogResult>(`/api/v1/missions/${id}/log?lines=${lines}`);
+/** Read a mission log. formatted=true adds typed readable entries (kind, tool, redaction, truncation) to the raw text. */
+export const getMissionLog = (id: string, lines = 500, formatted = false) =>
+  get<LogResult>(`/api/v1/missions/${encodeURIComponent(id)}/log?lines=${lines}${formatted ? '&formatted=true' : ''}`);
 export const getMissionInstructions = (id: string) => get<InstructionsResult>(`/api/v1/missions/${id}/instructions`);
 
 // ==================== Voyages ====================

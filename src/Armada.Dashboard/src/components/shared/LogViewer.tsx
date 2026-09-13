@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { copyToClipboard } from './CopyButton';
 import Markdown from './Markdown';
+import RuntimeLogEntries from './RuntimeLogEntries';
 import { useLocale } from '../../context/LocaleContext';
+import type { FormattedLogEntry } from '../../types/models';
 
 interface LogViewerProps {
   open: boolean;
@@ -11,6 +13,14 @@ interface LogViewerProps {
   loading?: boolean;
   /** Render the content as GitHub-flavored markdown instead of plain monospace text. Copy still copies the raw source. */
   markdown?: boolean;
+  /** Typed readable entries for a formatted log read; shown when readable is true. Copy still copies content. */
+  entries?: FormattedLogEntry[] | null;
+  /** True when the server omitted entries at its page limit. */
+  entriesTruncated?: boolean;
+  /** Whether the readable entry view is selected. */
+  readable?: boolean;
+  /** When provided, the viewer shows a readable/raw toggle and reports the selected mode. */
+  onReadableChange?: (readable: boolean) => void;
   /** Whether the mission/process has completed (terminal state) */
   completed?: boolean;
   onClose: () => void;
@@ -31,6 +41,10 @@ export default function LogViewer({
   totalLines,
   loading,
   markdown,
+  entries,
+  entriesTruncated = false,
+  readable = false,
+  onReadableChange,
   completed,
   onClose,
   onLineCountChange,
@@ -164,6 +178,15 @@ export default function LogViewer({
             {completed && (
               <span style={{ fontSize: '0.8em', color: 'var(--text-dim)', padding: '0.25rem 0.5rem' }}>{t('Completed')}</span>
             )}
+            {onReadableChange && (
+              <button
+                className="btn btn-sm"
+                onClick={() => onReadableChange(!readable)}
+                aria-pressed={readable}
+              >
+                {readable ? t('Show Raw') : t('Show Readable')}
+              </button>
+            )}
             <button
               className={`btn btn-sm${copied ? ' copied' : ''}`}
               onClick={handleCopy}
@@ -182,9 +205,11 @@ export default function LogViewer({
           >
             {loading
               ? t('Loading...')
-              : markdown && content
-                ? <Markdown>{content}</Markdown>
-                : (content || t('No log output'))}
+              : readable && entries
+                ? <RuntimeLogEntries entries={entries} entriesTruncated={entriesTruncated} />
+                : markdown && content
+                  ? <Markdown>{content}</Markdown>
+                  : (content || t('No log output'))}
           </div>
         </div>
         {totalLines !== undefined && (
