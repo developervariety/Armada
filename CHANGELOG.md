@@ -69,6 +69,9 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 
 ### Native captain memory: the Recorder persona and memory recall
 
+- Corrected the MCP catalog size in the operator guide and removed the stale tool count from
+  the MCP guide. The guide now states how the number is counted, so it can be re-measured.
+
 - Added the built-in `Recorder` persona with its own editable prompt. It reviews the
   finished work of a voyage, classifies what is worth keeping, reconciles it against what
   is already recorded, and writes it to native memory. It writes memory only: it changes

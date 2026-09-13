@@ -326,7 +326,7 @@ request still uses the advertised tool name.
 Use [armada-ops.md](armada-ops.md) for:
 
 - the standard objective-to-closeout workflow;
-- the complete 175-tool catalog;
+- the complete tool catalog;
 - risk labels for read, write, execute, interrupt, and destructive tools;
 - dispatch, monitoring, Check, landing, delivery, recovery, and incident
   procedures.

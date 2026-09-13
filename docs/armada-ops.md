@@ -1116,7 +1116,8 @@ them with build args when you ship a generic image.
 
 ## 8. Complete MCP Tool Catalog
 
-The built-in catalog contains 182 names. Some names are compatibility aliases.
+The built-in catalog contains 198 names, counted as the registration names in
+`src/Armada.Server/Mcp/Tools`. Some names are compatibility aliases.
 Some tool families register only when their service is enabled.
 
 Risk labels:
