@@ -57,6 +57,9 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   without credentials.
 - Invalid credentials receive `auth.failed`, and any other route before
   authentication receives `auth.required`; the server then closes the session.
+- A session that does not authenticate within 15 seconds of connecting
+  receives `auth.required` and is closed. Before, a client could open `/ws`,
+  send nothing, and hold the socket until it disconnected.
 - WebSocket commands require a global administrator, because the command
   handler applies no tenant or user scope.
 - `subscribe` also requires a global administrator, because the status snapshot

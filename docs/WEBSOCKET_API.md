@@ -139,6 +139,8 @@ this frame and not in the URL. Query strings appear in request logs.
 - Invalid credentials: the server sends `auth.failed` and closes the session.
 - Any other route before authentication: the server sends `auth.required` and
   closes the session.
+- No authentication within 15 seconds of connecting: the server sends
+  `auth.required` and closes the session.
 - `command` requires a global administrator, because the command handler does
   not apply tenant or user scope. Other sessions receive `command.error`.
 - `subscribe` also requires a global administrator. The status snapshot and

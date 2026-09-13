@@ -81,6 +81,19 @@ namespace Armada.Test.Automated.Suites
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Anonymous_IdleSession_IsClosedAfterAuthenticationWindow", async () =>
+            {
+                using (ClientWebSocket ws = await ConnectAnonymousAsync().ConfigureAwait(false))
+                {
+                    // Send nothing. The server must not hold an unauthenticated socket open forever.
+                    JsonElement? frame = await ReceiveFrameOrCloseAsync(ws, 30).ConfigureAwait(false);
+                    AssertTrue(frame.HasValue, "Expected an auth.required frame when the authentication window ends");
+                    AssertEqual("auth.required", frame!.Value.GetProperty("type").GetString());
+                    JsonElement? after = await ReceiveFrameOrCloseAsync(ws, 10).ConfigureAwait(false);
+                    AssertFalse(after.HasValue, "Expected the server to close the idle unauthenticated session");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Authenticate_InvalidApiKey_IsRefused", async () =>
             {
                 using (ClientWebSocket ws = await ConnectAnonymousAsync().ConfigureAwait(false))

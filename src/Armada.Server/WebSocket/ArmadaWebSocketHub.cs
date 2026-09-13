@@ -34,6 +34,7 @@ namespace Armada.Server.WebSocket
         private readonly IAuthenticationService _Authentication;
         private WebSocketCommandHandler _CommandHandler;
         private const int ClientOutputQueueCapacity = 256;
+        private const int AuthenticationWindowSeconds = 15;
         private ConcurrentDictionary<Guid, ClientConnection> _Sessions = new ConcurrentDictionary<Guid, ClientConnection>();
         private readonly object _BroadcastLock = new object();
         private readonly WebSocketReplayBuffer _ReplayBuffer = new WebSocketReplayBuffer();
@@ -110,6 +111,9 @@ namespace Armada.Server.WebSocket
             try
             {
                 if (!await AuthenticateFromHeadersAsync(session.Id, connection, ctx).ConfigureAwait(false)) return;
+
+                // A session that never authenticates would otherwise hold a socket until the client leaves.
+                if (connection.Auth == null) _ = CloseIfUnauthenticatedAsync(session.Id, connection, ctx.Token);
 
                 await foreach (WebSocketMessage message in session.ReadMessagesAsync(ctx.Token))
                 {
@@ -669,6 +673,30 @@ namespace Armada.Server.WebSocket
             connection.Auth = auth;
             EnqueueOrDisconnect(sessionId, BuildAuthResult(auth));
             return true;
+        }
+
+        /// <summary>
+        /// Close a session that has not authenticated when the authentication window ends.
+        /// </summary>
+        private async Task CloseIfUnauthenticatedAsync(Guid sessionId, ClientConnection connection, CancellationToken token)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(AuthenticationWindowSeconds), token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            if (connection.Auth != null) return;
+            if (!_Sessions.TryGetValue(sessionId, out ClientConnection? current) || !ReferenceEquals(current, connection)) return;
+
+            await RefuseAsync(
+                sessionId,
+                connection,
+                "auth.required",
+                "Authenticate within " + AuthenticationWindowSeconds + " seconds of connecting.").ConfigureAwait(false);
         }
 
         private async Task AuthenticateSessionAsync(Guid sessionId, ClientConnection connection, string body)
