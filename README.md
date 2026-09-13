@@ -83,6 +83,11 @@ tip metadata, divergence and verified HEAD state. It uses persisted repository
 paths and preserves refs. Upstream push and merge controls remain separate
 integration work because they must preserve the fork's landing gates.
 
+Ask chat launches receive runtime-specific MCP configuration. Its availability
+check probes the planned chat endpoint, including when the selected captain has
+an active mission. Endpoint readiness does not prove a running chat connection.
+See [Ask MCP availability](docs/upstream-review/ask-mcp.md).
+
 Manual quarantine and release share one service across REST, MCP and Captain
 Detail **Lift Quarantine**. A hold is refused while the captain owns a mission,
 dock or process, and a release never forces a working captain to Idle. Manual

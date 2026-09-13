@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { chatWithCaptain, getCaptainTools, listCaptains } from '../api/client';
+import { chatWithCaptain, getCaptainAskTools, listCaptains } from '../api/client';
 import type { Captain, CaptainChatMessage, CaptainToolAccessResult, WebSocketMessage } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useWebSocket } from '../context/WebSocketContext';
@@ -76,7 +76,7 @@ export default function AskArmada() {
     let active = true;
     setTools(null);
     setToolsLoading(true);
-    getCaptainTools(captainId)
+    getCaptainAskTools(captainId)
       .then((result) => { toolsCache.current[captainId] = result; if (active) setTools(result); })
       .catch(() => { if (active) setTools(null); })
       .finally(() => { if (active) setToolsLoading(false); });
@@ -84,7 +84,8 @@ export default function AskArmada() {
   }, [captainId]);
 
   const selectedCaptain = captains.find((c) => c.id === captainId) || null;
-  const armadaMcpMissing = tools != null && tools.armadaToolCount <= 0;
+  const armadaMcpMissing = tools != null && tools.armadaToolCount <= 0 && (tools.availabilityVerified || tools.mcpConnectionPlanned);
+  const armadaMcpUnverified = tools != null && !tools.availabilityVerified && !tools.mcpConnectionPlanned;
 
   // Replace the in-flight streaming assistant turn (the last one) via the updater.
   function updateStreamingTurn(mutate: (turn: ChatTurn) => ChatTurn) {
@@ -219,6 +220,11 @@ export default function AskArmada() {
               {t('Checking whether this captain is connected to Armada over MCP...')}
             </div>
           )}
+          {armadaMcpUnverified && (
+            <div className="text-dim" style={{ fontSize: '0.78rem', marginBottom: '0.6rem' }}>
+              {tools.summary || t('Armada MCP connection status is not verified for this captain.')}
+            </div>
+          )}
           {armadaMcpMissing && (
             <div className="mcp-warning-banner">
               <span className="mcp-warning-icon" aria-hidden="true">
@@ -229,15 +235,19 @@ export default function AskArmada() {
                 </svg>
               </span>
               <div className="mcp-warning-body">
-                <strong>{t('This captain is not connected to Armada over MCP.')}</strong>
+                <strong>{t(tools?.mcpConnectionPlanned ? 'Ask MCP preflight found no Armada tools.' : 'This captain is not connected to Armada over MCP.')}</strong>
                 <span className="text-dim">
-                  {t('It cannot call Armada tools (fleet, missions, voyages, and more). Add the Armada MCP server to this captain’s runtime config to connect it.')}
+                  {tools?.mcpConnectionPlanned
+                    ? tools.summary
+                    : t('It cannot call Armada tools (fleet, missions, voyages, and more). Add the Armada MCP server to this captain’s runtime config to connect it.')}
                 </span>
               </div>
-              <div className="mcp-warning-actions">
-                <button className="btn btn-sm" onClick={() => navigate('/captains/' + captainId)}>{t('View captain')}</button>
-                <a className="btn btn-sm" href={instructionsDocUrl(selectedCaptain?.runtime)} target="_blank" rel="noopener noreferrer">{t('How to connect')}</a>
-              </div>
+              {!tools?.mcpConnectionPlanned && (
+                <div className="mcp-warning-actions">
+                  <button className="btn btn-sm" onClick={() => navigate('/captains/' + captainId)}>{t('View captain')}</button>
+                  <a className="btn btn-sm" href={instructionsDocUrl(selectedCaptain?.runtime)} target="_blank" rel="noopener noreferrer">{t('How to connect')}</a>
+                </div>
+              )}
             </div>
           )}
 

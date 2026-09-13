@@ -99,6 +99,15 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(Path.Combine(".cursor", "mcp.json"), plan.FilesToWrite[0].RelativePath);
             }));
 
+            // ---- Planner: OpenCode ----
+            cases.Add(Case("plan_opencode_writes_mcp_config", "OpenCode plan writes an Armada MCP config", TestTags.Positive, () =>
+            {
+                CaptainLaunchIsolationPlan plan = CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.OpenCode, 7891, scoped);
+                AssertFalse(plan.IsEmpty, "expected a non-empty plan");
+                AssertEqual("opencode.json", plan.FilesToWrite[0].RelativePath);
+                AssertTrue(plan.FilesToWrite[0].Contents.Contains("\"armada\"", StringComparison.Ordinal), "expected Armada MCP entry");
+            }));
+
             // ---- Planner: Mux ----
             cases.Add(Case("plan_mux_scopes_config_dir", "Mux plan scopes MUX_CONFIG_DIR with mcp-servers.json", TestTags.Positive, () =>
             {

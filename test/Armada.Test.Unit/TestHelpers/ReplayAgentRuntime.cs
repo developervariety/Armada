@@ -51,6 +51,8 @@ namespace Armada.Test.Unit.TestHelpers
     {
         private readonly IReadOnlyList<string> _Records;
 
+        public ReplayAgentRuntime? LastRuntime { get; private set; }
+
         /// <summary>
         /// Instantiate.
         /// </summary>
@@ -64,7 +66,8 @@ namespace Armada.Test.Unit.TestHelpers
         /// <inheritdoc />
         public override IAgentRuntime Create(AgentRuntimeEnum runtimeType)
         {
-            return new ReplayAgentRuntime(_Records);
+            LastRuntime = new ReplayAgentRuntime(_Records);
+            return LastRuntime;
         }
     }
 
@@ -75,6 +78,9 @@ namespace Armada.Test.Unit.TestHelpers
     {
         private const int _ProcessId = 4242;
         private readonly IReadOnlyList<string> _Records;
+
+        public CaptainLaunchIsolationPlan? ReceivedIsolationPlan { get; private set; }
+        public string? ReceivedWorkingDirectory { get; private set; }
 
         /// <summary>
         /// Instantiate.
@@ -125,6 +131,8 @@ namespace Armada.Test.Unit.TestHelpers
             CancellationToken token = default,
             CaptainLaunchIsolationPlan? isolationPlan = null)
         {
+            ReceivedIsolationPlan = isolationPlan;
+            ReceivedWorkingDirectory = workingDirectory;
             _ = Task.Run(async () =>
             {
                 await Task.Delay(50).ConfigureAwait(false);

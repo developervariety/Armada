@@ -1028,6 +1028,12 @@ provider models with a live provider call before putting them in a tier.
 
 ### Runtime MCP startup
 
+Ask starts a separate temporary runtime with its own MCP launch configuration.
+The dashboard calls the captain tools endpoint with `context=ask` to check the
+planned endpoint. A successful probe proves tool discovery from the server,
+not a connection from a running chat process. Failed and empty probes show
+the returned reason. See [Ask MCP availability](upstream-review/ask-mcp.md).
+
 **Cursor captains need `--approve-mcps`.** cursor-agent discovers a workspace
 `.cursor/mcp.json` but leaves its servers "not loaded (needs approval)" in a
 non-interactive `--print` run; `--trust` covers the workspace only. The runtime

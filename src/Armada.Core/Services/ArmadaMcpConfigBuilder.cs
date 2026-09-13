@@ -48,6 +48,22 @@ namespace Armada.Core.Services
             return root.ToJsonString(_IndentedOptions);
         }
 
+        /// <summary>Build an OpenCode MCP-only overlay for an isolated launch.</summary>
+        /// <param name="mcpPort">The Admiral MCP port.</param>
+        /// <returns>A JSON document containing only the Armada MCP server.</returns>
+        public static string BuildOpenCodeMcpJson(int mcpPort)
+        {
+            JsonObject root = new JsonObject
+            {
+                ["mcp"] = new JsonObject
+                {
+                    ["armada"] = new JsonObject
+                    { ["type"] = "remote", ["url"] = GetMcpUrl(mcpPort) }
+                }
+            };
+            return root.ToJsonString(_IndentedOptions);
+        }
+
         /// <summary>
         /// Build the "servers" array document used by Mux, which stores each server as an object carrying
         /// its own name plus a separate transport/url/mcpPath (a different shape from the keyed clients).

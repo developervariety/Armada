@@ -1,6 +1,8 @@
 namespace Armada.Test.Runtimes.Suites
 {
     using System.IO;
+    using System.Text.Json;
+    using System.Text.Json.Serialization;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -23,6 +25,19 @@ namespace Armada.Test.Runtimes.Suites
         /// Inspectable subclass that exposes protected methods for testing without
         /// touching system paths or environment variables.
         /// </summary>
+        private sealed class OpenCodeConfigProbe
+        {
+            [JsonPropertyName("provider")] public Dictionary<string, Dictionary<string, object>> Provider { get; set; } = new Dictionary<string, Dictionary<string, object>>();
+            [JsonPropertyName("mcp")] public Dictionary<string, OpenCodeMcpProbe> Mcp { get; set; } = new Dictionary<string, OpenCodeMcpProbe>();
+            [JsonPropertyName("permission")] public Dictionary<string, object>? Permission { get; set; }
+        }
+
+        private sealed class OpenCodeMcpProbe
+        {
+            [JsonPropertyName("type")] public string Type { get; set; } = String.Empty;
+            [JsonPropertyName("url")] public string Url { get; set; } = String.Empty;
+        }
+
         private sealed class InspectableOpenCodeRuntime : OpenCodeRuntime
         {
             public InspectableOpenCodeRuntime(LoggingModule logging, OpenCodeServerSettings? settings = null)
@@ -75,6 +90,38 @@ namespace Armada.Test.Runtimes.Suites
         /// </summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("StartAsync_AppliesAskMcpConfigWithoutDroppingProviderConfig", async () =>
+            {
+                if (OperatingSystem.IsWindows()) { Console.WriteLine("SKIP: OpenCode environment capture uses a POSIX test executable."); return; }
+                string root = Path.Combine(Path.GetTempPath(), "armada-opencode-mcp-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(root);
+                string capture = Path.Combine(root, "env.json");
+                string script = Path.Combine(root, "opencode");
+                await File.WriteAllTextAsync(script, "#!/bin/sh\nprintf '%s' \"$OPENCODE_CONFIG_CONTENT\" > \"" + capture + "\"\n");
+                File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                string prior = Environment.GetEnvironmentVariable("ARMADA_TEST_OPENCODE") ?? String.Empty;
+                try
+                {
+                    Environment.SetEnvironmentVariable("ARMADA_TEST_OPENCODE", script);
+                    InspectableOpenCodeRuntime runtime = CreateRuntime();
+                    CaptainLaunchIsolationPlan plan = CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.OpenCode, 7891, root);
+                    int processId = await runtime.StartAsync(root, "test prompt", environment: new Dictionary<string, string> { ["OPENCODE_CONFIG_CONTENT"] = "{\"provider\":{\"test\":{}},\"mcp\":{\"other\":{\"type\":\"remote\",\"url\":\"http://other\"}}}" }, isolationPlan: plan);
+                    for (int i = 0; i < 40 && (!File.Exists(capture) || await runtime.IsRunningAsync(processId)); i++) await Task.Delay(25);
+                    AssertTrue(File.Exists(capture), "OpenCode launch must receive MCP config through its environment.");
+                    string config = await File.ReadAllTextAsync(capture);
+                    OpenCodeConfigProbe parsed = JsonSerializer.Deserialize<OpenCodeConfigProbe>(config)!;
+                    AssertTrue(parsed.Provider.ContainsKey("test"), "provider configuration must remain");
+                    AssertTrue(parsed.Mcp.ContainsKey("other"), "existing MCP servers must remain");
+                    AssertFalse(parsed.Permission != null, "Ask MCP overlay must not grant filesystem permissions");
+                    AssertEqual("remote", parsed.Mcp["armada"].Type);
+                    AssertEqual("http://localhost:7891/mcp", parsed.Mcp["armada"].Url);
+                }
+                finally
+                {
+                    Environment.SetEnvironmentVariable("ARMADA_TEST_OPENCODE", String.IsNullOrEmpty(prior) ? null : prior);
+                    try { if (Directory.Exists(root)) Directory.Delete(root, true); } catch { }
+                }
+            }).ConfigureAwait(false);
             await RunTest("StepFinishPublishesExactUsage", () =>
             {
                 InspectableOpenCodeRuntime runtime = CreateRuntime();

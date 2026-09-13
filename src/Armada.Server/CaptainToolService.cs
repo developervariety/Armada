@@ -1,7 +1,9 @@
 namespace Armada.Server
 {
+    using System.Net.Http;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Settings;
     using SyslogLogging;
 
     /// <summary>
@@ -17,13 +19,15 @@ namespace Armada.Server
         /// </summary>
         /// <param name="logging">Logging module.</param>
         /// <param name="database">Database driver.</param>
-        public CaptainToolService(LoggingModule logging, DatabaseDriver database)
+        /// <param name="settings">Armada settings used to locate per-launch runtime configuration.</param>
+        /// <param name="httpClient">Optional HTTP client for runtime MCP probes.</param>
+        public CaptainToolService(LoggingModule logging, DatabaseDriver database, ArmadaSettings? settings = null, HttpClient? httpClient = null)
         {
             if (logging == null) throw new ArgumentNullException(nameof(logging));
             if (database == null) throw new ArgumentNullException(nameof(database));
 
             _database = database;
-            _runtimeCatalog = new CaptainRuntimeToolCatalogService(logging);
+            _runtimeCatalog = new CaptainRuntimeToolCatalogService(logging, settings, httpClient);
         }
 
         /// <summary>
@@ -32,7 +36,7 @@ namespace Armada.Server
         /// <param name="captain">Captain to inspect.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Availability summary and tool list.</returns>
-        public async Task<CaptainToolAccessResult> DescribeAsync(Captain captain, CancellationToken token = default)
+        public async Task<CaptainToolAccessResult> DescribeAsync(Captain captain, CancellationToken token = default, bool plannedAsk = false)
         {
             if (captain == null) throw new ArgumentNullException(nameof(captain));
 
@@ -46,12 +50,13 @@ namespace Armada.Server
             };
 
             CaptainRuntimeToolCatalogService.RuntimeToolCatalogSnapshot? runtimeSnapshot =
-                await _runtimeCatalog.TryDescribeAsync(captain, _database, token).ConfigureAwait(false);
+                await _runtimeCatalog.TryDescribeAsync(captain, _database, token, plannedAsk).ConfigureAwait(false);
 
             if (runtimeSnapshot != null)
             {
                 result.ToolsAccessible = runtimeSnapshot.ToolsAccessible;
                 result.AvailabilityVerified = runtimeSnapshot.AvailabilityVerified;
+                result.McpConnectionPlanned = runtimeSnapshot.McpConnectionPlanned;
                 result.AvailabilitySource = runtimeSnapshot.AvailabilitySource;
                 result.Summary = runtimeSnapshot.Summary;
                 result.ArmadaToolCount = runtimeSnapshot.ArmadaToolCount;

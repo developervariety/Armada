@@ -5,6 +5,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Settings;
     using Armada.Runtimes;
     using Armada.Server;
     using Armada.Test.Common;
@@ -58,6 +59,24 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(response.Success, "The chat turn succeeds");
                     AssertEqual("Here are the entries", response.Reply, "The reply is the answer text only");
                     AssertFalse((response.Reply ?? String.Empty).Contains(ActivityRecords.ActivityMarker, StringComparison.Ordinal), "No activity record reaches the reply");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("ChatAsync_PassesAskIsolationPlanAndCleansTemporaryConfig", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    Captain captain = new Captain("chat-isolation", AgentRuntimeEnum.OpenCode);
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    ReplayRuntimeFactory factory = new ReplayRuntimeFactory(logging, new[] { "Ask reply" });
+                    CaptainChatService chat = new CaptainChatService(testDb.Driver, factory, null, null, logging, new ArmadaSettings());
+                    CaptainChatResponse response = await chat.ChatAsync(captain.Id, new CaptainChatRequest { Message = "Question" }).ConfigureAwait(false);
+                    AssertTrue(response.Success, "Chat should complete with the fake runtime.");
+                    AssertNotNull(factory.LastRuntime);
+                    AssertNotNull(factory.LastRuntime!.ReceivedIsolationPlan);
+                    AssertTrue(factory.LastRuntime.ReceivedIsolationPlan!.FilesToWrite.Any(file => file.RelativePath == "opencode.json"), "Chat must pass the OpenCode MCP plan.");
+                    AssertFalse(Directory.Exists(factory.LastRuntime.ReceivedWorkingDirectory!), "Chat must clean the temporary runtime directory.");
                 }
             }).ConfigureAwait(false);
 

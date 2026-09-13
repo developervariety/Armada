@@ -6,6 +6,7 @@ namespace Armada.Runtimes
     using System.Text;
     using System.Text.Json;
     using System.Text.Json.Serialization;
+    using System.Text.Json.Nodes;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Settings;
@@ -74,6 +75,15 @@ namespace Armada.Runtimes
                     _ModelProviders);
             }
 
+            IsolationConfigFile? mcpConfig = isolationPlan?.FilesToWrite.FirstOrDefault(file => String.Equals(file.RelativePath, "opencode.json", StringComparison.OrdinalIgnoreCase));
+            if (mcpConfig != null)
+            {
+                launchEnvironment ??= new Dictionary<string, string>(StringComparer.Ordinal);
+                launchEnvironment["OPENCODE_CONFIG_CONTENT"] = MergeOpenCodeConfig(
+                    launchEnvironment.TryGetValue("OPENCODE_CONFIG_CONTENT", out string? existingConfig) ? existingConfig : null,
+                    mcpConfig.Contents);
+            }
+
             return await base.StartAsync(
                 workingDirectory,
                 prompt,
@@ -88,6 +98,29 @@ namespace Armada.Runtimes
         }
 
         #endregion
+
+        private static string MergeOpenCodeConfig(string? existingConfig, string overlayConfig)
+        {
+            JsonObject merged = String.IsNullOrWhiteSpace(existingConfig)
+                ? new JsonObject()
+                : (JsonNode.Parse(existingConfig) as JsonObject) ?? new JsonObject();
+            JsonObject overlay = (JsonNode.Parse(overlayConfig) as JsonObject) ?? new JsonObject();
+            foreach (KeyValuePair<string, JsonNode?> property in overlay)
+            {
+                if (String.Equals(property.Key, "mcp", StringComparison.OrdinalIgnoreCase)
+                    && merged[property.Key] is JsonObject existingMcp
+                    && property.Value is JsonObject overlayMcp)
+                {
+                    foreach (KeyValuePair<string, JsonNode?> server in overlayMcp)
+                        existingMcp[server.Key] = server.Value?.DeepClone();
+                }
+                else if (!merged.ContainsKey(property.Key))
+                {
+                    merged[property.Key] = property.Value?.DeepClone();
+                }
+            }
+            return merged.ToJsonString();
+        }
 
         #region Private-Members
 

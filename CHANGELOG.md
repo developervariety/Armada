@@ -14,6 +14,13 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Ask MCP launch and discovery
+
+- Configure each temporary chat runtime with its Armada MCP connection. Preserve
+  provider configuration and other MCP entries in the OpenCode overlay.
+- Check the planned Ask endpoint separately from an active mission runtime, and
+  distinguish unavailable tools from unverified connection state in the dashboard.
+
 ### Advisory landing setting
 
 - Vessel forms, details, and the shared landing preview identify the passing

@@ -71,6 +71,11 @@ namespace Armada.Core.Services
                         ApplyHomeOverride(plan, scopedConfigDirectory);
                         break;
                     }
+                case AgentRuntimeEnum.OpenCode:
+                    {
+                        plan.FilesToWrite.Add(new IsolationConfigFile("opencode.json", ArmadaMcpConfigBuilder.BuildOpenCodeMcpJson(mcpPort)));
+                        break;
+                    }
                 case AgentRuntimeEnum.Mux:
                     {
                         plan.FilesToWrite.Add(new IsolationConfigFile("mcp-servers.json", ArmadaMcpConfigBuilder.BuildMuxServersJson(mcpPort)));

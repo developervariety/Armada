@@ -10,7 +10,9 @@ namespace Armada.Server
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
+    using Armada.Core.Settings;
     using Armada.Runtimes;
     using Armada.Runtimes.Interfaces;
     using Armada.Server.WebSocket;
@@ -33,6 +35,7 @@ namespace Armada.Server
         private readonly IPromptTemplateService? _PromptTemplates;
         private readonly LoggingModule _Logging;
         private readonly string _Header = "[CaptainChatService] ";
+        private readonly ArmadaSettings _Settings;
 
         // A chat turn spawns a real agent process; bound how long we wait and how much stdout we retain.
         private const int _DefaultTimeoutMs = 300000;
@@ -50,13 +53,15 @@ namespace Armada.Server
         /// <param name="webSocketHub">WebSocket hub used to stream reply chunks live; may be null.</param>
         /// <param name="promptTemplates">Prompt template service used to resolve the Ask Armada system prompt; may be null.</param>
         /// <param name="logging">Logging module.</param>
-        public CaptainChatService(DatabaseDriver database, AgentRuntimeFactory runtimeFactory, ArmadaWebSocketHub? webSocketHub, IPromptTemplateService? promptTemplates, LoggingModule logging)
+        /// <param name="settings">Armada settings used for per-chat runtime configuration.</param>
+        public CaptainChatService(DatabaseDriver database, AgentRuntimeFactory runtimeFactory, ArmadaWebSocketHub? webSocketHub, IPromptTemplateService? promptTemplates, LoggingModule logging, ArmadaSettings? settings = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _RuntimeFactory = runtimeFactory ?? throw new ArgumentNullException(nameof(runtimeFactory));
             _WebSocketHub = webSocketHub;
             _PromptTemplates = promptTemplates;
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _Settings = settings ?? new ArmadaSettings();
         }
 
         #endregion
@@ -128,6 +133,12 @@ namespace Armada.Server
             try
             {
                 Directory.CreateDirectory(workingDirectory);
+                string runtimeConfigDirectory = Path.Combine(workingDirectory, "runtime-config");
+                CaptainLaunchIsolationPlan isolationPlan = CaptainLaunchIsolationPlanner.Plan(
+                    captain.Runtime,
+                    _Settings.McpPort,
+                    runtimeConfigDirectory);
+                MaterializeIsolationPlan(isolationPlan, runtimeConfigDirectory);
 
                 try
                 {
@@ -349,7 +360,8 @@ namespace Armada.Server
                     model: captain.Model,
                     captain: captain,
                     showThinking: request.ShowThinking,
-                    token: token).ConfigureAwait(false);
+                    token: token,
+                    isolationPlan: isolationPlan).ConfigureAwait(false);
 
                 using (CancellationTokenSource timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(token))
                 {
@@ -481,6 +493,25 @@ namespace Armada.Server
         #endregion
 
         #region Private-Methods
+
+        private static void MaterializeIsolationPlan(CaptainLaunchIsolationPlan plan, string scopedDirectory)
+        {
+            if (plan == null) throw new ArgumentNullException(nameof(plan));
+            if (String.IsNullOrWhiteSpace(scopedDirectory)) throw new ArgumentNullException(nameof(scopedDirectory));
+            if (plan.FilesToWrite.Count == 0) return;
+
+            Directory.CreateDirectory(scopedDirectory);
+            string scopedRoot = Path.GetFullPath(scopedDirectory) + Path.DirectorySeparatorChar;
+            foreach (IsolationConfigFile file in plan.FilesToWrite)
+            {
+                string destination = Path.GetFullPath(Path.Combine(scopedDirectory, file.RelativePath));
+                if (!destination.StartsWith(scopedRoot, StringComparison.Ordinal))
+                    throw new InvalidOperationException("Captain runtime configuration escaped its scoped directory.");
+                string? parent = Path.GetDirectoryName(destination);
+                if (!String.IsNullOrWhiteSpace(parent)) Directory.CreateDirectory(parent);
+                File.WriteAllText(destination, file.Contents);
+            }
+        }
 
         private static string BuildPrompt(Captain captain, CaptainChatRequest request, string? systemPrompt)
         {

@@ -263,7 +263,13 @@ namespace Armada.Server.Routes
                         ? await _database.Captains.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
                         : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (captain == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" }; }
-                return await _captainTools.DescribeAsync(captain).ConfigureAwait(false);
+                string context = req.Query.GetValueOrDefault("context") ?? String.Empty;
+                if (!String.IsNullOrWhiteSpace(context) && !String.Equals(context, "ask", StringComparison.OrdinalIgnoreCase))
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Unknown tools context." };
+                }
+                return await _captainTools.DescribeAsync(captain, plannedAsk: String.Equals(context, "ask", StringComparison.OrdinalIgnoreCase)).ConfigureAwait(false);
             },
             api => api
                 .WithTag("Captains")

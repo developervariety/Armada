@@ -218,6 +218,7 @@ export interface CaptainToolAccessResult {
   runtime: string;
   toolsAccessible: boolean;
   availabilityVerified: boolean;
+  mcpConnectionPlanned: boolean;
   availabilitySource: string;
   summary: string;
   endpointName: string | null;

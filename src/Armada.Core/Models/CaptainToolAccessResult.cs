@@ -30,6 +30,9 @@ namespace Armada.Core.Models
         /// </summary>
         public bool AvailabilityVerified { get; set; } = false;
 
+        /// <summary>Whether the result describes the MCP endpoint planned for a future Ask launch rather than a running captain process.</summary>
+        public bool McpConnectionPlanned { get; set; } = false;
+
         /// <summary>
         /// Short machine-readable description of how availability was determined.
         /// </summary>

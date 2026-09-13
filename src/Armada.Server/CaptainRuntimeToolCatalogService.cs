@@ -11,6 +11,7 @@ namespace Armada.Server
     using Armada.Core.Json;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Settings;
     using SyslogLogging;
 
     /// <summary>
@@ -19,29 +20,51 @@ namespace Armada.Server
     internal sealed class CaptainRuntimeToolCatalogService
     {
         private readonly LoggingModule _Logging;
-        private readonly HttpClient _HttpClient = new HttpClient();
+        private readonly ArmadaSettings? _Settings;
+        private readonly HttpClient _HttpClient;
         private readonly JsonSerializerOptions _JsonOptions = JsonDefaults.Insensitive;
 
-        public CaptainRuntimeToolCatalogService(LoggingModule logging)
+        public CaptainRuntimeToolCatalogService(LoggingModule logging, ArmadaSettings? settings = null, HttpClient? httpClient = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _Settings = settings;
+            _HttpClient = httpClient ?? new HttpClient();
         }
 
-        public async Task<RuntimeToolCatalogSnapshot?> TryDescribeAsync(Captain captain, DatabaseDriver database, CancellationToken token = default)
+        public async Task<RuntimeToolCatalogSnapshot?> TryDescribeAsync(Captain captain, DatabaseDriver database, CancellationToken token = default, bool plannedAsk = false)
         {
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             if (database == null) throw new ArgumentNullException(nameof(database));
 
+            if (captain.Runtime == AgentRuntimeEnum.Custom)
+            {
+                return new RuntimeToolCatalogSnapshot
+                {
+                    AvailabilityVerified = false,
+                    AvailabilitySource = "unsupported-runtime",
+                    Summary = "Custom captains have no supported Ask MCP launch contract."
+                };
+            }
+
+            // Ask starts an independent temporary runtime. Idle captains have no process-scoped
+            // configuration to inspect, so probe the same Armada endpoint that the next Ask launch plans
+            // to use. This is an endpoint preflight, not a claim that the captain is already connected.
+            if (plannedAsk || String.IsNullOrWhiteSpace(captain.CurrentMissionId))
+            {
+                return await DescribePlannedArmadaEndpointAsync(token).ConfigureAwait(false);
+            }
+
             string? contextDirectory = await ResolveContextDirectoryAsync(captain, database).ConfigureAwait(false);
+            string? scopedConfigDirectory = ResolveScopedConfigDirectory(captain);
 
             switch (captain.Runtime)
             {
                 case AgentRuntimeEnum.Codex:
-                    return await DescribeCodexAsync(contextDirectory, token).ConfigureAwait(false);
+                    return await DescribeCodexAsync(contextDirectory, scopedConfigDirectory != null, token).ConfigureAwait(false);
                 case AgentRuntimeEnum.ClaudeCode:
                     return await DescribeConfiguredRuntimeAsync(
                         "Claude Code",
-                        GetClaudeConfigPath(),
+                        ResolveScopedConfigPath(scopedConfigDirectory, AgentRuntimeEnum.ClaudeCode) ?? GetClaudeConfigPath(),
                         TryLoadClaudeBuiltInInventory(),
                         token,
                         "Claude Code built-in tools are not currently enumerated by Armada.")
@@ -49,7 +72,7 @@ namespace Armada.Server
                 case AgentRuntimeEnum.Gemini:
                     return await DescribeConfiguredRuntimeAsync(
                         "Gemini CLI",
-                        GetGeminiConfigPath(),
+                        ResolveScopedConfigPath(scopedConfigDirectory, AgentRuntimeEnum.Gemini) ?? GetGeminiConfigPath(),
                         TryLoadGeminiBuiltInInventory(),
                         token,
                         "Gemini built-in tools are not currently enumerated by Armada.")
@@ -67,13 +90,20 @@ namespace Armada.Server
 
                     return await DescribeConfiguredRuntimeAsync(
                         "Cursor",
-                        Path.Combine(contextDirectory, ".cursor", "mcp.json"),
+                        ResolveScopedConfigPath(scopedConfigDirectory, AgentRuntimeEnum.Cursor) ?? Path.Combine(contextDirectory, ".cursor", "mcp.json"),
                         null,
                         token,
                         "Cursor built-in tools are not currently enumerated by Armada.")
                         .ConfigureAwait(false);
                 case AgentRuntimeEnum.Mux:
                     return await DescribeMuxAsync(captain, token).ConfigureAwait(false);
+                case AgentRuntimeEnum.OpenCode:
+                    return new RuntimeToolCatalogSnapshot
+                    {
+                        AvailabilityVerified = false,
+                        AvailabilitySource = "opencode-mcp-unverified",
+                        Summary = "OpenCode Ask uses a temporary runtime configuration. Armada MCP availability is not verified by the server catalog for this runtime."
+                    };
                 case AgentRuntimeEnum.Custom:
                     return new RuntimeToolCatalogSnapshot
                     {
@@ -91,7 +121,54 @@ namespace Armada.Server
             }
         }
 
-        private async Task<RuntimeToolCatalogSnapshot> DescribeCodexAsync(string? contextDirectory, CancellationToken token)
+        private async Task<RuntimeToolCatalogSnapshot> DescribePlannedArmadaEndpointAsync(CancellationToken token)
+        {
+            RuntimeToolCatalogSnapshot snapshot = new RuntimeToolCatalogSnapshot
+            {
+                AvailabilitySource = "ask-launch-plan-probe",
+                McpConnectionPlanned = true,
+                AvailabilityVerified = true
+            };
+            RuntimeMcpServerDefinition server = new RuntimeMcpServerDefinition
+            {
+                Name = "armada",
+                Enabled = true,
+                TransportType = "streamable_http",
+                Url = ArmadaMcpConfigBuilder.GetMcpUrl(_Settings?.McpPort ?? Armada.Core.Constants.DefaultMcpPort),
+                StartupTimeout = TimeSpan.FromSeconds(15),
+                ToolTimeout = TimeSpan.FromSeconds(15)
+            };
+            server.Target = BuildTarget(server);
+            CaptainToolServerSummary summary = CreateConfiguredServerSummary(server);
+            snapshot.Servers.Add(summary);
+            snapshot.ConfiguredServerCount = 1;
+            try
+            {
+                List<CaptainToolSummary> tools = await ProbeServerToolsAsync(server, token).ConfigureAwait(false);
+                summary.Reachable = true;
+                summary.Status = "Reachable (planned Ask endpoint)";
+                summary.ToolCount = tools.Count;
+                snapshot.Tools.AddRange(tools);
+                snapshot.ReachableServerCount = 1;
+                snapshot.ToolsAccessible = tools.Count > 0;
+                snapshot.ArmadaToolCount = tools.Count(t => String.Equals(t.RegistrationSource, "armada", StringComparison.OrdinalIgnoreCase));
+                snapshot.EffectiveToolCount = tools.Count;
+                snapshot.Summary = "Ask launch plan targets Armada MCP; endpoint preflight reached " + tools.Count + " tool(s). The selected captain is not running an Ask process yet.";
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                summary.Status = "Unreachable (planned Ask endpoint)";
+                summary.ErrorMessage = ex.Message;
+                snapshot.Summary = "Ask launch plan targets Armada MCP, but endpoint preflight failed: " + ex.Message + ". The selected captain is not running an Ask process yet.";
+            }
+            return snapshot;
+        }
+
+        private async Task<RuntimeToolCatalogSnapshot> DescribeCodexAsync(string? contextDirectory, bool launchConfigIncludesArmada, CancellationToken token)
         {
             RuntimeToolCatalogSnapshot snapshot = new RuntimeToolCatalogSnapshot
             {
@@ -101,6 +178,13 @@ namespace Armada.Server
             try
             {
                 List<RuntimeMcpServerDefinition> servers = await GetCodexServersAsync(contextDirectory, token).ConfigureAwait(false);
+                if (launchConfigIncludesArmada && !servers.Any(server => String.Equals(server.Name, "armada", StringComparison.OrdinalIgnoreCase)))
+                {
+                    RuntimeMcpServerDefinition armada = new RuntimeMcpServerDefinition
+                    { Name = "armada", Enabled = true, TransportType = "streamable_http", Url = ArmadaMcpConfigBuilder.GetMcpUrl(_Settings!.McpPort), StartupTimeout = TimeSpan.FromSeconds(15), ToolTimeout = TimeSpan.FromSeconds(15) };
+                    armada.Target = BuildTarget(armada);
+                    servers.Add(armada);
+                }
                 return await ProbeConfiguredSourcesAsync(
                     "Codex",
                     servers,
@@ -1172,6 +1256,27 @@ namespace Armada.Server
             throw new InvalidOperationException(message);
         }
 
+        private string? ResolveScopedConfigDirectory(Captain captain)
+        {
+            if (_Settings == null || String.IsNullOrWhiteSpace(captain.CurrentMissionId)) return null;
+            string directory = Path.Combine(_Settings.LogDirectory, "runtime-config", captain.CurrentMissionId, captain.Id);
+            return Directory.Exists(directory) ? directory : null;
+        }
+
+        private static string? ResolveScopedConfigPath(string? directory, AgentRuntimeEnum runtime)
+        {
+            if (String.IsNullOrWhiteSpace(directory)) return null;
+            string relative = runtime switch
+            {
+                AgentRuntimeEnum.ClaudeCode => "armada-mcp.json",
+                AgentRuntimeEnum.Gemini => Path.Combine(".gemini", "settings.json"),
+                AgentRuntimeEnum.Cursor => Path.Combine(".cursor", "mcp.json"),
+                _ => String.Empty
+            };
+            string path = String.IsNullOrEmpty(relative) ? String.Empty : Path.Combine(directory, relative);
+            return !String.IsNullOrEmpty(path) && File.Exists(path) ? path : null;
+        }
+
         private async Task<string?> ResolveContextDirectoryAsync(Captain captain, DatabaseDriver database)
         {
             if (!String.IsNullOrWhiteSpace(captain.CurrentDockId))
@@ -1856,6 +1961,7 @@ namespace Armada.Server
         {
             public bool ToolsAccessible { get; set; } = false;
             public bool AvailabilityVerified { get; set; } = false;
+            public bool McpConnectionPlanned { get; set; } = false;
             public string AvailabilitySource { get; set; } = String.Empty;
             public string Summary { get; set; } = String.Empty;
             public int ArmadaToolCount { get; set; } = 0;
