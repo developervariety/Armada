@@ -275,6 +275,30 @@ namespace Armada.Core.Services.Interfaces
             return Task.FromResult<string?>(null);
         }
 
+        /// <summary>Resolve an exact or unique suffix path at an immutable revision. Query errors propagate.</summary>
+        Task<string?> ResolveAnchorPathOnRevisionAsync(string worktreePath, string revision, string relativePath,
+            CancellationToken token = default) => throw new NotSupportedException("Pinned path queries are not supported.");
+
+        /// <summary>
+        /// Read up to five path-history entries from an explicit revision, using full commit IDs.
+        /// Throws when the revision or query is unavailable; an empty result means verified empty history.
+        /// </summary>
+        Task<IReadOnlyList<GitAnchorCommit>> GetCommitsTouchingPathOnRevisionAsync(string worktreePath,
+            string revision, string relativePath, int maxCount, CancellationToken token = default)
+        {
+            throw new NotSupportedException("Pinned path history is unavailable.");
+        }
+
+        /// <summary>
+        /// Search tracked content on an explicit revision with up to three repository-relative samples.
+        /// Only a successful no-match exit is absence; errors and cancellation propagate.
+        /// </summary>
+        Task<GitAnchorPriorArt> SearchTrackedContentOnRevisionAsync(string worktreePath,
+            string revision, string term, int maxSamples, CancellationToken token = default)
+        {
+            throw new NotSupportedException("Pinned content search is unavailable.");
+        }
+
         /// <summary>
         /// Whether one ref is an ancestor of another, or null when it cannot be determined.
         /// </summary>

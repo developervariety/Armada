@@ -315,3 +315,6 @@ change without rewriting that evidence.
 captain persistence, vessel scanner metadata and voyage planning provenance.
 Those repairs preserve routing policy and existing landing enforcement. Historical
 source findings in the original matrix remain provenance, not current defect status.
+
+[Dock snapshot evidence](backend-anchors.md) records the later bounded Git-anchor
+storage, provider ownership mapping repair and expanded 45-scenario matrix.

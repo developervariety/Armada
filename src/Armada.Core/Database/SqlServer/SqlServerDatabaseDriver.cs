@@ -156,7 +156,7 @@ namespace Armada.Core.Database.SqlServer
                                 using (SqlCommand cmd = conn.CreateCommand())
                                 {
                                     cmd.Transaction = tx;
-                                    if (migration.Version == 78 || migration.Version == 79)
+                                    if (migration.Version == 78 || migration.Version == 79 || migration.Version == 80)
                                         await AdditiveColumnMigration.ExecuteAsync(conn, tx, DatabaseTypeEnum.SqlServer, sql, token).ConfigureAwait(false);
                                     else
                                     {
@@ -574,6 +574,7 @@ namespace Armada.Core.Database.SqlServer
         internal static Dock DockFromReader(SqlDataReader reader)
         {
             Dock dock = new Dock();
+            dock.GitAnchorsSnapshot = DockGitAnchorPersistence.Read(reader["git_anchors_json"], reader["id"].ToString()!, reader["vessel_id"].ToString()!);
             dock.Id = reader["id"].ToString()!;
             dock.TenantId = NullableString(reader["tenant_id"]);
             dock.UserId = NullableString(reader["user_id"]);

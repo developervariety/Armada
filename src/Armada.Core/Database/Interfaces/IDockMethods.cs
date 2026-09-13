@@ -23,6 +23,16 @@ namespace Armada.Core.Database.Interfaces
         Task<Dock> UpdateAsync(Dock dock, CancellationToken token = default);
 
         /// <summary>
+        /// Complete seeded Git evidence only while the dock is active, still owned by the expected
+        /// captain and still holds the exact seed. Does not update ownership or worktree fields.
+        /// </summary>
+        Task<bool> TryCompleteGitAnchorsAsync(string dockId, string captainId, DockGitAnchorSnapshot expected,
+            DockGitAnchorSnapshot completed, CancellationToken token = default)
+        {
+            throw new NotSupportedException("Conditional dock anchor writes are not implemented by this database.");
+        }
+
+        /// <summary>
         /// Delete a dock by identifier.
         /// </summary>
         Task DeleteAsync(string id, CancellationToken token = default);

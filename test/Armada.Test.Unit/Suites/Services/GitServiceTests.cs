@@ -18,6 +18,75 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Pinned anchors ignore later commits and dirty files", async () =>
+            {
+                GitService service = CreateService();
+                string directory = Path.Combine(Path.GetTempPath(), "armada-pinned-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(directory);
+                    await RunGitAsync(directory, "init", "-b", "main");
+                    await RunGitAsync(directory, "config", "user.name", "Armada Tests");
+                    await RunGitAsync(directory, "config", "user.email", "armada-tests@example.com");
+                    string path = "Unicode-é:source.txt";
+                    await File.WriteAllTextAsync(Path.Combine(directory, path), "first\nPinnedNeedle\n");
+                    await RunGitAsync(directory, "add", "--", path);
+                    await RunGitAsync(directory, "commit", "-m", new string('s', 200));
+                    string revision = (await RunGitAsync(directory, "rev-parse", "HEAD")).Trim();
+                    await File.WriteAllTextAsync(Path.Combine(directory, path), "LaterNeedle\n");
+                    await RunGitAsync(directory, "commit", "-am", "Later commit");
+                    await File.WriteAllTextAsync(Path.Combine(directory, path), "DirtyNeedle\n");
+                    System.Collections.Generic.IReadOnlyList<Armada.Core.Models.GitAnchorCommit> commits =
+                        await service.GetCommitsTouchingPathOnRevisionAsync(directory, revision, path, 100);
+                    AssertEqual(path, await service.ResolveAnchorPathOnRevisionAsync(directory, revision, path));
+                    await AssertThrowsAsync<InvalidOperationException>(() =>
+                        service.ResolveAnchorPathOnRevisionAsync(directory, new string('0', 40), path));
+                    AssertEqual(1, commits.Count, "Only history reachable from the pinned commit");
+                    AssertEqual(revision, commits[0].Sha, "Full source hash");
+                    AssertTrue(commits[0].Subject.Length <= 123, "Bounded subject");
+                    Armada.Core.Models.GitAnchorPriorArt match =
+                        await service.SearchTrackedContentOnRevisionAsync(directory, revision, "PinnedNeedle", 100);
+                    AssertTrue(match.Found, "Committed source is searched");
+                    AssertEqual(1, match.MatchingFileCount);
+                    AssertEqual(path + ":2", match.SampleLocations[0], "Unicode and colon path preserved");
+                    Armada.Core.Models.GitAnchorPriorArt absent =
+                        await service.SearchTrackedContentOnRevisionAsync(directory, revision, "LaterNeedle", 3);
+                    AssertFalse(absent.Found, "Later HEAD is excluded");
+                    absent = await service.SearchTrackedContentOnRevisionAsync(directory, revision, "DirtyNeedle", 3);
+                    AssertFalse(absent.Found, "Dirty worktree is excluded");
+                    await AssertThrowsAsync<InvalidOperationException>(() =>
+                        service.SearchTrackedContentOnRevisionAsync(directory, new string('0', 40), "PinnedNeedle", 3));
+                    await File.WriteAllTextAsync(Path.Combine(directory, "large.txt"), "LargeNeedle" + new string('x', 1100000));
+                    await RunGitAsync(directory, "add", "large.txt");
+                    await RunGitAsync(directory, "commit", "-m", "large line");
+                    Directory.CreateDirectory(Path.Combine(directory, "one"));
+                    Directory.CreateDirectory(Path.Combine(directory, "two"));
+                    await File.WriteAllTextAsync(Path.Combine(directory, "one", "same.txt"), "one");
+                    await File.WriteAllTextAsync(Path.Combine(directory, "two", "same.txt"), "two");
+                    string protectedPath = "token=" + "example-secret-value.txt";
+                    await File.WriteAllTextAsync(Path.Combine(directory, protectedPath), "SecretPathNeedle");
+                    await RunGitAsync(directory, "add", "one", "two", protectedPath);
+                    await RunGitAsync(directory, "commit", "-m", "ambiguous and protected paths");
+                    string largeRevision = (await RunGitAsync(directory, "rev-parse", "HEAD")).Trim();
+                    await AssertThrowsAsync<InvalidOperationException>(() =>
+                        service.ResolveAnchorPathOnRevisionAsync(directory, largeRevision, "same.txt"));
+                    await AssertThrowsAsync<InvalidOperationException>(() =>
+                        service.SearchTrackedContentOnRevisionAsync(directory, largeRevision, "SecretPathNeedle", 3));
+                    await AssertThrowsAsync<InvalidOperationException>(() =>
+                        service.SearchTrackedContentOnRevisionAsync(directory, largeRevision, "LargeNeedle", 3));
+                    using (CancellationTokenSource cancellation = new CancellationTokenSource())
+                    {
+                        cancellation.Cancel();
+                        await AssertThrowsAsync<OperationCanceledException>(() =>
+                            service.SearchTrackedContentOnRevisionAsync(directory, revision, "PinnedNeedle", 3, cancellation.Token));
+                    }
+                }
+                finally
+                {
+                    if (Directory.Exists(directory)) Directory.Delete(directory, true);
+                }
+            });
+
             await RunTest("Constructor NullLogging Throws", () =>
             {
                 AssertThrows<ArgumentNullException>(() => new GitService(null!));

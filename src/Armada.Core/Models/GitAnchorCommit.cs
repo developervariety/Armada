@@ -13,7 +13,7 @@ namespace Armada.Core.Models
         #region Public-Members
 
         /// <summary>
-        /// Abbreviated commit hash. Empty when unset.
+        /// Commit hash. Persisted dock snapshots use a full object ID; older brief data may use an abbreviation. Empty when unset.
         /// </summary>
         public string Sha
         {

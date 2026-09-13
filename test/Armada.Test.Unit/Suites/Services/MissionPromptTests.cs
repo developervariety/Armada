@@ -47,6 +47,99 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Optional dock anchor JSON rejects unsupported and invalid evidence", () =>
+            {
+                DockGitAnchorSnapshot snapshot = new DockGitAnchorSnapshot
+                {
+                    DockId = "dock", VesselId = "vessel", MissionId = "mission",
+                    ProvisionedCommit = new string('a', 40), ProvisionedUtc = DateTime.UtcNow,
+                    Anchors = new GitAnchors { BaseCommit = new string('a', 40) }
+                };
+                string json = Armada.Core.Database.DockGitAnchorPersistence.Serialize(snapshot);
+                AssertNotNull(Armada.Core.Database.DockGitAnchorPersistence.Read(json, "dock", "vessel"));
+                foreach (string invalid in new[]
+                {
+                    "{", "null", json.Replace("\"Version\":1", "\"Version\":2"),
+                    json.Replace("\"Anchors\":{", "\"Anchors\":null,\"ignored\":{"),
+                    new string(' ', 32769), json.Replace("\"Files\":[]", "\"Files\":[null]")
+                })
+                    AssertNull(Armada.Core.Database.DockGitAnchorPersistence.Read(invalid, "dock", "vessel"));
+                AssertNull(Armada.Core.Database.DockGitAnchorPersistence.Read(json, "other-dock", "vessel"));
+                snapshot.Anchors.Files.Add(new GitAnchorFileHistory { Path = "../outside" });
+                AssertThrows<InvalidOperationException>(() => Armada.Core.Database.DockGitAnchorPersistence.Serialize(snapshot));
+                snapshot.Anchors.Files.Clear();
+                snapshot.State = DockGitAnchorStateEnum.Complete;
+                snapshot.ResolvedUtc = DateTime.UtcNow;
+                snapshot.Truncated = true;
+                AssertThrows<InvalidOperationException>(() => Armada.Core.Database.DockGitAnchorPersistence.Serialize(snapshot));
+            });
+
+            await RunTest("Dock anchors persist once and refuse missing or reclaimed evidence", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService docks = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
+                    MissionService service = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git);
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("anchors", "https://example.invalid/repo"));
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("anchors"));
+                    Mission mission = new Mission { Title = "inspect", VesselId = vessel.Id, CaptainId = captain.Id };
+                    Dock dock = new Dock(vessel.Id) { CaptainId = captain.Id, WorktreePath = "/anchor-test", BranchName = "mission" };
+                    string source = new string('a', 40);
+                    dock.GitAnchorsSnapshot = new DockGitAnchorSnapshot
+                    {
+                        DockId = dock.Id, MissionId = mission.Id, VesselId = vessel.Id,
+                        ProvisionedCommit = source, ProvisionedUtc = DateTime.UtcNow,
+                        Anchors = new GitAnchors { BaseCommit = source }
+                    };
+                    dock = await testDb.Driver.Docks.CreateAsync(dock);
+                    mission.DockId = dock.Id;
+                    git.RevisionCommitShas["/anchor-test|" + source] = source;
+                    git.RevisionCommitShaResult = new string('b', 40);
+                    GitAnchors first = await service.ResolveDispatchGitAnchorsAsync("/anchor-test", mission, vessel, default);
+                    AssertEqual(source, first.BaseCommit);
+                    AssertEqual(new string('b', 40), first.TargetTip);
+                    int queries = git.RevisionCommitShaCalls.Count;
+                    git.RevisionCommitShaResult = new string('c', 40);
+                    GitAnchors second = await service.ResolveDispatchGitAnchorsAsync("/anchor-test", mission, vessel, default);
+                    AssertEqual(first.TargetTip, second.TargetTip, "Evidence is stable after the target moves");
+                    AssertEqual(queries, git.RevisionCommitShaCalls.Count, "Completed evidence is reused");
+                    Dock stored = (await testDb.Driver.Docks.ReadAsync(dock.Id))!;
+                    AssertEqual(DockGitAnchorStateEnum.Complete, stored.GitAnchorsSnapshot!.State);
+                    stored.Active = false;
+                    stored.CaptainId = null;
+                    await testDb.Driver.Docks.UpdateAsync(stored);
+                    GitAnchors reclaimed = await service.ResolveDispatchGitAnchorsAsync("/anchor-test", mission, vessel, default);
+                    AssertFalse(reclaimed.HasContent, "Reclaimed evidence is unavailable");
+                    Dock legacy = await testDb.Driver.Docks.CreateAsync(new Dock(vessel.Id)
+                    { CaptainId = captain.Id, WorktreePath = "/anchor-test" });
+                    mission.DockId = legacy.Id;
+                    GitAnchors missing = await service.ResolveDispatchGitAnchorsAsync("/anchor-test", mission, vessel, default);
+                    AssertFalse(missing.HasContent, "Legacy docks do not invent a provisioning commit from HEAD");
+                    AssertEqual(queries, git.RevisionCommitShaCalls.Count);
+                    Dock unavailable = new Dock(vessel.Id) { CaptainId = captain.Id, WorktreePath = "/anchor-test" };
+                    unavailable.GitAnchorsSnapshot = new DockGitAnchorSnapshot
+                    {
+                        DockId = unavailable.Id, MissionId = mission.Id, VesselId = vessel.Id,
+                        ProvisionedCommit = source, ProvisionedUtc = DateTime.UtcNow,
+                        Anchors = new GitAnchors { BaseCommit = source }
+                    };
+                    await testDb.Driver.Docks.CreateAsync(unavailable);
+                    mission.DockId = unavailable.Id;
+                    git.RevisionCommitShaResult = null;
+                    GitAnchors incomplete = await service.ResolveDispatchGitAnchorsAsync("/anchor-test", mission, vessel, default);
+                    AssertEqual(source, incomplete.BaseCommit, "Failure retains actual provisioning source");
+                    AssertEqual("anchor_query_failed", incomplete.ResolutionError);
+                    queries = git.RevisionCommitShaCalls.Count;
+                    git.RevisionCommitShaResult = new string('b', 40);
+                    await service.ResolveDispatchGitAnchorsAsync("/anchor-test", mission, vessel, default);
+                    AssertEqual(queries, git.RevisionCommitShaCalls.Count, "Incomplete evidence is stable too");
+                }
+            });
+
             await RunTest("Only a PullRequest landing asks the captain to push", async () =>
             {
                 ArmadaSettings settings = CreateSettings();

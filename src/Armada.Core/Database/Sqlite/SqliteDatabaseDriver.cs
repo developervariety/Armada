@@ -231,7 +231,7 @@ namespace Armada.Core.Database.Sqlite
                                 cmd.CommandText = sql;
                                 try
                                 {
-                                    if (migration.Version == 83 || migration.Version == 84)
+                                    if (migration.Version == 83 || migration.Version == 84 || migration.Version == 85)
                                         await AdditiveColumnMigration.ExecuteAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, sql, token).ConfigureAwait(false);
                                     else
                                         await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
@@ -807,6 +807,7 @@ namespace Armada.Core.Database.Sqlite
         internal static Dock DockFromReader(SqliteDataReader reader)
         {
             Dock dock = new Dock();
+            dock.GitAnchorsSnapshot = DockGitAnchorPersistence.Read(reader["git_anchors_json"], reader["id"].ToString()!, reader["vessel_id"].ToString()!);
             dock.Id = reader["id"].ToString()!;
             dock.TenantId = NullableString(reader["tenant_id"]);
             dock.UserId = NullableString(reader["user_id"]);

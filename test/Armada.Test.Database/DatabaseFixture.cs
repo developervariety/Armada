@@ -151,7 +151,7 @@ namespace Armada.Test.Database
             return mission;
         }
 
-        public async Task<Dock> CreateDockAsync(string tenantId, string userId, string vesselId, string captainId, CancellationToken token = default)
+        public async Task<Dock> CreateDockAsync(string tenantId, string userId, string vesselId, string captainId, CancellationToken token = default, Action<Dock>? configure = null)
         {
             Dock dock = new Dock(vesselId)
             {
@@ -163,6 +163,7 @@ namespace Armada.Test.Database
                 Active = true
             };
 
+            configure?.Invoke(dock);
             await _Driver.Docks.CreateAsync(dock, token).ConfigureAwait(false);
             RegisterCleanup(async ct => await _Driver.Docks.DeleteAsync(dock.Id, ct).ConfigureAwait(false));
             return dock;

@@ -44,6 +44,9 @@ namespace Armada.Test.Database
                 DatabaseAssert.Equal(0L, Convert.ToInt64(await ScalarAsync(connection, census, token).ConfigureAwait(false)), "Scenario requires an empty database");
             }
 
+            if (scenario == "anchor-migration")
+                await new DockAnchorMigrationTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
+
             if (scenario == "backend-migration")
                 await new BackendMetadataMigrationTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
 
@@ -80,8 +83,14 @@ namespace Armada.Test.Database
                     await Task.WhenAll(firstStart, secondStart).ConfigureAwait(false);
                 }
             }
-            else if (scenario != "fresh" && scenario != "catalog-guards" && scenario != "mysql-compat" && scenario != "sqlserver-corrections" && scenario != "preview-migration" && scenario != "backend-migration")
+            else if (scenario != "fresh" && scenario != "catalog-guards" && scenario != "mysql-compat" && scenario != "sqlserver-corrections" && scenario != "preview-migration" && scenario != "backend-migration" && scenario != "anchor-migration")
             {
+                int anchorVersion = _Settings.Type switch
+                {
+                    DatabaseTypeEnum.Sqlite => 85, DatabaseTypeEnum.Postgresql => 86,
+                    DatabaseTypeEnum.Mysql => 77, DatabaseTypeEnum.SqlServer => 80,
+                    _ => throw new NotSupportedException()
+                };
                 bool stopped = false;
                 using (DatabaseDriver driver = CreateDriver())
                 {
@@ -89,6 +98,7 @@ namespace Armada.Test.Database
                     {
                         if ((scenario == "upgrade-51" || scenario == "partial-52") && version == 52 && ordinal == -1
                             || scenario == "partial-first" && version == 1 && ordinal == 0
+                            || scenario == "partial-anchor" && version == anchorVersion && ordinal == 0
                             || scenario == "partial-identity" && version == 52 && ordinal == -4)
                             throw new FixtureStopException();
                     };
@@ -97,7 +107,7 @@ namespace Armada.Test.Database
                 }
                 DatabaseAssert.True(stopped, "Selected migration fault point was reached");
                 before = await ReadHistoryAsync(token).ConfigureAwait(false);
-                int expectedVersion = scenario == "partial-first" ? 0 : 51;
+                int expectedVersion = scenario == "partial-first" ? 0 : scenario == "partial-anchor" ? anchorVersion - 1 : 51;
                 DatabaseAssert.Equal(expectedVersion, before.Count == 0 ? 0 : System.Linq.Enumerable.Max(before.Keys), "Failure did not advance applied version");
                 if (scenario == "partial-identity")
                 {

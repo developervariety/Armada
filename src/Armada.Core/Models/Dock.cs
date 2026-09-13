@@ -61,6 +61,11 @@ namespace Armada.Core.Models
         public string? BranchName { get; set; } = null;
 
         /// <summary>
+        /// Bounded provisioning evidence. Null when absent, invalid or from an unsupported version.
+        /// </summary>
+        public DockGitAnchorSnapshot? GitAnchorsSnapshot { get; set; }
+
+        /// <summary>
         /// Whether the dock is active and usable.
         /// </summary>
         public bool Active { get; set; } = true;

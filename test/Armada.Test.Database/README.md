@@ -26,6 +26,8 @@ without constructing a scenario, omit `--migration-scenario`.
 | `partial-52` | All four | Populated objective normalization interrupted before commit, data rollback and successful restart |
 | `concurrent-fresh` | All four | Two initializers; SQLite explicitly synchronizes both initial version reads |
 | `partial-identity` | All four | Failure between default user and credential inserts; atomic retry and deliberate credential removal |
+| `partial-anchor` | All four | Failure after the snapshot column statement; restart against the same database with unchanged old history |
+| `anchor-migration` | All four | Populated dock upgrade, incompatible and equivalent columns, interrupted restart and unchanged history |
 | `backend-migration` | All four | Populated metadata upgrade, nullable fields, incompatible columns, exact commit history and interrupted restart |
 | `preview-migration` | All four | Populated upgrade, equivalent values, incompatible type/null/default, interrupted restart; MySQL also rejects restricted text encodings |
 | `catalog-guards` | Server providers | Wrong type, nullability, default and index rejection; corrected restart |
@@ -62,3 +64,7 @@ can produce no manifest; require both a zero process exit and a fresh manifest.
 
 Eight backend field cases cover tier metadata, requested captain, scanner
 preferences and voyage planning provenance. See [backend storage](../../docs/upstream-review/backend-storage.md) for behavior limits.
+
+`anchor-migration` checks the populated dock snapshot upgrade, incompatible and
+equivalent columns, partial-failure restart and unchanged applied history on all
+four providers. See [backend anchor evidence](../../docs/upstream-review/backend-anchors.md).

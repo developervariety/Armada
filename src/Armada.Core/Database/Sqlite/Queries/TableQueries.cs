@@ -1538,6 +1538,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(84, "Persist routing metadata and planning provenance",
                     @"ALTER TABLE captains ADD COLUMN tier TEXT NULL;",
                     @"ALTER TABLE missions ADD COLUMN tier TEXT NULL;"
+                ),
+                new SchemaMigration(85, "Persist bounded dock Git anchors",
+                    @"ALTER TABLE docks ADD COLUMN git_anchors_json TEXT NULL;"
                 )
             };
         }

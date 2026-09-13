@@ -10,7 +10,7 @@ namespace Armada.Core.Services
     /// <summary>
     /// Git operations via the git CLI.
     /// </summary>
-    public class GitService : IGitService, IBranchInventory
+    public partial class GitService : IGitService, IBranchInventory
     {
         #region Public-Members
 

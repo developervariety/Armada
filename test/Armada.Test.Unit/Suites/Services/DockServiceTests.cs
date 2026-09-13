@@ -254,7 +254,7 @@ namespace Armada.Test.Unit.Suites.Services
                     settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
                     // The default path gives every supported captain the local Armada MCP endpoint.
 
-                    LockingGitService git = new LockingGitService();
+                    LockingGitService git = new LockingGitService { HeadCommit = new string('a', 40) };
                     DockService service = new DockService(logging, testDb.Driver, settings, git);
 
                     Vessel vessel = new Vessel("metadata-vessel", "https://github.com/test/repo.git");
@@ -291,7 +291,13 @@ namespace Armada.Test.Unit.Suites.Services
 
                     string metadataPath = Path.Combine(settings.LogDirectory, "docks", dock!.Id + ".start");
                     AssertTrue(File.Exists(metadataPath), "Dock provisioning should persist the start commit metadata");
-                    AssertEqual("abc123", (await File.ReadAllTextAsync(metadataPath).ConfigureAwait(false)).Trim(), "Metadata should store the provisioned HEAD commit");
+                    AssertEqual(git.HeadCommit, (await File.ReadAllTextAsync(metadataPath).ConfigureAwait(false)).Trim(), "Metadata should store the provisioned HEAD commit");
+
+                    Dock persisted = (await testDb.Driver.Docks.ReadAsync(dock.Id))!;
+                    AssertNotNull(persisted.GitAnchorsSnapshot, "Provisioning evidence is durable");
+                    AssertEqual(git.HeadCommit, persisted.GitAnchorsSnapshot!.ProvisionedCommit);
+                    AssertEqual("msn_one", persisted.GitAnchorsSnapshot.MissionId);
+                    AssertEqual(DockGitAnchorStateEnum.Seeded, persisted.GitAnchorsSnapshot.State);
 
                     await service.ReclaimAsync(dock.Id).ConfigureAwait(false);
                     AssertFalse(File.Exists(metadataPath), "Dock reclaim should remove the start commit metadata");
@@ -2226,7 +2232,8 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<bool> IsWorkingDirectoryCleanAsync(string workingDirectory, CancellationToken token = default) => Task.FromResult(true);
             public Task<bool> HasUncommittedTrackedChangesAsync(string workingDirectory, CancellationToken token = default) => Task.FromResult(false);
             public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default) => Task.FromResult(String.Empty);
-            public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>("abc123");
+            public string HeadCommit { get; set; } = "abc123";
+            public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>(HeadCommit);
             public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default) => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
             public Task<bool> IsPrMergedAsync(string workingDirectory, string prUrl, CancellationToken token = default) => Task.FromResult(false);
             public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default) => Task.FromResult(true);

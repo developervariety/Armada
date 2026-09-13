@@ -133,3 +133,8 @@ or scanner policy, and does not complete the remaining backend enrichment.
 
 See [scoped voyage mission summaries](backend-summaries.md) for the paged vessel
 association and status-count contract. Dashboard wiring remains separate.
+
+## Dock snapshot implementation
+
+See [backend-anchors.md](backend-anchors.md) for the source contract and current
+validation status. Backend enrichment remains in progress.

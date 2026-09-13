@@ -873,6 +873,9 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"ALTER TABLE missions ADD tier NVARCHAR(32) NULL;",
                     @"ALTER TABLE voyages ADD source_planning_session_id NVARCHAR(450) NULL;",
                     @"ALTER TABLE voyages ADD source_planning_message_id NVARCHAR(450) NULL;"
+                ),
+                new SchemaMigration(80, "Persist bounded dock Git anchors",
+                    @"ALTER TABLE docks ADD git_anchors_json NVARCHAR(MAX) NULL;"
                 )
             };
         }

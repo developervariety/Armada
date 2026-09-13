@@ -13,7 +13,7 @@ namespace Armada.Core.Database.Mysql.Implementations
     /// <summary>
     /// MySQL implementation of dock database operations.
     /// </summary>
-    public class DockMethods : IDockMethods
+    public partial class DockMethods : IDockMethods
     {
         #region Private-Members
 
@@ -52,8 +52,9 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO docks (id, tenant_id, user_id, vessel_id, captain_id, worktree_path, branch_name, active, created_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @vessel_id, @captain_id, @worktree_path, @branch_name, @active, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO docks (id, tenant_id, user_id, vessel_id, captain_id, worktree_path, branch_name, active, created_utc, last_update_utc, git_anchors_json)
+                        VALUES (@id, @tenant_id, @user_id, @vessel_id, @captain_id, @worktree_path, @branch_name, @active, @created_utc, @last_update_utc, @git_anchors_json);";
+                    DockGitAnchorPersistence.Add(cmd, dock);
                     cmd.Parameters.AddWithValue("@id", dock.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)dock.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)dock.UserId ?? DBNull.Value);
@@ -115,7 +116,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"UPDATE docks SET
+                    cmd.CommandText = @"UPDATE docks SET " + DockGitAnchorUpdate.PreserveOnSameOwnerSql(DatabaseTypeEnum.Mysql) + @",
                         tenant_id = @tenant_id,
                             user_id = @user_id,
                         vessel_id = @vessel_id,
@@ -694,8 +695,10 @@ namespace Armada.Core.Database.Mysql.Implementations
         private static Dock DockFromReader(MySqlDataReader reader)
         {
             Dock dock = new Dock();
+            dock.GitAnchorsSnapshot = DockGitAnchorPersistence.Read(reader["git_anchors_json"], reader["id"].ToString()!, reader["vessel_id"].ToString()!);
             dock.Id = reader["id"].ToString()!;
             dock.TenantId = NullableString(reader["tenant_id"]);
+            dock.UserId = NullableString(reader["user_id"]);
             dock.VesselId = reader["vessel_id"].ToString()!;
             dock.CaptainId = NullableString(reader["captain_id"]);
             dock.WorktreePath = NullableString(reader["worktree_path"]);

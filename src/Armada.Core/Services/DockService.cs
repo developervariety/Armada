@@ -320,6 +320,18 @@ namespace Armada.Core.Services
                 dock.CaptainId = captain.Id;
                 dock.WorktreePath = worktreePath;
                 dock.BranchName = branchName;
+                if (!String.IsNullOrEmpty(missionId) && DockGitAnchorPersistence.IsCommit(headCommit))
+                {
+                    dock.GitAnchorsSnapshot = new DockGitAnchorSnapshot
+                    {
+                        DockId = dock.Id,
+                        MissionId = missionId,
+                        VesselId = vessel.Id,
+                        ProvisionedCommit = headCommit,
+                        ProvisionedUtc = DateTime.UtcNow,
+                        Anchors = new GitAnchors { BaseCommit = headCommit }
+                    };
+                }
                 dock = await _Database.Docks.CreateAsync(dock, token).ConfigureAwait(false);
 
                 // Provision declared sibling repositories alongside this dock so consumer repos

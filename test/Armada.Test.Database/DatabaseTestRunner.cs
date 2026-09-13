@@ -102,6 +102,7 @@ namespace Armada.Test.Database
             await RunTest("Captain_Create_Read_Update", "Operational", () => TestCaptainCrudAsync(token), token);
             await RunTest("Voyage_Create_Read_Update", "Operational", () => TestVoyageCrudAsync(token), token);
             await RunTest("Voyage_Summary_All_Pages_And_Scopes", "Operational", () => TestVoyageSummaryAsync(token), token);
+            await RunTest("Dock_AnchorSnapshot_Create_Reopen", "Operational", () => TestDockAnchorSnapshotAsync(token), token);
             await RunTest("Mission_Create_Read_Update", "Operational", () => TestMissionCrudAsync(token), token);
             await RunTest("Mission_Fork_Fields_Create_Update_Reopen_Query", "Operational", () => TestMissionForkFieldsAsync(token), token);
             await RunTest("Dock_Create_Read_Update", "Operational", () => TestDockCrudAsync(token), token);
@@ -630,6 +631,89 @@ namespace Armada.Test.Database
             }
         }
 
+        private async Task TestDockAnchorSnapshotAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                Dock dock = await fixture.CreateDockAsync(graph.Tenant.Id, graph.User.Id, graph.Vessel.Id, graph.Captain.Id,
+                    token, configure: value => value.GitAnchorsSnapshot = new DockGitAnchorSnapshot
+                    {
+                        DockId = value.Id, MissionId = graph.Mission.Id, VesselId = graph.Vessel.Id,
+                        ProvisionedCommit = new string('a', 40), ProvisionedUtc = DateTime.UtcNow,
+                        Anchors = new GitAnchors { BaseCommit = new string('a', 40), TargetBranch = "feature/日本語" }
+                    }).ConfigureAwait(false);
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    Dock stored = DatabaseAssert.NotNull(await reopened.Docks.ReadAsync(dock.Id, token).ConfigureAwait(false), "Dock retained");
+                    DockGitAnchorSnapshot snapshot = DatabaseAssert.NotNull(stored.GitAnchorsSnapshot, "Provisioning snapshot survives reopen");
+                    DatabaseAssert.Equal(dock.GitAnchorsSnapshot!.ProvisionedCommit, snapshot.ProvisionedCommit, "Full provisioning commit");
+                    DatabaseAssert.Equal(dock.Id, snapshot.DockId, "Snapshot dock association");
+                    DatabaseAssert.Equal(graph.Mission.Id, snapshot.MissionId, "Snapshot mission association");
+                    DatabaseAssert.Equal("feature/日本語", snapshot.Anchors.TargetBranch, "Unicode snapshot content");
+                    DatabaseAssert.Equal(DockGitAnchorStateEnum.Seeded, snapshot.State, "Unresolved seed remains explicit");
+                    Dock legacy = DatabaseAssert.NotNull(await reopened.Docks.ReadAsync(graph.Dock.Id, token).ConfigureAwait(false), "Legacy dock retained");
+                    DatabaseAssert.True(legacy.GitAnchorsSnapshot == null, "Absent legacy evidence remains unavailable");
+
+                    DockGitAnchorSnapshot first = System.Text.Json.JsonSerializer.Deserialize<DockGitAnchorSnapshot>(System.Text.Json.JsonSerializer.Serialize(snapshot))!;
+                    first.State = DockGitAnchorStateEnum.Complete;
+                    first.ResolvedUtc = DateTime.UtcNow;
+                    first.Anchors.TargetTip = new string('b', 40);
+                    DockGitAnchorSnapshot second = System.Text.Json.JsonSerializer.Deserialize<DockGitAnchorSnapshot>(System.Text.Json.JsonSerializer.Serialize(first))!;
+                    second.Anchors.TargetTip = new string('c', 40);
+                    snapshot.ProvisionedCommit = new string('d', 40);
+                    snapshot.Anchors.BaseCommit = snapshot.ProvisionedCommit;
+                    first.ProvisionedCommit = snapshot.ProvisionedCommit;
+                    first.Anchors.BaseCommit = snapshot.ProvisionedCommit;
+                    bool changedSeedRejected = false;
+                    try { await reopened.Docks.TryCompleteGitAnchorsAsync(dock.Id, graph.Captain.Id, snapshot, first, token).ConfigureAwait(false); }
+                    catch (InvalidOperationException) { changedSeedRejected = true; }
+                    DatabaseAssert.True(changedSeedRejected, "Modified loaded seed cannot rewrite provisioning identity");
+                    snapshot.ProvisionedCommit = new string('a', 40);
+                    snapshot.Anchors.BaseCommit = snapshot.ProvisionedCommit;
+                    first.ProvisionedCommit = snapshot.ProvisionedCommit;
+                    first.Anchors.BaseCommit = snapshot.ProvisionedCommit;
+                    DatabaseAssert.True(!await reopened.Docks.TryCompleteGitAnchorsAsync(dock.Id, "wrong-owner", snapshot, first, token).ConfigureAwait(false), "Wrong captain cannot enrich");
+                    bool[] results = await Task.WhenAll(
+                        reopened.Docks.TryCompleteGitAnchorsAsync(dock.Id, graph.Captain.Id, snapshot, first, token),
+                        _Driver.Docks.TryCompleteGitAnchorsAsync(dock.Id, graph.Captain.Id, snapshot, second, token)).ConfigureAwait(false);
+                    DatabaseAssert.Equal(1, System.Linq.Enumerable.Count(results, value => value), "Only one concurrent completion wins");
+                    stored = DatabaseAssert.NotNull(await reopened.Docks.ReadAsync(dock.Id, token).ConfigureAwait(false), "Completed dock retained");
+                    DatabaseAssert.Equal(results[0] ? first.Anchors.TargetTip : second.Anchors.TargetTip,
+                        stored.GitAnchorsSnapshot!.Anchors.TargetTip, "Winning snapshot is retained");
+                    DatabaseAssert.Equal(graph.Captain.Id, stored.CaptainId, "Enrichment preserves captain ownership");
+                    DatabaseAssert.Equal(dock.WorktreePath, stored.WorktreePath, "Enrichment preserves worktree");
+                    DatabaseAssert.True(stored.Active, "Enrichment preserves active state");
+                    await reopened.Docks.UpdateAsync(stored, token).ConfigureAwait(false);
+                    stored = DatabaseAssert.NotNull(await reopened.Docks.ReadAsync(dock.Id, token).ConfigureAwait(false), "Unchanged ownership retained");
+                    DatabaseAssert.NotNull(stored.GitAnchorsSnapshot, "Unrelated update retains snapshot");
+                    stored.BranchName = "MAIN";
+                    await reopened.Docks.UpdateAsync(stored, token).ConfigureAwait(false);
+                    stored = DatabaseAssert.NotNull(await reopened.Docks.ReadAsync(dock.Id, token).ConfigureAwait(false), "Reused dock retained");
+                    DatabaseAssert.True(stored.GitAnchorsSnapshot == null, "Case-only branch reuse clears old evidence on every collation");
+                    DatabaseAssert.True(!await reopened.Docks.TryCompleteGitAnchorsAsync(dock.Id, graph.Captain.Id, snapshot, first, token).ConfigureAwait(false), "Old enrichment cannot restore cleared evidence");
+
+                    Dock reclaimed = await fixture.CreateDockAsync(graph.Tenant.Id, graph.User.Id, graph.Vessel.Id, graph.Captain.Id,
+                        token, configure: value =>
+                        {
+                            value.GitAnchorsSnapshot = System.Text.Json.JsonSerializer.Deserialize<DockGitAnchorSnapshot>(System.Text.Json.JsonSerializer.Serialize(snapshot))!;
+                            value.GitAnchorsSnapshot.DockId = value.Id;
+                        }).ConfigureAwait(false);
+                    DockGitAnchorSnapshot reclaimSeed = reclaimed.GitAnchorsSnapshot!;
+                    DockGitAnchorSnapshot reclaimResult = System.Text.Json.JsonSerializer.Deserialize<DockGitAnchorSnapshot>(System.Text.Json.JsonSerializer.Serialize(first))!;
+                    reclaimResult.DockId = reclaimed.Id;
+                    reclaimed.Active = false;
+                    reclaimed.CaptainId = null;
+                    await reopened.Docks.UpdateAsync(reclaimed, token).ConfigureAwait(false);
+                    DatabaseAssert.True(!await reopened.Docks.TryCompleteGitAnchorsAsync(reclaimed.Id, graph.Captain.Id, reclaimSeed, reclaimResult, token).ConfigureAwait(false), "Completion after reclaim is rejected");
+                    reclaimed = DatabaseAssert.NotNull(await reopened.Docks.ReadAsync(reclaimed.Id, token).ConfigureAwait(false), "Reclaimed dock retained");
+                    DatabaseAssert.True(!reclaimed.Active && reclaimed.CaptainId == null && reclaimed.GitAnchorsSnapshot == null, "Late enrichment cannot restore active ownership");
+                }
+            }
+            finally { await fixture.CleanupAsync(token).ConfigureAwait(false); }
+        }
+
         private async Task TestVoyageSummaryAsync(CancellationToken token)
         {
             DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
@@ -888,10 +972,22 @@ namespace Armada.Test.Database
                 read = DatabaseAssert.NotNull(read, "Dock read returned null");
                 DatabaseAssert.Equal(vessel.Id, read.VesselId, "Dock.VesselId");
                 DatabaseAssert.Equal(captain.Id, read.CaptainId, "Dock.CaptainId");
+                DatabaseAssert.Equal(graph.User.Id, read.UserId, "Dock.UserId survives create/read");
 
                 read.Active = false;
+                UserMaster other = await fixture.CreateUserAsync(graph.Tenant.Id, "dock-owner-update", token: token).ConfigureAwait(false);
+                read.UserId = other.Id;
                 Dock updated = await _Driver.Docks.UpdateAsync(read, token).ConfigureAwait(false);
                 DatabaseAssert.Equal(false, updated.Active, "Dock.Active");
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    Dock persisted = DatabaseAssert.NotNull(await reopened.Docks.ReadAsync(dock.Id, token).ConfigureAwait(false), "Updated dock retained");
+                    DatabaseAssert.Equal(other.Id, persisted.UserId, "Dock.UserId update survives reopen");
+                    persisted.UserId = null;
+                    await reopened.Docks.UpdateAsync(persisted, token).ConfigureAwait(false);
+                }
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                    DatabaseAssert.True((await reopened.Docks.ReadAsync(dock.Id, token).ConfigureAwait(false))!.UserId == null, "Dock.UserId can be cleared");
             }
             finally
             {

@@ -13,7 +13,7 @@ namespace Armada.Core.Services
     /// <summary>
     /// Service for mission lifecycle management.
     /// </summary>
-    public class MissionService : IMissionService
+    public partial class MissionService : IMissionService
     {
         #region Public-Members
 
@@ -2252,7 +2252,7 @@ namespace Armada.Core.Services
             // whether its subject terms already exist here. Every mission mode gets them, including
             // read-only ones -- establishing what already exists IS most of an Audit's work, so an
             // audit captain benefits from them at least as much as an implementing one.
-            GitAnchors gitAnchors = await ResolveGitAnchorsAsync(worktreePath, mission, vessel, token).ConfigureAwait(false);
+            GitAnchors gitAnchors = await ResolveDispatchGitAnchorsAsync(worktreePath, mission, vessel, token).ConfigureAwait(false);
             string gitAnchorsSection = BuildGitAnchorsSection(gitAnchors);
             if (!String.IsNullOrEmpty(gitAnchorsSection))
             {

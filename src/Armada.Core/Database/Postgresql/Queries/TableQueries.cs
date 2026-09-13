@@ -1008,6 +1008,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"ALTER TABLE missions ADD COLUMN tier TEXT NULL;",
                     @"ALTER TABLE voyages ADD COLUMN source_planning_session_id TEXT NULL;",
                     @"ALTER TABLE voyages ADD COLUMN source_planning_message_id TEXT NULL;"
+                ),
+                new SchemaMigration(86, "Persist bounded dock Git anchors",
+                    @"ALTER TABLE docks ADD COLUMN git_anchors_json TEXT NULL;"
                 )
             };
         }

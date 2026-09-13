@@ -644,7 +644,9 @@ namespace Armada.Core.Database.Mysql
                     TableQueries.MigrationV74Statements
                 ),
                 new SchemaMigration(75, "Persist vessel preview configuration", VesselPreviewSchema.MigrationV75Statements),
-                new SchemaMigration(76, "Persist routing metadata and planning provenance", BackendMetadataSchema.MigrationV76Statements)
+                new SchemaMigration(76, "Persist routing metadata and planning provenance", BackendMetadataSchema.MigrationV76Statements),
+                new SchemaMigration(77, "Persist bounded dock Git anchors",
+                    @"ALTER TABLE docks ADD COLUMN git_anchors_json LONGTEXT CHARACTER SET utf8mb4 NULL;")
             };
         }
 

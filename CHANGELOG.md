@@ -14,6 +14,14 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Durable dock Git anchors
+
+- Record the actual provisioning commit and reuse bounded typed evidence during
+  prompt generation. Keep old missing evidence unavailable.
+- Pin repository queries to that commit. Preserve ownership during conditional
+  completion and clear evidence on dock reuse or reclaim.
+- Append provider migrations and preserve PostgreSQL/MySQL dock user ownership.
+
 ### Scoped voyage mission summaries
 
 - Add a read endpoint for voyage mission status counts and paged distinct vessel

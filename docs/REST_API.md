@@ -3903,7 +3903,7 @@ Progress information for an active voyage, nested in ArmadaStatus.
 
 #### Dock
 
-A git worktree provisioned for a captain. Docks are managed internally by the Admiral and are not directly created/deleted via API.
+A git worktree provisioned for a captain. Docks are managed internally by the Admiral and are not directly created via API.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -3915,6 +3915,13 @@ A git worktree provisioned for a captain. Docks are managed internally by the Ad
 | `Active` | bool | true | Whether dock is active/usable |
 | `CreatedUtc` | datetime | now | Creation timestamp (UTC) |
 | `LastUpdateUtc` | datetime | now | Last update timestamp (UTC) |
+
+`GitAnchorsSnapshot` is nullable, versioned context evidence. Version 1 records
+`DockId`, `MissionId`, `VesselId`, `ProvisionedCommit`, `ProvisionedUtc`, optional
+`ResolvedUtc`, `State` (`Seeded`, `Complete`, `Incomplete`), bounded `Anchors`,
+`Truncated` and a sanitized `ErrorCode`. Missing or invalid older data returns
+null. It does not replace start-ref, stage-base or landing checks. See
+[the snapshot contract](upstream-review/backend-anchors.md).
 
 ---
 

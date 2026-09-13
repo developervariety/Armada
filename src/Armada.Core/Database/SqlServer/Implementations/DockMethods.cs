@@ -14,7 +14,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
     /// <summary>
     /// SQL Server implementation of dock database operations.
     /// </summary>
-    internal class DockMethods : IDockMethods
+    internal partial class DockMethods : IDockMethods
     {
         #region Private-Members
 
@@ -54,8 +54,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO docks (id, tenant_id, user_id, vessel_id, captain_id, worktree_path, branch_name, active, created_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @user_id, @vessel_id, @captain_id, @worktree_path, @branch_name, @active, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO docks (id, tenant_id, user_id, vessel_id, captain_id, worktree_path, branch_name, active, created_utc, last_update_utc, git_anchors_json)
+                        VALUES (@id, @tenant_id, @user_id, @vessel_id, @captain_id, @worktree_path, @branch_name, @active, @created_utc, @last_update_utc, @git_anchors_json);";
+                    DockGitAnchorPersistence.Add(cmd, dock);
                     cmd.Parameters.AddWithValue("@id", dock.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)dock.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)dock.UserId ?? DBNull.Value);
@@ -107,7 +108,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"UPDATE docks SET
+                    cmd.CommandText = @"UPDATE docks SET " + DockGitAnchorUpdate.PreserveOnSameOwnerSql(DatabaseTypeEnum.SqlServer) + @",
                         tenant_id = @tenant_id,
                             user_id = @user_id,
                         vessel_id = @vessel_id,
