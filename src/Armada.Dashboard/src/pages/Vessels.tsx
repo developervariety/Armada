@@ -14,6 +14,7 @@ import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { autoLandFormFromPredicate, autoLandPredicatePayload, EMPTY_AUTO_LAND_FORM, type AutoLandForm } from '../lib/vesselAutoLand';
 import { buildVesselUpdatePayload } from '../lib/vesselUpdatePayload';
+import { LANDING_MODE_OPTIONS, landingModeHelp } from '../lib/landingModes';
 import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
@@ -358,12 +359,11 @@ export default function Vessels() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0 1.5rem' }}>
               <label title={t('How completed mission work is integrated.')}>{t('Landing Mode')}
                 <select value={form.landingMode} onChange={e => setForm({ ...form, landingMode: e.target.value })}>
-                  <option value="">{t('Default')}</option>
-                  <option value="LocalMerge">{t('Local Merge')}</option>
-                  <option value="PullRequest">{t('Pull Request')}</option>
-                  <option value="MergeQueue">Merge Queue</option>
-                  <option value="None">{t('None')}</option>
+                  {LANDING_MODE_OPTIONS.map(option => (
+                    <option key={option.value || 'default'} value={option.value}>{t(option.label)}</option>
+                  ))}
                 </select>
+                <span className="text-dim" style={{ display: 'block', fontSize: '0.8rem', marginTop: '0.25rem' }}>{t(landingModeHelp(form.landingMode))}</span>
               </label>
               <label title={t('When and how mission branches are deleted after successful landing.')}>{t('Branch Cleanup')}
                 <select value={form.branchCleanupPolicy} onChange={e => setForm({ ...form, branchCleanupPolicy: e.target.value })}>

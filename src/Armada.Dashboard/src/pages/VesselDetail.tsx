@@ -2,6 +2,8 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { listVessels, listFleets, listMissionSummaries, listPipelines, createVessel, updateVessel, deleteVessel, getVesselReadiness, getVesselLandingPreview } from '../api/client';
 import { buildVesselUpdatePayload } from '../lib/vesselUpdatePayload';
+import { autoLandFormFromPredicate, describeAutoLand } from '../lib/vesselAutoLand';
+import { landingModeHelp } from '../lib/landingModes';
 import type { Fleet, Vessel, MissionSummary, Pipeline, VesselReadinessResult, LandingPreviewResult } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -479,8 +481,9 @@ export default function VesselDetail() {
         <div className="detail-field"><span className="detail-label">{t('Default Branch')}</span><span>{vessel.defaultBranch || 'main'}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Local Path')}</span><span className="mono" title={t('Path to the bare git repository clone used by Armada')}>{vessel.localPath || '-'}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Working Directory')}</span><span className="mono" title={t('Your local checkout where completed missions are merged')}>{vessel.workingDirectory || '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Landing Mode')}</span><span>{vessel.landingMode || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Landing Mode')}</span><span title={t(landingModeHelp(vessel.landingMode))}>{vessel.landingMode || t('Default')}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Branch Cleanup Policy')}</span><span>{vessel.branchCleanupPolicy || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Auto-Land')}</span><span>{describeAutoLand(autoLandFormFromPredicate(vessel.autoLandPredicate))}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Release Branch Prefix')}</span><span className="mono">{vessel.releaseBranchPrefix || 'release/'}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Hotfix Branch Prefix')}</span><span className="mono">{vessel.hotfixBranchPrefix || 'hotfix/'}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Require Passing Checks To Land')}</span><span>{vessel.requirePassingChecksToLand ? t('Yes') : t('No')}</span></div>

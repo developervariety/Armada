@@ -97,3 +97,25 @@ export function autoLandPredicatePayload(form: AutoLandForm): AutoLandPredicateP
     || payload.denyPaths.length > 0;
   return form.enabled || hasRule ? payload : null;
 }
+
+/**
+ * One-line summary of the configured auto-land rules for display. A missing predicate and an unparsable one are
+ * reported differently, and a disabled predicate names the rules it keeps.
+ */
+export function describeAutoLand(form: AutoLandForm): string {
+  if (form.unparsable) return 'The stored predicate cannot be parsed';
+
+  const payload = autoLandPredicatePayload(form);
+  if (payload === null) return 'Not configured';
+
+  const limits: string[] = [];
+  if (payload.maxFiles !== null) limits.push(`max ${payload.maxFiles} files`);
+  if (payload.maxAddedLines !== null) limits.push(`max ${payload.maxAddedLines} added lines`);
+  const parts: string[] = [];
+  if (limits.length > 0) parts.push(limits.join(', '));
+  if (payload.allowPaths.length > 0) parts.push(`allow ${payload.allowPaths.join(', ')}`);
+  if (payload.denyPaths.length > 0) parts.push(`deny ${payload.denyPaths.join(', ')}`);
+
+  if (!payload.enabled) return `Off (rules kept: ${parts.join('; ')})`;
+  return parts.length > 0 ? `On: ${parts.join('; ')}` : 'On: no limits';
+}

@@ -31,6 +31,18 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   they sent a PUT with only the context fields, which reset the rest of the
   vessel.
 
+### Vessel auto-land and landing mode display
+
+- Vessel detail shows the configured auto-land rules from the stored
+  predicate: on with its file, added-line and path limits, off with the rules
+  it keeps, not configured, or a stored predicate that cannot be parsed.
+  Per-vessel Definition of Done controls were not imported; Definition of Done
+  stays a global setting.
+- The vessel form states what the selected landing mode does, from one shared
+  list of modes. Local Merge merges into the managed repository and
+  fast-forwards the working checkout without a push; Default uses the global
+  mode, and a voyage landing mode takes priority over the vessel.
+
 ### Captain assignment for inherited pipelines
 
 - A voyage captain assignment with persona `*` (or an empty persona) now applies
