@@ -51,7 +51,7 @@ The three reviewers made disjoint primary reviews of dashboard, backend, and pla
 - Upstream recovery creates standalone implementation rescues and infers mitigation from Complete status. Preserve the fork's full pipeline, source ref, incident and landing evidence.
 - Upstream MCP and Harbor source contains authentication fallbacks that need correction before adoption. These are source observations, not a tested claim about any live deployment. See the exact methods in [backend.md](backend.md).
 - Upstream rebuild assumes SQLite backup helpers and can continue after backup failure. Preserve the current deployment system until provider-safe backup and rollback are proved.
-- Upstream native memory and automatic Recorder guidance conflict with deployments that require one external durable memory source. Keep those disabled and do not append recall instructions as an incidental port.
+- An independent native memory store and automatic Recorder guidance would conflict with one external durable memory source. Evaluate compatible capture and retrieval improvements; do not enable a second authority or append recall instructions as an incidental port.
 
 ## Detailed decisions
 
@@ -249,18 +249,38 @@ Acceptance:
 - Rebuild must fail closed when backup or safety preconditions fail; old and new process ownership cannot overlap.
 - Any approved rollout is a separate direct-edit deployment window with source/image/Helm/dashboard evidence and no unsupported system service start.
 
-### Phase 6: Resolve upstream native memory compatibility with sole-memory policy
+### Phase 6: Design better memory capture, retrieval and validation
 
-Upstream MemoryService/REST/dashboard and Recorder persona form a second durable agent-memory system. Current owner policy uses the configured external memory source as the sole durable memory source and disables learned bootstrap/reflection. Keep this feature unported and disabled for this environment unless a later owner decision permits an explicit compatible design. This row tracks the decision, not permission to create a memory store.
+Evaluate useful upstream memory features as an improvement opportunity. Keep accepted durable rules in the configured external memory source. A compatible design can use a rebuildable retrieval index with exact commit, path and section provenance. Recorder output should propose evidence-backed changes for review; it must not silently promote guesses to accepted rules or mutate bootstrap instructions.
 
 Depends on: Complete upstream comparison and publish the direct-edit handoff.
 
 Acceptance:
 
-- Document exact conflict with sole-memory-source policy and distinguish product feature from active environment configuration.
-- Decide reject or design a read-through/export integration that keeps one source of truth; no silent dual write or auto-seeded Recorder.
-- Any future activation requires explicit owner policy decision, scoped access, provenance, retention and export/deletion tests.
-- No new durable memory location or automatic learning process is created by the upstream refresh.
+- Compare native storage and existing memory for correctness, cross-runtime use, freshness, context cost and operator effort.
+- Define one authority, stable identifiers, scope, evidence, verification dates and supersession; check contradictions, duplicates and broken links.
+- Test capture, reviewed change, accepted commit, index invalidation, concurrent updates, key collisions, deletion and scoped access.
+- Measure selective loading against current full loading before changing policy. Do not omit mandatory rules or leak another repository's context.
+- Keep operational state in objectives and incidents. Track approved implementation separately with automatic dispatch disabled.
+
+### Integration prerequisite: Review and merge local usage-aware routing
+
+The local feature branch includes work that must be reviewed and committed before merging. A branch reference alone does not include uncommitted work. Establish that the work is ready, preserve it, review account isolation, usage freshness, limits, fallback and explicit model choices, then integrate current main. Preserve incident lifecycle fixes and all existing routing contracts.
+
+Acceptance:
+
+- Review source, tests, documentation, generated assets and third-party provenance; keep secrets and private operational state out of commits.
+- Run registered backend suites and dashboard tests/build on the combined tree; resolve failures before landing.
+- Update affected docs, land normally to the fork main branch, and record exact source/merge commits and real checks in the objective.
+- Add the new routing contracts to the preservation matrix before dependent upstream adaptation. Treat deployment separately.
+
+### Retirement and archive work
+
+Inventory old autonomous lead scripts, prompts, service units, Grok deployment assets and their runtime/configuration callers. Retire approved launch paths before moving their targets. Ask the owner about uncertain assets. Keep useful shared watcher and coordination tools unless their retirement is also established.
+
+Archive obsolete project assets with their original paths, retirement reason and replacement links. Do not archive current operating instructions merely because their original implementation plan is complete. After accepted implementation and final dispositions, move this historical review and its inventories into the repository archive, repair inbound links, and retain a current capability and operator guide. Open decisions must remain accessible through current objectives and guidance.
+
+Superseded durable memory belongs only in its existing external memory repository archive. Update all required loaders if the active set changes; archived memory is provenance, not active instructions.
 
 ### Phase 7: Verify selective upstream integration and refresh all affected operator docs
 
@@ -275,6 +295,7 @@ Acceptance:
 - Docs distinguish landed, deployed, deferred and disabled behavior; no stale copy of replaced workflow instructions remains.
 - If rollout is authorized, prove running source/image, provider schema, Helm discovery, served dashboard hash and scheduler state; otherwise state deploy pending.
 - All phase objectives carry evidence, terminal statuses match results, and automatic dispatch remains disabled throughout.
+- Complete the usage-aware routing integration and approved lead/Grok retirement. Archive completed plans with repaired links and retain current operating documentation.
 
 The existing dashboard styling repair objective is reused after dashboard integration. It owns badge, toolbar, modal, long-content, theme and narrow-viewport proof. Do not create a duplicate styling queue.
 
