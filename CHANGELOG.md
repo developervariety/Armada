@@ -14,6 +14,13 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Database test invocation documentation
+
+- The testing guide now states that the database runner requires `--type`.
+  Omitting it prints usage and exits with code 2; it does not run SQLite tests.
+  The guide also distinguishes console runners from the shared NUnit/xUnit
+  adapters.
+
 ### Coordination board requires a global administrator
 
 - Every `/api/v1/coordination` route (rooms, messages, presence, claims and

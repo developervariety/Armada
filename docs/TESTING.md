@@ -9,7 +9,7 @@ dotnet run --project test/Armada.Test.Automated --framework net10.0
 dotnet run --project test/Armada.Test.Unit --framework net10.0
 dotnet run --project test/Armada.Test.Runtimes --framework net10.0
 
-# Database driver tests (SQLite default)
+# Database driver tests (explicit SQLite provider)
 dotnet run --project test/Armada.Test.Database --framework net10.0 -- --type sqlite --filename test.db
 
 # PostgreSQL
@@ -34,7 +34,7 @@ dotnet run --project test/Armada.Test.Database --framework net10.0 -- --type mys
 
 ## How It Works
 
-No test framework (xUnit, NUnit, MSTest) is used. Each test project is a console app that runs tests sequentially and reports results.
+The fork unit, automated, runtime and database runners are console applications. The shared test suites also have NUnit and xUnit adapters under `src/`; see [test discovery](upstream-review/test-discovery.md) for their registration and filtering rules. Use the command for the selected runner; `dotnet test` does not execute the console runners.
 
 - `TestSuite` — abstract base class in `Armada.Test.Common`. Each suite groups related tests, provides assertion helpers, and cleans up its own test data.
 - `TestRunner` — orchestrates suites, prints colored results, generates summary with failed test details.
@@ -90,7 +90,7 @@ dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --type my
 
 | Argument | Short | Description | Default |
 |----------|-------|-------------|---------|
-| `--type` | | Database backend: `sqlite`, `postgresql`, `sqlserver`, `mysql` | Temporary SQLite |
+| `--type` | | Database backend: `sqlite`, `postgresql`, `sqlserver`, `mysql` | Required by Test.Database; Test.Automated defaults to SQLite |
 | `--filename` | | SQLite database file path | Temp file (auto-cleaned) |
 | `--hostname` | `-h` | Database server hostname | `localhost` |
 | `--port` | | Database server port | Backend default |
@@ -99,7 +99,7 @@ dotnet run --project test/Armada.Test.Automated --framework net10.0 -- --type my
 | `--database` | `-d` | Database name | — |
 | `--schema` | | Database schema | Backend default |
 
-If no `--type` is provided, both Test.Automated and Test.Database default to a temporary SQLite database that is automatically cleaned up after execution.
+If no `--type` is provided, Test.Automated uses a temporary SQLite database. Test.Database requires `--type`: omitting it prints validation errors and usage, then exits with code 2 without running tests. Supply an isolated SQLite filename or an explicitly provisioned server database. See the [database runner guide](../test/Armada.Test.Database/README.md) for migration scenarios and cleanup rules.
 
 ## Multi-Database Testing
 
