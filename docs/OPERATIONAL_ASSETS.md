@@ -236,12 +236,11 @@ Built-in pipelines:
 | `Reviewed` | Worker, Judge |
 | `Tested` | Worker, TestEngineer, Judge |
 | `FullPipeline` | Architect, Worker, TestEngineer, Judge |
-| `ProductDevelopment` | Product Manager, Architect, Worker, Usability Engineer, TestEngineer, Judge |
+| `ProductDevelopment` | Product Manager, Architect, Worker, Usability Engineer, TestEngineer, Judge, Recorder |
 | `Recorded` | Worker, Recorder |
 
 Specialist-tested pipelines (`DiagnosticProtocolTested`,
-`TenantSecurityTested`, `MigrationDataTested`, `PerformanceMemoryTested`,
-`ReferencePortingTested`, `FrontendWorkflowTested`) are not built in.
+`TenantSecurityTested`, `ReferencePortingTested`) are not built in.
 Seed them from `additionalPipelines` in settings. They load at startup.
 
 Use `armada_enumerate(entityType: "pipelines")`, `get_pipeline`,

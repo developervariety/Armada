@@ -138,9 +138,12 @@ namespace Armada.Core.Services
                 new List<PipelineStage> { new PipelineStage(1, "Architect"), new PipelineStage(2, "Worker"), new PipelineStage(3, "TestEngineer"), new PipelineStage(4, "Judge") },
                 token).ConfigureAwait(false);
 
+            // The final Recorder stage distils the finished product work into durable native memory.
+            // It writes memory, not code, so it produces no commit; it runs at the mid tier so it
+            // never competes for the scarce high-tier specialist and Judge captains.
             await SeedPipelineAsync(
                 "ProductDevelopment",
-                "Product Manager then Architect then Worker then Usability Engineer then TestEngineer then Judge.",
+                "Product Manager then Architect then Worker then Usability Engineer then TestEngineer then Judge then Recorder.",
                 new List<PipelineStage>
                 {
                     new PipelineStage(1, "Product Manager") { PreferredModel = "high" },
@@ -148,7 +151,8 @@ namespace Armada.Core.Services
                     new PipelineStage(3, "Worker"),
                     new PipelineStage(4, "Usability Engineer") { PreferredModel = "high" },
                     new PipelineStage(5, "TestEngineer"),
-                    new PipelineStage(6, "Judge") { PreferredModel = "high" }
+                    new PipelineStage(6, "Judge") { PreferredModel = "high" },
+                    new PipelineStage(7, PersonaCatalog.Recorder) { PreferredModel = "mid" }
                 },
                 token).ConfigureAwait(false);
 

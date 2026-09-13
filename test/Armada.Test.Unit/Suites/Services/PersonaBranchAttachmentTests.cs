@@ -39,6 +39,8 @@ namespace Armada.Test.Unit.Suites.Services
                     "specialist reviewers read the diff rather than commit");
                 AssertTrue(!MissionService.PersonaRequiresBranchAttachment("TenantSecurityReviewer"),
                     "specialist reviewers read the diff rather than commit");
+                AssertTrue(!MissionService.PersonaRequiresBranchAttachment("Recorder"),
+                    "the Recorder reads the finished work and writes only native memory, so it runs detached");
             });
 
             await RunTest("PersonaMatching_IsCaseAndWhitespaceInsensitive", () =>

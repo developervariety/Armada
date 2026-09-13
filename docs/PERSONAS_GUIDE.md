@@ -16,10 +16,7 @@ Use a specialist only when the change has that risk:
 | --- | --- | --- |
 | Protocol or hardware access | `DiagnosticProtocolReviewer` | `DiagnosticProtocolTested` |
 | Tenant isolation or secrets | `TenantSecurityReviewer` | `TenantSecurityTested` |
-| Schema or stored data | `MigrationDataReviewer` | `MigrationDataTested` |
-| Memory or throughput | `PerformanceMemoryReviewer` | `PerformanceMemoryTested` |
 | Porting from an approved reference | `PortingReferenceAnalyst` | `ReferencePortingTested` |
-| Frontend workflow or accessibility | `FrontendWorkflowReviewer` | `FrontendWorkflowTested` |
 
 Use `ProductDevelopment` for a broad product change that needs requirements,
 architecture, implementation, usability, tests, and review.

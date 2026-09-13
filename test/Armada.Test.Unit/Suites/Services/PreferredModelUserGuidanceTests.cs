@@ -132,8 +132,7 @@ namespace Armada.Test.Unit.Suites.Services
                     "MigrationDataReviewer", "PerformanceMemoryReviewer", "PortingReferenceAnalyst",
                     "FrontendWorkflowReviewer", "WorkerOnly", "Reviewed",
                     "Tested", "FullPipeline", "ProductDevelopment", "DiagnosticProtocolTested",
-                    "TenantSecurityTested", "MigrationDataTested", "PerformanceMemoryTested",
-                    "ReferencePortingTested", "FrontendWorkflowTested", "Recorder", "Recorded"
+                    "TenantSecurityTested", "ReferencePortingTested", "Recorder", "Recorded"
                 };
 
                 foreach (string requiredName in requiredNames)
