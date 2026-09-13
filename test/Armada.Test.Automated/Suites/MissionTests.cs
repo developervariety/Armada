@@ -107,6 +107,24 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual(100, mission.Priority);
             });
 
+            await RunTest("CreateMission_WithAuditMode_PersistsModeOnRead", async () =>
+            {
+                string vesselId = await SetupVesselAsync();
+
+                StringContent content = JsonHelper.ToJsonContent(new { Title = "Audit Mode Check", VesselId = vesselId, Mode = "Audit" });
+                HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/missions", content);
+                AssertEqual(HttpStatusCode.Created, response.StatusCode);
+                string body = await response.Content.ReadAsStringAsync();
+                MissionCreateResponse wrapper = JsonHelper.Deserialize<MissionCreateResponse>(body);
+                Mission created = wrapper.Mission ?? JsonHelper.Deserialize<Mission>(body);
+                _CreatedMissionIds.Add(created.Id);
+
+                HttpResponseMessage read = await _AuthClient.GetAsync("/api/v1/missions/" + created.Id);
+                AssertEqual(HttpStatusCode.OK, read.StatusCode);
+                Mission stored = await JsonHelper.DeserializeAsync<Mission>(read);
+                AssertEqual(MissionModeEnum.Audit, stored.Mode, "The mode sent on create is stored and returned");
+            });
+
             await RunTest("CreateMission_WithAllOptionalFields", async () =>
             {
                 string vesselId = await SetupVesselAsync();

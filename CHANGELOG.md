@@ -14,6 +14,12 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Mission modes in the dashboard
+
+- The mission create form offers Implementation, Audit (read-only) and Research
+  (read-only), and mission detail shows the stored mode. The server already
+  stores the mode sent on create; an API case now pins that contract.
+
 ### Mission markdown
 
 - Mission detail renders the mission description as GitHub-flavored markdown,

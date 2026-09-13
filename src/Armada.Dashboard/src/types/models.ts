@@ -233,6 +233,9 @@ export interface CaptainToolAccessResult {
   tools: CaptainToolSummary[];
 }
 
+/** Server mission mode. Audit and Research are read-only: they report findings and land nothing. */
+export type MissionMode = 'Implementation' | 'Audit' | 'Research';
+
 export interface Mission {
   id: string;
   tenantId: string | null;
@@ -245,6 +248,8 @@ export interface Mission {
   description: string | null;
   status: string;
   priority: number;
+  /** Mission mode; absent on older payloads, which the server treats as Implementation. */
+  mode?: MissionMode;
   parentMissionId: string | null;
   persona: string | null;
   dependsOnMissionId: string | null;

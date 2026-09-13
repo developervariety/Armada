@@ -6,7 +6,8 @@ import {
   restartMission, retryMissionLanding, transitionMission, getMissionDiff, getMissionLog,
   listVessels, listCaptains, listVoyages,
 } from '../api/client';
-import type { MissionSummary, Vessel, Captain, Voyage } from '../types/models';
+import type { MissionMode, MissionSummary, Vessel, Captain, Voyage } from '../types/models';
+import MissionModeSelect from '../components/shared/MissionModeSelect';
 import Pagination from '../components/shared/Pagination';
 import LoadingIndicator from '../components/shared/LoadingIndicator';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -50,7 +51,7 @@ export default function Missions() {
 
   // Modal
   const [showForm, setShowForm] = useState(false);
-  const [formData, setFormData] = useState({ title: '', description: '', vesselId: '', priority: 100 });
+  const [formData, setFormData] = useState<{ title: string; description: string; vesselId: string; priority: number; mode: MissionMode }>({ title: '', description: '', vesselId: '', priority: 100, mode: 'Implementation' });
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -165,7 +166,7 @@ export default function Missions() {
 
   // Create
   function openCreate() {
-    setFormData({ title: '', description: '', vesselId: '', priority: 100 });
+    setFormData({ title: '', description: '', vesselId: '', priority: 100, mode: 'Implementation' });
     setShowForm(true);
   }
 
@@ -324,6 +325,7 @@ export default function Missions() {
                 {vessels.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>
             </label>
+            <MissionModeSelect value={formData.mode} onChange={mode => setFormData({ ...formData, mode })} />
             <label>{t('Priority')}<input type="number" value={formData.priority} onChange={e => setFormData({ ...formData, priority: Number(e.target.value) })} /></label>
             <div className="modal-actions">
               <button type="submit" className="btn btn-primary">{t('Create')}</button>
