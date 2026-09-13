@@ -730,7 +730,6 @@ export const quarantineCaptain = (id: string, request: CaptainQuarantineRequest)
   post<CaptainQuarantineResult>(`/api/v1/captains/${id}/quarantine`, request);
 /** Release a quarantine. A captain that is not quarantined is left unchanged with outcome NotQuarantined. */
 export const unquarantineCaptain = (id: string) => post<CaptainQuarantineResult>(`/api/v1/captains/${id}/unquarantine`);
-export const recallCaptain = (id: string) => post<void>(`/api/v1/captains/${id}/recall`);
 export const stopAllCaptains = () => post<void>('/api/v1/captains/stop-all');
 export const listMuxEndpoints = (configDirectory?: string | null) =>
   get<MuxEndpointListResult>(`/api/v1/runtimes/mux/endpoints${configDirectory ? `?configDirectory=${encodeURIComponent(configDirectory)}` : ''}`);
@@ -795,7 +794,6 @@ export const getVoyage = (id: string) => get<Voyage>(`/api/v1/voyages/${id}`);
 /** Scoped mission status counts and a page of distinct vessel IDs for one voyage (page size 1 to 100). */
 export const getVoyageMissionSummary = (id: string, params?: { pageNumber?: number; pageSize?: number }) =>
   get<VoyageMissionSummary>(`/api/v1/voyages/${encodeURIComponent(id)}/mission-summary${buildQuery(params)}`);
-export const getVoyageStatus = (id: string) => get<Record<string, unknown>>(`/api/v1/voyages/${id}/status`);
 export const createVoyage = (data: VoyageCreateRequest) => post<Voyage>('/api/v1/voyages', data);
 export const cancelVoyage = (id: string) => del<void>(`/api/v1/voyages/${id}`);
 export const purgeVoyage = (id: string) => del<void>(`/api/v1/voyages/${id}/purge`);
@@ -827,8 +825,10 @@ export const getMergeEntry = (id: string) => get<MergeEntry>(`/api/v1/merge-queu
 export const enqueueMerge = (data: Partial<MergeEntry>) => post<MergeEntry>('/api/v1/merge-queue', data);
 export const deleteMergeEntry = (id: string) => del<void>(`/api/v1/merge-queue/${id}`);
 export const processMergeEntry = (id: string) => post<void>(`/api/v1/merge-queue/${id}/process`);
-export const processAllMergeQueue = () => post<void>('/api/v1/merge-queue/process-all');
-export const cancelMergeEntry = (id: string) => post<void>(`/api/v1/merge-queue/${id}/cancel`);
+/** Process every queued entry. */
+export const processAllMergeQueue = () => post<void>('/api/v1/merge-queue/process');
+/** Cancel an active entry. The server's DELETE cancels an active entry and deletes a terminal one. */
+export const cancelMergeEntry = (id: string) => del<void>(`/api/v1/merge-queue/${id}`);
 
 // ==================== Prompt Templates ====================
 export const listPromptTemplates = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
@@ -995,7 +995,6 @@ export const updateSettings = (data: SettingsData) => put<SettingsData>('/api/v1
 // ==================== Server ====================
 export const stopServer = () => post<void>('/api/v1/server/stop');
 
-export const restartServer = () => post<void>('/api/v1/server/restart');
 export const resetServer = () => post<void>('/api/v1/server/reset');
 
 // ==================== Backup / Restore ====================

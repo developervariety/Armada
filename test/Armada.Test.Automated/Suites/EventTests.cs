@@ -229,6 +229,36 @@ namespace Armada.Test.Automated.Suites
                 AssertNotNull(statusEvent.CreatedUtc);
             }).ConfigureAwait(false);
 
+            await RunTest("GetEvent_ById_ReturnsEvent", async () =>
+            {
+                Mission mission = await CreateMissionAsync("GetById").ConfigureAwait(false);
+                await TransitionAsync(mission.Id, "Assigned").ConfigureAwait(false);
+
+                HttpResponseMessage listResponse = await _AuthClient.GetAsync("/api/v1/events").ConfigureAwait(false);
+                EnumerationResult<ArmadaEvent> list = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(listResponse).ConfigureAwait(false);
+                ArmadaEvent? listed = null;
+                foreach (ArmadaEvent evt in list.Objects)
+                {
+                    if (evt.MissionId == mission.Id)
+                    {
+                        listed = evt;
+                        break;
+                    }
+                }
+                AssertNotNull(listed, "The transition produced an event for the mission");
+
+                HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/events/" + listed!.Id).ConfigureAwait(false);
+                Console.WriteLine("GET EVENT status: " + (int)response.StatusCode);
+                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                ArmadaEvent read = await JsonHelper.DeserializeAsync<ArmadaEvent>(response).ConfigureAwait(false);
+                AssertEqual(listed.Id, read.Id);
+                AssertEqual(mission.Id, read.MissionId);
+                AssertEqual(listed.EventType, read.EventType);
+
+                HttpResponseMessage missing = await _AuthClient.GetAsync("/api/v1/events/evt_absent").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, missing.StatusCode);
+            }).ConfigureAwait(false);
+
             await RunTest("ListEvents_MultipleTransitions_GenerateMultipleEvents", async () =>
             {
                 Mission mission = await CreateMissionAsync("MultiTransition").ConfigureAwait(false);

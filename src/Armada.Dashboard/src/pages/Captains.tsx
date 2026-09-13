@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listCaptains, createCaptain, updateCaptain, deleteCaptain, stopCaptain, recallCaptain, stopAllCaptains, restartCaptain, getCaptainTools, quarantineCaptain, unquarantineCaptain } from '../api/client';
+import { listCaptains, createCaptain, updateCaptain, deleteCaptain, stopCaptain, stopAllCaptains, restartCaptain, getCaptainTools, quarantineCaptain, unquarantineCaptain } from '../api/client';
 import type { Captain, CaptainQuarantineRequest, CaptainToolAccessResult } from '../types/models';
 import CaptainQuarantineDialog from '../components/captains/CaptainQuarantineDialog';
 import Pagination from '../components/shared/Pagination';
@@ -249,22 +249,6 @@ export default function Captains() {
           pushToast('warning', t('Captain "{{name}}" stopped.', { name }));
           load();
         } catch { setError(t('Stop failed.')); }
-      },
-    });
-  }
-
-  function handleRecall(id: string, name: string) {
-    setConfirm({
-      open: true,
-      title: t('Recall Captain'),
-      message: t('Recall captain "{{name}}"? The captain will be recalled from its current mission.', { name }),
-      onConfirm: async () => {
-        setConfirm(c => ({ ...c, open: false }));
-        try {
-          await recallCaptain(id);
-          pushToast('warning', t('Captain "{{name}}" recalled.', { name }));
-          load();
-        } catch { setError(t('Recall failed.')); }
       },
     });
   }
@@ -560,7 +544,6 @@ export default function Captains() {
                           ? [{ label: 'Lift Quarantine', onClick: () => void handleLiftQuarantine(c.id, c.name) }]
                           : [{ label: 'Quarantine', onClick: () => setQuarantineTarget(c) }]),
                         { label: 'Stop', onClick: () => handleStop(c.id, c.name) },
-                        { label: 'Recall', onClick: () => handleRecall(c.id, c.name) },
                         { label: 'Restart', onClick: () => handleRestart(c.id, c.name) },
                         { label: 'Delete', danger: true, onClick: () => handleDelete(c.id, c.name) },
                       ]} />

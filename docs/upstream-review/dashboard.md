@@ -88,3 +88,19 @@ section where the ordering differs.
 ## Residual scope
 
 All 149 changed source paths are in dashboard-census.tsv. This is a complete path census and capability classification, not a claim that all bugs are found. Large CSS and added Endpoints/Harbors pages need line-level implementation review and browser proof. No tests were run. Server implementation quality, auth migrations, runtime adapters, packaging and real deployed dashboard version belong to the parent audit. The observed fork source has Lift Quarantine; whether the deployed bundle contains or exposes it is unverified.
+
+## Route/action matrix
+
+Every routed dashboard page was traced from its user actions to the API client function, its HTTP method and path, and the server route registration that serves it. Of the client calls made by pages and components, six targeted routes the server did not register, and the Planning page listened for a `planning-session.thinking` event that no server code broadcasts. Upstream serves only `POST /api/v1/server/restart` and broadcasts planning thinking; its dashboard also called the other dead routes. The Planning "Stream responses" and "Show thinking" toggles sent options that the server's planning message request did not read.
+
+| Control | Before | Now |
+| --- | --- | --- |
+| Event detail load | `GET /api/v1/events/{id}` not registered | Route added, scoped like the other event routes |
+| Voyage status view | `GET /api/v1/voyages/{id}/status` not registered | Reads `GET /api/v1/voyages/{id}/mission-summary` |
+| Merge queue process all | `POST /api/v1/merge-queue/process-all` not registered | Calls `POST /api/v1/merge-queue/process` |
+| Merge entry cancel | `POST /api/v1/merge-queue/{id}/cancel` not registered | Calls `DELETE /api/v1/merge-queue/{id}`, which cancels an active entry |
+| Captain recall | `POST /api/v1/captains/{id}/recall` not registered; the list and detail dialogs promised different behaviour | Removed; Stop remains |
+| Restart server | `POST /api/v1/server/restart` not registered | Removed; Stop and Reset remain |
+| Planning thinking stream and toggles | No broadcast; options ignored by the server | Removed |
+
+`src/Armada.Dashboard/src/api/clientRoutes.test.ts` keeps this true. It reads `client.ts` and every `Armada.Server` source file, requires every typed client request to be parsed, and fails when a client call matches no registered route by method and path. It does not check request bodies, so an option the server ignores is not detected. Proxy calls served by `Armada.Proxy` are outside the check.

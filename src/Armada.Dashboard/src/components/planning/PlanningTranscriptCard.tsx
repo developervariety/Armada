@@ -19,12 +19,7 @@ interface PlanningTranscriptCardProps {
   updatedUtc: string;
   messages: PlanningSessionMessage[];
   messageTools?: Record<string, ToolEvent[]>;
-  messageThinking?: Record<string, string>;
   thinkingMessage?: string;
-  streamingEnabled?: boolean;
-  onStreamingChange?: (value: boolean) => void;
-  showThinking?: boolean;
-  onShowThinkingChange?: (value: boolean) => void;
   composer: string;
   sending: boolean;
   canSend: boolean;
@@ -58,12 +53,7 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
     updatedUtc,
     messages,
     messageTools,
-    messageThinking,
     thinkingMessage,
-    streamingEnabled = true,
-    onStreamingChange,
-    showThinking = false,
-    onShowThinkingChange,
     composer,
     sending,
     canSend,
@@ -94,7 +84,6 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
       text: message.content,
       metrics: message.metrics ?? undefined,
       tools: kind === 'assistant' ? messageTools?.[message.id] : undefined,
-      thinking: kind === 'assistant' ? messageThinking?.[message.id] : undefined,
       streaming: kind === 'assistant' && busy && message.id === lastAssistantId,
     };
   });
@@ -114,14 +103,6 @@ export default function PlanningTranscriptCard(props: PlanningTranscriptCardProp
         </div>
         <div className="planning-current-session-actions">
           {currentStatus && <StatusBadge status={currentStatus} />}
-          <label className="ask-stream-toggle" title={t('Stream the reply as it is produced')}>
-            <input type="checkbox" checked={streamingEnabled} onChange={(e) => onStreamingChange?.(e.target.checked)} disabled={busy} />
-            {t('Stream responses')}
-          </label>
-          <label className="ask-stream-toggle" title={t('Surface the model reasoning above the answer. Mux streams it natively; other runtimes are asked to include it.')}>
-            <input type="checkbox" checked={showThinking} onChange={(e) => onShowThinkingChange?.(e.target.checked)} disabled={busy} />
-            {t('Show thinking')}
-          </label>
           <button type="button" className="btn btn-sm" disabled={!canEndSession} onClick={onEndSession}>
             {endingSession || currentStatus === 'Stopping' ? t('Ending...') : t('End Session')}
           </button>

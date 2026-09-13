@@ -8,7 +8,6 @@ import {
   stopCaptain,
   quarantineCaptain,
   unquarantineCaptain,
-  recallCaptain,
   getMission,
   listMissionSummaries,
   updateCaptain,
@@ -224,23 +223,6 @@ export default function CaptainDetail() {
     }
   }
 
-  function handleRecall() {
-    if (!captain) return;
-    setConfirm({
-      open: true,
-      title: t('Recall Captain'),
-      message: t('Recall captain "{{name}}"? The captain will finish current work and return to idle.', { name: captain.name }),
-      onConfirm: async () => {
-        setConfirm(c => ({ ...c, open: false }));
-        try {
-          await recallCaptain(captain.id);
-          pushToast('warning', t('Captain "{{name}}" recalled.', { name: captain.name }));
-          load();
-        } catch { setError(t('Failed to recall captain.')); }
-      },
-    });
-  }
-
   function handleRemove() {
     if (!captain) return;
     setConfirm({
@@ -307,7 +289,6 @@ export default function CaptainDetail() {
       { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Captain: {{name}}', { name: captain.name }), data: captain }) },
     ];
     if (captain.state === 'Working' || captain.state === 'Stalled') {
-      items.push({ label: 'Recall Captain', onClick: handleRecall });
       items.push({ label: 'Stop Captain', danger: true, onClick: handleStop });
     }
     if (captain.state === 'Planning') {

@@ -2218,8 +2218,6 @@ export interface PlanningSessionCreateRequest {
 
 export interface PlanningSessionMessageRequest {
   content: string;
-  showThinking?: boolean;
-  stream?: boolean;
 }
 
 export interface PlanningSessionDispatchRequest {

@@ -31,6 +31,20 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   they sent a PUT with only the context fields, which reset the rest of the
   vessel.
 
+### Dashboard controls without a server endpoint
+
+- The event detail page loads its record through the new
+  `GET /api/v1/events/{id}`, scoped like the other event routes. Before, it
+  called a route the server did not have and could not load.
+- The Voyages "Voyage Status" view reads the voyage mission summary, and
+  merge queue "Process" and "Cancel" call the existing process and cancel
+  routes. Before, all three called routes that did not exist.
+- Captain "Recall", "Restart Server", and the Planning "Stream responses"
+  and "Show thinking" toggles are removed. The server had no recall or restart
+  route, and planning messages ignored the stream and thinking options.
+- A dashboard test compares every API client call with the server's route
+  registrations, so a call to a missing route fails the build's tests.
+
 ### Framework selection in POSIX scripts
 
 - `publish-server.sh`, `install-mcp.sh`, `remove-mcp.sh` and `update.sh`

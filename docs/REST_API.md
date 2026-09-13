@@ -2154,6 +2154,23 @@ Armada does not include tokenizer estimates. `days` accepts `1` through `3650` a
 
 ---
 
+#### `GET /api/v1/events/{id}`
+
+Return a single event by ID in the caller's scope: every event for an administrator, the tenant's events for a
+tenant administrator, and the caller's own events otherwise.
+
+**Path Parameters:**
+
+| Parameter | Description |
+|---|---|
+| `id` | Event ID (`evt_` prefix) |
+
+**Response:** `200 OK` - [ArmadaEvent](#armadaevent)
+
+**Error:** `404` - Event not found or outside the caller's scope
+
+---
+
 #### `DELETE /api/v1/events/{id}`
 
 Delete a single event by ID.

@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listVoyages, cancelVoyage, purgeVoyage, getVoyageStatus } from '../api/client';
+import { listVoyages, cancelVoyage, purgeVoyage, getVoyageMissionSummary } from '../api/client';
 import type { Voyage } from '../types/models';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -133,7 +133,7 @@ export default function Voyages() {
 
   async function handleViewStatus(id: string) {
     try {
-      const status = await getVoyageStatus(id);
+      const status = await getVoyageMissionSummary(id);
       setJsonData({ open: true, title: t('Voyage Status'), data: status });
     } catch { setError(t('Failed to load voyage status.')); }
   }
