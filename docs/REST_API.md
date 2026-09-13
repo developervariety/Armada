@@ -34,6 +34,7 @@
   - [Merge Queue](#merge-queue)
   - [Code Index](#code-index)
   - [Playbooks](#playbooks)
+  - [Memories](#memories)
   - [Prompt Templates](#prompt-templates)
   - [Personas](#personas)
   - [Pipelines](#pipelines)
@@ -122,6 +123,7 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/events` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/merge-queue` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/playbooks` | GET/POST/PUT/DELETE | Authenticated / TenantAdmin | Reads are tenant-scoped for any authenticated user. Mutations require tenant admin. |
+| `/api/v1/memories` | ALL | Authenticated | Tenant-scoped. A caller sees the tenant-wide records of its tenant plus its own; only a tenant admin changes a tenant-wide record. |
 | `/api/v1/prompt-templates` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/personas` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/pipelines` | ALL | Authenticated | Tenant-scoped |
@@ -2567,6 +2569,46 @@ Update a playbook's file name, description, content, or active state.
 Delete a playbook. Existing mission snapshots remain immutable.
 
 **Response:** `200 OK`
+
+---
+
+### Memories
+
+Native captain memory records: episodic, semantic and procedural findings with provenance. Records are scoped to the caller: a caller sees the tenant-wide records of its own tenant plus its own user-specific records, and never a record of another tenant.
+
+#### GET /api/v1/memories
+
+List or search records, highest salience first, then newest.
+
+**Query:** `search`, `type` (`Episodic`|`Semantic`|`Procedural`), `topic`, `vesselId`, `pageNumber`, `pageSize`
+
+**Response:** `200 OK` - [EnumerationResult](#enumerationresultt)\<Memory\>
+
+#### POST /api/v1/memories
+
+Create a record, or update the record that already carries the same `key` in the caller's tenant. A write by key replaces the record's fields. Add `?expectedVersion=N` to be refused instead of overwriting a newer record.
+
+**Request Body:** Memory
+
+**Response:** `201 Created` on create, `200 OK` on update, `409 Conflict` when the record changed or the key is taken.
+
+#### GET /api/v1/memories/{id}
+
+Return one record by identifier.
+
+#### PUT /api/v1/memories/{id}
+
+Change one record. Only the supplied fields change, and the version increases. Send `expectedVersion` in the body or as a query parameter to be refused instead of overwriting a newer record.
+
+**Response:** `200 OK`, `404 Not Found`, `409 Conflict`
+
+#### DELETE /api/v1/memories/{id}
+
+Delete one record, for example a record that went stale.
+
+**Response:** `204 No Content`
+
+**Memory fields:** `type` (`Episodic`|`Semantic`|`Procedural`), `topic`, `key` (lowercase slug, unique inside the tenant), `summary`, `content`, `salience` (0.0 to 1.0, orders recall), `version`, `sourceKind` (`Voyage`|`Mission`|`Vessel`|`Conversation`|`Manual`|`Other`), `sourceVoyageId`, `sourceMissionId`, `sourceVesselId`, `sourceDetail`, `vesselId`, `tags`, `scope` (`TenantWide`|`UserSpecific`).
 
 ---
 

@@ -100,7 +100,7 @@ only when the deployment intentionally removes all Armada tools from captains.
 `armada_enumerate` supports these entity types:
 
 `fleets`, `vessels`, `captains`, `missions`, `voyages`, `docks`, `signals`,
-`events`, `merge_queue`, `personas`, `prompt_templates`, `pipelines`,
+`events`, `merge_queue`, `memories`, `personas`, `prompt_templates`, `pipelines`,
 `playbooks`, `objectives`, `incidents`, `checks`, `releases`, and
 `deployments`.
 
@@ -1116,7 +1116,7 @@ them with build args when you ship a generic image.
 
 ## 8. Complete MCP Tool Catalog
 
-The built-in catalog contains 177 names. Some names are compatibility aliases.
+The built-in catalog contains 182 names. Some names are compatibility aliases.
 Some tool families register only when their service is enabled.
 
 Risk labels:
@@ -1594,6 +1594,36 @@ rate. The equivalent REST route is `GET /api/v1/production/summary`.
 | Risk | Tools |
 | --- | --- |
 | Read | `armada_production_summary` |
+
+### 8.23 Native Captain Memory
+
+| Risk | Tools |
+| --- | --- |
+| Read | `search_memory`, `get_memory` |
+| Write | `create_memory`, `update_memory` |
+| Destructive | `delete_memory` |
+
+Native memory holds captain working memory: a vessel fact, a prior finding, or a
+procedure worth repeating. A record carries a type (Episodic, Semantic,
+Procedural), an optional stable key, a salience that orders recall, a version,
+provenance, and tags. `create_memory` writes the record with that key in place,
+so recording the same finding twice corrects one record instead of scattering
+copies. Send `expectedVersion` on a write to be refused instead of overwriting a
+newer record.
+
+Two boundaries decide what belongs here:
+
+- The shared external memory repository stays the authority for accepted durable
+  rules. When a brief carries a Shared Memory section, an external rule wins over
+  a native record on conflict, and a captain reports the conflict instead of
+  rewriting either side.
+- The memory tools never write to that repository, to repository files, or to the
+  vessel model context.
+
+The MCP surface carries no per-request identity, so the memory tools act as an
+administrator of the default tenant: they reach every record of that tenant and
+no record of another tenant. The feature needs no setting, and it is independent
+of `learnedFactsEnabled`.
 
 ## 9. Safety Rules
 

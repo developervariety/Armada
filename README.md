@@ -246,6 +246,8 @@ The Admiral tracks captain state and health so a busy fleet remains debuggable:
 
 Playbooks are reusable markdown guidance that can be delivered inline, referenced, or attached into the worktree. Fleet, vessel, persona, captain, voyage, and per-mission selections merge into mission playbook snapshots so every captain receives the guidance that applied at dispatch time.
 
+Native captain memory keeps what earlier work learned: a vessel fact, a prior finding, or a procedure worth repeating, classified as episodic, semantic or procedural, with provenance, tags and a salience that orders recall. A stable key makes recording the same finding twice correct one record instead of scattering copies. Manage it over MCP (`search_memory`, `get_memory`, `create_memory`, `update_memory`, `delete_memory`) or REST (`/api/v1/memories`). Where a fleet keeps a shared external memory repository, that repository stays the authority for accepted rules and wins over a native record on conflict.
+
 Reflection memory turns accepted mission evidence into reviewable learned notes for future missions. Vessel learned facts, persona notes, captain behavior anchors, pack hints, and fleet hints can be consolidated and reviewed instead of rediscovered by each new captain.
 
 ### Interfaces

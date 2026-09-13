@@ -168,6 +168,44 @@ namespace Armada.Test.Automated.Suites
             }).ConfigureAwait(false);
 
             // ArmadaStatus
+            await RunTest("MemoryTools_RecordRecallCorrectDelete", async () =>
+            {
+                string unique = Guid.NewGuid().ToString("N").Substring(0, 8);
+                JsonElement created = await CallToolAsync("create_memory", new
+                {
+                    type = "Semantic",
+                    topic = "test",
+                    key = "test/" + unique,
+                    summary = "a recall hook",
+                    content = "Memory content " + unique,
+                    salience = 0.8,
+                    tags = new[] { "example" }
+                }).ConfigureAwait(false);
+                Memory record = JsonHelper.Deserialize<Memory>(GetToolResultText(created));
+                AssertStartsWith("mem_", record.Id);
+
+                JsonElement upserted = await CallToolAsync("create_memory", new
+                {
+                    key = "test/" + unique,
+                    content = "Memory content " + unique + " (corrected)"
+                }).ConfigureAwait(false);
+                Memory second = JsonHelper.Deserialize<Memory>(GetToolResultText(upserted));
+                AssertEqual(record.Id, second.Id, "The same key writes the same record");
+                AssertEqual(2, second.Version, "The version advanced once");
+
+                JsonElement found = await CallToolAsync("search_memory", new { search = unique }).ConfigureAwait(false);
+                AssertContains(record.Id, GetToolResultText(found));
+
+                JsonElement read = await CallToolAsync("get_memory", new { memoryId = record.Id }).ConfigureAwait(false);
+                AssertContains("(corrected)", GetToolResultText(read));
+
+                JsonElement stale = await CallToolAsync("update_memory", new { memoryId = record.Id, content = "overwrite", expectedVersion = 1 }).ConfigureAwait(false);
+                AssertContains("conflict", GetToolResultText(stale));
+
+                JsonElement deleted = await CallToolAsync("delete_memory", new { memoryId = record.Id }).ConfigureAwait(false);
+                AssertContains("deleted", GetToolResultText(deleted));
+            }).ConfigureAwait(false);
+
             await RunTest("ArmadaStatus_ExecutesSuccessfully", async () =>
             {
                 JsonElement result = await CallToolAsync("armada_status", new { }).ConfigureAwait(false);

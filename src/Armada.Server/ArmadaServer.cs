@@ -446,6 +446,7 @@ namespace Armada.Server
                 openApi.Tags.Add(new OpenApiTag { Name = "Incidents", Description = "Incident, rollback, and hotfix records tied to current delivery state" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Runbooks", Description = "Executable operational runbooks backed by playbooks and execution records" });
                 openApi.Tags.Add(new OpenApiTag { Name = "RequestHistory", Description = "Captured REST request history, summaries, and replay metadata" });
+                openApi.Tags.Add(new OpenApiTag { Name = "Memories", Description = "Native captain memory records: episodic, semantic, and procedural findings with provenance" });
                 openApi.Tags.Add(new OpenApiTag { Name = "History", Description = "Cross-entity operational timeline and historical memory" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Voyages", Description = "Voyage (mission batch) management" });
                 openApi.Tags.Add(new OpenApiTag { Name = "Missions", Description = "Mission (atomic work unit) management" });
@@ -959,6 +960,9 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Personas
+            new MemoryRoutes(new MemoryService(_Database, _Logging), _JsonOptions)
+                .Register(_App, authenticate, _AuthorizationService);
+
             new PersonaRoutes(_Database, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 

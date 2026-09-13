@@ -68,6 +68,11 @@
                          "type":  "string"
                      },
                      {
+                         "key":  "memoryId",
+                         "value":  "",
+                         "type":  "string"
+                     },
+                     {
                          "key":  "playbookId",
                          "value":  "",
                          "type":  "string"
@@ -8585,6 +8590,174 @@
                                                   }
                                   }
                               ]
+                 },
+                 {
+                     "name": "Memories",
+                     "description": "Native captain memory: episodic, semantic and procedural findings with provenance. Records are scoped to the caller and fenced by tenant.",
+                     "item": [
+                         {
+                             "name": "List Memories",
+                             "request": {
+                                 "method": "GET",
+                                 "header": [],
+                                 "url": {
+                                     "raw": "{{baseUrl}}/api/v1/memories?pageNumber=1&pageSize=100&search=&type=&topic=&vesselId=",
+                                     "host": [
+                                         "{{baseUrl}}"
+                                     ],
+                                     "path": [
+                                         "api",
+                                         "v1",
+                                         "memories"
+                                     ],
+                                     "query": [
+                                         {
+                                             "key": "pageNumber",
+                                             "value": "1",
+                                             "description": "Page number, one based"
+                                         },
+                                         {
+                                             "key": "pageSize",
+                                             "value": "100",
+                                             "description": "Records per page"
+                                         },
+                                         {
+                                             "key": "search",
+                                             "value": "",
+                                             "description": "Substring over content, summary, topic, key and tags"
+                                         },
+                                         {
+                                             "key": "type",
+                                             "value": "",
+                                             "description": "Episodic, Semantic or Procedural"
+                                         },
+                                         {
+                                             "key": "topic",
+                                             "value": "",
+                                             "description": "Exact topic"
+                                         },
+                                         {
+                                             "key": "vesselId",
+                                             "value": "",
+                                             "description": "Vessel a record is about or came from"
+                                         }
+                                     ]
+                                 },
+                                 "description": "Lists or searches the records visible to the caller, highest salience first, then newest."
+                             }
+                         },
+                         {
+                             "name": "Create or Update Memory by Key",
+                             "request": {
+                                 "method": "POST",
+                                 "header": [
+                                     {
+                                         "key": "Content-Type",
+                                         "value": "application/json"
+                                     }
+                                 ],
+                                 "url": {
+                                     "raw": "{{baseUrl}}/api/v1/memories",
+                                     "host": [
+                                         "{{baseUrl}}"
+                                     ],
+                                     "path": [
+                                         "api",
+                                         "v1",
+                                         "memories"
+                                     ]
+                                 },
+                                 "description": "Creates a record, or updates the record with the same key in the caller's tenant. A write by key replaces the record's fields. Returns 201 on create and 200 on update.",
+                                 "body": {
+                                     "mode": "raw",
+                                     "raw": "{\n  \"type\": \"Semantic\",\n  \"topic\": \"build\",\n  \"key\": \"build/quiet-window\",\n  \"summary\": \"Run a suspect failure alone\",\n  \"content\": \"The suite is load sensitive. Re-run a single failure alone before triage.\",\n  \"salience\": 0.8,\n  \"tags\": [\n    \"tests\"\n  ],\n  \"sourceKind\": \"Voyage\",\n  \"vesselId\": \"{{vesselId}}\"\n}"
+                                 }
+                             },
+                             "event": [
+                                 {
+                                     "listen": "test",
+                                     "script": {
+                                         "exec": [
+                                             "if (pm.response.code === 201 || pm.response.code === 200) {",
+                                             "    var json = pm.response.json();",
+                                             "    pm.collectionVariables.set('memoryId', json.Id);",
+                                             "}"
+                                         ],
+                                         "type": "text/javascript"
+                                     }
+                                 }
+                             ]
+                         },
+                         {
+                             "name": "Get Memory",
+                             "request": {
+                                 "method": "GET",
+                                 "header": [],
+                                 "url": {
+                                     "raw": "{{baseUrl}}/api/v1/memories/{{memoryId}}",
+                                     "host": [
+                                         "{{baseUrl}}"
+                                     ],
+                                     "path": [
+                                         "api",
+                                         "v1",
+                                         "memories",
+                                         "{{memoryId}}"
+                                     ]
+                                 },
+                                 "description": "Reads one record with its full content."
+                             }
+                         },
+                         {
+                             "name": "Change Memory",
+                             "request": {
+                                 "method": "PUT",
+                                 "header": [
+                                     {
+                                         "key": "Content-Type",
+                                         "value": "application/json"
+                                     }
+                                 ],
+                                 "url": {
+                                     "raw": "{{baseUrl}}/api/v1/memories/{{memoryId}}",
+                                     "host": [
+                                         "{{baseUrl}}"
+                                     ],
+                                     "path": [
+                                         "api",
+                                         "v1",
+                                         "memories",
+                                         "{{memoryId}}"
+                                     ]
+                                 },
+                                 "description": "Applies the supplied fields and increases the version. Send expectedVersion to be refused instead of overwriting a newer record.",
+                                 "body": {
+                                     "mode": "raw",
+                                     "raw": "{\n  \"summary\": \"Run a suspect failure alone, twice\",\n  \"salience\": 0.9,\n  \"expectedVersion\": 2\n}"
+                                 }
+                             }
+                         },
+                         {
+                             "name": "Delete Memory",
+                             "request": {
+                                 "method": "DELETE",
+                                 "header": [],
+                                 "url": {
+                                     "raw": "{{baseUrl}}/api/v1/memories/{{memoryId}}",
+                                     "host": [
+                                         "{{baseUrl}}"
+                                     ],
+                                     "path": [
+                                         "api",
+                                         "v1",
+                                         "memories",
+                                         "{{memoryId}}"
+                                     ]
+                                 },
+                                 "description": "Deletes one record, for example a record that went stale. Returns 204."
+                             }
+                         }
+                     ]
                  },
                  {
                      "name":  "Runbooks",

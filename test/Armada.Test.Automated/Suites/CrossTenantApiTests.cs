@@ -863,6 +863,68 @@ namespace Armada.Test.Automated.Suites
 
             #endregion
 
+            #region Memory-Isolation
+
+            string memoryAId = null!;
+
+            await RunTest("Memory_CreateInTenantA_Returns201", async () =>
+            {
+                HttpResponseMessage response = await _ClientA!.PostAsync("/api/v1/memories",
+                    JsonHelper.ToJsonContent(new
+                    {
+                        Type = "Semantic",
+                        Topic = "cross-tenant",
+                        Key = "cross-tenant/" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                        Content = "A finding owned by tenant A"
+                    })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, response.StatusCode);
+
+                Memory memory = await JsonHelper.DeserializeAsync<Memory>(response).ConfigureAwait(false);
+                AssertNotNull(memory.Id, "Memory ID");
+                memoryAId = memory.Id;
+            }).ConfigureAwait(false);
+
+            await RunTest("Memory_ListFromTenantA_ContainsMemory", async () =>
+            {
+                HttpResponseMessage response = await _ClientA!.GetAsync("/api/v1/memories").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+
+                EnumerationResult<Memory> result = await JsonHelper.DeserializeAsync<EnumerationResult<Memory>>(response).ConfigureAwait(false);
+                AssertTrue(result.Objects.Any(memory => memory.Id == memoryAId), "Expected the record in the tenant-A list");
+            }).ConfigureAwait(false);
+
+            await RunTest("Memory_ListFromTenantB_DoesNotContainMemory", async () =>
+            {
+                HttpResponseMessage response = await _ClientB!.GetAsync("/api/v1/memories").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+
+                EnumerationResult<Memory> result = await JsonHelper.DeserializeAsync<EnumerationResult<Memory>>(response).ConfigureAwait(false);
+                AssertFalse(result.Objects.Any(memory => memory.Id == memoryAId), "Tenant B must not see the tenant-A record");
+            }).ConfigureAwait(false);
+
+            await RunTest("Memory_ReadFromTenantB_Returns404", async () =>
+            {
+                HttpResponseMessage response = await _ClientB!.GetAsync("/api/v1/memories/" + memoryAId).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, response.StatusCode);
+            }).ConfigureAwait(false);
+
+            await RunTest("Memory_DeleteFromTenantB_Returns404", async () =>
+            {
+                HttpResponseMessage response = await _ClientB!.DeleteAsync("/api/v1/memories/" + memoryAId).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, response.StatusCode);
+            }).ConfigureAwait(false);
+
+            await RunTest("Memory_StillReadableInTenantA_AfterTenantBAttempts", async () =>
+            {
+                HttpResponseMessage response = await _ClientA!.GetAsync("/api/v1/memories/" + memoryAId).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+
+                Memory memory = await JsonHelper.DeserializeAsync<Memory>(response).ConfigureAwait(false);
+                AssertEqual("A finding owned by tenant A", memory.Content, "The record is unchanged");
+            }).ConfigureAwait(false);
+
+            #endregion
+
             #region Cleanup
 
             await RunTest("Cleanup_DeleteTenantResources", async () =>

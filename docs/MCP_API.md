@@ -260,6 +260,60 @@ scheduling, backups, and unlanded-branch reporting.
 Use live discovery to decide what the connected Admiral supports. Do not infer
 availability from repository source or from this document.
 
+## Native Memory
+
+Durable native memory for captains, separate from the shared external memory
+repository. Records are classified as **Episodic** (what happened), **Semantic**
+(a standalone fact) or **Procedural** (how to do something). Working memory is
+never stored. Every tool acts as an administrator of the default tenant and
+reaches no other tenant.
+
+### search_memory
+
+Search before writing, to correct an existing record instead of duplicating it.
+Ordered by salience, then newest.
+
+- `search` (string) - substring over content, summary, topic, key and tags
+- `type` (string) - `Episodic`, `Semantic` or `Procedural`
+- `topic` (string) - exact topic
+- `vesselId` (string) - the vessel a record is about or came from
+- `pageNumber`, `pageSize` (integer)
+
+Returns a paged `EnumerationResult` of memory records.
+
+### get_memory
+
+Read one record with its full content. Args: `memoryId` (required).
+
+### create_memory
+
+Record a finding, or update the record that already carries the same `key`.
+Args: `content` (required); optional `type` (default `Semantic`), `topic`, `key`,
+`summary`, `salience` (0.0 to 1.0, default 0.5), `tags`, `sourceKind`,
+`sourceVoyageId`, `sourceMissionId`, `sourceVesselId`, `sourceDetail`,
+`vesselId`, `scope`, `expectedVersion`. A write by key replaces the record's
+fields, so send every field you want kept.
+
+### update_memory
+
+Change one record. Only the fields supplied change, and the version increases.
+Args: `memoryId` (required), then any of `type`, `topic`, `key`, `summary`,
+`content`, `salience`, `tags`, `vesselId`, `sourceDetail`, `scope`,
+`expectedVersion`.
+
+### delete_memory
+
+Delete a record that went stale or wrong. Args: `memoryId` (required).
+
+### Refusals
+
+A refused call returns `Error` with a `Code`: `invalid`, `not_found`,
+`forbidden`, or `conflict`. A conflict means the record changed since it was read,
+or the key belongs to another record. Read the record again and retry.
+
+A rule from the Shared Memory section of a brief wins over a native record on
+conflict. The memory tools never write to that repository.
+
 ## Client Names
 
 MCP clients can add a transport prefix to tool names in their own UI or prompt

@@ -384,6 +384,8 @@ namespace Armada.Test.Unit
             runner.AddSuite(new DispatchObjectiveModeTests());
             runner.AddSuite(new ObjectiveDispatchPreviewServiceTests());
             runner.AddSuite(new MemoryDatabaseTests());
+            runner.AddSuite(new MemoryServiceTests());
+            runner.AddSuite(new McpMemoryToolsTests());
 
             runner.VerifyRegistration(typeof(Program).Assembly);
 

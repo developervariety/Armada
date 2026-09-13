@@ -41,7 +41,7 @@ namespace Armada.Server.Mcp.Tools
                     type = "object",
                     properties = new
                     {
-                        entityType = new { type = "string", description = "Entity type to enumerate: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, objectives, incidents, checks, releases, deployments" },
+                        entityType = new { type = "string", description = "Entity type to enumerate: fleets, vessels, captains, missions, voyages, docks, signals, events, merge_queue, personas, prompt_templates, pipelines, playbooks, objectives, incidents, checks, releases, deployments, memories" },
                         pageNumber = new { type = "integer", description = "Page number (1-based, default 1)" },
                         pageSize = new { type = "integer", description = "Results per page (default 10, max 1000)" },
                         order = new { type = "string", description = "Sort order: CreatedAscending, CreatedDescending (default)" },
@@ -275,6 +275,11 @@ namespace Armada.Server.Mcp.Tools
                                 return (object)projectedTemplates;
                             }
                             return (object)templates;
+                        case "memories":
+                        case "memory":
+                            EnumerationResult<Memory> memories = await new MemoryService(database)
+                                .EnumerateAsync(McpMemoryTools.CallerContext(), query).ConfigureAwait(false);
+                            return (object)memories;
                         case "pipelines":
                         case "pipeline":
                             EnumerationResult<Pipeline> pipelines = await database.Pipelines.EnumerateAsync(query).ConfigureAwait(false);

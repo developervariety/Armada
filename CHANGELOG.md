@@ -43,6 +43,30 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Native memory holds captain working memory. An external durable memory rule delivered in
   a mission brief still wins over a native record on conflict.
 
+### Native captain memory: service, MCP tools and REST API
+
+- Added `MemoryService`: caller-scoped create, read, update, delete and search. A caller
+  sees the tenant-wide records of its own tenant plus its own user-specific records, and
+  never a record of another tenant. Only a tenant or global administrator changes a
+  tenant-wide record.
+- Recall orders by salience, then by recency, and filters by type, topic, vessel, voyage,
+  mission, creation date and free text over content, summary, topic, key and tags.
+- A write that names a key updates the record holding that key. A key held by a record the
+  caller may not change is refused as a conflict, and the refusal does not disclose that
+  record. A write may carry the version it read, so a concurrent change is refused instead
+  of overwritten.
+- Validation keeps a record a distilled finding: content is required and bounded, and keys
+  and tags are lowercase slugs, so one record is addressable by the same string on every
+  database provider.
+- New MCP tools `search_memory`, `get_memory`, `create_memory`, `update_memory` and
+  `delete_memory`, plus a `memories` entity type on `armada_enumerate`. The MCP surface
+  carries no per-request identity, so the tools act as an administrator of the default
+  tenant and reach no other tenant. A refusal returns a code an agent can act on: invalid,
+  not_found, forbidden or conflict.
+- New REST API under `/api/v1/memories`: list and search, create or update by key, read,
+  change and delete, with 409 on a conflict.
+- Native memory is independent of the learned-facts feature and reads none of its settings.
+
 ### Judge Check gate on queued armed Checks
 
 - Treat an armed, not-yet-run voyage Check as queued work once the voyage has a

@@ -153,6 +153,7 @@ namespace Armada.Server.Mcp
                 database,
                 effectiveSettings.LearnedFactsEnabled ? reflectionBootstrap : null);
             McpPipelineTools.Register(register, database);
+            McpMemoryTools.Register(register, database, logging);
             if (settings != null) McpBackupTools.Register(register, database, settings);
             McpAgentWakeTools.Register(register, remoteTriggerService);
             McpAuditTools.Register(register, database, remoteTriggerService, effectiveReflectionDispatcher);
