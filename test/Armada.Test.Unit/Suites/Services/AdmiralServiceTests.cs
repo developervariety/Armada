@@ -155,6 +155,68 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("SpendCapBench KeepsWorkingSiblingOwnership", async () =>
+            {
+                // The group bench runs while other captains on the capped model may still be executing missions. Their
+                // processes keep running, so the bench must not clear their mission, dock or process; they bench
+                // themselves when their own run returns the cap. Idle siblings are held immediately.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    StubGitService git = new StubGitService();
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, CreateSettings(), git);
+
+                    Vessel vessel = new Vessel("spend-cap-vessel", "https://github.com/test/spend.git");
+                    await db.Vessels.CreateAsync(vessel);
+                    Mission running = new Mission("running on the capped model", "still working");
+                    running.VesselId = vessel.Id;
+                    running.Status = MissionStatusEnum.InProgress;
+                    await db.Missions.CreateAsync(running);
+
+                    Captain capped = new Captain("capped-failing");
+                    capped.Model = "example-provider/gpt-5.6-luna";
+                    Captain idleSibling = new Captain("capped-idle");
+                    idleSibling.Model = "example-provider/gpt-5.6-luna";
+                    Captain workingSibling = new Captain("capped-working");
+                    workingSibling.Model = "example-provider/gpt-5.6-luna";
+                    await db.Captains.CreateAsync(capped);
+                    await db.Captains.CreateAsync(idleSibling);
+                    await db.Captains.CreateAsync(workingSibling);
+
+                    Dock dock = new Dock(vessel.Id);
+                    dock.CaptainId = workingSibling.Id;
+                    dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_spend_cap_wt_" + Guid.NewGuid().ToString("N"));
+                    dock.BranchName = "armada/spend-cap/" + running.Id;
+                    await db.Docks.CreateAsync(dock);
+                    workingSibling.State = CaptainStateEnum.Working;
+                    workingSibling.CurrentMissionId = running.Id;
+                    workingSibling.CurrentDockId = dock.Id;
+                    workingSibling.ProcessId = 9191;
+                    await db.Captains.UpdateAsync(workingSibling);
+
+                    System.Reflection.MethodInfo? bench = typeof(AdmiralService).GetMethod(
+                        "BenchProviderGroupAsync",
+                        System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+                    if (bench == null) throw new InvalidOperationException("Could not find BenchProviderGroupAsync.");
+
+                    await (Task)bench.Invoke(service, new object[]
+                    {
+                        capped, "Provider daily spend cap reached.", DateTime.UtcNow.AddHours(25), CancellationToken.None
+                    })!;
+
+                    Captain? failing = await db.Captains.ReadAsync(capped.Id);
+                    Captain? idle = await db.Captains.ReadAsync(idleSibling.Id);
+                    Captain? working = await db.Captains.ReadAsync(workingSibling.Id);
+
+                    AssertEqual(CaptainStateEnum.Quarantined, failing!.State, "The captain that returned the cap is benched");
+                    AssertEqual(CaptainStateEnum.Quarantined, idle!.State, "An idle sibling on the capped model is benched");
+                    AssertEqual(CaptainStateEnum.Working, working!.State, "A working sibling keeps running");
+                    AssertEqual(running.Id, working.CurrentMissionId, "A working sibling keeps its mission");
+                    AssertEqual(dock.Id, working.CurrentDockId, "A working sibling keeps its dock");
+                    AssertEqual(9191, working.ProcessId, "A working sibling keeps its process");
+                }
+            });
+
             await RunTest("GetStatusAsync EmptyDatabase ReturnsDefaults", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

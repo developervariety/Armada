@@ -101,6 +101,7 @@ namespace Armada.Test.Database
             foreach (string field in new[] { "SourcePlanningSessionId", "SourcePlanningMessageId" })
                 await RunTest("Voyage_" + field + "_Create_Update_Clear_Reopen", "Operational", () => TestBackendFieldAsync("Voyage", field, token), token);
             await RunTest("Captain_Create_Read_Update", "Operational", () => TestCaptainCrudAsync(token), token);
+            await RunTest("Captain_Quarantine_Conditional_Hold_And_Release", "Operational", () => TestCaptainQuarantineConditionalAsync(token), token);
             await RunTest("Voyage_Create_Read_Update", "Operational", () => TestVoyageCrudAsync(token), token);
             await RunTest("Voyage_Summary_All_Pages_And_Scopes", "Operational", () => TestVoyageSummaryAsync(token), token);
             await RunTest("Mission_Admission_Long_Unicode_Ids_And_Reasons", "Operational", () => TestMissionAdmissionUnicodeAsync(token), token);
@@ -574,6 +575,83 @@ namespace Armada.Test.Database
                 }
             }
             finally { await fixture.CleanupAsync(token).ConfigureAwait(false); }
+        }
+
+        private async Task TestCaptainQuarantineConditionalAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                string tenantId = graph.Tenant.Id;
+                string userId = graph.User.Id;
+
+                Captain idle = await CreateIdleCaptainAsync(fixture, tenantId, userId, "quarantine-idle", token).ConfigureAwait(false);
+                DateTime until = new DateTime(2027, 3, 4, 5, 6, 7, DateTimeKind.Utc);
+                DatabaseAssert.True(await _Driver.Captains.TryQuarantineIdleAsync(idle.Id, "  operator hold  ", until, token).ConfigureAwait(false), "An idle captain can be quarantined");
+                Captain held = DatabaseAssert.NotNull(await _Driver.Captains.ReadAsync(idle.Id, token).ConfigureAwait(false), "Held captain");
+                DatabaseAssert.Equal(CaptainStateEnum.Quarantined, held.State, "Held state");
+                DatabaseAssert.Equal("operator hold", held.QuarantineReason, "Held reason is trimmed");
+                DatabaseAssert.Equal(until, held.QuarantineUntilUtc, "Held expiry");
+
+                DatabaseAssert.True(await _Driver.Captains.TryQuarantineIdleAsync(idle.Id, "indefinite hold", null, token).ConfigureAwait(false), "A repeated bench updates the hold");
+                Captain indefinite = DatabaseAssert.NotNull(await _Driver.Captains.ReadAsync(idle.Id, token).ConfigureAwait(false), "Indefinite captain");
+                DatabaseAssert.Equal("indefinite hold", indefinite.QuarantineReason, "Updated reason");
+                DatabaseAssert.True(!indefinite.QuarantineUntilUtc.HasValue, "A null expiry is an indefinite hold");
+
+                Captain claimed = await CreateIdleCaptainAsync(fixture, tenantId, userId, "quarantine-claimed", token).ConfigureAwait(false);
+                Dock claimedDock = await fixture.CreateDockAsync(tenantId, userId, graph.Vessel.Id, claimed.Id, token).ConfigureAwait(false);
+                DatabaseAssert.True(await _Driver.Captains.TryClaimAsync(claimed.Id, graph.Mission.Id, claimedDock.Id, token).ConfigureAwait(false), "Claim the captain");
+                DatabaseAssert.True(!await _Driver.Captains.TryQuarantineIdleAsync(claimed.Id, "must refuse", null, token).ConfigureAwait(false), "A claimed captain is not quarantined");
+                Captain stillWorking = DatabaseAssert.NotNull(await _Driver.Captains.ReadAsync(claimed.Id, token).ConfigureAwait(false), "Claimed captain");
+                DatabaseAssert.Equal(CaptainStateEnum.Working, stillWorking.State, "Claimed state is unchanged");
+                DatabaseAssert.Equal(graph.Mission.Id, stillWorking.CurrentMissionId, "Claimed mission is kept");
+                DatabaseAssert.Equal(claimedDock.Id, stillWorking.CurrentDockId, "Claimed dock is kept");
+                DatabaseAssert.True(stillWorking.QuarantineReason == null, "No reason is written on refusal");
+
+                Captain processOwner = await CreateIdleCaptainAsync(fixture, tenantId, userId, "quarantine-process", token).ConfigureAwait(false);
+                processOwner.ProcessId = 4242;
+                await _Driver.Captains.UpdateAsync(processOwner, token).ConfigureAwait(false);
+                DatabaseAssert.True(!await _Driver.Captains.TryQuarantineIdleAsync(processOwner.Id, "must refuse", null, token).ConfigureAwait(false), "A captain with a process is not quarantined");
+                Captain stillOwning = DatabaseAssert.NotNull(await _Driver.Captains.ReadAsync(processOwner.Id, token).ConfigureAwait(false), "Process owner");
+                DatabaseAssert.Equal(4242, stillOwning.ProcessId, "Process is kept");
+
+                DatabaseAssert.True(!await _Driver.Captains.TryReleaseTimedQuarantineAsync(idle.Id, null, token).ConfigureAwait(false), "An indefinite hold is not released by a timed release");
+                Captain timed = await CreateIdleCaptainAsync(fixture, tenantId, userId, "quarantine-timed", token).ConfigureAwait(false);
+                DatabaseAssert.True(await _Driver.Captains.TryQuarantineIdleAsync(timed.Id, "timed hold", DateTime.UtcNow.AddHours(1), token).ConfigureAwait(false), "Timed hold");
+                DatabaseAssert.True(!await _Driver.Captains.TryReleaseTimedQuarantineAsync(timed.Id, DateTime.UtcNow, token).ConfigureAwait(false), "An unexpired hold is not released by the expiry sweep");
+                DatabaseAssert.True(await _Driver.Captains.TryReleaseTimedQuarantineAsync(timed.Id, DateTime.UtcNow.AddHours(2), token).ConfigureAwait(false), "An expired hold is released by the expiry sweep");
+                Captain probed = await CreateIdleCaptainAsync(fixture, tenantId, userId, "quarantine-probed", token).ConfigureAwait(false);
+                DatabaseAssert.True(await _Driver.Captains.TryQuarantineIdleAsync(probed.Id, "probe hold", DateTime.UtcNow.AddHours(1), token).ConfigureAwait(false), "Probe hold");
+                DatabaseAssert.True(await _Driver.Captains.TryReleaseTimedQuarantineAsync(probed.Id, null, token).ConfigureAwait(false), "A probe releases a timed hold early");
+
+                DatabaseAssert.True(await _Driver.Captains.TryReleaseQuarantineAsync(idle.Id, token).ConfigureAwait(false), "A quarantined captain is released");
+                DatabaseAssert.True(!await _Driver.Captains.TryReleaseQuarantineAsync(idle.Id, token).ConfigureAwait(false), "A repeated release changes nothing");
+                DatabaseAssert.True(!await _Driver.Captains.TryReleaseQuarantineAsync(claimed.Id, token).ConfigureAwait(false), "A working captain is not released to Idle");
+
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    Captain released = DatabaseAssert.NotNull(await reopened.Captains.ReadAsync(idle.Id, token).ConfigureAwait(false), "Released captain reopened");
+                    DatabaseAssert.Equal(CaptainStateEnum.Idle, released.State, "Released state persists");
+                    DatabaseAssert.True(released.QuarantineReason == null && !released.QuarantineUntilUtc.HasValue, "Release clears reason and expiry");
+                    Captain working = DatabaseAssert.NotNull(await reopened.Captains.ReadAsync(claimed.Id, token).ConfigureAwait(false), "Working captain reopened");
+                    DatabaseAssert.Equal(CaptainStateEnum.Working, working.State, "Working state persists");
+                }
+            }
+            finally { await fixture.CleanupAsync(token).ConfigureAwait(false); }
+        }
+
+        private async Task<Captain> CreateIdleCaptainAsync(DatabaseFixture fixture, string tenantId, string userId, string name, CancellationToken token)
+        {
+            Captain created = await fixture.CreateCaptainAsync(tenantId, userId, name, token).ConfigureAwait(false);
+            Captain idle = DatabaseAssert.NotNull(await _Driver.Captains.ReadAsync(created.Id, token).ConfigureAwait(false), "Captain " + name);
+            idle.State = CaptainStateEnum.Idle;
+            idle.CurrentMissionId = null;
+            idle.CurrentDockId = null;
+            idle.ProcessId = null;
+            idle.QuarantineReason = null;
+            idle.QuarantineUntilUtc = null;
+            return await _Driver.Captains.UpdateAsync(idle, token).ConfigureAwait(false);
         }
 
         private async Task TestCaptainCrudAsync(CancellationToken token)

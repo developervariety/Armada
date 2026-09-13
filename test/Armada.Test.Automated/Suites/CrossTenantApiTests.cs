@@ -561,6 +561,22 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual(HttpStatusCode.Unauthorized, anonymous.StatusCode, "Unauthenticated callers are refused");
             }).ConfigureAwait(false);
 
+            await RunTest("Mission_RecoveryReport_PreservesAuthorization", async () =>
+            {
+                string url = "/api/v1/missions/" + missionAId + "/recovery";
+                HttpResponseMessage own = await _ClientA!.GetAsync(url).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, own.StatusCode, "Owning tenant reads the recovery report");
+                MissionRecoveryReport report = await JsonHelper.DeserializeAsync<MissionRecoveryReport>(own).ConfigureAwait(false);
+                AssertEqual(missionAId, report.MissionId, "Report mission");
+                AssertEqual(0, report.RecoveryAttempts, "A new mission has no recovery attempts");
+
+                HttpResponseMessage denied = await _ClientB!.GetAsync(url).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, denied.StatusCode, "Another tenant cannot read the recovery report");
+
+                HttpResponseMessage anonymous = await _UnauthClient.GetAsync(url).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Unauthorized, anonymous.StatusCode, "Unauthenticated callers are refused");
+            }).ConfigureAwait(false);
+
             await RunTest("Mission_FormattedLog_PreservesAuthorization", async () =>
             {
                 string url = "/api/v1/missions/" + missionAId + "/log?formatted=true";

@@ -27,31 +27,26 @@ namespace Armada.Core.Services.Interfaces
         Task QuarantineAsync(Captain captain, string reason, DateTime? retryAfterUtc, CancellationToken token = default);
 
         /// <summary>
-        /// Clears quarantine fields and returns the captain to Idle.
+        /// Manually quarantine a captain visible to the caller. The write succeeds only while the captain is Idle or
+        /// already quarantined and owns no mission, dock or process; otherwise nothing changes and the outcome is Busy.
         /// </summary>
-        /// <param name="captain">Captain to restore.</param>
+        /// <param name="auth">Caller scope used to find the captain.</param>
+        /// <param name="captainId">Captain identifier.</param>
+        /// <param name="reason">Required operator reason.</param>
+        /// <param name="untilUtc">Future UTC expiry, or null for an indefinite hold.</param>
         /// <param name="token">Cancellation token.</param>
-        Task ClearQuarantineAsync(Captain captain, CancellationToken token = default);
+        /// <returns>Typed outcome with the captain as read afterwards.</returns>
+        Task<CaptainQuarantineResult> QuarantineCaptainAsync(AuthContext auth, string captainId, string? reason, DateTime? untilUtc, CancellationToken token = default);
 
         /// <summary>
-        /// Benches a captain by identifier with an operator-supplied reason and optional expiry.
-        /// Unlike the quota-triggered path this takes an id rather than a hydrated captain, so an
-        /// operator tool can bench an idle captain without reading or editing the database directly.
+        /// Release a quarantine on a captain visible to the caller. The write succeeds only while the captain is
+        /// quarantined; a captain in any other state is left unchanged and the outcome is NotQuarantined.
         /// </summary>
-        /// <param name="captainId">Identifier of the captain to bench.</param>
-        /// <param name="reason">Operator-visible reason the captain is being benched.</param>
-        /// <param name="untilUtc">UTC instant the bench expires; null uses the configured default backoff.</param>
+        /// <param name="auth">Caller scope used to find the captain.</param>
+        /// <param name="captainId">Captain identifier.</param>
         /// <param name="token">Cancellation token.</param>
-        /// <returns>The benched captain, or null when no captain has that identifier.</returns>
-        Task<Captain?> BenchAsync(string captainId, string reason, DateTime? untilUtc, CancellationToken token = default);
-
-        /// <summary>
-        /// Restores a benched captain by identifier, clearing its bench reason and expiry.
-        /// </summary>
-        /// <param name="captainId">Identifier of the captain to restore.</param>
-        /// <param name="token">Cancellation token.</param>
-        /// <returns>The restored captain, or null when no captain has that identifier.</returns>
-        Task<Captain?> UnbenchAsync(string captainId, CancellationToken token = default);
+        /// <returns>Typed outcome with the captain as read afterwards.</returns>
+        Task<CaptainQuarantineResult> ReleaseCaptainAsync(AuthContext auth, string captainId, CancellationToken token = default);
 
         /// <summary>
         /// Restores captains whose quarantine window has elapsed.

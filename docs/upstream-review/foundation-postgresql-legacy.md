@@ -98,3 +98,16 @@ Final ordinary provider runs on the combined native-memory tree passed
 65 SQLite, 65 PostgreSQL, 66 MySQL and 65 SQL Server cases. The 17-scenario matrix,
 combined suites and process tests above passed. Rollback-image build automation
 and the durable deployment lesson remain separate incident follow-ups.
+
+## Captain quarantine expiry column
+
+`captains.quarantine_until_utc` is not one of the 21 repaired columns and is
+still `TEXT` on PostgreSQL. A comparison such as `quarantine_until_utc <= @cutoff`
+fails there with "operator does not exist: text <= timestamp with time zone",
+which the four-provider quarantine case exposed. A probe through the current
+provider found that both write paths (the ordinary captain update and the
+conditional quarantine hold) store an explicit UTC offset, for example
+`2027-01-02 03:04:05.123456+00`. The conditional timed-release write therefore
+compares `quarantine_until_utc::timestamptz`, which is exact for that shape and
+a no-op after a future type conversion. A later repair that converts this
+column should add it to the known-shape checks rather than assume the shape.

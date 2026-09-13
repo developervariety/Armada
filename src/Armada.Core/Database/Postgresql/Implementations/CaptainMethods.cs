@@ -521,6 +521,99 @@ namespace Armada.Core.Database.Postgresql.Implementations
         }
 
         /// <inheritdoc />
+        public async Task<bool> TryQuarantineIdleAsync(string captainId, string reason, DateTime? untilUtc, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
+            if (string.IsNullOrWhiteSpace(reason)) throw new ArgumentNullException(nameof(reason));
+
+            DateTime now = DateTime.UtcNow;
+
+            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = @"UPDATE captains SET
+                        state = @state,
+                        quarantine_until_utc = @quarantine_until_utc,
+                        quarantine_reason = @quarantine_reason,
+                        last_update_utc = @last_update_utc
+                        WHERE id = @id AND state IN ('Idle', 'Quarantined')
+                        AND current_mission_id IS NULL AND current_dock_id IS NULL AND process_id IS NULL;";
+                    cmd.Parameters.AddWithValue("@id", captainId);
+                    cmd.Parameters.AddWithValue("@state", CaptainStateEnum.Quarantined.ToString());
+                    cmd.Parameters.AddWithValue("@quarantine_until_utc", untilUtc.HasValue ? (object)untilUtc.Value : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@quarantine_reason", reason.Trim());
+                    cmd.Parameters.AddWithValue("@last_update_utc", now);
+                    int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    return rowsAffected > 0;
+                }
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> TryReleaseQuarantineAsync(string captainId, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
+
+            DateTime now = DateTime.UtcNow;
+
+            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = @"UPDATE captains SET
+                        state = @state,
+                        quarantine_until_utc = NULL,
+                        quarantine_reason = NULL,
+                        last_update_utc = @last_update_utc
+                        WHERE id = @id AND state = 'Quarantined';";
+                    cmd.Parameters.AddWithValue("@id", captainId);
+                    cmd.Parameters.AddWithValue("@state", CaptainStateEnum.Idle.ToString());
+                    cmd.Parameters.AddWithValue("@last_update_utc", now);
+                    int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    return rowsAffected > 0;
+                }
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task<bool> TryReleaseTimedQuarantineAsync(string captainId, DateTime? expiredAtOrBeforeUtc, CancellationToken token = default)
+        {
+            if (string.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
+
+            DateTime now = DateTime.UtcNow;
+
+            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (NpgsqlCommand cmd = new NpgsqlCommand())
+                {
+                    cmd.Connection = conn;
+                    cmd.CommandText = @"UPDATE captains SET
+                        state = @state,
+                        quarantine_until_utc = NULL,
+                        quarantine_reason = NULL,
+                        last_update_utc = @last_update_utc
+                        WHERE id = @id AND state = 'Quarantined' AND quarantine_until_utc IS NOT NULL"
+                        // The column is TEXT on PostgreSQL and its stored values carry an explicit UTC offset, so the
+                        // cast compares instants exactly; it is a no-op if the column is later converted to timestamptz.
+                        + (expiredAtOrBeforeUtc.HasValue ? " AND quarantine_until_utc::timestamptz <= @cutoff" : "") + ";";
+                    cmd.Parameters.AddWithValue("@id", captainId);
+                    cmd.Parameters.AddWithValue("@state", CaptainStateEnum.Idle.ToString());
+                    cmd.Parameters.AddWithValue("@last_update_utc", now);
+                    if (expiredAtOrBeforeUtc.HasValue)
+                        cmd.Parameters.AddWithValue("@cutoff", expiredAtOrBeforeUtc.Value.ToUniversalTime());
+                    int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    return rowsAffected > 0;
+                }
+            }
+        }
+
+        /// <inheritdoc />
         public async Task<Captain?> ReadAsync(string tenantId, string id, CancellationToken token = default)
         {
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));

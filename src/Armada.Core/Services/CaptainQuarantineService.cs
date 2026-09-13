@@ -43,53 +43,70 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
-        public async Task ClearQuarantineAsync(Captain captain, CancellationToken token = default)
+        public async Task<CaptainQuarantineResult> QuarantineCaptainAsync(AuthContext auth, string captainId, string? reason, DateTime? untilUtc, CancellationToken token = default)
         {
-            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (String.IsNullOrWhiteSpace(captainId))
+                return new CaptainQuarantineResult(CaptainQuarantineOutcomeEnum.InvalidRequest, null, "Captain id is required.");
 
-            captain.State = CaptainStateEnum.Idle;
-            captain.QuarantineUntilUtc = null;
-            captain.QuarantineReason = null;
-            captain.LastUpdateUtc = DateTime.UtcNow;
+            Captain? captain = await ReadScopedAsync(auth, captainId, token).ConfigureAwait(false);
+            if (captain == null)
+                return new CaptainQuarantineResult(CaptainQuarantineOutcomeEnum.NotFound, null, "Captain not found: " + captainId);
 
-            await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
-            _Logging.Info(_Header + "quarantine cleared captainId=" + captain.Id);
-        }
+            if (String.IsNullOrWhiteSpace(reason))
+                return new CaptainQuarantineResult(CaptainQuarantineOutcomeEnum.InvalidRequest, captain, "A reason is required so the quarantine is auditable.");
 
-        /// <inheritdoc />
-        public async Task<Captain?> BenchAsync(string captainId, string reason, DateTime? untilUtc, CancellationToken token = default)
-        {
-            if (String.IsNullOrWhiteSpace(captainId)) throw new ArgumentException("Captain id is required.", nameof(captainId));
-            if (String.IsNullOrWhiteSpace(reason)) throw new ArgumentException("Bench reason is required.", nameof(reason));
-
-            Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
-            if (captain == null) return null;
-
+            // An expiry without a zone is taken as UTC, so the hold length does not depend on the server's local time zone.
+            DateTime? expiry = null;
             if (untilUtc.HasValue)
+                expiry = untilUtc.Value.Kind == DateTimeKind.Unspecified
+                    ? DateTime.SpecifyKind(untilUtc.Value, DateTimeKind.Utc)
+                    : untilUtc.Value.ToUniversalTime();
+            if (expiry.HasValue && expiry.Value <= DateTime.UtcNow)
+                return new CaptainQuarantineResult(CaptainQuarantineOutcomeEnum.InvalidRequest, captain, "The quarantine expiry must be in the future.");
+
+            // The conditional write is the ownership guard: it matches only an Idle or already-quarantined captain
+            // with no mission, dock or process, so a captain claimed or started after the read above keeps its work.
+            bool applied = await _Database.Captains.TryQuarantineIdleAsync(captain.Id, reason, expiry, token).ConfigureAwait(false);
+            Captain? after = await ReadScopedAsync(auth, captain.Id, token).ConfigureAwait(false);
+            if (!applied)
             {
-                // Operator gave an explicit expiry: a timed bench that auto-restores when the window elapses.
-                await QuarantineAsync(captain, reason, untilUtc, token).ConfigureAwait(false);
-            }
-            else
-            {
-                // No expiry: an indefinite operator hold with a null window. The restore sweep never
-                // auto-clears an indefinite hold, so it persists until an explicit UnbenchAsync.
-                await ApplyQuarantineAsync(captain, reason, null, token).ConfigureAwait(false);
+                string state = after != null ? after.State.ToString() : "unknown";
+                _Logging.Warn(_Header + "manual quarantine refused captainId=" + captain.Id + " state=" + state + " (captain owns work or is not Idle)");
+                return new CaptainQuarantineResult(
+                    after == null ? CaptainQuarantineOutcomeEnum.NotFound : CaptainQuarantineOutcomeEnum.Busy,
+                    after,
+                    "Captain " + captain.Id + " was not quarantined: only an Idle or already-quarantined captain that owns no mission, dock or process can be held (current state " + state + "). Stop the captain first.");
             }
 
-            return captain;
+            _Logging.Warn(_Header + "captain manually quarantined captainId=" + captain.Id + " untilUtc=" + (expiry.HasValue ? expiry.Value.ToString("O") : "indefinite"));
+            return new CaptainQuarantineResult(CaptainQuarantineOutcomeEnum.Quarantined, after, "Captain quarantined.");
         }
 
         /// <inheritdoc />
-        public async Task<Captain?> UnbenchAsync(string captainId, CancellationToken token = default)
+        public async Task<CaptainQuarantineResult> ReleaseCaptainAsync(AuthContext auth, string captainId, CancellationToken token = default)
         {
-            if (String.IsNullOrWhiteSpace(captainId)) throw new ArgumentException("Captain id is required.", nameof(captainId));
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (String.IsNullOrWhiteSpace(captainId))
+                return new CaptainQuarantineResult(CaptainQuarantineOutcomeEnum.InvalidRequest, null, "Captain id is required.");
 
-            Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
-            if (captain == null) return null;
+            Captain? captain = await ReadScopedAsync(auth, captainId, token).ConfigureAwait(false);
+            if (captain == null)
+                return new CaptainQuarantineResult(CaptainQuarantineOutcomeEnum.NotFound, null, "Captain not found: " + captainId);
 
-            await ClearQuarantineAsync(captain, token).ConfigureAwait(false);
-            return captain;
+            bool released = await _Database.Captains.TryReleaseQuarantineAsync(captain.Id, token).ConfigureAwait(false);
+            Captain? after = await ReadScopedAsync(auth, captain.Id, token).ConfigureAwait(false);
+            if (!released)
+            {
+                string state = after != null ? after.State.ToString() : "unknown";
+                return new CaptainQuarantineResult(
+                    after == null ? CaptainQuarantineOutcomeEnum.NotFound : CaptainQuarantineOutcomeEnum.NotQuarantined,
+                    after,
+                    "Captain " + captain.Id + " is not quarantined (state " + state + "); nothing changed.");
+            }
+
+            _Logging.Info(_Header + "quarantine manually released captainId=" + captain.Id);
+            return new CaptainQuarantineResult(CaptainQuarantineOutcomeEnum.Released, after, "Quarantine released.");
         }
 
         /// <inheritdoc />
@@ -109,7 +126,7 @@ namespace Armada.Core.Services
                 if (!captain.QuarantineUntilUtc.HasValue)
                 {
                     // An indefinite manual hold (null window) is an operator bench, not a quota/backoff
-                    // condition. Never auto-restore it and never probe it; only an explicit UnbenchAsync
+                    // condition. Never auto-restore it and never probe it; only an explicit manual release
                     // clears it. This keeps operator benches from being un-benched mid-voyage.
                     continue;
                 }
@@ -127,7 +144,7 @@ namespace Armada.Core.Services
                     continue;
                 }
 
-                await ClearQuarantineAsync(captain, token).ConfigureAwait(false);
+                await ReleaseTimedAsync(captain, nowUtc, token).ConfigureAwait(false);
             }
         }
 
@@ -159,8 +176,7 @@ namespace Armada.Core.Services
             }
 
             _Logging.Info(_Header + "quota probe positive; restoring captain early captainId=" + captain.Id);
-            await ClearQuarantineAsync(captain, token).ConfigureAwait(false);
-            return true;
+            return await ReleaseTimedAsync(captain, null, token).ConfigureAwait(false);
         }
 
         #endregion
@@ -198,6 +214,37 @@ namespace Armada.Core.Services
 
             await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
             _Logging.Warn(_Header + "captain quarantined captainId=" + captain.Id + " untilUtc=" + (untilUtc.HasValue ? untilUtc.Value.ToString("O") : "indefinite"));
+        }
+
+        /// <summary>
+        /// Release a timed hold for the expiry sweep or the quota probe. The write matches only a captain that is still
+        /// quarantined with an expiry (at or before the cutoff when given), so an indefinite hold or other change made
+        /// after the sweep read the captain is never released from that earlier read.
+        /// </summary>
+        private async Task<bool> ReleaseTimedAsync(Captain captain, DateTime? expiredAtOrBeforeUtc, CancellationToken token)
+        {
+            bool released = await _Database.Captains.TryReleaseTimedQuarantineAsync(captain.Id, expiredAtOrBeforeUtc, token).ConfigureAwait(false);
+            if (!released)
+            {
+                _Logging.Warn(_Header + "timed quarantine release skipped captainId=" + captain.Id + " (the hold changed or is no longer timed)");
+                return false;
+            }
+
+            captain.State = CaptainStateEnum.Idle;
+            captain.QuarantineUntilUtc = null;
+            captain.QuarantineReason = null;
+            captain.LastUpdateUtc = DateTime.UtcNow;
+            _Logging.Info(_Header + "quarantine cleared captainId=" + captain.Id);
+            return true;
+        }
+
+        private async Task<Captain?> ReadScopedAsync(AuthContext auth, string captainId, CancellationToken token)
+        {
+            if (auth.IsAdmin) return await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
+            if (String.IsNullOrWhiteSpace(auth.TenantId)) return null;
+            if (auth.IsTenantAdmin) return await _Database.Captains.ReadAsync(auth.TenantId, captainId, token).ConfigureAwait(false);
+            if (String.IsNullOrWhiteSpace(auth.UserId)) return null;
+            return await _Database.Captains.ReadAsync(auth.TenantId, auth.UserId, captainId, token).ConfigureAwait(false);
         }
 
         private DateTime ResolveRetryAfterUtc(DateTime? retryAfterUtc)

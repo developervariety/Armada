@@ -16,6 +16,9 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Suite name.</summary>
         public override string Name => "Captain Quarantine";
 
+        private static readonly AuthContext _OperatorAuth = AuthContext.Authenticated(
+            Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, true, true, "Test");
+
         private static LoggingModule CreateLogging()
         {
             LoggingModule logging = new LoggingModule();
@@ -42,6 +45,29 @@ namespace Armada.Test.Unit.Suites.Services
             CaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
             captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(64001);
             return new MissionService(logging, db, settings, dockService, captainService, captainQuarantine: quarantine);
+        }
+
+        private static async Task<Captain> CreateOwningCaptainAsync(SqliteDatabaseDriver db, CaptainStateEnum state)
+        {
+            Vessel vessel = new Vessel("owning-vessel-" + Guid.NewGuid().ToString("N"), "https://github.com/test/owning.git");
+            await db.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+            Mission mission = new Mission("owned mission", "owned");
+            mission.VesselId = vessel.Id;
+            mission.Status = MissionStatusEnum.InProgress;
+            await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+            Captain captain = new Captain("owning-captain-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            captain.State = state;
+            await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+            Dock dock = new Dock(vessel.Id);
+            dock.CaptainId = captain.Id;
+            dock.WorktreePath = Path.Combine(Path.GetTempPath(), "armada_owning_wt_" + Guid.NewGuid().ToString("N"));
+            dock.BranchName = "armada/owning/" + mission.Id;
+            dock.Active = true;
+            await db.Docks.CreateAsync(dock).ConfigureAwait(false);
+            captain.CurrentMissionId = mission.Id;
+            captain.CurrentDockId = dock.Id;
+            captain.ProcessId = 5151;
+            return await db.Captains.UpdateAsync(captain).ConfigureAwait(false);
         }
 
         private static AdmiralService CreateAdmiralService(SqliteDatabaseDriver db, ArmadaSettings settings, ICaptainQuarantineService quarantine)
@@ -600,33 +626,37 @@ namespace Armada.Test.Unit.Suites.Services
                     await AssertThrowsAsync<ArgumentException>(
                         () => quarantine.QuarantineAsync(captain, "   ", null),
                         "whitespace reason should throw");
-                    await AssertThrowsAsync<ArgumentNullException>(
-                        () => quarantine.ClearQuarantineAsync(null!),
-                        "null captain should throw on clear");
                 }
             });
 
-            await RunTest("ClearQuarantineAsync_ResetsStateAndFields", async () =>
+            await RunTest("ExpirySweep_ReleasesElapsedTimedHold_AndKeepsIndefiniteHold", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
-                    ArmadaSettings settings = CreateSettings();
-                    LoggingModule logging = CreateLogging();
-                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, logging);
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, CreateSettings(), CreateLogging());
 
-                    Captain captain = new Captain("clear-me");
-                    captain.State = CaptainStateEnum.Quarantined;
-                    captain.QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(15);
-                    captain.QuarantineReason = "insufficient_quota";
-                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    Captain elapsed = new Captain("elapsed-hold");
+                    elapsed.State = CaptainStateEnum.Quarantined;
+                    elapsed.QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(-1);
+                    elapsed.QuarantineReason = "insufficient_quota";
+                    await db.Captains.CreateAsync(elapsed).ConfigureAwait(false);
 
-                    await quarantine.ClearQuarantineAsync(captain).ConfigureAwait(false);
+                    Captain indefinite = new Captain("indefinite-hold");
+                    indefinite.State = CaptainStateEnum.Quarantined;
+                    indefinite.QuarantineReason = "operator hold";
+                    await db.Captains.CreateAsync(indefinite).ConfigureAwait(false);
 
-                    Captain? after = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
-                    AssertEqual(CaptainStateEnum.Idle, after!.State, "cleared captain should return to Idle");
-                    AssertNull(after.QuarantineUntilUtc, "deadline should be cleared");
-                    AssertNull(after.QuarantineReason, "reason should be cleared");
+                    await quarantine.RestoreExpiredQuarantinesAsync().ConfigureAwait(false);
+
+                    Captain? released = await db.Captains.ReadAsync(elapsed.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Idle, released!.State, "an elapsed timed hold returns to Idle");
+                    AssertNull(released.QuarantineUntilUtc, "deadline should be cleared");
+                    AssertNull(released.QuarantineReason, "reason should be cleared");
+
+                    Captain? held = await db.Captains.ReadAsync(indefinite.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Quarantined, held!.State, "an indefinite hold is not released by the sweep");
+                    AssertEqual("operator hold", held.QuarantineReason, "the indefinite hold keeps its reason");
                 }
             });
 
@@ -838,7 +868,7 @@ namespace Armada.Test.Unit.Suites.Services
                     await db.Captains.CreateAsync(idle).ConfigureAwait(false);
 
                     DateTime expiry = DateTime.UtcNow.AddMinutes(45);
-                    Captain? benched = await quarantine.BenchAsync(idle.Id, "provider out of balance", expiry).ConfigureAwait(false);
+                    Captain? benched = (await quarantine.QuarantineCaptainAsync(_OperatorAuth, idle.Id, "provider out of balance", expiry).ConfigureAwait(false)).Captain;
 
                     AssertNotNull(benched, "benching an existing captain must return the captain");
                     Captain? stored = await db.Captains.ReadAsync(idle.Id).ConfigureAwait(false);
@@ -881,8 +911,8 @@ namespace Armada.Test.Unit.Suites.Services
                     idle.State = CaptainStateEnum.Idle;
                     await db.Captains.CreateAsync(idle).ConfigureAwait(false);
 
-                    await quarantine.BenchAsync(idle.Id, "temporarily parked", DateTime.UtcNow.AddHours(6)).ConfigureAwait(false);
-                    Captain? restored = await quarantine.UnbenchAsync(idle.Id).ConfigureAwait(false);
+                    await quarantine.QuarantineCaptainAsync(_OperatorAuth, idle.Id, "temporarily parked", DateTime.UtcNow.AddHours(6)).ConfigureAwait(false);
+                    Captain? restored = (await quarantine.ReleaseCaptainAsync(_OperatorAuth, idle.Id).ConfigureAwait(false)).Captain;
 
                     AssertNotNull(restored, "restoring an existing captain must return the captain");
                     Captain? stored = await db.Captains.ReadAsync(idle.Id).ConfigureAwait(false);
@@ -919,59 +949,80 @@ namespace Armada.Test.Unit.Suites.Services
 
                     // No expiry supplied -> an indefinite operator hold with a null window that the restore
                     // sweep never auto-clears (unlike a quota/backoff bench, which always carries a deadline).
-                    await quarantine.BenchAsync(idle.Id, "no expiry given", null).ConfigureAwait(false);
+                    await quarantine.QuarantineCaptainAsync(_OperatorAuth, idle.Id, "no expiry given", null).ConfigureAwait(false);
                     Captain? stored = await db.Captains.ReadAsync(idle.Id).ConfigureAwait(false);
                     AssertEqual(CaptainStateEnum.Quarantined, stored!.State, "an operator bench quarantines the captain");
                     AssertNull(stored.QuarantineUntilUtc, "a bench without an explicit expiry is an indefinite hold (null window), not a coerced backoff");
 
                     // A missing captain is reported as not-found rather than throwing, so the tool
                     // can return a specific error instead of a generic internal failure.
-                    Captain? missing = await quarantine.BenchAsync("cpt_does_not_exist", "reason", null).ConfigureAwait(false);
-                    AssertNull(missing, "benching an unknown captain must report not-found");
+                    CaptainQuarantineResult missing = await quarantine.QuarantineCaptainAsync(_OperatorAuth, "cpt_does_not_exist", "reason", null).ConfigureAwait(false);
+                    AssertEqual(CaptainQuarantineOutcomeEnum.NotFound, missing.Outcome, "benching an unknown captain must report not-found");
 
-                    Captain? missingRestore = await quarantine.UnbenchAsync("cpt_does_not_exist").ConfigureAwait(false);
-                    AssertNull(missingRestore, "restoring an unknown captain must report not-found");
+                    CaptainQuarantineResult missingRestore = await quarantine.ReleaseCaptainAsync(_OperatorAuth, "cpt_does_not_exist").ConfigureAwait(false);
+                    AssertEqual(CaptainQuarantineOutcomeEnum.NotFound, missingRestore.Outcome, "restoring an unknown captain must report not-found");
 
-                    bool threw = false;
-                    try
-                    {
-                        await quarantine.BenchAsync(idle.Id, "   ", null).ConfigureAwait(false);
-                    }
-                    catch (ArgumentException)
-                    {
-                        threw = true;
-                    }
-                    AssertTrue(threw, "a bench without a reason must be rejected so every bench is auditable");
+                    CaptainQuarantineResult blank = await quarantine.QuarantineCaptainAsync(_OperatorAuth, idle.Id, "   ", null).ConfigureAwait(false);
+                    AssertEqual(CaptainQuarantineOutcomeEnum.InvalidRequest, blank.Outcome, "a bench without a reason must be rejected so every bench is auditable");
                 }
             });
 
-            await RunTest("UnquarantineRestUpdate_ClearsQuarantineFields_ForNonQuarantinedCaptainReturnsNotQuarantined", async () =>
+            // A manual bench or release must never strip work from a captain that owns it. The mission,
+            // dock and process belong to a running agent; clearing them orphans that work.
+
+            await RunTest("UnbenchAsync_WorkingCaptain_KeepsStateAndOwnership", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
                     SqliteDatabaseDriver db = testDb.Driver;
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, CreateSettings(), CreateLogging());
+                    Captain working = await CreateOwningCaptainAsync(db, CaptainStateEnum.Working).ConfigureAwait(false);
 
-                    // The REST POST /api/v1/captains/{id}/unquarantine clears the quarantine fields
-                    // directly on the captain record. This mirrors that exact update path.
-                    Captain quarantined = new Captain("rest-route-unquarantine");
-                    quarantined.State = CaptainStateEnum.Quarantined;
-                    quarantined.QuarantineUntilUtc = DateTime.UtcNow.AddHours(4);
-                    quarantined.QuarantineReason = "usage limit reached";
-                    await db.Captains.CreateAsync(quarantined).ConfigureAwait(false);
+                    await quarantine.ReleaseCaptainAsync(_OperatorAuth, working.Id).ConfigureAwait(false);
 
-                    Captain? loaded = await db.Captains.ReadAsync(quarantined.Id).ConfigureAwait(false);
-                    AssertEqual(CaptainStateEnum.Quarantined, loaded!.State, "the seeded captain must be quarantined");
+                    Captain? after = await db.Captains.ReadAsync(working.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Working, after!.State, "releasing a working captain must not force it to Idle");
+                    AssertEqual(working.CurrentMissionId, after.CurrentMissionId, "the mission is kept");
+                    AssertEqual(working.CurrentDockId, after.CurrentDockId, "the dock is kept");
+                    AssertEqual(working.ProcessId, after.ProcessId, "the process is kept");
+                }
+            });
 
-                    loaded.State = CaptainStateEnum.Idle;
-                    loaded.QuarantineUntilUtc = null;
-                    loaded.QuarantineReason = null;
-                    loaded.LastUpdateUtc = DateTime.UtcNow;
-                    await db.Captains.UpdateAsync(loaded).ConfigureAwait(false);
+            await RunTest("BenchAsync_WorkingCaptain_KeepsMissionDockAndProcess", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, CreateSettings(), CreateLogging());
+                    Captain working = await CreateOwningCaptainAsync(db, CaptainStateEnum.Working).ConfigureAwait(false);
 
-                    Captain? after = await db.Captains.ReadAsync(quarantined.Id).ConfigureAwait(false);
-                    AssertEqual(CaptainStateEnum.Idle, after!.State, "an unquarantined captain returns to Idle");
-                    AssertNull(after.QuarantineUntilUtc, "the quarantine reset window must be cleared");
-                    AssertNull(after.QuarantineReason, "the quarantine reason must be cleared");
+                    await quarantine.QuarantineCaptainAsync(_OperatorAuth, working.Id, "operator hold", null).ConfigureAwait(false);
+
+                    Captain? after = await db.Captains.ReadAsync(working.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Working, after!.State, "a working captain must not be benched underneath its process");
+                    AssertEqual(working.CurrentMissionId, after.CurrentMissionId, "the mission is kept");
+                    AssertEqual(working.CurrentDockId, after.CurrentDockId, "the dock is kept");
+                    AssertEqual(working.ProcessId, after.ProcessId, "the process is kept");
+                    AssertNull(after.QuarantineReason, "no bench reason is written when the bench is refused");
+                }
+            });
+
+            await RunTest("BenchAsync_IdleCaptainWithProcess_DoesNotStripProcess", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, CreateSettings(), CreateLogging());
+                    Captain idle = new Captain("idle-with-process");
+                    idle.State = CaptainStateEnum.Idle;
+                    idle.ProcessId = 4242;
+                    await db.Captains.CreateAsync(idle).ConfigureAwait(false);
+
+                    await quarantine.QuarantineCaptainAsync(_OperatorAuth, idle.Id, "operator hold", null).ConfigureAwait(false);
+
+                    Captain? after = await db.Captains.ReadAsync(idle.Id).ConfigureAwait(false);
+                    AssertEqual(4242, after!.ProcessId, "a still-registered process must not be cleared by a bench");
+                    AssertEqual(CaptainStateEnum.Idle, after.State, "the bench is refused while a process is registered");
                 }
             });
         }

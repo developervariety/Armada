@@ -6,6 +6,7 @@ import {
   getCaptainTools,
   getCaptainLog,
   stopCaptain,
+  quarantineCaptain,
   unquarantineCaptain,
   recallCaptain,
   getMission,
@@ -13,7 +14,8 @@ import {
   updateCaptain,
   deleteCaptain,
 } from '../api/client';
-import type { Captain, Mission, MissionSummary, LogResult, CaptainToolAccessResult } from '../types/models';
+import type { Captain, CaptainQuarantineRequest, Mission, MissionSummary, LogResult, CaptainToolAccessResult } from '../types/models';
+import CaptainQuarantineDialog from '../components/captains/CaptainQuarantineDialog';
 import ActionMenu from '../components/shared/ActionMenu';
 import MuxRuntimeFields from '../components/captains/MuxRuntimeFields';
 import CaptainToolViewer from '../components/captains/CaptainToolViewer';
@@ -49,6 +51,8 @@ export default function CaptainDetail() {
   const [missions, setMissions] = useState<MissionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [quarantineOpen, setQuarantineOpen] = useState(false);
+  const [quarantining, setQuarantining] = useState(false);
 
   // Edit
   const [showForm, setShowForm] = useState(false);
@@ -183,10 +187,26 @@ export default function CaptainDetail() {
   async function handleUnquarantine() {
     if (!captain) return;
     try {
-      await unquarantineCaptain(captain.id);
-      pushToast('success', t('Quarantine lifted for "{{name}}".', { name: captain.name }));
+      const result = await unquarantineCaptain(captain.id);
+      if (result.outcome === 'Released') pushToast('success', t('Quarantine lifted for "{{name}}".', { name: captain.name }));
+      else pushToast('warning', t('Captain "{{name}}" was not quarantined; nothing changed.', { name: captain.name }));
       load();
-    } catch { setError(t('Failed to lift quarantine.')); }
+    } catch (e) { setError(e instanceof Error ? e.message : t('Failed to lift quarantine.')); }
+  }
+
+  async function handleQuarantineSubmit(request: CaptainQuarantineRequest) {
+    if (!captain) return;
+    setQuarantining(true);
+    try {
+      await quarantineCaptain(captain.id, request);
+      pushToast('warning', t('Captain "{{name}}" quarantined.', { name: captain.name }));
+      setQuarantineOpen(false);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('Quarantine failed.'));
+    } finally {
+      setQuarantining(false);
+    }
   }
 
   function handleRecall() {
@@ -361,6 +381,14 @@ export default function CaptainDetail() {
       />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
+      <CaptainQuarantineDialog
+        open={quarantineOpen}
+        captainName={captain.name}
+        t={t}
+        submitting={quarantining}
+        onSubmit={request => void handleQuarantineSubmit(request)}
+        onCancel={() => setQuarantineOpen(false)}
+      />
 
       {/* Captain Info */}
       <div className="detail-grid">
@@ -416,7 +444,12 @@ export default function CaptainDetail() {
         </div>
         <div className="detail-field">
           <span className="detail-label">{t('State')}</span>
-          <StatusBadge status={captain.state} />
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+            <StatusBadge status={captain.state} />
+            {captain.state !== 'Quarantined' && (
+              <button type="button" className="btn btn-sm" onClick={() => setQuarantineOpen(true)}>{t('Quarantine')}</button>
+            )}
+          </span>
         </div>
         {captain.state === 'Quarantined' && (
           <div className="detail-field">

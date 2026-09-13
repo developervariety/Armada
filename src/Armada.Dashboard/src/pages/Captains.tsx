@@ -1,7 +1,8 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listCaptains, createCaptain, updateCaptain, deleteCaptain, stopCaptain, recallCaptain, stopAllCaptains, restartCaptain, getCaptainTools } from '../api/client';
-import type { Captain, CaptainToolAccessResult } from '../types/models';
+import { listCaptains, createCaptain, updateCaptain, deleteCaptain, stopCaptain, recallCaptain, stopAllCaptains, restartCaptain, getCaptainTools, quarantineCaptain, unquarantineCaptain } from '../api/client';
+import type { Captain, CaptainQuarantineRequest, CaptainToolAccessResult } from '../types/models';
+import CaptainQuarantineDialog from '../components/captains/CaptainQuarantineDialog';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import StatusBadge from '../components/shared/StatusBadge';
@@ -56,6 +57,8 @@ export default function Captains() {
 
   // Confirm dialog
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
+  const [quarantineTarget, setQuarantineTarget] = useState<Captain | null>(null);
+  const [quarantining, setQuarantining] = useState(false);
 
   // Selection
   const [selected, setSelected] = useState<string[]>([]);
@@ -282,6 +285,33 @@ export default function Captains() {
     });
   }
 
+  async function handleQuarantineSubmit(request: CaptainQuarantineRequest) {
+    if (!quarantineTarget) return;
+    const target = quarantineTarget;
+    setQuarantining(true);
+    try {
+      await quarantineCaptain(target.id, request);
+      pushToast('warning', t('Captain "{{name}}" quarantined.', { name: target.name }));
+      setQuarantineTarget(null);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('Quarantine failed.'));
+    } finally {
+      setQuarantining(false);
+    }
+  }
+
+  async function handleLiftQuarantine(id: string, name: string) {
+    try {
+      const result = await unquarantineCaptain(id);
+      if (result.outcome === 'Released') pushToast('success', t('Quarantine lifted for "{{name}}".', { name }));
+      else pushToast('warning', t('Captain "{{name}}" was not quarantined; nothing changed.', { name }));
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('Failed to lift quarantine.'));
+    }
+  }
+
   function handleStopAll() {
     setConfirm({
       open: true,
@@ -430,6 +460,14 @@ export default function Captains() {
       />
 
       {/* Confirm Dialog */}
+      <CaptainQuarantineDialog
+        open={quarantineTarget !== null}
+        captainName={quarantineTarget?.name ?? ''}
+        t={t}
+        submitting={quarantining}
+        onSubmit={request => void handleQuarantineSubmit(request)}
+        onCancel={() => setQuarantineTarget(null)}
+      />
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
@@ -492,7 +530,15 @@ export default function Captains() {
                       </span>
                     </td>
                     <td className="text-dim">{c.runtime}</td>
-                    <td><StatusBadge status={c.state} /></td>
+                    <td>
+                      <StatusBadge status={c.state} />
+                      {c.state === 'Quarantined' && (
+                        <div className="text-dim" style={{ fontSize: '0.75rem' }}>
+                          {c.quarantineReason || t('quarantined')}
+                          {c.quarantineUntilUtc ? ` (${t('until')} ${formatDateTime(c.quarantineUntilUtc)})` : ` (${t('until released')})`}
+                        </div>
+                      )}
+                    </td>
                     <td className="mono text-dim" onClick={e => e.stopPropagation()}>
                       {c.currentMissionId ? (
                         <a href="#" onClick={e => { e.preventDefault(); navigate(`/missions/${c.currentMissionId}`); }}>
@@ -510,6 +556,9 @@ export default function Captains() {
                         { label: 'Duplicate', onClick: () => void handleDuplicate(c) },
                         { label: 'View Tools', onClick: () => void handleViewTools(c) },
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Captain')}: ${c.name}`, data: c }) },
+                        ...(c.state === 'Quarantined'
+                          ? [{ label: 'Lift Quarantine', onClick: () => void handleLiftQuarantine(c.id, c.name) }]
+                          : [{ label: 'Quarantine', onClick: () => setQuarantineTarget(c) }]),
                         { label: 'Stop', onClick: () => handleStop(c.id, c.name) },
                         { label: 'Recall', onClick: () => handleRecall(c.id, c.name) },
                         { label: 'Restart', onClick: () => handleRestart(c.id, c.name) },

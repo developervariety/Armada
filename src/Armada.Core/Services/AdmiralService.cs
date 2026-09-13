@@ -2920,16 +2920,34 @@ namespace Armada.Core.Services
             string? model = failingCaptain.Model;
             if (String.IsNullOrEmpty(model)) return;
 
+            // Only the failing captain's process has exited. A sibling may still be running a mission on the capped
+            // model, so siblings go through the conditional hold: an idle sibling is held now, and a busy sibling keeps
+            // its mission, dock and process and is held when its own run returns the cap.
+            AuthContext siblingScope = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, true, true, "Internal");
             List<Captain> all = await _Database.Captains.EnumerateAsync(token).ConfigureAwait(false);
             int benched = 0;
+            int skippedBusy = 0;
             foreach (Captain c in all)
             {
                 if (String.IsNullOrEmpty(c.Model)) continue;
                 if (!String.Equals(c.Model, model, StringComparison.OrdinalIgnoreCase)) continue;
                 try
                 {
-                    await _CaptainQuarantine.QuarantineAsync(c, reason, untilUtc, token).ConfigureAwait(false);
-                    benched++;
+                    if (String.Equals(c.Id, failingCaptain.Id, StringComparison.Ordinal))
+                    {
+                        await _CaptainQuarantine.QuarantineAsync(c, reason, untilUtc, token).ConfigureAwait(false);
+                        benched++;
+                        continue;
+                    }
+
+                    CaptainQuarantineResult result = await _CaptainQuarantine.QuarantineCaptainAsync(siblingScope, c.Id, reason, untilUtc, token).ConfigureAwait(false);
+                    if (result.Outcome == CaptainQuarantineOutcomeEnum.Quarantined) benched++;
+                    else if (result.Outcome == CaptainQuarantineOutcomeEnum.Busy) skippedBusy++;
+                    else _Logging.Warn(_Header + "provider-group bench: captain " + c.Id + " not benched (" + result.Outcome + "): " + result.Message);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -2938,6 +2956,7 @@ namespace Armada.Core.Services
             }
             _Logging.Warn(_Header + "provider spend cap: benched " + benched + " captain(s) on model '" +
                 model + "' until " + untilUtc.ToString("o", System.Globalization.CultureInfo.InvariantCulture) +
+                "; " + skippedBusy + " busy sibling(s) keep running and bench when their own run returns the cap" +
                 "; other models on this provider stay available until they hit the cap themselves");
         }
 

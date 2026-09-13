@@ -1694,6 +1694,26 @@ their text. See the [definition-of-done history contract](upstream-review/backen
 
 ---
 
+#### GET /api/v1/missions/{id}/recovery
+
+Returns recorded recovery detail for the mission in the caller's scope: rescue
+attempts against the current budget, landing retries, the last recovery action,
+rescue missions (vessel missions whose parent is this mission), linked incidents
+with their runbook executions, and recovery events among the mission's 100 most
+recent events. Reading it dispatches nothing and does not infer a landing from
+mission status. See the [recovery detail contract](upstream-review/backend-recovery.md).
+
+**Path Parameters:**
+
+| Parameter | Description |
+|---|---|
+| `id` | Mission ID (`msn_` prefix) |
+
+**Response:** `200 OK` - `MissionRecoveryReport`
+**Error:** `404` - Mission not found
+
+---
+
 ### Captains
 
 A captain is an AI agent instance (Claude Code, Codex, etc.) that executes missions.
@@ -1832,29 +1852,51 @@ Emergency stop all running captains, recalling them to idle state.
 
 ---
 
+#### POST /api/v1/captains/{id}/quarantine
+
+Hold a captain out of assignment through the shared quarantine service (the same
+service MCP `armada_bench_captain` uses). The captain is read in the caller's
+scope. The write succeeds only while the captain is Idle or already quarantined
+and owns no mission, dock or process; a repeated request updates the reason and
+expiry.
+
+**Request Body:**
+
+| Field | Type | Description |
+|---|---|---|
+| `Reason` | string | Required operator reason |
+| `UntilUtc` | datetime | Optional future UTC expiry; takes precedence over `DurationMinutes` |
+| `DurationMinutes` | integer | Optional positive duration; with neither value the hold is indefinite |
+
+**Response:** `200 OK` - `CaptainQuarantineResult` with `Outcome: Quarantined`
+**Error:** `409` - `Outcome: Busy`; the captain owns work or is not Idle, nothing changed
+**Error:** `400` - Missing reason, invalid body, non-positive duration or past expiry
+**Error:** `404` - Captain not found in the caller's scope
+
+---
+
 #### POST /api/v1/captains/{id}/unquarantine
 
-Lift a captain's quarantine: restore it to the idle pool and clear its
-quarantine reason and reset window. A captain that is not quarantined is
-returned unchanged with `Status: not_quarantined`.
+Release a quarantine through the shared service: a quarantined captain returns to
+Idle with its reason and expiry cleared. A captain in any other state, including a
+Working captain, is left unchanged and the outcome is `NotQuarantined`.
 
 **Path Parameters:**
 | Parameter | Description |
 |---|---|
 | `id` | Captain ID (`cpt_` prefix) |
 
-**Response:** `200 OK`
+**Response:** `200 OK` - `CaptainQuarantineResult`
 
 ```json
 {
-  "Id": "cpt_abc123",
-  "State": "Idle",
-  "QuarantineUntilUtc": null,
-  "QuarantineReason": null
+  "Outcome": "Released",
+  "Captain": { "Id": "cpt_abc123", "State": "Idle", "QuarantineUntilUtc": null, "QuarantineReason": null },
+  "Message": "Quarantine released."
 }
 ```
 
-**Error:** `404` - Captain not found
+**Error:** `404` - Captain not found in the caller's scope
 
 ---
 
@@ -4546,6 +4588,7 @@ Response from `GET /api/v1/captains/{id}/log`.
 | 97 | POST | `/api/v1/planning-sessions/{id}/stop` | Stop a planning session | Yes |
 | 98 | DELETE | `/api/v1/planning-sessions/{id}` | Delete a planning session | Yes |
 | 99 | GET | `/api/v1/missions/{id}/definition-of-done` | Mission definition-of-done configuration and latest evaluation | Yes |
+| 100 | GET | `/api/v1/missions/{id}/recovery` | Mission recovery counters, rescues, incidents and recovery events | Yes |
 
 This table is a quick route index, not the complete contract. Use `/openapi.json` or `/swagger` for the live REST surface.
 

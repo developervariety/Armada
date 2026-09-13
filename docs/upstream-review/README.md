@@ -155,7 +155,7 @@ Acceptance:
 
 ### Phase 2: Unify captain quarantine controls and add dashboard actions
 
-Fork already has CaptainDetail Lift Quarantine and POST /api/v1/captains/{id}/unquarantine. MCP bench/unbench uses a richer CaptainQuarantineService. Existing REST unquarantine bypasses this service. Neither dashboard list has a manual Quarantine action. Add reason/expiry display and explicit Quarantine/Unquarantine actions through one safe service contract. Adapt upstream crash-loop and reset parsing only for proved missing cases. Bench currently clears process/mission/dock metadata: reject busy captains or use a coordinated stop with proof; never orphan work.
+At the fixed assessment tip the fork had CaptainDetail Lift Quarantine and POST /api/v1/captains/{id}/unquarantine, MCP bench/unbench used a richer CaptainQuarantineService, REST unquarantine bypassed that service, and neither dashboard list had a manual Quarantine action (implementation status is tracked on the owning objective). Add reason/expiry display and explicit Quarantine/Unquarantine actions through one safe service contract. Adapt upstream crash-loop and reset parsing only for proved missing cases. Bench currently clears process/mission/dock metadata: reject busy captains or use a coordinated stop with proof; never orphan work.
 
 Depends on: Define fork preservation gates and append-only schema integration.
 

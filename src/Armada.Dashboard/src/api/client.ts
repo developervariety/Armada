@@ -131,6 +131,8 @@ import type {
   CoordinationMessagePostRequest,
   CoordinationPresenceRequest,
   CoordinationClaim,
+  CaptainQuarantineRequest,
+  CaptainQuarantineResult,
 } from '../types/models';
 
 const BASE_URL = import.meta.env.VITE_ARMADA_SERVER_URL || '';
@@ -716,7 +718,11 @@ export const updateCaptain = (id: string, data: Partial<Captain>) => put<Captain
 export const deleteCaptain = (id: string) => del<void>(`/api/v1/captains/${id}`);
 export const getCaptainLog = (id: string, lines = 500) => get<LogResult>(`/api/v1/captains/${id}/log?lines=${lines}`);
 export const stopCaptain = (id: string) => post<void>(`/api/v1/captains/${id}/stop`);
-export const unquarantineCaptain = (id: string) => post<Captain>(`/api/v1/captains/${id}/unquarantine`);
+/** Hold a captain out of assignment. The server refuses (409 Busy) a captain that owns a mission, dock or process. */
+export const quarantineCaptain = (id: string, request: CaptainQuarantineRequest) =>
+  post<CaptainQuarantineResult>(`/api/v1/captains/${id}/quarantine`, request);
+/** Release a quarantine. A captain that is not quarantined is left unchanged with outcome NotQuarantined. */
+export const unquarantineCaptain = (id: string) => post<CaptainQuarantineResult>(`/api/v1/captains/${id}/unquarantine`);
 export const recallCaptain = (id: string) => post<void>(`/api/v1/captains/${id}/recall`);
 export const stopAllCaptains = () => post<void>('/api/v1/captains/stop-all');
 export const listMuxEndpoints = (configDirectory?: string | null) =>

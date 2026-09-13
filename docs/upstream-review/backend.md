@@ -197,6 +197,11 @@ See [definition-of-done history](backend-dod.md) for the recorded event
 contract, the read-only mission report and its limits. Auto-land and recovery
 outcome projections remain open.
 
+## Mission recovery detail
+
+See [mission recovery detail](backend-recovery.md) for the read-only recovery
+report contract, its scope and its limits.
+
 ## Landing record scope
 
 Auto-land history needs the landing handler's merge entries and events. The

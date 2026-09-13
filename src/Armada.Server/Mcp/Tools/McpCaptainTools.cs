@@ -23,6 +23,10 @@ namespace Armada.Server.Mcp.Tools
     /// </summary>
     public static class McpCaptainTools
     {
+        // MCP operator tools carry no per-caller identity, so quarantine requests run in the unscoped operator scope.
+        private static readonly AuthContext _OperatorScope = AuthContext.Authenticated(
+            ArmadaConstants.DefaultTenantId, ArmadaConstants.DefaultUserId, true, true, "Mcp");
+
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -284,26 +288,24 @@ namespace Armada.Server.Mcp.Tools
                         if (String.IsNullOrWhiteSpace(request.Reason))
                             return CreateToolErrorResponse("reason is required so the bench is auditable.");
 
-                        Captain? existing = await database.Captains.ReadAsync(request.CaptainId).ConfigureAwait(false);
-                        if (existing == null)
-                            return CreateToolErrorResponse("Captain not found: " + request.CaptainId);
-
-                        // A Working captain owns a live mission and dock; benching would null those
-                        // out underneath the running process. Recall it first so the mission is
-                        // released through the normal path.
-                        if (existing.State == CaptainStateEnum.Working)
-                            return CreateToolErrorResponse(
-                                "Cannot bench captain while state is Working. Stop it first with armada_stop_captain, then bench.");
+                        // The service writes only while the captain is Idle (or already benched) and owns no
+                        // mission, dock or process, so a captain claimed after this request keeps its work.
+                        if (request.DurationMinutes.HasValue && request.DurationMinutes.Value <= 0)
+                            return CreateToolErrorResponse("durationMinutes must be positive; omit it for a hold that lasts until released.");
 
                         DateTime? untilUtc = ResolveBenchExpiry(request);
-                        Captain? benched = await captainQuarantine.BenchAsync(
-                            request.CaptainId, request.Reason, untilUtc).ConfigureAwait(false);
-                        if (benched == null)
-                            return CreateToolErrorResponse("Captain not found: " + request.CaptainId);
+                        CaptainQuarantineResult result = await captainQuarantine.QuarantineCaptainAsync(
+                            _OperatorScope, request.CaptainId, request.Reason, untilUtc).ConfigureAwait(false);
+                        if (result.Outcome == CaptainQuarantineOutcomeEnum.Busy)
+                            return CreateToolErrorResponse(result.Message + " Use armada_stop_captain first.");
+                        if (result.Outcome != CaptainQuarantineOutcomeEnum.Quarantined || result.Captain == null)
+                            return CreateToolErrorResponse(result.Message);
 
+                        Captain benched = result.Captain;
                         return (object)new
                         {
                             Status = "benched",
+                            Outcome = result.Outcome.ToString(),
                             CaptainId = benched.Id,
                             benched.Name,
                             State = benched.State.ToString(),
@@ -330,16 +332,19 @@ namespace Armada.Server.Mcp.Tools
                         if (String.IsNullOrWhiteSpace(request.CaptainId))
                             return CreateToolErrorResponse("captainId is required.");
 
-                        Captain? restored = await captainQuarantine.UnbenchAsync(request.CaptainId).ConfigureAwait(false);
-                        if (restored == null)
-                            return CreateToolErrorResponse("Captain not found: " + request.CaptainId);
+                        CaptainQuarantineResult result = await captainQuarantine.ReleaseCaptainAsync(
+                            _OperatorScope, request.CaptainId).ConfigureAwait(false);
+                        if (result.Captain == null
+                            || (result.Outcome != CaptainQuarantineOutcomeEnum.Released && result.Outcome != CaptainQuarantineOutcomeEnum.NotQuarantined))
+                            return CreateToolErrorResponse(result.Message);
 
                         return (object)new
                         {
-                            Status = "restored",
-                            CaptainId = restored.Id,
-                            restored.Name,
-                            State = restored.State.ToString()
+                            Status = result.Outcome == CaptainQuarantineOutcomeEnum.Released ? "restored" : "not_quarantined",
+                            Outcome = result.Outcome.ToString(),
+                            CaptainId = result.Captain.Id,
+                            result.Captain.Name,
+                            State = result.Captain.State.ToString()
                         };
                     });
             }
@@ -495,10 +500,11 @@ namespace Armada.Server.Mcp.Tools
         /// </summary>
         private static DateTime? ResolveBenchExpiry(CaptainBenchArgs request)
         {
+            // The service normalizes the expiry (a value without a zone is UTC) and rejects one that is not in the future.
             if (request.UntilUtc.HasValue)
-                return request.UntilUtc.Value.ToUniversalTime();
+                return request.UntilUtc.Value;
 
-            if (request.DurationMinutes.HasValue && request.DurationMinutes.Value > 0)
+            if (request.DurationMinutes.HasValue)
                 return DateTime.UtcNow.AddMinutes(request.DurationMinutes.Value);
 
             return null;

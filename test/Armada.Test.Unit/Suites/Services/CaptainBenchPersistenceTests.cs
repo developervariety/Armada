@@ -26,6 +26,9 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Suite name.</summary>
         public override string Name => "Captain Bench Persistence";
 
+        private static readonly AuthContext _OperatorAuth = AuthContext.Authenticated(
+            Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, true, true, "Test");
+
         private static LoggingModule CreateLogging()
         {
             LoggingModule logging = new LoggingModule();
@@ -51,9 +54,55 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<bool> HasRecoveredAsync(Captain captain, CancellationToken token = default) => Task.FromResult(true);
         }
 
+        /// <summary>Quota probe double that places an indefinite operator hold on the captain while the probe runs,
+        /// then reports recovery -- the interleaving in which a sweep acting on its earlier read would clear a newer hold.</summary>
+        private sealed class HoldPlacedDuringProbe : ICaptainQuotaProbe
+        {
+            private readonly SqliteDatabaseDriver _Database;
+
+            public HoldPlacedDuringProbe(SqliteDatabaseDriver database)
+            {
+                _Database = database;
+            }
+
+            public async Task<bool> HasRecoveredAsync(Captain captain, CancellationToken token = default)
+            {
+                Captain? current = await _Database.Captains.ReadAsync(captain.Id, token).ConfigureAwait(false);
+                current!.QuarantineUntilUtc = null;
+                current.QuarantineReason = "operator indefinite hold";
+                await _Database.Captains.UpdateAsync(current, token).ConfigureAwait(false);
+                return true;
+            }
+        }
+
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("ProbeRestore_DoesNotReleaseAnIndefiniteHoldPlacedWhileTheProbeRan", async () =>
+            {
+                using (TestDatabase testDatabase = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SqliteDatabaseDriver database = testDatabase.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    settings.CaptainQuarantine.UseProbeOnRestore = true;
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(database, settings, CreateLogging(), new HoldPlacedDuringProbe(database));
+
+                    Captain captain = new Captain("probe-interleave-captain");
+                    captain.State = CaptainStateEnum.Quarantined;
+                    captain.QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(30);
+                    captain.QuarantineReason = "quota backoff";
+                    await database.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    await quarantine.RestoreExpiredQuarantinesAsync().ConfigureAwait(false);
+
+                    Captain? after = await database.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Quarantined, after!.State,
+                        "An indefinite hold placed while the probe ran must not be released by the sweep's earlier read.");
+                    AssertEqual("operator indefinite hold", after.QuarantineReason, "The newer hold's reason is kept.");
+                    AssertNull(after.QuarantineUntilUtc, "The newer hold stays indefinite.");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("IndefiniteOperatorBench_HasNoExpiryWindow", async () =>
             {
                 using (TestDatabase testDatabase = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -63,9 +112,9 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Captain captain = await database.Captains.CreateAsync(new Captain("indefinite-bench-captain")).ConfigureAwait(false);
 
-                    Captain? benched = await quarantine.BenchAsync(captain.Id, "operator hold", null).ConfigureAwait(false);
+                    Captain? benched = (await quarantine.QuarantineCaptainAsync(_OperatorAuth, captain.Id, "operator hold", null).ConfigureAwait(false)).Captain;
 
-                    AssertNotNull(benched, "BenchAsync should resolve the captain.");
+                    AssertNotNull(benched, "The bench should resolve the captain.");
                     AssertEqual(CaptainStateEnum.Quarantined, benched!.State, "An operator bench should quarantine the captain.");
                     AssertNull(benched.QuarantineUntilUtc,
                         "An operator bench with no expiry must persist a null window (indefinite hold), not a coerced backoff deadline.");
@@ -82,7 +131,7 @@ namespace Armada.Test.Unit.Suites.Services
                     CaptainQuarantineService quarantine = new CaptainQuarantineService(database, settings, CreateLogging(), new AlwaysRecoveredProbe());
 
                     Captain captain = await database.Captains.CreateAsync(new Captain("held-bench-captain")).ConfigureAwait(false);
-                    await quarantine.BenchAsync(captain.Id, "operator hold", null).ConfigureAwait(false);
+                    await quarantine.QuarantineCaptainAsync(_OperatorAuth, captain.Id, "operator hold", null).ConfigureAwait(false);
 
                     await quarantine.RestoreExpiredQuarantinesAsync().ConfigureAwait(false);
 
@@ -103,7 +152,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Captain captain = await database.Captains.CreateAsync(new Captain("timed-bench-captain")).ConfigureAwait(false);
                     DateTime until = DateTime.UtcNow.AddMinutes(30);
-                    await quarantine.BenchAsync(captain.Id, "operator hold until window", until).ConfigureAwait(false);
+                    await quarantine.QuarantineCaptainAsync(_OperatorAuth, captain.Id, "operator hold until window", until).ConfigureAwait(false);
 
                     Captain? benched = await database.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
                     AssertNotNull(benched!.QuarantineUntilUtc, "An operator bench with an explicit expiry should retain a finite window.");

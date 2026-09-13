@@ -80,6 +80,28 @@ namespace Armada.Core.Database.Interfaces
         Task<bool> TryClaimAsync(string captainId, string missionId, string dockId, CancellationToken token = default);
 
         /// <summary>
+        /// Atomically quarantine a captain that owns no work. Sets state to Quarantined with the reason and expiry
+        /// (null expiry is an indefinite hold), but only while the captain is Idle or already Quarantined and has no
+        /// current mission, dock or process. Returns false when that condition no longer holds, so a captain that
+        /// was claimed or started a process after it was read is never stripped of its work.
+        /// </summary>
+        Task<bool> TryQuarantineIdleAsync(string captainId, string reason, DateTime? untilUtc, CancellationToken token = default);
+
+        /// <summary>
+        /// Atomically release a quarantine. Sets state to Idle and clears the reason and expiry, but only while the
+        /// captain is Quarantined. Returns false when the captain was not quarantined, so a working captain is never
+        /// forced to Idle.
+        /// </summary>
+        Task<bool> TryReleaseQuarantineAsync(string captainId, CancellationToken token = default);
+
+        /// <summary>
+        /// Atomically release a timed quarantine. Succeeds only while the captain is Quarantined with a non-null expiry
+        /// and, when <paramref name="expiredAtOrBeforeUtc"/> is given, only when that expiry is at or before it. An
+        /// indefinite hold (null expiry) placed after the caller read the captain is never released by this call.
+        /// </summary>
+        Task<bool> TryReleaseTimedQuarantineAsync(string captainId, DateTime? expiredAtOrBeforeUtc, CancellationToken token = default);
+
+        /// <summary>
         /// Read a captain by tenant and identifier (tenant-scoped).
         /// </summary>
         Task<Captain?> ReadAsync(string tenantId, string id, CancellationToken token = default);

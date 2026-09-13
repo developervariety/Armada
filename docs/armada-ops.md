@@ -1188,13 +1188,22 @@ shows only critical items).
 | Interrupt | `armada_stop_captain`, `armada_stop_all` |
 | Destructive | `armada_delete_captain`, `armada_delete_captains` |
 
-Captain Detail already has **Lift Quarantine** through
-`POST /api/v1/captains/{id}/unquarantine`. Manual timed or indefinite holds use
-MCP `armada_bench_captain`; release uses `armada_unbench_captain`. The current
-REST release writes state directly, while MCP uses the quarantine service.
-Shared service wiring and list actions are tracked integration work. Do not
-assume that a manual bench safely stops an active process: verify and reconcile
-active mission/process ownership before changing its hold.
+Manual holds and releases share one quarantine service. REST
+`POST /api/v1/captains/{id}/quarantine` and MCP `armada_bench_captain` hold a
+captain with a required reason and an optional expiry (none is an indefinite
+hold). REST `POST /api/v1/captains/{id}/unquarantine`, MCP
+`armada_unbench_captain` and Captain Detail **Lift Quarantine** release it. The
+hold is a conditional database write: it applies only while the captain is Idle
+(or already held) and owns no mission, dock or process, so a bench never strips
+work from a running agent. A refused hold returns `Busy` (HTTP 409); stop the
+captain first. A release applies only to a quarantined captain and never forces
+a Working captain to Idle. The expiry sweep and quota probe release only a
+hold that is still timed (the sweep also requires the expiry to have passed),
+so an indefinite hold placed while a probe runs survives. A provider spend cap
+holds the failing captain and every idle captain on the capped model; a busy
+sibling keeps its mission, dock and process and is held when its own run
+returns the cap. The captains list and Captain Detail show the hold reason and
+expiry and offer **Quarantine** and **Lift Quarantine**.
 
 ### 8.4 Voyages And Missions
 

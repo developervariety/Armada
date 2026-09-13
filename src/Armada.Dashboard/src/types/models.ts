@@ -170,6 +170,22 @@ export interface Captain {
   lastUpdateUtc: string;
 }
 
+/** Outcome of a manual quarantine or release, returned by the shared quarantine service. */
+export type CaptainQuarantineOutcome = 'Quarantined' | 'Released' | 'NotQuarantined' | 'Busy' | 'NotFound' | 'InvalidRequest';
+
+/** Manual quarantine request. With neither untilUtc nor durationMinutes the hold lasts until released. */
+export interface CaptainQuarantineRequest {
+  reason: string;
+  untilUtc?: string | null;
+  durationMinutes?: number | null;
+}
+
+export interface CaptainQuarantineResult {
+  outcome: CaptainQuarantineOutcome;
+  captain: Captain | null;
+  message: string;
+}
+
 export interface CaptainToolSummary {
   name: string;
   description: string;

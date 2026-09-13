@@ -14,6 +14,40 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Shared, ownership-safe captain quarantine
+
+- Manual quarantine and release use one scoped service for REST, MCP and the
+  dashboard. New `POST /api/v1/captains/{id}/quarantine` takes a required
+  reason and an optional expiry or duration; `unquarantine` now goes through the
+  same service and returns a typed `CaptainQuarantineResult` (Quarantined,
+  Released, NotQuarantined, Busy, NotFound, InvalidRequest).
+- The hold is a conditional database write on all four providers: it applies
+  only while the captain is Idle or already held and owns no mission, dock or
+  process. Before, a manual bench cleared a running captain's mission, dock and
+  process, and a release forced any captain, including a Working one, to Idle.
+  The REST release no longer writes captain state directly, and the id-only
+  `BenchAsync`/`UnbenchAsync` and whole-row `ClearQuarantineAsync` service
+  methods were removed in favor of the scoped API.
+- The expiry sweep and quota probe release only a hold that is still timed, so
+  an indefinite operator hold placed while a probe runs is no longer cleared
+  from the sweep's earlier read.
+- A provider spend cap no longer strips work from other captains on the capped
+  model: the failing captain and idle siblings are held, and a busy sibling keeps
+  its mission, dock and process until its own run returns the cap.
+- The captains list shows the hold reason and expiry and offers Quarantine and
+  Lift Quarantine; Captain Detail adds Quarantine. Both use one dialog (reason
+  plus a duration, an expiry, or until released) and report the server's typed
+  outcome, including Busy and NotQuarantined.
+
+### Mission recovery detail
+
+- `GET /api/v1/missions/{id}/recovery` returns recorded recovery counters
+  against the current rescue budget, landing retries, rescue missions, linked
+  incidents with their runbook executions, and recent recovery events, in the
+  caller's scope. It reuses the scoped incident and runbook services, redacts
+  and bounds free text, dispatches nothing, and never reads a rescue's Complete
+  status as a landing.
+
 ### Landing records carry the mission owner's scope
 
 - The landing handler now writes the mission's tenant and user on the merge

@@ -78,10 +78,12 @@ project profiles, captain assignment, jobs, token accounting, friction reports
 and coordination leases. A shared feature name does not imply equal behavior.
 The fork's recovery and Judge gates remain more complete.
 
-Captain Detail already provides **Lift Quarantine**. MCP provides manual bench
-and unbench. Manual list controls and shared REST/service release semantics
-remain planned work. Upstream's quarantine list chip is useful, but replacing
-the fork service would lose indefinite holds and provider-specific behavior.
+Manual quarantine and release share one service across REST, MCP and Captain
+Detail **Lift Quarantine**. A hold is refused while the captain owns a mission,
+dock or process, and a release never forces a working captain to Idle. Manual
+list controls remain planned dashboard work. Upstream's quarantine list chip is
+useful, but replacing the fork service would lose indefinite holds and
+provider-specific behavior.
 
 Preserve the fork's official MCP SDK, provider injection, settings-driven
 routing, preparation records, coordination pages, output evidence, memory

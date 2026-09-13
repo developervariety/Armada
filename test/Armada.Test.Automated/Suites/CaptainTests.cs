@@ -1090,6 +1090,53 @@ namespace Armada.Test.Automated.Suites
 
             #endregion
 
+            #region Quarantine
+
+            await RunTest("Captain_Quarantine_And_Release_Through_Shared_Service", async () =>
+            {
+                Captain captain = await CreateCaptainAsync("quarantine-api");
+                string url = "/api/v1/captains/" + captain.Id;
+
+                HttpResponseMessage missingReason = await _Client.PostAsync(url + "/quarantine", JsonHelper.ToJsonContent(new { DurationMinutes = 30 }));
+                AssertEqual(HttpStatusCode.BadRequest, missingReason.StatusCode, "A reason is required");
+
+                HttpResponseMessage pastExpiry = await _Client.PostAsync(url + "/quarantine",
+                    JsonHelper.ToJsonContent(new { Reason = "hold", UntilUtc = DateTime.UtcNow.AddMinutes(-5) }));
+                AssertEqual(HttpStatusCode.BadRequest, pastExpiry.StatusCode, "A past expiry is rejected");
+
+                HttpResponseMessage held = await _Client.PostAsync(url + "/quarantine",
+                    JsonHelper.ToJsonContent(new { Reason = "provider out of balance", DurationMinutes = 30 }));
+                AssertEqual(HttpStatusCode.OK, held.StatusCode, "Quarantine succeeds for an idle captain");
+                CaptainQuarantineResult heldResult = await JsonHelper.DeserializeAsync<CaptainQuarantineResult>(held);
+                AssertEqual(Armada.Core.Enums.CaptainQuarantineOutcomeEnum.Quarantined, heldResult.Outcome, "Quarantined outcome");
+                AssertEqual("provider out of balance", heldResult.Captain!.QuarantineReason, "Reason recorded");
+                Assert(heldResult.Captain.QuarantineUntilUtc.HasValue, "A duration produces an expiry");
+
+                HttpResponseMessage reloaded = await _Client.GetAsync(url);
+                Captain after = await JsonHelper.DeserializeAsync<Captain>(reloaded);
+                AssertEqual(Armada.Core.Enums.CaptainStateEnum.Quarantined, after.State, "The hold survives reload");
+                AssertEqual("provider out of balance", after.QuarantineReason, "The reason survives reload");
+
+                HttpResponseMessage released = await _Client.PostAsync(url + "/unquarantine", null);
+                AssertEqual(HttpStatusCode.OK, released.StatusCode, "Release succeeds");
+                CaptainQuarantineResult releasedResult = await JsonHelper.DeserializeAsync<CaptainQuarantineResult>(released);
+                AssertEqual(Armada.Core.Enums.CaptainQuarantineOutcomeEnum.Released, releasedResult.Outcome, "Released outcome");
+
+                HttpResponseMessage again = await _Client.PostAsync(url + "/unquarantine", null);
+                AssertEqual(HttpStatusCode.OK, again.StatusCode, "A repeated release is not an error");
+                CaptainQuarantineResult againResult = await JsonHelper.DeserializeAsync<CaptainQuarantineResult>(again);
+                AssertEqual(Armada.Core.Enums.CaptainQuarantineOutcomeEnum.NotQuarantined, againResult.Outcome, "A repeated release changes nothing");
+
+                HttpResponseMessage unknown = await _Client.PostAsync("/api/v1/captains/cpt_does_not_exist/quarantine",
+                    JsonHelper.ToJsonContent(new { Reason = "hold" }));
+                AssertEqual(HttpStatusCode.NotFound, unknown.StatusCode, "Unknown captain");
+
+                HttpResponseMessage anonymous = await _UnauthClient.PostAsync(url + "/quarantine", JsonHelper.ToJsonContent(new { Reason = "hold" }));
+                AssertEqual(HttpStatusCode.Unauthorized, anonymous.StatusCode, "Unauthenticated callers are refused");
+            });
+
+            #endregion
+
             // Cleanup
             foreach (string id in _CreatedCaptainIds)
             {

@@ -33,6 +33,7 @@ namespace Armada.Server.Routes
         private readonly PlanningSessionCoordinator? _planningSessions;
         private readonly ObjectiveRefinementCoordinator? _objectiveRefinementSessions;
         private readonly LoggingModule? _Logging;
+        private readonly ICaptainQuarantineService _captainQuarantine;
         private string _Header = "[CaptainRoutes] ";
 
         /// <summary>
@@ -49,6 +50,7 @@ namespace Armada.Server.Routes
         /// <param name="planningSessions">Optional planning session coordinator for captain-planning ownership handoff.</param>
         /// <param name="objectiveRefinementSessions">Optional objective refinement coordinator for captain-refinement ownership handoff.</param>
         /// <param name="logging">Optional logging module for structured warning output.</param>
+        /// <param name="captainQuarantine">Shared quarantine service; the server passes the same instance MCP uses.</param>
         public CaptainRoutes(
             DatabaseDriver database,
             IAdmiralService admiral,
@@ -60,8 +62,10 @@ namespace Armada.Server.Routes
             JsonSerializerOptions jsonOptions,
             PlanningSessionCoordinator? planningSessions = null,
             ObjectiveRefinementCoordinator? objectiveRefinementSessions = null,
-            LoggingModule? logging = null)
+            LoggingModule? logging = null,
+            ICaptainQuarantineService? captainQuarantine = null)
         {
+            _captainQuarantine = captainQuarantine ?? new CaptainQuarantineService(database, settings, logging ?? new LoggingModule());
             _database = database;
             _admiral = admiral;
             _settings = settings;
@@ -93,6 +97,27 @@ namespace Armada.Server.Routes
                 lines.Add(line);
             }
             return lines.ToArray();
+        }
+
+        /// <summary>
+        /// Map a quarantine outcome to one HTTP status: 404 not found, 400 invalid, 409 busy, otherwise 200.
+        /// </summary>
+        private static object QuarantineResponse(ApiRequest req, CaptainQuarantineResult result)
+        {
+            switch (result.Outcome)
+            {
+                case CaptainQuarantineOutcomeEnum.NotFound:
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = result.Message };
+                case CaptainQuarantineOutcomeEnum.InvalidRequest:
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = result.Message };
+                case CaptainQuarantineOutcomeEnum.Busy:
+                    req.Http.Response.StatusCode = 409;
+                    return result;
+                default:
+                    return result;
+            }
         }
 
         /// <summary>
@@ -396,29 +421,62 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 string uqId = req.Parameters["id"];
-                Captain? uqCaptain = ctx.IsAdmin
-                    ? await _database.Captains.ReadAsync(uqId).ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Captains.ReadAsync(ctx.TenantId!, uqId).ConfigureAwait(false)
-                        : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, uqId).ConfigureAwait(false);
-                if (uqCaptain == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" }; }
-
-                if (uqCaptain.State != CaptainStateEnum.Quarantined)
-                    return (object)new { Status = "not_quarantined", CaptainId = uqCaptain.Id };
-
-                uqCaptain.State = CaptainStateEnum.Idle;
-                uqCaptain.QuarantineUntilUtc = null;
-                uqCaptain.QuarantineReason = null;
-                uqCaptain.LastUpdateUtc = DateTime.UtcNow;
-                uqCaptain = await _database.Captains.UpdateAsync(uqCaptain).ConfigureAwait(false);
-                return (object)uqCaptain;
+                CaptainQuarantineResult released = await _captainQuarantine.ReleaseCaptainAsync(ctx, uqId).ConfigureAwait(false);
+                return QuarantineResponse(req, released);
             },
             api => api
                 .WithTag("Captains")
                 .WithSummary("Lift a captain's quarantine")
-                .WithDescription("Restores a quarantined captain to the idle pool and clears its quarantine reason and reset window.")
+                .WithDescription("Releases a quarantined captain to Idle through the shared quarantine service. A captain that is not quarantined is left unchanged and reported as NotQuarantined.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Captain ID (cpt_ prefix)"))
-                .WithResponse(200, OpenApiJson.For<Captain>("Unquarantined captain"))
+                .WithResponse(200, OpenApiJson.For<CaptainQuarantineResult>("Quarantine release outcome"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Post("/api/v1/captains/{id}/quarantine", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+
+                CaptainQuarantineRequest? body = null;
+                try
+                {
+                    string raw = req.Http.Request.DataAsString;
+                    body = String.IsNullOrWhiteSpace(raw) ? null : JsonSerializer.Deserialize<CaptainQuarantineRequest>(raw, _jsonOptions);
+                }
+                catch (JsonException)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Request body is not valid JSON" };
+                }
+
+                if (body?.DurationMinutes != null && body.DurationMinutes.Value <= 0)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "DurationMinutes must be positive" };
+                }
+
+                DateTime? untilUtc = body?.UntilUtc;
+                if (!untilUtc.HasValue && body?.DurationMinutes != null)
+                    untilUtc = DateTime.UtcNow.AddMinutes(body.DurationMinutes.Value);
+
+                CaptainQuarantineResult quarantined = await _captainQuarantine.QuarantineCaptainAsync(
+                    ctx, req.Parameters["id"], body?.Reason, untilUtc).ConfigureAwait(false);
+                return QuarantineResponse(req, quarantined);
+            },
+            api => api
+                .WithTag("Captains")
+                .WithSummary("Quarantine a captain")
+                .WithDescription("Holds a captain out of assignment with a required reason and an optional expiry (UntilUtc, or DurationMinutes; neither is an indefinite hold). The write succeeds only while the captain is Idle or already quarantined and owns no mission, dock or process; otherwise it returns 409 with outcome Busy and nothing changes.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Captain ID (cpt_ prefix)"))
+                .WithRequestBody(OpenApiJson.BodyFor<CaptainQuarantineRequest>("Quarantine request", true))
+                .WithResponse(200, OpenApiJson.For<CaptainQuarantineResult>("Quarantine outcome"))
+                .WithResponse(409, OpenApiJson.For<CaptainQuarantineResult>("Refused: the captain owns work or is not Idle"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 
