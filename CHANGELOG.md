@@ -14,6 +14,14 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Skipped definition-of-done results
+
+- The mission activity log records a skipped definition-of-done gate
+  (disabled, persona not applied, doc-only marker) as `validation skipped`
+  with its reason. It no longer writes `validation passed` for a gate that ran
+  no build or test. Completion policy is unchanged: a skipped gate still
+  accepts the work.
+
 ### Effective landing previews
 
 - Landing previews share the handler's voyage, vessel, global and legacy

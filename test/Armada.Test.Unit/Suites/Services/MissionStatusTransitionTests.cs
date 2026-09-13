@@ -139,6 +139,49 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // A skipped definition-of-done result carries Passed=true so that completion policy
+            // accepts it. The activity log must still say the gate was skipped: "validation passed"
+            // reads later as a build and test run that never happened.
+            await RunTest("HandleCompletion records a skipped DoD gate as skipped, not passed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_dod_skip_" + Guid.NewGuid().ToString("N"));
+                    try
+                    {
+                        IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                        ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                        MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                        missionService.DefinitionOfDone = new DefinitionOfDoneGate(
+                            new DefinitionOfDoneSettings { Enabled = false }, testDb.Driver, logging);
+
+                        TestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver);
+                        await missionService.HandleCompletionAsync(entities.Captain);
+
+                        string logPath = Path.Combine(settings.LogDirectory, "missions", entities.Mission.Id + ".log");
+                        AssertTrue(File.Exists(logPath), "Completion should write the mission activity log");
+                        string activity = await File.ReadAllTextAsync(logPath);
+                        AssertTrue(activity.Contains("validation started: definition-of-done gate", StringComparison.Ordinal),
+                            "The gate should have been evaluated. Activity: " + activity);
+                        AssertTrue(activity.Contains("validation skipped: DoD gate is disabled", StringComparison.Ordinal),
+                            "A skipped gate must be reported as skipped. Activity: " + activity);
+                        AssertFalse(activity.Contains("validation passed: definition-of-done gate", StringComparison.Ordinal),
+                            "A skipped gate must not be reported as passed. Activity: " + activity);
+
+                        Mission? updated = await testDb.Driver.Missions.ReadAsync(entities.Mission.Id);
+                        AssertNotNull(updated, "Mission should exist after completion");
+                        AssertEqual(MissionStatusEnum.WorkProduced, updated!.Status, "A skipped gate must not change completion policy");
+                    }
+                    finally
+                    {
+                        if (Directory.Exists(settings.LogDirectory)) Directory.Delete(settings.LogDirectory, true);
+                    }
+                }
+            });
+
             // Regression: a mission retried after a failed attempt kept the earlier attempt's
             // FailureReason forever. The requeue paths leave that text in place on purpose, so a
             // Pending mission shows why it is being retried -- but nothing cleared it when a later

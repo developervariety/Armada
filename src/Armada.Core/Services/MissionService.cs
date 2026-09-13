@@ -1714,7 +1714,14 @@ namespace Armada.Core.Services
                 {
                     await AppendMissionActivityAsync(mission.Id, "validation started: definition-of-done gate", token).ConfigureAwait(false);
                     DefinitionOfDoneResult dodResult = await _DefinitionOfDoneGate.EvaluateAsync(mission, dock, token).ConfigureAwait(false);
-                    if (!dodResult.Passed && String.IsNullOrEmpty(dodResult.SkippedReason))
+                    // A skipped result carries Passed=true so completion accepts it. Report it as
+                    // skipped before the passed branch: "validation passed" would claim a build
+                    // and test run that never happened.
+                    if (!String.IsNullOrEmpty(dodResult.SkippedReason))
+                    {
+                        await AppendMissionActivityAsync(mission.Id, "validation skipped: " + dodResult.SkippedReason, token).ConfigureAwait(false);
+                    }
+                    else if (!dodResult.Passed)
                     {
                         failedForDodGate = true;
                         mission.Status = MissionStatusEnum.Failed;
@@ -1726,13 +1733,9 @@ namespace Armada.Core.Services
                         _Logging.Warn(_Header + "mission " + mission.Id + " failed DoD gate classification=" +
                             dodResult.FailureClass);
                     }
-                    else if (dodResult.Passed)
-                    {
-                        await AppendMissionActivityAsync(mission.Id, "validation passed: definition-of-done gate", token).ConfigureAwait(false);
-                    }
                     else
                     {
-                        await AppendMissionActivityAsync(mission.Id, "validation skipped: " + dodResult.SkippedReason, token).ConfigureAwait(false);
+                        await AppendMissionActivityAsync(mission.Id, "validation passed: definition-of-done gate", token).ConfigureAwait(false);
                     }
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)

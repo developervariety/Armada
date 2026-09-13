@@ -179,3 +179,14 @@ open.
 See [effective landing configuration](backend-landing.md) for shared resolution,
 scoped voyage overrides and preview limits. DoD, auto-land and recovery outcomes
 remain open; this read projection does not replace execution gates.
+
+## Skipped definition-of-done reporting
+
+A skipped gate result sets `Passed=true` so completion accepts the work. The
+completion activity log checked `Passed` first, so a disabled gate wrote
+`validation passed: definition-of-done gate`. The log now checks the skip
+reason first and writes `validation skipped: <reason>`. Failure and completion
+decisions are unchanged. A regression case in the mission status transition
+suite reads the actual mission activity log. It failed before the change and
+passed after it, and the mission still reaches WorkProduced. This corrects
+reporting only. Structured historical DoD results are not yet persisted.
