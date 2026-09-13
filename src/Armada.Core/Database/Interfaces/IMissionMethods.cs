@@ -20,6 +20,17 @@ namespace Armada.Core.Database.Interfaces
         }
 
         /// <summary>
+        /// Record admission evidence only if a loaded pending mission has not changed.
+        /// A refused decision sets WaitingForResourcePressure in the same conditional write.
+        /// This operation cannot assign work, restore ownership or change process identity.
+        /// </summary>
+        Task<bool> TryRecordAdmissionAsync(Mission expected, MissionAdmissionObservation observation,
+            CancellationToken token = default)
+        {
+            throw new NotSupportedException("Admission observation persistence is not implemented by this database.");
+        }
+
+        /// <summary>
         /// Create a mission.
         /// </summary>
         Task<Mission> CreateAsync(Mission mission, CancellationToken token = default);

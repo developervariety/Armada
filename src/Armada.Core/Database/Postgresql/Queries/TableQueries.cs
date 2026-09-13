@@ -1045,6 +1045,10 @@ namespace Armada.Core.Database.Postgresql.Queries
                         FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
                     );",
                     @"CREATE INDEX IF NOT EXISTS idx_memory_tags_tag ON memory_tags(tag);"
+                ),
+                new SchemaMigration(88, "Persist last admission observations",
+                    @"ALTER TABLE missions ADD COLUMN last_admission_json TEXT NULL;",
+                    @"ALTER TABLE missions ADD COLUMN admission_revision BIGINT NOT NULL DEFAULT 0;"
                 )
             };
         }

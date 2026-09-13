@@ -233,7 +233,7 @@ namespace Armada.Core.Database.Sqlite
                                 cmd.CommandText = sql;
                                 try
                                 {
-                                    if (migration.Version == 83 || migration.Version == 84 || migration.Version == 85)
+                                    if (migration.Version == 83 || migration.Version == 84 || migration.Version == 85 || migration.Version == 87)
                                         await AdditiveColumnMigration.ExecuteAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, sql, token).ConfigureAwait(false);
                                     else
                                         await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);

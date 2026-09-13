@@ -70,3 +70,9 @@ preferences and voyage planning provenance. See [backend storage](../../docs/ups
 `anchor-migration` checks the populated dock snapshot upgrade, incompatible and
 equivalent columns, partial-failure restart and unchanged applied history on all
 four providers. See [backend anchor evidence](../../docs/upstream-review/backend-anchors.md).
+
+Admission storage has a dedicated `admission-migration` scenario. It starts with
+a populated pre-admission schema, stops after the first new statement, restarts,
+and checks retained data and prior migration history. Ordinary cases also cover
+reopen, concurrent writes, a state cycle, heartbeat invalidation, summary reads,
+redaction and invalid stored evidence.

@@ -44,6 +44,9 @@ namespace Armada.Test.Database
                 DatabaseAssert.Equal(0L, Convert.ToInt64(await ScalarAsync(connection, census, token).ConfigureAwait(false)), "Scenario requires an empty database");
             }
 
+            if (scenario == "admission-migration")
+                await new MissionAdmissionMigrationTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
+
             if (scenario == "postgres-legacy")
                 await new PostgresqlLegacySchemaTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
 
@@ -89,7 +92,7 @@ namespace Armada.Test.Database
                     await Task.WhenAll(firstStart, secondStart).ConfigureAwait(false);
                 }
             }
-            else if (scenario != "fresh" && scenario != "catalog-guards" && scenario != "mysql-compat" && scenario != "sqlserver-corrections" && scenario != "preview-migration" && scenario != "backend-migration" && scenario != "anchor-migration" && scenario != "memory-migration" && scenario != "postgres-legacy")
+            else if (scenario != "fresh" && scenario != "catalog-guards" && scenario != "mysql-compat" && scenario != "sqlserver-corrections" && scenario != "preview-migration" && scenario != "backend-migration" && scenario != "anchor-migration" && scenario != "memory-migration" && scenario != "postgres-legacy" && scenario != "admission-migration")
             {
                 int anchorVersion = _Settings.Type switch
                 {

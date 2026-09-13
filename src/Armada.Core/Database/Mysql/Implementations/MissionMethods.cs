@@ -152,7 +152,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"UPDATE missions SET tier = @tier, requested_captain_id = @requested_captain_id,
+                    cmd.CommandText = "UPDATE missions SET " + MissionAdmissionPersistence.PreserveOwnerSql(DatabaseTypeEnum.Mysql) + @", tier = @tier, requested_captain_id = @requested_captain_id,
                         tenant_id = @tenant_id,
                             user_id = @user_id,
                         voyage_id = @voyage_id,
@@ -274,7 +274,7 @@ namespace Armada.Core.Database.Mysql.Implementations
 
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = "UPDATE missions SET last_update_utc = @last_update_utc WHERE id = @id;";
+                    cmd.CommandText = "UPDATE missions SET admission_revision = admission_revision + 1, last_update_utc = @last_update_utc WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", id);
                     cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(lastUpdateUtc));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);

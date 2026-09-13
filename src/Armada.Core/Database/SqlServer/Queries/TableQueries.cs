@@ -912,6 +912,10 @@ namespace Armada.Core.Database.SqlServer.Queries
                         CONSTRAINT FK_memory_tags_memory FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
                     );",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_memory_tags_tag') CREATE INDEX idx_memory_tags_tag ON memory_tags(tag);"
+                ),
+                new SchemaMigration(82, "Persist last admission observations",
+                    @"ALTER TABLE missions ADD last_admission_json NVARCHAR(MAX) NULL;",
+                    @"ALTER TABLE missions ADD admission_revision BIGINT NOT NULL DEFAULT 0;"
                 )
             };
         }

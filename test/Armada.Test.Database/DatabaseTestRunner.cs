@@ -103,6 +103,8 @@ namespace Armada.Test.Database
             await RunTest("Captain_Create_Read_Update", "Operational", () => TestCaptainCrudAsync(token), token);
             await RunTest("Voyage_Create_Read_Update", "Operational", () => TestVoyageCrudAsync(token), token);
             await RunTest("Voyage_Summary_All_Pages_And_Scopes", "Operational", () => TestVoyageSummaryAsync(token), token);
+            await RunTest("Mission_Admission_Long_Unicode_Ids_And_Reasons", "Operational", () => TestMissionAdmissionUnicodeAsync(token), token);
+            await RunTest("Mission_Admission_Observation_Reopen_And_Stale_Write", "Operational", () => TestMissionAdmissionAsync(token), token);
             await RunTest("Dock_AnchorSnapshot_Create_Reopen", "Operational", () => TestDockAnchorSnapshotAsync(token), token);
             await RunTest("Mission_Create_Read_Update", "Operational", () => TestMissionCrudAsync(token), token);
             await RunTest("Mission_Fork_Fields_Create_Update_Reopen_Query", "Operational", () => TestMissionForkFieldsAsync(token), token);
@@ -727,6 +729,155 @@ namespace Armada.Test.Database
                     await _Driver.Memories.DeleteAsync(tenantB, createdB.Id, token).ConfigureAwait(false);
                 }
             }
+        }
+
+        private async Task TestMissionAdmissionUnicodeAsync(CancellationToken token)
+        {
+            TenantMetadata tenant = new TenantMetadata("admission Unicode")
+            {
+                Id = Guid.NewGuid().ToString("N") + new string('界', 418)
+            };
+            await _Driver.Tenants.CreateAsync(tenant, token);
+            Mission mission = new Mission("Unicode admission", "Full identifiers")
+            {
+                Id = Guid.NewGuid().ToString("N") + new string('雪', 418),
+                TenantId = tenant.Id, UserId = null
+            };
+            try
+            {
+                await _Driver.Missions.CreateAsync(mission, token);
+                Mission loaded = (await _Driver.Missions.ReadAsync(mission.Id, token))!;
+                MissionAdmissionObservation observation = new MissionAdmissionObservation
+                {
+                    MissionId = loaded.Id, TenantId = loaded.TenantId, UserId = loaded.UserId,
+                    VesselId = loaded.VesselId, Admit = false, Reason = new string('語', 1000),
+                    PressureDecision = new ResourcePressureDecision { Admit = false, Reason = new string('界', 1000) }
+                };
+                DatabaseAssert.True(await _Driver.Missions.TryRecordAdmissionAsync(loaded, observation, token), "Valid long Unicode identifiers and reasons fit the evidence bound");
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token))
+                {
+                    Mission stored = (await reopened.Missions.ReadAsync(mission.Id, token))!;
+                    DatabaseAssert.Equal(mission.Id, stored.LastAdmissionObservation?.MissionId, "Full mission identifier survives");
+                    DatabaseAssert.Equal(tenant.Id, stored.LastAdmissionObservation?.TenantId, "Full tenant identifier survives");
+                    DatabaseAssert.Equal(observation.Reason, stored.LastAdmissionObservation?.Reason, "Full bounded Unicode reason survives");
+                }
+            }
+            finally
+            {
+                if (!_NoCleanup)
+                {
+                    await _Driver.Missions.DeleteAsync(mission.Id, token);
+                    await _Driver.Tenants.DeleteAsync(tenant.Id, token);
+                }
+            }
+        }
+
+        private async Task TestMissionAdmissionAsync(CancellationToken token)
+        {
+            Mission mission = await _Driver.Missions.CreateAsync(new Mission("admission 日本語", "Historical evidence"), token);
+            Mission loaded = (await _Driver.Missions.ReadAsync(mission.Id, token))!;
+            DatabaseAssert.True(loaded.LastAdmissionObservation == null, "New missions have no invented observation");
+            MissionAdmissionObservation observation = new MissionAdmissionObservation
+            {
+                MissionId = loaded.Id, TenantId = loaded.TenantId, UserId = loaded.UserId, VesselId = loaded.VesselId,
+                Admit = false, GlobalActiveWorkloads = 3, GlobalWorkloadLimit = 3, GlobalLimitReached = true,
+                Reason = "Global limit 日本語"
+            };
+            DatabaseAssert.True(await _Driver.Missions.TryRecordAdmissionAsync(loaded, observation, token), "First observation recorded");
+            using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token))
+            {
+                Mission stored = (await reopened.Missions.ReadAsync(mission.Id, token))!;
+                DatabaseAssert.Equal(observation.ObservationId, stored.LastAdmissionObservation?.ObservationId, "Observation survives reopen");
+                DatabaseAssert.Equal(observation.Reason, stored.LastAdmissionObservation?.Reason, "Unicode explanation survives reopen");
+                MissionSummary summary = (await reopened.Missions.EnumerateMissionSummariesAsync(new EnumerationQuery { CreatedAfter = mission.CreatedUtc.AddSeconds(-1), PageSize = 100 }, token)).Objects.Find(value => value.Id == mission.Id)!;
+                DatabaseAssert.Equal(observation.ObservationId, summary.LastAdmissionObservation?.ObservationId, "Lightweight summary exposes the recorded decision");
+                DatabaseAssert.Equal(MissionAssignmentStateEnum.WaitingForResourcePressure, stored.AssignmentState, "Refusal and waiting state persist together");
+                DatabaseAssert.True(stored.CaptainId == null && stored.ProcessId == null, "Evidence write cannot acquire process ownership");
+            }
+            DatabaseAssert.True(!await _Driver.Missions.TryRecordAdmissionAsync(loaded, observation, token), "Stale observation cannot overwrite a newer write");
+            Mission beforeCycle = (await _Driver.Missions.ReadAsync(mission.Id, token))!;
+            Mission changed = (await _Driver.Missions.ReadAsync(mission.Id, token))!;
+            changed.Status = MissionStatusEnum.Assigned;
+            await _Driver.Missions.UpdateAsync(changed, token);
+            changed.Status = MissionStatusEnum.Pending;
+            await _Driver.Missions.UpdateAsync(changed, token);
+            using (System.Data.Common.DbConnection connection = MigrationScenarioRunner.CreateConnection(_Settings))
+            {
+                await connection.OpenAsync(token);
+                using (System.Data.Common.DbCommand command = connection.CreateCommand())
+                {
+                    command.CommandText = "UPDATE missions SET last_update_utc=@stamp WHERE id=@id;";
+                    System.Data.Common.DbParameter stamp = command.CreateParameter(); stamp.ParameterName = "@stamp";
+                    stamp.Value = _Settings.Type == DatabaseTypeEnum.Sqlite || _Settings.Type == DatabaseTypeEnum.SqlServer
+                        ? beforeCycle.LastUpdateUtc.ToString("o") : beforeCycle.LastUpdateUtc;
+                    command.Parameters.Add(stamp);
+                    System.Data.Common.DbParameter identifier = command.CreateParameter(); identifier.ParameterName = "@id"; identifier.Value = mission.Id;
+                    command.Parameters.Add(identifier);
+                    await command.ExecuteNonQueryAsync(token);
+                }
+            }
+            DatabaseAssert.True(!await _Driver.Missions.TryRecordAdmissionAsync(beforeCycle, observation, token), "An old snapshot cannot survive a state cycle even with its timestamp restored");
+            Mission contenderA = (await _Driver.Missions.ReadAsync(mission.Id, token))!;
+            Mission contenderB = (await _Driver.Missions.ReadAsync(mission.Id, token))!;
+            bool[] results = await Task.WhenAll(_Driver.Missions.TryRecordAdmissionAsync(contenderA, observation, token),
+                _Driver.Missions.TryRecordAdmissionAsync(contenderB, observation, token));
+            DatabaseAssert.Equal(1, Array.FindAll(results, value => value).Length, "Only one concurrent observation wins");
+            Mission beforeHeartbeat = (await _Driver.Missions.ReadAsync(mission.Id, token))!;
+            await _Driver.Missions.UpdateHeartbeatAsync(mission.Id, token);
+            DatabaseAssert.True(!await _Driver.Missions.TryRecordAdmissionAsync(beforeHeartbeat, observation, token), "Heartbeat invalidates the observation snapshot");
+            Mission current = (await _Driver.Missions.ReadAsync(mission.Id, token))!;
+            observation.GlobalWorkloadLimit = 0;
+            bool rejected = false;
+            try { await _Driver.Missions.TryRecordAdmissionAsync(current, observation, token); }
+            catch (InvalidOperationException) { rejected = true; }
+            DatabaseAssert.True(rejected, "An unlimited policy cannot report a reached global limit");
+            observation.GlobalWorkloadLimit = 3;
+            observation.Reason = "Bearer " + new string('a', 24);
+            using (System.Data.Common.DbConnection connection = MigrationScenarioRunner.CreateConnection(_Settings))
+            {
+                await connection.OpenAsync(token);
+                using (System.Data.Common.DbCommand command = connection.CreateCommand())
+                {
+                    command.CommandText = "UPDATE missions SET last_admission_json=@json WHERE id=@id;";
+                    System.Data.Common.DbParameter payload = command.CreateParameter(); payload.ParameterName = "@json";
+                    payload.Value = System.Text.Json.JsonSerializer.Serialize(observation); command.Parameters.Add(payload);
+                    System.Data.Common.DbParameter identifier = command.CreateParameter(); identifier.ParameterName = "@id"; identifier.Value = mission.Id;
+                    command.Parameters.Add(identifier);
+                    await command.ExecuteNonQueryAsync(token);
+                    Mission redacted = (await _Driver.Missions.ReadAsync(mission.Id, token))!;
+                    DatabaseAssert.True(!redacted.LastAdmissionObservation!.Reason.Contains(new string('a', 24)), "Read redacts stored secrets");
+                    observation.GlobalWorkloadLimit = 0;
+                    payload.Value = System.Text.Json.JsonSerializer.Serialize(observation);
+                    await command.ExecuteNonQueryAsync(token);
+                    Mission invalid = (await _Driver.Missions.ReadAsync(mission.Id, token))!;
+                    DatabaseAssert.True(invalid.LastAdmissionObservation == null, "Contradictory stored evidence is unavailable");
+                    observation.Version = 99;
+                    payload.Value = System.Text.Json.JsonSerializer.Serialize(observation);
+                    await command.ExecuteNonQueryAsync(token);
+                    DatabaseAssert.True((await _Driver.Missions.ReadAsync(mission.Id, token))!.LastAdmissionObservation == null, "Unknown evidence version is unavailable");
+                    payload.Value = "invalid JSON";
+                    await command.ExecuteNonQueryAsync(token);
+                    DatabaseAssert.True((await _Driver.Missions.ReadAsync(mission.Id, token))!.LastAdmissionObservation == null, "Malformed evidence is unavailable");
+                }
+            }
+            observation.Version = 1;
+            observation.GlobalWorkloadLimit = 3;
+            Mission restored = (await _Driver.Missions.ReadAsync(mission.Id, token))!;
+            DatabaseAssert.True(await _Driver.Missions.TryRecordAdmissionAsync(restored, observation, token), "Fresh observation replaces unavailable evidence");
+            Mission staleOwner = (await _Driver.Missions.ReadAsync(mission.Id, token))!;
+            Mission processOwner = (await _Driver.Missions.ReadAsync(mission.Id, token))!;
+            processOwner.ProcessId = 4242;
+            await _Driver.Missions.UpdateAsync(processOwner, token);
+            DatabaseAssert.True(!await _Driver.Missions.TryRecordAdmissionAsync(staleOwner, observation, token), "Ownership change rejects the stale evaluation");
+            DatabaseAssert.Equal(4242, (await _Driver.Missions.ReadAsync(mission.Id, token))!.ProcessId, "Rejected evidence cannot overwrite process ownership");
+            Vessel movedVessel = await _Driver.Vessels.CreateAsync(new Vessel("admission moved", "https://example.invalid/moved"), token);
+            processOwner.VesselId = movedVessel.Id;
+            await _Driver.Missions.UpdateAsync(processOwner, token);
+            DatabaseAssert.True((await _Driver.Missions.ReadAsync(mission.Id, token))!.LastAdmissionObservation == null, "Vessel ownership change clears evidence");
+            await _Driver.Missions.UpdateAsync(staleOwner, token);
+            DatabaseAssert.True((await _Driver.Missions.ReadAsync(mission.Id, token))!.LastAdmissionObservation == null, "An old DTO cannot restore stored evidence");
+            await _Driver.Missions.DeleteAsync(mission.Id, token);
+            await _Driver.Vessels.DeleteAsync(movedVessel.Id, token);
         }
 
         private async Task TestDockAnchorSnapshotAsync(CancellationToken token)

@@ -1575,6 +1575,10 @@ namespace Armada.Core.Database.Sqlite.Queries
                         FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
                     );",
                     @"CREATE INDEX IF NOT EXISTS idx_memory_tags_tag ON memory_tags(tag);"
+                ),
+                new SchemaMigration(87, "Persist last admission observations",
+                    @"ALTER TABLE missions ADD COLUMN last_admission_json TEXT NULL;",
+                    @"ALTER TABLE missions ADD COLUMN admission_revision INTEGER NOT NULL DEFAULT 0;"
                 )
             };
         }

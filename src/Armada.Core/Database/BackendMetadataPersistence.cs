@@ -22,6 +22,7 @@ namespace Armada.Core.Database
 
         internal static void ReadMission(DbDataReader reader, Mission mission)
         {
+            MissionAdmissionPersistence.Read(reader, mission);
             mission.Tier = ReadTier(reader["tier"]);
             mission.RequestedCaptainId = NullableText(reader["requested_captain_id"]);
         }

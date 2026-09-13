@@ -563,6 +563,14 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "vessel " + vessel.Id + " already has " + concurrentCount + " active mission(s) -- potential for conflicts (AllowConcurrentMissions=true)");
             }
 
+            Mission? admissionSnapshot = await _Database.Missions.ReadSummaryAsync(mission.Id, token).ConfigureAwait(false);
+            if (admissionSnapshot == null || admissionSnapshot.Status != MissionStatusEnum.Pending
+                || admissionSnapshot.TenantId != mission.TenantId || admissionSnapshot.UserId != mission.UserId
+                || admissionSnapshot.VesselId != mission.VesselId || admissionSnapshot.CaptainId != mission.CaptainId
+                || admissionSnapshot.DockId != mission.DockId || admissionSnapshot.ProcessId != mission.ProcessId
+                || admissionSnapshot.BranchName != mission.BranchName || admissionSnapshot.VoyageId != mission.VoyageId)
+                return false;
+
             // Both admission controls use the global active workload count. A per-vessel count
             // misses simultaneous compiler and agent pressure from other repositories.
             Dictionary<MissionStatusEnum, int> statusCounts =
@@ -576,18 +584,21 @@ namespace Armada.Core.Services
                     globalActive += inProgressCount;
             }
 
+            DateTime admissionObservedUtc = DateTime.UtcNow;
+            int globalLimit = _Settings.MaxConcurrentCaptainWorkloads;
             bool admissionDeferred = false;
+            ResourcePressureDecision? pressureDecision = null;
             string? deferralReason = null;
-            if (_Settings.MaxConcurrentCaptainWorkloads > 0 &&
-                globalActive >= _Settings.MaxConcurrentCaptainWorkloads)
+            if (globalLimit > 0 && globalActive >= globalLimit)
             {
                 admissionDeferred = true;
                 deferralReason = globalActive + " active captain workload(s) reached global limit "
-                    + _Settings.MaxConcurrentCaptainWorkloads + " (MaxConcurrentCaptainWorkloads).";
+                    + globalLimit + " (MaxConcurrentCaptainWorkloads).";
             }
             else
             {
                 ResourcePressureDecision admission = _ResourcePressureAdmission.Evaluate(globalActive);
+                pressureDecision = admission;
                 admissionDeferred = !admission.Admit;
                 if (admissionDeferred)
                     deferralReason = String.IsNullOrWhiteSpace(admission.Reason)
@@ -595,12 +606,23 @@ namespace Armada.Core.Services
                         : admission.Reason;
             }
 
+            MissionAdmissionObservation observation = new MissionAdmissionObservation
+            {
+                MissionId = admissionSnapshot.Id, TenantId = admissionSnapshot.TenantId,
+                UserId = admissionSnapshot.UserId, VesselId = admissionSnapshot.VesselId,
+                ObservedUtc = admissionObservedUtc, Admit = !admissionDeferred,
+                Reason = deferralReason ?? pressureDecision?.Reason ?? String.Empty,
+                GlobalActiveWorkloads = globalActive, GlobalWorkloadLimit = globalLimit,
+                GlobalLimitReached = pressureDecision == null, PressureDecision = pressureDecision
+            };
+            if (!await _Database.Missions.TryRecordAdmissionAsync(admissionSnapshot, observation, token).ConfigureAwait(false))
+                return false;
+
             if (admissionDeferred)
             {
                 _Logging.Warn(_Header + "resource-pressure admission deferring mission " + mission.Id
                     + " on vessel " + vessel.Id + ": " + deferralReason);
                 mission.AssignmentState = MissionAssignmentStateEnum.WaitingForResourcePressure;
-                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
                 return false;
             }

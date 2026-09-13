@@ -147,7 +147,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"UPDATE missions SET tier = @tier, requested_captain_id = @requested_captain_id,
+                    cmd.CommandText = "UPDATE missions SET " + MissionAdmissionPersistence.PreserveOwnerSql(DatabaseTypeEnum.SqlServer) + @", tier = @tier, requested_captain_id = @requested_captain_id,
                         tenant_id = @tenant_id,
                             user_id = @user_id,
                         voyage_id = @voyage_id,
@@ -265,7 +265,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
 
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = "UPDATE missions SET last_update_utc = @last_update_utc WHERE id = @id;";
+                    cmd.CommandText = "UPDATE missions SET admission_revision = admission_revision + 1, last_update_utc = @last_update_utc WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", id);
                     cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(lastUpdateUtc));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);

@@ -11,6 +11,14 @@ namespace Armada.Core.Models
     {
         #region Public-Members
 
+        /// <summary>Last recorded admission evaluation; null for missing or unsupported old evidence.</summary>
+        public MissionAdmissionObservation? LastAdmissionObservation { get; internal set; }
+
+        internal long AdmissionWriteRevision { get; set; }
+        internal object? AdmissionWriteStamp { get; set; }
+        internal string? AdmissionWriteJson { get; set; }
+
+
         /// <summary>
         /// Unique identifier.
         /// </summary>

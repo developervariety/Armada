@@ -708,8 +708,9 @@ namespace Armada.Test.Unit.Suites.Services
                     StubGitService git = new StubGitService();
                     IDockService docks = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
+                    RefusingAdmissionWithoutReason admission = new RefusingAdmissionWithoutReason();
                     MissionService missions = new MissionService(logging, testDb.Driver, settings, docks, captains,
-                        resourcePressureAdmission: new RefusingAdmissionWithoutReason());
+                        resourcePressureAdmission: admission);
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("admission-test", "https://example.com/repo.git"));
                     Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("refused", "No reason supplied")
                     {
@@ -721,6 +722,21 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(MissionAssignmentStateEnum.WaitingForResourcePressure, stored!.AssignmentState,
                         "The boolean decision controls admission even when its explanation is empty");
                     AssertNull(stored.CaptainId, "Refused work must not claim a captain");
+                    AssertNotNull(stored.LastAdmissionObservation, "The actual refusal must persist");
+                    AssertFalse(stored.LastAdmissionObservation!.Admit, "Stored decision remains refused");
+                    AssertNotNull(stored.LastAdmissionObservation.PressureDecision, "The evaluated pressure decision is retained");
+                    AssertEqual(1, admission.Calls, "One evaluation occurred");
+                    settings.MaxConcurrentCaptainWorkloads = 1;
+                    Vessel other = await testDb.Driver.Vessels.CreateAsync(new Vessel("other-admission", "https://example.com/other.git"));
+                    await testDb.Driver.Missions.CreateAsync(new Mission("active elsewhere", "Global count")
+                    {
+                        VesselId = other.Id, Status = MissionStatusEnum.InProgress
+                    });
+                    AssertFalse(await missions.TryAssignAsync(mission, vessel), "Global limit defers launch");
+                    Mission limited = (await testDb.Driver.Missions.ReadAsync(mission.Id))!;
+                    AssertTrue(limited.LastAdmissionObservation!.GlobalLimitReached, "Global refusal is recorded");
+                    AssertNull(limited.LastAdmissionObservation.PressureDecision, "Pressure was not evaluated after global refusal");
+                    AssertEqual(1, admission.Calls, "Global refusal does not invoke the pressure policy");
                 }
             });
 
@@ -1378,8 +1394,10 @@ namespace Armada.Test.Unit.Suites.Services
 
         private sealed class RefusingAdmissionWithoutReason : IResourcePressureAdmission
         {
+            public int Calls { get; private set; }
             public ResourcePressureDecision Evaluate(int activeBuildPressure)
             {
+                Calls++;
                 return new ResourcePressureDecision { Admit = false, Reason = String.Empty };
             }
 

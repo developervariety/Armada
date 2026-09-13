@@ -31,7 +31,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             "pr_url, commit_hash, NULL AS diff_snapshot, NULL AS agent_output, persona, depends_on_mission_id, " +
             "failure_reason, total_runtime_ms, prestaged_files, preferred_model, capabilityhint, mission_mode, " +
             "recovery_attempts, landing_retry_count, start_from_ref, last_recovery_action_utc, created_utc, started_utc, completed_utc, last_update_utc, " +
-            "retry_skip_captain_ids, tier, requested_captain_id";
+            "retry_skip_captain_ids, tier, requested_captain_id, last_admission_json, admission_revision";
 
         #endregion
 
@@ -193,7 +193,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
                     cmd.Transaction = tx;
-                    cmd.CommandText = @"UPDATE missions SET tier = @tier, requested_captain_id = @requested_captain_id,
+                    cmd.CommandText = "UPDATE missions SET " + MissionAdmissionPersistence.PreserveOwnerSql(DatabaseTypeEnum.Sqlite) + @", tier = @tier, requested_captain_id = @requested_captain_id,
                             tenant_id = @tenant_id,
                             user_id = @user_id,
                             voyage_id = @voyage_id,
@@ -309,7 +309,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
 
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = "UPDATE missions SET last_update_utc = @last_update_utc WHERE id = @id;";
+                    cmd.CommandText = "UPDATE missions SET admission_revision = admission_revision + 1, last_update_utc = @last_update_utc WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", id);
                     cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(lastUpdateUtc));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);

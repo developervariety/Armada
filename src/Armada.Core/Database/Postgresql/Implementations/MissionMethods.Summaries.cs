@@ -15,7 +15,7 @@ id, tenant_id, user_id, voyage_id, vessel_id, captain_id, title, status, mission
 parent_mission_id, branch_name, dock_id, process_id, pr_url, commit_hash,
 persona, depends_on_mission_id, failure_reason, requires_review, review_deny_action,
 review_comment, reviewed_by_user_id, review_requested_utc, reviewed_utc,
-created_utc, started_utc, completed_utc, total_runtime_ms, last_update_utc,
+created_utc, started_utc, completed_utc, total_runtime_ms, last_update_utc, last_admission_json, admission_revision,
 LENGTH(COALESCE(description, '')) AS description_length,
 LENGTH(COALESCE(diff_snapshot, '')) AS diff_snapshot_length,
 LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
@@ -463,8 +463,11 @@ LENGTH(COALESCE(agent_output, '')) AS agent_output_length";
 
         private static MissionSummary MissionSummaryFromReader(NpgsqlDataReader reader)
         {
+            Mission admission = new Mission();
+            MissionAdmissionPersistence.Read(reader, admission);
             MissionSummary summary = new MissionSummary
             {
+                LastAdmissionObservation = admission.LastAdmissionObservation,
                 Id = reader["id"].ToString() ?? String.Empty,
                 TenantId = NullableString(reader["tenant_id"]),
                 UserId = NullableString(reader["user_id"]),

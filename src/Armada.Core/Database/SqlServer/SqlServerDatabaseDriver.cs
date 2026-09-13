@@ -157,7 +157,7 @@ namespace Armada.Core.Database.SqlServer
                                 using (SqlCommand cmd = conn.CreateCommand())
                                 {
                                     cmd.Transaction = tx;
-                                    if (migration.Version == 78 || migration.Version == 79 || migration.Version == 80)
+                                    if (migration.Version == 78 || migration.Version == 79 || migration.Version == 80 || migration.Version == 82)
                                         await AdditiveColumnMigration.ExecuteAsync(conn, tx, DatabaseTypeEnum.SqlServer, sql, token).ConfigureAwait(false);
                                     else
                                     {

@@ -150,8 +150,8 @@ A regression case showed that a custom resource-pressure policy returning
 `Admit=false` with an empty reason continued to captain selection. Assignment now
 uses the boolean result and supplies a fallback explanation. The global workload
 limit still runs first; the pressure probe, OOM cooldown, fleet capacity and
-sibling-lane policies retain their existing order and limits. This repair does
-not yet persist admission measurements or add a read projection.
+sibling-lane policies retain their existing order and limits. This initial repair did
+not persist admission measurements; the implementation below now adds them.
 
 Validation: the new regression failed before the repair (22 passed, 1 failed).
 After repair, all 44 assignment, resource-pressure, fleet-capacity and sibling-lane
@@ -160,6 +160,16 @@ cases passed with zero failures or skips. No schema change or deployment occurre
 The pressure policy now captures a typed reason, evaluation time, active count,
 configured limits and OOM deadline in its decision. Older custom implementations
 retain Unknown and nullable evidence. A regression failed before capture; 45
-focused assignment and capacity cases then passed. These fields are not yet
-persisted. Historical PostgreSQL repair takes priority after the deployment
-incident; the native memory port is owned by another session.
+focused assignment and capacity cases then passed. At that stage, the fields were not yet
+persisted. The historical PostgreSQL repair and restored-image validation then
+passed; the admission implementation below is now validated.
+
+## Persisted admission implementation
+
+The [recorded admission contract](backend-admission.md) defines historical evidence,
+conditional writes and read behavior. This supersedes the earlier pending
+persistence notes above. Twenty migration scenarios passed, and final ordinary
+provider totals are 67/67/68/67 for SQLite/PostgreSQL/MySQL/SQL Server. The combined
+tree passed 4,112 unit, 967 API and 183 runtime tests with no failures or skips.
+No deployment is included. Effective landing, DoD and recovery projections remain
+open.

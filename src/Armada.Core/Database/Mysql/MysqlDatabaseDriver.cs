@@ -648,7 +648,10 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(76, "Persist routing metadata and planning provenance", BackendMetadataSchema.MigrationV76Statements),
                 new SchemaMigration(77, "Persist bounded dock Git anchors",
                     @"ALTER TABLE docks ADD COLUMN git_anchors_json LONGTEXT CHARACTER SET utf8mb4 NULL;"),
-                new SchemaMigration(78, "Add native captain memory", MemorySchema.MigrationV78Statements)
+                new SchemaMigration(78, "Add native captain memory", MemorySchema.MigrationV78Statements),
+                new SchemaMigration(79, "Persist last admission observations",
+                    @"ALTER TABLE missions ADD COLUMN last_admission_json LONGTEXT CHARACTER SET utf8mb4 NULL;",
+                    @"ALTER TABLE missions ADD COLUMN admission_revision BIGINT NOT NULL DEFAULT 0;")
             };
         }
 

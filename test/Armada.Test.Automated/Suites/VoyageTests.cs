@@ -563,16 +563,17 @@ namespace Armada.Test.Automated.Suites
                 VoyageDetailResponse detailBefore = await JsonHelper.DeserializeAsync<VoyageDetailResponse>(getBeforeResp);
                 List<string> missionIds = detailBefore.Missions!.Select(m => m.Id).ToList();
 
-                AssertTrue(missionIds.Count > 0);
+                AssertTrue(missionIds.Count > 0, "Cancelled voyage must retain its missions before purge");
 
-                await _AuthClient.DeleteAsync("/api/v1/voyages/" + voyageId + "/purge");
+                HttpResponseMessage purgeResponse = await _AuthClient.DeleteAsync("/api/v1/voyages/" + voyageId + "/purge");
+                AssertEqual(HttpStatusCode.OK, purgeResponse.StatusCode, await purgeResponse.Content.ReadAsStringAsync());
                 _CreatedVoyageIds.Remove(voyageId);
 
                 foreach (string missionId in missionIds)
                 {
                     HttpResponseMessage missionResp = await _AuthClient.GetAsync("/api/v1/missions/" + missionId);
                     ArmadaErrorResponse error = await JsonHelper.DeserializeAsync<ArmadaErrorResponse>(missionResp);
-                    AssertTrue(error.Error != null || error.Message != null);
+                    AssertTrue(error.Error != null || error.Message != null, "Purged mission remains readable: " + missionResp.StatusCode);
                 }
             });
 

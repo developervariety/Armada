@@ -10,6 +10,10 @@ namespace Armada.Core.Models
     {
         #region Public-Members
 
+        /// <summary>Last recorded admission decision; absent when unavailable, never a current eligibility claim.</summary>
+        public MissionAdmissionObservation? LastAdmissionObservation { get; internal set; }
+
+
         /// <summary>
         /// Unique identifier.
         /// </summary>

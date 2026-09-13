@@ -28,6 +28,13 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   reason `consumer_tests_failed: <consumer>`, distinct from a consumer build
   failure. `DefinitionOfDone.RunConsumerTests` (default true) switches it off.
 
+### Recorded mission admission
+
+- Persist the actual global workload and resource-pressure decision in mission
+  details and summaries. Reads do not run admission checks. Revision checks
+  reject stale writes; a refusal and its waiting state are written together.
+  Preserve Unicode IDs, existing policy limits and process ownership.
+
 ### Captain brief AI-Memory repository folder
 
 - Match a vessel to its folder under the AI-Memory `repos/` directory by
