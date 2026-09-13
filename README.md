@@ -208,7 +208,7 @@ Armada can leave work for manual inspection or land it through configured modes:
 | Mode | Behavior |
 |---|---|
 | `MergeQueue` | Enqueue work, create a temporary integration worktree, run validation, push, reconcile, and clean up branches sequentially per vessel and target branch. |
-| `LocalMerge` | Merge the mission branch directly into the configured local working directory, without pushing to origin. |
+| `LocalMerge` | Merge the mission branch in a detached integration worktree, advance the local target branch by compare-and-swap, and sync the configured working directory, without pushing to origin. |
 | `PullRequest` | Push the branch and open a PR/MR; the mission remains `PullRequestOpen` until the PR is merged. |
 | `None` | Stop at `WorkProduced`; the branch remains available for manual integration. |
 

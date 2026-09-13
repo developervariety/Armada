@@ -648,6 +648,22 @@ Landing behavior comes from the effective landing mode:
 | `MergeQueue` | Use the durable integration, test, and landing state machine. |
 | `None` | Leave produced work for explicit operator handling. |
 
+`LocalMerge` merges in a temporary integration worktree under
+`<docks>/_integration/<mission>`. That worktree is created with a detached HEAD
+at the target branch tip, so another worktree that has the target branch
+checked out (for example one left in the landing repository by a captain) does
+not block the landing. After the merge, the target branch is advanced by a
+compare-and-swap (`git update-ref refs/heads/<target> <merged> <tip>`). If the
+target moved during the merge, git refuses the update, and the landing retries
+as target-branch drift. A worktree that still holds the target branch keeps
+its old checkout: its index then shows the landed changes as reverted, so
+inspect such a worktree before you remove it.
+
+When git refuses an integration step, the mission `FailureReason` carries git's
+message with a failure class. `worktree_conflict:` names the worktree that
+holds the needed ref. `integration_merge_failed:` covers every other refusal,
+such as a content conflict. Read the class before you retry.
+
 Do not infer successful landing from a `Complete` label alone. Verify the
 target branch or remote commit that should contain the work.
 

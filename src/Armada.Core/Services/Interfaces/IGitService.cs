@@ -117,6 +117,60 @@ namespace Armada.Core.Services.Interfaces
         }
 
         /// <summary>
+        /// Create a worktree with a detached HEAD at an exact commit.
+        /// Executes: git worktree add --detach {worktreePath} {commitSha}
+        /// </summary>
+        /// <remarks>
+        /// A detached worktree binds no branch, so git never refuses it because another worktree
+        /// already has that branch checked out. The default implementation delegates to the detached
+        /// form of <see cref="CreateWorktreeAsync"/> so existing test doubles keep recording the call.
+        /// </remarks>
+        /// <param name="repoPath">Path to the repository (bare or worktree).</param>
+        /// <param name="worktreePath">Path of the worktree to create.</param>
+        /// <param name="commitSha">Commit the detached HEAD is placed at.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task CreateDetachedWorktreeAtCommitAsync(string repoPath, string worktreePath, string commitSha, CancellationToken token = default)
+        {
+            return CreateWorktreeAsync(repoPath, worktreePath, commitSha, commitSha, true, token);
+        }
+
+        /// <summary>
+        /// Move a local branch ref to a new commit only when it still points at the expected commit.
+        /// Executes: git update-ref refs/heads/{branchName} {newSha} {expectedOldSha}
+        /// </summary>
+        /// <remarks>
+        /// Git refuses the update when the ref has moved since it was read, so a concurrent writer is
+        /// reported instead of overwritten. The default implementation is a no-op for test doubles that
+        /// do not exercise ref moves.
+        /// </remarks>
+        /// <param name="repoPath">Path to the repository (bare or worktree).</param>
+        /// <param name="branchName">Branch whose ref is advanced.</param>
+        /// <param name="newSha">Commit the ref is moved to.</param>
+        /// <param name="expectedOldSha">Commit the ref must still point at.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task CompareAndSwapBranchRefAsync(string repoPath, string branchName, string newSha, string expectedOldSha, CancellationToken token = default)
+        {
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Push the worktree's HEAD to a named branch on a remote. Works from a detached HEAD.
+        /// Executes: git push {remoteName} HEAD:refs/heads/{branchName}
+        /// </summary>
+        /// <remarks>
+        /// The default implementation delegates to <see cref="PushBranchAsync"/> so existing test
+        /// doubles keep recording the push.
+        /// </remarks>
+        /// <param name="worktreePath">Worktree whose HEAD is pushed.</param>
+        /// <param name="remoteName">Remote name.</param>
+        /// <param name="branchName">Destination branch on the remote.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task PushHeadToBranchAsync(string worktreePath, string remoteName, string branchName, CancellationToken token = default)
+        {
+            return PushBranchAsync(worktreePath, remoteName, token);
+        }
+
+        /// <summary>
         /// Copy a ref to another ref name inside the same repository, without network access.
         /// Executes: git update-ref {destRef} {srcRef}
         /// </summary>

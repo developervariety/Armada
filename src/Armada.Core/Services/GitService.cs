@@ -325,6 +325,65 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task CreateDetachedWorktreeAtCommitAsync(string repoPath, string worktreePath, string commitSha, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
+            if (String.IsNullOrEmpty(commitSha)) throw new ArgumentNullException(nameof(commitSha));
+
+            _Logging.Info(_Header + "creating detached worktree: " + worktreePath + " at " + commitSha);
+
+            string normalizedRepoPath = Path.GetFullPath(repoPath);
+            SemaphoreSlim repoLock = _RepoLocks.GetOrAdd(normalizedRepoPath, _ => new SemaphoreSlim(1, 1));
+            await repoLock.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                await RunGitAsync(repoPath, token, "worktree", "add", "--detach", worktreePath, commitSha).ConfigureAwait(false);
+                await EnsureTrackedFilesCleanAsync(worktreePath, token).ConfigureAwait(false);
+            }
+            catch
+            {
+                try
+                {
+                    if (Directory.Exists(worktreePath))
+                        await RunGitAsync(repoPath, "worktree", "remove", "--force", worktreePath).ConfigureAwait(false);
+                }
+                catch
+                {
+                }
+
+                throw;
+            }
+            finally
+            {
+                repoLock.Release();
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task CompareAndSwapBranchRefAsync(string repoPath, string branchName, string newSha, string expectedOldSha, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(branchName)) throw new ArgumentNullException(nameof(branchName));
+            if (String.IsNullOrEmpty(newSha)) throw new ArgumentNullException(nameof(newSha));
+            if (String.IsNullOrEmpty(expectedOldSha)) throw new ArgumentNullException(nameof(expectedOldSha));
+
+            _Logging.Info(_Header + "advancing refs/heads/" + branchName + " from " + expectedOldSha + " to " + newSha + " in " + repoPath);
+            await RunGitAsync(repoPath, token, "update-ref", "refs/heads/" + branchName, newSha, expectedOldSha).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task PushHeadToBranchAsync(string worktreePath, string remoteName, string branchName, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
+            if (String.IsNullOrEmpty(remoteName)) throw new ArgumentNullException(nameof(remoteName));
+            if (String.IsNullOrEmpty(branchName)) throw new ArgumentNullException(nameof(branchName));
+
+            _Logging.Info(_Header + "pushing HEAD from " + worktreePath + " to " + remoteName + " refs/heads/" + branchName);
+            await RunGitAsync(worktreePath, token, "push", remoteName, "HEAD:refs/heads/" + branchName).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
         public async Task CopyRefAsync(string repoPath, string srcRef, string destRef, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));

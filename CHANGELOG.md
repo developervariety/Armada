@@ -14,6 +14,20 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Landing past a worktree that holds the target branch
+
+- Create the LocalMerge integration worktree detached at the target tip, so a
+  worktree elsewhere that has the target branch checked out no longer blocks
+  every landing for the vessel.
+- Advance the target branch by a compare-and-swap from the tip the merge
+  started at. A target that moved during the merge is reported as drift and
+  retried, never overwritten. Push modes push the merged commit to the named
+  target branch.
+- Report a git refusal with its own words and a failure class:
+  `worktree_conflict:` names the blocking worktree path, and other refusals
+  read `integration_merge_failed:` with git's message, instead of the generic
+  "Integration worktree merge failed".
+
 ### Admission refusal handling
 
 - Honor a refused resource-pressure decision even when its explanation is empty.

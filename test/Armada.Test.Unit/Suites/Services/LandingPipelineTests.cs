@@ -191,7 +191,8 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission? wp = await testDb.Driver.Missions.ReadAsync(mission.Id);
                     AssertNotNull(wp, "Mission should still exist after failed landing");
                     AssertEqual(MissionStatusEnum.LandingFailed, wp!.Status, "Failed integration merge should set LandingFailed");
-                    AssertContains("Integration worktree merge failed", wp.FailureReason ?? "", "Failure reason should explain integration merge failure");
+                    AssertContains("integration_merge_failed", wp.FailureReason ?? "", "Failure reason should name the integration merge failure class");
+                    AssertContains("Simulated merge failure", wp.FailureReason ?? "", "Failure reason should carry the underlying git error");
                     AssertTrue(git.MergeBranchCalls.Contains(entities.Dock.BranchName + " -> " + integrationWorktree), "Merge should be attempted in the integration worktree");
                     AssertTrue(git.RemoveWorktreeCalls.Contains(integrationWorktree), "Integration worktree should be removed after failed landing");
                     AssertTrue(git.PruneWorktreeCalls.Contains(vessel.LocalPath!), "Bare repo worktrees should be pruned after failed landing");

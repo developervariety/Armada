@@ -43,6 +43,19 @@ namespace Armada.Test.Unit.TestHelpers
 
         // Failure injection
         public bool ShouldThrowOnWorktree { get; set; } = false;
+
+        /// <summary>Message thrown when ShouldThrowOnWorktree is set; null uses the generic message.</summary>
+        public string? WorktreeFailureMessage { get; set; } = null;
+
+        /// <summary>Recorded compare-and-swap ref moves as "repoPath:branch:newSha:expectedOldSha".</summary>
+        public List<string> CompareAndSwapCalls { get; } = new List<string>();
+
+        public Task CompareAndSwapBranchRefAsync(string repoPath, string branchName, string newSha, string expectedOldSha, CancellationToken token = default)
+        {
+            CompareAndSwapCalls.Add(repoPath + ":" + branchName + ":" + newSha + ":" + expectedOldSha);
+            OperationCalls.Add("cas-ref:" + branchName);
+            return Task.CompletedTask;
+        }
         public bool ShouldThrowOnPush { get; set; } = false;
         public int DriftPushFailuresRemaining { get; set; } = 0;
         public bool ShouldThrowOnCreatePr { get; set; } = false;
@@ -60,7 +73,7 @@ namespace Armada.Test.Unit.TestHelpers
 
         public async Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default)
         {
-            if (ShouldThrowOnWorktree) throw new InvalidOperationException("Simulated worktree failure");
+            if (ShouldThrowOnWorktree) throw new InvalidOperationException(WorktreeFailureMessage ?? "Simulated worktree failure");
             ExistingBranches.Add(branchName);
             WorktreeCalls.Add(worktreePath);
             if (BeforeWorktreeCreate != null) await BeforeWorktreeCreate().ConfigureAwait(false);
@@ -217,12 +230,23 @@ namespace Armada.Test.Unit.TestHelpers
         /// <summary>Default strict commit answer when no keyed entry matches.</summary>
         public string? RevisionCommitShaResult { get; set; } = null;
 
+        /// <summary>Answer for HEAD and refs/heads/* when neither a keyed entry nor RevisionCommitShaResult is set.</summary>
+        public string? LandingCommitShaResult { get; set; } = new string('c', 40);
+
         public List<string> RevisionCommitShaCalls { get; } = new List<string>();
 
         public Task<string?> GetRevisionCommitShaAsync(string repoPath, string revision, CancellationToken token = default)
         {
             RevisionCommitShaCalls.Add(repoPath + "|" + revision);
             if (RevisionCommitShas.TryGetValue(repoPath + "|" + revision, out string? keyed)) return Task.FromResult(keyed);
+            if (RevisionCommitShaResult == null
+                && (String.Equals(revision, "HEAD", StringComparison.Ordinal) || revision.StartsWith("refs/heads/", StringComparison.Ordinal)))
+            {
+                // A landing resolves the target tip and the merged HEAD before it moves any ref. A
+                // stub that simulates no repository still answers those two, so landing tests reach
+                // the steps they assert on; keyed entries or RevisionCommitShaResult override it.
+                return Task.FromResult<string?>(LandingCommitShaResult);
+            }
             return Task.FromResult(RevisionCommitShaResult);
         }
 

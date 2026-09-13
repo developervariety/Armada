@@ -102,11 +102,34 @@ namespace Armada.Core.Services
                 {
                     await _Git.FetchAsync(vessel.LocalPath, token).ConfigureAwait(false);
 
-                    _Logging.Info(_Header + "creating integration worktree " + worktreePath + " for mission " + mission.Id + " target " + targetBranch + " attempt " + (mission.LandingRetryCount + 1));
-                    await _Git.CreateWorktreeAsync(vessel.LocalPath, worktreePath, targetBranch, targetBranch, token: token).ConfigureAwait(false);
+                    // The integration worktree is created DETACHED at the target tip. Checking out the
+                    // target branch by name would make git refuse whenever any other worktree of the
+                    // landing repository already holds that branch, and one stray worktree would then
+                    // block every landing for the vessel. The target ref is advanced afterwards by a
+                    // compare-and-swap from the tip this worktree started at, so a concurrent move of
+                    // the target is refused rather than overwritten.
+                    string targetRef = "refs/heads/" + targetBranch;
+                    string? targetTip = await _Git.GetRevisionCommitShaAsync(vessel.LocalPath, targetRef, token).ConfigureAwait(false);
+                    if (String.IsNullOrWhiteSpace(targetTip))
+                        throw new InvalidOperationException("Unable to resolve target branch " + targetBranch + " in landing repository " + vessel.LocalPath);
 
-                    await _Git.MergeBranchLocalAsync(worktreePath, vessel.LocalPath, missionBranch, targetBranch, commitMessage, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "creating integration worktree " + worktreePath + " for mission " + mission.Id + " target " + targetBranch + " at " + targetTip + " attempt " + (mission.LandingRetryCount + 1));
+                    await _Git.CreateDetachedWorktreeAtCommitAsync(vessel.LocalPath, worktreePath, targetTip!, token).ConfigureAwait(false);
+
+                    // No target branch is passed: the worktree is detached on purpose, and checking the
+                    // branch out inside it would hit the same refusal.
+                    await _Git.MergeBranchLocalAsync(worktreePath, vessel.LocalPath, missionBranch, null, commitMessage, token).ConfigureAwait(false);
                     _Logging.Info(_Header + "merged branch " + missionBranch + " into integration worktree " + worktreePath);
+
+                    string? mergedHead = await _Git.GetRevisionCommitShaAsync(worktreePath, "HEAD", token).ConfigureAwait(false);
+                    if (String.IsNullOrWhiteSpace(mergedHead))
+                        throw new InvalidOperationException("Unable to resolve the merged commit in integration worktree " + worktreePath);
+
+                    if (!String.Equals(mergedHead, targetTip, StringComparison.OrdinalIgnoreCase))
+                    {
+                        await _Git.CompareAndSwapBranchRefAsync(vessel.LocalPath, targetBranch, mergedHead!, targetTip!, token).ConfigureAwait(false);
+                        _Logging.Info(_Header + "advanced " + targetBranch + " from " + targetTip + " to " + mergedHead);
+                    }
 
                     // LocalMerge lands into the local repository only -- pushing to a remote is
                     // the operator's decision, never automatic. Pushing here made every landing
@@ -118,7 +141,7 @@ namespace Armada.Core.Services
                     // though the local merge itself succeeded.
                     if (vessel.LandingMode != LandingModeEnum.LocalMerge)
                     {
-                        await _Git.PushBranchAsync(worktreePath, "origin", token).ConfigureAwait(false);
+                        await _Git.PushHeadToBranchAsync(worktreePath, "origin", targetBranch, token).ConfigureAwait(false);
                         _Logging.Info(_Header + "pushed merged changes from integration worktree " + worktreePath);
                     }
                     else
@@ -133,6 +156,14 @@ namespace Armada.Core.Services
                     _Logging.Warn(_Header + "integration merge failed for mission " + mission.Id + " branch " + missionBranch + ": " + ex.Message);
                     failure = ex;
                     succeeded = false;
+
+                    string? classified = ClassifyIntegrationFailure(ex);
+                    if (classified != null)
+                    {
+                        mission.FailureReason = classified;
+                        mission.LastUpdateUtc = DateTime.UtcNow;
+                        await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
+                    }
                 }
                 finally
                 {
@@ -545,6 +576,30 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// Names the failure class of an integration step that git refused, carrying git's own
+        /// message. Returns null for target-branch drift, which the retry loop handles itself.
+        /// </summary>
+        /// <remarks>
+        /// A bare "merge failed" reads as a content conflict. When the cause is a worktree that
+        /// holds a ref, or any other git refusal, the operator needs git's words -- they name the
+        /// blocking path -- and a class that says which kind of problem it is.
+        /// </remarks>
+        internal static string? ClassifyIntegrationFailure(Exception ex)
+        {
+            if (ex == null || IsTargetBranchDrift(ex)) return null;
+            string message = (ex.Message ?? String.Empty).Trim();
+            if (message.Contains("is already used by worktree", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("is already checked out at", StringComparison.OrdinalIgnoreCase))
+            {
+                return "worktree_conflict: another worktree of the landing repository holds a ref this landing needs. "
+                    + "Git reported: " + message
+                    + " -- inspect that worktree for unique work before removing it, then retry the landing.";
+            }
+
+            return "integration_merge_failed: " + message;
+        }
+
         private static bool IsTargetBranchDrift(Exception ex)
         {
             string message = ex.Message ?? String.Empty;
@@ -554,7 +609,8 @@ namespace Armada.Core.Services
                 || message.Contains("stale info", StringComparison.OrdinalIgnoreCase)
                 || message.Contains("failed to push some refs", StringComparison.OrdinalIgnoreCase)
                 || message.Contains("remote contains work", StringComparison.OrdinalIgnoreCase)
-                || message.Contains("tip of your current branch is behind", StringComparison.OrdinalIgnoreCase);
+                || message.Contains("tip of your current branch is behind", StringComparison.OrdinalIgnoreCase)
+                || message.Contains("but expected", StringComparison.OrdinalIgnoreCase);
         }
 
         #endregion

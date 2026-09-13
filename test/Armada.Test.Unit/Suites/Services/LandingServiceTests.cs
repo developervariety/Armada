@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System.Diagnostics;
     using System.IO;
     using System.Linq;
     using Armada.Core.Database.Sqlite;
@@ -301,6 +302,147 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("target_branch_drift_retry_exhausted", read.FailureReason ?? String.Empty);
                 }
             });
+
+            // A worktree left holding the target branch (for example one a captain created in the
+            // landing repository) made git refuse "worktree add <dir> main", so every landing for the
+            // vessel failed with a generic message. The integration worktree must not need the target
+            // branch to be free.
+            await RunTest("MergeInDedicatedWorktreeAsync_AnotherWorktreeHoldsTarget_StillLands", async () =>
+            {
+                string rootDir = Path.Combine(Path.GetTempPath(), "armada_landing_held_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(rootDir);
+                    string sourceDir = Path.Combine(rootDir, "source");
+                    string bareDir = Path.Combine(rootDir, "bare.git");
+                    string holderDir = Path.Combine(rootDir, "holder_wt");
+                    Directory.CreateDirectory(sourceDir);
+                    await RunGitAsync(sourceDir, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "README.md"), "# test\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "README.md").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Initial commit").ConfigureAwait(false);
+                    string captainBranch = "armada/captain/msn_held_target";
+                    await RunGitAsync(sourceDir, "checkout", "-b", captainBranch).ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(sourceDir, "feature.txt"), "feature\n").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "add", "feature.txt").ConfigureAwait(false);
+                    await RunGitAsync(sourceDir, "commit", "-m", "Add feature").ConfigureAwait(false);
+                    string captainHead = (await RunGitAsync(sourceDir, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                    await RunGitAsync(sourceDir, "checkout", "main").ConfigureAwait(false);
+
+                    await RunGitAsync(rootDir, "clone", "--bare", sourceDir, bareDir).ConfigureAwait(false);
+                    await RunGitAsync(bareDir, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                    await RunGitAsync(bareDir, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+                    await RunGitAsync(bareDir, "worktree", "add", holderDir, "main").ConfigureAwait(false);
+                    string mainBefore = (await RunGitAsync(bareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        ArmadaSettings settings = CreateSettings();
+                        settings.DocksDirectory = Path.Combine(rootDir, "docks");
+                        LandingService service = new LandingService(CreateLogging(), testDb.Driver, settings, new GitService(CreateLogging()));
+                        Vessel vessel = new Vessel("held-vessel", sourceDir);
+                        vessel.LocalPath = bareDir;
+                        vessel.DefaultBranch = "main";
+                        vessel.LandingMode = LandingModeEnum.LocalMerge;
+                        Mission mission = CreateMission("msn_held_target");
+                        mission.CommitHash = captainHead;
+                        await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        bool result = await service.MergeInDedicatedWorktreeAsync(
+                            vessel, mission, "main", captainBranch, "Merge armada mission").ConfigureAwait(false);
+
+                        AssertTrue(result, "landing must succeed while another worktree holds main; failure reason: " + (mission.FailureReason ?? "(none)"));
+                        string mainAfter = (await RunGitAsync(bareDir, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim();
+                        AssertFalse(String.Equals(mainBefore, mainAfter, StringComparison.Ordinal), "main must advance in the landing repository");
+                        await RunGitAsync(bareDir, "merge-base", "--is-ancestor", captainHead, "refs/heads/main").ConfigureAwait(false);
+                        await RunGitAsync(bareDir, "merge-base", "--is-ancestor", mainBefore, "refs/heads/main").ConfigureAwait(false);
+                        AssertFalse(Directory.Exists(Path.Combine(settings.DocksDirectory, "_integration", mission.Id)), "integration worktree must be removed");
+                        AssertTrue(Directory.Exists(holderDir), "the other worktree must be left in place");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(rootDir, true); } catch { }
+                }
+            });
+
+            await RunTest("MergeInDedicatedWorktreeAsync_GitRefusesWorktree_FailureReasonNamesBlockingPath", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    git.RevisionCommitShaResult = new string('a', 40);
+                    git.ShouldThrowOnWorktree = true;
+                    git.WorktreeFailureMessage = "git failed (exit 128): Preparing worktree (detached HEAD aaaaaaa)\nfatal: 'main' is already used by worktree at '/tmp/holder/main_wt'";
+                    LandingService service = CreateService(testDb.Driver, settings, git);
+                    Vessel vessel = CreateVessel();
+                    vessel.LandingMode = LandingModeEnum.LocalMerge;
+                    Mission mission = CreateMission("msn_worktree_refused");
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    bool result = await service.MergeInDedicatedWorktreeAsync(
+                        vessel, mission, "main", mission.BranchName, "Merge armada mission").ConfigureAwait(false);
+
+                    AssertFalse(result, "a refused worktree must fail the landing");
+                    Mission? read = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    string reason = read?.FailureReason ?? String.Empty;
+                    AssertTrue(reason.StartsWith("worktree_conflict:", StringComparison.Ordinal), "failure class must be worktree_conflict, got: " + reason);
+                    AssertContains("/tmp/holder/main_wt", reason, "failure reason must name the blocking worktree path");
+                    AssertContains("already used by worktree", reason, "failure reason must carry the git stderr");
+                }
+            });
+
+            await RunTest("MergeInDedicatedWorktreeAsync_AdvancesTargetOnlyFromTheTipItMerged", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    LandingService service = CreateService(testDb.Driver, settings, git);
+                    Vessel vessel = CreateVessel();
+                    vessel.LandingMode = LandingModeEnum.LocalMerge;
+                    Mission mission = CreateMission("msn_cas_target");
+                    string integrationWorktree = IntegrationWorktreePath(settings, mission);
+                    string tip = new string('a', 40);
+                    string merged = new string('b', 40);
+                    git.RevisionCommitShas[vessel.LocalPath + "|refs/heads/main"] = tip;
+                    git.RevisionCommitShas[integrationWorktree + "|HEAD"] = merged;
+
+                    bool result = await service.MergeInDedicatedWorktreeAsync(
+                        vessel, mission, "main", mission.BranchName, "Merge armada mission").ConfigureAwait(false);
+
+                    AssertTrue(result, "merge should succeed");
+                    AssertTrue(git.CompareAndSwapCalls.Contains(vessel.LocalPath + ":main:" + merged + ":" + tip),
+                        "target must advance by compare-and-swap from the tip the integration worktree started at; calls: " + String.Join(", ", git.CompareAndSwapCalls));
+                }
+            });
+        }
+
+        private static async Task<string> RunGitAsync(string workingDirectory, params string[] args)
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = "git",
+                WorkingDirectory = workingDirectory,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            foreach (string arg in args) startInfo.ArgumentList.Add(arg);
+            using (Process process = new Process { StartInfo = startInfo })
+            {
+                process.Start();
+                string stdout = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+                string stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                await process.WaitForExitAsync().ConfigureAwait(false);
+                if (process.ExitCode != 0)
+                    throw new InvalidOperationException("git failed (exit " + process.ExitCode + "): " + stderr.Trim());
+                return stdout;
+            }
         }
 
         private static LoggingModule CreateLogging()
