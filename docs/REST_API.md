@@ -1424,6 +1424,8 @@ request; `404` when the mission is outside the caller's scope or does not exist.
 
 Update mission fields (title, description, priority, etc.). Does not change status -- use the status transition endpoint for that.
 
+Mission metadata updates preserve omitted `vesselId` and `voyageId`. Explicit changes, including clearing an existing binding with null, return 409.
+
 **Path Parameters:**
 | Parameter | Description |
 |---|---|
@@ -4467,4 +4469,3 @@ REST API exposes `providerUsage`; `POST /api/v1/settings/usage-preview` previews
 an optional draft policy with settings write permission. No new MCP tool is
 required. Policy updates use `PUT /api/v1/settings` and hot-reload.
 
-Mission metadata updates preserve omitted `vesselId` and `voyageId`. Explicit changes, including clearing an existing binding with null, return 409.
