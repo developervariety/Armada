@@ -30,6 +30,7 @@ without constructing a scenario, omit `--migration-scenario`.
 | `anchor-migration` | All four | Populated dock upgrade, incompatible and equivalent columns, interrupted restart and unchanged history |
 | `backend-migration` | All four | Populated metadata upgrade, nullable fields, incompatible columns, exact commit history and interrupted restart |
 | `preview-migration` | All four | Populated upgrade, equivalent values, incompatible type/null/default, interrupted restart; MySQL also rejects restricted text encodings |
+| `memory-migration` | All four | Memory tables absent before the version, interrupted run uncommitted, committed once with unchanged old history, Unicode round trip, tenant key uniqueness, guarded update and cascade delete |
 | `catalog-guards` | Server providers | Wrong type, nullability, default and index rejection; corrected restart |
 | `mysql-compat` | MySQL | Populated Unicode backfill, no repeat row update, damaged mapping, duplicate/orphan/FK/default rejection |
 | `sqlserver-corrections` | SQL Server | Equivalent and incompatible pre-staged v59/v68 objects; separate correction evidence and complete model value |

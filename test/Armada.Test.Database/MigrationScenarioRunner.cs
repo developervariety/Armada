@@ -47,6 +47,9 @@ namespace Armada.Test.Database
             if (scenario == "anchor-migration")
                 await new DockAnchorMigrationTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
 
+            if (scenario == "memory-migration")
+                await new MemoryMigrationTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
+
             if (scenario == "backend-migration")
                 await new BackendMetadataMigrationTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
 
@@ -83,7 +86,7 @@ namespace Armada.Test.Database
                     await Task.WhenAll(firstStart, secondStart).ConfigureAwait(false);
                 }
             }
-            else if (scenario != "fresh" && scenario != "catalog-guards" && scenario != "mysql-compat" && scenario != "sqlserver-corrections" && scenario != "preview-migration" && scenario != "backend-migration" && scenario != "anchor-migration")
+            else if (scenario != "fresh" && scenario != "catalog-guards" && scenario != "mysql-compat" && scenario != "sqlserver-corrections" && scenario != "preview-migration" && scenario != "backend-migration" && scenario != "anchor-migration" && scenario != "memory-migration")
             {
                 int anchorVersion = _Settings.Type switch
                 {

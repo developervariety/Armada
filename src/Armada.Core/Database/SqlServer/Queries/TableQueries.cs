@@ -876,6 +876,42 @@ namespace Armada.Core.Database.SqlServer.Queries
                 ),
                 new SchemaMigration(80, "Persist bounded dock Git anchors",
                     @"ALTER TABLE docks ADD git_anchors_json NVARCHAR(MAX) NULL;"
+                ),
+                new SchemaMigration(81, "Add native captain memory",
+                    @"IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'memories')
+                    CREATE TABLE memories (
+                        id NVARCHAR(255) NOT NULL PRIMARY KEY,
+                        tenant_id NVARCHAR(255) NULL,
+                        user_id NVARCHAR(255) NULL,
+                        scope NVARCHAR(32) NOT NULL DEFAULT 'TenantWide',
+                        type NVARCHAR(32) NOT NULL DEFAULT 'Semantic',
+                        topic NVARCHAR(255) NULL,
+                        memory_key NVARCHAR(255) NULL,
+                        summary NVARCHAR(MAX) NULL,
+                        content NVARCHAR(MAX) NOT NULL,
+                        salience FLOAT NOT NULL DEFAULT 0.5,
+                        version INT NOT NULL DEFAULT 1,
+                        source_kind NVARCHAR(32) NOT NULL DEFAULT 'Manual',
+                        source_voyage_id NVARCHAR(255) NULL,
+                        source_mission_id NVARCHAR(255) NULL,
+                        source_vessel_id NVARCHAR(255) NULL,
+                        source_detail NVARCHAR(MAX) NULL,
+                        vessel_id NVARCHAR(255) NULL,
+                        created_utc NVARCHAR(64) NOT NULL,
+                        last_update_utc NVARCHAR(64) NOT NULL
+                    );",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'ux_memories_tenant_key') CREATE UNIQUE INDEX ux_memories_tenant_key ON memories(tenant_id, memory_key) WHERE memory_key IS NOT NULL;",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_memories_tenant_user') CREATE INDEX idx_memories_tenant_user ON memories(tenant_id, user_id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_memories_tenant_created') CREATE INDEX idx_memories_tenant_created ON memories(tenant_id, created_utc);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_memories_vessel') CREATE INDEX idx_memories_vessel ON memories(vessel_id);",
+                    @"IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'memory_tags')
+                    CREATE TABLE memory_tags (
+                        memory_id NVARCHAR(255) NOT NULL,
+                        tag NVARCHAR(128) NOT NULL,
+                        CONSTRAINT PK_memory_tags PRIMARY KEY (memory_id, tag),
+                        CONSTRAINT FK_memory_tags_memory FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
+                    );",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'idx_memory_tags_tag') CREATE INDEX idx_memory_tags_tag ON memory_tags(tag);"
                 )
             };
         }

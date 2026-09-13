@@ -98,6 +98,8 @@ namespace Armada.Test.Database
             await AssertColumnAsync(conn, "captains", "last_process_alive_utc", token).ConfigureAwait(false);
             DatabaseAssert.True(await TableExistsAsync(conn, "coordination_leases", token).ConfigureAwait(false), "coordination_leases table missing");
             DatabaseAssert.True(await TableExistsAsync(conn, "judge_follow_ups", token).ConfigureAwait(false), "judge_follow_ups table missing");
+            DatabaseAssert.True(await TableExistsAsync(conn, "memories", token).ConfigureAwait(false), "memories table missing");
+            DatabaseAssert.True(await TableExistsAsync(conn, "memory_tags", token).ConfigureAwait(false), "memory_tags table missing");
 
             foreach (string table in new[] { "fleets", "vessels", "captains", "voyages", "missions", "docks", "signals", "events", "merge_entries" })
             {
@@ -119,7 +121,9 @@ namespace Armada.Test.Database
                 "idx_deployments_status_created",
                 "idx_objectives_tenant_backlog_priority_rank",
                 "idx_objective_refinement_sessions_tenant_objective_created",
-                "idx_objective_refinement_messages_session_sequence"
+                "idx_objective_refinement_messages_session_sequence",
+                "ux_memories_tenant_key",
+                "idx_memories_tenant_user"
             })
             {
                 DatabaseAssert.True(await IndexExistsAsync(conn, indexName, token).ConfigureAwait(false), "Missing index " + indexName);

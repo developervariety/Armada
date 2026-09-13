@@ -192,6 +192,11 @@ namespace Armada.Core
         public static readonly string PlaybookIdPrefix = "pbk_";
 
         /// <summary>
+        /// Native captain memory ID prefix.
+        /// </summary>
+        public static readonly string MemoryIdPrefix = "mem_";
+
+        /// <summary>
         /// Environment ID prefix.
         /// </summary>
         public static readonly string EnvironmentIdPrefix = "env_";

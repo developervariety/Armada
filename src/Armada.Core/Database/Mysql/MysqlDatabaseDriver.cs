@@ -74,6 +74,7 @@ namespace Armada.Core.Database.Mysql
             Credentials = new CredentialMethods(_ConnectionString);
             PromptTemplates = new PromptTemplateMethods(_ConnectionString);
             Playbooks = new PlaybookMethods(_ConnectionString);
+            Memories = new MemoryMethods(_ConnectionString);
             Personas = new PersonaMethods(_ConnectionString);
             Pipelines = new PipelineMethods(_ConnectionString);
             WorkflowProfiles = new WorkflowProfileMethods(_ConnectionString);
@@ -646,7 +647,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(75, "Persist vessel preview configuration", VesselPreviewSchema.MigrationV75Statements),
                 new SchemaMigration(76, "Persist routing metadata and planning provenance", BackendMetadataSchema.MigrationV76Statements),
                 new SchemaMigration(77, "Persist bounded dock Git anchors",
-                    @"ALTER TABLE docks ADD COLUMN git_anchors_json LONGTEXT CHARACTER SET utf8mb4 NULL;")
+                    @"ALTER TABLE docks ADD COLUMN git_anchors_json LONGTEXT CHARACTER SET utf8mb4 NULL;"),
+                new SchemaMigration(78, "Add native captain memory", MemorySchema.MigrationV78Statements)
             };
         }
 

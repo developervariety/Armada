@@ -27,6 +27,21 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   once per vessel per process (Info for no matching folder, Warn for an
   ambiguous match or a memory root that cannot be probed). An unreadable root
   still does not fail the dispatch.
+### Native captain memory: store
+
+- Added a native captain memory store: a `Memory` record (`mem_` prefix) with a type
+  (Episodic, Semantic, Procedural), an optional topic, an optional stable key, a one-line
+  summary, content, a salience used to order recall, a version counter, provenance
+  (source kind plus voyage, mission and vessel identifiers), a vessel association, and tags.
+- Records are owned by a tenant and a user and carry a scope (tenant-wide or user-specific).
+  Storage reads, updates and deletes are fenced by tenant, and a key is unique inside a
+  tenant, so two writers cannot create the same key at once.
+- An update applies only at the version the caller read, so a concurrent change is refused
+  instead of overwriting the other writer.
+- New migrations add the `memories` and `memory_tags` tables: SQLite 86, PostgreSQL 87,
+  MySQL 78 and SQL Server 81. No existing table changes shape.
+- Native memory holds captain working memory. An external durable memory rule delivered in
+  a mission brief still wins over a native record on conflict.
 
 ### Judge Check gate on queued armed Checks
 

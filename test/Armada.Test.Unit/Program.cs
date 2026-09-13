@@ -383,6 +383,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new SchedulerMissionModeTests());
             runner.AddSuite(new DispatchObjectiveModeTests());
             runner.AddSuite(new ObjectiveDispatchPreviewServiceTests());
+            runner.AddSuite(new MemoryDatabaseTests());
 
             runner.VerifyRegistration(typeof(Program).Assembly);
 

@@ -155,6 +155,11 @@ namespace Armada.Core.Database
         public IPlaybookMethods Playbooks { get; protected set; } = null!;
 
         /// <summary>
+        /// Native captain memory operations.
+        /// </summary>
+        public IMemoryMethods Memories { get; protected set; } = null!;
+
+        /// <summary>
         /// Workflow-profile operations.
         /// </summary>
         public IWorkflowProfileMethods WorkflowProfiles { get; protected set; } = null!;

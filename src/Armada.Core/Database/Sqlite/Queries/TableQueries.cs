@@ -1541,6 +1541,40 @@ namespace Armada.Core.Database.Sqlite.Queries
                 ),
                 new SchemaMigration(85, "Persist bounded dock Git anchors",
                     @"ALTER TABLE docks ADD COLUMN git_anchors_json TEXT NULL;"
+                ),
+                new SchemaMigration(86, "Add native captain memory",
+                    @"CREATE TABLE IF NOT EXISTS memories (
+                        id TEXT PRIMARY KEY,
+                        tenant_id TEXT,
+                        user_id TEXT,
+                        scope TEXT NOT NULL DEFAULT 'TenantWide',
+                        type TEXT NOT NULL DEFAULT 'Semantic',
+                        topic TEXT,
+                        memory_key TEXT,
+                        summary TEXT,
+                        content TEXT NOT NULL,
+                        salience REAL NOT NULL DEFAULT 0.5,
+                        version INTEGER NOT NULL DEFAULT 1,
+                        source_kind TEXT NOT NULL DEFAULT 'Manual',
+                        source_voyage_id TEXT,
+                        source_mission_id TEXT,
+                        source_vessel_id TEXT,
+                        source_detail TEXT,
+                        vessel_id TEXT,
+                        created_utc TEXT NOT NULL,
+                        last_update_utc TEXT NOT NULL
+                    );",
+                    @"CREATE UNIQUE INDEX IF NOT EXISTS ux_memories_tenant_key ON memories(tenant_id, memory_key);",
+                    @"CREATE INDEX IF NOT EXISTS idx_memories_tenant_user ON memories(tenant_id, user_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_memories_tenant_created ON memories(tenant_id, created_utc);",
+                    @"CREATE INDEX IF NOT EXISTS idx_memories_vessel ON memories(vessel_id);",
+                    @"CREATE TABLE IF NOT EXISTS memory_tags (
+                        memory_id TEXT NOT NULL,
+                        tag TEXT NOT NULL,
+                        PRIMARY KEY (memory_id, tag),
+                        FOREIGN KEY (memory_id) REFERENCES memories(id) ON DELETE CASCADE
+                    );",
+                    @"CREATE INDEX IF NOT EXISTS idx_memory_tags_tag ON memory_tags(tag);"
                 )
             };
         }

@@ -4,6 +4,7 @@ namespace Armada.Test.Database
 {
     using System;
     using System.Collections.Generic;
+    using System.Data.Common;
     using System.Diagnostics;
     using System.Runtime.CompilerServices;
     using System.Threading;
@@ -119,6 +120,8 @@ namespace Armada.Test.Database
             await RunTest("Deployment_Create_Read_Update_Enumerate", "Operational", () => TestDeploymentCrudAsync(token), token);
             await RunTest("Objective_Create_Read_Update_Enumerate", "Operational", () => TestObjectiveCrudAsync(token), token);
             await RunTest("ObjectiveRefinementSession_Message_Create_Read_Update_Enumerate", "Operational", () => TestObjectiveRefinementCrudAsync(token), token);
+            await RunTest("Memory_Create_Read_Update_Tags_Reopen", "Operational", () => TestMemoryCrudAsync(token), token);
+            await RunTest("Memory_Tenant_Fence_Key_Uniqueness_Guarded_Update", "Operational", () => TestMemoryScopingAsync(token), token);
 
             Console.WriteLine();
             Console.WriteLine("--- Cascade Verification ---");
@@ -628,6 +631,101 @@ namespace Armada.Test.Database
             finally
             {
                 await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task TestMemoryCrudAsync(CancellationToken token)
+        {
+            string tenantId = "ten_memory_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            Memory memory = new Memory();
+            memory.TenantId = tenantId;
+            memory.UserId = "usr_memory";
+            memory.Type = MemoryTypeEnum.Procedural;
+            memory.Scope = MemoryScopeEnum.UserSpecific;
+            memory.Topic = "build";
+            memory.Key = "build/quiet-window";
+            memory.Summary = "Quiet window 日本語";
+            memory.Content = "Re-run a single failure alone before triage. 日本語";
+            memory.Salience = 0.9;
+            memory.SourceKind = MemorySourceKindEnum.Voyage;
+            memory.SourceVoyageId = "vyg_example";
+            memory.VesselId = "vsl_example";
+            memory.Tags = new List<string> { "tests", "日本語" };
+
+            Memory created = await _Driver.Memories.CreateAsync(memory, token).ConfigureAwait(false);
+            try
+            {
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    Memory stored = DatabaseAssert.NotNull(await reopened.Memories.ReadAsync(created.Id, token).ConfigureAwait(false), "Memory retained");
+                    DatabaseAssert.Equal(memory.Content, stored.Content, "Unicode content");
+                    DatabaseAssert.Equal("build/quiet-window", stored.Key, "Key");
+                    DatabaseAssert.Equal(MemoryTypeEnum.Procedural, stored.Type, "Type");
+                    DatabaseAssert.Equal(MemoryScopeEnum.UserSpecific, stored.Scope, "Scope");
+                    DatabaseAssert.Equal(MemorySourceKindEnum.Voyage, stored.SourceKind, "Source kind");
+                    DatabaseAssert.Equal(0.9, stored.Salience, "Salience");
+                    DatabaseAssert.Equal(1, stored.Version, "Initial version");
+                    DatabaseAssert.Equal(2, stored.Tags.Count, "Tag count");
+
+                    stored.Content = "corrected content";
+                    stored.Tags = new List<string> { "single" };
+                    stored.Version = stored.Version + 1;
+                    stored.LastUpdateUtc = DateTime.UtcNow;
+                    DatabaseAssert.True(await reopened.Memories.UpdateAsync(stored, 1, token).ConfigureAwait(false), "Guarded update applies");
+
+                    Memory updated = DatabaseAssert.NotNull(await reopened.Memories.ReadAsync(tenantId, created.Id, token).ConfigureAwait(false), "Updated memory retained");
+                    DatabaseAssert.Equal("corrected content", updated.Content, "Updated content");
+                    DatabaseAssert.Equal(1, updated.Tags.Count, "Tags replaced");
+                    DatabaseAssert.Equal(2, updated.Version, "Version advanced once");
+                }
+            }
+            finally
+            {
+                if (!_NoCleanup) await _Driver.Memories.DeleteAsync(tenantId, created.Id, token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task TestMemoryScopingAsync(CancellationToken token)
+        {
+            string tenantA = "ten_memory_a_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            string tenantB = "ten_memory_b_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            Memory first = new Memory { TenantId = tenantA, UserId = "usr_a", Content = "tenant A finding", Key = "shared/key" };
+            Memory second = new Memory { TenantId = tenantB, UserId = "usr_b", Content = "tenant B finding", Key = "shared/key" };
+            Memory createdA = await _Driver.Memories.CreateAsync(first, token).ConfigureAwait(false);
+            Memory createdB = await _Driver.Memories.CreateAsync(second, token).ConfigureAwait(false);
+
+            try
+            {
+                DatabaseAssert.Equal(createdA.Id,
+                    DatabaseAssert.NotNull(await _Driver.Memories.ReadByKeyAsync(tenantA, "shared/key", token).ConfigureAwait(false), "Key resolves in its tenant").Id,
+                    "One key per tenant resolves to that tenant's record");
+                DatabaseAssert.True(await _Driver.Memories.ReadAsync(tenantB, createdA.Id, token).ConfigureAwait(false) == null, "No cross-tenant read");
+                DatabaseAssert.True(!await _Driver.Memories.DeleteAsync(tenantB, createdA.Id, token).ConfigureAwait(false), "No cross-tenant delete");
+
+                Memory duplicate = new Memory { TenantId = tenantA, UserId = "usr_a", Content = "duplicate", Key = "shared/key" };
+                bool rejected = false;
+                try { await _Driver.Memories.CreateAsync(duplicate, token).ConfigureAwait(false); }
+                catch (DbException) { rejected = true; }
+                DatabaseAssert.True(rejected, "A duplicate key inside one tenant is rejected");
+
+                Memory stored = DatabaseAssert.NotNull(await _Driver.Memories.ReadAsync(tenantA, createdA.Id, token).ConfigureAwait(false), "Record retained");
+                stored.Content = "first writer";
+                stored.Version = 2;
+                DatabaseAssert.True(await _Driver.Memories.UpdateAsync(stored, 1, token).ConfigureAwait(false), "First guarded update applies");
+                stored.Content = "second writer";
+                stored.Version = 2;
+                DatabaseAssert.True(!await _Driver.Memories.UpdateAsync(stored, 1, token).ConfigureAwait(false), "Stale guarded update is refused");
+                DatabaseAssert.Equal("first writer",
+                    DatabaseAssert.NotNull(await _Driver.Memories.ReadAsync(tenantA, createdA.Id, token).ConfigureAwait(false), "Record retained").Content,
+                    "The refused update changed nothing");
+            }
+            finally
+            {
+                if (!_NoCleanup)
+                {
+                    await _Driver.Memories.DeleteAsync(tenantA, createdA.Id, token).ConfigureAwait(false);
+                    await _Driver.Memories.DeleteAsync(tenantB, createdB.Id, token).ConfigureAwait(false);
+                }
             }
         }
 
