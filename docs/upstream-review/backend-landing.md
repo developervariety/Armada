@@ -30,6 +30,20 @@ certify Definition of Done or a completed landing. The actual Judge, Check,
 landing and protected-path gates remain the execution authority. Auto-land,
 DoD and recovery outcome projections remain separate backend work.
 
+When the newest scoped run did not pass but an older run did, the preview adds
+a `latest_check_not_passed` warning. It is a warning, so `IsReadyToLand` does
+not change: the preview does not become a smaller Check gate. The
+`passing_checks_required` and `no_passing_checks` messages say that the result
+comes from the preview scope. The dashboard renders every landing preview
+through one card. That card labels a preview without errors "No blocking
+preview issues" instead of "Ready To Land", and states that its Check evidence
+is not the Check gate for the landed commit.
+
+The vessel setting `RequirePassingChecksToLand` is read only by this preview.
+No landing, merge-queue, Judge or Check execution path reads it. Whether to
+enforce it at landing, keep it as a preview signal, or retire it is recorded
+as an open owner decision.
+
 ## Validation
 
 The new voyage override and Failed-with-zero-exit cases both failed before

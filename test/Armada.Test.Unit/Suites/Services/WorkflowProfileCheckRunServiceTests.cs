@@ -1150,7 +1150,70 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("Landing preview blocks landing when passing checks are required and none exist", async () =>
+            await RunTest("Landing preview reports a newer non-passing check that follows an older pass", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    await EnsureTenantAndUserAsync(testDb, "ten_landing_mixed", "usr_landing_mixed").ConfigureAwait(false);
+                    Vessel vessel = new Vessel("landing mixed", "https://example.invalid/repo")
+                    {
+                        TenantId = "ten_landing_mixed", UserId = "usr_landing_mixed", LandingMode = LandingModeEnum.LocalMerge,
+                        RequirePassingChecksToLand = true
+                    };
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    DateTime now = DateTime.UtcNow;
+                    await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        TenantId = vessel.TenantId, UserId = vessel.UserId, VesselId = vessel.Id,
+                        BranchName = "feature/mixed", Status = CheckRunStatusEnum.Passed, ExitCode = 0,
+                        CompletedUtc = now.AddMinutes(-10), Command = "test-command"
+                    }).ConfigureAwait(false);
+                    await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        TenantId = vessel.TenantId, UserId = vessel.UserId, VesselId = vessel.Id,
+                        BranchName = "feature/mixed", Status = CheckRunStatusEnum.Failed, ExitCode = 1,
+                        CompletedUtc = now, Command = "test-command"
+                    }).ConfigureAwait(false);
+
+                    LandingPreviewService preview = new LandingPreviewService(testDb.Driver, CreateLogging());
+                    AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, false, "UnitTest");
+                    LandingPreviewResult result = await preview.PreviewForVesselAsync(auth, vessel, "feature/mixed").ConfigureAwait(false);
+
+                    Console.WriteLine("MIXED issues: " + String.Join(",", result.Issues.ConvertAll(issue => issue.Code))
+                        + "; hasPassing=" + result.HasPassingChecks + "; latest=" + result.LatestCheckStatus + "; ready=" + result.IsReadyToLand);
+                    AssertTrue(result.HasPassingChecks, "An older pass is still reported as a pass found in scope");
+                    AssertTrue(result.LatestCheckStatus == CheckRunStatusEnum.Failed, "The newest run in scope is the failed one");
+                    AssertTrue(
+                        result.Issues.Exists(issue => issue.Code == "latest_check_not_passed" && issue.Severity == ReadinessSeverityEnum.Warning),
+                        "A newer non-passing check is reported as an advisory warning");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Landing preview states that its required-checks issue is a preview signal, not a landing gate", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    await EnsureTenantAndUserAsync(testDb, "ten_landing_wording", "usr_landing_wording").ConfigureAwait(false);
+                    Vessel vessel = new Vessel("landing wording", "https://example.invalid/repo")
+                    {
+                        TenantId = "ten_landing_wording", UserId = "usr_landing_wording", LandingMode = LandingModeEnum.LocalMerge,
+                        RequirePassingChecksToLand = true
+                    };
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    LandingPreviewService preview = new LandingPreviewService(testDb.Driver, CreateLogging());
+                    AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, false, "UnitTest");
+                    LandingPreviewResult result = await preview.PreviewForVesselAsync(auth, vessel, "feature/wording").ConfigureAwait(false);
+
+                    string message = result.Issues.Find(issue => issue.Code == "passing_checks_required")?.Message ?? String.Empty;
+                    Console.WriteLine("WORDING passing_checks_required: " + message);
+                    AssertFalse(String.IsNullOrEmpty(message), "The required-checks issue is present");
+                    AssertFalse(message.Contains("may proceed", StringComparison.OrdinalIgnoreCase), "The message does not describe the preview as a landing gate");
+                    AssertTrue(message.Contains("preview", StringComparison.OrdinalIgnoreCase), "The message names the result as a preview signal");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Landing preview reports a required-checks error when passing checks are required and none exist", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 LoggingModule logging = CreateLogging();

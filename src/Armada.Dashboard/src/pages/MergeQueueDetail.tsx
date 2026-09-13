@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getMergeEntry, deleteMergeEntry, processMergeEntry, cancelMergeEntry, listVessels, getMissionDiff, getMissionLog, getVesselLandingPreview } from '../api/client';
 import type { MergeEntry, Vessel, LandingPreviewResult } from '../types/models';
+import LandingPreviewCard from '../components/shared/LandingPreviewCard';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
@@ -218,52 +219,14 @@ export default function MergeQueueDetail() {
         onLineCountChange={handleLogLineCountChange}
       />
 
-      <div className="card landing-preview-card" style={{ marginBottom: '1rem' }}>
-        <div className="readiness-panel-header">
-          <div>
-            <h3>{t('Landing Preview')}</h3>
-            <div className="readiness-panel-meta">{`${entry.branchName} -> ${entry.targetBranch}`}</div>
-          </div>
-          <span className={`readiness-pill ${landingPreview?.isReadyToLand ? 'ready' : 'warning'}`}>
-            {landingPreview?.isReadyToLand ? t('Ready To Land') : t('Needs Review')}
-          </span>
-        </div>
-        {loadingLandingPreview ? (
-          <div className="text-dim">{t('Calculating landing preview...')}</div>
-        ) : !landingPreview ? (
-          <div className="text-dim">{t('Landing preview is not available for this merge entry yet.')}</div>
-        ) : (
-          <>
-            <div className="readiness-summary-row">
-              <span>{t('Branch category')}: {landingPreview.branchCategory}</span>
-              <span>{t('Landing mode')}: {landingPreview.landingMode || t('Inherited')}</span>
-              <span>{t('Cleanup')}: {landingPreview.branchCleanupPolicy || t('Inherited')}</span>
-              {landingPreview.expectedLandingAction && <span>{t('Action')}: {landingPreview.expectedLandingAction}</span>}
-            </div>
-            <div className="readiness-summary-row">
-              <span>{landingPreview.targetBranchProtected ? t('Protected target branch') : t('Target branch not protected')}</span>
-              {landingPreview.protectedBranchMatch && <span>{t('Policy')}: <span className="mono">{landingPreview.protectedBranchMatch}</span></span>}
-              {landingPreview.requirePullRequestForProtectedBranches && <span>{t('PR required for protected branches')}</span>}
-              {landingPreview.requireMergeQueueForReleaseBranches && <span>{t('Merge queue required for release branches')}</span>}
-            </div>
-            {landingPreview.issues.length > 0 ? (
-              <div className="readiness-issues">
-                {landingPreview.issues.map((issue, index) => (
-                  <div key={`${issue.code}-${index}`} className={`readiness-issue ${issue.severity.toLowerCase()}`}>
-                    <div className="readiness-issue-title-row">
-                      <strong>{issue.title}</strong>
-                      <span className={`readiness-issue-severity ${issue.severity.toLowerCase()}`}>{issue.severity}</span>
-                    </div>
-                    <div className="text-dim">{issue.message}</div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="readiness-success-copy">{t('No landing blockers are currently predicted for this merge entry.')}</div>
-            )}
-          </>
-        )}
-      </div>
+      <LandingPreviewCard
+        preview={landingPreview}
+        loading={loadingLandingPreview}
+        meta={`${entry.branchName} -> ${entry.targetBranch}`}
+        unavailableMessage={t('Landing preview is not available for this merge entry yet.')}
+        noIssuesMessage={t('This preview found no issues for this merge entry.')}
+        style={{ marginBottom: '1rem' }}
+      />
 
       {/* Entry Info */}
       <div className="detail-grid">

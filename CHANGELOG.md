@@ -31,6 +31,19 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   they sent a PUT with only the context fields, which reset the rest of the
   vessel.
 
+### Landing preview Check wording
+
+- The landing preview adds a `latest_check_not_passed` warning when the newest
+  check run in its scope did not pass but an older run did. Before, the older
+  pass hid the newer failure and the preview reported no issue. Readiness is
+  unchanged; the warning does not add a gate.
+- The required-checks and no-passing-checks messages state that they come from
+  the preview scope. Before, the message said checks were required "before
+  landing may proceed", although no landing path reads the vessel setting.
+- Vessel, mission and merge queue pages render the preview through one card
+  that says "No blocking preview issues" instead of "Ready To Land" and states
+  that its Check evidence is not the Check gate for the landed commit.
+
 ### Captain chat tool activity
 
 - Ask Armada and the Planning chat show a one-line result preview on each

@@ -219,7 +219,8 @@ namespace Armada.Core.Services
                     "passing_checks_required",
                     ReadinessSeverityEnum.Error,
                     "Passing checks are required",
-                    "This vessel requires at least one passing structured check before landing may proceed.");
+                    "This vessel requires passing checks, and this preview found no passing structured check in its scope. "
+                    + "The preview is a scoped summary, not the Check gate for the landed commit.");
             }
             else if (!result.HasPassingChecks)
             {
@@ -228,7 +229,22 @@ namespace Armada.Core.Services
                     "no_passing_checks",
                     ReadinessSeverityEnum.Warning,
                     "No passing checks found",
-                    "No passing structured checks were found for the current branch or mission context.");
+                    "This preview found no passing structured check for the current branch or mission context.");
+            }
+
+            // An older pass does not describe newer work, so a newer non-passing run is reported. It is a warning:
+            // the preview summarizes Check evidence and does not replace the Check gate.
+            if (result.HasPassingChecks
+                && result.LatestCheckStatus.HasValue
+                && result.LatestCheckStatus.Value != CheckRunStatusEnum.Passed)
+            {
+                AddIssue(
+                    result,
+                    "latest_check_not_passed",
+                    ReadinessSeverityEnum.Warning,
+                    "Newest check did not pass",
+                    "The newest structured check in this preview's scope is " + result.LatestCheckStatus.Value
+                    + ". An older passing check does not show that the current work passed.");
             }
         }
 

@@ -1159,6 +1159,11 @@ effective mode, legacy flags and cleanup policy. See the
 [landing configuration contract](upstream-review/backend-landing.md) for resolution
 and the advisory Check-summary limits.
 
+`hasPassingChecks` is true when any scoped check run passed, including an older
+run. A `latest_check_not_passed` warning names a newer run that did not pass.
+`isReadyToLand` means the preview found no error issue; it is not the Check gate
+for the landed commit.
+
 **Path Parameters:**
 
 | Parameter | Description |

@@ -77,7 +77,8 @@ namespace Armada.Core.Models
         public string? ExpectedLandingAction { get; set; } = null;
 
         /// <summary>
-        /// Whether any passing check evidence was found for the current scope.
+        /// Whether any of the scoped check runs the preview read has Passed. This is an advisory summary: an older
+        /// pass counts even when a newer run did not pass, and it is not the Check gate for the landed commit.
         /// </summary>
         public bool HasPassingChecks { get; set; } = false;
 
