@@ -8,6 +8,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Settings;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
@@ -1028,6 +1029,124 @@ namespace Armada.Test.Unit.Suites.Services
                     Environment.SetEnvironmentVariable("AWS_REGION", originalAwsRegion);
                     Environment.SetEnvironmentVariable("AWS_PROFILE", originalAwsProfile);
                     TryDeleteDirectory(workingDirectory);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Landing configuration preserves explicit precedence and legacy flags", async () =>
+            {
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    LandingMode = LandingModeEnum.LocalMerge, AutoPush = false,
+                    AutoCreatePullRequests = true, AutoMergePullRequests = true,
+                    BranchCleanupPolicy = BranchCleanupPolicyEnum.None
+                };
+                Vessel vessel = new Vessel { LandingMode = LandingModeEnum.MergeQueue, BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalOnly };
+                Voyage voyage = new Voyage { LandingMode = LandingModeEnum.None };
+                LandingConfiguration configuration = LandingConfigurationResolver.Resolve(settings, vessel, voyage);
+                AssertEqual(LandingModeEnum.None, configuration.LandingMode);
+                AssertEqual(LandingConfigurationSourceEnum.Voyage, configuration.Source);
+                AssertFalse(configuration.AutoPush);
+                AssertFalse(configuration.AutoCreatePullRequests);
+                AssertFalse(configuration.AutoMergePullRequests);
+                voyage.LandingMode = null;
+                configuration = LandingConfigurationResolver.Resolve(settings, vessel, voyage);
+                AssertEqual(LandingModeEnum.MergeQueue, configuration.LandingMode);
+                AssertEqual(LandingConfigurationSourceEnum.Vessel, configuration.Source);
+                AssertFalse(configuration.AutoPush, "Merge queue must not enter the local merge path");
+                vessel.LandingMode = null;
+                configuration = LandingConfigurationResolver.Resolve(settings, vessel, voyage);
+                AssertEqual(LandingConfigurationSourceEnum.Global, configuration.Source);
+                AssertTrue(configuration.AutoPush);
+                AssertFalse(configuration.AutoCreatePullRequests);
+                AssertFalse(configuration.AutoMergePullRequests);
+                settings.LandingMode = null;
+                configuration = LandingConfigurationResolver.Resolve(settings, vessel, voyage);
+                AssertEqual(LandingConfigurationSourceEnum.Legacy, configuration.Source);
+                AssertNull(configuration.LandingMode);
+                AssertFalse(configuration.AutoPush);
+                AssertTrue(configuration.AutoCreatePullRequests, "Retain the legacy flag independently of push");
+                AssertTrue(configuration.AutoMergePullRequests);
+                voyage.AutoPush = true;
+                voyage.AutoCreatePullRequests = false;
+                voyage.AutoMergePullRequests = false;
+                configuration = LandingConfigurationResolver.Resolve(settings, vessel, voyage);
+                AssertTrue(configuration.AutoPush);
+                AssertFalse(configuration.AutoCreatePullRequests);
+                AssertFalse(configuration.AutoMergePullRequests);
+                AssertEqual(BranchCleanupPolicyEnum.LocalOnly, configuration.BranchCleanupPolicy);
+                vessel.BranchCleanupPolicy = null;
+                AssertEqual(BranchCleanupPolicyEnum.None, LandingConfigurationResolver.Resolve(settings, vessel, voyage).BranchCleanupPolicy);
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    settings.LandingMode = LandingModeEnum.PullRequest;
+                    LandingPreviewService preview = new LandingPreviewService(testDb.Driver, CreateLogging(), settings);
+                    LandingPreviewResult result = await preview.PreviewForVesselAsync(AuthContext.Authenticated("default", "default", true, true, "UnitTest"), vessel).ConfigureAwait(false);
+                    AssertEqual(LandingModeEnum.PullRequest, result.LandingMode, "Preview receives the actual global settings");
+                    AssertEqual(LandingConfigurationSourceEnum.Global, result.Configuration!.Source);
+                    settings.LandingMode = null;
+                    result = await preview.PreviewForVesselAsync(AuthContext.Authenticated("default", "default", true, true, "UnitTest"), vessel).ConfigureAwait(false);
+                    AssertEqual("Push and open or update a pull request", result.ExpectedLandingAction, "Legacy PR execution takes precedence even when AutoPush is false");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Landing preview uses the voyage landing override", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    await EnsureTenantAndUserAsync(testDb, "ten_landing_policy", "usr_landing_policy").ConfigureAwait(false);
+                    Vessel vessel = new Vessel("landing policy", "https://example.invalid/repo")
+                    {
+                        TenantId = "ten_landing_policy", UserId = "usr_landing_policy", LandingMode = LandingModeEnum.LocalMerge
+                    };
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    Voyage voyage = new Voyage("landing override")
+                    {
+                        TenantId = vessel.TenantId, UserId = vessel.UserId, LandingMode = LandingModeEnum.PullRequest
+                    };
+                    await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+                    Mission mission = new Mission("preview", "No execution")
+                    {
+                        TenantId = vessel.TenantId, UserId = vessel.UserId, VesselId = vessel.Id,
+                        VoyageId = voyage.Id, BranchName = "feature/preview"
+                    };
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                    LandingPreviewService preview = new LandingPreviewService(testDb.Driver, CreateLogging());
+                    AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, false, "UnitTest");
+                    LandingPreviewResult result = await preview.PreviewForMissionAsync(auth, vessel, mission).ConfigureAwait(false);
+                    AssertEqual(LandingModeEnum.PullRequest, result.LandingMode, "Voyage override must match actual landing precedence");
+                    AssertEqual(LandingConfigurationSourceEnum.Voyage, result.Configuration!.Source);
+                    await EnsureTenantAndUserAsync(testDb, vessel.TenantId!, "usr_other_landing").ConfigureAwait(false);
+                    voyage.UserId = "usr_other_landing";
+                    await testDb.Driver.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
+                    LandingPreviewResult hidden = await preview.PreviewForMissionAsync(auth, vessel, mission).ConfigureAwait(false);
+                    AssertNull(hidden.Configuration, "An unreadable voyage must not expose its override");
+                    AssertFalse(hidden.IsReadyToLand, "Missing scoped configuration prevents a ready preview");
+                    AssertTrue(hidden.Issues.Any(issue => issue.Code == "voyage_configuration_unavailable"));
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Landing preview does not count a failed check with zero exit code as passed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    await EnsureTenantAndUserAsync(testDb, "ten_landing_signal", "usr_landing_signal").ConfigureAwait(false);
+                    Vessel vessel = new Vessel("landing signal", "https://example.invalid/repo")
+                    {
+                        TenantId = "ten_landing_signal", UserId = "usr_landing_signal", LandingMode = LandingModeEnum.LocalMerge,
+                        RequirePassingChecksToLand = true
+                    };
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        TenantId = vessel.TenantId, UserId = vessel.UserId, VesselId = vessel.Id,
+                        BranchName = "feature/signal", Status = CheckRunStatusEnum.Failed, ExitCode = 0,
+                        CompletedUtc = DateTime.UtcNow, Command = "test-command"
+                    }).ConfigureAwait(false);
+                    LandingPreviewService preview = new LandingPreviewService(testDb.Driver, CreateLogging());
+                    AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, false, "UnitTest");
+                    LandingPreviewResult result = await preview.PreviewForVesselAsync(auth, vessel, "feature/signal").ConfigureAwait(false);
+                    AssertFalse(result.HasPassingChecks, "The recorded failed status must not become a pass");
+                    AssertFalse(result.IsReadyToLand, "Failed checks cannot make the preview ready");
                 }
             }).ConfigureAwait(false);
 

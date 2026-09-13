@@ -14,6 +14,14 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Effective landing previews
+
+- Landing previews share the handler's voyage, vessel, global and legacy
+  configuration resolution. Responses expose the selected source and flags.
+  Unreadable voyage overrides report unavailable configuration. Check summaries
+  are redacted and bounded; Failed status with exit code zero is not Passed.
+  Existing execution gates retain authority.
+
 ### Consumer test gate on behavior-breaking waves
 
 - The definition-of-done gate now RUNS a declared consumer's unit-test suite,

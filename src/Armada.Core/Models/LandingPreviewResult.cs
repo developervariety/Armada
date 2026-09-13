@@ -8,6 +8,9 @@ namespace Armada.Core.Models
     /// </summary>
     public class LandingPreviewResult
     {
+        /// <summary>Current settings resolved by the same rules as landing execution.</summary>
+        public LandingConfiguration? Configuration { get; set; }
+
         /// <summary>
         /// Vessel identifier.
         /// </summary>

@@ -6,6 +6,7 @@ namespace Armada.Core.Services
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Settings;
     using SyslogLogging;
 
     /// <summary>
@@ -15,14 +16,22 @@ namespace Armada.Core.Services
     {
         private readonly DatabaseDriver _Database;
         private readonly LoggingModule _Logging;
+        private readonly ArmadaSettings _Settings;
 
         /// <summary>
         /// Instantiate.
         /// </summary>
         public LandingPreviewService(DatabaseDriver database, LoggingModule logging)
+            : this(database, logging, new ArmadaSettings())
+        {
+        }
+
+        /// <summary>Instantiate with the server's current global landing settings.</summary>
+        public LandingPreviewService(DatabaseDriver database, LoggingModule logging, ArmadaSettings settings)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
         }
 
         /// <summary>
@@ -37,13 +46,15 @@ namespace Armada.Core.Services
             if (auth == null) throw new ArgumentNullException(nameof(auth));
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
 
+            LandingConfiguration configuration = LandingConfigurationResolver.Resolve(_Settings, vessel);
             LandingPreviewResult result = new LandingPreviewResult
             {
                 VesselId = vessel.Id,
                 SourceBranch = NormalizeEmpty(sourceBranch),
                 TargetBranch = !String.IsNullOrWhiteSpace(vessel.DefaultBranch) ? vessel.DefaultBranch : "main",
-                LandingMode = vessel.LandingMode,
-                BranchCleanupPolicy = vessel.BranchCleanupPolicy,
+                Configuration = configuration,
+                LandingMode = configuration.LandingMode,
+                BranchCleanupPolicy = configuration.BranchCleanupPolicy,
                 RequirePassingChecksToLand = vessel.RequirePassingChecksToLand,
                 RequirePullRequestForProtectedBranches = vessel.RequirePullRequestForProtectedBranches,
                 RequireMergeQueueForReleaseBranches = vessel.RequireMergeQueueForReleaseBranches
@@ -72,14 +83,25 @@ namespace Armada.Core.Services
             if (vessel == null) throw new ArgumentNullException(nameof(vessel));
             if (mission == null) throw new ArgumentNullException(nameof(mission));
 
+            Voyage? voyage = null;
+            if (!String.IsNullOrWhiteSpace(mission.VoyageId))
+            {
+                voyage = auth.IsAdmin
+                    ? await _Database.Voyages.ReadAsync(mission.VoyageId, token).ConfigureAwait(false)
+                    : auth.IsTenantAdmin
+                        ? await _Database.Voyages.ReadAsync(auth.TenantId!, mission.VoyageId, token).ConfigureAwait(false)
+                        : await _Database.Voyages.ReadAsync(auth.TenantId!, auth.UserId!, mission.VoyageId, token).ConfigureAwait(false);
+            }
+            LandingConfiguration configuration = LandingConfigurationResolver.Resolve(_Settings, vessel, voyage);
             LandingPreviewResult result = new LandingPreviewResult
             {
                 VesselId = vessel.Id,
                 MissionId = mission.Id,
                 SourceBranch = NormalizeEmpty(mission.BranchName),
                 TargetBranch = !String.IsNullOrWhiteSpace(vessel.DefaultBranch) ? vessel.DefaultBranch : "main",
-                LandingMode = vessel.LandingMode,
-                BranchCleanupPolicy = vessel.BranchCleanupPolicy,
+                Configuration = configuration,
+                LandingMode = configuration.LandingMode,
+                BranchCleanupPolicy = configuration.BranchCleanupPolicy,
                 RequirePassingChecksToLand = vessel.RequirePassingChecksToLand,
                 RequirePullRequestForProtectedBranches = vessel.RequirePullRequestForProtectedBranches,
                 RequireMergeQueueForReleaseBranches = vessel.RequireMergeQueueForReleaseBranches
@@ -91,6 +113,14 @@ namespace Armada.Core.Services
             await PopulateCheckSummaryAsync(auth, result, token).ConfigureAwait(false);
             EvaluateCommonIssues(result);
             EvaluateBranchPolicyIssues(result);
+            if (!String.IsNullOrWhiteSpace(mission.VoyageId) && voyage == null)
+            {
+                result.Configuration = null;
+                result.LandingMode = null;
+                result.ExpectedLandingAction = "Unavailable until voyage configuration can be read";
+                AddIssue(result, "voyage_configuration_unavailable", ReadinessSeverityEnum.Error,
+                    "Voyage configuration is unavailable", "The linked voyage cannot be read in the current scope; its override cannot be resolved.");
+            }
             EvaluateMissionIssues(result, mission);
             FinalizeResult(result);
             return result;
@@ -125,17 +155,22 @@ namespace Armada.Core.Services
             {
                 result.LatestCheckRunId = latest.Id;
                 result.LatestCheckStatus = latest.Status;
-                result.LatestCheckSummary = latest.Summary;
+                string safeSummary = SecretRedactor.Redact(latest.Summary ?? String.Empty);
+                result.LatestCheckSummary = safeSummary.Length <= 1000 ? safeSummary : safeSummary.Substring(0, 1000) + " [truncated]";
             }
 
-            result.HasPassingChecks = ordered.Any(run =>
-                run.Status == CheckRunStatusEnum.Passed
-                || (run.CompletedUtc.HasValue && run.ExitCode.HasValue && run.ExitCode.Value == 0));
+            result.HasPassingChecks = ordered.Any(run => run.Status == CheckRunStatusEnum.Passed);
         }
 
         private static void EvaluateCommonIssues(LandingPreviewResult result)
         {
             result.ExpectedLandingAction = DescribeLandingAction(result.LandingMode);
+            if (result.Configuration is { Source: LandingConfigurationSourceEnum.Legacy } legacy)
+            {
+                result.ExpectedLandingAction = legacy.AutoCreatePullRequests ? "Push and open or update a pull request"
+                    : legacy.AutoPush ? "Use the configured local merge path"
+                    : "Manual landing only";
+            }
 
             if (String.IsNullOrWhiteSpace(result.SourceBranch))
             {
@@ -153,8 +188,8 @@ namespace Armada.Core.Services
                     result,
                     "landing_mode_inherited",
                     ReadinessSeverityEnum.Warning,
-                    "Landing mode is inherited",
-                    "This vessel does not declare a landing mode directly, so global or voyage settings may change the final behavior.");
+                    "Legacy landing flags apply",
+                    "No explicit landing mode is selected. The resolved legacy push and pull-request flags determine the handler path.");
             }
             else if (result.LandingMode.Value == LandingModeEnum.None)
             {

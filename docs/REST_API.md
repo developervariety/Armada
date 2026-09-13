@@ -1142,7 +1142,10 @@ Returns readiness warnings and blocking issues for a vessel. Optional query:
 #### GET /api/v1/vessels/{id}/landing-preview
 
 Predicts how Armada would land a branch for this vessel. Optional query:
-`sourceBranch`.
+`sourceBranch`. The response includes current `Configuration` with its source,
+effective mode, legacy flags and cleanup policy. See the
+[landing configuration contract](upstream-review/backend-landing.md) for resolution
+and the advisory Check-summary limits.
 
 **Path Parameters:**
 
@@ -1654,6 +1657,9 @@ curl http://localhost:8080/api/v1/missions/msn_abc123/log?offset=100&lines=100 \
 #### GET /api/v1/missions/{id}/landing-preview
 
 Predicts how Armada would land this mission's branch. The mission must have a vessel.
+The current `Configuration` includes the scoped voyage override. An unreadable
+linked voyage returns null configuration and a preview error. See the
+[landing configuration contract](upstream-review/backend-landing.md).
 
 **Path Parameters:**
 

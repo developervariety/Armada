@@ -316,34 +316,17 @@ namespace Armada.Server
                 voyage = await _Database.Voyages.ReadAsync(mission.VoyageId).ConfigureAwait(false);
             }
 
-            // Resolve landing mode: voyage > vessel > global > derive from legacy booleans
-            LandingModeEnum? resolvedLandingMode = voyage?.LandingMode ?? vessel?.LandingMode ?? _Settings.LandingMode;
-
-            // Resolve effective settings from landing mode or legacy booleans
-            bool effectivePush;
-            bool effectivePr;
-            bool effectiveMerge;
-
-            if (resolvedLandingMode.HasValue)
-            {
-                // Explicit landing mode takes precedence over boolean flags
-                effectivePr = resolvedLandingMode.Value == LandingModeEnum.PullRequest;
-                effectivePush = effectivePr || resolvedLandingMode.Value == LandingModeEnum.LocalMerge;
-                effectiveMerge = effectivePr && (voyage?.AutoMergePullRequests ?? _Settings.AutoMergePullRequests);
-            }
-            else
-            {
-                // Legacy boolean resolution: per-voyage override > global setting
-                effectivePush = voyage?.AutoPush ?? _Settings.AutoPush;
-                effectivePr = voyage?.AutoCreatePullRequests ?? _Settings.AutoCreatePullRequests;
-                effectiveMerge = voyage?.AutoMergePullRequests ?? _Settings.AutoMergePullRequests;
-            }
+            LandingConfiguration configuration = LandingConfigurationResolver.Resolve(_Settings, vessel, voyage);
+            LandingModeEnum? resolvedLandingMode = configuration.LandingMode;
+            bool effectivePush = configuration.AutoPush;
+            bool effectivePr = configuration.AutoCreatePullRequests;
+            bool effectiveMerge = configuration.AutoMergePullRequests;
 
             bool landingModeIsNone = resolvedLandingMode == LandingModeEnum.None;
             bool landingModeIsMergeQueue = resolvedLandingMode == LandingModeEnum.MergeQueue;
 
             // Resolve branch cleanup policy: vessel > global setting
-            BranchCleanupPolicyEnum cleanupPolicy = vessel?.BranchCleanupPolicy ?? _Settings.BranchCleanupPolicy;
+            BranchCleanupPolicyEnum cleanupPolicy = configuration.BranchCleanupPolicy;
 
             // Acquire per-vessel merge lock to prevent concurrent git operations on the same repo
             string vesselLockKey = mission.VesselId ?? dock.VesselId ?? "unknown";

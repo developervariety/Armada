@@ -173,3 +173,9 @@ provider totals are 67/67/68/67 for SQLite/PostgreSQL/MySQL/SQL Server. The comb
 tree passed 4,112 unit, 967 API and 183 runtime tests with no failures or skips.
 No deployment is included. Effective landing, DoD and recovery projections remain
 open.
+
+## Effective landing configuration
+
+See [effective landing configuration](backend-landing.md) for shared resolution,
+scoped voyage overrides and preview limits. DoD, auto-land and recovery outcomes
+remain open; this read projection does not replace execution gates.
