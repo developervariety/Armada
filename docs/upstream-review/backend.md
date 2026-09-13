@@ -130,3 +130,6 @@ Open questions include: identity propagation on WebSocket broadcast and Harbor u
 See [backend metadata persistence](backend-storage.md) for verified field losses,
 new additive migrations and preserved behavior. Storage does not activate routing
 or scanner policy, and does not complete the remaining backend enrichment.
+
+See [scoped voyage mission summaries](backend-summaries.md) for the paged vessel
+association and status-count contract. Dashboard wiring remains separate.

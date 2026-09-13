@@ -14,6 +14,14 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Scoped voyage mission summaries
+
+- Add a read endpoint for voyage mission status counts and paged distinct vessel
+  IDs. Counts cover all visible missions, including missions outside the vessel
+  page, without loading descriptions or captured output.
+- Apply authenticated user, tenant administrator or global administrator scope.
+  Reject invalid page bounds. Dashboard adoption remains separate work.
+
 ### Backend metadata persistence
 
 - Preserve nullable captain tier, mission requested captain and tier, vessel scan

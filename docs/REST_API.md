@@ -1244,6 +1244,29 @@ Get a voyage and all its associated missions.
 
 ---
 
+#### GET /api/v1/voyages/{id}/mission-summary
+
+Read mission status counts and a page of distinct vessel IDs without mission
+descriptions or captured output. The caller must be able to view the voyage.
+Counts and associations use global scope for a global administrator, tenant
+scope for a tenant administrator, and user scope for other authenticated users.
+Caller-supplied tenant or user query parameters do not change this scope.
+
+| Query parameter | Default | Allowed values |
+| --- | --- | --- |
+| `pageNumber` | 1 | Positive integer |
+| `pageSize` | 100 | Integer from 1 to 100 |
+
+The response is `VoyageMissionSummary`: `statusCounts` maps each present mission
+status to its count across all visible missions; `vessels` is an
+`EnumerationResult<string>` with distinct vessel IDs. Vessel pagination does not
+limit status counts. A beyond-end page has no objects but retains totals.
+Ordering follows database identifier collation. Concurrent writes can change
+pages between requests.
+
+Returns 400 for invalid paging, 401 without authentication, and 404 for a missing
+or invisible voyage.
+
 #### DELETE /api/v1/voyages/{id}
 
 Cancel a voyage. Sets the voyage status to `Cancelled` and cancels all `Pending` or `Assigned` missions. In-progress missions are not affected.
@@ -4375,6 +4398,7 @@ Response from `GET /api/v1/captains/{id}/log`.
 | 39 | POST | `/api/v1/voyages/enumerate` | Enumerate voyages | Yes |
 | 40 | POST | `/api/v1/voyages` | Create voyage with missions | Yes |
 | 41 | GET | `/api/v1/voyages/{id}` | Get voyage with missions | Yes |
+| 41a | GET | `/api/v1/voyages/{id}/mission-summary` | Scoped status counts and paged vessel IDs | Yes |
 | 42 | DELETE | `/api/v1/voyages/{id}` | Cancel voyage | Yes |
 | 43 | DELETE | `/api/v1/voyages/{id}/purge` | Permanently delete voyage | Yes |
 | 44 | GET | `/api/v1/missions` | List missions (paginated) | Yes |

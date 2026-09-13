@@ -339,6 +339,50 @@ namespace Armada.Server.Routes
                 .WithResponse(201, OpenApiJson.For<Voyage>("Created voyage"))
                 .WithSecurity("ApiKey"));
 
+            app.Get("/api/v1/voyages/{id}/mission-summary", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+                int pageNumber = 1;
+                int pageSize = 100;
+                string? number = req.Query.GetValueOrDefault("pageNumber");
+                string? size = req.Query.GetValueOrDefault("pageSize");
+                if ((req.Query.Contains("pageNumber") && !Int32.TryParse(number, out pageNumber))
+                    || (req.Query.Contains("pageSize") && !Int32.TryParse(size, out pageSize))
+                    || pageNumber < 1 || pageSize < 1 || pageSize > 100)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "pageNumber must be positive and pageSize must be between 1 and 100." };
+                }
+                string id = req.Parameters["id"];
+                Voyage? voyage = ctx.IsAdmin
+                    ? await _database.Voyages.ReadAsync(id).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Voyages.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Voyages.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                if (voyage == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Voyage not found" };
+                }
+                return (object)await _database.Missions.ReadVoyageMissionSummaryAsync(id, pageNumber, pageSize,
+                    ctx.IsAdmin ? null : ctx.TenantId, ctx.IsAdmin || ctx.IsTenantAdmin ? null : ctx.UserId).ConfigureAwait(false);
+            },
+            api => api
+                .WithTag("Voyages")
+                .WithSummary("Read scoped voyage mission counts and vessel associations")
+                .WithDescription("Counts all visible missions by status and pages distinct vessel IDs without mission payloads. Scope follows authenticated voyage and mission visibility.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Voyage ID"))
+                .WithParameter(OpenApiParameterMetadata.Query("pageNumber", "Vessel page, starting at 1", false))
+                .WithParameter(OpenApiParameterMetadata.Query("pageSize", "Vessels per page, 1 to 100; default 100", false))
+                .WithResponse(200, OpenApiJson.For<VoyageMissionSummary>("Scoped counts and vessel page"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
             app.Get("/api/v1/voyages/{id}", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);

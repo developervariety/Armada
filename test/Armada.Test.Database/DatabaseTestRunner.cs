@@ -101,6 +101,7 @@ namespace Armada.Test.Database
                 await RunTest("Voyage_" + field + "_Create_Update_Clear_Reopen", "Operational", () => TestBackendFieldAsync("Voyage", field, token), token);
             await RunTest("Captain_Create_Read_Update", "Operational", () => TestCaptainCrudAsync(token), token);
             await RunTest("Voyage_Create_Read_Update", "Operational", () => TestVoyageCrudAsync(token), token);
+            await RunTest("Voyage_Summary_All_Pages_And_Scopes", "Operational", () => TestVoyageSummaryAsync(token), token);
             await RunTest("Mission_Create_Read_Update", "Operational", () => TestMissionCrudAsync(token), token);
             await RunTest("Mission_Fork_Fields_Create_Update_Reopen_Query", "Operational", () => TestMissionForkFieldsAsync(token), token);
             await RunTest("Dock_Create_Read_Update", "Operational", () => TestDockCrudAsync(token), token);
@@ -627,6 +628,67 @@ namespace Armada.Test.Database
             {
                 await fixture.CleanupAsync(token).ConfigureAwait(false);
             }
+        }
+
+        private async Task TestVoyageSummaryAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                UserMaster otherUser = await fixture.CreateUserAsync(graph.Tenant.Id, "summary-other", token: token).ConfigureAwait(false);
+                TenantMetadata otherTenant = await fixture.CreateTenantAsync("summary-other", token: token).ConfigureAwait(false);
+                UserMaster foreignUser = await fixture.CreateUserAsync(otherTenant.Id, "summary-foreign", token: token).ConfigureAwait(false);
+                Vessel second = await fixture.CreateVesselAsync(graph.Tenant.Id, graph.User.Id, graph.Fleet.Id, "summary-second", token).ConfigureAwait(false);
+                Vessel hidden = await fixture.CreateVesselAsync(graph.Tenant.Id, otherUser.Id, graph.Fleet.Id, "summary-hidden", token).ConfigureAwait(false);
+                string payload = "summary-heavy-payload-" + new string('x', 100000);
+                await fixture.CreateMissionAsync(graph.Tenant.Id, graph.User.Id, graph.Voyage.Id, second.Id,
+                    graph.Captain.Id, "summary-second", token, configure: mission =>
+                    { mission.Status = MissionStatusEnum.Complete; mission.Description = payload; }).ConfigureAwait(false);
+                await fixture.CreateMissionAsync(graph.Tenant.Id, graph.User.Id, graph.Voyage.Id, second.Id,
+                    graph.Captain.Id, "summary-duplicate-vessel", token, configure: mission => mission.Status = MissionStatusEnum.Complete).ConfigureAwait(false);
+                await fixture.CreateMissionAsync(graph.Tenant.Id, otherUser.Id, graph.Voyage.Id, hidden.Id,
+                    graph.Captain.Id, "summary-other-user", token, configure: mission => mission.Status = MissionStatusEnum.Failed).ConfigureAwait(false);
+                await fixture.CreateMissionAsync(otherTenant.Id, foreignUser.Id, graph.Voyage.Id, hidden.Id,
+                    graph.Captain.Id, "summary-other-tenant", token, configure: mission => mission.Status = MissionStatusEnum.Failed).ConfigureAwait(false);
+
+                HashSet<string> visible = new HashSet<string>(StringComparer.Ordinal);
+                for (int page = 1; page <= 3; page++)
+                {
+                    VoyageMissionSummary summary = await _Driver.Missions.ReadVoyageMissionSummaryAsync(
+                        graph.Voyage.Id, page, 1, graph.Tenant.Id, graph.User.Id, token).ConfigureAwait(false);
+                    DatabaseAssert.EnumerationPage(summary.Vessels, page, 1, 2, 2, page <= 2 ? 1 : 0);
+                    DatabaseAssert.Equal(2L, summary.StatusCounts[MissionStatusEnum.Complete], "Counts include missions beyond vessel page");
+                    DatabaseAssert.Equal(3L, System.Linq.Enumerable.Sum(summary.StatusCounts.Values), "User-visible total");
+                    foreach (string id in summary.Vessels.Objects) DatabaseAssert.True(visible.Add(id), "No duplicate vessel across pages");
+                    DatabaseAssert.True(!System.Text.Json.JsonSerializer.Serialize(summary).Contains("summary-heavy-payload"), "Summary omits mission payload");
+                }
+                DatabaseAssert.ContainsIds(visible, id => id, graph.Vessel.Id, second.Id);
+                VoyageMissionSummary tenant = await _Driver.Missions.ReadVoyageMissionSummaryAsync(
+                    graph.Voyage.Id, tenantId: graph.Tenant.Id, token: token).ConfigureAwait(false);
+                DatabaseAssert.Equal(4L, System.Linq.Enumerable.Sum(tenant.StatusCounts.Values), "Tenant-visible total");
+                DatabaseAssert.Equal(3L, tenant.Vessels.TotalRecords, "Tenant distinct vessels");
+                VoyageMissionSummary global = await _Driver.Missions.ReadVoyageMissionSummaryAsync(graph.Voyage.Id, token: token).ConfigureAwait(false);
+                DatabaseAssert.Equal(5L, System.Linq.Enumerable.Sum(global.StatusCounts.Values), "Global total");
+                VoyageMissionSummary absent = await _Driver.Missions.ReadVoyageMissionSummaryAsync(
+                    "absent-" + Guid.NewGuid().ToString("N"), token: token).ConfigureAwait(false);
+                DatabaseAssert.Equal(0, absent.StatusCounts.Count, "Empty voyage counts");
+                DatabaseAssert.Equal(0L, absent.Vessels.TotalRecords, "Empty voyage associations");
+                foreach (Func<Task<VoyageMissionSummary>> invalid in new Func<Task<VoyageMissionSummary>>[]
+                {
+                    () => _Driver.Missions.ReadVoyageMissionSummaryAsync(graph.Voyage.Id, pageNumber: 0, token: token),
+                    () => _Driver.Missions.ReadVoyageMissionSummaryAsync(graph.Voyage.Id, pageSize: 101, token: token),
+                    () => _Driver.Missions.ReadVoyageMissionSummaryAsync(graph.Voyage.Id, tenantId: "", token: token),
+                    () => _Driver.Missions.ReadVoyageMissionSummaryAsync(graph.Voyage.Id, userId: graph.User.Id, token: token)
+                })
+                {
+                    bool rejected = false;
+                    try { await invalid().ConfigureAwait(false); }
+                    catch (ArgumentException) { rejected = true; }
+                    DatabaseAssert.True(rejected, "Invalid scope or page must be rejected");
+                }
+            }
+            finally { await fixture.CleanupAsync(token).ConfigureAwait(false); }
         }
 
         private async Task TestVoyageCrudAsync(CancellationToken token)

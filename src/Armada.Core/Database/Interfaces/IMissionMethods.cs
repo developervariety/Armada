@@ -9,6 +9,17 @@ namespace Armada.Core.Database.Interfaces
     public interface IMissionMethods
     {
         /// <summary>
+        /// Read status counts across all visible voyage missions and a page of distinct vessel IDs.
+        /// A null tenant selects global scope; a user scope requires a tenant. Callers must authorize
+        /// the voyage and scope before using this database operation. Page size is bounded to 100.
+        /// </summary>
+        Task<VoyageMissionSummary> ReadVoyageMissionSummaryAsync(string voyageId, int pageNumber = 1,
+            int pageSize = 100, string? tenantId = null, string? userId = null, CancellationToken token = default)
+        {
+            throw new NotSupportedException("Voyage mission aggregates are not implemented by this database.");
+        }
+
+        /// <summary>
         /// Create a mission.
         /// </summary>
         Task<Mission> CreateAsync(Mission mission, CancellationToken token = default);

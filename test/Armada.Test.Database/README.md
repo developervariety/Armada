@@ -44,7 +44,7 @@ not a production backup. Applied version, description and timestamp rows must
 remain unchanged across restart and upgrade.
 
 Scenario assertions fail the process before the ordinary runner if they fail.
-They are separate from the 61 ordinary cases (62 on MySQL). Ordinary cases cover
+They are separate from the 62 ordinary cases (63 on MySQL). Ordinary cases cover
 selected fields and behavior, not every property or every provider capability.
 See [the foundation field matrix](../../docs/upstream-review/foundation.md) and
 [additional entity fields](../../docs/upstream-review/foundation-entities.md)

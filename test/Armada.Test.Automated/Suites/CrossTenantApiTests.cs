@@ -586,6 +586,84 @@ namespace Armada.Test.Automated.Suites
                 AssertTrue(found, "Expected voyage " + voyageAId + " to appear in tenant-A list");
             }).ConfigureAwait(false);
 
+            await RunTest("Voyage_Summary_UsesAuthenticatedUserAndTenantScope", async () =>
+            {
+                string? userId = null;
+                string? credentialId = null;
+                string? ownVoyageId = null;
+                List<Exception> failures = new List<Exception>();
+                try
+                {
+                    UserMaster user;
+                    using (StringContent content = JsonHelper.ToJsonContent(new
+                    {
+                        TenantId = _TenantAId, Email = "summary-" + Guid.NewGuid().ToString("N") + "@example.test",
+                        PasswordSha256 = UserMaster.ComputePasswordHash("summary-fixture"), IsTenantAdmin = true
+                    }))
+                    using (HttpResponseMessage response = await _AdminClient.PostAsync("/api/v1/users", content))
+                    {
+                        AssertEqual(HttpStatusCode.Created, response.StatusCode);
+                        user = await JsonHelper.DeserializeAsync<UserMaster>(response);
+                        userId = user.Id;
+                    }
+                    Credential credential;
+                    using (StringContent content = JsonHelper.ToJsonContent(new { TenantId = _TenantAId, UserId = userId, Name = "summary" }))
+                    using (HttpResponseMessage response = await _AdminClient.PostAsync("/api/v1/credentials", content))
+                    {
+                        AssertEqual(HttpStatusCode.Created, response.StatusCode);
+                        credential = await JsonHelper.DeserializeAsync<Credential>(response);
+                        credentialId = credential.Id;
+                    }
+                    using (HttpClient client = CreateBearerClient(credential.BearerToken))
+                    {
+                        using (StringContent content = JsonHelper.ToJsonContent(new { Title = "Summary owned voyage" }))
+                        using (HttpResponseMessage response = await client.PostAsync("/api/v1/voyages", content))
+                        {
+                            AssertEqual(HttpStatusCode.Created, response.StatusCode);
+                            ownVoyageId = (await JsonHelper.DeserializeAsync<Voyage>(response)).Id;
+                        }
+                        user.IsTenantAdmin = false;
+                        using (StringContent content = JsonHelper.ToJsonContent(user))
+                        using (HttpResponseMessage response = await _AdminClient.PutAsync("/api/v1/users/" + user.Id, content))
+                            AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                        using (HttpResponseMessage response = await client.GetAsync("/api/v1/whoami"))
+                            AssertFalse((await JsonHelper.DeserializeAsync<WhoAmIResult>(response)).User!.IsTenantAdmin);
+
+                        using (HttpResponseMessage response = await client.GetAsync("/api/v1/voyages/" + ownVoyageId + "/mission-summary"))
+                            AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                        using (HttpResponseMessage response = await client.GetAsync("/api/v1/voyages/" + voyageAId + "/mission-summary?tenantId=" + _TenantAId + "&userId=" + _UserAId))
+                            AssertEqual(HttpStatusCode.NotFound, response.StatusCode, "A query cannot override authenticated user scope");
+                        using (HttpResponseMessage response = await _ClientA!.GetAsync("/api/v1/voyages/" + ownVoyageId + "/mission-summary"))
+                            AssertEqual(HttpStatusCode.OK, response.StatusCode, "Tenant admin can read another user's voyage");
+                        using (HttpResponseMessage response = await _AdminClient.GetAsync("/api/v1/voyages/" + ownVoyageId + "/mission-summary"))
+                            AssertEqual(HttpStatusCode.OK, response.StatusCode, "Global admin can read the voyage");
+                        using (HttpResponseMessage response = await _ClientB!.GetAsync("/api/v1/voyages/" + ownVoyageId + "/mission-summary?tenantId=" + _TenantAId))
+                            AssertEqual(HttpStatusCode.NotFound, response.StatusCode, "Foreign tenant cannot override scope");
+                    }
+                }
+                catch (Exception exception) { failures.Add(exception); }
+                finally
+                {
+                    foreach (string path in new[]
+                    {
+                        ownVoyageId == null ? "" : "/api/v1/voyages/" + ownVoyageId,
+                        ownVoyageId == null ? "" : "/api/v1/voyages/" + ownVoyageId + "/purge",
+                        credentialId == null ? "" : "/api/v1/credentials/" + credentialId,
+                        userId == null ? "" : "/api/v1/users/" + userId
+                    })
+                    {
+                        if (path.Length == 0) continue;
+                        try
+                        {
+                            using (HttpResponseMessage response = await _AdminClient.DeleteAsync(path))
+                                AssertEqual(HttpStatusCode.OK, response.StatusCode, "Summary fixture cleanup");
+                        }
+                        catch (Exception exception) { failures.Add(exception); }
+                    }
+                    if (failures.Count > 0) throw new AggregateException("Summary scope test or cleanup failed", failures);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Voyage_ListFromTenantB_DoesNotContainVoyage", async () =>
             {
                 HttpResponseMessage response = await _ClientB!.GetAsync("/api/v1/voyages").ConfigureAwait(false);

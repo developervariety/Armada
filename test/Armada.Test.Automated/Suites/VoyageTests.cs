@@ -45,6 +45,65 @@ namespace Armada.Test.Automated.Suites
 
         protected override async Task RunTestsAsync()
         {
+            await RunTest("MissionSummary_CountsAllMissionsAcrossVesselPages", async () =>
+            {
+                PrerequisiteResult prereqs = await CreatePrerequisitesAsync();
+                try
+                {
+                    string secondVessel = await CreateVesselAsync(prereqs.FleetId, "SummarySecond");
+                    Voyage voyage = await CreateVoyageAsync(prereqs.VesselId, "Summary voyage", missionCount: 2);
+                    using (StringContent body = JsonHelper.ToJsonContent(new
+                    {
+                        Title = "Summary later vessel", VoyageId = voyage.Id, VesselId = secondVessel,
+                        Description = "summary-payload-marker-" + new string('x', 100000)
+                    }))
+                    using (HttpResponseMessage created = await _AuthClient.PostAsync("/api/v1/missions", body))
+                        AssertEqual(HttpStatusCode.Created, created.StatusCode, await created.Content.ReadAsStringAsync());
+
+                    HashSet<string> vessels = new HashSet<string>(StringComparer.Ordinal);
+                    for (int page = 1; page <= 3; page++)
+                    {
+                        using (HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/voyages/" + voyage.Id + "/mission-summary?pageSize=1&pageNumber=" + page))
+                        {
+                            AssertEqual(HttpStatusCode.OK, response.StatusCode, await response.Content.ReadAsStringAsync());
+                            string json = await response.Content.ReadAsStringAsync();
+                            VoyageMissionSummary summary = JsonHelper.Deserialize<VoyageMissionSummary>(json);
+                            AssertEqual(3L, summary.StatusCounts.Values.Sum());
+                            AssertEqual(2L, summary.Vessels.TotalRecords);
+                            AssertEqual(2, summary.Vessels.TotalPages);
+                            AssertEqual(page <= 2 ? 1 : 0, summary.Vessels.Objects.Count);
+                            foreach (string id in summary.Vessels.Objects) AssertTrue(vessels.Add(id), "No repeated vessel across pages");
+                            AssertFalse(json.Contains("summary-payload-marker"), "No mission description in summary");
+                        }
+                    }
+                    AssertTrue(vessels.SetEquals(new[] { prereqs.VesselId, secondVessel }));
+                }
+                finally { await CleanupAsync(); }
+            });
+
+            await RunTest("MissionSummary_InvalidPages_Return400", async () =>
+            {
+                foreach (string query in new[] { "pageNumber=0", "pageNumber=-1", "pageNumber=no", "pageNumber=2147483648", "pageSize=0", "pageSize=101", "pageSize=no", "pageSize=" })
+                {
+                    using (HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/voyages/absent/mission-summary?" + query))
+                        AssertEqual(HttpStatusCode.BadRequest, response.StatusCode, query);
+                }
+                using (HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/voyages/absent/mission-summary"))
+                    AssertEqual(HttpStatusCode.NotFound, response.StatusCode);
+            });
+
+            await RunTest("MissionSummary_Unauthenticated_Returns401", async () =>
+            {
+                using (HttpResponseMessage response = await _UnauthClient.GetAsync("/api/v1/voyages/absent/mission-summary"))
+                    AssertEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+                using (HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/voyages/absent/mission-summary"))
+                {
+                    request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "invalid-summary-token");
+                    using (HttpResponseMessage response = await _UnauthClient.SendAsync(request))
+                        AssertEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+                }
+            });
+
             #region Create-Voyage-Tests
 
             await RunTest("CreateVoyage_WithMissions_Returns201WithCorrectProperties", async () =>
