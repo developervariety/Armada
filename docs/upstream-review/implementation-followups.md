@@ -28,9 +28,19 @@ a disconnected warning even when discovery is unverified. Trace actual launch
 configuration and connection results before deciding whether access is missing.
 Do not remove the warning without proving the runtime connection state.
 
-Branch inspection remains unaccepted: repository selection by a guessed vessel
-name can select unrelated data. Crash-loop protection remains unaccepted until
-its conditional write also preserves concurrent stronger or indefinite holds.
+Read-only branch inspection landed in `c69d5627`. It uses persisted paths,
+preserves refs, and reports corrupt HEAD as an error. Root checks passed:
+89 API tests and 60 Git service tests. Optional writes remain absent.
+
+Crash-loop protection landed in `b4ed7ab6` through the existing quarantine
+service. It preserves active work and stronger or indefinite holds. Root checks
+passed on SQLite (69), PostgreSQL (69), MySQL (70), and SQL Server (69).
+The PostgreSQL comparison and null parameter defects found during review were
+fixed without schema changes. The unused health monitor was removed. These
+changes are not deployed.
+
+Advisory UI labels landed in `8f6cd7c2`, with four rendered tests passing.
+The response model documentation still needs the same advisory wording.
 
 Keep each entry until it has a disposition and evidence. Use these states:
 **Open** (confirmed source gap), **In progress** (implementation exists but is
@@ -46,7 +56,7 @@ these areas. Do not duplicate its changes.
 | FOLLOWUP-003 | Verify | Recovery report landed; large-vessel read cost and history completeness remain |
 | FOLLOWUP-004 | Closed | DoD validation and bounds landed with recorded adversarial proof |
 | FOLLOWUP-005 | Closed | Advisory preview wording and newer failed Check warning landed |
-| FOLLOWUP-006 | Open | Captain health monitor has no production caller in the source census |
+| FOLLOWUP-006 | Closed | Unused monitor retired after shared crash-loop protection and provider tests |
 | FOLLOWUP-007 | Verify | Final combined tree and deployed behavior need separate certification |
 | FOLLOWUP-008 | Closed | Shared event owner resolution landed; delivery review remains in final verification |
 | FOLLOWUP-009 | Verify | Scoped merge-entry repair landed; filter and pagination coverage review remains |
@@ -157,11 +167,10 @@ A source-reference census found `CaptainHealthMonitor` and
 Tests of this standalone class do not prove it participates in live crash-loop
 quarantine.
 
-Trace the actual crash-loop/quarantine path and compare capabilities. Decide
-whether the monitor is superseded or has a useful missing behavior. Preserve
-the richer service and avoid parallel quarantine authorities. Get owner input
-before retiring an uncertain asset. Close with a documented disposition, not
-with an assumption based on the class name.
+The owner approved retirement after generic crash-loop protection used the
+shared service. That change landed in `b4ed7ab6`, with provider and process-exit
+regressions. The standalone monitor and its tests are removed. No second
+quarantine authority remains. Deployment proof stays in the final rollout gate.
 
 ## FOLLOWUP-007 — Final evidence and rollout
 
