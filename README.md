@@ -78,6 +78,11 @@ project profiles, captain assignment, jobs, token accounting, friction reports
 and coordination leases. A shared feature name does not imply equal behavior.
 The fork's recovery and Judge gates remain more complete.
 
+The fork now provides scoped, read-only vessel branch inspection, including
+tip metadata, divergence and verified HEAD state. It uses persisted repository
+paths and preserves refs. Upstream push and merge controls remain separate
+integration work because they must preserve the fork's landing gates.
+
 Manual quarantine and release share one service across REST, MCP and Captain
 Detail **Lift Quarantine**. A hold is refused while the captain owns a mission,
 dock or process, and a release never forces a working captain to Idle. Manual

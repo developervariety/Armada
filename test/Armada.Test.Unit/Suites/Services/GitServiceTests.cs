@@ -18,6 +18,80 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
+            await RunTest("ListBranchesAsync reports metadata and preserves refs", async () =>
+            {
+                GitService service = CreateService();
+                string directory = Path.Combine(Path.GetTempPath(), "armada-branches-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(directory);
+                    await RunGitAsync(directory, "init", "-b", "main");
+                    await RunGitAsync(directory, "config", "user.name", "Armada Tests");
+                    await RunGitAsync(directory, "config", "user.email", "armada-tests@example.com");
+                    await File.WriteAllTextAsync(Path.Combine(directory, "main.txt"), "main\n");
+                    await RunGitAsync(directory, "add", "main.txt");
+                    await RunGitAsync(directory, "commit", "-m", "Main commit");
+                    await RunGitAsync(directory, "checkout", "-b", "feature/inspection");
+                    await File.WriteAllTextAsync(Path.Combine(directory, "feature.txt"), "feature\n");
+                    await RunGitAsync(directory, "add", "feature.txt");
+                    await RunGitAsync(directory, "commit", "-m", "Feature inspection commit");
+                    await RunGitAsync(directory, "checkout", "main");
+                    await RunGitAsync(directory, "tag", "feature/inspection");
+                    string refsBefore = await RunGitAsync(directory, "show-ref");
+
+                    System.Collections.Generic.IReadOnlyList<Armada.Core.Models.BranchInfo> branches =
+                        await service.ListBranchesAsync(directory, "main");
+                    string refsAfter = await RunGitAsync(directory, "show-ref");
+                    string currentBranch = (await RunGitAsync(directory, "symbolic-ref", "--short", "HEAD")).Trim();
+
+                    AssertEqual(refsBefore, refsAfter, "Branch inspection must not change refs");
+                    AssertEqual("main", currentBranch, "Branch inspection must not change HEAD");
+                    AssertEqual(2, branches.Count, "Both local branches must be returned");
+                    AssertEqual("main", branches[0].Name, "Default branch must sort first");
+                    AssertTrue(branches[0].IsDefault, "Default branch marker");
+                    AssertTrue(branches[0].IsCurrent, "Current branch marker");
+                    AssertEqual(0, branches[0].Ahead, "Default branch ahead count");
+                    AssertEqual(0, branches[0].Behind, "Default branch behind count");
+                    AssertEqual("feature/inspection", branches[1].Name, "Feature branch name");
+                    AssertFalse(branches[1].IsDefault, "Feature branch default marker");
+                    AssertFalse(branches[1].IsCurrent, "Feature branch current marker");
+                    AssertEqual(1, branches[1].Ahead, "Feature branch ahead count");
+                    AssertEqual(0, branches[1].Behind, "Feature branch behind count");
+                    AssertEqual("Feature inspection commit", branches[1].CommitSubject, "Feature tip subject");
+                    AssertTrue(!String.IsNullOrWhiteSpace(branches[1].CommitHash), "Feature tip hash");
+                    AssertTrue(branches[1].CommitDate.HasValue, "Feature tip date");
+                }
+                finally
+                {
+                    try { Directory.Delete(directory, true); } catch { }
+                }
+            });
+
+            await RunTest("GetRepositoryHeadRefAsync preserves detached failure contract", async () =>
+            {
+                GitService service = CreateService();
+                string directory = Path.Combine(Path.GetTempPath(), "armada-detached-head-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Directory.CreateDirectory(directory);
+                    await RunGitAsync(directory, "init", "-b", "main");
+                    await RunGitAsync(directory, "config", "user.name", "Armada Tests");
+                    await RunGitAsync(directory, "config", "user.email", "armada-tests@example.com");
+                    await File.WriteAllTextAsync(Path.Combine(directory, "head.txt"), "head\n");
+                    await RunGitAsync(directory, "add", "head.txt");
+                    await RunGitAsync(directory, "commit", "-m", "Detached head contract");
+                    await RunGitAsync(directory, "checkout", "--detach", "HEAD");
+                    bool threw = false;
+                    try { await service.GetRepositoryHeadRefAsync(directory); }
+                    catch (InvalidOperationException) { threw = true; }
+                    AssertTrue(threw, "Existing HEAD-ref method must still throw for detached HEAD");
+                }
+                finally
+                {
+                    if (Directory.Exists(directory)) Directory.Delete(directory, true);
+                }
+            });
+
             await RunTest("Pinned anchors ignore later commits and dirty files", async () =>
             {
                 GitService service = CreateService();

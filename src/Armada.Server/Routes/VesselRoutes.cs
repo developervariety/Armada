@@ -1,5 +1,6 @@
 namespace Armada.Server.Routes
 {
+    using System.Collections.Generic;
     using System.Diagnostics;
     using System.IO;
     using System.Text.Json;
@@ -14,12 +15,19 @@ namespace Armada.Server.Routes
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
+    using Armada.Core.Settings;
 
     /// <summary>
     /// REST API routes for vessel management.
     /// </summary>
     public class VesselRoutes
     {
+        private sealed class RepositoryResolution
+        {
+            public string Path { get; set; } = String.Empty;
+            public string Source { get; set; } = String.Empty;
+        }
+
         private readonly DatabaseDriver _database;
         private readonly VesselReadinessService _readiness;
         private readonly LandingPreviewService _landingPreview;
@@ -27,6 +35,7 @@ namespace Armada.Server.Routes
         private readonly JsonSerializerOptions _jsonOptions;
         private readonly IDockService? _dockService;
         private readonly VesselContextService? _contextService;
+        private readonly IBranchInventory? _branchInventory;
 
         /// <summary>
         /// Instantiate.
@@ -37,6 +46,8 @@ namespace Armada.Server.Routes
         /// <param name="emitEvent">Event broadcast callback.</param>
         /// <param name="jsonOptions">JSON serializer options.</param>
         /// <param name="dockService">Optional dock service for worktree cleanup during vessel deletion.</param>
+        /// <param name="contextService">Optional vessel context service.</param>
+        /// <param name="branchInventory">Optional read-only branch inventory.</param>
         public VesselRoutes(
             DatabaseDriver database,
             VesselReadinessService readiness,
@@ -44,7 +55,8 @@ namespace Armada.Server.Routes
             Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEvent,
             JsonSerializerOptions jsonOptions,
             IDockService? dockService = null,
-            VesselContextService? contextService = null)
+            VesselContextService? contextService = null,
+            IBranchInventory? branchInventory = null)
         {
             _database = database;
             _readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
@@ -53,6 +65,14 @@ namespace Armada.Server.Routes
             _jsonOptions = jsonOptions;
             _dockService = dockService;
             _contextService = contextService;
+            _branchInventory = branchInventory;
+        }
+
+        private RepositoryResolution? ResolveRepository(Vessel vessel)
+        {
+            if (!String.IsNullOrWhiteSpace(vessel.LocalPath) && Directory.Exists(vessel.LocalPath)) return new RepositoryResolution { Path = vessel.LocalPath, Source = "LocalPath" };
+            if (!String.IsNullOrWhiteSpace(vessel.WorkingDirectory) && Directory.Exists(vessel.WorkingDirectory)) return new RepositoryResolution { Path = vessel.WorkingDirectory, Source = "WorkingDirectory" };
+            return null;
         }
 
         /// <summary>
@@ -314,6 +334,75 @@ namespace Armada.Server.Routes
                 .WithSummary("Get vessel git status")
                 .WithDescription("Returns commits ahead/behind the remote default branch for the vessel's working directory.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
+                .WithSecurity("ApiKey"));
+
+            app.Get("/api/v1/vessels/{id}/branches", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+
+                string id = req.Parameters["id"];
+                Vessel? vessel = ctx.IsAdmin
+                    ? await _database.Vessels.ReadAsync(id).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Vessels.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Vessels.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                if (vessel == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
+                }
+                string defaultBranch = String.IsNullOrWhiteSpace(vessel.DefaultBranch) ? "main" : vessel.DefaultBranch;
+                if (_branchInventory == null)
+                {
+                    req.Http.Response.StatusCode = 503;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Git branch inventory is not available" };
+                }
+                RepositoryResolution? repository = ResolveRepository(vessel);
+                if (repository == null)
+                {
+                    return new BranchListResponse { VesselId = id, DefaultBranch = defaultBranch, Source = "unavailable", HeadState = "unknown", Error = "No repository found for this vessel" };
+                }
+                try
+                {
+                    IReadOnlyList<BranchInfo> branches = await _branchInventory.ListBranchesAsync(repository.Path, defaultBranch).ConfigureAwait(false);
+                    string? headRef = null;
+                    string headState = "unknown";
+                    bool isBare = await _branchInventory.IsBareRepositoryAsync(repository.Path).ConfigureAwait(false);
+                    RepositoryHeadInspection head = await _branchInventory.InspectRepositoryHeadAsync(repository.Path).ConfigureAwait(false);
+                    headRef = head.HeadRef;
+                    if (head.IsDetached) headState = "detached";
+                    else if (!String.IsNullOrWhiteSpace(headRef)) headState = "attached";
+                    else throw new InvalidOperationException("Repository HEAD inspection returned no state.");
+                    if (isBare) headState = "bare";
+                    if (headRef != null && headRef.StartsWith("refs/heads/", StringComparison.Ordinal))
+                        headRef = headRef.Substring("refs/heads/".Length);
+                    return new BranchListResponse
+                    {
+                        VesselId = id,
+                        DefaultBranch = defaultBranch,
+                        Source = repository.Source,
+                        HeadState = headState,
+                        HeadRef = headRef,
+                        Branches = new List<BranchInfo>(branches),
+                        BranchCount = branches.Count
+                    };
+                }
+                catch (InvalidOperationException)
+                {
+                    return new BranchListResponse { VesselId = id, DefaultBranch = defaultBranch, Source = repository.Source, HeadState = "unknown", Error = "Git branch inspection failed." };
+                }
+            },
+            api => api
+                .WithTag("Vessels")
+                .WithSummary("List vessel branches")
+                .WithDescription("Returns local branches and their divergence from the configured default branch without changing repository refs.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
+                .WithResponse(200, OpenApiJson.For<BranchListResponse>("Branch listing"))
                 .WithSecurity("ApiKey"));
 
             app.Get("/api/v1/vessels/{id}/readiness", async (ApiRequest req) =>

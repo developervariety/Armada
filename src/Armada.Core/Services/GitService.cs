@@ -403,6 +403,27 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<RepositoryHeadInspection> InspectRepositoryHeadAsync(string repoPath, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            try
+            {
+                string headRef = (await RunGitAsync(repoPath, token, "symbolic-ref", "HEAD").ConfigureAwait(false)).Trim();
+                await RunGitAsync(repoPath, token, "rev-parse", "--verify", "HEAD").ConfigureAwait(false);
+                return new RepositoryHeadInspection
+                {
+                    HeadRef = headRef,
+                    IsDetached = false
+                };
+            }
+            catch (InvalidOperationException)
+            {
+                await RunGitAsync(repoPath, token, "rev-parse", "--verify", "HEAD").ConfigureAwait(false);
+                return new RepositoryHeadInspection { IsDetached = true };
+            }
+        }
+
+        /// <inheritdoc />
         public async Task SetRepositoryHeadAsync(string repoPath, string branchName, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
@@ -1100,7 +1121,7 @@ namespace Armada.Core.Services
             string output;
             try
             {
-                output = await RunGitAsync(repoPath, "for-each-ref", "--format=%(refname:short)", "refs/heads/").ConfigureAwait(false);
+                output = await RunGitAsync(repoPath, "for-each-ref", "--format=%(refname)", "refs/heads/").ConfigureAwait(false);
             }
             catch
             {
@@ -1112,12 +1133,86 @@ namespace Armada.Core.Services
             foreach (string line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
             {
                 string branch = line.Trim();
+                if (!branch.StartsWith("refs/heads/", StringComparison.Ordinal)) continue;
+                branch = branch.Substring("refs/heads/".Length);
                 if (String.IsNullOrEmpty(branch)) continue;
                 if (!String.IsNullOrEmpty(branchPrefix) && !branch.StartsWith(branchPrefix, StringComparison.Ordinal)) continue;
                 branches.Add(branch);
             }
 
             return branches;
+        }
+
+        /// <summary>
+        /// Lists local branches with tip metadata and divergence from the default branch.
+        /// This method only reads refs and does not fetch or modify the repository.
+        /// </summary>
+        /// <param name="repoPath">Repository path.</param>
+        /// <param name="defaultBranch">Configured default branch.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Branch metadata ordered with the default branch first.</returns>
+        public async Task<IReadOnlyList<BranchInfo>> ListBranchesAsync(string repoPath, string defaultBranch = "main", CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrWhiteSpace(defaultBranch)) throw new ArgumentNullException(nameof(defaultBranch));
+
+            string format = "%(refname)\x1f%(HEAD)\x1f%(objectname:short)\x1f%(committerdate:iso8601)\x1f%(contents:subject)";
+            string raw = await RunGitAsync(repoPath, token, "for-each-ref", "--format=" + format, "refs/heads/").ConfigureAwait(false);
+            List<BranchInfo> branches = new List<BranchInfo>();
+            string[] lines = raw.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            foreach (string line in lines)
+            {
+                string[] parts = line.Split('\x1f');
+                if (parts.Length < 3) continue;
+                BranchInfo info = new BranchInfo();
+                string fullRef = parts[0].Trim();
+                if (!fullRef.StartsWith("refs/heads/", StringComparison.Ordinal)) continue;
+                info.Name = fullRef.Substring("refs/heads/".Length);
+                info.IsCurrent = parts.Length > 1 && parts[1].Trim() == "*";
+                info.CommitHash = parts[2].Trim();
+                if (parts.Length > 3 && DateTime.TryParse(parts[3].Trim(), out DateTime date)) info.CommitDate = date.ToUniversalTime();
+                info.CommitSubject = parts.Length > 4 ? parts[4].Trim() : null;
+                info.IsDefault = String.Equals(info.Name, defaultBranch, StringComparison.Ordinal);
+                if (!info.IsDefault)
+                {
+                    try
+                    {
+                        string counts = await RunGitAsync(repoPath, token, "rev-list", "--left-right", "--count", "refs/heads/" + defaultBranch + "...refs/heads/" + info.Name).ConfigureAwait(false);
+                        string[] countParts = counts.Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                        if (countParts.Length == 2 && Int32.TryParse(countParts[0], out int behind) && Int32.TryParse(countParts[1], out int ahead))
+                        {
+                            info.Behind = behind;
+                            info.Ahead = ahead;
+                        }
+                        else info.DivergenceError = "Git returned an invalid divergence count.";
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        info.DivergenceError = "Default branch is missing or the histories cannot be compared.";
+                    }
+                }
+                branches.Add(info);
+            }
+            branches.Sort((left, right) =>
+            {
+                if (left.IsDefault && !right.IsDefault) return -1;
+                if (!left.IsDefault && right.IsDefault) return 1;
+                return String.Compare(left.Name, right.Name, StringComparison.Ordinal);
+            });
+            return branches;
+        }
+
+        /// <summary>
+        /// Determines whether a repository is bare without changing repository state.
+        /// </summary>
+        /// <param name="repoPath">Repository path.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the repository is bare.</returns>
+        public async Task<bool> IsBareRepositoryAsync(string repoPath, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            string result = await RunGitAsync(repoPath, token, "rev-parse", "--is-bare-repository").ConfigureAwait(false);
+            return String.Equals(result.Trim(), "true", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <inheritdoc />

@@ -14,6 +14,12 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Vessel branch inspection
+
+- Added scoped, read-only vessel branch inspection with tip metadata and
+  divergence counts. Repository and HEAD failures return explicit errors.
+  Inspection preserves refs and uses persisted vessel paths.
+
 ### Typed client route coverage
 
 - Added typed methods for workflow and project profiles, skills, Ask, objectives,

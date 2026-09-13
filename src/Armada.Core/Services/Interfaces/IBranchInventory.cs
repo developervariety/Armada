@@ -3,6 +3,7 @@ namespace Armada.Core.Services.Interfaces
     using System.Collections.Generic;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Models;
 
     /// <summary>
     /// Read-only branch inspection used by reporting callers.
@@ -15,6 +16,34 @@ namespace Armada.Core.Services.Interfaces
     /// </remarks>
     public interface IBranchInventory
     {
+        /// <summary>
+        /// List local branches with tip metadata and divergence from the default branch.
+        /// This operation must not fetch or modify repository refs.
+        /// </summary>
+        /// <param name="repoPath">Repository path.</param>
+        /// <param name="defaultBranch">Configured default branch.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Branches, with the default branch first.</returns>
+        Task<IReadOnlyList<BranchInfo>> ListBranchesAsync(string repoPath, string defaultBranch = "main", CancellationToken token = default);
+
+        /// <summary>Reads the repository symbolic HEAD ref without changing it.</summary>
+        /// <param name="repoPath">Repository path.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The symbolic HEAD ref.</returns>
+        Task<string> GetRepositoryHeadRefAsync(string repoPath, CancellationToken token = default);
+
+        /// <summary>Inspects HEAD and verifies detached state without changing the repository.</summary>
+        /// <param name="repoPath">Repository path.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Verified symbolic or detached HEAD state.</returns>
+        Task<RepositoryHeadInspection> InspectRepositoryHeadAsync(string repoPath, CancellationToken token = default);
+
+        /// <summary>Determines whether the repository is bare without changing it.</summary>
+        /// <param name="repoPath">Repository path.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the repository has no working tree.</returns>
+        Task<bool> IsBareRepositoryAsync(string repoPath, CancellationToken token = default);
+
         /// <summary>
         /// List local branch names in the repository, optionally restricted to those starting with
         /// a prefix. Returns an empty list when the repository cannot be read.

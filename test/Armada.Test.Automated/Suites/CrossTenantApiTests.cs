@@ -1,7 +1,9 @@
 namespace Armada.Test.Automated.Suites
 {
-    using System;
-    using System.Collections.Generic;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
     using System.Linq;
     using System.Net;
     using System.Net.Http;
@@ -49,6 +51,12 @@ namespace Armada.Test.Automated.Suites
         private string? _CredentialAId;
         private string? _BearerTokenA;
         private HttpClient? _ClientA;
+        private string? _UserA2Id;
+        private string? _CredentialA2Id;
+        private HttpClient? _ClientA2;
+        private string? _UserA3Id;
+        private string? _CredentialA3Id;
+        private HttpClient? _ClientA3;
 
         // Tenant B state
         private string? _TenantBId;
@@ -123,6 +131,47 @@ namespace Armada.Test.Automated.Suites
             return client;
         }
 
+        private async Task<TenantUserCredentialResult> CreateUserCredentialAsync(string tenantId, string label, bool isTenantAdmin = false)
+        {
+            string email = label + "-" + Guid.NewGuid().ToString("N").Substring(0, 8) + "@xt.armada";
+            HttpResponseMessage userResp = await _AdminClient.PostAsync("/api/v1/users",
+                JsonHelper.ToJsonContent(new
+                {
+                    TenantId = tenantId,
+                    Email = email,
+                    PasswordSha256 = UserMaster.ComputePasswordHash("testpass"),
+                    IsTenantAdmin = isTenantAdmin
+                })).ConfigureAwait(false);
+            UserMaster user = await JsonHelper.DeserializeAsync<UserMaster>(userResp).ConfigureAwait(false);
+            HttpResponseMessage credResp = await _AdminClient.PostAsync("/api/v1/credentials",
+                JsonHelper.ToJsonContent(new { TenantId = tenantId, UserId = user.Id, Name = label + "-cred" })).ConfigureAwait(false);
+            Credential credential = await JsonHelper.DeserializeAsync<Credential>(credResp).ConfigureAwait(false);
+            return new TenantUserCredentialResult { TenantId = tenantId, UserId = user.Id, CredentialId = credential.Id, BearerToken = credential.BearerToken };
+        }
+
+        private static async Task<string> RunGitAsync(string workingDirectory, params string[] arguments)
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo
+            {
+                FileName = "git",
+                WorkingDirectory = workingDirectory,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            foreach (string argument in arguments) startInfo.ArgumentList.Add(argument);
+            using (Process process = new Process { StartInfo = startInfo })
+            {
+                process.Start();
+                string output = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+                string error = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                await process.WaitForExitAsync().ConfigureAwait(false);
+                if (process.ExitCode != 0) throw new InvalidOperationException("git failed: " + error.Trim() + output.Trim());
+                return output.Trim();
+            }
+        }
+
         #endregion
 
         #region Protected-Methods
@@ -174,6 +223,20 @@ namespace Armada.Test.Automated.Suites
 
                 WhoAmIResult whoami = await JsonHelper.DeserializeAsync<WhoAmIResult>(response).ConfigureAwait(false);
                 AssertEqual(_TenantBId, whoami.Tenant!.Id);
+            }).ConfigureAwait(false);
+
+            await RunTest("Setup_CreateOrdinaryTenantAUsers", async () =>
+            {
+                TenantUserCredentialResult owner = await CreateUserCredentialAsync(_TenantAId!, "tenantA-owner", true).ConfigureAwait(false);
+                TenantUserCredentialResult other = await CreateUserCredentialAsync(_TenantAId!, "tenantA-other").ConfigureAwait(false);
+                _UserA2Id = owner.UserId;
+                _CredentialA2Id = owner.CredentialId;
+                _ClientA2 = CreateBearerClient(owner.BearerToken);
+                _UserA3Id = other.UserId;
+                _CredentialA3Id = other.CredentialId;
+                _ClientA3 = CreateBearerClient(other.BearerToken);
+                AssertNotNull(_ClientA2, "Owner client");
+                AssertNotNull(_ClientA3, "Other user client");
             }).ConfigureAwait(false);
 
             #endregion
@@ -495,6 +558,164 @@ namespace Armada.Test.Automated.Suites
 
                 Vessel vessel = await JsonHelper.DeserializeAsync<Vessel>(response).ConfigureAwait(false);
                 AssertEqual(vesselAId, vessel.Id);
+            }).ConfigureAwait(false);
+
+            await RunTest("Vessel_BranchInspection_EnforcesScopeAndPreservesRepository", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada-branch-api-" + Guid.NewGuid().ToString("N"));
+                string working = Path.Combine(root, "working");
+                    string bare = Path.Combine(root, "repository.git");
+                string vesselId = String.Empty;
+                string bareVesselId = String.Empty;
+                try
+                {
+                    Directory.CreateDirectory(working);
+                    await RunGitAsync(working, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(working, "config", "user.name", "Armada API Tests").ConfigureAwait(false);
+                    await RunGitAsync(working, "config", "user.email", "armada-api-tests@example.test").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(working, "main.txt"), "main\n").ConfigureAwait(false);
+                    await RunGitAsync(working, "add", "main.txt").ConfigureAwait(false);
+                    await RunGitAsync(working, "commit", "-m", "API branch base").ConfigureAwait(false);
+                    await RunGitAsync(working, "checkout", "-b", "feature/ünusual.name").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(working, "feature.txt"), "feature\n").ConfigureAwait(false);
+                    await RunGitAsync(working, "add", "feature.txt").ConfigureAwait(false);
+                    await RunGitAsync(working, "commit", "-m", "API branch feature").ConfigureAwait(false);
+                    await RunGitAsync(working, "checkout", "main").ConfigureAwait(false);
+                    await RunGitAsync(root, "clone", "--bare", working, bare).ConfigureAwait(false);
+                    string refsBefore = await RunGitAsync(working, "show-ref").ConfigureAwait(false);
+                    string bareRefsBefore = await RunGitAsync(bare, "show-ref").ConfigureAwait(false);
+
+                    HttpResponseMessage create = await _ClientA2!.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                    {
+                        Name = "xt-branch-working-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                        RepoUrl = "file:///branch-working",
+                        LocalPath = working,
+                        DefaultBranch = "main"
+                    })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Created, create.StatusCode, "Ordinary owner creates working repository vessel");
+                    Vessel workingVessel = await JsonHelper.DeserializeAsync<Vessel>(create).ConfigureAwait(false);
+                    vesselId = workingVessel.Id;
+                    HttpResponseMessage demoteOwner = await _AdminClient.PutAsync("/api/v1/users/" + _UserA2Id, JsonHelper.ToJsonContent(new
+                    {
+                        Email = "demoted-owner-" + Guid.NewGuid().ToString("N").Substring(0, 8) + "@xt.armada",
+                        IsTenantAdmin = false,
+                        Active = true
+                    })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, demoteOwner.StatusCode, "Owner fixture is demoted before inspection");
+
+                    HttpResponseMessage ownerResponse = await _ClientA2.GetAsync("/api/v1/vessels/" + Uri.EscapeDataString(vesselId) + "/branches").ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, ownerResponse.StatusCode, "Owner can inspect branches");
+                    BranchListResponse ownerListing = await JsonHelper.DeserializeAsync<BranchListResponse>(ownerResponse).ConfigureAwait(false);
+                    AssertEqual(vesselId, ownerListing.VesselId, "Vessel ID");
+                    AssertEqual("main", ownerListing.DefaultBranch, "Default branch");
+                    AssertEqual("LocalPath", ownerListing.Source, "Repository source");
+                    AssertEqual("attached", ownerListing.HeadState, "Working repository HEAD state");
+                    AssertEqual("main", ownerListing.HeadRef, "Working repository HEAD ref");
+                    AssertEqual(2, ownerListing.BranchCount, "Branch count");
+                    AssertEqual("main", ownerListing.Branches[0].Name, "Default branch first");
+                    AssertTrue(ownerListing.Branches[0].IsDefault && ownerListing.Branches[0].IsCurrent, "Default and current markers");
+                    AssertEqual("feature/ünusual.name", ownerListing.Branches[1].Name, "Encoded unusual branch name preserved");
+                    AssertEqual(1, ownerListing.Branches[1].Ahead, "Feature ahead count");
+                    AssertEqual(0, ownerListing.Branches[1].Behind, "Feature behind count");
+                    AssertTrue(ownerListing.Branches[1].CommitHash != null, "Feature tip hash");
+                    AssertTrue(ownerListing.Branches[1].CommitSubject == "API branch feature", "Feature tip subject");
+                    AssertTrue(ownerListing.Branches[1].CommitDate.HasValue, "Feature tip date");
+                    AssertTrue(ownerListing.Error == null, "Successful listing has no error");
+
+                    HttpResponseMessage tenantAdminResponse = await _ClientA!.GetAsync("/api/v1/vessels/" + vesselId + "/branches").ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, tenantAdminResponse.StatusCode, "Tenant admin can inspect branches");
+                    AssertEqual(2, (await JsonHelper.DeserializeAsync<BranchListResponse>(tenantAdminResponse).ConfigureAwait(false)).BranchCount, "Tenant admin branch count");
+                    AssertEqual(HttpStatusCode.NotFound, (await _ClientA3!.GetAsync("/api/v1/vessels/" + vesselId + "/branches").ConfigureAwait(false)).StatusCode, "Same-tenant other user is denied");
+                    AssertEqual(HttpStatusCode.NotFound, (await _ClientB!.GetAsync("/api/v1/vessels/" + vesselId + "/branches").ConfigureAwait(false)).StatusCode, "Other tenant is denied");
+                    AssertEqual(HttpStatusCode.Unauthorized, (await _UnauthClient.GetAsync("/api/v1/vessels/" + vesselId + "/branches").ConfigureAwait(false)).StatusCode, "Anonymous is denied");
+                    HttpResponseMessage adminResponse = await _AdminClient.GetAsync("/api/v1/vessels/" + vesselId + "/branches").ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, adminResponse.StatusCode, "Global admin can inspect branches");
+
+                    HttpResponseMessage bareCreate = await _ClientA.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                    {
+                        Name = "xt-branch-bare-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                        RepoUrl = "file:///branch-bare",
+                        LocalPath = bare,
+                        DefaultBranch = "main"
+                    })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Created, bareCreate.StatusCode, "Ordinary owner creates bare repository vessel");
+                    bareVesselId = (await JsonHelper.DeserializeAsync<Vessel>(bareCreate).ConfigureAwait(false)).Id;
+                    HttpResponseMessage bareResponse = await _ClientA.GetAsync("/api/v1/vessels/" + bareVesselId + "/branches").ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, bareResponse.StatusCode, "Tenant admin can inspect bare repository");
+                    BranchListResponse bareListing = await JsonHelper.DeserializeAsync<BranchListResponse>(bareResponse).ConfigureAwait(false);
+                    AssertEqual("LocalPath", bareListing.Source, "Bare repository source");
+                    AssertEqual("bare", bareListing.HeadState, "Bare repository HEAD state");
+                    AssertEqual("main", bareListing.HeadRef, "Bare repository symbolic HEAD");
+                    AssertEqual(2, bareListing.BranchCount, "Bare repository branch count");
+                    string bareRefsAfter = await RunGitAsync(bare, "show-ref").ConfigureAwait(false);
+                    AssertEqual(bareRefsBefore, bareRefsAfter, "Bare API inspection preserves repository refs");
+
+                    string detached = Path.Combine(root, "detached");
+                    await RunGitAsync(working, "worktree", "add", "--detach", detached, "feature/ünusual.name").ConfigureAwait(false);
+                    HttpResponseMessage detachedCreate = await _ClientA.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                    {
+                        Name = "xt-branch-detached-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                        RepoUrl = "file:///branch-detached",
+                        LocalPath = detached,
+                        DefaultBranch = "missing-default"
+                    })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Created, detachedCreate.StatusCode, "Ordinary owner creates detached repository vessel");
+                    Vessel detachedVessel = await JsonHelper.DeserializeAsync<Vessel>(detachedCreate).ConfigureAwait(false);
+                    BranchListResponse detachedListing = await JsonHelper.DeserializeAsync<BranchListResponse>(await _ClientA.GetAsync("/api/v1/vessels/" + detachedVessel.Id + "/branches").ConfigureAwait(false)).ConfigureAwait(false);
+                    AssertEqual("detached", detachedListing.HeadState, "Detached repository HEAD state (error=" + (detachedListing.Error ?? "<null>") + ")");
+                    AssertTrue(detachedListing.HeadRef == null, "Detached repository has no symbolic HEAD ref");
+                    AssertTrue(detachedListing.Branches[0].DivergenceError != null, "Missing default branch reports unknown divergence");
+
+                    string unrelated = Path.Combine(root, "unrelated.git");
+                    await RunGitAsync(root, "clone", "--bare", working, unrelated).ConfigureAwait(false);
+                    string missingPath = Path.Combine(root, "missing");
+                    HttpResponseMessage missingCreate = await _ClientA.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                    {
+                        Name = "../" + Path.GetFileName(unrelated),
+                        RepoUrl = "file:///branch-missing",
+                        LocalPath = missingPath,
+                        DefaultBranch = "main"
+                    })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Created, missingCreate.StatusCode, "Ordinary owner creates missing repository vessel");
+                    Vessel missingVessel = await JsonHelper.DeserializeAsync<Vessel>(missingCreate).ConfigureAwait(false);
+                    BranchListResponse missingListing = await JsonHelper.DeserializeAsync<BranchListResponse>(await _ClientA.GetAsync("/api/v1/vessels/" + missingVessel.Id + "/branches").ConfigureAwait(false)).ConfigureAwait(false);
+                    AssertEqual("unavailable", missingListing.Source, "Missing repository source");
+                    AssertEqual("unknown", missingListing.HeadState, "Missing repository head state");
+                    AssertEqual("No repository found for this vessel", missingListing.Error, "Missing repository error");
+                    AssertEqual(0, missingListing.BranchCount, "Missing repository has no branches");
+
+                    string corrupt = Path.Combine(root, "corrupt");
+                    Directory.CreateDirectory(corrupt);
+                    await RunGitAsync(corrupt, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(corrupt, "config", "user.name", "Armada API Tests").ConfigureAwait(false);
+                    await RunGitAsync(corrupt, "config", "user.email", "armada-api-tests@example.test").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(corrupt, "corrupt.txt"), "corrupt\n").ConfigureAwait(false);
+                    await RunGitAsync(corrupt, "add", "corrupt.txt").ConfigureAwait(false);
+                    await RunGitAsync(corrupt, "commit", "-m", "Corrupt HEAD base").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(corrupt, ".git", "HEAD"), "ref: refs/heads/no-such-branch\n").ConfigureAwait(false);
+                    HttpResponseMessage corruptCreate = await _ClientA.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                    {
+                        Name = "xt-branch-corrupt-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                        RepoUrl = "file:///branch-corrupt",
+                        LocalPath = corrupt,
+                        DefaultBranch = "main"
+                    })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Created, corruptCreate.StatusCode, "Tenant admin creates corrupt HEAD vessel");
+                    Vessel corruptVessel = await JsonHelper.DeserializeAsync<Vessel>(corruptCreate).ConfigureAwait(false);
+                    HttpResponseMessage corruptResponse = await _ClientA.GetAsync("/api/v1/vessels/" + corruptVessel.Id + "/branches").ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, corruptResponse.StatusCode, "Corrupt HEAD inspection returns a response");
+                    BranchListResponse corruptListing = await JsonHelper.DeserializeAsync<BranchListResponse>(corruptResponse).ConfigureAwait(false);
+                    AssertEqual("unknown", corruptListing.HeadState, "Corrupt HEAD is not reported as detached");
+                    AssertEqual("Git branch inspection failed.", corruptListing.Error, "Corrupt HEAD error is explicit");
+
+                    string refsAfter = await RunGitAsync(working, "show-ref").ConfigureAwait(false);
+                    AssertEqual(refsBefore, refsAfter, "API inspection preserves repository refs");
+                }
+                finally
+                {
+                    if (Directory.Exists(Path.Combine(root, "detached"))) await RunGitAsync(working, "worktree", "remove", "--force", Path.Combine(root, "detached")).ConfigureAwait(false);
+                    if (Directory.Exists(root)) Directory.Delete(root, true);
+                }
             }).ConfigureAwait(false);
 
             #endregion
@@ -1118,18 +1339,28 @@ namespace Armada.Test.Automated.Suites
                 // Dispose tenant-scoped clients
                 _ClientA?.Dispose();
                 _ClientB?.Dispose();
+                _ClientA2?.Dispose();
+                _ClientA3?.Dispose();
 
                 // Delete credentials
                 if (_CredentialAId != null)
                     await _AdminClient.DeleteAsync("/api/v1/credentials/" + _CredentialAId).ConfigureAwait(false);
                 if (_CredentialBId != null)
                     await _AdminClient.DeleteAsync("/api/v1/credentials/" + _CredentialBId).ConfigureAwait(false);
+                if (_CredentialA2Id != null)
+                    await _AdminClient.DeleteAsync("/api/v1/credentials/" + _CredentialA2Id).ConfigureAwait(false);
+                if (_CredentialA3Id != null)
+                    await _AdminClient.DeleteAsync("/api/v1/credentials/" + _CredentialA3Id).ConfigureAwait(false);
 
                 // Delete users
                 if (_UserAId != null)
                     await _AdminClient.DeleteAsync("/api/v1/users/" + _UserAId).ConfigureAwait(false);
                 if (_UserBId != null)
                     await _AdminClient.DeleteAsync("/api/v1/users/" + _UserBId).ConfigureAwait(false);
+                if (_UserA2Id != null)
+                    await _AdminClient.DeleteAsync("/api/v1/users/" + _UserA2Id).ConfigureAwait(false);
+                if (_UserA3Id != null)
+                    await _AdminClient.DeleteAsync("/api/v1/users/" + _UserA3Id).ConfigureAwait(false);
 
                 // Delete tenants
                 if (_TenantAId != null)
