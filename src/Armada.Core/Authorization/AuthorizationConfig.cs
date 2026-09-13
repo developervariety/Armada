@@ -72,6 +72,10 @@ namespace Armada.Core.Authorization
             if (path == "/api/v1/inbox" || path.StartsWith("/api/v1/inbox/")) return PermissionLevel.AdminOnly;
             if (path == "/api/v1/ask" || path.StartsWith("/api/v1/ask/")) return PermissionLevel.AdminOnly;
 
+            // Coordination rooms are found by key alone, so every tenant shares every room and its
+            // messages, claims and participants. Only a global administrator may use the board.
+            if (path == "/api/v1/coordination" || path.StartsWith("/api/v1/coordination/")) return PermissionLevel.AdminOnly;
+
             // Code-index routes use POST bodies for search/graph reads and refresh requests.
             // Route handlers enforce the vessel ACL after authentication.
             if (path.StartsWith("/api/v1/vessels/") && path.Contains("/code-index/")) return PermissionLevel.Authenticated;

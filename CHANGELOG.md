@@ -14,6 +14,15 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Coordination board requires a global administrator
+
+- Every `/api/v1/coordination` route (rooms, messages, presence, claims and
+  participants) now requires a global administrator. Rooms are found by key
+  alone, so the board is shared by every tenant. Before, any authenticated user
+  read and posted to every room, and creating a room returned another tenant's
+  room with the same key. The dashboard board page and `armada board` use
+  administrator credentials and are unaffected.
+
 ### Inbox, Ask and captain chat respect caller scope
 
 - `GET /api/v1/inbox` and `POST /api/v1/ask` now require a global

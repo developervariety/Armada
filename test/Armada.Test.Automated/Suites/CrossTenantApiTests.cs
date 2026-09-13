@@ -1082,6 +1082,25 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual(HttpStatusCode.OK, response.StatusCode, "A global administrator still asks Armada");
             }).ConfigureAwait(false);
 
+            // Coordination rooms are found by key alone, so every room is shared across tenants.
+            await RunTest("CoordinationMessages_FromTenantAdmin_Returns403", async () =>
+            {
+                HttpResponseMessage response = await _ClientA!.GetAsync("/api/v1/coordination/rooms/fleet/messages").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Forbidden, response.StatusCode, "The shared coordination board requires a global administrator");
+            }).ConfigureAwait(false);
+
+            await RunTest("CoordinationClaims_FromTenantAdmin_Returns403", async () =>
+            {
+                HttpResponseMessage response = await _ClientA!.GetAsync("/api/v1/coordination/claims").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Forbidden, response.StatusCode, "The shared coordination board requires a global administrator");
+            }).ConfigureAwait(false);
+
+            await RunTest("CoordinationMessages_FromGlobalAdmin_Returns200", async () =>
+            {
+                HttpResponseMessage response = await _AdminClient.GetAsync("/api/v1/coordination/rooms/fleet/messages").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, response.StatusCode, "A global administrator still reads the coordination board");
+            }).ConfigureAwait(false);
+
             // The route must refuse before the captain runtime starts, so the test never launches a model.
             await RunTest("CaptainChat_OtherTenantCaptain_Returns404", async () =>
             {

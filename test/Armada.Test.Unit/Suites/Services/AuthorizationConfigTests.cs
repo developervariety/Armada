@@ -285,6 +285,19 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(PermissionLevel.TenantAdmin, level);
             });
 
+            // --- Coordination board: rooms are found by key alone in every tenant ---
+
+            await RunTest("Coordination Routes AreAdminOnly", () =>
+            {
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/coordination/rooms"));
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/coordination/rooms"));
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/coordination/rooms/fleet/messages"));
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/coordination/rooms/fleet/messages"));
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/coordination/rooms/fleet/presence"));
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/coordination/claims"));
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/coordination/rooms/fleet/participants"));
+            });
+
             // --- Case insensitivity ---
 
             await RunTest("MethodCaseInsensitive", () =>

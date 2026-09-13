@@ -131,6 +131,7 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/inbox` | GET | AdminOnly | Global admin only. The inbox reads fleet-wide state that carries no tenant or user scope |
 | `/api/v1/ask` | POST | AdminOnly | Global admin only. Answers come from fleet-wide state that carries no tenant or user scope |
 | `/api/v1/captains/{id}/chat` | POST | TenantAdmin | The captain is found inside the caller's scope; another tenant's captain returns `404` before its runtime starts |
+| `/api/v1/coordination` | ALL | AdminOnly | Global admin only. Rooms are found by key alone, so every tenant shares every room, message, claim and participant |
 | `/api/v1/pipelines` | GET, POST `/enumerate` | Authenticated | |
 | `/api/v1/pipelines` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and never a built-in flag. Update and delete find the pipeline inside the caller's tenant; a global admin reaches every tenant |
 | `/api/v1/planning-sessions` | GET | Authenticated | Planning-session list in caller scope |
