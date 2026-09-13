@@ -215,6 +215,7 @@ namespace Armada.Test.Unit.Suites.Services
                     VesselId = vessel.Id,
                     CheckRunId = original.Id,
                     DetectedUtc = DateTime.UtcNow.AddMinutes(-6),
+                    MitigatedUtc = DateTime.UtcNow.AddMinutes(-2),
                     RecoveryNotes = "Previously mitigated."
                 }).ConfigureAwait(false);
 
@@ -239,6 +240,47 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(IncidentStatusEnum.Open, updated!.Status);
                 AssertEqual(IncidentSeverityEnum.High, updated.Severity);
                 AssertContains(failed.Id, updated.RecoveryNotes ?? "", "Expected latest failed check evidence.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Existing failed check does not reopen a later manual mitigation", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_inc_life_ack", "usr_inc_life_ack").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_inc_life_ack", "usr_inc_life_ack").ConfigureAwait(false);
+
+                CheckRun failed = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    Type = CheckRunTypeEnum.UnitTest,
+                    Label = "unit",
+                    Command = "dotnet test",
+                    Status = CheckRunStatusEnum.Failed,
+                    CompletedUtc = DateTime.UtcNow.AddMinutes(-5),
+                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-5)
+                }).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
+                Incident incident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Automated check failed: unit",
+                    Status = IncidentStatusEnum.Mitigated,
+                    Severity = IncidentSeverityEnum.High,
+                    VesselId = vessel.Id,
+                    CheckRunId = failed.Id,
+                    DetectedUtc = DateTime.UtcNow.AddMinutes(-6),
+                    MitigatedUtc = DateTime.UtcNow.AddMinutes(-1),
+                    RecoveryNotes = "Failure acknowledged with a durable correction owner."
+                }).ConfigureAwait(false);
+
+                IncidentLifecycleOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, incidents);
+                AssertEqual(0, await orchestrator.RunSweepAsync().ConfigureAwait(false));
+
+                Incident? updated = await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false);
+                AssertTrue(updated != null, "Expected incident.");
+                AssertEqual(IncidentStatusEnum.Mitigated, updated!.Status);
             }).ConfigureAwait(false);
 
             await RunTest("Later same-vessel passed check closes stale infrastructure-blocked check incident", async () =>
