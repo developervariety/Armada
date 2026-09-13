@@ -136,7 +136,7 @@ namespace Armada.Core.Services
 
             if (latest.Count == 0)
             {
-                report.HistoryState = DefinitionOfDoneHistoryStateEnum.NotRecorded;
+                report.HistoryState = RecordedHistoryStateEnum.NotRecorded;
                 return;
             }
 
@@ -154,7 +154,7 @@ namespace Armada.Core.Services
             }
 
             record.OutputTail = DefinitionOfDoneEvaluationRecord.BoundOutput(record.OutputTail);
-            report.HistoryState = DefinitionOfDoneHistoryStateEnum.Recorded;
+            report.HistoryState = RecordedHistoryStateEnum.Recorded;
             report.LatestEvaluation = record;
         }
 
@@ -290,7 +290,7 @@ namespace Armada.Core.Services
 
         private static void SetUnavailable(MissionDefinitionOfDoneReport report, string reason)
         {
-            report.HistoryState = DefinitionOfDoneHistoryStateEnum.Unavailable;
+            report.HistoryState = RecordedHistoryStateEnum.Unavailable;
             report.HistoryUnavailableReason = reason;
             report.LatestEvaluation = null;
         }

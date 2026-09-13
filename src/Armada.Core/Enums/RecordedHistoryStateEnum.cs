@@ -3,18 +3,18 @@ namespace Armada.Core.Enums
     using System.Text.Json.Serialization;
 
     /// <summary>
-    /// Whether a mission's latest recorded definition-of-done evaluation can be reported.
+    /// Whether the latest recorded outcome of a mission read projection can be reported.
     /// </summary>
     [JsonConverter(typeof(JsonStringEnumConverter))]
-    public enum DefinitionOfDoneHistoryStateEnum
+    public enum RecordedHistoryStateEnum
     {
         /// <summary>
-        /// The latest evaluation record was read and is reported.
+        /// The latest record was read and is reported.
         /// </summary>
         Recorded,
 
         /// <summary>
-        /// No evaluation record exists in the caller's scope. This is not evidence of a pass or a failure.
+        /// No record exists in the caller's scope. This is not evidence of any outcome.
         /// </summary>
         NotRecorded,
 

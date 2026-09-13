@@ -1694,6 +1694,28 @@ their text. See the [definition-of-done history contract](upstream-review/backen
 
 ---
 
+#### GET /api/v1/missions/{id}/auto-land
+
+Returns auto-land detail for the mission in the caller's scope: the vessel's
+current predicate, the latest recorded auto-land decision (Triggered or Skipped,
+with the merge entry, redacted reason and the predicate recorded at decision
+time), and the latest merge entry with its audit lane, convention, trigger and
+deep-review fields. Reading it evaluates no predicate and reads no diff.
+`DecisionState` is `Recorded`, `NotRecorded` or `Unavailable` (malformed or
+same-timestamp latest decision; an older decision is never shown instead). See
+the [auto-land detail contract](upstream-review/backend-autoland.md).
+
+**Path Parameters:**
+
+| Parameter | Description |
+|---|---|
+| `id` | Mission ID (`msn_` prefix) |
+
+**Response:** `200 OK` - `MissionAutoLandReport`
+**Error:** `404` - Mission not found
+
+---
+
 #### GET /api/v1/missions/{id}/recovery
 
 Returns recorded recovery detail for the mission in the caller's scope: rescue
@@ -4589,6 +4611,7 @@ Response from `GET /api/v1/captains/{id}/log`.
 | 98 | DELETE | `/api/v1/planning-sessions/{id}` | Delete a planning session | Yes |
 | 99 | GET | `/api/v1/missions/{id}/definition-of-done` | Mission definition-of-done configuration and latest evaluation | Yes |
 | 100 | GET | `/api/v1/missions/{id}/recovery` | Mission recovery counters, rescues, incidents and recovery events | Yes |
+| 101 | GET | `/api/v1/missions/{id}/auto-land` | Mission auto-land predicate, latest decision and merge entry audit | Yes |
 
 This table is a quick route index, not the complete contract. Use `/openapi.json` or `/swagger` for the live REST surface.
 

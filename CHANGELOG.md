@@ -14,6 +14,18 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Mission auto-land detail
+
+- `GET /api/v1/missions/{id}/auto-land` returns the vessel's current auto-land
+  predicate, the latest recorded auto-land decision (outcome, merge entry,
+  redacted reason, predicate at decision time) and the latest merge entry audit
+  fields in the caller's scope. It evaluates no predicate and reads no diff; a
+  malformed or tied latest decision reads `Unavailable`. The DoD report now uses
+  the same shared history state, and its DoD-specific enum was removed.
+- Scoped merge entry reads on SQLite and SQL Server (tenant, and tenant plus
+  user) now apply the mission, vessel and status filters. Before, a tenant admin
+  or member listing one mission's merge entries also got other missions' entries.
+
 ### Shared, ownership-safe captain quarantine
 
 - Manual quarantine and release use one scoped service for REST, MCP and the
@@ -49,6 +61,11 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   status as a landing.
 
 ### Landing records carry the mission owner's scope
+
+- The landing retry event (`mission.landing_retry`) now carries the mission's
+  tenant and user, so the mission owner's scoped reads and the recovery report
+  include it. A failed retry-event write is logged instead of silently
+  discarded; retry authorization and landing gates are unchanged.
 
 - The landing handler now writes the mission's tenant and user on the merge
   entry it enqueues and on all of its landing events (pull request open,

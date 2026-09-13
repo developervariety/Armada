@@ -348,6 +348,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new DefinitionOfDoneReportTests());
             runner.AddSuite(new MissionRecoveryReportTests());
             runner.AddSuite(new CaptainQuarantineScopedServiceTests());
+            runner.AddSuite(new MissionAutoLandReportTests());
             runner.AddSuite(new DockBoundaryHookExecutionTests());
             runner.AddSuite(new DockBoundaryHookCoverageTests());
             runner.AddSuite(new UnlandedBranchServiceTests());

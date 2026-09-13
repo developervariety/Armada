@@ -197,6 +197,12 @@ See [definition-of-done history](backend-dod.md) for the recorded event
 contract, the read-only mission report and its limits. Auto-land and recovery
 outcome projections remain open.
 
+## Mission auto-land detail
+
+See [mission auto-land detail](backend-autoland.md) for the read-only auto-land
+report contract. With it, the effective landing, DoD, recovery and auto-land
+projections required by the dashboard are implemented.
+
 ## Mission recovery detail
 
 See [mission recovery detail](backend-recovery.md) for the read-only recovery
@@ -213,8 +219,8 @@ handler (merge-queue auto-land skip and trigger, local landing completion) and
 the real safety-net enqueue, then read the entry and events in the mission
 owner's tenant and user scope. All four failed before the change (the scoped
 read found no merge entry, or no completion event) and pass after it. Earlier
-records are not backfilled. The auto-land history projection itself remains
-open.
+records are not backfilled. The auto-land history projection that reads these
+records is described in [mission auto-land detail](backend-autoland.md).
 
 A merge entry carries a tenant only when the mission and vessel share it.
 Queue processing reads the vessel (repository path, cleanup policy, protected
@@ -230,8 +236,13 @@ without a tenant and a vessel in another tenant, for both the handler and the
 safety net. The entry user comes from the mission, then the vessel. Deleting a
 user or tenant now also deletes the merge entries attributed to it.
 
-Follow-up: `LandingService` still writes its `mission.landing_retry` event
-without tenant or user.
+The landing service's `mission.landing_retry` event now carries the mission
+owner's scope, and a failed retry-event write is logged instead of discarded. An
+inventory of every event write in core services and the server found the
+remaining unscoped mission events in the generic admiral and server event
+helpers, the architect over-cap event and papercut events; they are tracked as
+one follow-up. Objective-scheduler system events have no mission owner and stay
+unscoped by design.
 
 The seven merge-queue processing events set the entry tenant but no user, so
 the same scoped read missed them. A real-git landing case that emits the

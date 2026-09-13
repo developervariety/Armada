@@ -102,6 +102,7 @@ namespace Armada.Test.Database
                 await RunTest("Voyage_" + field + "_Create_Update_Clear_Reopen", "Operational", () => TestBackendFieldAsync("Voyage", field, token), token);
             await RunTest("Captain_Create_Read_Update", "Operational", () => TestCaptainCrudAsync(token), token);
             await RunTest("Captain_Quarantine_Conditional_Hold_And_Release", "Operational", () => TestCaptainQuarantineConditionalAsync(token), token);
+            await RunTest("MergeEntry_Scoped_Enumerate_Filters_By_Mission", "Operational", () => TestMergeEntryScopedMissionFilterAsync(token), token);
             await RunTest("Voyage_Create_Read_Update", "Operational", () => TestVoyageCrudAsync(token), token);
             await RunTest("Voyage_Summary_All_Pages_And_Scopes", "Operational", () => TestVoyageSummaryAsync(token), token);
             await RunTest("Mission_Admission_Long_Unicode_Ids_And_Reasons", "Operational", () => TestMissionAdmissionUnicodeAsync(token), token);
@@ -637,6 +638,32 @@ namespace Armada.Test.Database
                     Captain working = DatabaseAssert.NotNull(await reopened.Captains.ReadAsync(claimed.Id, token).ConfigureAwait(false), "Working captain reopened");
                     DatabaseAssert.Equal(CaptainStateEnum.Working, working.State, "Working state persists");
                 }
+            }
+            finally { await fixture.CleanupAsync(token).ConfigureAwait(false); }
+        }
+
+        private async Task TestMergeEntryScopedMissionFilterAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                OperationalGraphResult graph = await SeedOperationalGraphAsync(fixture, token).ConfigureAwait(false);
+                string tenantId = graph.Tenant.Id;
+                string userId = graph.User.Id;
+                Mission otherMission = await fixture.CreateMissionAsync(tenantId, userId, graph.Voyage.Id, graph.Vessel.Id, graph.Captain.Id, "scoped-filter-mission", token).ConfigureAwait(false);
+                MergeEntry otherEntry = await fixture.CreateMergeEntryAsync(tenantId, userId, otherMission.Id, graph.Vessel.Id, token).ConfigureAwait(false);
+
+                EnumerationQuery byMission = new EnumerationQuery { MissionId = otherMission.Id, PageNumber = 1, PageSize = 50 };
+                EnumerationResult<MergeEntry> tenantScoped = await _Driver.MergeEntries.EnumerateAsync(tenantId, byMission, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(1, tenantScoped.Objects.Count, "Tenant-scoped enumerate returns only the requested mission's entries");
+                DatabaseAssert.Equal(otherEntry.Id, tenantScoped.Objects[0].Id, "Tenant-scoped enumerate returns the requested mission's entry");
+
+                EnumerationResult<MergeEntry> userScoped = await _Driver.MergeEntries.EnumerateAsync(tenantId, userId, byMission, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(1, userScoped.Objects.Count, "Tenant and user scoped enumerate returns only the requested mission's entries");
+                DatabaseAssert.Equal(otherEntry.Id, userScoped.Objects[0].Id, "Tenant and user scoped enumerate returns the requested mission's entry");
+
+                EnumerationResult<MergeEntry> byVessel = await _Driver.MergeEntries.EnumerateAsync(tenantId, new EnumerationQuery { VesselId = "vsl_not_this_vessel", PageNumber = 1, PageSize = 50 }, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(0, byVessel.Objects.Count, "Tenant-scoped enumerate honors the vessel filter");
             }
             finally { await fixture.CleanupAsync(token).ConfigureAwait(false); }
         }

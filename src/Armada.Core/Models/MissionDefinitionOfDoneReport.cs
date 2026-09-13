@@ -28,7 +28,7 @@ namespace Armada.Core.Models
         /// <summary>
         /// Whether the latest evaluation can be reported.
         /// </summary>
-        public DefinitionOfDoneHistoryStateEnum HistoryState { get; set; } = DefinitionOfDoneHistoryStateEnum.NotRecorded;
+        public RecordedHistoryStateEnum HistoryState { get; set; } = RecordedHistoryStateEnum.NotRecorded;
 
         /// <summary>
         /// Reason the latest evaluation is unavailable, or null.

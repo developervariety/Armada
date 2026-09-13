@@ -23,6 +23,49 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            // The retry event belongs to the mission owner. Scoped operator reads filter by tenant and user,
+            // so an event written without them is invisible to every non-admin reader of the mission.
+            await RunTest("RetryLandingAsync_RecordsRetryEventInTheMissionOwnersScope", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    LandingService service = CreateService(testDb.Driver, settings, git);
+
+                    Vessel vessel = new Vessel("retry-scope-vessel", "https://github.com/test/retry.git");
+                    vessel.TenantId = Armada.Core.Constants.DefaultTenantId;
+                    vessel.UserId = Armada.Core.Constants.DefaultUserId;
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_retry_scope_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Mission mission = new Mission("retry scope mission", "retry");
+                    mission.TenantId = Armada.Core.Constants.DefaultTenantId;
+                    mission.UserId = Armada.Core.Constants.DefaultUserId;
+                    mission.VesselId = vessel.Id;
+                    mission.BranchName = "armada/retry-scope/branch";
+                    mission.Status = MissionStatusEnum.LandingFailed;
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    // The stub reports the branch missing, so the retry stops after recording its event.
+                    bool retried = await service.RetryLandingAsync(mission.Id).ConfigureAwait(false);
+                    AssertFalse(retried, "A retry against a missing branch does not land");
+
+                    EnumerationResult<ArmadaEvent> owner = await testDb.Driver.Events.EnumerateAsync(
+                        Armada.Core.Constants.DefaultTenantId,
+                        Armada.Core.Constants.DefaultUserId,
+                        new EnumerationQuery { MissionId = mission.Id, EventType = "mission.landing_retry" }).ConfigureAwait(false);
+                    AssertEqual(1, owner.Objects.Count, "The mission owner's scoped read must find the retry event");
+
+                    EnumerationResult<ArmadaEvent> colleague = await testDb.Driver.Events.EnumerateAsync(
+                        Armada.Core.Constants.DefaultTenantId,
+                        "usr_retry_scope_other",
+                        new EnumerationQuery { MissionId = mission.Id, EventType = "mission.landing_retry" }).ConfigureAwait(false);
+                    AssertEqual(0, colleague.Objects.Count, "Another user in the tenant must not see the retry event");
+                }
+            });
+
             await RunTest("MergeInDedicatedWorktreeAsync_CleanMerge_PushesFromTempWorktreeAndCleansUp", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

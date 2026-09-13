@@ -35,6 +35,7 @@ namespace Armada.Server.Routes
         private readonly LandingPreviewService _landingPreview;
         private readonly DefinitionOfDoneReportService _definitionOfDoneReport;
         private readonly MissionRecoveryReportService _recoveryReport;
+        private readonly MissionAutoLandReportService _autoLandReport;
         private readonly GitHubIntegrationService _gitHub;
         private readonly Func<string, string, string?, string?, string?, string?, string?, string?, Task> _emitEvent;
         private readonly Func<Mission, Dock, Task> _handleMissionComplete;
@@ -91,6 +92,7 @@ namespace Armada.Server.Routes
                 logging,
                 () => (missionService as MissionService)?.DefinitionOfDone);
             _recoveryReport = new MissionRecoveryReportService(database, logging, settings);
+            _autoLandReport = new MissionAutoLandReportService(database, logging);
             _gitHub = gitHub ?? throw new ArgumentNullException(nameof(gitHub));
             _emitEvent = emitEvent;
             _handleMissionComplete = handleMissionComplete;
@@ -660,6 +662,38 @@ namespace Armada.Server.Routes
                 .WithDescription("Returns the current definition-of-done configuration for the mission and its latest recorded gate evaluation. Reading it runs no gate and does not change landing readiness.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
                 .WithResponse(200, OpenApiJson.For<MissionDefinitionOfDoneReport>("Mission definition-of-done report"))
+                .WithResponse(404, OpenApiResponseMetadata.NotFound())
+                .WithSecurity("ApiKey"));
+
+            app.Get("/api/v1/missions/{id}/auto-land", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                }
+
+                string id = req.Parameters["id"];
+                Mission? mission = ctx.IsAdmin
+                    ? await _database.Missions.ReadAsync(id).ConfigureAwait(false)
+                    : ctx.IsTenantAdmin
+                        ? await _database.Missions.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
+                        : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
+                if (mission == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" };
+                }
+
+                return await _autoLandReport.GetForMissionAsync(ctx, mission).ConfigureAwait(false);
+            },
+            api => api
+                .WithTag("Missions")
+                .WithSummary("Get mission auto-land detail")
+                .WithDescription("Returns the vessel's current auto-land predicate, the latest recorded auto-land decision for the mission and the latest merge entry with its audit fields, in the caller's scope. Reading it evaluates no predicate and reads no diff.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Mission ID (msn_ prefix)"))
+                .WithResponse(200, OpenApiJson.For<MissionAutoLandReport>("Mission auto-land detail"))
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 

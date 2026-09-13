@@ -139,7 +139,7 @@ namespace Armada.Test.Unit.Suites.Services
                         DefinitionOfDoneReportService reports = new DefinitionOfDoneReportService(testDb.Driver, logging, () => missions.DefinitionOfDone);
                         MissionDefinitionOfDoneReport report = await reports.GetForMissionAsync(_Admin, stored).ConfigureAwait(false);
 
-                        AssertEqual(DefinitionOfDoneHistoryStateEnum.Recorded, report.HistoryState, "Evaluation should be recorded");
+                        AssertEqual(RecordedHistoryStateEnum.Recorded, report.HistoryState, "Evaluation should be recorded");
                         AssertEqual(DefinitionOfDoneEvaluationOutcomeEnum.Skipped, report.LatestEvaluation!.Outcome, "Skipped is not Passed");
                         AssertEqual("DoD gate is disabled", report.LatestEvaluation.SkippedReason, "Skip reason");
                         AssertEqual(captain.Id, report.LatestEvaluation.CaptainId, "Captain identity");
@@ -177,7 +177,7 @@ namespace Armada.Test.Unit.Suites.Services
                         DefinitionOfDoneReportService reports = new DefinitionOfDoneReportService(testDb.Driver, logging, () => missions.DefinitionOfDone);
                         MissionDefinitionOfDoneReport report = await reports.GetForMissionAsync(_Admin, stored).ConfigureAwait(false);
 
-                        AssertEqual(DefinitionOfDoneHistoryStateEnum.Recorded, report.HistoryState, "Evaluation should be recorded");
+                        AssertEqual(RecordedHistoryStateEnum.Recorded, report.HistoryState, "Evaluation should be recorded");
                         AssertEqual(DefinitionOfDoneEvaluationOutcomeEnum.Failed, report.LatestEvaluation!.Outcome, "Failed outcome");
                         AssertEqual("missing-commands", report.LatestEvaluation.CommandLabel, "Failing command label");
                         AssertEqual(DefinitionOfDoneFailureClassEnum.Infra, report.LatestEvaluation.FailureClass, "Failure class");
@@ -216,7 +216,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission mission = await CreateBareMissionAsync(testDb.Driver).ConfigureAwait(false);
                     DefinitionOfDoneReportService reports = new DefinitionOfDoneReportService(testDb.Driver, CreateLogging(), () => null);
                     MissionDefinitionOfDoneReport report = await reports.GetForMissionAsync(_Admin, mission).ConfigureAwait(false);
-                    AssertEqual(DefinitionOfDoneHistoryStateEnum.NotRecorded, report.HistoryState, "No record");
+                    AssertEqual(RecordedHistoryStateEnum.NotRecorded, report.HistoryState, "No record");
                     AssertNull(report.LatestEvaluation, "No evaluation is invented");
                 }
             }).ConfigureAwait(false);
@@ -232,7 +232,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     DefinitionOfDoneReportService reports = new DefinitionOfDoneReportService(testDb.Driver, CreateLogging(), () => null);
                     MissionDefinitionOfDoneReport report = await reports.GetForMissionAsync(_Admin, mission).ConfigureAwait(false);
-                    AssertEqual(DefinitionOfDoneHistoryStateEnum.Unavailable, report.HistoryState, "Malformed latest");
+                    AssertEqual(RecordedHistoryStateEnum.Unavailable, report.HistoryState, "Malformed latest");
                     AssertNull(report.LatestEvaluation, "The older pass must not be reported");
                     AssertNotNull(report.HistoryUnavailableReason, "Reason is named");
                 }
@@ -248,19 +248,19 @@ namespace Armada.Test.Unit.Suites.Services
                     await CreateEvaluationEventAsync(testDb.Driver, versioned.Id,
                         "{\"SchemaVersion\":2,\"Outcome\":\"Passed\"}", DateTime.UtcNow).ConfigureAwait(false);
                     MissionDefinitionOfDoneReport versionReport = await reports.GetForMissionAsync(_Admin, versioned).ConfigureAwait(false);
-                    AssertEqual(DefinitionOfDoneHistoryStateEnum.Unavailable, versionReport.HistoryState, "Future schema version");
+                    AssertEqual(RecordedHistoryStateEnum.Unavailable, versionReport.HistoryState, "Future schema version");
 
                     Mission unknown = await CreateBareMissionAsync(testDb.Driver).ConfigureAwait(false);
                     await CreateEvaluationEventAsync(testDb.Driver, unknown.Id,
                         "{\"SchemaVersion\":1,\"Outcome\":\"Certified\"}", DateTime.UtcNow).ConfigureAwait(false);
                     MissionDefinitionOfDoneReport unknownReport = await reports.GetForMissionAsync(_Admin, unknown).ConfigureAwait(false);
-                    AssertEqual(DefinitionOfDoneHistoryStateEnum.Unavailable, unknownReport.HistoryState, "Unknown outcome");
+                    AssertEqual(RecordedHistoryStateEnum.Unavailable, unknownReport.HistoryState, "Unknown outcome");
 
                     Mission numeric = await CreateBareMissionAsync(testDb.Driver).ConfigureAwait(false);
                     await CreateEvaluationEventAsync(testDb.Driver, numeric.Id,
                         "{\"SchemaVersion\":1,\"Outcome\":99}", DateTime.UtcNow).ConfigureAwait(false);
                     MissionDefinitionOfDoneReport numericReport = await reports.GetForMissionAsync(_Admin, numeric).ConfigureAwait(false);
-                    AssertEqual(DefinitionOfDoneHistoryStateEnum.Unavailable, numericReport.HistoryState, "Undefined numeric outcome");
+                    AssertEqual(RecordedHistoryStateEnum.Unavailable, numericReport.HistoryState, "Undefined numeric outcome");
 
                     string times = ",\"StartedUtc\":\"2026-09-13T12:00:00Z\",\"CompletedUtc\":\"2026-09-13T12:00:01Z\"";
                     string[] rejected = new string[]
@@ -280,7 +280,7 @@ namespace Armada.Test.Unit.Suites.Services
                         Mission incomplete = await CreateBareMissionAsync(testDb.Driver).ConfigureAwait(false);
                         await CreateEvaluationEventAsync(testDb.Driver, incomplete.Id, payload, DateTime.UtcNow).ConfigureAwait(false);
                         MissionDefinitionOfDoneReport incompleteReport = await reports.GetForMissionAsync(_Admin, incomplete).ConfigureAwait(false);
-                        AssertEqual(DefinitionOfDoneHistoryStateEnum.Unavailable, incompleteReport.HistoryState, "Payload must be Unavailable: " + payload);
+                        AssertEqual(RecordedHistoryStateEnum.Unavailable, incompleteReport.HistoryState, "Payload must be Unavailable: " + payload);
                         AssertNull(incompleteReport.LatestEvaluation, "No defaulted evaluation for: " + payload);
                     }
 
@@ -288,7 +288,7 @@ namespace Armada.Test.Unit.Suites.Services
                     await CreateEvaluationEventAsync(testDb.Driver, complete.Id,
                         "{\"SchemaVersion\":1,\"Outcome\":\"Failed\",\"FailureClass\":\"TestFail\"" + times + "}", DateTime.UtcNow).ConfigureAwait(false);
                     MissionDefinitionOfDoneReport completeReport = await reports.GetForMissionAsync(_Admin, complete).ConfigureAwait(false);
-                    AssertEqual(DefinitionOfDoneHistoryStateEnum.Recorded, completeReport.HistoryState, "A complete record with exact names is Recorded");
+                    AssertEqual(RecordedHistoryStateEnum.Recorded, completeReport.HistoryState, "A complete record with exact names is Recorded");
                     AssertEqual(DefinitionOfDoneFailureClassEnum.TestFail, completeReport.LatestEvaluation!.FailureClass, "Failure class is read");
                 }
             }).ConfigureAwait(false);
@@ -305,7 +305,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     DefinitionOfDoneReportService reports = new DefinitionOfDoneReportService(testDb.Driver, CreateLogging(), () => null);
                     MissionDefinitionOfDoneReport report = await reports.GetForMissionAsync(_Admin, mission).ConfigureAwait(false);
-                    AssertEqual(DefinitionOfDoneHistoryStateEnum.Unavailable, report.HistoryState, "Ambiguous order");
+                    AssertEqual(RecordedHistoryStateEnum.Unavailable, report.HistoryState, "Ambiguous order");
                 }
             }).ConfigureAwait(false);
 
@@ -323,10 +323,10 @@ namespace Armada.Test.Unit.Suites.Services
                     AuthContext tenantB = AuthContext.Authenticated("ten_dod_b", "usr_b", false, true, "Test");
 
                     MissionDefinitionOfDoneReport ownReport = await reports.GetForMissionAsync(tenantA, mission).ConfigureAwait(false);
-                    AssertEqual(DefinitionOfDoneHistoryStateEnum.Recorded, ownReport.HistoryState, "Owning tenant sees its record");
+                    AssertEqual(RecordedHistoryStateEnum.Recorded, ownReport.HistoryState, "Owning tenant sees its record");
 
                     MissionDefinitionOfDoneReport otherReport = await reports.GetForMissionAsync(tenantB, mission).ConfigureAwait(false);
-                    AssertEqual(DefinitionOfDoneHistoryStateEnum.NotRecorded, otherReport.HistoryState, "Another tenant sees no record");
+                    AssertEqual(RecordedHistoryStateEnum.NotRecorded, otherReport.HistoryState, "Another tenant sees no record");
                 }
             }).ConfigureAwait(false);
 
@@ -343,10 +343,10 @@ namespace Armada.Test.Unit.Suites.Services
                     AuthContext colleague = AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, "usr_dod_other", false, false, "Test");
 
                     MissionDefinitionOfDoneReport ownerReport = await reports.GetForMissionAsync(owner, mission).ConfigureAwait(false);
-                    AssertEqual(DefinitionOfDoneHistoryStateEnum.Recorded, ownerReport.HistoryState, "The owning user sees the record");
+                    AssertEqual(RecordedHistoryStateEnum.Recorded, ownerReport.HistoryState, "The owning user sees the record");
 
                     MissionDefinitionOfDoneReport colleagueReport = await reports.GetForMissionAsync(colleague, mission).ConfigureAwait(false);
-                    AssertEqual(DefinitionOfDoneHistoryStateEnum.NotRecorded, colleagueReport.HistoryState, "Another user in the tenant sees no record");
+                    AssertEqual(RecordedHistoryStateEnum.NotRecorded, colleagueReport.HistoryState, "Another user in the tenant sees no record");
                 }
             }).ConfigureAwait(false);
 

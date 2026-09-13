@@ -552,10 +552,26 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual(HttpStatusCode.OK, own.StatusCode, "Owning tenant reads the report");
                 MissionDefinitionOfDoneReport report = await JsonHelper.DeserializeAsync<MissionDefinitionOfDoneReport>(own).ConfigureAwait(false);
                 AssertEqual(missionAId, report.MissionId, "Report mission");
-                AssertEqual(Armada.Core.Enums.DefinitionOfDoneHistoryStateEnum.NotRecorded, report.HistoryState, "A new mission has no recorded evaluation");
+                AssertEqual(Armada.Core.Enums.RecordedHistoryStateEnum.NotRecorded, report.HistoryState, "A new mission has no recorded evaluation");
 
                 HttpResponseMessage denied = await _ClientB!.GetAsync(url).ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.NotFound, denied.StatusCode, "Another tenant cannot read the report");
+
+                HttpResponseMessage anonymous = await _UnauthClient.GetAsync(url).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Unauthorized, anonymous.StatusCode, "Unauthenticated callers are refused");
+            }).ConfigureAwait(false);
+
+            await RunTest("Mission_AutoLandReport_PreservesAuthorization", async () =>
+            {
+                string url = "/api/v1/missions/" + missionAId + "/auto-land";
+                HttpResponseMessage own = await _ClientA!.GetAsync(url).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, own.StatusCode, "Owning tenant reads the auto-land report");
+                MissionAutoLandReport report = await JsonHelper.DeserializeAsync<MissionAutoLandReport>(own).ConfigureAwait(false);
+                AssertEqual(missionAId, report.MissionId, "Report mission");
+                AssertEqual(Armada.Core.Enums.RecordedHistoryStateEnum.NotRecorded, report.DecisionState, "A new mission has no auto-land decision");
+
+                HttpResponseMessage denied = await _ClientB!.GetAsync(url).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, denied.StatusCode, "Another tenant cannot read the auto-land report");
 
                 HttpResponseMessage anonymous = await _UnauthClient.GetAsync(url).ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.Unauthorized, anonymous.StatusCode, "Unauthenticated callers are refused");
