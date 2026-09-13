@@ -2008,6 +2008,139 @@ namespace Armada.Test.Unit.Suites.Services
                     "a vessel with no folder on disk must resolve to null rather than a guess");
             });
 
+            await RunTest("MemoryRepoFolder Matches A Hyphenated Folder And Returns Its Real Name", () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_memory_folder_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(Path.Combine(root, "repos", "example-ledger"));
+                try
+                {
+                    AssertEqual("example-ledger", MissionService.ResolveMemoryRepoFolder(root, "ExampleLedger"),
+                        "a vessel name must match a folder whose name carries separators, and the real folder name must be returned");
+                }
+                finally
+                {
+                    Directory.Delete(root, true);
+                }
+            });
+
+            await RunTest("MemoryRepoFolder Keeps Resolving A Folder Without Separators", () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_memory_folder_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(Path.Combine(root, "repos", "examplevessel"));
+                Directory.CreateDirectory(Path.Combine(root, "repos", "other-vessel"));
+                try
+                {
+                    string? reason;
+                    AssertEqual("examplevessel", MissionService.ResolveMemoryRepoFolder(root, "ExampleVessel", out reason),
+                        "a folder already in the reduced form must still resolve");
+                    AssertNull(reason, "a resolved folder carries no reason");
+                }
+                finally
+                {
+                    Directory.Delete(root, true);
+                }
+            });
+
+            await RunTest("MemoryRepoFolder States The Reason When No Folder Matches", () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_memory_folder_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(Path.Combine(root, "repos", "other-vessel"));
+                try
+                {
+                    string? reason;
+                    AssertNull(MissionService.ResolveMemoryRepoFolder(root, "ExampleLedger", out reason), "no folder may be guessed");
+                    AssertEqual(MissionService.MemoryFolderNoMatchReason, reason, "the no-match reason must be carried");
+
+                    string section = MissionService.BuildAiMemorySection(root, null, reason);
+                    AssertContains("has no folder under", section, "the brief must state that no folder exists");
+                    AssertFalse(section.Contains("/repos/other-vessel/", StringComparison.Ordinal), "another folder must not be named");
+                }
+                finally
+                {
+                    Directory.Delete(root, true);
+                }
+            });
+
+            await RunTest("MemoryRepoFolder Refuses An Ambiguous Match And Names It", () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_memory_folder_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(Path.Combine(root, "repos", "example-ledger"));
+                Directory.CreateDirectory(Path.Combine(root, "repos", "exampleledger"));
+                try
+                {
+                    string? reason;
+                    AssertNull(MissionService.ResolveMemoryRepoFolder(root, "ExampleLedger", out reason),
+                        "two folders with one match key must resolve to no folder, never an arbitrary one");
+                    AssertNotNull(reason, "the ambiguity must carry a reason");
+                    AssertContains("matches 2 folders", reason!, "the reason must count the matches");
+                    AssertContains("example-ledger, exampleledger", reason!, "the reason must name both folders");
+
+                    string section = MissionService.BuildAiMemorySection(root, null, reason);
+                    AssertContains("was resolved for this vessel because", section, "the brief must state the ambiguity");
+                    AssertContains("example-ledger, exampleledger", section, "the brief must name the folders");
+                    AssertFalse(section.Contains("has no folder under", StringComparison.Ordinal),
+                        "an ambiguous match must not read as a vessel with no folder");
+                }
+                finally
+                {
+                    Directory.Delete(root, true);
+                }
+            });
+
+            await RunTest("MemoryRepoFolder Unresolved Log Is Claimed Once Per Vessel", () =>
+            {
+                string vesselName = "ExampleVessel-" + Guid.NewGuid().ToString("N");
+                AssertTrue(MissionService.ClaimUnresolvedMemoryFolderLog(vesselName), "the first claim must log");
+                AssertFalse(MissionService.ClaimUnresolvedMemoryFolderLog(vesselName), "a repeat claim for the same vessel must not log");
+            });
+
+            await RunTest("Brief Names The Real Memory Folder And Reads Its Deferred Facts", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_memory_folder_" + Guid.NewGuid().ToString("N"));
+                string folder = Path.Combine(root, "repos", "example-ledger");
+                Directory.CreateDirectory(folder);
+                File.WriteAllText(Path.Combine(folder, "deferred-facts.md"),
+                    "fact: the bench suite needs hardware this dock does not have\n" +
+                    "fix: example-objective\n" +
+                    "expires: 2099-09-30\n");
+                string tempDir = Path.Combine(Path.GetTempPath(), "armada_memory_test_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(tempDir);
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        settings.AiMemoryRoot = root;
+                        StubGitService git = new StubGitService();
+                        MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
+
+                        AssertEqual(1, service.LoadDeferredFacts(root, MissionService.ResolveMemoryRepoFolder(root, "ExampleLedger")).Count,
+                            "the deferred-facts lookup must use the resolved real folder");
+
+                        Vessel vessel = new Vessel("ExampleLedger", "https://github.com/test/repo");
+                        Captain captain = new Captain("MemoryCaptain");
+                        captain.Runtime = AgentRuntimeEnum.ClaudeCode;
+                        Mission mission = new Mission();
+                        mission.Title = "Use the vessel memory folder";
+                        mission.Description = "The real folder must be named.";
+
+                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel, captain);
+                        string fileName = MissionPromptBuilder.GetInstructionsFileName(AgentRuntimeEnum.ClaudeCode.ToString());
+                        string brief = await File.ReadAllTextAsync(Path.Combine(tempDir, fileName));
+
+                        AssertContains("/repos/example-ledger/`", brief, "the brief must name the folder by its real name");
+                        AssertContains("## Known Deferred Facts (1)", brief, "the brief must carry the folder's deferred facts");
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(tempDir, true); } catch { }
+                    try { Directory.Delete(root, true); } catch { }
+                }
+            });
+
             await RunTest("ReadOnlyPlaybooksWrapper Demotes Playbooks To Reference", () =>
             {
                 string section = MissionService.BuildReadOnlyPlaybooksWrapperSection("## Some Playbook\nContent\n");

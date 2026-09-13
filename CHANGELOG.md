@@ -14,6 +14,20 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Captain brief AI-Memory repository folder
+
+- Match a vessel to its folder under the AI-Memory `repos/` directory by
+  reducing both the vessel name and each folder name to lower-case letters and
+  digits, and use the folder's real name. A folder whose name carries
+  separators (`some-vessel` for vessel `SomeVessel`) now reaches the brief and
+  the deferred-facts lookup instead of silently resolving to nothing.
+- When two or more folders reduce to the same name, choose none and state the
+  ambiguity in the brief.
+- When no folder resolves, the brief says why, and the admiral logs the reason
+  once per vessel per process (Info for no matching folder, Warn for an
+  ambiguous match or a memory root that cannot be probed). An unreadable root
+  still does not fail the dispatch.
+
 ### Judge Check gate on queued armed Checks
 
 - Treat an armed, not-yet-run voyage Check as queued work once the voyage has a

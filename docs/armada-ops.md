@@ -1040,6 +1040,23 @@ Vessel instruction files and generated briefing files are protected paths.
 Captains must propose instruction changes. The orchestrator reviews and applies
 them outside the mission dock.
 
+### AI-Memory repository folder
+
+When `aiMemoryRoot` is set, every captain brief carries a Shared Memory
+section. It names the vessel's own folder under `<aiMemoryRoot>/repos/` when
+one resolves. The admiral reduces the vessel name and each folder name to
+lower-case letters and digits and compares them, so vessel `SomeVessel`
+resolves to folder `some-vessel`, `somevessel`, or `Some_Vessel`. The brief and
+the `deferred-facts.md` lookup use the folder's real name.
+
+- No match: the brief says the vessel has no folder, and the admiral logs it
+  at Info once per vessel per process.
+- Two or more folders reduce to the same name: no folder is chosen, the brief
+  names the ambiguity, and the admiral logs it at Warn. Rename or remove one
+  folder.
+- The root cannot be read: no folder is chosen, the brief and a Warn log line
+  give the error, and the dispatch continues.
+
 ### Vessel Workspace
 
 The Workspace surface (dashboard `Workspace` page, `POST

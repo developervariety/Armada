@@ -458,7 +458,8 @@ namespace Armada.Core.Settings
         /// Only the index path is emitted, never memory content: inlining it would re-create the very
         /// prompt bloat this module is measured against, and the captain can read what it needs.
         /// Set the path as it resolves on the captain's host; a workstation path handed to a server
-        /// captain is a path it cannot open.
+        /// captain is a path it cannot open. The vessel's own folder under repos/ is matched by name
+        /// with case and separators ignored, and is named by its real folder name.
         /// </summary>
         public string? AiMemoryRoot
         {

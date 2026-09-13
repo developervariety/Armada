@@ -79,6 +79,20 @@ namespace Armada.Core.Services
                 @"(?<path>(?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+|[A-Za-z0-9_.-]+\.(?:cs|csproj|sln|md|json|yaml|yml|ts|tsx|js|jsx|css|html|sh|bat))",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase |
                 System.Text.RegularExpressions.RegexOptions.Compiled);
+        /// <summary>
+        /// Reason recorded when no folder under repos/ matches a vessel name. The brief states this case
+        /// as "nothing repository-specific to read"; every other reason is a fault the brief names.
+        /// </summary>
+        internal const string MemoryFolderNoMatchReason = "no folder under repos/ matches the vessel name";
+
+        /// <summary>
+        /// Vessels whose unresolved AI-Memory folder has already been logged by this process. Each
+        /// brief still states the reason; the log names it once per vessel so it is visible without
+        /// repeating on every dispatch.
+        /// </summary>
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> _UnresolvedMemoryFolderLogged =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
+
         private static readonly HashSet<string> _IgnoredMissionArtifactFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "CODEX.md",
@@ -2236,8 +2250,10 @@ namespace Armada.Core.Services
             // the same fleet-wide memory was visible to some captains and invisible to others.
             if (!String.IsNullOrWhiteSpace(_Settings.AiMemoryRoot))
             {
-                string? memoryRepoFolder = ResolveMemoryRepoFolder(_Settings.AiMemoryRoot, vessel.Name);
-                content += ledger.Track("mission.ai_memory", BuildAiMemorySection(_Settings.AiMemoryRoot!, memoryRepoFolder));
+                string? memoryFolderReason;
+                string? memoryRepoFolder = ResolveMemoryRepoFolder(_Settings.AiMemoryRoot, vessel.Name, out memoryFolderReason);
+                if (memoryRepoFolder == null) LogUnresolvedMemoryFolderOnce(vessel.Name, memoryFolderReason);
+                content += ledger.Track("mission.ai_memory", BuildAiMemorySection(_Settings.AiMemoryRoot!, memoryRepoFolder, memoryFolderReason));
                 content += "\n";
 
                 // Facts about this vessel that cannot be fixed today. Empty by default, and meant to
@@ -2647,15 +2663,29 @@ namespace Armada.Core.Services
         /// repository file instead.
         /// </summary>
         /// <param name="memoryRoot">Configured AI-Memory root path.</param>
+        /// <param name="repoFolder">Real name of the vessel's folder under repos/, or null.</param>
+        /// <param name="unresolvedReason">Why no folder resolved, or null. A reason other than "no match"
+        /// (an ambiguous match, a root that cannot be probed) is stated in the brief.</param>
         /// <returns>The AI-Memory section.</returns>
-        internal static string BuildAiMemorySection(string memoryRoot, string? repoFolder)
+        internal static string BuildAiMemorySection(string memoryRoot, string? repoFolder, string? unresolvedReason = null)
         {
             string root = (memoryRoot ?? "").TrimEnd('/', '\\');
 
-            string scope = String.IsNullOrEmpty(repoFolder)
-                ? "This vessel has no folder under `" + root + "/repos/`, so there is nothing " +
-                  "repository-specific to read.\n"
-                : "This vessel's own memory is `" + root + "/repos/" + repoFolder + "/`. Read that as well.\n";
+            string scope;
+            if (!String.IsNullOrEmpty(repoFolder))
+            {
+                scope = "This vessel's own memory is `" + root + "/repos/" + repoFolder + "/`. Read that as well.\n";
+            }
+            else if (String.IsNullOrEmpty(unresolvedReason) || unresolvedReason == MemoryFolderNoMatchReason)
+            {
+                scope = "This vessel has no folder under `" + root + "/repos/`, so there is nothing " +
+                    "repository-specific to read.\n";
+            }
+            else
+            {
+                scope = "No memory folder under `" + root + "/repos/` was resolved for this vessel because " +
+                    unresolvedReason + ". Do not guess one; read the shared set only.\n";
+            }
 
             return
                 "## Shared Memory\n" +
@@ -2726,7 +2756,7 @@ namespace Armada.Core.Services
         /// <param name="memoryRoot">Configured AI-Memory root path.</param>
         /// <param name="repoFolder">Resolved folder for this vessel, or null.</param>
         /// <returns>Validated entries; never null.</returns>
-        private List<DeferredFact> LoadDeferredFacts(string? memoryRoot, string? repoFolder)
+        internal List<DeferredFact> LoadDeferredFacts(string? memoryRoot, string? repoFolder)
         {
             List<DeferredFact> accepted = new List<DeferredFact>();
             if (String.IsNullOrWhiteSpace(memoryRoot) || String.IsNullOrEmpty(repoFolder)) return accepted;
@@ -2764,33 +2794,117 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="memoryRoot">Configured AI-Memory root path.</param>
         /// <param name="vesselName">Vessel name.</param>
-        /// <returns>The folder name under repos/, or null when no such folder exists.</returns>
+        /// <returns>The real folder name under repos/, or null when none resolves.</returns>
         internal static string? ResolveMemoryRepoFolder(string? memoryRoot, string? vesselName)
         {
-            if (String.IsNullOrWhiteSpace(memoryRoot)) return null;
+            string? unresolvedReason;
+            return ResolveMemoryRepoFolder(memoryRoot, vesselName, out unresolvedReason);
+        }
+
+        /// <summary>
+        /// Resolves the memory folder that belongs to one vessel and reports why when none resolves.
+        ///
+        /// Folder names under repos/ are not required to match the vessel name's spelling, so both
+        /// sides are reduced with <see cref="NormalizeMemoryRepoFolder"/> before they are compared, and
+        /// the folder's real name is returned so every path built from it exists. When two or more
+        /// folders reduce to the same key, none is chosen: picking one would hand a captain another
+        /// repository's memory. A root that cannot be probed resolves to no folder rather than failing
+        /// the dispatch.
+        /// </summary>
+        /// <param name="memoryRoot">Configured AI-Memory root path.</param>
+        /// <param name="vesselName">Vessel name.</param>
+        /// <param name="unresolvedReason">Null when a folder resolves; otherwise why none did.</param>
+        /// <returns>The real folder name under repos/, or null when none resolves.</returns>
+        internal static string? ResolveMemoryRepoFolder(string? memoryRoot, string? vesselName, out string? unresolvedReason)
+        {
+            unresolvedReason = null;
+            if (String.IsNullOrWhiteSpace(memoryRoot))
+            {
+                unresolvedReason = "no AI-Memory root is configured";
+                return null;
+            }
 
             string candidate = NormalizeMemoryRepoFolder(vesselName);
-            if (String.IsNullOrEmpty(candidate)) return null;
+            if (String.IsNullOrEmpty(candidate))
+            {
+                unresolvedReason = "the vessel name has no letters or digits to match against repos/";
+                return null;
+            }
 
             try
             {
-                string path = Path.Combine(memoryRoot.TrimEnd('/', '\\'), "repos", candidate);
-                return Directory.Exists(path) ? candidate : null;
+                string reposPath = Path.Combine(memoryRoot.TrimEnd('/', '\\'), "repos");
+                if (!Directory.Exists(reposPath))
+                {
+                    unresolvedReason = MemoryFolderNoMatchReason;
+                    return null;
+                }
+
+                List<string> matches = new List<string>();
+                foreach (string directory in Directory.GetDirectories(reposPath))
+                {
+                    string name = Path.GetFileName(directory);
+                    if (String.IsNullOrEmpty(name) || name.StartsWith(".", StringComparison.Ordinal)) continue;
+                    if (String.Equals(NormalizeMemoryRepoFolder(name), candidate, StringComparison.Ordinal)) matches.Add(name);
+                }
+
+                if (matches.Count == 1) return matches[0];
+
+                if (matches.Count == 0)
+                {
+                    unresolvedReason = MemoryFolderNoMatchReason;
+                    return null;
+                }
+
+                matches.Sort(StringComparer.Ordinal);
+                unresolvedReason = "the vessel name matches " + matches.Count + " folders under repos/ (" +
+                    String.Join(", ", matches) + "), so none was chosen";
+                return null;
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // A memory root that cannot be probed is not a reason to fail a dispatch. Fall back to
-                // naming no folder, which leaves the captain with the shared set only.
+                // A memory root that cannot be probed is not a reason to fail a dispatch. Name no folder,
+                // which leaves the captain with the shared set only, and carry the reason.
+                unresolvedReason = "the memory root could not be probed (" + ex.GetType().Name + ": " + ex.Message + ")";
                 return null;
             }
         }
 
         /// <summary>
-        /// Reduces a vessel name to the folder-name form used under repos/: lower case, letters and
-        /// digits only, so "Some-Vessel" becomes "somevessel".
+        /// Logs why a vessel has no AI-Memory folder, at most once per vessel per process. A missing
+        /// folder is logged at Info because many vessels legitimately have none; an ambiguous match or
+        /// an unreadable root is logged at Warn.
         /// </summary>
         /// <param name="vesselName">Vessel name.</param>
-        /// <returns>The normalized folder name, or an empty string.</returns>
+        /// <param name="unresolvedReason">Reason reported by the folder resolver, or null.</param>
+        private void LogUnresolvedMemoryFolderOnce(string? vesselName, string? unresolvedReason)
+        {
+            if (!ClaimUnresolvedMemoryFolderLog(vesselName)) return;
+
+            string reason = String.IsNullOrEmpty(unresolvedReason) ? MemoryFolderNoMatchReason : unresolvedReason!;
+            string message = _Header + "no AI-Memory repository folder resolved for vessel " + vesselName + ": " + reason;
+            if (reason == MemoryFolderNoMatchReason) _Logging.Info(message);
+            else _Logging.Warn(message);
+        }
+
+        /// <summary>
+        /// Returns true the first time it is called for a vessel name in this process, false after.
+        /// </summary>
+        /// <param name="vesselName">Vessel name.</param>
+        /// <returns>True when the caller should log.</returns>
+        internal static bool ClaimUnresolvedMemoryFolderLog(string? vesselName)
+        {
+            return _UnresolvedMemoryFolderLogged.TryAdd(vesselName ?? "", 0);
+        }
+
+        /// <summary>
+        /// Reduces a name to the key used to match a vessel to its folder under repos/: lower case,
+        /// letters and digits only, so "Some-Vessel", "SomeVessel" and "some-vessel" all become
+        /// "somevessel". Both the vessel name and each folder name are reduced before comparison; the
+        /// key itself is never used as a path.
+        /// </summary>
+        /// <param name="vesselName">Vessel or folder name.</param>
+        /// <returns>The match key, or an empty string.</returns>
         internal static string NormalizeMemoryRepoFolder(string? vesselName)
         {
             if (String.IsNullOrWhiteSpace(vesselName)) return "";
