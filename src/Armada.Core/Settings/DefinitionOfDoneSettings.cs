@@ -101,6 +101,31 @@ namespace Armada.Core.Settings
         /// </remarks>
         public bool FailOnConsumerVerificationError { get; set; } = false;
 
+        /// <summary>
+        /// Whether a passing consumer build is also followed by the consumer's unit-test suite,
+        /// but only for a change that can break the consumer's behavior rather than only its
+        /// compilation. Defaults to true.
+        /// </summary>
+        /// <remarks>
+        /// A build catches a break that leaves the consumer red; it cannot catch a break that
+        /// compiles and fails at runtime -- an empty catalogue, a reordered public shape a test
+        /// oracle pins, a changed frame. Those land green through a build-only consumer step and
+        /// surface in the consumer's next voyage. Running the consumer suite closes that gap, and
+        /// it is bounded to the changes that reach a triggering path so the producer does not pay
+        /// for the consumer suite on every mission.
+        /// </remarks>
+        public bool RunConsumerTests { get; set; } = true;
+
+        /// <summary>
+        /// Producer-relative path prefixes that trigger the consumer's unit-test suite when a
+        /// producer change touches a non-test file under any of them. Used for a consumer edge
+        /// whose sibling declaration carries no <c>ConsumerTestTriggerPaths</c> of its own. A
+        /// prefix is matched case-insensitively against forward-slash paths. Defaults to the
+        /// protocol-library source root, an over-approximation that runs the consumer suite for
+        /// any non-test source change and never for a documentation-only or test-only change.
+        /// </summary>
+        public List<string> ConsumerTestTriggerPaths { get; set; } = new List<string> { "src/EcuLink/" };
+
         #endregion
 
         #region Private-Members

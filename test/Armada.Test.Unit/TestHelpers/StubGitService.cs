@@ -71,11 +71,19 @@ namespace Armada.Test.Unit.TestHelpers
             return Task.CompletedTask;
         }
 
+        /// <summary>
+        /// When true, CreateWorktreeAsync also creates the worktree directory on disk, so a gate
+        /// that runs a real command in the provisioned worktree has a working directory to run in.
+        /// Defaults to false, preserving the record-only behavior for every existing caller.
+        /// </summary>
+        public bool CreateWorktreeDirectories { get; set; } = false;
+
         public async Task CreateWorktreeAsync(string repoPath, string worktreePath, string branchName, string baseBranch = "main", bool detached = false, CancellationToken token = default)
         {
             if (ShouldThrowOnWorktree) throw new InvalidOperationException(WorktreeFailureMessage ?? "Simulated worktree failure");
             ExistingBranches.Add(branchName);
             WorktreeCalls.Add(worktreePath);
+            if (CreateWorktreeDirectories) System.IO.Directory.CreateDirectory(worktreePath);
             if (BeforeWorktreeCreate != null) await BeforeWorktreeCreate().ConfigureAwait(false);
             OperationCalls.Add("create-worktree:" + worktreePath);
         }
@@ -273,6 +281,12 @@ namespace Armada.Test.Unit.TestHelpers
 
         public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default)
             => Task.FromResult(ChangedFilesSinceResult);
+
+        /// <summary>Producer changed paths returned by GetChangedFilePathsAgainstBaseAsync.</summary>
+        public IReadOnlyList<string> ChangedFilePathsAgainstBaseResult { get; set; } = Array.Empty<string>();
+
+        public Task<IReadOnlyList<string>> GetChangedFilePathsAgainstBaseAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
+            => Task.FromResult(ChangedFilePathsAgainstBaseResult);
 
         public IReadOnlyList<string> ConflictedFilesResult { get; set; } = Array.Empty<string>();
         public Task<IReadOnlyList<string>> GetConflictedFilesAsync(string worktreePath, CancellationToken token = default)

@@ -287,12 +287,19 @@ namespace Armada.Core.Services
 
             _Logging.Info(_Header + "verifying " + consumers.Count + " declared consumer(s) of vessel " + producer.Id);
 
+            // The producer's changed paths decide whether each consumer's suite runs. Read them
+            // once here rather than per consumer: the diff is a property of the producer's branch,
+            // not of any one consumer.
+            IReadOnlyList<string> producerChangedPaths =
+                await ReadProducerChangedPathsAsync(producer, producerWorktreePath, token).ConfigureAwait(false);
+
             foreach (ConsumerDeclaration edge in consumers)
             {
                 DefinitionOfDoneResult result = await VerifyOneConsumerAsync(
                     producer,
                     producerRef!,
                     edge,
+                    producerChangedPaths,
                     token).ConfigureAwait(false);
                 if (!result.Passed) return result;
             }
@@ -304,10 +311,12 @@ namespace Armada.Core.Services
             Vessel producer,
             string producerRef,
             ConsumerDeclaration edge,
+            IReadOnlyList<string> producerChangedPaths,
             CancellationToken token)
         {
             Vessel consumer = edge.Consumer;
             string label = "consumer-build (" + consumer.Name + ")";
+            SiblingRepo? producerSibling = null;
 
             WorkflowProfile? consumerProfile = await ResolveProfileForVesselAsync(consumer, token).ConfigureAwait(false);
             string? consumerBuild = consumerProfile?.BuildCommand;
@@ -356,6 +365,7 @@ namespace Armada.Core.Services
                     if (siblingVessel == null) continue;
 
                     bool isProducer = String.Equals(siblingVessel.Id, producer.Id, StringComparison.OrdinalIgnoreCase);
+                    if (isProducer) producerSibling = sibling;
                     string siblingRef = isProducer
                         ? producerRef
                         : (!String.IsNullOrWhiteSpace(sibling.DefaultBranch) ? sibling.DefaultBranch! : ResolveDefaultBranch(siblingVessel));
@@ -384,14 +394,25 @@ namespace Armada.Core.Services
                 }
 
                 string effective = _Settings.RunRestoreBeforeBuild ? EnsureRestore(consumerBuild!) : consumerBuild!;
-                DefinitionOfDoneResult result = await RunCommandAsync(label, effective, consumerWorktree, token).ConfigureAwait(false);
+                DefinitionOfDoneResult buildResult = await RunCommandAsync(label, effective, consumerWorktree, token).ConfigureAwait(false);
 
-                if (!result.Passed)
+                if (!buildResult.Passed)
                 {
                     _Logging.Warn(_Header + "consumer " + consumer.Name + " failed to build against this change");
+                    return buildResult;
                 }
 
-                return result;
+                // A build proves the consumer still compiles; it cannot prove the consumer still
+                // behaves. When the producer change reaches a triggering path, run the consumer's
+                // own suite against the same provisioned worktree before the branch may land.
+                if (ShouldRunConsumerTests(producerSibling, producerChangedPaths))
+                {
+                    DefinitionOfDoneResult testResult =
+                        await RunConsumerTestsAsync(consumer, consumerProfile, consumerWorktree, token).ConfigureAwait(false);
+                    if (!testResult.Passed) return testResult;
+                }
+
+                return buildResult;
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -432,6 +453,146 @@ namespace Armada.Core.Services
             // from one that passed, and that is the failure this whole step exists to prevent.
             _Logging.Warn(_Header + "consumer verification incomplete: " + message);
             return DefinitionOfDoneResult.Pass();
+        }
+
+        /// <summary>
+        /// Read the producer's changed paths against its default branch, for deciding whether a
+        /// consumer suite must run. Returns empty when no git seam is present or the diff cannot
+        /// be read, which the caller treats as "no triggering change".
+        /// </summary>
+        private async Task<IReadOnlyList<string>> ReadProducerChangedPathsAsync(
+            Vessel producer,
+            string producerWorktreePath,
+            CancellationToken token)
+        {
+            if (_Git == null) return Array.Empty<string>();
+            string baseBranch = ResolveDefaultBranch(producer);
+            try
+            {
+                return await _Git.GetChangedFilePathsAgainstBaseAsync(producerWorktreePath, baseBranch, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not read producer changed paths for consumer-test triggering: " + ex.Message);
+                return Array.Empty<string>();
+            }
+        }
+
+        /// <summary>
+        /// Decide whether a consumer's unit-test suite runs for this producer change. It runs when
+        /// consumer-test verification is enabled and at least one changed producer path is a
+        /// non-test file under a configured trigger prefix. The prefixes come from the producer's
+        /// own sibling declaration when it lists any, otherwise from the gate settings default.
+        /// </summary>
+        private bool ShouldRunConsumerTests(SiblingRepo? producerSibling, IReadOnlyList<string> producerChangedPaths)
+        {
+            if (!_Settings.RunConsumerTests) return false;
+            if (producerChangedPaths == null || producerChangedPaths.Count == 0) return false;
+
+            IReadOnlyList<string>? triggers =
+                producerSibling?.ConsumerTestTriggerPaths != null && producerSibling.ConsumerTestTriggerPaths.Count > 0
+                    ? producerSibling.ConsumerTestTriggerPaths
+                    : _Settings.ConsumerTestTriggerPaths;
+            if (triggers == null || triggers.Count == 0) return false;
+
+            foreach (string rawPath in producerChangedPaths)
+            {
+                if (String.IsNullOrWhiteSpace(rawPath)) continue;
+                string path = rawPath.Replace('\\', '/');
+                if (IsLikelyTestPath(path)) continue;
+
+                foreach (string trigger in triggers)
+                {
+                    if (String.IsNullOrWhiteSpace(trigger)) continue;
+                    string prefix = NormalizeTriggerPrefix(trigger);
+                    if (prefix.Length == 0) continue;
+                    if (path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static string NormalizeTriggerPrefix(string trigger)
+        {
+            string prefix = trigger.Replace('\\', '/').Trim();
+            if (prefix.StartsWith("./", StringComparison.Ordinal)) prefix = prefix.Substring(2);
+            return prefix;
+        }
+
+        /// <summary>
+        /// Whether a repository-relative path names a test file rather than production source, so a
+        /// change to it alone does not trigger a consumer-test run. A path is a test path when any
+        /// segment is a test project (ends with ".Tests" or ".Test") or a "test"/"tests" directory.
+        /// </summary>
+        private static bool IsLikelyTestPath(string path)
+        {
+            string[] segments = path.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            foreach (string segment in segments)
+            {
+                if (segment.EndsWith(".Tests", StringComparison.OrdinalIgnoreCase)
+                    || segment.EndsWith(".Test", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                if (String.Equals(segment, "test", StringComparison.OrdinalIgnoreCase)
+                    || String.Equals(segment, "tests", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Run a consumer's unit-test suite in its provisioned worktree. A failure is reported with
+        /// a named reason distinct from a build break, so a broken consumer test can never be read
+        /// as a compilation failure.
+        /// </summary>
+        private async Task<DefinitionOfDoneResult> RunConsumerTestsAsync(
+            Vessel consumer,
+            WorkflowProfile? consumerProfile,
+            string consumerWorktree,
+            CancellationToken token)
+        {
+            string? testCommand = consumerProfile?.UnitTestCommand;
+            if (String.IsNullOrWhiteSpace(testCommand))
+            {
+                return ConsumerVerificationError(
+                    "consumer-tests (" + consumer.Name + ")",
+                    "Consumer vessel '" + consumer.Name + "' has no UnitTestCommand on its workflow profile, so its "
+                    + "test suite cannot be run for a change that can break it.");
+            }
+
+            string selectedTest = testCommand!;
+            string logLabel = "consumer-tests (" + consumer.Name + ")";
+
+            // Mirror the producer's container pre-flight: without a runtime, container-backed
+            // fixtures fail for the environment, so a declared containerless variant runs instead.
+            if (!String.IsNullOrWhiteSpace(consumerProfile?.ContainerlessUnitTestCommand)
+                && _ContainerRuntimeProbe != null
+                && !await _ContainerRuntimeProbe.IsAvailableAsync(consumerWorktree, token).ConfigureAwait(false))
+            {
+                selectedTest = consumerProfile!.ContainerlessUnitTestCommand!;
+                _Logging.Warn(_Header + "no container runtime detected; running consumer '" + consumer.Name + "' containerless unit-test command");
+            }
+
+            string effective = _Settings.RunRestoreBeforeBuild ? EnsureRestore(selectedTest) : selectedTest;
+            DefinitionOfDoneResult result = await RunCommandAsync(logLabel, effective, consumerWorktree, token).ConfigureAwait(false);
+
+            if (!result.Passed)
+            {
+                _Logging.Warn(_Header + "consumer " + consumer.Name + " test suite failed against this change");
+                result.CommandLabel = "consumer_tests_failed: " + consumer.Name;
+            }
+
+            return result;
         }
 
         private async Task<Vessel?> ReadVesselAsync(string? tenantId, string vesselId, CancellationToken token)

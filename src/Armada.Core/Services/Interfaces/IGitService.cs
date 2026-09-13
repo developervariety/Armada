@@ -457,6 +457,26 @@ namespace Armada.Core.Services.Interfaces
         Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default);
 
         /// <summary>
+        /// List repository-relative paths that differ between a base branch and the worktree tip
+        /// (base...HEAD). Used by the definition-of-done gate to decide whether a producer change
+        /// can break a consumer, so the consumer's suite runs only on changes that reach a
+        /// triggering path.
+        /// </summary>
+        /// <remarks>
+        /// The default returns an empty list, so a git seam that does not implement this member
+        /// never triggers a consumer-test run. An implementation that cannot answer returns an
+        /// empty list rather than throwing, which the caller treats as "no triggering change".
+        /// </remarks>
+        /// <param name="worktreePath">Path to the worktree.</param>
+        /// <param name="baseBranch">Base branch to diff against.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Normalized changed file paths; empty when none or when unavailable.</returns>
+        Task<IReadOnlyList<string>> GetChangedFilePathsAgainstBaseAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
+        {
+            return Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+        }
+
+        /// <summary>
         /// Check if a pull request has been merged using the gh CLI.
         /// </summary>
         /// <param name="workingDirectory">Path to a repo for gh context.</param>

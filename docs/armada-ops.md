@@ -600,7 +600,7 @@ What the gate does for each consumer:
 | Provision | A scratch root private to this one verification, never a shared sibling path |
 | Producer ref | The mission branch, checked out detached |
 | Other siblings | Their declared default branches - only the producer is under test |
-| Command | The consumer's `BuildCommand`, not its test suite |
+| Command | The consumer's `BuildCommand`; then its `UnitTestCommand` when the change reaches a triggering path (see below) |
 | Cleanup | Worktrees removed and the scratch root deleted, pass or fail |
 
 The private scratch root is load-bearing. A shared sibling checkout that another
@@ -608,11 +608,29 @@ dock already owns is REUSED rather than re-pointed, so verifying through one
 could compile the consumer against some other commit while reporting on this
 one - the exact false green the step exists to prevent.
 
-Consumers are built, not tested. A build catches the break that leaves a target
-branch red; running every consumer's suite inside every producer gate would
-cost more wall time than the gate itself. A consumer break that shows up only
-in a test oracle is therefore still found by the consumer's own gate, not by
-the producer's.
+A build catches the break that leaves a consumer red at compile time. It cannot
+catch a break that still compiles and fails at runtime - an empty catalogue, a
+reordered public shape a test oracle pins, a changed frame - which lands green
+through a build-only consumer step and surfaces in the consumer's next voyage.
+So the gate also RUNS the consumer's `UnitTestCommand`, in the same provisioned
+worktree, when the producer change can break the consumer's behavior.
+
+"Can break the consumer" is decided from the producer's own diff against its
+default branch. The consumer suite runs when a changed NON-TEST file falls under
+a triggering path prefix. The prefixes come from the producer's sibling
+declaration on the consumer (`ConsumerTestTriggerPaths`) when it lists any,
+otherwise from `DefinitionOfDone.ConsumerTestTriggerPaths` (default: the
+protocol-library source root). A change to a test project, to documentation, or
+outside every prefix builds the consumer but does not run its suite, so the
+producer only pays for the consumer suite on the changes that matter. A path is
+a test path when a segment is a test project (`*.Tests`, `*.Test`) or a
+`test`/`tests` directory.
+
+A failing consumer suite fails the producer's gate with the named reason
+`consumer_tests_failed: <consumer>`, which is distinct from a consumer build
+failure (`consumer-build (<consumer>)`) so the two are never confused. Set
+`DefinitionOfDone.RunConsumerTests` to `false` to keep the build-only step and
+run no consumer suite.
 
 A consumer that fails to COMPILE fails the producer's gate. A consumer that
 cannot be PREPARED - no workflow profile, no `LocalPath`, a worktree that will

@@ -14,6 +14,20 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Consumer test gate on behavior-breaking waves
+
+- The definition-of-done gate now RUNS a declared consumer's unit-test suite,
+  not only its build, when the producer change can break the consumer's
+  behavior. "Can break" is decided from the producer diff against its default
+  branch: the consumer suite runs when a changed non-test file falls under a
+  triggering path prefix, taken from the producer's sibling declaration
+  (`ConsumerTestTriggerPaths`) or the `DefinitionOfDone.ConsumerTestTriggerPaths`
+  default. A change to tests, docs, or outside every prefix builds the consumer
+  but runs no suite, so the producer pays for the consumer suite only on the
+  changes that matter. A failing consumer suite fails the gate with the named
+  reason `consumer_tests_failed: <consumer>`, distinct from a consumer build
+  failure. `DefinitionOfDone.RunConsumerTests` (default true) switches it off.
+
 ### Captain brief AI-Memory repository folder
 
 - Match a vessel to its folder under the AI-Memory `repos/` directory by

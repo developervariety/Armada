@@ -1,5 +1,6 @@
 namespace Armada.Core.Models
 {
+    using System.Collections.Generic;
     using Armada.Core.Enums;
 
     /// <summary>
@@ -68,6 +69,17 @@ namespace Armada.Core.Models
         /// read only, such as a decompiled or extraction-artifact tree.
         /// </summary>
         public bool BuildParticipant { get; set; } = false;
+
+        /// <summary>
+        /// Producer-relative path prefixes that, when a producer change touches a non-test file
+        /// under any of them, cause the declaring (consumer) vessel's unit-test suite to run in
+        /// the producer's definition-of-done gate, in addition to the consumer build. A consumer
+        /// declares this on the sibling entry that names the producer, so the producer only pays
+        /// for the consumer suite on the changes that can actually break the consumer. Null or
+        /// empty falls back to the gate's configured default set. Applies only to the sibling
+        /// entry that resolves to the producer under test.
+        /// </summary>
+        public List<string>? ConsumerTestTriggerPaths { get; set; } = null;
 
         #endregion
 

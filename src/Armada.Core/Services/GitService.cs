@@ -710,6 +710,44 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<IReadOnlyList<string>> GetChangedFilePathsAgainstBaseAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
+
+            string effectiveBase = String.IsNullOrWhiteSpace(baseBranch) ? "main" : baseBranch.Trim();
+            HashSet<string> changedFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            try
+            {
+                // The symmetric-difference form lists what the tip added over the base's merge
+                // point, which is the change the mission introduced. A merge base is required; a
+                // branch with unrelated history falls back to a direct comparison.
+                string output;
+                try
+                {
+                    output = await RunGitAsync(worktreePath, token, "diff", "--name-only", effectiveBase + "...HEAD").ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex) when (ex.Message.Contains("no merge base", StringComparison.OrdinalIgnoreCase))
+                {
+                    output = await RunGitAsync(worktreePath, token, "diff", "--name-only", effectiveBase + "..HEAD").ConfigureAwait(false);
+                }
+
+                AddChangedPaths(output, changedFiles);
+            }
+            catch (Exception ex)
+            {
+                // A verification that cannot read the diff must not silently trigger or suppress a
+                // consumer-test run; it reports empty, which the gate treats as "no triggering change".
+                _Logging.Debug(_Header + "could not compute changed paths against " + effectiveBase + " in " + worktreePath + ": " + ex.Message);
+                return new List<string>();
+            }
+
+            return changedFiles
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        /// <inheritdoc />
         public async Task<bool> IsPathTrackedAsync(string worktreePath, string relativePath, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));

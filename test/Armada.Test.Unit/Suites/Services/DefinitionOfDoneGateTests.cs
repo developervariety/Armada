@@ -10,6 +10,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Services;
     using Armada.Core.Settings;
     using Armada.Test.Common;
+    using System.Text.Json;
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
 
@@ -918,6 +919,153 @@ namespace Armada.Test.Unit.Suites.Services
 
                 await Task.CompletedTask.ConfigureAwait(false);
             }).ConfigureAwait(false);
+
+            await RunTest("Consumer tests run and fail the gate when a producer change reaches a triggering path", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string producerWorktree = CreateTempDir();
+                try
+                {
+                    // Producer builds and tests clean; the consumer builds clean but its suite fails.
+                    await EnsureVesselWithProfileAsync(testDb, "ten_ct", "vsl_ct_producer",
+                        producerWorktree, SuccessCommand(), SuccessCommand(), null, "EcuLink").ConfigureAwait(false);
+                    await EnsureConsumerWithSiblingAndProfileAsync(testDb, "ten_ct", "vsl_ct_consumer",
+                        "OtrBuddy", "vsl_ct_producer", SuccessCommand(), FailCommand(), null).ConfigureAwait(false);
+
+                    StubGitService git = new StubGitService
+                    {
+                        CreateWorktreeDirectories = true,
+                        ChangedFilePathsAgainstBaseResult = new List<string> { "src/EcuLink/EcuLink.Core/Foo.cs" }
+                    };
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        testDb.Driver, logging, null, git);
+
+                    Mission mission = CreateWorkerMission("ten_ct", "vsl_ct_producer");
+                    mission.BranchName = "feat/ct";
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                        mission, new Dock { WorktreePath = producerWorktree }).ConfigureAwait(false);
+
+                    AssertFalse(result.Passed, "A failing consumer suite on a triggering wave must fail the gate");
+                    AssertEqual("consumer_tests_failed: OtrBuddy", result.CommandLabel,
+                        "The failure must carry the named consumer-tests reason, distinct from a build failure");
+                }
+                finally
+                {
+                    TryDeleteDirectory(producerWorktree);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Consumer tests do NOT run when no producer change reaches a triggering path", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string producerWorktree = CreateTempDir();
+                try
+                {
+                    // The consumer suite would fail if run; the gate must pass because the change is
+                    // outside every trigger path, proving the suite is bounded to matching waves.
+                    await EnsureVesselWithProfileAsync(testDb, "ten_cx", "vsl_cx_producer",
+                        producerWorktree, SuccessCommand(), SuccessCommand(), null, "EcuLink").ConfigureAwait(false);
+                    await EnsureConsumerWithSiblingAndProfileAsync(testDb, "ten_cx", "vsl_cx_consumer",
+                        "OtrBuddy", "vsl_cx_producer", SuccessCommand(), FailCommand(), null).ConfigureAwait(false);
+
+                    StubGitService git = new StubGitService
+                    {
+                        CreateWorktreeDirectories = true,
+                        ChangedFilePathsAgainstBaseResult = new List<string> { "docs/notes.md", "CHANGELOG.md" }
+                    };
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        testDb.Driver, logging, null, git);
+
+                    Mission mission = CreateWorkerMission("ten_cx", "vsl_cx_producer");
+                    mission.BranchName = "feat/cx";
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                        mission, new Dock { WorktreePath = producerWorktree }).ConfigureAwait(false);
+
+                    AssertTrue(result.Passed, "A non-triggering wave must not run the consumer suite, so the gate passes");
+                }
+                finally
+                {
+                    TryDeleteDirectory(producerWorktree);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A test-only producer change under a trigger path does not run the consumer suite", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string producerWorktree = CreateTempDir();
+                try
+                {
+                    await EnsureVesselWithProfileAsync(testDb, "ten_cxt", "vsl_cxt_producer",
+                        producerWorktree, SuccessCommand(), SuccessCommand(), null, "EcuLink").ConfigureAwait(false);
+                    await EnsureConsumerWithSiblingAndProfileAsync(testDb, "ten_cxt", "vsl_cxt_consumer",
+                        "OtrBuddy", "vsl_cxt_producer", SuccessCommand(), FailCommand(), null).ConfigureAwait(false);
+
+                    // The changed path is under the trigger prefix but is a test project file, so the
+                    // rule excludes it: a change to tests alone cannot break the consumer's behavior.
+                    StubGitService git = new StubGitService
+                    {
+                        CreateWorktreeDirectories = true,
+                        ChangedFilePathsAgainstBaseResult = new List<string> { "src/EcuLink/EcuLink.Core.Tests/FooTests.cs" }
+                    };
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        testDb.Driver, logging, null, git);
+
+                    Mission mission = CreateWorkerMission("ten_cxt", "vsl_cxt_producer");
+                    mission.BranchName = "feat/cxt";
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                        mission, new Dock { WorktreePath = producerWorktree }).ConfigureAwait(false);
+
+                    AssertTrue(result.Passed, "A test-only change must not trigger the consumer suite");
+                }
+                finally
+                {
+                    TryDeleteDirectory(producerWorktree);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("RunConsumerTests=false leaves the build-only consumer step unchanged", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string producerWorktree = CreateTempDir();
+                try
+                {
+                    await EnsureVesselWithProfileAsync(testDb, "ten_coff", "vsl_coff_producer",
+                        producerWorktree, SuccessCommand(), SuccessCommand(), null, "EcuLink").ConfigureAwait(false);
+                    await EnsureConsumerWithSiblingAndProfileAsync(testDb, "ten_coff", "vsl_coff_consumer",
+                        "OtrBuddy", "vsl_coff_producer", SuccessCommand(), FailCommand(), null).ConfigureAwait(false);
+
+                    StubGitService git = new StubGitService
+                    {
+                        CreateWorktreeDirectories = true,
+                        ChangedFilePathsAgainstBaseResult = new List<string> { "src/EcuLink/EcuLink.Core/Foo.cs" }
+                    };
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, RunConsumerTests = false },
+                        testDb.Driver, logging, null, git);
+
+                    Mission mission = CreateWorkerMission("ten_coff", "vsl_coff_producer");
+                    mission.BranchName = "feat/coff";
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(
+                        mission, new Dock { WorktreePath = producerWorktree }).ConfigureAwait(false);
+
+                    AssertTrue(result.Passed, "With consumer tests disabled the gate builds the consumer only, so it passes");
+                }
+                finally
+                {
+                    TryDeleteDirectory(producerWorktree);
+                }
+            }).ConfigureAwait(false);
         }
 
         #region Private-Methods
@@ -1099,6 +1247,64 @@ namespace Armada.Test.Unit.Suites.Services
                 DefaultBranch = "main"
             };
             await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Create a consumer vessel that declares the producer as a sibling repository, plus its
+        /// workflow profile. The consumer's LocalPath points at a throwaway directory; the gate
+        /// provisions the real worktree through the git double.
+        /// </summary>
+        private static async Task EnsureConsumerWithSiblingAndProfileAsync(
+            TestDatabase testDb,
+            string tenantId,
+            string consumerVesselId,
+            string consumerName,
+            string producerVesselRef,
+            string? buildCommand,
+            string? testCommand,
+            string? containerlessTestCommand)
+        {
+            Armada.Core.Models.TenantMetadata? existing = await testDb.Driver.Tenants.ReadAsync(tenantId).ConfigureAwait(false);
+            if (existing == null)
+            {
+                await testDb.Driver.Tenants.CreateAsync(new Armada.Core.Models.TenantMetadata
+                {
+                    Id = tenantId,
+                    Name = tenantId
+                }).ConfigureAwait(false);
+            }
+
+            List<SiblingRepo> siblings = new List<SiblingRepo>
+            {
+                new SiblingRepo { VesselRef = producerVesselRef, RelativePath = "../" + producerVesselRef }
+            };
+
+            Vessel consumer = new Vessel
+            {
+                Id = consumerVesselId,
+                TenantId = tenantId,
+                Name = consumerName,
+                RepoUrl = "file:///tmp/dod-consumer.git",
+                LocalPath = CreateTempDir(),
+                WorkingDirectory = CreateTempDir(),
+                DefaultBranch = "main",
+                SiblingRepos = JsonSerializer.Serialize(siblings)
+            };
+            await testDb.Driver.Vessels.CreateAsync(consumer).ConfigureAwait(false);
+
+            WorkflowProfile profile = new WorkflowProfile
+            {
+                TenantId = tenantId,
+                Name = "Consumer Profile",
+                Scope = Armada.Core.Enums.WorkflowProfileScopeEnum.Vessel,
+                VesselId = consumerVesselId,
+                BuildCommand = buildCommand,
+                UnitTestCommand = testCommand,
+                ContainerlessUnitTestCommand = containerlessTestCommand,
+                IsDefault = true,
+                Active = true
+            };
+            await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
         }
 
         /// <summary>

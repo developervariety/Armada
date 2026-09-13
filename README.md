@@ -64,7 +64,7 @@ are not shipped features.
 
 | Area | Shared capabilities | Fork depth and remaining upstream additions |
 | --- | --- | --- |
-| Workflow and verification | Mission modes, review, in-dock acceptance, stage handoff and recovery | The fork preserves full recovery pipelines, immutable reviewed-commit Checks, declared consumer builds and verified landing evidence. |
+| Workflow and verification | Mission modes, review, in-dock acceptance, stage handoff and recovery | The fork preserves full recovery pipelines, immutable reviewed-commit Checks, declared consumer builds that also run the consumer's test suite on changes that can break it, and verified landing evidence. |
 | Captain control | Quarantine, model tiers, reasoning effort, per-stage assignment and OpenCode | The fork adds manual timed or indefinite bench, provider-aware recovery, persona policy and configured routing. Upstream adds generic crash-loop tracking and clearer list details. |
 | Operator experience | Consolidated dashboard, Ask/Planning, workspace terminal/diff, Needs You, background jobs and token usage | The fork adds coordination, claims, directed wakes, preparation evidence and scoped voyage counts with paged vessel associations. Formatted runtime log responses include bounded typed text, thinking and tool entries with shared redaction. Summary, log-chip and anchor display wiring still need adaptation. |
 | Identity and configuration | Tenants, users, skills, project profiles and operational assets | Upstream adds broader per-user ownership and scoped controls. Integration must preserve fork resources and deny invalid credentials through the official MCP transport. |
