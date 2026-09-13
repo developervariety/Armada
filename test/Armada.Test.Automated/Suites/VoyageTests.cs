@@ -1356,7 +1356,7 @@ namespace Armada.Test.Automated.Suites
             object body = new { Title = title, Description = description ?? ("Description for " + title), VesselId = vesselId, Missions = missions };
             StringContent content = JsonHelper.ToJsonContent(body);
             HttpResponseMessage resp = await _AuthClient.PostAsync("/api/v1/voyages", content);
-            AssertEqual(HttpStatusCode.Created, resp.StatusCode);
+            AssertEqual(HttpStatusCode.Created, resp.StatusCode, await resp.Content.ReadAsStringAsync());
             Voyage voyage = await JsonHelper.DeserializeAsync<Voyage>(resp);
             _CreatedVoyageIds.Add(voyage.Id);
             return voyage;
@@ -1364,6 +1364,8 @@ namespace Armada.Test.Automated.Suites
 
         private async Task<PrerequisiteResult> CreatePrerequisitesAsync()
         {
+            // Each case owns its voyage corpus; prior cases must not consume its admission slots.
+            await CleanupAsync();
             string fleetId = await CreateFleetAsync();
             string vesselId = await CreateVesselAsync(fleetId);
             return new PrerequisiteResult(fleetId, vesselId);
@@ -1373,6 +1375,7 @@ namespace Armada.Test.Automated.Suites
         {
             foreach (string voyageId in _CreatedVoyageIds)
             {
+                await _AuthClient.DeleteAsync("/api/v1/voyages/" + voyageId);
                 try { await _AuthClient.DeleteAsync("/api/v1/voyages/" + voyageId + "/purge"); } catch { }
             }
 
@@ -1385,6 +1388,9 @@ namespace Armada.Test.Automated.Suites
             {
                 try { await _AuthClient.DeleteAsync("/api/v1/fleets/" + fleetId); } catch { }
             }
+            _CreatedVoyageIds.Clear();
+            _CreatedVesselIds.Clear();
+            _CreatedFleetIds.Clear();
         }
 
         #endregion

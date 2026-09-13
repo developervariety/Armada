@@ -642,12 +642,15 @@ namespace Armada.Server.Routes
                 Mission incoming = JsonSerializer.Deserialize<Mission>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Mission.");
 
+                MissionBindingUpdateRequest bindings = JsonSerializer.Deserialize<MissionBindingUpdateRequest>(req.Http.Request.DataAsString, _jsonOptions)
+                    ?? throw new InvalidOperationException("Request body could not be deserialized as mission bindings.");
+
                 // Merge only metadata fields onto the existing record
                 existing.Title = incoming.Title;
                 existing.Description = incoming.Description;
                 existing.Priority = incoming.Priority;
-                if (!String.Equals(existing.VesselId, incoming.VesselId, StringComparison.OrdinalIgnoreCase)
-                    || !String.Equals(existing.VoyageId, incoming.VoyageId, StringComparison.OrdinalIgnoreCase))
+                if ((bindings.HasVesselId && !String.Equals(existing.VesselId, bindings.VesselId, StringComparison.OrdinalIgnoreCase))
+                    || (bindings.HasVoyageId && !String.Equals(existing.VoyageId, bindings.VoyageId, StringComparison.OrdinalIgnoreCase)))
                 {
                     req.Http.Response.StatusCode = 409;
                     return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = "Mission vesselId and voyageId cannot be changed by the metadata update route." };

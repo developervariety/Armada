@@ -89,6 +89,71 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("TryAssign_V2ReplacesLegacyOrderAndHonorsRetryExclusion", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    Captain legacy = await CreateCaptainAsync(testDb.Driver, "legacy", "gpt-5.6-luna", "[\"Worker\"]").ConfigureAwait(false);
+                    Captain preferred = await CreateCaptainAsync(testDb.Driver, "v2", "claude-opus-5", "[\"Worker\"]").ConfigureAwait(false);
+                    settings.ModelTier.WithinTierStrategy = ModelTierSettings.WithinTierStrategyPreferenceOrderThenRandom;
+                    settings.ModelTier.WithinTierPreferenceOrder["mid"] = new List<string> { legacy.Model! };
+                    settings.ModelTier.PreferNonNativeFirst = true;
+                    settings.ModelTier.UsageRouting = new UsageRoutingSettings
+                    {
+                        Enabled = true,
+                        Accounts = new List<UsageAccountSettings>
+                        {
+                            new UsageAccountSettings { Id = "v2", CaptainIds = new List<string> { preferred.Id } },
+                            new UsageAccountSettings { Id = "legacy", CaptainIds = new List<string> { legacy.Id } }
+                        },
+                        PersonaRoutes = new Dictionary<string, List<UsageRouteSettings>> { ["Worker"] = new List<UsageRouteSettings> { new UsageRouteSettings { AccountId = "v2" }, new UsageRouteSettings { AccountId = "legacy" } } }
+                    };
+                    MissionService service = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Mission first = await CreateMissionAsync(testDb.Driver, vessel, "V2 preference", "mid", "Worker").ConfigureAwait(false);
+                    AssertTrue(await service.TryAssignAsync(first, vessel).ConfigureAwait(false), "First V2 assignment must launch");
+                    AssertEqual(preferred.Id, (await testDb.Driver.Missions.ReadAsync(first.Id).ConfigureAwait(false))!.CaptainId);
+                    first.Status = MissionStatusEnum.Complete;
+                    await testDb.Driver.Missions.UpdateAsync(first).ConfigureAwait(false);
+                    preferred.State = CaptainStateEnum.Idle;
+                    await testDb.Driver.Captains.UpdateAsync(preferred).ConfigureAwait(false);
+                    Mission retry = await CreateMissionAsync(testDb.Driver, vessel, "V2 retry", "mid", "Worker").ConfigureAwait(false);
+                    retry.RetrySkipCaptainIds = preferred.Id;
+                    await testDb.Driver.Missions.UpdateAsync(retry).ConfigureAwait(false);
+                    AssertTrue(await service.TryAssignAsync(retry, vessel).ConfigureAwait(false), "Retry must launch after the first mission completes");
+                    AssertEqual(legacy.Id, (await testDb.Driver.Missions.ReadAsync(retry.Id).ConfigureAwait(false))!.CaptainId);
+                }
+            });
+
+            await RunTest("TryAssign_UsageReserveDefersThenHotReloadAllowsFallback", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    Captain preferred = await CreateCaptainAsync(testDb.Driver, "preferred", "gpt-5.6-luna", "[\"Worker\"]").ConfigureAwait(false);
+                    Captain fallback = await CreateCaptainAsync(testDb.Driver, "fallback", "gpt-5.6-luna", "[\"Worker\"]").ConfigureAwait(false);
+                    UsageAccountSettings account = new UsageAccountSettings { Id = "primary", CaptainIds = new List<string> { preferred.Id, fallback.Id }, ManualSnapshot = new ProviderUsageSnapshot { ObservedUtc = DateTime.UtcNow, Windows = new List<ProviderUsageWindow> { new ProviderUsageWindow { Name = "weekly", RemainingPercent = 5 } } } };
+                    settings.ModelTier.UsageRouting = new UsageRoutingSettings { Enabled = true, Accounts = new List<UsageAccountSettings> { account }, PersonaRoutes = new Dictionary<string, List<UsageRouteSettings>> { ["Worker"] = new List<UsageRouteSettings> { new UsageRouteSettings { AccountId = "primary" } } } };
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+                    Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "conserve allowance", "mid", "Worker").ConfigureAwait(false);
+                    AssertFalse(await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false));
+                    Mission? waiting = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionAssignmentStateEnum.WaitingForProviderUsage, waiting!.AssignmentState);
+                    UsageAccountSettings alternative = new UsageAccountSettings { Id = "alternative", CaptainIds = new List<string> { fallback.Id } };
+                    account.CaptainIds.Remove(fallback.Id);
+                    settings.ModelTier.UsageRouting = new UsageRoutingSettings
+                    {
+                        Enabled = true, Accounts = new List<UsageAccountSettings> { account, alternative },
+                        PersonaRoutes = new Dictionary<string, List<UsageRouteSettings>> { ["Worker"] = new List<UsageRouteSettings> { new UsageRouteSettings { AccountId = "primary" }, new UsageRouteSettings { AccountId = "alternative" } } }
+                    };
+                    AssertTrue(await missions.TryAssignAsync(waiting, vessel).ConfigureAwait(false));
+                    Mission? assigned = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(fallback.Id, assigned!.CaptainId);
+                }
+            });
+
             await RunTest("TryAssign_LiteralPreferredModel_AssignsExactModelCaptain", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

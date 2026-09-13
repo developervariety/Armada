@@ -189,6 +189,9 @@ export interface ProxySessionContext {
 
 const PLANNING_CREATE_TIMEOUT_MS = 5 * 60 * 1000;
 const PLANNING_SUMMARIZE_TIMEOUT_MS = 3 * 60 * 1000;
+// Usage collection allows 32 accounts in batches of four, each with a 15-second timeout.
+// Allow a complete collection sweep plus transport overhead before reporting a timeout.
+const USAGE_SETTINGS_TIMEOUT_MS = 150000;
 
 async function request<T>(method: string, path: string, body?: unknown, opts?: RequestOptions): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -966,7 +969,7 @@ export const getHealth = () => get<Record<string, unknown>>('/api/v1/status/heal
 export const getDoctor = () => get<DoctorCheck[]>('/api/v1/doctor');
 
 // ==================== Settings ====================
-export const getSettings = () => get<SettingsData>('/api/v1/settings');
+export const getSettings = () => get<SettingsData>('/api/v1/settings', { timeout: USAGE_SETTINGS_TIMEOUT_MS });
 export const updateSettings = (data: SettingsData) => put<SettingsData>('/api/v1/settings', data);
 
 // ==================== Server ====================
@@ -1101,3 +1104,6 @@ export const listCoordinationClaims = (subjectType?: string, subjectId?: string)
   const query = search.toString();
   return get<CoordinationClaim[]>(`/api/v1/coordination/claims${query ? `?${query}` : ''}`);
 };
+
+/** Administrator-only, read-only usage admission preview. */
+export const previewUsageRouting = (data: Record<string, unknown>) => post<Record<string, unknown>>('/api/v1/settings/usage-preview', data, { timeout: USAGE_SETTINGS_TIMEOUT_MS });

@@ -1009,6 +1009,7 @@ the Dashboard Settings page:
 | `modelTier.withinTierStrategy` | Yes | `Random` | Within-tier strategy |
 | `modelTier.withinTierPreferenceOrder` | Yes | empty | Preference-order JSON |
 | `modelTier.preferNonNativeFirst` | Yes | `false` | Prefer non-native first |
+| `modelTier.usageRouting` | Yes | disabled, empty accounts | [Usage policy, account status, and preview](USAGE_ROUTING.md) |
 | `modelTier.reservedHighTierSlots` | Yes | `0` | Reserved high-tier slots |
 | `voyageDispatch.rejectStagePersonaTitlePrefixes` | Yes | `false` | Reject stage-persona title prefixes |
 | `voyageDispatch.stagePersonaTitlePrefixes` | Yes | empty | Prefix list |

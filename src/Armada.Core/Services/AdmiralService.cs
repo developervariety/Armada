@@ -2159,7 +2159,8 @@ namespace Armada.Core.Services
             return assignmentState == MissionAssignmentStateEnum.WaitingForDependency
                 || assignmentState == MissionAssignmentStateEnum.WaitingForVesselMutex
                 || assignmentState == MissionAssignmentStateEnum.WaitingForIdleCaptain
-                || assignmentState == MissionAssignmentStateEnum.WaitingForResourcePressure;
+                || assignmentState == MissionAssignmentStateEnum.WaitingForResourcePressure
+                || assignmentState == MissionAssignmentStateEnum.WaitingForProviderUsage;
         }
 
         private async Task DispatchPendingMissionsAsync(CancellationToken token)
@@ -2244,7 +2245,7 @@ namespace Armada.Core.Services
             if (nonSpecialistMissions.Count > 0)
             {
                 bool canDispatchNonSpecialist = true;
-                int reservedHighTierSlots = _Settings.ModelTier.ReservedHighTierSlots;
+                int reservedHighTierSlots = _Settings.ModelTier.UsageRouting.Enabled ? 0 : _Settings.ModelTier.ReservedHighTierSlots;
                 if (reservedHighTierSlots > 0)
                 {
                     // Re-query idle capacity AFTER Phase 1 so captains claimed by

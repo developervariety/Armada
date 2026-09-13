@@ -1420,6 +1420,9 @@ namespace Armada.Test.Automated.Suites
 
             #region EdgeCases
 
+            // The paging corpus is no longer needed; release its fleet capacity before new cases.
+            await CleanupAsync();
+
             await RunTest("CreateMultipleMissions_EachHasUniqueId", async () =>
             {
                 string vesselId = await SetupVesselAsync();
@@ -1579,6 +1582,7 @@ namespace Armada.Test.Automated.Suites
             StringContent content = JsonHelper.ToJsonContent(new { Name = "MissionTestFleet-" + Guid.NewGuid().ToString("N").Substring(0, 8) });
             HttpResponseMessage resp = await _AuthClient.PostAsync("/api/v1/fleets", content);
             string body = await resp.Content.ReadAsStringAsync();
+            AssertEqual(HttpStatusCode.Created, resp.StatusCode, body);
             Fleet fleet = JsonHelper.Deserialize<Fleet>(body);
             if (String.IsNullOrEmpty(fleet.Id))
                 throw new Exception("CreateFleetAsync failed (" + (int)resp.StatusCode + "): " + body);
@@ -1592,6 +1596,7 @@ namespace Armada.Test.Automated.Suites
             StringContent content = JsonHelper.ToJsonContent(new { Name = "MissionTestVessel-" + Guid.NewGuid().ToString("N").Substring(0, 8), RepoUrl = repoUrl, FleetId = fleetId });
             HttpResponseMessage resp = await _AuthClient.PostAsync("/api/v1/vessels", content);
             string body = await resp.Content.ReadAsStringAsync();
+            AssertEqual(HttpStatusCode.Created, resp.StatusCode, body);
             Vessel vessel = JsonHelper.Deserialize<Vessel>(body);
             if (String.IsNullOrEmpty(vessel.Id))
                 throw new Exception("CreateVesselAsync failed (" + (int)resp.StatusCode + "): " + body);
@@ -1639,6 +1644,7 @@ namespace Armada.Test.Automated.Suites
             StringContent content = JsonHelper.ToJsonContent(requestBody);
             HttpResponseMessage resp = await _AuthClient.PostAsync("/api/v1/missions", content);
             string body = await resp.Content.ReadAsStringAsync();
+            AssertEqual(HttpStatusCode.Created, resp.StatusCode, body);
 
             // When mission stays Pending (no captain available), the API returns
             // { "Mission": {...}, "Warning": "..." } instead of the mission directly.
@@ -1680,6 +1686,7 @@ namespace Armada.Test.Automated.Suites
             string uniqueName = name + "-" + Guid.NewGuid().ToString("N").Substring(0, 8);
             StringContent content = JsonHelper.ToJsonContent(new { Name = uniqueName });
             HttpResponseMessage resp = await _AuthClient.PostAsync("/api/v1/captains", content);
+            AssertEqual(HttpStatusCode.Created, resp.StatusCode, await resp.Content.ReadAsStringAsync());
             Captain captain = await JsonHelper.DeserializeAsync<Captain>(resp);
             _CreatedCaptainIds.Add(captain.Id);
             return captain.Id;
@@ -1694,6 +1701,7 @@ namespace Armada.Test.Automated.Suites
             });
             HttpResponseMessage resp = await _AuthClient.PostAsync("/api/v1/voyages", content);
             string body = await resp.Content.ReadAsStringAsync();
+            AssertEqual(HttpStatusCode.Created, resp.StatusCode, body);
             Voyage voyage = JsonHelper.Deserialize<Voyage>(body);
             _CreatedVoyageIds.Add(voyage.Id);
             return voyage.Id;
@@ -1708,6 +1716,7 @@ namespace Armada.Test.Automated.Suites
 
             foreach (string voyageId in _CreatedVoyageIds)
             {
+                await _AuthClient.DeleteAsync("/api/v1/voyages/" + voyageId);
                 try { await _AuthClient.DeleteAsync("/api/v1/voyages/" + voyageId + "/purge"); } catch { }
             }
 
@@ -1725,6 +1734,12 @@ namespace Armada.Test.Automated.Suites
             {
                 try { await _AuthClient.DeleteAsync("/api/v1/fleets/" + fleetId); } catch { }
             }
+            _CreatedMissionIds.Clear();
+            _CreatedVoyageIds.Clear();
+            _CreatedCaptainIds.Clear();
+            _CreatedVesselIds.Clear();
+            _CreatedFleetIds.Clear();
+            _PaginationCorpusReady = false;
         }
 
         #endregion

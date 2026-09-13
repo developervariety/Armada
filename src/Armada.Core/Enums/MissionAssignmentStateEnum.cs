@@ -56,6 +56,10 @@ namespace Armada.Core.Enums
         /// Mission assignment failed.
         /// </summary>
         [EnumMember(Value = "Failed")]
-        Failed
+        Failed,
+
+        /// <summary>Mission is waiting for account allowance or reserved provider capacity.</summary>
+        [EnumMember(Value = "WaitingForProviderUsage")]
+        WaitingForProviderUsage
     }
 }

@@ -14,6 +14,7 @@ namespace Armada.Server.Routes
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
+    using Armada.Core.Services;
     using Armada.Core.Settings;
     using SyslogLogging;
 
@@ -344,6 +345,46 @@ namespace Armada.Server.Routes
                 .WithDescription("Initiates a graceful shutdown of the Admiral server.")
                 .WithSecurity("ApiKey"));
 
+            app.Post<UsageRoutingPreviewRequest>("/api/v1/settings/usage-preview", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!authz.IsAuthorized(ctx, "PUT", "/api/v1/settings"))
+                {
+                    req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Administrator access required" };
+                }
+                UsageRoutingPreviewRequest body;
+                try
+                {
+                    body = JsonSerializer.Deserialize<UsageRoutingPreviewRequest>(req.Http.Request.DataAsString, _jsonOptions) ?? throw new ArgumentException("Preview body is required.");
+                    UsageRoutingService.Validate(body.UsageRouting ?? _settings.ModelTier.UsageRouting);
+                }
+                catch (Exception ex) when (ex is ArgumentException || ex is JsonException)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Invalid usage policy or preview request." };
+                }
+                UsageRoutingSettings policy = body.UsageRouting ?? _settings.ModelTier.UsageRouting;
+                // A draft has isolated collector and hysteresis state; preview cannot mutate live routing.
+                UsageRoutingService usage = body.UsageRouting == null ? UsageRoutingService.For(_settings) : new UsageRoutingService();
+                await usage.RefreshAsync(policy).ConfigureAwait(false);
+                List<Captain> captains = await _database.Captains.EnumerateAsync().ConfigureAwait(false);
+                Mission mission = new Mission { Persona = body.Persona, Priority = body.Priority, PreferredModel = body.PreferredModel };
+                List<Captain> idle = captains.Where(c => c.State == CaptainStateEnum.Idle && (!c.QuarantineUntilUtc.HasValue || c.QuarantineUntilUtc <= DateTime.UtcNow)).ToList();
+                List<Captain> eligible = UsageRoutingService.Eligible(_settings.ModelTier, mission, idle);
+                List<string> busy = captains.Where(c => c.State == CaptainStateEnum.Working).Select(c => c.Id).ToList();
+                UsageRoutingDecision decision = usage.Select(policy, mission, eligible, busy, DateTime.UtcNow);
+                return new
+                {
+                    decision.Reason,
+                    decision.HasPersonaRoutes,
+                    Candidates = decision.Candidates.Select(c => new { c.Id, c.Name, c.Model, c.Runtime }).ToList(),
+                    Accounts = policy.Accounts.Select(a => usage.GetStatus(a, null, DateTime.UtcNow)).ToList(),
+                    Warnings = policy.Accounts.SelectMany(a => a.CaptainIds.Where(id => !captains.Any(c => c.Id == id)).Select(id => "Unknown captain: " + id)).ToList(),
+                    Scope = "Usage admission only. Live assignment reservations and vessel gates apply at dispatch. Legacy preferences apply only when V2 is disabled."
+                };
+            }, api => api.WithTag("Settings").WithSummary("Preview preference-first usage admission").WithSecurity("ApiKey"));
+
             // Settings
             app.Get("/api/v1/settings", async (ApiRequest req) =>
             {
@@ -353,6 +394,7 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
+                await UsageRoutingService.For(_settings).RefreshAsync(_settings.ModelTier.UsageRouting).ConfigureAwait(false);
                 return BuildSettingsResponse();
             },
             api => api
@@ -371,6 +413,16 @@ namespace Armada.Server.Routes
                 }
                 SettingsUpdateRequest body = JsonSerializer.Deserialize<SettingsUpdateRequest>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as SettingsUpdateRequest.");
+
+                if (body.ModelTier?.UsageRouting != null)
+                {
+                    try { UsageRoutingService.Validate(body.ModelTier.UsageRouting); }
+                    catch (ArgumentException ex)
+                    {
+                        req.Http.Response.StatusCode = 400;
+                        return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                    }
+                }
 
                 if (body.AdmiralPort.HasValue)
                     _settings.AdmiralPort = body.AdmiralPort.Value;
@@ -566,6 +618,7 @@ namespace Armada.Server.Routes
                 RemoteControl = _settings.RemoteControl,
                 ResourcePressureAdmission = _settings.ResourcePressureAdmission,
                 ModelTier = _settings.ModelTier,
+                ProviderUsage = _settings.ModelTier.UsageRouting.Accounts.Select(account => UsageRoutingService.For(_settings).GetStatus(account, null, DateTime.UtcNow)).ToList(),
                 VoyageDispatch = _settings.VoyageDispatch,
                 AdditionalPromptTemplates = _settings.AdditionalPromptTemplates,
                 AdditionalPersonas = _settings.AdditionalPersonas,

@@ -183,6 +183,9 @@ namespace Armada.Server
     /// </summary>
     public class ModelTierUpdate
     {
+        /// <summary>When supplied, replaces the complete usage routing policy.</summary>
+        public UsageRoutingSettings? UsageRouting { get; set; }
+
         /// <summary>
         /// Persona names routed only to high-tier captains.
         /// </summary>
@@ -242,6 +245,7 @@ namespace Armada.Server
         public void ApplyTo(ModelTierSettings target)
         {
             if (target == null) return;
+            if (UsageRouting != null) target.UsageRouting = UsageRouting;
             if (SpecialistPersonas != null) target.SpecialistPersonas = SpecialistPersonas;
             if (ReservedHighTierSlots.HasValue) target.ReservedHighTierSlots = ReservedHighTierSlots.Value;
             if (WithinTierPreferenceOrder != null) target.WithinTierPreferenceOrder = WithinTierPreferenceOrder;

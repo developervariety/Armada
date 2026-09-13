@@ -102,6 +102,11 @@
     "allowInvalidCertificates": false
   },
   "modelTier": {
+    "usageRouting": {
+      "enabled": false,
+      "accounts": [],
+      "personaRoutes": {}
+    },
     "specialistPersonas": [],
     "reservedHighTierSlots": 0,
     "preferNonNativeFirst": false,

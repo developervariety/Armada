@@ -199,7 +199,8 @@ namespace Armada.Test.Unit.Suites.Database
                     MissionAssignmentStateEnum.WaitingForResourcePressure,
                     MissionAssignmentStateEnum.Provisioning,
                     MissionAssignmentStateEnum.Assigned,
-                    MissionAssignmentStateEnum.Failed
+                    MissionAssignmentStateEnum.Failed,
+                    MissionAssignmentStateEnum.WaitingForProviderUsage
                 };
 
                 MissionAssignmentStateEnum[] actual = Enum.GetValues<MissionAssignmentStateEnum>();

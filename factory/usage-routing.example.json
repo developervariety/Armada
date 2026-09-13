@@ -1,0 +1,49 @@
+{
+  "enabled": false,
+  "refreshIntervalMinutes": 5,
+  "monthlyBudget": 0,
+  "currency": "USD",
+  "accounts": [
+    {
+      "id": "primary",
+      "captainIds": [
+        "cpt_example_primary"
+      ],
+      "collector": "Manual",
+      "unknownUsagePolicy": "Conserve",
+      "lowRemainingPercent": 25,
+      "reserveRemainingPercent": 10,
+      "recoveryRemainingPercent": 35,
+      "reservedPersonas": [
+        "Judge"
+      ],
+      "maxConcurrentMissions": 1
+    },
+    {
+      "id": "fallback",
+      "captainIds": [
+        "cpt_example_fallback"
+      ],
+      "collector": "Manual",
+      "unknownUsagePolicy": "Conserve"
+    }
+  ],
+  "personaRoutes": {
+    "Worker": [
+      {
+        "accountId": "primary",
+        "models": []
+      },
+      {
+        "accountId": "fallback",
+        "models": []
+      }
+    ],
+    "Judge": [
+      {
+        "accountId": "primary",
+        "models": []
+      }
+    ]
+  }
+}

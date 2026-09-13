@@ -130,6 +130,33 @@ namespace Armada.Test.Automated.Suites
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("UsagePreview_RequiresAuthentication", async () =>
+            {
+                using (StringContent content = JsonHelper.ToJsonContent(new { persona = "Worker" }))
+                using (HttpResponseMessage response = await _UnauthClient.PostAsync("/api/v1/settings/usage-preview", content).ConfigureAwait(false))
+                    AssertEqual(HttpStatusCode.Unauthorized, response.StatusCode);
+            }).ConfigureAwait(false);
+
+            await RunTest("UsagePreview_ValidatesDraftWithoutSaving", async () =>
+            {
+                using (HttpResponseMessage before = await _AuthClient.GetAsync("/api/v1/settings").ConfigureAwait(false))
+                {
+                    string saved = await before.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    using (StringContent content = JsonHelper.ToJsonContent(new { persona = "Worker", usageRouting = new { enabled = true, accounts = new object[0], personaRoutes = new { } } }))
+                    using (HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/settings/usage-preview", content).ConfigureAwait(false))
+                    {
+                        AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                        string result = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        AssertTrue(result.Contains("v2_persona_route_not_configured"));
+                    }
+                    using (HttpResponseMessage after = await _AuthClient.GetAsync("/api/v1/settings").ConfigureAwait(false))
+                        AssertEqual(saved, await after.Content.ReadAsStringAsync().ConfigureAwait(false));
+                }
+                using (StringContent invalid = JsonHelper.ToJsonContent(new { usageRouting = new { refreshIntervalMinutes = 0 } }))
+                using (HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/settings/usage-preview", invalid).ConfigureAwait(false))
+                    AssertEqual(HttpStatusCode.BadRequest, response.StatusCode);
+            }).ConfigureAwait(false);
+
             #region Status-Endpoint
 
             await RunTest("GetStatus_ReturnsOk", async () =>

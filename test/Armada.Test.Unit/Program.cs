@@ -94,6 +94,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ProgressParserTests());
             runner.AddSuite(new PapercutTests());
             runner.AddSuite(new SettingsTests());
+            runner.AddSuite(new UsageRoutingTests());
             runner.AddSuite(new ReleaseVersionTests());
             runner.AddSuite(new ReleaseServiceTests());
             runner.AddSuite(new StartupScriptTests());

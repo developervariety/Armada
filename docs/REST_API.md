@@ -4470,3 +4470,13 @@ already owns the lease.
 
 See [Grok Bot Lead Integration](autonomy/grok-bot-lead.md) for the complete
 operating contract.
+
+## Account usage and persona routing
+
+See [Usage-aware routing](USAGE_ROUTING.md) for the opt-in policy, collectors,
+credential references, reserve behavior, and Dashboard controls. The settings
+REST API exposes `providerUsage`; `POST /api/v1/settings/usage-preview` previews
+an optional draft policy with settings write permission. No new MCP tool is
+required. Policy updates use `PUT /api/v1/settings` and hot-reload.
+
+Mission metadata updates preserve omitted `vesselId` and `voyageId`. Explicit changes, including clearing an existing binding with null, return 409.

@@ -14,6 +14,19 @@ namespace Armada.Core.Settings
     {
         #region Public-Members
 
+        /// <summary>Account usage conservation and persona preference routes. Disabled by default.</summary>
+        public UsageRoutingSettings UsageRouting
+        {
+            get => _UsageRouting;
+            set
+            {
+                UsageRoutingSettings next = value ?? new UsageRoutingSettings();
+                Armada.Core.Services.UsageRoutingService.Validate(next);
+                _UsageRouting = next;
+            }
+        }
+
+
         /// <summary>
         /// Canonical within-tier strategy: pick uniformly among eligible models in the tier.
         /// </summary>
@@ -154,6 +167,7 @@ namespace Armada.Core.Settings
 
         #region Private-Members
 
+        private UsageRoutingSettings _UsageRouting = new UsageRoutingSettings();
         private List<string> _SpecialistPersonas = new List<string>();
         private int _ReservedHighTierSlots = 0;
         private Dictionary<string, List<string>> _WithinTierPreferenceOrder = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
@@ -232,6 +246,7 @@ namespace Armada.Core.Settings
         public void CopyFrom(ModelTierSettings source)
         {
             if (source == null) return;
+            UsageRouting = source.UsageRouting;
             SpecialistPersonas = source.SpecialistPersonas;
             ReservedHighTierSlots = source.ReservedHighTierSlots;
             WithinTierPreferenceOrder = source.WithinTierPreferenceOrder;

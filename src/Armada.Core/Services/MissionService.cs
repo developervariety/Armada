@@ -95,6 +95,7 @@ namespace Armada.Core.Services
         // run concurrently and each selects from the same Idle list, so without this two missions
         // in one pass pick the same captain, both provision full docks, and the second learns at
         // the final claim that the captain is gone -- after the whole provisioning cost is spent.
+        private readonly SemaphoreSlim _CaptainSelectionLock = new SemaphoreSlim(1, 1);
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _CaptainReservations =
             new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
 
@@ -586,31 +587,40 @@ namespace Armada.Core.Services
             }
 
             // Resolve preferred captain from voyage overrides or persona defaults before assignment.
-            await ResolvePreferredCaptainAsync(mission, token).ConfigureAwait(false);
+            if (!_Settings.ModelTier.UsageRouting.Enabled)
+                await ResolvePreferredCaptainAsync(mission, token).ConfigureAwait(false);
 
             // Find an idle captain, preferring those matching the mission's persona,
             // honouring optional PreferredModel pin on the mission.
-            Captain? captain = await FindAvailableCaptainAsync(mission, token).ConfigureAwait(false);
-            // Reserve the selection in-process before any provisioning cost is spent. A concurrent
-            // pass that selected the same captain a moment earlier holds the reservation; re-pick
-            // from the captains it left, a bounded number of times, before reporting none idle.
-            int reservationAttempts = 0;
-            while (captain != null && !_CaptainReservations.TryAdd(captain.Id, mission.Id))
+            Captain? captain;
+            await _CaptainSelectionLock.WaitAsync(token).ConfigureAwait(false);
+            try
             {
-                reservationAttempts++;
-                _Logging.Info(_Header + "captain " + captain.Id + " was selected for mission " + mission.Id
-                    + " but is reserved by mission " + (_CaptainReservations.TryGetValue(captain.Id, out string? holder) ? holder : "(unknown)")
-                    + " in a concurrent assignment pass; re-selecting (attempt " + reservationAttempts + ")");
-                if (reservationAttempts >= 3) { captain = null; break; }
+                mission.AssignmentState = MissionAssignmentStateEnum.WaitingForIdleCaptain;
                 captain = await FindAvailableCaptainAsync(mission, token).ConfigureAwait(false);
+                // Reserve the selection in-process before any provisioning cost is spent. A concurrent
+                // pass that selected the same captain a moment earlier holds the reservation; re-pick
+                // from the captains it left, a bounded number of times, before reporting none idle.
+                int reservationAttempts = 0;
+                while (captain != null && !_CaptainReservations.TryAdd(captain.Id, mission.Id))
+                {
+                    reservationAttempts++;
+                    _Logging.Info(_Header + "captain " + captain.Id + " was selected for mission " + mission.Id
+                        + " but is reserved by mission " + (_CaptainReservations.TryGetValue(captain.Id, out string? holder) ? holder : "(unknown)")
+                        + " in a concurrent assignment pass; re-selecting (attempt " + reservationAttempts + ")");
+                    if (reservationAttempts >= 3) { captain = null; break; }
+                    captain = await FindAvailableCaptainAsync(mission, token).ConfigureAwait(false);
+                }
+                reservedCaptain = captain;
             }
-            reservedCaptain = captain;
+            finally { _CaptainSelectionLock.Release(); }
             if (captain == null)
             {
                 _Logging.Warn(_Header + "no idle captains available for mission " + mission.Id +
                     (mission.Persona != null ? " (persona: " + mission.Persona + ")" : "") +
                     (!String.IsNullOrEmpty(mission.PreferredModel) ? " (preferredModel: " + mission.PreferredModel + ")" : ""));
-                mission.AssignmentState = MissionAssignmentStateEnum.WaitingForIdleCaptain;
+                if (mission.AssignmentState != MissionAssignmentStateEnum.WaitingForProviderUsage)
+                    mission.AssignmentState = MissionAssignmentStateEnum.WaitingForIdleCaptain;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
                 return false;
@@ -7135,7 +7145,7 @@ namespace Armada.Core.Services
         /// <summary>
         /// Whether a captain id sits on a mission's in-place re-run skip list.
         /// </summary>
-        private static bool IsCaptainOnRetrySkipList(string? retrySkipCaptainIds, string? captainId)
+        internal static bool IsCaptainOnRetrySkipList(string? retrySkipCaptainIds, string? captainId)
         {
             if (String.IsNullOrWhiteSpace(captainId) || String.IsNullOrWhiteSpace(retrySkipCaptainIds)) return false;
             foreach (string part in retrySkipCaptainIds.Split(','))
@@ -7607,6 +7617,33 @@ namespace Armada.Core.Services
             idleCaptains = assignableCaptains;
             if (idleCaptains.Count == 0)
                 return null;
+
+            UsageRoutingSettings usagePolicy = _Settings.ModelTier.UsageRouting;
+            if (usagePolicy.Enabled)
+            {
+                UsageRoutingService usage = UsageRoutingService.For(_Settings);
+                await usage.RefreshAsync(usagePolicy, token).ConfigureAwait(false);
+                List<Captain> eligibleForUsage = UsageRoutingService.Eligible(_Settings.ModelTier, mission!, idleCaptains);
+                List<Captain> working = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
+                HashSet<string> busy = new HashSet<string>(_CaptainReservations.Keys, StringComparer.OrdinalIgnoreCase);
+                foreach (Captain active in working) busy.Add(active.Id);
+                UsageRoutingDecision decision = usage.Select(usagePolicy, mission!, eligibleForUsage, busy, DateTime.UtcNow);
+                idleCaptains = decision.Candidates;
+                if (idleCaptains.Count == 0)
+                {
+                    if (eligibleForUsage.Count > 0)
+                    {
+                        mission!.AssignmentState = MissionAssignmentStateEnum.WaitingForProviderUsage;
+                        _Logging.Info(_Header + "usage routing deferred mission " + mission.Id + ": " + decision.Reason);
+                    }
+                    return null;
+                }
+                // V2 owns selection. Legacy model/provider preferences must not reorder it.
+                {
+                    _Logging.Info(_Header + "usage routing selected captain " + idleCaptains[0].Id + " for mission " + mission!.Id + ": " + decision.Reason);
+                    return idleCaptains[0];
+                }
+            }
 
             // Model filter: tier selector (random peer selection) or literal match
             if (!String.IsNullOrEmpty(preferredModel))

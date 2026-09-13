@@ -80,6 +80,10 @@ namespace Armada.Test.Automated
             settings.McpPort = mcpPort;
             settings.ApiKey = apiKey;
             settings.HeartbeatIntervalSeconds = 300;
+            // CRUD and paging suites retain a bounded corpus of active rows until suite cleanup.
+            // Dedicated admission tests exercise the production capacity limits separately.
+            settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages = 100;
+            settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel = 50;
             settings.InitializeDirectories();
 
             ArmadaServer server = new ArmadaServer(logging, settings, quiet: true);
@@ -109,6 +113,7 @@ namespace Armada.Test.Automated
                 runner.AddSuite(new VesselTests(authClient, unauthClient));
                 runner.AddSuite(new CaptainTests(authClient, unauthClient));
                 runner.AddSuite(new MissionTests(authClient, unauthClient));
+                runner.AddSuite(new MissionMetadataBindingTests(authClient));
                 runner.AddSuite(new VoyageTests(authClient, unauthClient));
                 runner.AddSuite(new SignalTests(authClient, unauthClient));
                 runner.AddSuite(new EventTests(authClient, unauthClient));

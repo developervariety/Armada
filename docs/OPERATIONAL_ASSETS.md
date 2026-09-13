@@ -284,3 +284,11 @@ REST, or the dashboard so validation and events remain intact.
 - Runbook executions contain step evidence and a justified terminal status.
 - Captains receive the local Armada MCP connection; operator-control tools stay
   outside normal mission scope.
+
+## Account usage and persona routing
+
+See [Usage-aware routing](USAGE_ROUTING.md) for the opt-in policy, collectors,
+credential references, reserve behavior, and Dashboard controls. The settings
+REST API exposes `providerUsage`; `POST /api/v1/settings/usage-preview` previews
+an optional draft policy with settings write permission. No new MCP tool is
+required. Policy updates use `PUT /api/v1/settings` and hot-reload.

@@ -14,6 +14,13 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Routing V2
+
+- Preserve omitted vessel and voyage bindings during mission metadata updates; reject explicit rebinding or clearing. API tests now isolate their capacity fixtures and report failed creates directly.
+- Replace legacy preference overrides with opt-in persona account routes and usage reserves. Missing persona routes wait unless an explicit default is configured.
+- Add optional account usage collection for Codex, Claude, Cursor, and OpenCode Go, plus file and manual snapshots. Keep persona preferences until allowance runs low; reserve capacity for important work and queue missions when no approved account is available.
+- Add Dashboard policy editing, usage status, budget planning, and an admin draft preview API. Defaults contain no accounts or personal subscription data. See [usage routing](docs/USAGE_ROUTING.md).
+
 ### Operator documentation
 - Autonomous objective sweeps now preflight candidates only as capacity needs
   them. Each pass has candidate and elapsed-time limits, resumes after its last
