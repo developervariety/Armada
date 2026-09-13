@@ -43,6 +43,10 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 
 ### Typed client route coverage
 
+- Added list and enumeration methods for checks, deployments, environments,
+  profiles, releases and skills, plus objective ordering, refinement-session
+  lists, release pull requests, jobs and filtered token records.
+
 - Added typed methods for workflow and project profiles, skills, Ask, objectives,
   and refinement sessions. Both objective and backlog refinement aliases remain
   available, with route, query, request, and response contract tests.

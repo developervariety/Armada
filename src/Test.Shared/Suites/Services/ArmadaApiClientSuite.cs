@@ -94,6 +94,27 @@ namespace Test.Shared.Suites.Services
 
         private static void AddContractCases(List<TestCaseDescriptor> cases)
         {
+            cases.Add(ContractCaseTyped("list_check_runs", "GET", "/api/v1/check-runs", "{\"totalRecords\":1,\"objects\":[{\"id\":\"chk_list\"}]}", (c,t) => c.ListCheckRunsAsync(t), r => AssertEqual("chk_list", r.Objects[0].Id), null));
+            cases.Add(ContractCaseTyped("enumerate_check_runs", "POST", "/api/v1/check-runs/enumerate", "{\"totalRecords\":1,\"objects\":[{\"id\":\"chk_enum\"}]}", (c,t) => c.EnumerateCheckRunsAsync(new EnumerationQuery { PageSize = 7 }, t), r => AssertEqual("chk_enum", r.Objects[0].Id), b => AssertJsonPropertyNumber(b, "PageSize", 7)));
+            cases.Add(ContractCaseTyped("list_deployments", "GET", "/api/v1/deployments", "{\"totalRecords\":1,\"objects\":[{\"id\":\"dpl_list\"}]}", (c,t) => c.ListDeploymentsAsync(t), r => AssertEqual("dpl_list", r.Objects[0].Id), null));
+            cases.Add(ContractCaseTyped("enumerate_deployments", "POST", "/api/v1/deployments/enumerate", "{\"totalRecords\":1,\"objects\":[{\"id\":\"dpl_enum\"}]}", (c,t) => c.EnumerateDeploymentsAsync(new EnumerationQuery { PageSize = 7 }, t), r => AssertEqual("dpl_enum", r.Objects[0].Id), b => AssertJsonPropertyNumber(b, "PageSize", 7)));
+            cases.Add(ContractCaseTyped("list_environments", "GET", "/api/v1/environments", "{\"totalRecords\":1,\"objects\":[{\"id\":\"env_list\"}]}", (c,t) => c.ListEnvironmentsAsync(t), r => AssertEqual("env_list", r.Objects[0].Id), null));
+            cases.Add(ContractCaseTyped("enumerate_environments", "POST", "/api/v1/environments/enumerate", "{\"totalRecords\":1,\"objects\":[{\"id\":\"env_enum\"}]}", (c,t) => c.EnumerateEnvironmentsAsync(new EnumerationQuery { PageSize = 7 }, t), r => AssertEqual("env_enum", r.Objects[0].Id), b => AssertJsonPropertyNumber(b, "PageSize", 7)));
+            cases.Add(ContractCaseTyped("list_project_profiles", "GET", "/api/v1/project-profiles", "{\"totalRecords\":1,\"objects\":[{\"id\":\"pp_list\"}]}", (c,t) => c.ListProjectProfilesAsync(t), r => AssertEqual("pp_list", r.Objects[0].Id), null));
+            cases.Add(ContractCaseTyped("enumerate_project_profiles", "POST", "/api/v1/project-profiles/enumerate", "{\"totalRecords\":1,\"objects\":[{\"id\":\"pp_enum\"}]}", (c,t) => c.EnumerateProjectProfilesAsync(new EnumerationQuery { PageSize = 7 }, t), r => AssertEqual("pp_enum", r.Objects[0].Id), b => AssertJsonPropertyNumber(b, "PageSize", 7)));
+            cases.Add(ContractCaseTyped("list_releases", "GET", "/api/v1/releases", "{\"totalRecords\":1,\"objects\":[{\"id\":\"rel_list\"}]}", (c,t) => c.ListReleasesAsync(t), r => AssertEqual("rel_list", r.Objects[0].Id), null));
+            cases.Add(ContractCaseTyped("enumerate_releases", "POST", "/api/v1/releases/enumerate", "{\"totalRecords\":1,\"objects\":[{\"id\":\"rel_enum\"}]}", (c,t) => c.EnumerateReleasesAsync(new EnumerationQuery { PageSize = 7 }, t), r => AssertEqual("rel_enum", r.Objects[0].Id), b => AssertJsonPropertyNumber(b, "PageSize", 7)));
+            cases.Add(ContractCaseTyped("release_github_pull_requests", "GET", "/api/v1/releases/rel_test/github/pull-requests", "[{\"number\":42,\"headSha\":\"abc123\"}]", (c,t) => c.GetReleaseGitHubPullRequestsAsync("rel_test", t), r => AssertEqual(42, r[0].Number), null));
+            cases.Add(ContractCaseTyped("list_skills", "GET", "/api/v1/skills", "{\"totalRecords\":1,\"objects\":[{\"id\":\"sk_list\"}]}", (c,t) => c.ListSkillsAsync(t), r => AssertEqual("sk_list", r.Objects[0].Id), null));
+            cases.Add(ContractCaseTyped("enumerate_skills", "POST", "/api/v1/skills/enumerate", "{\"totalRecords\":1,\"objects\":[{\"id\":\"sk_enum\"}]}", (c,t) => c.EnumerateSkillsAsync(new EnumerationQuery { PageSize = 7 }, t), r => AssertEqual("sk_enum", r.Objects[0].Id), b => AssertJsonPropertyNumber(b, "PageSize", 7)));
+            cases.Add(ContractCaseTyped("list_workflow_profiles", "GET", "/api/v1/workflow-profiles", "{\"totalRecords\":1,\"objects\":[{\"id\":\"wf_list\"}]}", (c,t) => c.ListWorkflowProfilesAsync(t), r => AssertEqual("wf_list", r.Objects[0].Id), null));
+            cases.Add(ContractCaseTyped("enumerate_workflow_profiles", "POST", "/api/v1/workflow-profiles/enumerate", "{\"totalRecords\":1,\"objects\":[{\"id\":\"wf_enum\"}]}", (c,t) => c.EnumerateWorkflowProfilesAsync(new EnumerationQuery { PageSize = 7 }, t), r => AssertEqual("wf_enum", r.Objects[0].Id), b => AssertJsonPropertyNumber(b, "PageSize", 7)));
+            cases.Add(ContractCaseTyped("list_objectives", "GET", "/api/v1/objectives", "{\"totalRecords\":1,\"objects\":[{\"id\":\"obj_list\"}]}", (c,t) => c.ListObjectivesAsync(t), r => AssertEqual("obj_list", r.Objects[0].Id), null));
+            cases.Add(ContractCaseTyped("reorder_objectives", "POST", "/api/v1/objectives/reorder", "[{\"id\":\"obj_reordered\"}]", (c,t) => c.ReorderObjectivesAsync(new ObjectiveReorderRequest { Items = new List<ObjectiveReorderItem> { new ObjectiveReorderItem { ObjectiveId = "obj_test", Rank = 3 } } }, t), r => AssertEqual("obj_reordered", r[0].Id), AssertReorderBody));
+            cases.Add(ContractCaseTyped("list_backlog_refinement_sessions", "GET", "/api/v1/backlog/obj_test/refinement-sessions", "[{\"id\":\"ses_list\"}]", (c,t) => c.ListBacklogRefinementSessionsAsync("obj_test", t), r => AssertEqual("ses_list", r[0].Id), null));
+            cases.Add(ContractCaseTyped("list_objective_refinement_sessions", "GET", "/api/v1/objectives/obj_test/refinement-sessions", "[{\"id\":\"ses_list\"}]", (c,t) => c.ListObjectiveRefinementSessionsAsync("obj_test", t), r => AssertEqual("ses_list", r[0].Id), null));
+            cases.Add(ContractCaseTyped("list_jobs", "GET", "/api/v1/jobs", "{\"totalRecords\":1,\"objects\":[{\"id\":\"job_list\"}]}", (c,t) => c.ListJobsAsync(t), r => AssertEqual("job_list", r.Objects[0].Id), null));
+            cases.Add(ContractCaseTyped("list_token_usage", "GET", "/api/v1/token-usage?pageSize=7&model=model%2Ftest&runtime=runtime%2Ftest&source=chat&vesselId=vsl%2Ftest&captainId=cap%2Ftest", "{\"totalRecords\":1,\"objects\":[{\"id\":\"tok_list\"}]}", (c,t) => c.ListTokenUsageAsync(new TokenUsageQuery { Model = "model/test", Runtime = "runtime/test", Source = "chat", VesselId = "vsl/test", CaptainId = "cap/test", PageSize = 7 }, t), r => AssertEqual("tok_list", r.Objects[0].Id), null));
             cases.Add(ContractCase("vessel_landing_preview", "GET", "/api/v1/vessels/vsl_test/landing-preview?sourceBranch=feature%2Ftest", (client, token) => client.GetVesselLandingPreviewAsync("vsl_test", "feature/test", token)));
             cases.Add(ContractCase("environment_get", "GET", "/api/v1/environments/env_test", (client, token) => client.GetEnvironmentAsync("env_test", token)));
             cases.Add(ContractCase("environment_create", "POST", "/api/v1/environments", (client, token) => client.CreateEnvironmentAsync(new DeploymentEnvironmentUpsertRequest { Name = "typed environment" }, token)));
@@ -192,6 +213,14 @@ namespace Test.Shared.Suites.Services
             {
                 AssertEqual(expected, document.RootElement.GetProperty(name).GetInt32());
             }
+        }
+
+        private static void AssertReorderBody(string body)
+        {
+            ObjectiveReorderRequest request = JsonSerializer.Deserialize<ObjectiveReorderRequest>(body)!;
+            AssertEqual(1, request.Items.Count);
+            AssertEqual("obj_test", request.Items[0].ObjectiveId);
+            AssertEqual(3, request.Items[0].Rank);
         }
 
         private static void AssertEmptyJson(string body)

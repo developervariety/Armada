@@ -667,6 +667,20 @@ namespace Armada.Core.Client
 
         #region Public-Methods-Backlog
 
+        /// <summary>List objectives through the primary objective route.</summary>
+        public async Task<EnumerationResult<Objective>?> ListObjectivesAsync(CancellationToken token = default)
+        {
+            return await GetAsync<EnumerationResult<Objective>>("/api/v1/objectives", token).ConfigureAwait(false);
+        }
+
+        /// <summary>Reorder objectives through the primary objective route.</summary>
+        public async Task<List<Objective>?> ReorderObjectivesAsync(ObjectiveReorderRequest request, CancellationToken token = default)
+        {
+            return await PostAsync<List<Objective>, ObjectiveReorderRequest>("/api/v1/objectives/reorder", request, token).ConfigureAwait(false);
+        }
+
+
+
         /// <summary>
         /// Enumerate backlog items using the user-facing backlog alias surface.
         /// </summary>
@@ -727,6 +741,56 @@ namespace Armada.Core.Client
         #endregion
 
         #region Public-Methods-Workspace
+
+        /// <summary>List check runs.</summary>
+        public async Task<EnumerationResult<CheckRun>?> ListCheckRunsAsync(CancellationToken token = default)
+        {
+            return await GetAsync<EnumerationResult<CheckRun>>("/api/v1/check-runs", token).ConfigureAwait(false);
+        }
+
+        /// <summary>Enumerate check runs with pagination and filtering.</summary>
+        public async Task<EnumerationResult<CheckRun>?> EnumerateCheckRunsAsync(EnumerationQuery? query = null, CancellationToken token = default)
+        {
+            return await PostAsync<EnumerationResult<CheckRun>, EnumerationQuery>("/api/v1/check-runs/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
+        }
+
+        /// <summary>List deployments.</summary>
+        public async Task<EnumerationResult<Deployment>?> ListDeploymentsAsync(CancellationToken token = default)
+        {
+            return await GetAsync<EnumerationResult<Deployment>>("/api/v1/deployments", token).ConfigureAwait(false);
+        }
+
+        /// <summary>Enumerate deployments with pagination and filtering.</summary>
+        public async Task<EnumerationResult<Deployment>?> EnumerateDeploymentsAsync(EnumerationQuery? query = null, CancellationToken token = default)
+        {
+            return await PostAsync<EnumerationResult<Deployment>, EnumerationQuery>("/api/v1/deployments/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
+        }
+
+        /// <summary>List environments.</summary>
+        public async Task<EnumerationResult<DeploymentEnvironment>?> ListEnvironmentsAsync(CancellationToken token = default)
+        {
+            return await GetAsync<EnumerationResult<DeploymentEnvironment>>("/api/v1/environments", token).ConfigureAwait(false);
+        }
+
+        /// <summary>Enumerate environments with pagination and filtering.</summary>
+        public async Task<EnumerationResult<DeploymentEnvironment>?> EnumerateEnvironmentsAsync(EnumerationQuery? query = null, CancellationToken token = default)
+        {
+            return await PostAsync<EnumerationResult<DeploymentEnvironment>, EnumerationQuery>("/api/v1/environments/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
+        }
+
+        /// <summary>List releases.</summary>
+        public async Task<EnumerationResult<Release>?> ListReleasesAsync(CancellationToken token = default)
+        {
+            return await GetAsync<EnumerationResult<Release>>("/api/v1/releases", token).ConfigureAwait(false);
+        }
+
+        /// <summary>Enumerate releases with pagination and filtering.</summary>
+        public async Task<EnumerationResult<Release>?> EnumerateReleasesAsync(EnumerationQuery? query = null, CancellationToken token = default)
+        {
+            return await PostAsync<EnumerationResult<Release>, EnumerationQuery>("/api/v1/releases/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
+        }
+
+
 
         /// <summary>
         /// Run a command in a vessel's workspace (the in-browser dock terminal; tenant admins only).
@@ -917,7 +981,13 @@ namespace Armada.Core.Client
             return await GetAsync<LandingPreviewResult>("/api/v1/missions/" + EscapePathSegment(id) + "/landing-preview", token).ConfigureAwait(false);
         }
 
-        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        /// <summary>Get GitHub pull-request evidence for a release.</summary>
+        public async Task<List<GitHubPullRequestDetail>?> GetReleaseGitHubPullRequestsAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<List<GitHubPullRequestDetail>>("/api/v1/releases/" + EscapePathSegment(id) + "/github/pull-requests", token).ConfigureAwait(false);
+        }
+
+        /// <summary>Get GitHub pull-request evidence for a mission.</summary>
         public async Task<GitHubPullRequestDetail?> GetMissionGitHubPullRequestAsync(string id, CancellationToken token = default)
         {
             return await GetAsync<GitHubPullRequestDetail>("/api/v1/missions/" + EscapePathSegment(id) + "/github/pull-request", token).ConfigureAwait(false);
@@ -1026,6 +1096,44 @@ namespace Armada.Core.Client
         #endregion
 
         #region Public-Methods-SupportedProfilesAndObjectives
+
+        /// <summary>List workflow profiles.</summary>
+        public async Task<EnumerationResult<WorkflowProfile>?> ListWorkflowProfilesAsync(CancellationToken token = default)
+        {
+            return await GetAsync<EnumerationResult<WorkflowProfile>>("/api/v1/workflow-profiles", token).ConfigureAwait(false);
+        }
+
+        /// <summary>Enumerate workflow profiles with pagination and filtering.</summary>
+        public async Task<EnumerationResult<WorkflowProfile>?> EnumerateWorkflowProfilesAsync(EnumerationQuery? query = null, CancellationToken token = default)
+        {
+            return await PostAsync<EnumerationResult<WorkflowProfile>, EnumerationQuery>("/api/v1/workflow-profiles/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
+        }
+
+        /// <summary>List project profiles.</summary>
+        public async Task<EnumerationResult<ProjectProfile>?> ListProjectProfilesAsync(CancellationToken token = default)
+        {
+            return await GetAsync<EnumerationResult<ProjectProfile>>("/api/v1/project-profiles", token).ConfigureAwait(false);
+        }
+
+        /// <summary>Enumerate project profiles with pagination and filtering.</summary>
+        public async Task<EnumerationResult<ProjectProfile>?> EnumerateProjectProfilesAsync(EnumerationQuery? query = null, CancellationToken token = default)
+        {
+            return await PostAsync<EnumerationResult<ProjectProfile>, EnumerationQuery>("/api/v1/project-profiles/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
+        }
+
+        /// <summary>List skills.</summary>
+        public async Task<EnumerationResult<Skill>?> ListSkillsAsync(CancellationToken token = default)
+        {
+            return await GetAsync<EnumerationResult<Skill>>("/api/v1/skills", token).ConfigureAwait(false);
+        }
+
+        /// <summary>Enumerate skills with pagination and filtering.</summary>
+        public async Task<EnumerationResult<Skill>?> EnumerateSkillsAsync(EnumerationQuery? query = null, CancellationToken token = default)
+        {
+            return await PostAsync<EnumerationResult<Skill>, EnumerationQuery>("/api/v1/skills/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
+        }
+
+
 
         /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<WorkflowProfile?> GetWorkflowProfileAsync(string id, CancellationToken token = default)
@@ -1181,7 +1289,19 @@ namespace Armada.Core.Client
             return await PostAsync<Objective, GitHubObjectiveImportRequest>("/api/v1/objectives/import/github", request, token).ConfigureAwait(false);
         }
 
-        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        /// <summary>List refinement sessions for an objective.</summary>
+        public async Task<List<ObjectiveRefinementSession>?> ListObjectiveRefinementSessionsAsync(string objectiveId, CancellationToken token = default)
+        {
+            return await GetAsync<List<ObjectiveRefinementSession>>("/api/v1/objectives/" + EscapePathSegment(objectiveId) + "/refinement-sessions", token).ConfigureAwait(false);
+        }
+
+        /// <summary>List refinement sessions for a backlog item.</summary>
+        public async Task<List<ObjectiveRefinementSession>?> ListBacklogRefinementSessionsAsync(string objectiveId, CancellationToken token = default)
+        {
+            return await GetAsync<List<ObjectiveRefinementSession>>("/api/v1/backlog/" + EscapePathSegment(objectiveId) + "/refinement-sessions", token).ConfigureAwait(false);
+        }
+
+        /// <summary>Create a refinement session for an objective.</summary>
         public async Task<ObjectiveRefinementSessionDetail?> CreateObjectiveRefinementSessionAsync(
             string objectiveId,
             ObjectiveRefinementSessionCreateRequest request,
@@ -1260,6 +1380,36 @@ namespace Armada.Core.Client
         public async Task DeleteObjectiveRefinementSessionAsync(string sessionId, CancellationToken token = default)
         {
             await DeleteAsync("/api/v1/objective-refinement-sessions/" + EscapePathSegment(sessionId), token).ConfigureAwait(false);
+        }
+
+        #endregion
+
+        #region Public-Methods-Background
+
+        /// <summary>List background jobs.</summary>
+        public async Task<EnumerationResult<Job>?> ListJobsAsync(CancellationToken token = default)
+        {
+            return await GetAsync<EnumerationResult<Job>>("/api/v1/jobs", token).ConfigureAwait(false);
+        }
+
+        /// <summary>List token usage records with optional filters.</summary>
+        public async Task<EnumerationResult<TokenUsageRecord>?> ListTokenUsageAsync(TokenUsageQuery? query = null, CancellationToken token = default)
+        {
+            List<string> parts = new List<string>();
+            if (query != null)
+            {
+                if (query.PageNumber > 1) parts.Add("pageNumber=" + query.PageNumber);
+                if (query.PageSize != 25) parts.Add("pageSize=" + query.PageSize);
+                if (!String.IsNullOrWhiteSpace(query.Model)) parts.Add("model=" + Uri.EscapeDataString(query.Model));
+                if (!String.IsNullOrWhiteSpace(query.Runtime)) parts.Add("runtime=" + Uri.EscapeDataString(query.Runtime));
+                if (!String.IsNullOrWhiteSpace(query.Source)) parts.Add("source=" + Uri.EscapeDataString(query.Source));
+                if (!String.IsNullOrWhiteSpace(query.VesselId)) parts.Add("vesselId=" + Uri.EscapeDataString(query.VesselId));
+                if (!String.IsNullOrWhiteSpace(query.CaptainId)) parts.Add("captainId=" + Uri.EscapeDataString(query.CaptainId));
+                if (query.FromUtc.HasValue) parts.Add("fromUtc=" + Uri.EscapeDataString(query.FromUtc.Value.ToUniversalTime().ToString("o")));
+                if (query.ToUtc.HasValue) parts.Add("toUtc=" + Uri.EscapeDataString(query.ToUtc.Value.ToUniversalTime().ToString("o")));
+            }
+            string path = "/api/v1/token-usage" + (parts.Count == 0 ? String.Empty : "?" + String.Join("&", parts));
+            return await GetAsync<EnumerationResult<TokenUsageRecord>>(path, token).ConfigureAwait(false);
         }
 
         #endregion

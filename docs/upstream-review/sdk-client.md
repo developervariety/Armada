@@ -41,6 +41,27 @@ callers can preserve the route family they use.
 | Objectives | `GET /api/v1/objectives/{id}`, `POST /api/v1/objectives`, `PUT/DELETE /api/v1/objectives/{id}`, `POST /api/v1/objectives/import/github` |
 | Refinement sessions | `POST /api/v1/objectives/{id}/refinement-sessions`, `POST /api/v1/backlog/{id}/refinement-sessions`, `GET/DELETE /api/v1/objective-refinement-sessions/{id}`, `POST /api/v1/objective-refinement-sessions/{id}/messages`, `/summarize`, `/apply`, and `/stop` |
 
+The final route inventory also includes these list and enumeration wrappers:
+
+| Client method | Exact fork route | Disposition |
+| --- | --- | --- |
+| `ListCheckRunsAsync` / `EnumerateCheckRunsAsync` | `GET /api/v1/check-runs` / `POST /api/v1/check-runs/enumerate` | Added |
+| `ListDeploymentsAsync` / `EnumerateDeploymentsAsync` | `GET /api/v1/deployments` / `POST /api/v1/deployments/enumerate` | Added |
+| `ListEnvironmentsAsync` / `EnumerateEnvironmentsAsync` | `GET /api/v1/environments` / `POST /api/v1/environments/enumerate` | Added |
+| `ListProjectProfilesAsync` / `EnumerateProjectProfilesAsync` | `GET /api/v1/project-profiles` / `POST /api/v1/project-profiles/enumerate` | Added |
+| `ListReleasesAsync` / `EnumerateReleasesAsync` | `GET /api/v1/releases` / `POST /api/v1/releases/enumerate` | Added |
+| `GetReleaseGitHubPullRequestsAsync` | `GET /api/v1/releases/{id}/github/pull-requests` | Added |
+| `ListSkillsAsync` / `EnumerateSkillsAsync` | `GET /api/v1/skills` / `POST /api/v1/skills/enumerate` | Added |
+| `ListWorkflowProfilesAsync` / `EnumerateWorkflowProfilesAsync` | `GET /api/v1/workflow-profiles` / `POST /api/v1/workflow-profiles/enumerate` | Added |
+| `ListObjectivesAsync` / `ReorderObjectivesAsync` | `GET /api/v1/objectives`, `POST /api/v1/objectives/reorder` | Added; enumeration remains available through the existing backlog alias |
+| `ListObjectiveRefinementSessionsAsync` / `ListBacklogRefinementSessionsAsync` | `GET /api/v1/objectives/{id}/refinement-sessions` / `GET /api/v1/backlog/{id}/refinement-sessions` | Added; raw session list preserved |
+| `ListJobsAsync` | `GET /api/v1/jobs` | Added |
+| `ListTokenUsageAsync` | `GET /api/v1/token-usage` with filter query | Added |
+
+The upstream names `List*` and `Enumerate*` are retained as explicit wrappers
+where both fork routes exist. Harbor routes are not yet integrated. The scoped
+branch-inspection route is now present; its client wrapper remains a follow-up.
+
 Each added wrapper has a route contract test with exact path and query,
 non-default typed response assertions, and populated request JSON assertions.
 IDs and persona path segments are URL encoded. No unsupported upstream list,
