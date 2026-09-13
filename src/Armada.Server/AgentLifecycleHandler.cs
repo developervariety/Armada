@@ -959,7 +959,19 @@ namespace Armada.Server
                     parsed.Runtime = captain?.Runtime.ToString();
                     parsed.ReportedUtc = DateTime.UtcNow;
 
-                    await _Database.Events.CreateAsync(PapercutService.ToEvent(parsed)).ConfigureAwait(false);
+                    ArmadaEvent papercutEvent = PapercutService.ToEvent(parsed);
+                    if (mission != null)
+                    {
+                        EventOwnerScope.ApplyFromMission(papercutEvent, mission);
+                    }
+                    else
+                    {
+                        EventOwnerScopeResult scope = await EventOwnerScope.ApplyAsync(_Database, papercutEvent).ConfigureAwait(false);
+                        if (scope.Outcome == Armada.Core.Enums.EventOwnerScopeOutcomeEnum.LookupFailed)
+                            _Logging.Warn(_Header + "papercut from captain " + capturedCaptainId + " written without owner scope: " + scope.Detail);
+                    }
+
+                    await _Database.Events.CreateAsync(papercutEvent).ConfigureAwait(false);
 
                     _Logging.Info(_Header + "papercut from captain " + capturedCaptainId + " [" +
                         parsed.Category + "/" + parsed.Severity + "] " + parsed.Title);
@@ -1025,8 +1037,7 @@ namespace Armada.Server
                     ArmadaEvent evt = new ArmadaEvent(
                         "mission.token_usage",
                         "Authoritative token usage reported by " + usage.Runtime + " for " + usage.Model);
-                    evt.TenantId = mission.TenantId;
-                    evt.UserId = mission.UserId;
+                    EventOwnerScope.ApplyFromMission(evt, mission);
                     evt.EntityType = "mission";
                     evt.EntityId = mission.Id;
                     evt.CaptainId = captain.Id;
@@ -1247,8 +1258,7 @@ namespace Armada.Server
                 ArmadaEvent promptEvent = new ArmadaEvent(
                     "mission.launch_prompt_budget",
                     "Launch prompt: " + promptBytes + " bytes");
-                promptEvent.TenantId = mission.TenantId;
-                promptEvent.UserId = mission.UserId;
+                EventOwnerScope.ApplyFromMission(promptEvent, mission);
                 promptEvent.EntityType = "mission";
                 promptEvent.EntityId = mission.Id;
                 promptEvent.CaptainId = captain?.Id;

@@ -1377,6 +1377,9 @@ namespace Armada.Server
                 evt.MissionId = missionId;
                 evt.VesselId = vesselId;
                 evt.VoyageId = voyageId;
+                Armada.Core.Models.EventOwnerScopeResult scope = await Armada.Core.Services.EventOwnerScope.ApplyAsync(_Database, evt).ConfigureAwait(false);
+                if (scope.Outcome == Armada.Core.Enums.EventOwnerScopeOutcomeEnum.LookupFailed)
+                    _Logging.Warn(_Header + "event " + eventType + " written without owner scope: " + scope.Detail);
                 await _Database.Events.CreateAsync(evt).ConfigureAwait(false);
 
                 // Broadcast to WebSocket clients

@@ -625,6 +625,48 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("HandleAgentOutput stores a papercut in the mission owner's scope", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    string tenantId = Armada.Core.Constants.DefaultTenantId;
+                    string userId = Armada.Core.Constants.DefaultUserId;
+
+                    Vessel vessel = new Vessel("PapercutScopeVessel", "https://github.com/test/papercut-scope");
+                    Voyage voyage = new Voyage("Papercut scope voyage");
+                    Captain captain = new Captain("papercut-scope-captain", AgentRuntimeEnum.Cursor);
+                    Mission mission = new Mission("Papercut scope mission");
+                    mission.TenantId = tenantId;
+                    mission.UserId = userId;
+                    mission.VesselId = vessel.Id;
+                    mission.VoyageId = voyage.Id;
+                    mission.Persona = "Worker";
+                    mission.CaptainId = captain.Id;
+                    captain.CurrentMissionId = mission.Id;
+
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    int processId = 838383;
+                    RegisterTrackedProcess(handler, processId, captain.Id, mission.Id);
+                    handler.HandleAgentOutput(
+                        processId,
+                        "[ARMADA:PAPERCUT] {\"category\":\"MissingDoc\",\"severity\":\"Low\",\"title\":\"Scope check\",\"path\":\"README.md\"}");
+
+                    List<ArmadaEvent> stored = await WaitForPapercutEventsAsync(testDb.Driver, 1).ConfigureAwait(false);
+                    AssertEqual(1, stored.Count, "The marker line should produce exactly one papercut event");
+
+                    EnumerationQuery query = new EnumerationQuery { MissionId = mission.Id, EventType = PapercutParser.EventType, PageNumber = 1, PageSize = 10 };
+                    EnumerationResult<ArmadaEvent> owner = await testDb.Driver.Events.EnumerateAsync(tenantId, userId, query).ConfigureAwait(false);
+                    AssertEqual(1, owner.Objects.Count, "The mission owner's scoped read must find the papercut");
+                    EnumerationResult<ArmadaEvent> other = await testDb.Driver.Events.EnumerateAsync(tenantId, "usr_other_owner", query).ConfigureAwait(false);
+                    AssertEqual(0, other.Objects.Count, "Another user's scoped read must not find the papercut");
+                }
+            });
+
             await RunTest("HandleAgentOutput stores a papercut marker as an event", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

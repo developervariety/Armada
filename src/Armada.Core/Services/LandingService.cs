@@ -299,8 +299,7 @@ namespace Armada.Core.Services
                 retryEvent.MissionId = mission.Id;
                 retryEvent.VesselId = mission.VesselId;
                 retryEvent.VoyageId = mission.VoyageId;
-                retryEvent.TenantId = mission.TenantId;
-                retryEvent.UserId = mission.UserId;
+                EventOwnerScope.ApplyFromMission(retryEvent, mission);
                 await _Database.Events.CreateAsync(retryEvent, token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)

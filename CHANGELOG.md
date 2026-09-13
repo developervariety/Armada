@@ -14,6 +14,18 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Events carry their owner's scope
+
+- The generic admiral and server event helpers, the architect over-cap event
+  and papercut events now write the owner's tenant and user, so tenant admins
+  and members see them in `GET /api/v1/events` and scoped reports. Before, those
+  events had no tenant or user and only an unscoped administrator saw them.
+- One shared rule (`EventOwnerScope`) resolves the owner from the mission, then
+  voyage, vessel, captain and the event's entity. Copied tenant and user
+  assignments in the landing handler, recovery orchestrator, landing retry and
+  lifecycle events were replaced by it. Event types, messages and broadcast
+  payloads are unchanged; earlier events are not backfilled.
+
 ### Mission auto-land detail
 
 - `GET /api/v1/missions/{id}/auto-land` returns the vessel's current auto-land

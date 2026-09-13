@@ -348,6 +348,49 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ParseArchitectOutput_OverCap_RecordsEventInMissionOwnersScope", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string tenantId = Armada.Core.Constants.DefaultTenantId;
+                    string userId = Armada.Core.Constants.DefaultUserId;
+                    Vessel vesselDraft = new Vessel("arch-overcap", "https://github.com/test/repo.git");
+                    vesselDraft.ArchitectMaxMissionsPerVoyage = 1;
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(vesselDraft).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("overcap voyage", "desc")).ConfigureAwait(false);
+                    Mission mission = new Mission("overcap mission", "desc");
+                    mission.TenantId = tenantId;
+                    mission.UserId = userId;
+                    mission.VoyageId = voyage.Id;
+                    mission.VesselId = vessel.Id;
+                    mission.Status = MissionStatusEnum.WorkProduced;
+                    mission.AgentOutput = BuildValidArchitectOutput(3);
+                    mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    RecordingAdmiralService admiralDouble = new RecordingAdmiralService(testDb.Driver);
+                    Func<JsonElement?, Task<object>>? parseHandler = null;
+                    McpArchitectTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_parse_architect_output") parseHandler = handler; },
+                        testDb.Driver,
+                        new ArchitectOutputParser(),
+                        admiralDouble);
+                    AssertNotNull(parseHandler);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new { missionId = mission.Id });
+                    object result = await parseHandler!(args).ConfigureAwait(false);
+                    ArchitectParseResult parsed = JsonSerializer.Deserialize<ArchitectParseResult>(
+                        JsonSerializer.Serialize(result),
+                        new JsonSerializerOptions { PropertyNameCaseInsensitive = true })!;
+                    AssertEqual(ArchitectParseVerdict.OverCap, parsed.Verdict, "Three missions exceed a cap of one");
+
+                    EnumerationQuery query = new EnumerationQuery { MissionId = mission.Id, EventType = "architect.decomposition_over_cap", PageNumber = 1, PageSize = 10 };
+                    EnumerationResult<ArmadaEvent> owner = await testDb.Driver.Events.EnumerateAsync(tenantId, userId, query).ConfigureAwait(false);
+                    AssertEqual(1, owner.Objects.Count, "The mission owner's scoped read must find the over-cap event");
+                    EnumerationResult<ArmadaEvent> other = await testDb.Driver.Events.EnumerateAsync(tenantId, "usr_other_owner", query).ConfigureAwait(false);
+                    AssertEqual(0, other.Objects.Count, "Another user's scoped read must not find the over-cap event");
+                }
+            });
+
             await RunTest("ParseArchitectOutput_ValidOutput_ReturnsValidVerdict", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

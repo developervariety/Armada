@@ -2552,8 +2552,7 @@ namespace Armada.Core.Services
                 ArmadaEvent budgetEvent = new ArmadaEvent(
                     "mission.prompt_budget",
                     "Instruction file: " + fileBytes + " bytes across " + modules.Count + " modules");
-                budgetEvent.TenantId = mission.TenantId;
-                budgetEvent.UserId = mission.UserId;
+                EventOwnerScope.ApplyFromMission(budgetEvent, mission);
                 budgetEvent.EntityType = "mission";
                 budgetEvent.EntityId = mission.Id;
                 budgetEvent.CaptainId = captain?.Id;
@@ -7524,8 +7523,7 @@ namespace Armada.Core.Services
                 ArmadaEvent evaluationEvent = new ArmadaEvent(
                     DefinitionOfDoneEvaluationRecord.EventType,
                     "Definition-of-done evaluation: " + record.Outcome);
-                evaluationEvent.TenantId = mission.TenantId;
-                evaluationEvent.UserId = mission.UserId;
+                EventOwnerScope.ApplyFromMission(evaluationEvent, mission);
                 evaluationEvent.EntityType = "mission";
                 evaluationEvent.EntityId = mission.Id;
                 evaluationEvent.CaptainId = captain.Id;
@@ -7556,8 +7554,7 @@ namespace Armada.Core.Services
             try
             {
                 ArmadaEvent outcomeEvent = new ArmadaEvent(eventType, eventMessage);
-                outcomeEvent.TenantId = mission.TenantId;
-                outcomeEvent.UserId = mission.UserId;
+                EventOwnerScope.ApplyFromMission(outcomeEvent, mission);
                 outcomeEvent.EntityType = "mission";
                 outcomeEvent.EntityId = mission.Id;
                 outcomeEvent.CaptainId = captain.Id;

@@ -577,6 +577,36 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual(HttpStatusCode.Unauthorized, anonymous.StatusCode, "Unauthenticated callers are refused");
             }).ConfigureAwait(false);
 
+            await RunTest("Mission_StatusChangeEvent_IsVisibleToOwningTenantOnly", async () =>
+            {
+                HttpResponseMessage created = await _ClientA!.PostAsync("/api/v1/missions",
+                    JsonHelper.ToJsonContent(new
+                    {
+                        Title = "xt-event-scope-A-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                        VesselId = vesselAId
+                    })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, created.StatusCode, "Tenant A creates a mission");
+                string body = await created.Content.ReadAsStringAsync().ConfigureAwait(false);
+                MissionCreateResponse wrapper = JsonHelper.Deserialize<MissionCreateResponse>(body);
+                Mission mission = wrapper.Mission ?? JsonHelper.Deserialize<Mission>(body);
+
+                HttpResponseMessage cancelled = await _ClientA!.PutAsync("/api/v1/missions/" + mission.Id + "/status",
+                    JsonHelper.ToJsonContent(new { Status = "Cancelled" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, cancelled.StatusCode, "Tenant A cancels its mission");
+
+                string url = "/api/v1/events?type=mission.status_changed&missionId=" + mission.Id;
+                HttpResponseMessage own = await _ClientA!.GetAsync(url).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, own.StatusCode);
+                EnumerationResult<ArmadaEvent> ownEvents = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(own).ConfigureAwait(false);
+                AssertEqual(1, ownEvents.Objects.Count, "The owning tenant must see the status change event");
+                AssertEqual(_TenantAId, ownEvents.Objects[0].TenantId, "The event carries the mission owner's tenant");
+
+                HttpResponseMessage foreign = await _ClientB!.GetAsync(url).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, foreign.StatusCode);
+                EnumerationResult<ArmadaEvent> foreignEvents = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(foreign).ConfigureAwait(false);
+                AssertEqual(0, foreignEvents.Objects.Count, "Another tenant must not see the status change event");
+            }).ConfigureAwait(false);
+
             await RunTest("Mission_RecoveryReport_PreservesAuthorization", async () =>
             {
                 string url = "/api/v1/missions/" + missionAId + "/recovery";

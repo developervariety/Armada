@@ -38,9 +38,10 @@ Each section fails independently. A read error clears that section and sets its
 - The landing service writes `mission.landing_retry` in the mission owner's
   scope. Retry events written before that change carry no tenant or user and are
   visible only to an unscoped administrator; they are not backfilled.
-- Some mission events written through the generic server and admiral event
-  helpers, the architect over-cap event and papercut events are still unscoped;
-  that work is tracked separately. This report lists only recovery event types.
+- Events written through the generic server and admiral event helpers, the
+  architect over-cap event and papercut events now carry their owner's scope.
+  Such events written before that change carry no tenant or user and are not
+  backfilled. This report lists only recovery event types.
 - A mission without a vessel lists no rescues and names the reason.
 - Rescues are found by reading the vessel's mission summaries in scope and
   filtering by parent, the same lookup the recovery orchestrator uses. There is

@@ -237,12 +237,35 @@ safety net. The entry user comes from the mission, then the vessel. Deleting a
 user or tenant now also deletes the merge entries attributed to it.
 
 The landing service's `mission.landing_retry` event now carries the mission
-owner's scope, and a failed retry-event write is logged instead of discarded. An
-inventory of every event write in core services and the server found the
-remaining unscoped mission events in the generic admiral and server event
-helpers, the architect over-cap event and papercut events; they are tracked as
-one follow-up. Objective-scheduler system events have no mission owner and stay
-unscoped by design.
+owner's scope, and a failed retry-event write is logged instead of discarded.
+
+## Event owner scope
+
+`EventOwnerScope` is the one rule that gives an event its owner's tenant and
+user. `ApplyFromMission` scopes an event to a mission already in hand.
+`ApplyAsync` resolves the owner from the referenced mission, voyage, vessel and
+captain, in that order, and then from the event's own entity when that is a
+fleet, dock, mission, voyage, vessel or captain. An event that already carries a
+tenant is left unchanged. When no record resolves, the result is
+`NoOwnerRecord`; a failed lookup is `LookupFailed` with its reason, and the
+writer logs it.
+
+The generic admiral and server event helpers call `ApplyAsync` before they
+write. The architect over-cap event, papercut events, landing handler events,
+recovery events, the landing retry event, the lifecycle token-usage and
+launch-prompt events, and the mission service's prompt budget, DoD evaluation
+and outcome events use `ApplyFromMission`; their copied assignments were
+removed. Event types, messages and WebSocket, board and tunnel payloads are
+unchanged. Four cases drive the real writers (admiral process exit, architect
+over-cap, papercut, and the mission status route through the server helper) and
+read the event in the owner's scope. All four failed before the change (the
+owner's scoped read found no event) and pass after it.
+
+Events that stay unscoped, with the reason: objective-scheduler system events
+have no owner; delete and batch-delete events name a record that no longer
+exists or no record at all, so no owner can be resolved; events about records
+that carry no tenant stay visible only to an unscoped administrator. Earlier
+events are not backfilled.
 
 The seven merge-queue processing events set the entry tenant but no user, so
 the same scoped read missed them. A real-git landing case that emits the

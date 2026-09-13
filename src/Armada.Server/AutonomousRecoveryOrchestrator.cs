@@ -2020,14 +2020,13 @@ namespace Armada.Server
         {
             ArmadaEvent evt = new ArmadaEvent(eventType, message)
             {
-                TenantId = mission.TenantId,
-                UserId = mission.UserId,
                 EntityType = incidentId != null ? "incident" : "mission",
                 EntityId = incidentId ?? mission.Id,
                 MissionId = mission.Id,
                 VesselId = mission.VesselId,
                 VoyageId = mission.VoyageId
             };
+            EventOwnerScope.ApplyFromMission(evt, mission);
 
             await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
         }

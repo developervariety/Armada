@@ -254,6 +254,7 @@ namespace Armada.Server.Mcp.Tools
                             overCapEvent.MissionId = mission.Id;
                             overCapEvent.VesselId = mission.VesselId;
                             overCapEvent.VoyageId = mission.VoyageId;
+                            Armada.Core.Services.EventOwnerScope.ApplyFromMission(overCapEvent, mission);
                             overCapEvent.Payload = JsonSerializer.Serialize(new
                             {
                                 missionCount = result.MissionCount,

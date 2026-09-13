@@ -1866,7 +1866,14 @@ namespace Armada.Core.Services
                 evt.MissionId = missionId;
                 evt.VesselId = vesselId;
                 evt.VoyageId = voyageId;
+                EventOwnerScopeResult scope = await EventOwnerScope.ApplyAsync(_Database, evt, token).ConfigureAwait(false);
+                if (scope.Outcome == EventOwnerScopeOutcomeEnum.LookupFailed)
+                    _Logging.Warn(_Header + "event " + eventType + " written without owner scope: " + scope.Detail);
                 await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {

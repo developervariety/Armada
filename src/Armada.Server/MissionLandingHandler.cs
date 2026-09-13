@@ -317,7 +317,7 @@ namespace Armada.Server
                         try
                         {
                             ArmadaEvent prEvent = new ArmadaEvent("mission.pull_request_open", "Pull request opened: " + mission.Title);
-                            ScopeEventToMission(prEvent, mission);
+                            Armada.Core.Services.EventOwnerScope.ApplyFromMission(prEvent, mission);
                             prEvent.EntityType = "mission";
                             prEvent.EntityId = mission.Id;
                             prEvent.CaptainId = mission.CaptainId;
@@ -536,7 +536,7 @@ namespace Armada.Server
                                 try
                                 {
                                     ArmadaEvent noOpEvent = new ArmadaEvent("mission.noop_already_integrated", noOpDecision.Reason);
-                                    ScopeEventToMission(noOpEvent, mission);
+                                    Armada.Core.Services.EventOwnerScope.ApplyFromMission(noOpEvent, mission);
                                     noOpEvent.EntityType = "mission";
                                     noOpEvent.EntityId = mission.Id;
                                     noOpEvent.MissionId = mission.Id;
@@ -590,7 +590,7 @@ namespace Armada.Server
                                 try
                                 {
                                     ArmadaEvent autoLandEvent = new ArmadaEvent("merge_queue.auto_land_triggered", "Auto-land triggered for mission " + mission.Id + " entry " + entry.Id);
-                                    ScopeEventToMission(autoLandEvent, mission);
+                                    Armada.Core.Services.EventOwnerScope.ApplyFromMission(autoLandEvent, mission);
                                     autoLandEvent.EntityType = "merge_entry";
                                     autoLandEvent.EntityId = entry.Id;
                                     autoLandEvent.MissionId = mission.Id;
@@ -641,7 +641,7 @@ namespace Armada.Server
                                 try
                                 {
                                     ArmadaEvent skipEvent = new ArmadaEvent("merge_queue.auto_land_skipped", "Auto-land skipped for mission " + mission.Id + " entry " + entry.Id + ": " + autoLandFail.Reason);
-                                    ScopeEventToMission(skipEvent, mission);
+                                    Armada.Core.Services.EventOwnerScope.ApplyFromMission(skipEvent, mission);
                                     skipEvent.EntityType = "merge_entry";
                                     skipEvent.EntityId = entry.Id;
                                     skipEvent.MissionId = mission.Id;
@@ -674,7 +674,7 @@ namespace Armada.Server
                         try
                         {
                             ArmadaEvent mqEvent = new ArmadaEvent("merge_queue.enqueued", "Mission " + mission.Id + " auto-enqueued for merge queue: " + dock.BranchName + " -> " + targetBranch);
-                            ScopeEventToMission(mqEvent, mission);
+                            Armada.Core.Services.EventOwnerScope.ApplyFromMission(mqEvent, mission);
                             mqEvent.EntityType = "merge_entry";
                             mqEvent.EntityId = entry.Id;
                             mqEvent.MissionId = mission.Id;
@@ -735,7 +735,7 @@ namespace Armada.Server
                     try
                     {
                         ArmadaEvent completedEvent = new ArmadaEvent("mission.completed", "Mission completed: " + mission.Title);
-                        ScopeEventToMission(completedEvent, mission);
+                        Armada.Core.Services.EventOwnerScope.ApplyFromMission(completedEvent, mission);
                         completedEvent.EntityType = "mission";
                         completedEvent.EntityId = mission.Id;
                         completedEvent.CaptainId = mission.CaptainId;
@@ -769,7 +769,7 @@ namespace Armada.Server
                         string noCommitsEventType = rescueProducedNoCommits ? "mission.rescue_no_commits" : "mission.worker_no_commits";
                         string noCommitsEventMsg = (rescueProducedNoCommits ? "Auto-rescue produced no commits: " : "Worker produced no changes: ") + mission.Title;
                         ArmadaEvent noCommitsEvent = new ArmadaEvent(noCommitsEventType, noCommitsEventMsg);
-                        ScopeEventToMission(noCommitsEvent, mission);
+                        Armada.Core.Services.EventOwnerScope.ApplyFromMission(noCommitsEvent, mission);
                         noCommitsEvent.EntityType = "mission";
                         noCommitsEvent.EntityId = mission.Id;
                         noCommitsEvent.CaptainId = mission.CaptainId;
@@ -795,7 +795,7 @@ namespace Armada.Server
                     try
                     {
                         ArmadaEvent failedEvent = new ArmadaEvent("mission.landing_failed", "Landing failed: " + mission.Title);
-                        ScopeEventToMission(failedEvent, mission);
+                        Armada.Core.Services.EventOwnerScope.ApplyFromMission(failedEvent, mission);
                         failedEvent.EntityType = "mission";
                         failedEvent.EntityId = mission.Id;
                         failedEvent.CaptainId = mission.CaptainId;
@@ -985,7 +985,7 @@ namespace Armada.Server
                                 try
                                 {
                                     ArmadaEvent completedEvent = new ArmadaEvent("mission.completed", "Mission completed (PR merged): " + mission.Title);
-                                    ScopeEventToMission(completedEvent, mission);
+                                    Armada.Core.Services.EventOwnerScope.ApplyFromMission(completedEvent, mission);
                                     completedEvent.EntityType = "mission";
                                     completedEvent.EntityId = mission.Id;
                                     completedEvent.CaptainId = mission.CaptainId;
@@ -1253,16 +1253,6 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// Give a landing event its mission owner's tenant and user. Scoped reads filter on both, so an event
-        /// written without them is visible only to an unscoped administrator.
-        /// </summary>
-        private static void ScopeEventToMission(ArmadaEvent evt, Mission mission)
-        {
-            evt.TenantId = mission.TenantId;
-            evt.UserId = mission.UserId;
-        }
-
-        /// <summary>
         /// Emit a retriable audit event when branch cleanup fails after a successful landing.
         /// The event is scoped to the mission and vessel.
         /// </summary>
@@ -1274,7 +1264,7 @@ namespace Armada.Server
                 if (mission == null) return;
 
                 ArmadaEvent evt = new ArmadaEvent("merge_queue.branch_cleanup_failed", "Branch cleanup failed after successful landing for mission " + missionId + ": " + branchName);
-                ScopeEventToMission(evt, mission);
+                Armada.Core.Services.EventOwnerScope.ApplyFromMission(evt, mission);
                 evt.EntityType = "mission";
                 evt.EntityId = mission.Id;
                 evt.CaptainId = mission.CaptainId;

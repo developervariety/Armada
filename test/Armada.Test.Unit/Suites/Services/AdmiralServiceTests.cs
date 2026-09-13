@@ -77,6 +77,37 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
+            await RunTest("HandleProcessExitAsync records the process exit event in the mission owner's scope", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), testDb.Driver, CreateSettings(), new StubGitService());
+                    string tenantId = Armada.Core.Constants.DefaultTenantId;
+                    string userId = Armada.Core.Constants.DefaultUserId;
+
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("exit-scope-vessel", "https://github.com/test/exit-scope.git")).ConfigureAwait(false);
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("exit-scope-captain")).ConfigureAwait(false);
+                    Mission mission = new Mission("exit scope mission");
+                    mission.TenantId = tenantId;
+                    mission.UserId = userId;
+                    mission.VesselId = vessel.Id;
+                    mission.CaptainId = captain.Id;
+                    mission.Status = MissionStatusEnum.InProgress;
+                    mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                    captain.CurrentMissionId = mission.Id;
+                    captain.State = CaptainStateEnum.Working;
+                    await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                    await service.HandleProcessExitAsync(4242, 0, captain.Id, mission.Id).ConfigureAwait(false);
+
+                    EnumerationQuery query = new EnumerationQuery { MissionId = mission.Id, EventType = "captain.process_exited", PageNumber = 1, PageSize = 10 };
+                    EnumerationResult<ArmadaEvent> owner = await testDb.Driver.Events.EnumerateAsync(tenantId, userId, query).ConfigureAwait(false);
+                    AssertEqual(1, owner.Objects.Count, "The mission owner's scoped read must find the process exit event");
+                    EnumerationResult<ArmadaEvent> other = await testDb.Driver.Events.EnumerateAsync(tenantId, "usr_other_owner", query).ConfigureAwait(false);
+                    AssertEqual(0, other.Objects.Count, "Another user's scoped read must not find the process exit event");
+                }
+            });
+
             await RunTest("Constructor NullLogging Throws", () =>
             {
                 AssertThrows<ArgumentNullException>(() =>
