@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CaptainChatMetrics } from '../../types/models';
 import { useLocale } from '../../context/LocaleContext';
+import type { ToolEvent } from './ChatToolChips';
 
 function fmtMs(ms: number | null | undefined): string {
   if (ms == null) return '-';
@@ -10,10 +11,12 @@ function fmtMs(ms: number | null | undefined): string {
 
 /**
  * Per-turn statistics shown behind an (i) affordance rather than a strip under every reply.
- * Time to first token, streaming time, tokens/sec, token count, and total time appear in a small
- * popover on click. Token count prefers completion tokens and falls back to the runtime's estimate.
+ * Time to first token, streaming time, tokens/sec, token count, total time, and -- when the turn
+ * called any tools -- the number of completed tool calls and the time summed across them appear in a
+ * small popover on click. Tool time is the sum of each call's elapsed time, not wall-clock time.
+ * Token count prefers completion tokens and falls back to the runtime's estimate.
  */
-export default function ChatMetricsInfo({ metrics }: { metrics: CaptainChatMetrics }) {
+export default function ChatMetricsInfo({ metrics, tools }: { metrics: CaptainChatMetrics; tools?: ToolEvent[] }) {
   const { t } = useLocale();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
@@ -42,6 +45,13 @@ export default function ChatMetricsInfo({ metrics }: { metrics: CaptainChatMetri
     [t('tokens'), tokens != null ? String(tokens) : '-'],
     [t('total'), fmtMs(metrics.totalMs)],
   ];
+
+  const completedTools = (tools ?? []).filter((tool) => tool.status !== 'running');
+  if (completedTools.length > 0) {
+    const toolMs = completedTools.reduce((sum, tool) => sum + (tool.elapsedMs ?? 0), 0);
+    rows.push([t('tool calls'), String(completedTools.length)]);
+    rows.push([t('tool time'), fmtMs(toolMs)]);
+  }
 
   return (
     <span className="chat-metrics-info" ref={ref}>

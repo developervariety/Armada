@@ -31,6 +31,17 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   they sent a PUT with only the context fields, which reset the rest of the
   vessel.
 
+### Captain chat tool activity
+
+- Ask Armada and the Planning chat show a one-line result preview on each
+  finished tool card, and the turn statistics add the number of completed tool
+  calls and the time summed across them. Ask Armada labels tool cards with the
+  selected captain's runtime.
+- The chat transcript follows new content while the reader is at the bottom,
+  including tool cards that grow without new reply text. Scrolling up stops
+  following; a new turn resumes it. Before, only reply text changes were
+  followed, so tool activity could grow out of view.
+
 ### Vessel auto-land and landing mode display
 
 - Vessel detail shows the configured auto-land rules from the stored

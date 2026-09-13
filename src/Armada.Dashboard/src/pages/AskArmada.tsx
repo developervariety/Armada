@@ -259,6 +259,7 @@ export default function AskArmada() {
             inputDisabled={!captainId}
             onClear={() => setConfirmClearOpen(true)}
             clearDisabled={busy || turns.length === 0}
+            toolRuntimeLabel={selectedCaptain?.runtime || tools?.runtime || undefined}
           />
         </div>
       )}
