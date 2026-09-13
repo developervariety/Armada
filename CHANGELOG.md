@@ -15,6 +15,9 @@ replaced.
 Focus: operator signal fidelity - make a failure say what actually failed.
 
 ### Operator documentation
+- Added a fixed-source upstream capability review, full change inventory and
+  phased selective-integration plan. Corrected the README comparison and
+  captain MCP guidance. The review does not claim that planned ports shipped.
 - Autonomous objective sweeps now preflight candidates only as capacity needs
   them. Each pass has candidate and elapsed-time limits, resumes after its last
   examined objective, and stops as soon as fleet capacity is full. Scheduler

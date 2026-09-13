@@ -1,0 +1,90 @@
+# Dashboard upstream comparison
+
+Fixed fork: 21786ec0d4ca48b8174bf7fb399b3d63e66ba2b9. Fixed upstream: 19242085eed77c9d542bd29d250c8530699c5a97. Base: e9e3021fac0d146a035b03dbe4df61cebd3a6fdc.
+
+This is a read-only source audit. No build, browser test, live action, dispatch, or tracked edit was made. The file census is in [dashboard-census.tsv](dashboard-census.tsv). The upstream commit inventory is in [inventory.json](inventory.json).
+
+## Coverage
+
+The dashboard source census covers 149 paths changed on either side since base. Upstream changed 134 source paths. The fork changed 133. Of the union, 63 have the same blob at both tips. There are 86 direct-tip source differences. The audit classified these differences by capability, including deleted fork features, new pages, API exports, model fields, settings, shared UI, scope controls, and CSS selector changes. It did not prove runtime correctness or inspect every line of large added pages and CSS. Browser layout and full behavioral review remain explicit implementation gates.
+
+Outside source, direct tips differ in 164 built files, 5,715 tracked vendor files, and two configuration files. Do not port generated or vendor content as feature work. Rebuild dist from reviewed source. package-lock.json changes only peer metadata; package.json is identical. vite.config.ts removes the fork's AppleDouble exclusion: retain it. Retain the fork's localStorage test fallback. The integration review owns server-wide, packaging, and dependency review.
+
+## Main finding: quarantine
+
+Both tips already contain Lift Quarantine in CaptainDetail. Fork source: pages/CaptainDetail.tsx handleUnquarantine and the Quarantine detail field; api/client.ts unquarantineCaptain; Server/Routes/CaptainRoutes.cs line 390. Upstream has the same operation at route line 279. Neither Captains list has a manual Quarantine action. Upstream adds a reason/expiry chip in the list (pages/Captains.tsx line 556). Thus, a claim that the fork lacks all unquarantine support is incorrect. It lacks accessible list controls and manual quarantine UI.
+
+Adapt the upstream chip. Add Quarantine/Unquarantine actions to both list and detail. Use the fork's ICaptainQuarantineService BenchAsync/UnbenchAsync, already exposed by MCP bench/unbench (Server/Mcp/Tools/McpCaptainTools.cs lines 262 onward). Do not duplicate the service with direct DB writes. Existing REST unquarantine does duplicate the state write and returns either Captain or a not_quarantined object while the client declares Captain. Normalize this contract.
+
+Critical dependency: CaptainQuarantineService.ApplyQuarantineAsync clears CurrentMissionId, CurrentDockId and ProcessId. It does not stop the process. A UI that benches a working captain can lose the process association. Reject busy captains or use a lifecycle operation that stops and reconciles work before the state update. Preserve indefinite manual holds, finite quota backoff, probe restore, reason, and expiry. Prove idle -> quarantine -> idle through UI/REST/MCP; preserve busy process ownership; reject cross-user access; prove indefinite holds survive the restore sweep.
+
+## Capability matrix
+
+Paths below are under src/Armada.Dashboard/src unless another project is named. The fixed tips above make each source reference reproducible.
+
+| Capability | Decision and source evidence | Dependency and acceptance proof |
+| --- | --- | --- |
+| Home mission payload | ADAPT. Upstream pages/Dashboard.tsx loads listMissionSummaries(pageSize 10); fork loads 200 full missions and retains allMissions. Upstream uses status voyage.vesselIds instead of inferring from the recent mission slice. | Confirm fork summary endpoint sorting and summary fields. Show bounded request/payload and correct vessel names for a voyage whose missions are outside the recent slice. Preserve lazy full detail/JSON reads. |
+| Home memory deferral indicator | ADAPT. Upstream Dashboard StatusData.memoryPressureDeferrals and Active Voyages chip expose admission pressure. Fork lacks this field on the page. | Map to the fork's existing admission status/reasons, with exact semantics for count and window. Prove blocked versus healthy idle display. |
+| Home refresh | ADAPT, do not copy directly. Upstream adds useAutoRefresh but keeps a fixed 30-second timer and every-WebSocket loadAll subscription. | Use one bounded refresh path and in-flight deduplication. Prove Off stops timer refresh and bursts do not start unbounded requests. |
+| Captain forms | ADAPT reasoning effort, tier badge and save-busy guard from Captains/CaptainDetail. Fork Captain model already has a typed tier but the form does not expose it. | Map supported reasoning levels to each runtime, including fork levels above High. Preserve provider credentials, allowed/preferred personas, OpenCode and supported Mux behavior. Test roundtrip and duplicate payloads. |
+| Quarantine | ADAPT as described above. Upstream list chip is missing in fork; detail lift operation already exists. | Shared service and lifecycle safety first. |
+| Readable captain logs | ADAPT CaptainDetail formatted=true request, entries, toolName and redacted chips; types FormattedLogEntry. Fork captain detail fetches raw log only. | Fork log formatter may use another contract. Keep raw/readable toggle; prove tool resolution and secret redaction on realistic runtime logs. |
+| Mission markdown | PORT shared/LogViewer markdown option and pages/MissionDetail Markdown description plus raw copy. | Preserve raw log access. Test markdown, long tool output, copy fidelity and safe rendering. |
+| Mission modes | ADAPT upstream Missions create mode and MissionDetail mode display (Implementation/Audit/Research). Fork already has backend mission modes but lacks these controls/types. | Roundtrip all modes; non-implementation missions must keep fork completion/artifact/no-landing rules. |
+| Review completion/landing | ADAPT only after backend review. Upstream MissionDetail adds Mark Complete and Land for Review with requiresReview=false. Fork only exposes retry for WorkProduced/LandingFailed. | An operator click is not landing proof. Preserve fork evidence/terminal transition gates. Test unlanded held Review rejection, real landed completion, and explicit review gates. |
+| Dispatch captain override | ADAPT upstream Dispatch effectivePersonas fallback ['*']; allows a captain with Inherit or no explicit pipeline. Existing fork per-persona picker and VoyageDetail map are already present. | Verify wildcard resolution and fallback tiers in fork dispatcher. Test Inherit, WorkerOnly, named pipeline and busy preferred captain. |
+| Dock start snapshot | ADAPT upstream DockDetail Starting Point card and Dock.gitAnchorsJson. Fork has no display field. | Map persisted fork anchors to a typed DTO; tolerate absent/malformed old data. Show actual provisioning tip, branch and subject/path evidence. |
+| Vessel auto-land display | PORT upstream VesselDetail enabled/limits/path fields. Fork vessel edit UI already has auto-land controls. | Preserve fork auto-land implementation; show effective versus configured values accurately. |
+| Vessel DoD controls | ADAPT upstream Vessels enabled/build/test/timeout form and VesselDetail display. Fork has richer acceptance workflow services. | Avoid a second conflicting gate; expose actual fork configuration. Test failing build/test blocks acceptance in the correct dock. |
+| Vessel landing help | ADAPT centralized landing mode labels/help in Vessels. | Correct LocalMerge description for fork bare/managed repository semantics. Avoid text that promises push or PR completion the backend does not perform. |
+| Vessel branches | ADAPT read-only listing first. Upstream adds BranchesModal and branches/list/push/merge API methods, branch count column, current/default labels and ahead/behind. Fork lacks these. | Review server git locking and managed bare/worktree behavior before write actions. Upstream defaults Push after merge=true and only blocks each matching busy action; no confirmation or global in-flight guard. Prove source/target/ref validation, protected paths, clean worktree, concurrency and remote destination. |
+| Scoped configuration | ADAPT upstream lib/scoping, ScopeBadge, ScopeSelect across Personas, Pipelines, Prompts, Playbooks, Runbooks, Skills, WorkflowProfiles and ProjectProfiles list/detail. | Requires backend scoped ownership/migration first. Workflow/Project ownershipScope is distinct from existing applicability scope. Prove regular owner, non-owner, tenant admin, global admin and cross-tenant behavior; check row-click, duplicate and direct detail routes as well as menus. |
+| Admin view-as-user | ADAPT UserScopeFilter on Captains, Vessels, Missions, Voyages, Docks, Events, Signals, MergeQueue and Objectives. | Backend must enforce owner/tenant boundaries regardless of filter. Upstream listUsers() can return only a page and swallows failure. Add paginated/cached options and visible error state. |
+| Model endpoints | ADAPT as a separate backend/UI unit. New Endpoints page includes embedding/inference providers, health history, validation, sweep, secret-preserving edits, scope, ID copy, cloud fields. Captains list adds ApiEndpoint and endpoint picker. | Preserve fork CLI provider credentials. Adopt only after endpoint ownership, secret storage, coding tools, model routing and provider contracts are proved. Upstream CaptainDetail and SetupWizard lack matching ApiEndpoint fields; fix all create/edit entry points together. |
+| Endpoint health | ADAPT shared HealthHistogram and rich Endpoints modal. | A health probe is not model/tool capability proof. Show probe age, source and failures. Test redaction, stale/unknown states, mixed buckets and empty history. |
+| Ask/Planning chat | PORT tool runtime label/result preview, tool-call count/time, mutation-driven autoscroll and spacing from shared/CaptainChatPanel, ChatMetricsInfo, ChatToolChips. ADAPT ApiEndpoint note only if runtime exists. | Preserve fork cancellation, longer timeout and objective association. Test tool-only growth, manual scroll-up, Stop, unmount observer cleanup and no forced document scroll. Tool time is sum across calls, not wall elapsed time. |
+| Ask greeting | DEFER cosmetic random greeting from components/askGreetings and AskArmada. | No backend value. Consider after capability gaps. |
+| Setup wizard | ADAPT consolidated nav highlights, finish-to-Missions, tier and save validation where applicable. | Retain OpenCode selection and provider credential fields. Do not copy removal of OpenCode from Planning help. Test empty/reset deployment and viewport. |
+| Incident recovery display | ADAPT IncidentDetail failureKind, recoveryAttempts, rescueMissionIds count. | Map to fork richer incident/recovery relations; show linked rescue mission evidence, not merely count. |
+| Token usage | RETAIN fork getTokenUsageSummary route/query and cacheRead+cacheWrite aggregation. Upstream switches to getTokenUsage and expects cachedTokens on each model. Charts otherwise largely shared. | Do not lose runtime, source, vessel/captain filters, reasoning tokens or separate cache fields. Prove displayed totals with fork API data. |
+| Memory page | DEFER. Upstream Memories lists/searches/deletes episodic/semantic/procedural DB memories with salience and source fields. No create/edit UI despite API client methods. Fork lacks this page. | Workspace policy names the configured external memory source as sole durable source. Define whether this is non-authoritative product data or omit it. Do not enable a competing automatic durable memory store. |
+| Harbors page | DEFER to execution architecture decision. Upstream Harbors has runner registration, capacity, health, capabilities and enable/disable. | Requires host-runner protocol, routing, authentication, deployment and loss/reconnect handling. No benefit from an empty UI without backend. |
+| Self rebuild/rollback | DEFER. Upstream Server adds source vessel/ref, build slots/log/polling, backup/cutover/rollback. | Must fit deployed process supervisor and fork deploy method. Upstream stops polling on cutover/failure and does not initially load prior rebuild state; verify reconnect/status recovery. Rollback can restore DB and lose post-cutover writes. Prove separately before enabling UI. |
+| Shared layout/table polish | ADAPT toolbar order, captain modal width, action footer spacing, BoolIcon and health styles. | Preserve fork responsive/sidebar and table styles. Run browser screenshots at narrow/wide widths, both themes, long content and modals. |
+| Fork-only surfaces | RETAIN App routes/nav for Coordination, CodeIndex, Notifications and token-usage redirect; retain their client/model/helper files. Upstream removal is absence of fork features, not a replacement. | Test deep links and hub redirects. Notifications delivered-history/read-state is distinct from Needs You inbox. |
+| Fork routing settings | RETAIN Settings routing draft/editor, family rules, reserved slots, within-tier preference, stage-title guard, providers and added assets. Upstream deletes these blocks. | Confirm forms still roundtrip after scoped settings change. |
+| Fork objective preparation | RETAIN ObjectiveDetail preparation JSON, preparationUtils/tests, model anchors and claims, Planning objectiveId transfer. Upstream drops them. | Keep server-authoritative objective prompt generation. Upstream buildObjectiveDispatchPrompt copies description/refinement/criteria/constraints into free text; do not reintroduce stale duplicate instructions without backend assessment. |
+| Auth/client | RETAIN fork dual X-Token plus Authorization headers, encoded IDs and supported long request timeouts. Upstream keeps X-Token only and shortens chat/context timeout. | Test both session token and bearer/API token login; preserve cancellation and server error visibility. |
+| Cosmetic removals | REJECT wholesale CSS replacement. Upstream drops fork coordination, badge, workspace code, PlaybookSelector and narrow top-bar/sidebar styles and pending status tokens. | Import required rules by component. Browser proof is pending. |
+
+## Upstream commit groups
+
+The full source commit list is in inventory.json. These are source locators, not recommended bulk cherry-picks.
+
+- Quarantine/admission/logs/anchors: f7657f579, b6e6364ca, 8efae5ef6, 580036ee0, 548325202, 61825f81a.
+- Routing/modes/acceptance/recovery: 9a6aeb546, 1cfd021dc, 469d6bc51, d77c53dc6, b55edd7fb, 45b0b0ca2, d67671617, 167b972c0, c15b87e90, 299ca2cec, 1db4d3931, d027a93c4.
+- Endpoint/Harbor: fdcd4dbd3, 1b1f03825, a549b9e9d, e9b88be07, 65630266a, d89c6ce57.
+- Scope: f0de5f2a1, 686a18594, 502523999, 115e24347.
+- Branch/self-update: 1a65f4f39, 24d2b6982, 2ce122d30, b0e1fd5f7, e8de6a1de.
+- Chat polish: 254366886, a74b6ea94, 3d9cdef7c, d87fb4bac, b943a27e6, 2d1111de6.
+- Memory/boolean columns: 989679914.
+- Navigation/shared page foundations: 5bf7791b7 through e34c795b5 and 1bd4b9f28. Most foundation components already have identical blobs. Do not count these as missing features.
+
+## Suggested dashboard phases
+
+These are area-review suggestions. The final order and dependencies are owned by
+[the integrated phased plan](README.md#phased-objectives), which supersedes this
+section where the ordering differs.
+
+1. Record fixed-tip baseline and endpoint/DTO map. Keep all 63 identical source paths. Keep fork feature regression inventory.
+2. Close captain quarantine and bounded home payload gaps. Add list/detail actions through shared backend services. Include role, lifecycle and payload proof.
+3. Add operator evidence: readable logs, mission modes/markdown, dock anchors, admission/recovery detail, auto-land and acceptance configuration. Backend service parity precedes each UI control.
+4. Add scope controls and user filters after database/auth migration. Preserve fork preparation, routing, providers and objective links.
+5. Add endpoints and branch management in isolated feature units after backend tests. Keep write controls off until semantics are proved.
+6. Decide Harbor, memory and self-update separately. Do not block useful dashboard work on these optional architecture changes.
+7. Run dashboard build/tests, real browser workflows against isolated fixture state, API contract tests and fork feature regression checks. Build dist from reviewed source. Update README Upstream vs Fork by capability, dashboard/API docs and operator handoff with actual shipped state. Leave deferred capabilities explicit.
+
+## Residual scope
+
+All 149 changed source paths are in dashboard-census.tsv. This is a complete path census and capability classification, not a claim that all bugs are found. Large CSS and added Endpoints/Harbors pages need line-level implementation review and browser proof. No tests were run. Server implementation quality, auth migrations, runtime adapters, packaging and real deployed dashboard version belong to the parent audit. The observed fork source has Lift Quarantine; whether the deployed bundle contains or exposes it is unverified.

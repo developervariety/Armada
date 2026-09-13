@@ -56,60 +56,50 @@ Armada is intentionally vocabulary-heavy because the model mirrors the operating
 
 ## Upstream vs Fork
 
-Armada is a private fork of [jchristn/Armada](https://github.com/jchristn/Armada).
-The fork keeps the upstream delivery model and adds automation, retrieval, and
-operator controls for larger multi-agent workflows.
+This repository is a fork of [jchristn/Armada](https://github.com/jchristn/Armada).
+Both share missions, voyages, captains, docks, pipelines and delivery records.
+The [selective integration review](docs/upstream-review/README.md) compares
+current capabilities and records the next porting gates. Its proposed changes
+are not shipped features.
 
-| Area | Upstream | This fork |
-|---|---|---|
-| Core workflow | Missions, voyages, captains, docks, pipelines, and landing | Same model, with more pipeline stages and stronger handoff checks |
-| Planning and delivery | Objectives are dispatched by an operator | Autonomous scheduling, build/test gates, recovery, incidents, and durable landing jobs |
-| Repository context | Agents work from supplied mission context | Per-vessel code index, symbol graph, semantic search, and dispatch-ready context packs |
-| Model routing | Tier-based routing and per-stage captain assignment | Settings-driven policy (empty vanilla defaults; fleet overlay restores specialist reservation, family classification, title-prefix guard, and preference order) |
-| Runtimes | Multi-runtime support, including OpenCode | Same runtimes, with additional cross-runtime hardening and diagnostics |
-| Operator experience | REST, MCP, dashboard, and delivery records | Adds coordination board, session claims, prompt-budget visibility, telemetry, captain chat, and expanded MCP tools |
-| Safety and verification | Review and landing workflows | Boundary scanning, isolated checks, sibling-consumer builds, no-op detection, and evidence-driven recovery |
+| Area | Shared capabilities | Fork depth and remaining upstream additions |
+| --- | --- | --- |
+| Workflow and verification | Mission modes, review, in-dock acceptance, stage handoff and recovery | The fork preserves full recovery pipelines, immutable reviewed-commit Checks, declared consumer builds and verified landing evidence. |
+| Captain control | Quarantine, model tiers, reasoning effort, per-stage assignment and OpenCode | The fork adds manual timed or indefinite bench, provider-aware recovery, persona policy and configured routing. Upstream adds generic crash-loop tracking and clearer list details. |
+| Operator experience | Consolidated dashboard, Ask/Planning, workspace terminal/diff, Needs You, background jobs and token usage | The fork adds coordination, claims, directed wakes and preparation evidence. Upstream has useful summary, readable-log, anchor and control displays still to adapt. |
+| Identity and configuration | Tenants, users, skills, project profiles and operational assets | Upstream adds broader per-user ownership and scoped controls. Integration must preserve fork resources and deny invalid credentials through the official MCP transport. |
+| Execution and deployment | Local runtime execution and process supervision | Upstream adds model endpoints, API captains, detached Harbor runners and A/B rebuild. These need separate compatibility and acceptance work before use in the fork. |
+| Repository context and autonomy | Supplied repository context and shared git-anchor concepts | The fork adds code index, symbol graph, context packs, bounded objective scheduling, prepared claims, sibling lanes and an optional lead cycle. |
 
-Several features that started in this fork are now also in upstream: the
-workspace terminal and diff, Needs You inbox, landing-conflict details,
-boundary scanning, auto-land, captain quarantine, model tiers, OpenCode,
-no-op completion handling, reasoning effort, project profiles, per-stage
-captain assignment, background jobs, token usage, and coordination leases.
-They are shared capabilities, not fork-only differences.
+Features first developed in the fork now also exist upstream: boundary
+scanning, auto-land, quarantine, model tiers, OpenCode, no-op handling,
+reasoning effort, mission modes, acceptance gates, recovery, stage hardening,
+project profiles, captain assignment, jobs, token accounting, friction reports
+and coordination leases. A shared feature name does not imply equal behavior.
+The fork's recovery and Judge gates remain more complete.
 
-The fork-specific additions remain autonomous scheduling, dispatch-armed
-build/test gates, evidence-driven recovery, code indexing and context packs,
-symbol search, the coordination board and session handoffs, prompt-budget
-controls, and the broader operator workflow around these features. The fork
-also keeps its own implementations where they are more complete than the
-upstream equivalent. Its Judge gate reads a green Check as a statement about
-one commit: a Check that passed for an earlier commit than the tip under
-review holds the PASS and is superseded by a fresh record for the tip, so a
-green earned by a stage several commits back cannot vouch for later work.
-Isolated upstream reliability and install fixes have been absorbed: server
-providers now tag stored UTC timestamps as UTC without a local-time shift, SQL
-Server nulls signal captain references before a captain delete, npm install
-scripts accept `--insecure` behind a TLS-inspecting proxy, dashboard deploy
-falls back to the committed `dist/` when Node.js is absent, planning dispatch
-releases the reserved captain, vessel readiness and landing-preview REST
-routes are wired, and dock repair/unstick are on REST and MCP. Admiral
-shutdown kills working agent processes, stale-captain cleanup rejects a
-recycled PID, Chat Stop is an abort rather than a timeout, and captain
-detail can lift quarantine. A full upstream merge was not taken:
-captain-map, token-usage UI, dashboard nav, and fork-parity cores already
-exist here in a more complete form.
+Captain Detail already provides **Lift Quarantine**. MCP provides manual bench
+and unbench. Manual list controls and shared REST/service release semantics
+remain planned work. Upstream's quarantine list chip is useful, but replacing
+the fork service would lose indefinite holds and provider-specific behavior.
 
-The fork's autonomy layer is the largest current delta. It adds bounded lead
-cycles with timer and wake triggers, single-flight execution, an explicit
-permission policy for unattended runs, full-stream cycle logging, capped helper
-launchers with lifecycle contract tests, persistent lead ownership across
-restarts, per-vessel scheduler ceilings for safe fleet-wide concurrency, and a
-live event stream for operator sessions.
+Preserve the fork's official MCP SDK, provider injection, settings-driven
+routing, preparation records, coordination pages, output evidence, memory
+limits and build provenance through every port. The database histories use
+different meanings for the same migration numbers; accepted additions need
+new fork migrations. Do not replace schema history, test registrations or
+runtime files wholesale.
 
-Directed wakes reach a live session on any tool result: a client that sends its
-participant key as a request header receives pending board mail appended to
-whatever tool it calls next. MCP has no channel that can interrupt a running
-agent, so a tool result is the delivery mechanism.
+The fork's autonomy layer provides bounded lead cycles, timer and wake
+triggers, single-flight execution, unattended permission policy, full-stream
+logs, bounded helpers, persistent ownership and safe lane admission. Directed
+wakes reach an identified operator on its next tool result. Armada's current stateless MCP endpoint does not push an unsolicited
+notification to an idle client.
+
+Native upstream memory and Recorder guidance remain separate decision work.
+Deployments with one external durable memory source must not enable a second
+store as an incidental update. Harbor and self-rebuild also remain optional
+architecture decisions. The review gives the blockers and required proof.
 
 ---
 

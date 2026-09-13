@@ -31,6 +31,14 @@ Armada records are the source of truth for work and delivery state.
 Do not use mission prose as a replacement for these records. Do not treat a
 captain report as proof. Run the command or query that proves the result.
 
+## Selective upstream integration
+
+Use [the upstream integration review](upstream-review/README.md) for the fixed
+comparison, decisions, preservation requirements and validation gates. The
+review describes planned work, not deployed features. Keep current objectives
+and delivery state in Armada. Armada platform work uses direct edits; the
+review campaign must not dispatch voyages, missions or planning captains.
+
 ## 2. Available Features And Active Policy
 
 The repository contains features that an operator can disable. Documentation
@@ -126,8 +134,8 @@ pipeline, model tier, landing mode, protected paths, and workflow profile.
 Read the coordination board before you dispatch or touch incidents
 (`armada_coordination_read`). Post a claim note before you start
 (`armada_coordination_post`) so a concurrent operator session does not dispatch
-the same work or rescue the same incident twice. The board is advisory context;
-it never injects into captain briefs. See 8.9 for the tool list.
+the same work or rescue the same incident twice. General board notes are advisory. Voyage-tagged notes can enter the next
+stage brief when the database provider supports that lookup. See 8.9 for the tool list.
 
 If code indexing is enabled, use `armada_index_status` before index-dependent
 work. If it is disabled, use checkout search and set `codeContextMode` to
@@ -332,13 +340,15 @@ captain carries that exact model, Armada classifies the model into a tier and
 picks a peer. Verify the assignment after dispatch when the pin matters;
 benching is never required to pin a model.
 
-#### Read-only dispatches stay single-stage
+#### Read-only pipeline resolution
 
-When every mission in a dispatch is `Audit` or `Research` mode and no pipeline
-is requested, the vessel or fleet default pipeline is ignored and the voyage
-dispatches single-stage. A read-only probe must not silently inherit a
-multi-stage default (a four-mission diagnostic once expanded to sixteen
-missions). An explicitly requested pipeline is always honored.
+An explicit pipeline keeps all declared stages for Audit and Research. Mode
+controls the deliverable and Check requirements; it does not trim that graph.
+The core dispatch fallback is different: when all missions are read-only and
+no pipeline ID reaches the core resolver, it skips vessel/fleet defaults and
+uses a single stage. Link the objective and its selected pipeline through the
+shared dispatch path, and inspect preview before dispatch. Do not infer the
+pipeline from mission mode alone.
 
 ### Stage handoff is verified, not assumed
 
@@ -1089,6 +1099,14 @@ shows only critical items).
 | Interrupt | `armada_stop_captain`, `armada_stop_all` |
 | Destructive | `armada_delete_captain`, `armada_delete_captains` |
 
+Captain Detail already has **Lift Quarantine** through
+`POST /api/v1/captains/{id}/unquarantine`. Manual timed or indefinite holds use
+MCP `armada_bench_captain`; release uses `armada_unbench_captain`. The current
+REST release writes state directly, while MCP uses the quarantine service.
+Shared service wiring and list actions are tracked integration work. Do not
+assume that a manual bench safely stops an active process: verify and reconcile
+active mission/process ownership before changing its hold.
+
 ### 8.4 Voyages And Missions
 
 | Risk | Tools |
@@ -1202,8 +1220,8 @@ for the complete record, or `outputTailLines` to widen the tail.
 
 The coordination board is a shared room where concurrent operator sessions and
 the dashboard post short notes about what they are doing, so no session is
-surprised by a voyage another session dispatched. Unlike signals, notes reach
-every reader immediately; they are never injected into captain briefs.
+surprised by a voyage another session dispatched. Notes are visible through board reads. General notes stay advisory;
+voyage-tagged notes can enter the next stage brief on supported providers.
 
 - `armada_coordination_post` — post a note. Claim work before you start it;
   report outcomes when you finish.
