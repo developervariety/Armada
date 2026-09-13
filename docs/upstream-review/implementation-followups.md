@@ -15,18 +15,21 @@ remove separate Notifications history and Code Index pages. This supersedes incr
 and compatibility contracts remain intact. No final dashboard acceptance is
 claimed by earlier partial browser or test evidence.
 
-Current accepted SDK source is `65419848`: profile, skill, Ask, objective and
-refinement wrappers join the first delivery and inspection slice. The combined
-client suite ran 65 tests with no failures or skips. These changes are not deployed.
+Current accepted SDK source is `4a0787e5`: supported profile, skill, Ask,
+objective, refinement, delivery, list and enumeration wrappers are present.
+The combined client suite ran 86 tests with no failures or skips. Helm,
+Postman, branch-client coverage and isolated HTTP round trips remain open.
+These changes are not deployed.
 
 Harbor and self-rebuild require hardened implementations. Harbor must validate
 credentials; self-rebuild must stop after backup failure. Keep existing deployment
 and rollback controls until replacement acceptance.
 
-The Ask MCP warning is under investigation. A zero tool count currently produces
-a disconnected warning even when discovery is unverified. Trace actual launch
-configuration and connection results before deciding whether access is missing.
-Do not remove the warning without proving the runtime connection state.
+Ask launch and discovery fixes landed in `cb2ccb14`. Temporary chat runtimes
+receive their MCP configuration; the UI reports the planned endpoint separately
+from an active mission. Root checks passed: chat/discovery 11, launch planner 11,
+runtime 184, captain API 76 and rendered UI 7. The dashboard bundle was rebuilt.
+Deployment and a live read-only Ask tool call remain unverified.
 
 Read-only branch inspection landed in `c69d5627`. It uses persisted paths,
 preserves refs, and reports corrupt HEAD as an error. Root checks passed:
@@ -40,7 +43,23 @@ fixed without schema changes. The unused health monitor was removed. These
 changes are not deployed.
 
 Advisory UI labels landed in `8f6cd7c2`, with four rendered tests passing.
-The response model documentation still needs the same advisory wording.
+The response model documentation carries the same wording in `e16bd1b9`.
+
+Model endpoint persistence remains unaccepted. The provider review found and
+fixed a MySQL string-default mismatch. Fresh installs and historical upgrades
+pass on all four providers, but the MySQL partial-index restart still fails.
+The service candidate also needs a scoped health sweep, safe credential handling,
+real model validation and health writes that preserve concurrent configuration.
+Do not enable endpoints or advance the objective on the persistence result alone.
+
+Self-rebuild has a candidate preflight gate and a default refusal provider.
+Provider-native backup, isolated restore and candidate/process proof remain in
+progress. An interface and mocked success flags do not satisfy deployment proof.
+
+A fetch of both remotes found a later upstream Linter persona addition. The
+comparison remains pinned to the accepted review anchor. The new persona and
+FullPipeline change need a separate disposition; do not change active pipelines
+as an incidental part of this integration.
 
 Keep each entry until it has a disposition and evidence. Use these states:
 **Open** (confirmed source gap), **In progress** (implementation exists but is
@@ -62,7 +81,7 @@ these areas. Do not duplicate its changes.
 | FOLLOWUP-009 | Verify | Scoped merge-entry repair landed; filter and pagination coverage review remains |
 | FOLLOWUP-010 | Verify | Route matrix repaired; browser workflow proof remains |
 | FOLLOWUP-011 | Verify | Wildcard captain assignment needs actual dispatch-path regression coverage |
-| FOLLOWUP-012 | Open | Passing-checks vessel setting needs an enforcement disposition |
+| FOLLOWUP-012 | Closed | Owner approved advisory-only setting; UI and API documentation agree |
 | FOLLOWUP-013 | Open | Top-level OpenCode errors need a captured event and regression proof |
 | FOLLOWUP-014 | Verify | WebSocket exposure blocked by admin-only subscription; scoped delivery remains open |
 | FOLLOWUP-015 | Open | Persona, pipeline and prompt-template read visibility remains unscoped |
@@ -315,13 +334,11 @@ test fixtures; do not dispatch operational work to obtain proof.
 
 ## FOLLOWUP-012 — Passing-checks setting disposition
 
-The implementation census found `RequirePassingChecksToLand` consumed by the
-preview, but not by the execution landing gate. The preview wording fix does
-not settle this contract. Record the owner decision: enforce through the existing
-immutable Check authority, document/rename as preview-only, or retire the field.
-Do not add a weaker parallel gate. If enforced, reproduce a rejected landing
-case and cover reviewed commit, stale/superseded and unresolved runs, and voyage
-scope. This is a separate open decision, not a reason to reopen FOLLOWUP-005.
+Closed by owner decision: the setting is advisory-only. Vessel forms, detail
+views and landing previews state that limit in `8f6cd7c2`; response model XML
+documentation agrees in `e16bd1b9`. Four rendered tests passed. Actual immutable
+Check, Judge and landing gates remain unchanged. Deployment verification remains
+part of the combined closeout.
 
 ## FOLLOWUP-013 — OpenCode top-level errors
 
