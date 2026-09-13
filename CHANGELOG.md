@@ -31,6 +31,20 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   they sent a PUT with only the context fields, which reset the rest of the
   vessel.
 
+### Chat and planning tool activity
+
+- Ask Armada and Planning keep runtime activity records out of the captain's
+  answer. Before, an OpenCode, Codex, Cursor or Gemini captain's reply and the
+  stored planning message included lines such as
+  `[ARMADA:ACTIVITY] tool read src/File.cs (ok)` before the real answer.
+- A tool activity record now becomes a tool card: Ask Armada sends it as an
+  `ask.tool` event and Planning as a `planning-session.tool` event, with the
+  tool name, its redacted primary argument and whether it succeeded. A started
+  call and its completion update one card. Other activity records are dropped
+  from chat and planning text.
+- Mission output and chat and planning share one activity-record rule. A tool
+  card reported already completed keeps its argument.
+
 ### Definition of Done stored-record validation
 
 - The mission Definition of Done report reads a stored evaluation record as

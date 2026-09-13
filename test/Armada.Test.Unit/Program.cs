@@ -32,6 +32,7 @@ namespace Armada.Test.Unit
 
             runner.AddSuite(new TestRunnerContractTests());
             runner.AddSuite(new RuntimeLogFormatterTests());
+            runner.AddSuite(new CaptainChatServiceTests());
 
             // Previously compiled suites are explicit registrations until discovery parity is proved.
             runner.AddSuite(new RequestHistoryDatabaseTests());

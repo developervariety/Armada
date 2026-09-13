@@ -1,6 +1,6 @@
 import { render } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import ChatToolChips, { type ToolEvent } from './ChatToolChips';
+import ChatToolChips, { applyToolEvent, type ToolEvent } from './ChatToolChips';
 
 const labels = {
   runningLabel: 'running…',
@@ -33,6 +33,14 @@ describe('ChatToolChips', () => {
     const { container } = renderTools([{ id: 'a', name: 'list_vessels', status: 'running' }]);
 
     expect(container.querySelector('.chat-tool-result-preview')).toBeNull();
+  });
+
+  it('keeps the arguments of a tool call that is reported already completed', () => {
+    const tools = applyToolEvent(undefined, { phase: 'completed', id: 'activity-1', name: 'read', arguments: 'src/File.cs', ok: true });
+
+    expect(tools).toHaveLength(1);
+    expect(tools[0].arguments).toBe('src/File.cs');
+    expect(tools[0].status).toBe('success');
   });
 
   it('labels each card with the runtime that ran it, only when the runtime is known', () => {

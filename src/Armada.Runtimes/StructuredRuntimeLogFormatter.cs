@@ -68,7 +68,7 @@ namespace Armada.Runtimes
 
         #region Private-Members
 
-        private const string _ActivityPrefix = "[ARMADA:ACTIVITY] tool ";
+        private const string _ActivityPrefix = ActivityRecords.ToolPrefix;
 
         private static readonly string[] _ToolNameProperties =
         {

@@ -35,7 +35,7 @@ export function applyToolEvent(existing: ToolEvent[] | undefined, d: ToolEventMe
       id: d.id,
       name: d.name || prior?.name || 'tool',
       status: d.ok === false ? 'failed' : 'success',
-      arguments: prior?.arguments ?? null,
+      arguments: d.arguments ?? prior?.arguments ?? null,
       result: d.result ?? null,
       elapsedMs: d.elapsedMs ?? null,
     };

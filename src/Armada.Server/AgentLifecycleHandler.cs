@@ -1089,8 +1089,7 @@ namespace Armada.Server
         /// </summary>
         private static bool IsMissionActivityRecord(string line)
         {
-            return !String.IsNullOrEmpty(line) &&
-                line.StartsWith("[ARMADA:ACTIVITY]", StringComparison.Ordinal);
+            return Armada.Runtimes.ActivityRecords.IsActivityRecord(line);
         }
 
         /// <summary>

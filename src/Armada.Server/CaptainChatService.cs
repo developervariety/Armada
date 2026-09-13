@@ -138,6 +138,7 @@ namespace Armada.Server
                 string? reportedModel = null;
                 string? claudeFinalReply = null;
                 string? turnId = request.TurnId;
+                ChatToolActivityTracker activityTracker = new ChatToolActivityTracker();
 
                 runtime.OnStdoutReceived += (pid, line) =>
                 {
@@ -287,6 +288,19 @@ namespace Armada.Server
                             }
                         }
                         catch (JsonException) { }
+                        return;
+                    }
+
+                    // Activity records are runtime telemetry, not the captain's answer: tool records become tool
+                    // cards, and no activity record reaches the reply or the streamed text.
+                    if (ActivityRecords.IsActivityRecord(line))
+                    {
+                        if (ActivityRecords.TryParseToolActivity(line, out ToolActivityRecord activity))
+                        {
+                            ChatToolActivityEvent toolEvent;
+                            lock (outputLock) toolEvent = activityTracker.Next(activity);
+                            EmitTool(turnId, new { turnId, phase = toolEvent.Phase, id = toolEvent.Id, name = toolEvent.Name, arguments = toolEvent.Arguments, ok = toolEvent.Ok });
+                        }
                         return;
                     }
 

@@ -75,7 +75,7 @@ namespace Armada.Runtimes
         /// </summary>
         /// <param name="runtimeType">Runtime type.</param>
         /// <returns>Agent runtime instance.</returns>
-        public IAgentRuntime Create(AgentRuntimeEnum runtimeType)
+        public virtual IAgentRuntime Create(AgentRuntimeEnum runtimeType)
         {
             switch (runtimeType)
             {

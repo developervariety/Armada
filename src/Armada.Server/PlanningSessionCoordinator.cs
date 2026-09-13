@@ -768,8 +768,22 @@ namespace Armada.Server
                 object outputLock = new object();
                 StringBuilder output = new StringBuilder();
 
+                ChatToolActivityTracker activityTracker = new ChatToolActivityTracker();
                 runtime.OnOutputReceived += (processId, line) =>
                 {
+                    // Activity records are runtime telemetry, not the planner's answer: tool records become tool
+                    // cards, and no activity record reaches the planning message.
+                    if (ActivityRecords.IsActivityRecord(line))
+                    {
+                        if (ActivityRecords.TryParseToolActivity(line, out ToolActivityRecord activity))
+                        {
+                            ChatToolActivityEvent toolEvent;
+                            lock (outputLock) toolEvent = activityTracker.Next(activity);
+                            BroadcastToolActivity(assistantMessage, toolEvent);
+                        }
+                        return;
+                    }
+
                     string updatedContent;
                     lock (outputLock)
                     {
@@ -1106,6 +1120,7 @@ namespace Armada.Server
 
             runtime.OnOutputReceived += (processId, line) =>
             {
+                if (ActivityRecords.IsActivityRecord(line)) return;
                 lock (outputLock)
                 {
                     AppendPlanningOutputBounded(output, line);
@@ -1440,6 +1455,23 @@ namespace Armada.Server
                 {
                     sessionId = message.PlanningSessionId,
                     message
+                });
+        }
+
+        private void BroadcastToolActivity(PlanningSessionMessage message, ChatToolActivityEvent toolEvent)
+        {
+            _WebSocketHub?.BroadcastEvent(
+                "planning-session.tool",
+                "Planning session tool activity",
+                new
+                {
+                    sessionId = message.PlanningSessionId,
+                    messageId = message.Id,
+                    phase = toolEvent.Phase,
+                    id = toolEvent.Id,
+                    name = toolEvent.Name,
+                    arguments = toolEvent.Arguments,
+                    ok = toolEvent.Ok
                 });
         }
 

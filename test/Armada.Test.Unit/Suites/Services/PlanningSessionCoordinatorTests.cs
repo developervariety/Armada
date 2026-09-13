@@ -57,6 +57,44 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A planning reply stores the answer and keeps tool activity records out of the message", async () =>
+            {
+                LoggingModule transformLogging = new LoggingModule();
+                transformLogging.Settings.EnableConsole = false;
+                List<string> records = new OpenCodeRecordTransform(transformLogging).Records(CaptainChatServiceTests.OpenCodeToolThenAnswer);
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CoordinatorFixture fixture = new CoordinatorFixture(testDb.Driver, records))
+                {
+                    Vessel vessel = await fixture.CreateVesselAsync("planning-activity").ConfigureAwait(false);
+                    Captain captain = await fixture.CreateCaptainAsync("planner-opencode", AgentRuntimeEnum.OpenCode).ConfigureAwait(false);
+                    PlanningSession session = await fixture.Coordinator.CreateAsync(
+                        null,
+                        null,
+                        captain,
+                        vessel,
+                        new PlanningSessionCreateRequest { Title = "Plan with tools" }).ConfigureAwait(false);
+
+                    await fixture.Coordinator.SendMessageAsync(session, "List the entries").ConfigureAwait(false);
+
+                    string content = String.Empty;
+                    DateTime deadline = DateTime.UtcNow.AddSeconds(20);
+                    while (DateTime.UtcNow < deadline)
+                    {
+                        PlanningSession current = (await testDb.Driver.PlanningSessions.ReadAsync(session.Id).ConfigureAwait(false))!;
+                        List<PlanningSessionMessage> messages = await testDb.Driver.PlanningSessionMessages.EnumerateBySessionAsync(session.Id).ConfigureAwait(false);
+                        PlanningSessionMessage? assistant = messages.FindLast(message => String.Equals(message.Role, "Assistant", StringComparison.OrdinalIgnoreCase));
+                        content = assistant?.Content ?? String.Empty;
+                        if (current.Status != PlanningSessionStatusEnum.Responding && content.Length > 0) break;
+                        await Task.Delay(100).ConfigureAwait(false);
+                    }
+
+                    Console.WriteLine("PLANNING content: " + content.Replace("\n", "\\n"));
+                    AssertContains("Here are the entries", content, "The planning message holds the answer");
+                    AssertFalse(content.Contains(ActivityRecords.ActivityMarker, StringComparison.Ordinal), "No activity record reaches the planning message");
+                }
+            });
+
             await RunTest("CreateAsync rejects unsupported custom runtime", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -667,7 +705,7 @@ namespace Armada.Test.Unit.Suites.Services
             private readonly string _rootDirectory;
             private readonly LoggingModule _logging;
 
-            public CoordinatorFixture(SqliteDatabaseDriver database)
+            public CoordinatorFixture(SqliteDatabaseDriver database, IReadOnlyList<string>? replayRecords = null)
             {
                 Database = database;
                 _logging = CreateLogging();
@@ -686,7 +724,9 @@ namespace Armada.Test.Unit.Suites.Services
                 Git = new StubGitService();
                 DockService docks = new DockService(_logging, Database, Settings, Git);
                 AdmiralService admiral = CreateAdmiralService(_logging, Database, Settings, Git);
-                AgentRuntimeFactory runtimeFactory = new AgentRuntimeFactory(_logging);
+                AgentRuntimeFactory runtimeFactory = replayRecords != null
+                    ? new ReplayRuntimeFactory(_logging, replayRecords)
+                    : new AgentRuntimeFactory(_logging);
                 Objectives = new ObjectiveService(Database, _logging);
 
                 Coordinator = new PlanningSessionCoordinator(
