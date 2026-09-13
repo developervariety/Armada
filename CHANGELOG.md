@@ -21,7 +21,20 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Add optional account usage collection for Codex, Claude, Cursor, and OpenCode Go, plus file and manual snapshots. Keep persona preferences until allowance runs low; reserve capacity for important work and queue missions when no approved account is available.
 - Add Dashboard policy editing, usage status, budget planning, and an admin draft preview API. Defaults contain no accounts or personal subscription data. See [usage routing](docs/USAGE_ROUTING.md).
 
+### Retired standalone lead integration
+- Archived the standalone lead launcher, timer, deployment assets, and guides.
+- Removed the Grok listener, OAuth proof-of-concept broker, lead configuration,
+  lead-control REST routes, and lead-cycle MCP tools. Existing deployments must
+  remove their old listener, gateway, and lead-specific wake configuration.
+- Preserved the objective scheduler, shared coordination, generic AgentWake,
+  helper launcher, watcher, and generic MCP authentication and audit controls.
+
 ### Operator documentation
+- Incident mitigation now acknowledges existing failure evidence. Lifecycle
+  reconciliation reopens a mitigated incident only for a newer failure.
+- Added a fixed-source upstream capability review, full change inventory and
+  phased selective-integration plan. Corrected the README comparison and
+  captain MCP guidance. The review does not claim that planned ports shipped.
 - Autonomous objective sweeps now preflight candidates only as capacity needs
   them. Each pass has candidate and elapsed-time limits, resumes after its last
   examined objective, and stops as soon as fleet capacity is full. Scheduler

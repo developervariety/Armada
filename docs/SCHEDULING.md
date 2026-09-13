@@ -209,14 +209,9 @@ UnitTest Checks are attached in `Pending` state and run against the produced
 stage commit before a Judge PASS can land. `armada_dispatch_hold` stops new
 scheduler and operator dispatches while leaving in-flight voyages running.
 
-The scheduler does not maintain campaign quality or run operator research. An
-optional fresh lead cycle can handle the inbox, verify and refill objectives,
-and delegate bounded read-only helpers; see
-`docs/autonomy/lead-bootstrap-prompt.md` and section 4.11 of
-`docs/armada-ops.md`. That cycle must be started manually, by an external
-scheduler, or through AgentWake. It is not a second server-side scheduler.
-The lead should refill several safe lanes, not only the lane that just became
-empty.
+Operators maintain campaign quality, verify objectives, and delegate bounded
+read-only helpers. The standalone lead runner and Grok Bot integration are
+retired; see the [retirement archive](archive/autonomous-lead/README.md). The built-in objective scheduler and generic AgentWake remain available.
 
 Once a voyage exists, mission-level priority, voyage association, and FIFO
 (above) still decide which mission a captain picks up next.

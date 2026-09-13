@@ -108,7 +108,20 @@ namespace Armada.Server
             if (evidence.Kind == IncidentEvidenceKind.ActiveFailure)
             {
                 if (incident.Status == IncidentStatusEnum.Mitigated || incident.Status == IncidentStatusEnum.Monitoring)
+                {
+                    // A mitigation acknowledges the failure evidence that existed at that time.
+                    // Reopen only when Armada observes a newer failure. Without this guard, the
+                    // lifecycle sweep reopens manually mitigated incidents every few seconds from
+                    // the same immutable failed Check or mission.
+                    if (incident.MitigatedUtc.HasValue
+                        && evidence.OccurredUtc.HasValue
+                        && evidence.OccurredUtc.Value <= incident.MitigatedUtc.Value)
+                    {
+                        return false;
+                    }
+
                     return await UpdateIncidentAsync(auth, incident, IncidentStatusEnum.Open, MaxSeverity(incident.Severity, IncidentSeverityEnum.High), evidence.Note, "incident.lifecycle_reopened", token).ConfigureAwait(false);
+                }
 
                 if (incident.Severity != MaxSeverity(incident.Severity, IncidentSeverityEnum.High)
                     || !ContainsNote(incident.RecoveryNotes, evidence.Note))
@@ -225,7 +238,7 @@ namespace Armada.Server
                     return IncidentEvidence.Superseded("Stale check incident superseded by later same-vessel passing check: " + superseding.Id + ".");
                 }
 
-                return IncidentEvidence.ActiveFailure("Latest matching check is " + latest.Status + ": " + latest.Id + ".");
+                return IncidentEvidence.ActiveFailure("Latest matching check is " + latest.Status + ": " + latest.Id + ".", CheckSortTime(latest));
             }
 
             return IncidentEvidence.ActiveWork("Matching check is still " + latest.Status + ": " + latest.Id + ".");
@@ -246,7 +259,7 @@ namespace Armada.Server
                     || deployment.VerificationStatus == DeploymentVerificationStatusEnum.Skipped))
                 return IncidentEvidence.Mitigated("Deployment succeeded with verification status " + deployment.VerificationStatus + ": " + deployment.Id + ".");
             if (deployment.Status == DeploymentStatusEnum.Failed || deployment.Status == DeploymentStatusEnum.VerificationFailed)
-                return IncidentEvidence.ActiveFailure("Deployment remains " + deployment.Status + ": " + deployment.Id + ".");
+                return IncidentEvidence.ActiveFailure("Deployment remains " + deployment.Status + ": " + deployment.Id + ".", deployment.CompletedUtc ?? deployment.LastUpdateUtc);
 
             return IncidentEvidence.ActiveWork("Deployment is still " + deployment.Status + ": " + deployment.Id + ".");
         }
@@ -264,7 +277,7 @@ namespace Armada.Server
             if (release.Status == ReleaseStatusEnum.Shipped)
                 return IncidentEvidence.Mitigated("Release shipped: " + release.Id + ".");
             if (release.Status == ReleaseStatusEnum.Failed)
-                return IncidentEvidence.ActiveFailure("Release remains failed: " + release.Id + ".");
+                return IncidentEvidence.ActiveFailure("Release remains failed: " + release.Id + ".", release.LastUpdateUtc);
 
             return IncidentEvidence.None;
         }
@@ -302,14 +315,14 @@ namespace Armada.Server
                 .FirstOrDefault();
 
             if (latestRescue == null)
-                return IncidentEvidence.ActiveFailure("Linked mission remains " + mission.Status + ": " + mission.Id + ".");
+                return IncidentEvidence.ActiveFailure("Linked mission remains " + mission.Status + ": " + mission.Id + ".", mission.CompletedUtc ?? mission.LastUpdateUtc);
             if (latestRescue.Status == MissionStatusEnum.Complete)
                 return IncidentEvidence.Mitigated("Autonomous rescue mission completed: " + latestRescue.Id + ".");
             if (latestRescue.Status == MissionStatusEnum.Cancelled)
                 return IncidentEvidence.Superseded("Autonomous rescue mission was cancelled and the incident is superseded: " + latestRescue.Id + ".");
             if (latestRescue.Status == MissionStatusEnum.Failed
                 || latestRescue.Status == MissionStatusEnum.LandingFailed)
-                return IncidentEvidence.ActiveFailure("Latest rescue mission is " + latestRescue.Status + ": " + latestRescue.Id + ".");
+                return IncidentEvidence.ActiveFailure("Latest rescue mission is " + latestRescue.Status + ": " + latestRescue.Id + ".", latestRescue.CompletedUtc ?? latestRescue.LastUpdateUtc);
 
             return IncidentEvidence.ActiveWork("Latest rescue mission is still " + latestRescue.Status + ": " + latestRescue.Id + ".");
         }
@@ -563,16 +576,18 @@ namespace Armada.Server
         {
             public IncidentEvidenceKind Kind { get; }
             public string Note { get; }
+            public DateTime? OccurredUtc { get; }
 
-            private IncidentEvidence(IncidentEvidenceKind kind, string note)
+            private IncidentEvidence(IncidentEvidenceKind kind, string note, DateTime? occurredUtc = null)
             {
                 Kind = kind;
                 Note = note;
+                OccurredUtc = occurredUtc;
             }
 
             public static IncidentEvidence None => new IncidentEvidence(IncidentEvidenceKind.None, String.Empty);
             public static IncidentEvidence ActiveWork(string note) => new IncidentEvidence(IncidentEvidenceKind.ActiveWork, note);
-            public static IncidentEvidence ActiveFailure(string note) => new IncidentEvidence(IncidentEvidenceKind.ActiveFailure, note);
+            public static IncidentEvidence ActiveFailure(string note, DateTime? occurredUtc = null) => new IncidentEvidence(IncidentEvidenceKind.ActiveFailure, note, occurredUtc);
             public static IncidentEvidence Mitigated(string note) => new IncidentEvidence(IncidentEvidenceKind.Mitigated, note);
             public static IncidentEvidence RolledBack(string note) => new IncidentEvidence(IncidentEvidenceKind.RolledBack, note);
             public static IncidentEvidence Superseded(string note) => new IncidentEvidence(IncidentEvidenceKind.Superseded, note);

@@ -31,6 +31,14 @@ Armada records are the source of truth for work and delivery state.
 Do not use mission prose as a replacement for these records. Do not treat a
 captain report as proof. Run the command or query that proves the result.
 
+## Selective upstream integration
+
+Use [the upstream integration review](upstream-review/README.md) for the fixed
+comparison, decisions, preservation requirements and validation gates. The
+review describes planned work, not deployed features. Keep current objectives
+and delivery state in Armada. Armada platform work uses direct edits; the
+review campaign must not dispatch voyages, missions or planning captains.
+
 ## 2. Available Features And Active Policy
 
 The repository contains features that an operator can disable. Documentation
@@ -126,8 +134,8 @@ pipeline, model tier, landing mode, protected paths, and workflow profile.
 Read the coordination board before you dispatch or touch incidents
 (`armada_coordination_read`). Post a claim note before you start
 (`armada_coordination_post`) so a concurrent operator session does not dispatch
-the same work or rescue the same incident twice. The board is advisory context;
-it never injects into captain briefs. See 8.9 for the tool list.
+the same work or rescue the same incident twice. General board notes are advisory. Voyage-tagged notes can enter the next
+stage brief when the database provider supports that lookup. See 8.9 for the tool list.
 
 If code indexing is enabled, use `armada_index_status` before index-dependent
 work. If it is disabled, use checkout search and set `codeContextMode` to
@@ -332,13 +340,15 @@ captain carries that exact model, Armada classifies the model into a tier and
 picks a peer. Verify the assignment after dispatch when the pin matters;
 benching is never required to pin a model.
 
-#### Read-only dispatches stay single-stage
+#### Read-only pipeline resolution
 
-When every mission in a dispatch is `Audit` or `Research` mode and no pipeline
-is requested, the vessel or fleet default pipeline is ignored and the voyage
-dispatches single-stage. A read-only probe must not silently inherit a
-multi-stage default (a four-mission diagnostic once expanded to sixteen
-missions). An explicitly requested pipeline is always honored.
+An explicit pipeline keeps all declared stages for Audit and Research. Mode
+controls the deliverable and Check requirements; it does not trim that graph.
+The core dispatch fallback is different: when all missions are read-only and
+no pipeline ID reaches the core resolver, it skips vessel/fleet defaults and
+uses a single stage. Link the objective and its selected pipeline through the
+shared dispatch path, and inspect preview before dispatch. Do not infer the
+pipeline from mission mode alone.
 
 ### Stage handoff is verified, not assumed
 
@@ -821,10 +831,18 @@ owners for one participant key and can duplicate work. Use one model:
 One process owns one participant key. OpenCode AgentWake sessions are always
 fresh, so the addressed note must contain the complete task and the bootstrap
 prompt must tell the session to reconstruct context from the board and durable
-memory. The reusable lead prompt is
-`docs/autonomy/lead-bootstrap-prompt.md`.
+memory. Each wake must carry the task and its limits.
 
 ## 5. Recovery And Incident Workflow
+
+Objective closeout evaluates each failed chain in an original voyage. Every
+independent `Failed` or `LandingFailed` chain root needs a linked automatic
+rescue whose missions all reached `Complete`. A completed rescue for one branch
+does not cover a separate failed branch. Failed rescue attempts stay as history
+and do not become new closeout obligations; a later completed attempt can
+resolve the original failure. A missing linked voyage, a malformed mission
+graph, unlanded work, or a cancelled-only original voyage keeps the objective
+open.
 
 When autonomous recovery is enabled, Armada classifies failed missions,
 creates or updates an incident, records a recovery runbook execution, and can
@@ -854,6 +872,11 @@ Use this order for manual diagnosis:
 5. Create or update the incident before repeated intervention.
 6. Cancel only the exact mission or voyage that must stop.
 7. Restart or retry only after the cause is understood.
+
+A mitigation acknowledges failure evidence at or before its recorded time.
+Lifecycle reconciliation does not reopen a mitigated or monitoring incident
+from that same old failure when both timestamps are available. A newer failure
+can reopen it.
 
 Incident closure is evidence-driven. Produce a newer passing check, successful
 rescue, shipped release, verified deployment, or completed rollback. Do not
@@ -958,6 +981,19 @@ profile, environment, template, backup, and server-stop tools as administrator
 surfaces. Read the existing record first. Use
 `armada_audit_operational_assets` before and after asset changes. Validate
 provider models with a live provider call before putting them in a tier.
+
+### Runtime MCP startup
+
+**Cursor captains need `--approve-mcps`.** cursor-agent discovers a workspace
+`.cursor/mcp.json` but leaves its servers "not loaded (needs approval)" in a
+non-interactive `--print` run; `--trust` covers the workspace only. The runtime
+passes `--approve-mcps` so the dock's Armada server loads. Proof is a Research
+smoke mission whose report lists the Armada server by name; the file on disk
+proves nothing by itself.
+
+**Send Claude prompts on stdin.** `claude --mcp-config` accepts multiple
+values. A positional prompt after it can be read as another config path.
+OpenCode accepts the prompt as its `run` argument.
 
 ### Per-captain provider credentials
 
@@ -1090,6 +1126,14 @@ shows only critical items).
 | Interrupt | `armada_stop_captain`, `armada_stop_all` |
 | Destructive | `armada_delete_captain`, `armada_delete_captains` |
 
+Captain Detail already has **Lift Quarantine** through
+`POST /api/v1/captains/{id}/unquarantine`. Manual timed or indefinite holds use
+MCP `armada_bench_captain`; release uses `armada_unbench_captain`. The current
+REST release writes state directly, while MCP uses the quarantine service.
+Shared service wiring and list actions are tracked integration work. Do not
+assume that a manual bench safely stops an active process: verify and reconcile
+active mission/process ownership before changing its hold.
+
 ### 8.4 Voyages And Missions
 
 | Risk | Tools |
@@ -1146,8 +1190,8 @@ a shared lane. These event requests bypass the interval but coalesce burst
 traffic. The periodic health-loop sweep remains the recovery path for missed
 events. `armada_objective_scheduler_status` reports the process-local
 `eventTriggeredSweepCount`.
-See `docs/SCHEDULING.md` for eligibility and ordering, and section 4.11 for the
-separate optional lead-cycle layer.
+See `docs/SCHEDULING.md` for eligibility and ordering. Operators maintain
+campaign quality and handle work outside the scheduler.
 
 ### 8.7 Checks
 
@@ -1201,10 +1245,14 @@ for the complete record, or `outputTailLines` to widen the tail.
 
 #### Coordination Board (Chatroom)
 
+Every coordination tool resolves a blank room key, `fleet`, and the literal
+word `default` to the one shared room (`CoordinationRoom.NormalizeKey`). These
+aliases must not create separate boards or hide notes from other sessions.
+
 The coordination board is a shared room where concurrent operator sessions and
 the dashboard post short notes about what they are doing, so no session is
-surprised by a voyage another session dispatched. Unlike signals, notes reach
-every reader immediately; they are never injected into captain briefs.
+surprised by a voyage another session dispatched. Notes are visible through board reads. General notes stay advisory;
+voyage-tagged notes can enter the next stage brief on supported providers.
 
 - `armada_coordination_post` — post a note. Claim work before you start it;
   report outcomes when you finish.
@@ -1316,173 +1364,18 @@ The watcher notifies and nothing more. It never reads, acknowledges, or consumes
 a wake, so the banner and `armada_mark_signal_read` remain the delivery and
 acknowledgement path.
 
-### 4.11 Autonomous lead cycles
+### Retired standalone lead integration
 
-The objective scheduler dispatches eligible objectives on its own. It does not
-land work, close incidents, refill campaign lanes, or answer a helper. That
-operator layer is `scripts/autonomy/lead-cycle.sh`, which runs ONE bounded pass
-and exits.
+The standalone lead scripts, systemd units, and Grok gateway are archived.
+The server no longer consumes `grokLead` settings or exposes the restricted
+Grok listener, OAuth proof-of-concept broker, lead-cycle MCP tools, or
+lead-control REST routes. See the [retirement archive](archive/autonomous-lead/README.md).
 
-Objective closeout evaluates each failed chain in an original voyage. Every
-independent `Failed` or `LandingFailed` chain root needs a linked automatic
-rescue whose missions all reached `Complete`. A completed rescue for one branch
-does not cover a separate failed branch. Failed rescue attempts stay as history
-and do not become new closeout obligations; a later completed attempt can
-resolve the original failure. A missing linked voyage, a malformed mission
-graph, unlanded work, or a cancelled-only original voyage keeps the objective
-open.
-
-```sh
-scripts/autonomy/lead-cycle.sh run      # one cycle now; refuses if one is running
-scripts/autonomy/lead-cycle.sh status   # running? and the last result
-scripts/autonomy/lead-cycle.sh kill     # stop the running cycle
-```
-
-Two things start a cycle, and they are complementary:
-
-- **The timer**, `scripts/autonomy/systemd/armada-lead-cycle.timer`, every hour.
-  This catches work that arrives quietly, such as new objectives added while the
-  fleet was idle and no event fired.
-- **AgentWake**, when a mission outcome or a note addressed to the lead's key
-  arrives. Set `remoteTrigger.agentWake.command` to
-  `scripts/autonomy/lead-wake.sh`. That shim exists because Armada starts the
-  configured command with the runtime's own flags in argv, including
-  `--strict-mcp-config` with no `--mcp-config` -- which would give the woken
-  process zero Armada tools -- and `--continue`, which resumes an unrelated
-  session. The shim ignores argv, keeps only the wake text from stdin, and hands
-  it to `lead-cycle.sh`.
-
-`lead-cycle.sh` is single-flight. A timer tick arriving while a wake-started
-cycle is running is refused, not queued, so one participant key never gets two
-process owners.
-
-**The lead runs only when nobody is watching.** `armada_lead_cycle_begin`
-refuses with `operator-present: <keys> seen within N minutes` while any board
-participant other than the lead itself (or a `helper-*` it started) has
-heartbeated within `grokLead.operatorPresenceMinutes` (default 30; 0 disables
-the gate). An interactive session, a dashboard viewer, and an Armada helper
-session all count as an operator. The launcher records the refusal as
-`skipped server-lease-refused` and exits, so a cycle that finds an operator
-present costs one tool call. Measured before the gate: 131 cycles in 24 hours
-while an operator session was live, 93% of their tool calls reads, and every
-landing, closure and dispatch that mattered made by the operator.
-
-Prefer `remoteTrigger.agentWake.deliveryMode = StoredWake` for the lead: a
-directed note or mission outcome then waits on the board for the next timed
-cycle instead of starting one. Process delivery (`Both`) started four cycles
-for every timer tick and most of them re-triaged work an operator had already
-closed.
-
-**Cursor captains need `--approve-mcps`.** cursor-agent discovers a workspace
-`.cursor/mcp.json` but leaves its servers "not loaded (needs approval)" in a
-non-interactive `--print` run; `--trust` covers the workspace only. The runtime
-passes `--approve-mcps` so the dock's Armada server loads. Proof is a Research
-smoke mission whose report lists the Armada server by name; the file on disk
-proves nothing by itself.
-
-**One board, whatever the key says.** Every coordination tool resolves a blank
-room key, `fleet`, and the literal word `default` to the one shared room
-(`CoordinationRoom.NormalizeKey`). A client that reads "omit for the default
-room" and sends the word `default` no longer creates a second room, which
-split the board in two and hid the lead's handoffs from the completion gate.
-
-The launcher also acquires Armada's durable `autonomy:lead-cycle` lease. This
-prevents overlap with an external Grok lead. The systemd service requests
-standby fallback. In `GrokPrimary` mode, Armada refuses that request until the
-configured Grok inactivity period expires. The default is 130 minutes. In
-`LegacyPrimary` mode, the existing lead runs normally.
-
-The timer checks fallback eligibility once per hour. Therefore, a timer-only
-fallback can start after the 130-minute threshold, not exactly at that time.
-An AgentWake start uses the same shared check.
-
-The Grok listener and its shared cycle controls are disabled by default. See
-[Grok Bot Lead Integration](autonomy/grok-bot-lead.md) before you enable them.
-
-The shared lifecycle tools are:
-
-- `armada_lead_cycle_status` reads the current mode and lease;
-- `armada_lead_cycle_begin` requests one bounded cycle;
-- `armada_lead_cycle_heartbeat` renews the active lease;
-- `armada_lead_cycle_complete` verifies that every claim is released, posts the
-  handoff to the shared board itself when the lead has not already posted the
-  same text, records completion, and releases the lease. It never refuses on a
-  wording or room mismatch: that refusal made the lead re-post and retry until
-  one copy matched, which is where duplicate handoff notes came from. The lead
-  passes its handoff to this tool and posts nothing itself;
-- `armada_lead_cycle_fail` records an early stop or failure and releases the
-  lease.
-
-The timer and AgentWake must use the same state directory. The default is
-`$HOME/.armada/autonomy-lead`. The Admiral container can write this bind mount,
-and the host timer can read the same lock and log files. Do not use
-`$HOME/autonomy-lead`: that host path is not mounted in the Admiral container,
-so an AgentWake process cannot create it.
-
-**Give the lead its own participant key.** `armada-lead` by default, and never an
-interactive operator's key. Two process owners on one key duplicate dispatch and
-cannot be told apart on the board.
-
-An unattended cycle cannot ask a question. The prompt tells it to post an owner
-decision to the board as a named item and carry on, rather than block. Read those
-on your next session; they are the cycle's questions to you.
-
-**Leave the timer running across a redeploy.** A tick that lands while the Admiral
-is rebuilding preflights the MCP endpoint, records `admiral-unreachable`, and
-exits without starting a cycle. Stopping the timer for a deploy needs somebody to
-start it again afterwards, and that step gets missed: the lead sat idle for an
-hour because a redeploy left it stopped. The skip is what makes the manual step
-unnecessary. Stop it deliberately with `lead-cycle.sh kill`, or by disabling the
-timer, and say so on the board because nothing else will notice.
-
-**The timer is wall-clock and persistent.** `OnCalendar=hourly` with
-`Persistent=true`, so the next run does not depend on the unit's activation
-history, and a tick missed while the host was down runs at the next start. An
-earlier monotonic schedule carried `Persistent=true` where it has no effect, so a
-missed run was silently never caught up.
-
-**The model is pinned.** The default runtime is Claude Code. It uses
-`claude-fable-5` through the same Anthropic-compatible Vilao route as the Fable
-judge captains. Claude Code and the provider control prompt caching for this
-route.
-
-Before you install the service, create the provider key file:
-
-```sh
-install -o armada -g armada -d -m 700 /home/armada/.armada/secrets
-install -o armada -g armada -m 600 <secure-vilao-key-source> \
-  /home/armada/.armada/secrets/autonomy-lead-vilao.key
-```
-
-The key file must contain only the Vilao API key. Do not put the key in the unit,
-the repository, or the generated event log. The Claude Code launcher reads the
-file and removes an inherited `ANTHROPIC_AUTH_TOKEN` before it starts.
-
-**Each cycle leaves two files** under the lead's log directory:
-`cycle-<stamp>.jsonl`, the whole event stream, and `cycle-<stamp>.log`, a rendered
-digest of it. Read the digest; it lists what the cycle said, every tool it called,
-whether each call worked, and how the run ended. A stream with no result event is
-reported as `INCOMPLETE`, which is what a timeout looks like. `--print` alone emits
-only the closing paragraph, which is how one eight-minute cycle left a 73-byte log
-claiming it had nothing to report.
-
-**The default cap is 30 minutes.** The prompt tells the cycle to reserve the last
-three for its handoff and cleanup. Raise it with `AUTONOMY_LEAD_TIMEOUT_MIN`, and
-keep the systemd unit's `TimeoutStartSec` above it as the outer backstop.
-
-**The permission policy is the real boundary.** A headless run has nobody to
-answer a permission prompt, so `lead-cycle.sh` writes the runtime policy before
-it starts the model. It allows the primary agent to use Armada and ordinary file
-and shell tools. It denies fleet-destructive and purge tools, deployment and
-release tools, check resolution, the fleet-wide dispatch hold, AgentWake
-registration, force push, Docker Compose, and systemd. Deny wins over allow. The
-optional OpenCode agents have an additional read-only policy. Widen the policy
-only for a named need.
-
-**Send the Claude prompt on stdin.** `claude --mcp-config` is variadic,
-so a positional prompt after it is consumed as a second config path and the run
-dies with `MCP config file not found: <the entire prompt>`. OpenCode accepts the
-prompt as its `run` argument.
+Before updating an existing deployment, remove the disabled lead service and
+timer, Grok gateway, its credentials and listener configuration, and the
+lead-specific AgentWake target. Preserve generic AgentWake for other clients.
+The scheduler, coordination board, bounded helpers, watcher, and log renderer
+remain supported. Operators now perform lead work in authorized sessions.
 
 ### 8.10 Incidents
 

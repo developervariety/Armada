@@ -13,8 +13,11 @@ It coordinates AI coding agents ("captains") to work on tasks ("missions")
 across git repositories ("vessels"). It exposes MCP tools for fleet, vessel,
 captain, mission, voyage, dock, signal, and merge-queue management.
 
-**Armada MCP tools are an operator surface and reach no captain.** When you use
-them as an operator, prefer `armada_enumerate` with a small `pageSize` (10-25),
+**Armada MCP includes operator-control tools.** Supported captains receive a
+launch-configured connection. The endpoint has no per-captain authorization
+boundary. Captains may use only the tools authorized by their mission.
+Dispatch, administration, deployment, restore, purge and server control remain
+operator actions unless explicitly assigned. As an operator, prefer `armada_enumerate` with a small `pageSize` (10-25),
 narrow with filters (`vesselId`, `status`, date ranges), and set the include
 flags (`includeDescription`, `includeContext`, `includeTestOutput`,
 `includePayload`, `includeMessage`) only when you need that data.
@@ -46,9 +49,9 @@ dotnet build src/Armada.sln
 ## Test
 
 ```bash
-dotnet run --project test/Armada.Test.Automated --framework net10.0
-dotnet run --project test/Armada.Test.Unit --framework net10.0
-dotnet run --project test/Armada.Test.Runtimes --framework net10.0
+dotnet run --project test/Armada.Test.Automated/Test.Automated.csproj --framework net10.0
+dotnet run --project test/Armada.Test.Unit/Test.Unit.csproj --framework net10.0
+dotnet run --project test/Armada.Test.Runtimes/Armada.Test.Runtimes.csproj --framework net10.0
 ```
 
 Armada's own tests run through `dotnet run --project`, not `dotnet test`. Every

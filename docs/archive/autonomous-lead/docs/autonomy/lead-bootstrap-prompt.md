@@ -1,3 +1,5 @@
+> Archived: retired integration. Do not use these instructions. See [archive status](../../README.md).
+
 # Autonomous Lead Bootstrap Prompt
 
 Use this prompt for one fresh lead cycle on the admiral host. The built-in
