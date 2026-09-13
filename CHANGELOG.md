@@ -30,6 +30,29 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   are redacted and bounded; Failed status with exit code zero is not Passed.
   Existing execution gates retain authority.
 
+### Recorder stage in the ProductDevelopment pipeline
+
+- The built-in `ProductDevelopment` pipeline now ends with a `Recorder` stage, so
+  finished product work distils its durable findings into native captain memory.
+  The stage runs at the `mid` tier so it never competes for the scarce high-tier
+  specialist and Judge captains, and it produces no commit by design.
+- The no-op completion gate and the ineffective-rescue gate now exempt the
+  `Recorder` persona the same way they exempt the `Architect`: a persona whose
+  deliverable is not a repository diff is not read as a false-complete. The
+  `Recorder` also runs detached, like the reviewer personas, because it reads the
+  finished work and commits nothing. Only the `ProductDevelopment` pipeline gains
+  the stage; no other built-in pipeline changes.
+
+### Retired three unused specialist pipelines
+
+- Retired the `FrontendWorkflowTested`, `MigrationDataTested`, and
+  `PerformanceMemoryTested` pipelines, which had no vessel default and no use. The
+  fleet routing example and the routing fixture no longer define them, so they are
+  no longer created or reconciled. Their reviewer personas and prompt templates
+  stay defined, so an operator can still compose an ad-hoc pipeline from them.
+  Existing pipeline rows in a live database are operator data and are retired
+  separately.
+
 ### Consumer test gate on behavior-breaking waves
 
 - The definition-of-done gate now RUNS a declared consumer's unit-test suite,

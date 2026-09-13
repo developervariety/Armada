@@ -206,14 +206,15 @@ namespace Test.Shared.Infrastructure
         /// <returns>The six specialist-tested pipelines that used to be seeded in code.</returns>
         public static List<AdditionalPipelineSettings> CreateAdditionalPipelines()
         {
+            // FrontendWorkflowTested, MigrationDataTested, and PerformanceMemoryTested were retired
+            // by owner decision: they had no vessel default and no use. Their reviewer personas and
+            // prompt templates stay defined, so an operator may still compose an ad-hoc pipeline
+            // from them, but no built-in pipeline seeds them.
             return new List<AdditionalPipelineSettings>
             {
                 SpecialistTestedPipeline("DiagnosticProtocolTested", "Worker then DiagnosticProtocolReviewer then TestEngineer then Judge.", "DiagnosticProtocolReviewer"),
                 SpecialistTestedPipeline("TenantSecurityTested", "Worker then TenantSecurityReviewer then TestEngineer then Judge.", "TenantSecurityReviewer"),
-                SpecialistTestedPipeline("MigrationDataTested", "Worker then MigrationDataReviewer then TestEngineer then Judge.", "MigrationDataReviewer"),
-                SpecialistTestedPipeline("PerformanceMemoryTested", "Worker then PerformanceMemoryReviewer then TestEngineer then Judge.", "PerformanceMemoryReviewer"),
-                SpecialistTestedPipeline("ReferencePortingTested", "Worker then PortingReferenceAnalyst then TestEngineer then Judge.", "PortingReferenceAnalyst"),
-                SpecialistTestedPipeline("FrontendWorkflowTested", "Worker then FrontendWorkflowReviewer then TestEngineer then Judge.", "FrontendWorkflowReviewer")
+                SpecialistTestedPipeline("ReferencePortingTested", "Worker then PortingReferenceAnalyst then TestEngineer then Judge.", "PortingReferenceAnalyst")
             };
         }
 

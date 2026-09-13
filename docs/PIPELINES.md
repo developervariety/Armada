@@ -21,13 +21,10 @@ concurrently.
 | `Reviewed` | Worker, Judge |
 | `Tested` | Worker, TestEngineer, Judge |
 | `FullPipeline` | Architect, Worker, TestEngineer, Judge |
-| `ProductDevelopment` | Product Manager, Architect, Worker, Usability Engineer, TestEngineer, Judge |
+| `ProductDevelopment` | Product Manager, Architect, Worker, Usability Engineer, TestEngineer, Judge, Recorder |
 | `DiagnosticProtocolTested` | Worker, DiagnosticProtocolReviewer, TestEngineer, Judge |
 | `TenantSecurityTested` | Worker, TenantSecurityReviewer, TestEngineer, Judge |
-| `MigrationDataTested` | Worker, MigrationDataReviewer, TestEngineer, Judge |
-| `PerformanceMemoryTested` | Worker, PerformanceMemoryReviewer, TestEngineer, Judge |
 | `ReferencePortingTested` | Worker, PortingReferenceAnalyst, TestEngineer, Judge |
-| `FrontendWorkflowTested` | Worker, FrontendWorkflowReviewer, TestEngineer, Judge |
 | `Recorded` | Worker, Recorder |
 
 The startup seed service creates or reconciles these definitions. Built-in

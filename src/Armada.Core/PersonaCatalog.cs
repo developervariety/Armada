@@ -82,6 +82,21 @@ namespace Armada.Core
         }
 
         /// <summary>
+        /// Whether a persona's successful completion legitimately produces no repository commit and
+        /// can finish quickly, so the no-op completion gate must not read its empty diff as a
+        /// false-complete. The Architect delivers a downstream mission plan; the Recorder writes
+        /// native memory. Both deliver their result outside the repository diff, so an empty diff is
+        /// their normal outcome whatever the voyage mission mode. Reviewer personas are judged by
+        /// their own output instead and are deliberately not listed here.
+        /// </summary>
+        /// <param name="persona">Persona name.</param>
+        /// <returns>True when an empty diff is a legitimate completion for this persona.</returns>
+        public static bool IsNoOpCompletionExempt(string? persona)
+        {
+            return Matches(persona, Architect) || Matches(persona, Recorder);
+        }
+
+        /// <summary>
         /// Replace legacy built-in persona references in free-form text.
         /// </summary>
         /// <param name="value">Input text.</param>

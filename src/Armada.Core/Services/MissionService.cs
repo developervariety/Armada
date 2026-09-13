@@ -1437,9 +1437,10 @@ namespace Armada.Core.Services
         {
             if (mission == null) return false;
 
-            // Architect decomposition missions legitimately produce no code diff while
-            // still producing a downstream mission plan; they are always exempt.
-            if (String.Equals(mission.Persona, "Architect", StringComparison.OrdinalIgnoreCase)) return false;
+            // A persona whose deliverable is not a repository commit is always exempt: the
+            // Architect produces a downstream mission plan and the Recorder writes native memory,
+            // so each legitimately ends with an empty diff whatever the voyage mission mode.
+            if (PersonaCatalog.IsNoOpCompletionExempt(mission.Persona)) return false;
 
             // A real captain writes a result line and an AgentOutput body. A unit-test
             // stub does not set AgentOutput at all. The presence of an AgentOutput is
@@ -1660,7 +1661,8 @@ namespace Armada.Core.Services
             // have been dispatched to write docs; a RESCUE was dispatched against a named defect,
             // so a change set that cannot carry behavior is evidence on its own.
             bool failedForIneffectiveRescue = false;
-            if (!failedForScopeViolation && !failedForNoOpCompletion && RescueMissionMarker.IsAutoRescue(mission))
+            if (!failedForScopeViolation && !failedForNoOpCompletion && RescueMissionMarker.IsAutoRescue(mission)
+                && !PersonaCatalog.IsNoOpCompletionExempt(mission.Persona))
             {
                 IReadOnlyList<string> changedPaths = DiffPathExtractor.ExtractChangedPaths(mission.DiffSnapshot);
                 Objective? rescuedObjective = await FindLinkedObjectiveAsync(mission, token).ConfigureAwait(false);
@@ -3683,8 +3685,9 @@ namespace Armada.Core.Services
         /// work there. Git allows only one worktree per branch, so an attached stage that provisions
         /// while an earlier stage still holds the branch fails with exit 128 -- the collision behind
         /// the downstream-persona dock race. Personas that only read (Judge, Architect, the specialist
-        /// reviewers) can run detached at the same commit instead, which is also what lets same-stage
-        /// personas such as dual-Judge run concurrently.
+        /// reviewers, and the Recorder, which reads the finished work and writes only native memory)
+        /// can run detached at the same commit instead, which is also what lets same-stage personas
+        /// such as dual-Judge run concurrently.
         ///
         /// Unknown or blank personas default to attached: the worst case is today's behavior, whereas
         /// wrongly detaching a committing persona would orphan its commits.
@@ -3706,6 +3709,7 @@ namespace Armada.Core.Services
                 case "performancememoryreviewer":
                 case "portingreferenceanalyst":
                 case "frontendworkflowreviewer":
+                case "recorder":
                     return false;
                 default:
                     return true;

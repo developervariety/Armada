@@ -1632,8 +1632,7 @@ Two boundaries decide what belongs here:
 
 The MCP surface carries no per-request identity, so the memory tools act as an
 administrator of the default tenant: they reach every record of that tenant and
-no record of another tenant. The feature needs no setting, and it is independent
-of `learnedFactsEnabled`.
+no record of another tenant. The feature needs no setting.
 
 ### 8.24 The Recorder Persona
 
@@ -1643,14 +1642,19 @@ own editable prompt, and the built-in `Recorded` pipeline runs it after a Worker
 
 Three operator facts:
 
-- **No existing pipeline gains a Recorder stage.** Startup adds the persona and
-  the `Recorded` pipeline, and changes no other pipeline. Whether the Recorder
-  belongs at the end of `FullPipeline`, `Tested` or any other pipeline is an
-  owner decision, not a side effect of a deploy. A pipeline that already carries
-  the name `Recorded` is left exactly as it is.
-- **Run a Recorder stage in a report-only mission mode.** The Recorder writes
-  memory, not code, so it produces no commit. A mission mode that expects a
-  commit reads an empty diff as a captain that did nothing.
+- **Startup adds the Recorder only where an owner decision has placed it.** The
+  built-in `Recorded` pipeline runs it after a Worker, and the built-in
+  `ProductDevelopment` pipeline ends with it at the mid tier so it never competes
+  for the scarce high-tier captains. Startup adds it to no other pipeline: whether
+  the Recorder belongs at the end of `FullPipeline`, `Tested` or any other
+  pipeline is an owner decision, not a side effect of a deploy. A pipeline that
+  already carries the name `Recorded` is left exactly as it is.
+- **A Recorder stage produces no commit, and the completion gate knows it.** The
+  Recorder writes memory, not code, so its empty diff is its success shape. The
+  no-op completion and ineffective-rescue gates exempt the Recorder persona the
+  same way they exempt the Architect, so a Recorder stage is safe as the terminal
+  stage of an implementing pipeline such as `ProductDevelopment`, not only in a
+  fully report-only voyage.
 - **The Recorder never writes shared memory.** It writes native memory only, and
   hands anything that belongs in the shared external memory repository to the
   operator as a proposal in its summary.

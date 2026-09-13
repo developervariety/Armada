@@ -313,6 +313,27 @@ namespace Armada.Test.Unit.Suites.Services
                     "A Judge whose output ends before its verdict decided nothing, however much review text preceded it.");
             }).ConfigureAwait(false);
 
+            await RunTest("DetectNoOpCompletion_RecorderShortRuntimeEmptyDiff_ReturnsFalse", () =>
+            {
+                // The Recorder writes native memory, not code, so it produces no commit and can
+                // finish quickly. In a normal Implementation voyage (for example the ProductDevelopment
+                // pipeline's final stage) this is exactly the no-op signature -- short runtime, empty
+                // diff, tiny output, completion marker -- yet it is the Recorder's success shape and
+                // must not be failed as a false-complete.
+                Mission mission = new Mission
+                {
+                    Id = "msn_test_recorder",
+                    Persona = "Recorder",
+                    Mode = MissionModeEnum.Implementation,
+                    AgentOutput = "[ARMADA:RESULT] COMPLETE\nRecorded two durable findings.",
+                };
+                TimeSpan runtime = TimeSpan.FromSeconds(8);
+                bool detected = MissionService.DetectNoOpCompletion(mission, runtime, 0, 60, true, false);
+                AssertFalse(detected,
+                    "The Recorder's deliverable is a native-memory record, not a repository diff, so an empty diff " +
+                    "with a short run is its normal outcome and must be exempt like the Architect.");
+            }).ConfigureAwait(false);
+
             await RunTest("BuildNoOpCompletionFailureReason_ContainsRuntimeAndOutputLength", () =>
             {
                 Mission mission = new Mission

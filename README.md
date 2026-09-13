@@ -169,7 +169,7 @@ Built-in pipelines let work move through the right level of review:
 - `Reviewed`: Worker followed by Judge.
 - `Tested`: Worker, TestEngineer, then Judge.
 - `FullPipeline`: Architect, Worker, TestEngineer, then Judge.
-- `ProductDevelopment`: Product Manager, Architect, Worker, Usability Engineer, TestEngineer, then Judge.
+- `ProductDevelopment`: Product Manager, Architect, Worker, Usability Engineer, TestEngineer, Judge, then Recorder.
 - `Recorded`: Worker, then Recorder -- do the work, then record what is worth remembering.
 - Specialist-tested pipelines add a domain reviewer before tests and Judge.
 

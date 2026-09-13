@@ -89,41 +89,11 @@
       ]
     },
     {
-      "name": "MigrationDataTested",
-      "description": "Worker then MigrationDataReviewer then TestEngineer then Judge.",
-      "stages": [
-        { "order": 1, "personaName": "Worker" },
-        { "order": 2, "personaName": "MigrationDataReviewer", "preferredModel": "high" },
-        { "order": 3, "personaName": "TestEngineer" },
-        { "order": 4, "personaName": "Judge" }
-      ]
-    },
-    {
-      "name": "PerformanceMemoryTested",
-      "description": "Worker then PerformanceMemoryReviewer then TestEngineer then Judge.",
-      "stages": [
-        { "order": 1, "personaName": "Worker" },
-        { "order": 2, "personaName": "PerformanceMemoryReviewer", "preferredModel": "high" },
-        { "order": 3, "personaName": "TestEngineer" },
-        { "order": 4, "personaName": "Judge" }
-      ]
-    },
-    {
       "name": "ReferencePortingTested",
       "description": "Worker then PortingReferenceAnalyst then TestEngineer then Judge.",
       "stages": [
         { "order": 1, "personaName": "Worker" },
         { "order": 2, "personaName": "PortingReferenceAnalyst", "preferredModel": "high" },
-        { "order": 3, "personaName": "TestEngineer" },
-        { "order": 4, "personaName": "Judge" }
-      ]
-    },
-    {
-      "name": "FrontendWorkflowTested",
-      "description": "Worker then FrontendWorkflowReviewer then TestEngineer then Judge.",
-      "stages": [
-        { "order": 1, "personaName": "Worker" },
-        { "order": 2, "personaName": "FrontendWorkflowReviewer", "preferredModel": "high" },
         { "order": 3, "personaName": "TestEngineer" },
         { "order": 4, "personaName": "Judge" }
       ]

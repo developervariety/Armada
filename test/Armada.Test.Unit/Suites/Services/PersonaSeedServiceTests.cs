@@ -90,7 +90,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertPipelineStages(
                         pipeline,
-                        new List<string> { "Product Manager", "Architect", "Worker", "Usability Engineer", "TestEngineer", "Judge" },
+                        new List<string> { "Product Manager", "Architect", "Worker", "Usability Engineer", "TestEngineer", "Judge", "Recorder" },
                         "ProductDevelopment");
 
                     List<PipelineStage> ordered = pipeline.Stages.OrderBy(s => s.Order).ToList();
@@ -98,6 +98,8 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("high", ordered[1].PreferredModel, "Architect should prefer high tier");
                     AssertEqual("high", ordered[3].PreferredModel, "Usability Engineer should prefer high tier");
                     AssertEqual("high", ordered[5].PreferredModel, "Judge should prefer high tier");
+                    AssertEqual("Recorder", ordered[6].PersonaName, "The final stage should be the Recorder");
+                    AssertEqual("mid", ordered[6].PreferredModel, "The Recorder should run at mid tier so it never competes for high-tier captains");
                 }
             });
 
@@ -134,7 +136,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("Usability Engineer", pipeline!.Description ?? "", "Pipeline description should be canonical");
                     AssertPipelineStages(
                         pipeline,
-                        new List<string> { "Product Manager", "Architect", "Worker", "Usability Engineer", "TestEngineer", "Judge" },
+                        new List<string> { "Product Manager", "Architect", "Worker", "Usability Engineer", "TestEngineer", "Judge", "Recorder" },
                         "ProductDevelopment");
                 }
             });
@@ -253,7 +255,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Seed adds no Recorder stage to any other pipeline", async () =>
+            await RunTest("Seed adds a Recorder stage only to the Recorded and ProductDevelopment pipelines", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -267,9 +269,10 @@ namespace Armada.Test.Unit.Suites.Services
                     foreach (Pipeline pipeline in pipelines)
                     {
                         if (String.Equals(pipeline.Name, "Recorded", StringComparison.Ordinal)) continue;
+                        if (String.Equals(pipeline.Name, "ProductDevelopment", StringComparison.Ordinal)) continue;
                         foreach (PipelineStage stage in pipeline.Stages)
                             AssertFalse(PersonaCatalog.Matches(stage.PersonaName, PersonaCatalog.Recorder),
-                                "Only the Recorded pipeline carries a Recorder stage, not " + pipeline.Name);
+                                "Only the Recorded and ProductDevelopment pipelines carry a Recorder stage, not " + pipeline.Name);
                     }
 
                     Pipeline? beforeSecondSeed = await testDb.Driver.Pipelines.ReadByNameAsync("FullPipeline").ConfigureAwait(false);
@@ -328,6 +331,54 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("custom-high", ordered[1].PreferredModel, "Custom stage 2 preferred model");
                 }
             });
+
+            await RunTest("Seed does not create the retired specialist pipelines", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    // Even with the full fleet fixture supplied, the three retired pipelines are no
+                    // longer part of it, so seeding must not create them. The kept specialist
+                    // pipelines still seed.
+                    PersonaSeedService service = NewFleetService(testDb);
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    foreach (string retired in new[] { "FrontendWorkflowTested", "MigrationDataTested", "PerformanceMemoryTested" })
+                    {
+                        Pipeline? gone = await testDb.Driver.Pipelines.ReadByNameAsync(retired).ConfigureAwait(false);
+                        AssertNull(gone, "Retired pipeline must not be seeded: " + retired);
+                    }
+
+                    foreach (string kept in new[] { "DiagnosticProtocolTested", "TenantSecurityTested", "ReferencePortingTested" })
+                    {
+                        Pipeline? present = await testDb.Driver.Pipelines.ReadByNameAsync(kept).ConfigureAwait(false);
+                        AssertNotNull(present, "Kept specialist pipeline must still be seeded: " + kept);
+                    }
+                }
+            });
+
+            await RunTest("Seed does not duplicate the ProductDevelopment Recorder stage on a repeat seed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Pipeline? pipeline = await testDb.Driver.Pipelines.ReadByNameAsync("ProductDevelopment").ConfigureAwait(false);
+                    AssertNotNull(pipeline, "ProductDevelopment pipeline should exist after a repeat seed");
+                    AssertEqual(7, pipeline!.Stages.Count, "A repeat seed must not add a second Recorder stage");
+
+                    int recorderStages = 0;
+                    foreach (PipelineStage stage in pipeline.Stages)
+                        if (PersonaCatalog.Matches(stage.PersonaName, PersonaCatalog.Recorder)) recorderStages++;
+                    AssertEqual(1, recorderStages, "ProductDevelopment carries exactly one Recorder stage");
+
+                    PipelineStage last = pipeline.Stages.OrderBy(s => s.Order).ToList()[6];
+                    AssertTrue(PersonaCatalog.Matches(last.PersonaName, PersonaCatalog.Recorder), "The last stage is the Recorder");
+                    AssertEqual("mid", last.PreferredModel, "The Recorder stays at mid tier after reconciliation");
+                }
+            });
+
         }
 
         private static LoggingModule CreateLogging()
@@ -365,10 +416,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 { "DiagnosticProtocolTested", "DiagnosticProtocolReviewer" },
                 { "TenantSecurityTested", "TenantSecurityReviewer" },
-                { "MigrationDataTested", "MigrationDataReviewer" },
-                { "PerformanceMemoryTested", "PerformanceMemoryReviewer" },
-                { "ReferencePortingTested", "PortingReferenceAnalyst" },
-                { "FrontendWorkflowTested", "FrontendWorkflowReviewer" }
+                { "ReferencePortingTested", "PortingReferenceAnalyst" }
             };
         }
 
