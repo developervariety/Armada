@@ -4468,4 +4468,3 @@ credential references, reserve behavior, and Dashboard controls. The settings
 REST API exposes `providerUsage`; `POST /api/v1/settings/usage-preview` previews
 an optional draft policy with settings write permission. No new MCP tool is
 required. Policy updates use `PUT /api/v1/settings` and hot-reload.
-
