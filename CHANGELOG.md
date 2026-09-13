@@ -116,6 +116,15 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   read `integration_merge_failed:` with git's message, instead of the generic
   "Integration worktree merge failed".
 
+### Historical PostgreSQL upgrade repair
+
+- Convert the known operational text timestamps, integer duration and approval
+  fields, and captain foreign-key delete rule before prerequisite validation.
+- Add `--validate-database` to apply and check schema changes without starting
+  Admiral services or dispatch. Use an isolated restore for deployment preflight.
+- Reject ambiguous or incompatible source data and roll back the complete repair.
+  Keep applied migration history and the original prerequisite checksum intact.
+
 ### Resource admission evidence
 
 - Capture typed pressure reasons, evaluation time, limits and the OOM deadline

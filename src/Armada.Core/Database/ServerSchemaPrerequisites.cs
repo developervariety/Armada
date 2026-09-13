@@ -39,6 +39,19 @@ namespace Armada.Core.Database
                 if (ledger.Count > 0 && ledger[0]["checksum"] != checksum)
                     throw new InvalidOperationException("Schema repair definition changed: " + _RepairId);
 
+                string? legacyChecksum = null;
+                List<Dictionary<string, string?>> legacyLedger = new List<Dictionary<string, string?>>();
+                if (provider == DatabaseTypeEnum.Postgresql)
+                {
+                    legacyChecksum = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(PostgresqlLegacyOperationalRepair.Sql)));
+                    legacyLedger = await QueryAsync(connection, transaction,
+                        "SELECT checksum FROM schema_repairs WHERE id = @name;", PostgresqlLegacyOperationalRepair.RepairId,
+                        null, token).ConfigureAwait(false);
+                    if (legacyLedger.Count > 0 && legacyLedger[0]["checksum"] != legacyChecksum)
+                        throw new InvalidOperationException("Schema repair definition changed: " + PostgresqlLegacyOperationalRepair.RepairId);
+                    await PostgresqlLegacyOperationalRepair.ApplyAsync(connection, transaction, token).ConfigureAwait(false);
+                }
+
                 foreach (string statement in statements)
                 {
                     Match table = Regex.Match(statement, @"^CREATE TABLE (\w+) \(");
@@ -63,6 +76,17 @@ namespace Armada.Core.Database
                         command.CommandText = "INSERT INTO schema_repairs (id, checksum) VALUES (@id, @checksum);";
                         AddParameter(command, "@id", _RepairId);
                         AddParameter(command, "@checksum", checksum);
+                        await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                    }
+                }
+                if (legacyChecksum != null && legacyLedger.Count == 0)
+                {
+                    using (DbCommand command = connection.CreateCommand())
+                    {
+                        command.Transaction = transaction;
+                        command.CommandText = "INSERT INTO schema_repairs (id, checksum) VALUES (@id, @checksum);";
+                        AddParameter(command, "@id", PostgresqlLegacyOperationalRepair.RepairId);
+                        AddParameter(command, "@checksum", legacyChecksum);
                         await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     }
                 }

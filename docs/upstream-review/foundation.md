@@ -1,10 +1,19 @@
 # Fork preservation and provider foundation
 
-Evidence date: 2026-09-13 UTC. The provider foundation was accepted at `11fd66a2`
-after the checks in [provider repair acceptance results](#provider-repair-acceptance-results).
-It has not been deployed and does not complete the upstream campaign. Earlier
-checkpoint findings below describe the repair baseline; later backend storage
-changes have [separate evidence](backend-storage.md).
+Evidence date: 2026-09-13 UTC. **Foundation is reopened and incomplete.**
+The earlier generated provider fixtures passed at `11fd66a2`, but did not
+represent the historical production PostgreSQL schema. Deployment of `0d8b05ac`
+failed prerequisite validation on text timestamp columns, integer duration and
+approval fields, and a captain foreign-key delete rule. The operator reported
+successful manual recovery and deployment; this session has not independently
+certified that running image or the recovery.
+
+The historical-schema deployment incident requires a repeatable source repair, a test
+against a restored pre-repair database and rollback-image retention. A passing
+synthetic matrix alone does not close this gap. Current repair work and evidence
+are in [historical PostgreSQL repair](foundation-postgresql-legacy.md). The
+upstream campaign remains incomplete. Later backend changes retain their
+[separate evidence](backend-storage.md).
 
 ## Source boundary and migration ownership
 

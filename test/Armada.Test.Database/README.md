@@ -27,6 +27,7 @@ without constructing a scenario, omit `--migration-scenario`.
 | `concurrent-fresh` | All four | Two initializers; SQLite explicitly synchronizes both initial version reads |
 | `partial-identity` | All four | Failure between default user and credential inserts; atomic retry and deliberate credential removal |
 | `partial-anchor` | All four | Failure after the snapshot column statement; restart against the same database with unchanged old history |
+| `postgres-legacy` | PostgreSQL | Historical operational types, unsafe-value rejection, rollback, unchanged history and repeated startup |
 | `anchor-migration` | All four | Populated dock upgrade, incompatible and equivalent columns, interrupted restart and unchanged history |
 | `backend-migration` | All four | Populated metadata upgrade, nullable fields, incompatible columns, exact commit history and interrupted restart |
 | `preview-migration` | All four | Populated upgrade, equivalent values, incompatible type/null/default, interrupted restart; MySQL also rejects restricted text encodings |

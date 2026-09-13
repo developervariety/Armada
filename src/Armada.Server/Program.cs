@@ -9,6 +9,7 @@ namespace Armada.Server
     using System.Threading;
     using SyslogLogging;
     using Armada.Core;
+    using Armada.Core.Database;
     using Armada.Core.Settings;
 
     /// <summary>
@@ -75,6 +76,19 @@ namespace Armada.Server
 
             // Initialize logging
             InitializeLogging();
+
+            if (Array.IndexOf(args, "--validate-database") >= 0)
+            {
+                if (args.Length != 1)
+                    throw new ArgumentException("--validate-database must be the only argument.");
+                using (DatabaseDriver database = DatabaseDriverFactory.Create(_Settings.Database, _Logging))
+                {
+                    await database.InitializeAsync().ConfigureAwait(false);
+                    Console.WriteLine("DATABASE VALIDATION PASSED; schema version "
+                        + await database.GetSchemaVersionAsync().ConfigureAwait(false));
+                }
+                return;
+            }
 
             _Logging.Info("[Program] starting Admiral on port " + _Settings.AdmiralPort);
 
