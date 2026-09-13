@@ -5778,11 +5778,14 @@ namespace Armada.Core.Services
                 foreach (CheckRun c in byMission.Objects) checks[c.Id] = c;
             }
 
+            // An armed record on a voyage that has committed work is queued work the executor will
+            // run, so it holds completion; before any commit it is an inert marker and is ignored.
+            string? workCommit = StaleCheckSupersessionService.SelectWorkUnderReview(missions)?.CommitHash;
             List<CheckRun> active = checks.Values
-                .Where(CheckRunGateRules.ParticipatesInRealSignalGate).ToList();
+                .Where(c => CheckRunGateRules.ParticipatesInRealSignalGate(c, workCommit)).ToList();
             if (active.Count == 0) return VoyageCheckGate.NoChecks;
             if (active.Any(c => c.Status == CheckRunStatusEnum.Failed)) return VoyageCheckGate.HasFailed;
-            if (active.Any(CheckRunGateRules.IsUnresolved)) return VoyageCheckGate.HasPending;
+            if (active.Any(c => CheckRunGateRules.IsUnresolved(c, workCommit))) return VoyageCheckGate.HasPending;
             return VoyageCheckGate.AllGreen;
         }
 
@@ -5819,9 +5822,51 @@ namespace Armada.Core.Services
             foreach (CheckRun c in byMission.Objects) checks[c.Id] = c;
 
             List<CheckRun> collected = checks.Values.ToList();
+            await StampArmedChecksAtReviewedCommitAsync(collected, judgeMission, token).ConfigureAwait(false);
             _LastJudgeGateChecks = collected;
             _LastJudgeReviewedCommit = judgeMission.CommitHash;
             return ClassifyJudgeCheckGate(collected, judgeMission.AgentOutput, judgeMission.CommitHash);
+        }
+
+        /// <summary>
+        /// Points every armed, never-run voyage Check at the branch and commit the Judge reviewed,
+        /// before the gate classifies them.
+        /// </summary>
+        /// <remarks>
+        /// An armed record is stamped by the executor when it runs. A Judge can finish first, and a
+        /// voyage whose stages committed nothing new leaves the record without a subject until then.
+        /// Stamping here makes the record measure exactly the reviewed tip when it runs, so the gate
+        /// holds the PASS for a verdict about the right commit instead of reading the record as
+        /// absent. A record that already names a branch is left alone.
+        /// </remarks>
+        private async Task StampArmedChecksAtReviewedCommitAsync(List<CheckRun> checks, Mission judgeMission, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(judgeMission.BranchName) || String.IsNullOrWhiteSpace(judgeMission.CommitHash)) return;
+
+            foreach (CheckRun run in checks)
+            {
+                if (!CheckRunGateRules.IsQueuedArmedCheck(run, judgeMission.CommitHash)) continue;
+                if (!String.IsNullOrWhiteSpace(run.BranchName)) continue;
+
+                run.BranchName = judgeMission.BranchName;
+                run.CommitHash = judgeMission.CommitHash;
+                run.LastUpdateUtc = DateTime.UtcNow;
+                try
+                {
+                    await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "armed check " + run.Id + " stamped at reviewed commit " + judgeMission.CommitHash
+                        + " on " + judgeMission.BranchName + " for judge mission " + judgeMission.Id);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "could not stamp armed check " + run.Id + " at reviewed commit for judge mission "
+                        + judgeMission.Id + ": " + ex.Message);
+                }
+            }
         }
 
         /// <summary>
@@ -5877,7 +5922,7 @@ namespace Armada.Core.Services
         {
             if (checks == null) return String.Empty;
             List<CheckRun> matching = checks
-                .Where(c => CheckRunGateRules.IsUnresolved(c) || CheckRunGateRules.IsStale(c, reviewedCommit))
+                .Where(c => CheckRunGateRules.IsUnresolved(c, reviewedCommit) || CheckRunGateRules.IsStale(c, reviewedCommit))
                 .OrderBy(c => c.Id, StringComparer.Ordinal)
                 .ToList();
             if (matching.Count == 0) return String.Empty;
@@ -5907,7 +5952,7 @@ namespace Armada.Core.Services
         internal static JudgeCheckGate ClassifyJudgeCheckGate(List<CheckRun> checks, string? agentOutput, string? reviewedCommit = null)
         {
             List<CheckRun> active = (checks ?? new List<CheckRun>())
-                .Where(CheckRunGateRules.ParticipatesInRealSignalGate).ToList();
+                .Where(c => CheckRunGateRules.ParticipatesInRealSignalGate(c, reviewedCommit)).ToList();
             if (active.Count == 0)
             {
                 string output = agentOutput ?? String.Empty;
@@ -5919,7 +5964,7 @@ namespace Armada.Core.Services
             // stale exactly as a green is: the reviewed commit may be the fix for it, so it holds
             // the PASS while the executor re-arms at the tip, and the new record decides.
             if (active.Any(c => c.Status == CheckRunStatusEnum.Failed && !CheckRunGateRules.IsStale(c, reviewedCommit))) return JudgeCheckGate.HasFailed;
-            if (active.Any(c => CheckRunGateRules.IsUnresolved(c) || CheckRunGateRules.IsStale(c, reviewedCommit))) return JudgeCheckGate.HasPending;
+            if (active.Any(c => CheckRunGateRules.IsUnresolved(c, reviewedCommit) || CheckRunGateRules.IsStale(c, reviewedCommit))) return JudgeCheckGate.HasPending;
             return JudgeCheckGate.GreenChecks;
         }
 

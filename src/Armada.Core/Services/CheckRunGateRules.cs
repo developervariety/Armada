@@ -75,8 +75,44 @@ namespace Armada.Core.Services
         /// <returns>True when the record participates in the real-signal gate.</returns>
         public static bool ParticipatesInRealSignalGate(CheckRun? run)
         {
+            return ParticipatesInRealSignalGate(run, null);
+        }
+
+        /// <summary>
+        /// True when an armed record is queued work rather than an inert marker: it is attached to a
+        /// voyage, and that voyage already has a commit under review.
+        /// </summary>
+        /// <remarks>
+        /// The executor runs a voyage-armed record as soon as a stage has committed, so from that
+        /// point the record WILL produce a verdict about the work. A gate that ignored it would read
+        /// "no Checks" and reject a PASS that is only waiting for its turn in the queue -- the usual
+        /// shape is a Judge that finishes before the executor reaches the voyage's records, or a
+        /// voyage whose Worker committed nothing new and whose Judge reviews the start tip. Before
+        /// any commit exists the record still cannot run, and it stays an inert marker.
+        /// </remarks>
+        /// <param name="run">The Check to test. Null returns false.</param>
+        /// <param name="workCommit">The commit under review for the record's voyage, or null when none exists.</param>
+        /// <returns>True when the record is an armed marker the executor will run for that commit.</returns>
+        public static bool IsQueuedArmedCheck(CheckRun? run, string? workCommit)
+        {
+            if (!IsUnexecutedIntentMarker(run)) return false;
+            if (String.IsNullOrWhiteSpace(run!.VoyageId)) return false;
+            return !String.IsNullOrWhiteSpace(workCommit);
+        }
+
+        /// <summary>
+        /// True when the Check may decide a gate for a voyage whose work under review is
+        /// <paramref name="workCommit"/>. Canceled records are excluded; intent markers are excluded
+        /// unless they are queued work for that commit (see <see cref="IsQueuedArmedCheck"/>).
+        /// </summary>
+        /// <param name="run">The Check to test. Null returns false.</param>
+        /// <param name="workCommit">The commit under review, or null when no stage has committed.</param>
+        /// <returns>True when the record participates in the real-signal gate.</returns>
+        public static bool ParticipatesInRealSignalGate(CheckRun? run, string? workCommit)
+        {
             if (run == null) return false;
             if (run.Status == CheckRunStatusEnum.Canceled) return false;
+            if (IsQueuedArmedCheck(run, workCommit)) return true;
             return !IsUnexecutedIntentMarker(run);
         }
 
@@ -88,7 +124,19 @@ namespace Armada.Core.Services
         /// <returns>True when the record is genuinely unresolved.</returns>
         public static bool IsUnresolved(CheckRun? run)
         {
-            if (!ParticipatesInRealSignalGate(run)) return false;
+            return IsUnresolved(run, null);
+        }
+
+        /// <summary>
+        /// True when a participating Check has not reached a verdict for a voyage whose work under
+        /// review is <paramref name="workCommit"/>, so a gate that needs its result must wait for it.
+        /// </summary>
+        /// <param name="run">The Check to test. Null returns false.</param>
+        /// <param name="workCommit">The commit under review, or null when no stage has committed.</param>
+        /// <returns>True when the record is genuinely unresolved.</returns>
+        public static bool IsUnresolved(CheckRun? run, string? workCommit)
+        {
+            if (!ParticipatesInRealSignalGate(run, workCommit)) return false;
             return run!.Status == CheckRunStatusEnum.Pending || run.Status == CheckRunStatusEnum.Running;
         }
 

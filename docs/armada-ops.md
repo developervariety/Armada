@@ -500,6 +500,7 @@ gate reads every Check attached to the voyage and to the Judge mission:
 | All green | PASS stands |
 | Any `Failed` | PASS is rejected |
 | Any `Pending` or `Running` | PASS is held, then re-run in place |
+| Armed at dispatch and not run yet, on a voyage with a commit under review | Queued work: stamped at the reviewed branch and commit, then PASS is held exactly as for `Pending` |
 | `Passed` or `Failed` for a commit other than the reviewed tip | Stale: PASS is held exactly as for `Pending`; the executor cancels the record as superseded and arms a fresh one for the tip |
 | None attached | PASS is rejected unless the review carries `[JUDGE-CHECK-EXCLUSION]` |
 | `Canceled` | Ignored |
@@ -551,6 +552,18 @@ satisfies the real-signal gate; executing at dispatch would put a full suite on
 the host at the moment the first captain starts work. An armed record reads
 `command = echo` with no branch until that stamp - that is the correct armed
 state, not a broken stub.
+
+Once the voyage has a commit under review, an armed record is queued work, not
+an absent Check. The executor queue can reach it after the Judge finishes, and
+a voyage whose stages committed nothing new (for example a Judge-only
+continuation) has no later commit to trigger the stamp. The Judge gate
+therefore stamps every armed, never-run record with the branch and commit the
+Judge reviewed, and holds the PASS until the record runs. The voyage completion
+gate holds completion on the same record. Before any commit exists, an armed
+record stays an inert marker and neither gate waits on it. One rule,
+`CheckRunGateRules.ParticipatesInRealSignalGate(run, workCommit)`, decides this
+for both gates. A held PASS still uses the bounded Judge wait budget; if the
+queue is slower than that budget, the rejection names the unresolved Check ids.
 
 Each sweep searches every stable page of Pending Armada Checks until it finds
 its bounded execution set or reaches the end. A full first page of ineligible

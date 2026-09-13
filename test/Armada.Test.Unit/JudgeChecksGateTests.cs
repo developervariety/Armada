@@ -108,6 +108,78 @@ namespace Armada.Test.Unit
             return (svc, voyage);
         }
 
+        private const string _ReviewedCommit = "1111111111111111111111111111111111111111";
+        private const string _OtherCommit = "2222222222222222222222222222222222222222";
+        private const string _WorkBranch = "armada/worker/msn_committed_work";
+
+        /// <summary>Seeds a voyage whose work is measurable: a Worker that reached WorkProduced on a
+        /// branch and commit, and a Judge reviewing that same tip. The Worker may have committed
+        /// nothing; its recorded commit is still the tip under review.</summary>
+        private async Task<(MissionService svc, Voyage voyage, Mission judge)> SeedVoyageWithMeasurableWorkAsync(
+            TestDatabase testDb,
+            MissionModeEnum mode,
+            MissionStatusEnum judgeStatus)
+        {
+            LoggingModule logging = CreateLogging();
+            ArmadaSettings settings = CreateSettings();
+            StubGitService git = new StubGitService();
+            IDockService docks = new DockService(logging, testDb.Driver, settings, git);
+            ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
+            MissionService svc = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git);
+
+            Vessel vessel = new Vessel("measurable-vessel", "https://github.com/test/repo.git");
+            vessel.DefaultBranch = "main";
+            vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+            Voyage voyage = new Voyage("measurable-voyage");
+            voyage.Status = VoyageStatusEnum.InProgress;
+            voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+            Mission worker = new Mission("[Worker] Implement", "worker description");
+            worker.VesselId = vessel.Id;
+            worker.VoyageId = voyage.Id;
+            worker.Persona = "Worker";
+            worker.Mode = mode;
+            worker.Status = MissionStatusEnum.WorkProduced;
+            worker.BranchName = _WorkBranch;
+            worker.CommitHash = _ReviewedCommit;
+            await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
+
+            Mission judge = new Mission("[Judge] Review", "judge description");
+            judge.VesselId = vessel.Id;
+            judge.VoyageId = voyage.Id;
+            judge.Persona = "Judge";
+            judge.Mode = mode;
+            judge.Status = judgeStatus;
+            judge.BranchName = _WorkBranch;
+            judge.CommitHash = _ReviewedCommit;
+            judge.AgentOutput = "review body\n[ARMADA:VERDICT] PASS";
+            judge = await testDb.Driver.Missions.CreateAsync(judge).ConfigureAwait(false);
+
+            return (svc, voyage, judge);
+        }
+
+        private async Task<CheckRun> AddExecutedCheckAsync(TestDatabase testDb, string voyageId, CheckRunTypeEnum type, CheckRunStatusEnum status, string commit)
+        {
+            CheckRun run = new CheckRun
+            {
+                VoyageId = voyageId,
+                Label = type.ToString(),
+                Type = type,
+                Source = CheckRunSourceEnum.Armada,
+                Status = status,
+                Command = type == CheckRunTypeEnum.Build ? "dotnet build" : "dotnet test",
+                WorkingDirectory = "C:/temp",
+                BranchName = _WorkBranch,
+                CommitHash = commit,
+                StartedUtc = DateTime.UtcNow,
+                CompletedUtc = DateTime.UtcNow,
+                ExitCode = status == CheckRunStatusEnum.Passed ? 0 : 1,
+                Summary = "check"
+            };
+            return await testDb.Driver.CheckRuns.CreateAsync(run).ConfigureAwait(false);
+        }
+
         /// <summary>Creates a Check exactly as dispatch-time arming does: Pending, never started,
         /// carrying the unresolved placeholder command and no branch or commit.</summary>
         private async Task<CheckRun> AddArmedIntentMarkerAsync(TestDatabase testDb, string voyageId, CheckRunTypeEnum type)
@@ -792,6 +864,111 @@ namespace Armada.Test.Unit
                         MissionService.JudgeCheckGate.NoChecksNoExclusion,
                         await svc.EvaluateJudgeCheckGateAsync(judge, CancellationToken.None).ConfigureAwait(false),
                         "implementation voyages still require green independent Checks");
+                }
+            }).ConfigureAwait(false);
+
+            // A voyage whose Checks were armed at dispatch reached its Judge before the executor ran
+            // them -- for example a Judge-only continuation whose Worker committed nothing. The work
+            // was measurable, so those records were queued work, yet the gate read them as "no
+            // Checks" and rejected a valid PASS.
+            await RunTest("JudgeGate_ArmedChecksOnMeasurableWork_HoldPassAndAreStampedAtReviewedCommit", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService svc, Voyage voyage, Mission judge) = await SeedVoyageWithMeasurableWorkAsync(
+                        testDb, MissionModeEnum.Implementation, MissionStatusEnum.InProgress).ConfigureAwait(false);
+                    CheckRun build = await AddArmedIntentMarkerAsync(testDb, voyage.Id, CheckRunTypeEnum.Build).ConfigureAwait(false);
+                    CheckRun unit = await AddArmedIntentMarkerAsync(testDb, voyage.Id, CheckRunTypeEnum.UnitTest).ConfigureAwait(false);
+
+                    AssertEqual(
+                        MissionService.JudgeCheckGate.HasPending,
+                        await svc.EvaluateJudgeCheckGateAsync(judge, CancellationToken.None).ConfigureAwait(false),
+                        "armed Checks on measurable work are queued work: they hold the PASS, they do not reject it");
+
+                    CheckRun? stampedBuild = await testDb.Driver.CheckRuns.ReadAsync(build.Id).ConfigureAwait(false);
+                    CheckRun? stampedUnit = await testDb.Driver.CheckRuns.ReadAsync(unit.Id).ConfigureAwait(false);
+                    AssertEqual(_WorkBranch, stampedBuild!.BranchName, "the armed Build is stamped with the reviewed branch");
+                    AssertEqual(_ReviewedCommit, stampedBuild.CommitHash, "the armed Build is stamped with the reviewed commit");
+                    AssertEqual(_WorkBranch, stampedUnit!.BranchName, "the armed UnitTest is stamped with the reviewed branch");
+                    AssertEqual(_ReviewedCommit, stampedUnit.CommitHash, "the armed UnitTest is stamped with the reviewed commit");
+
+                    // Once the executor has run both at the reviewed commit, the PASS stands.
+                    foreach (CheckRun stamped in new[] { stampedBuild, stampedUnit })
+                    {
+                        stamped.Status = CheckRunStatusEnum.Passed;
+                        stamped.Command = stamped.Type == CheckRunTypeEnum.Build ? "dotnet build" : "dotnet test";
+                        stamped.StartedUtc = DateTime.UtcNow;
+                        stamped.CompletedUtc = DateTime.UtcNow;
+                        stamped.ExitCode = 0;
+                        await testDb.Driver.CheckRuns.UpdateAsync(stamped).ConfigureAwait(false);
+                    }
+
+                    AssertEqual(
+                        MissionService.JudgeCheckGate.GreenChecks,
+                        await svc.EvaluateJudgeCheckGateAsync(judge, CancellationToken.None).ConfigureAwait(false),
+                        "green Checks at the reviewed commit let the PASS stand");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("JudgeGate_FailedCheckAtReviewedCommit_StillRejectsPassBesideArmedChecks", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService svc, Voyage voyage, Mission judge) = await SeedVoyageWithMeasurableWorkAsync(
+                        testDb, MissionModeEnum.Implementation, MissionStatusEnum.InProgress).ConfigureAwait(false);
+                    await AddArmedIntentMarkerAsync(testDb, voyage.Id, CheckRunTypeEnum.UnitTest).ConfigureAwait(false);
+                    await AddExecutedCheckAsync(testDb, voyage.Id, CheckRunTypeEnum.Build, CheckRunStatusEnum.Failed, _ReviewedCommit).ConfigureAwait(false);
+
+                    AssertEqual(
+                        MissionService.JudgeCheckGate.HasFailed,
+                        await svc.EvaluateJudgeCheckGateAsync(judge, CancellationToken.None).ConfigureAwait(false),
+                        "a failed Check at the reviewed commit still rejects the PASS");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("JudgeGate_GreenCheckAtAnotherCommit_DoesNotCountAsGreen", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService svc, Voyage voyage, Mission judge) = await SeedVoyageWithMeasurableWorkAsync(
+                        testDb, MissionModeEnum.Implementation, MissionStatusEnum.InProgress).ConfigureAwait(false);
+                    await AddExecutedCheckAsync(testDb, voyage.Id, CheckRunTypeEnum.Build, CheckRunStatusEnum.Passed, _OtherCommit).ConfigureAwait(false);
+                    await AddExecutedCheckAsync(testDb, voyage.Id, CheckRunTypeEnum.UnitTest, CheckRunStatusEnum.Passed, _OtherCommit).ConfigureAwait(false);
+
+                    MissionService.JudgeCheckGate gate = await svc.EvaluateJudgeCheckGateAsync(judge, CancellationToken.None).ConfigureAwait(false);
+                    AssertEqual(MissionService.JudgeCheckGate.HasPending, gate,
+                        "a green for another commit is stale and must not satisfy the gate");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("VoyageGate_ArmedChecksOnMeasurableWork_HoldCompletion", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService svc, Voyage voyage, Mission judge) = await SeedVoyageWithMeasurableWorkAsync(
+                        testDb, MissionModeEnum.Implementation, MissionStatusEnum.Complete).ConfigureAwait(false);
+                    await AddArmedIntentMarkerAsync(testDb, voyage.Id, CheckRunTypeEnum.Build).ConfigureAwait(false);
+
+                    await svc.UpdateVoyageTerminalStatusAsync(voyage.Id, CancellationToken.None).ConfigureAwait(false);
+                    Voyage? after = await testDb.Driver.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    AssertEqual(VoyageStatusEnum.InProgress, after!.Status,
+                        "an armed Check on measurable work is queued work and holds completion until it runs");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("ReportOnlyVoyage_ArmedChecksOnMeasurableWork_DoNotHoldJudgePass", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService svc, Voyage voyage, Mission judge) = await SeedVoyageWithMeasurableWorkAsync(
+                        testDb, MissionModeEnum.Research, MissionStatusEnum.InProgress).ConfigureAwait(false);
+                    await AddArmedIntentMarkerAsync(testDb, voyage.Id, CheckRunTypeEnum.Build).ConfigureAwait(false);
+                    await AddArmedIntentMarkerAsync(testDb, voyage.Id, CheckRunTypeEnum.UnitTest).ConfigureAwait(false);
+
+                    AssertEqual(
+                        MissionService.JudgeCheckGate.GreenChecks,
+                        await svc.EvaluateJudgeCheckGateAsync(judge, CancellationToken.None).ConfigureAwait(false),
+                        "a fully report-only voyage needs no code Checks, armed or not");
                 }
             }).ConfigureAwait(false);
 

@@ -14,6 +14,20 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Judge Check gate on queued armed Checks
+
+- Treat an armed, not-yet-run voyage Check as queued work once the voyage has a
+  commit under review. The Judge gate holds the PASS for it and the voyage
+  completion gate holds completion, instead of reading it as "no green
+  independent Checks attached" and rejecting a valid PASS.
+- Stamp such a Check with the branch and commit the Judge reviewed before the
+  gate classifies it, so it measures the reviewed tip even when no stage in the
+  voyage committed anything new.
+- A failed Check at the reviewed commit still rejects a PASS, a green for
+  another commit still does not count, and fully report-only (Audit or
+  Research) voyages still need no code Checks. One rule in `CheckRunGateRules`
+  decides this for both gates.
+
 ### Landing past a worktree that holds the target branch
 
 - Create the LocalMerge integration worktree detached at the target tip, so a

@@ -120,7 +120,10 @@ Armada models work explicitly so a human or orchestrator can inspect every layer
 
 The objective scheduler selects eligible objectives and dispatches captains.
 Its settings persist across Admiral restarts, and its voyages use the normal
-Build and UnitTest Check-arming path. Operators handle landing, incidents,
+Build and UnitTest Check-arming path. Once a voyage has a commit under review,
+an armed Check that has not run yet is queued work: the Judge gate stamps it at
+the reviewed commit and holds the PASS until it runs, rather than rejecting the
+PASS for missing Checks. Operators handle landing, incidents,
 campaign planning, and helper requests.
 
 The standalone lead launcher and Grok Bot integration are retired. See the
