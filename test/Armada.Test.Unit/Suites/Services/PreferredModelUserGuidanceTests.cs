@@ -134,7 +134,7 @@ namespace Armada.Test.Unit.Suites.Services
                     "Tested", "FullPipeline", "ProductDevelopment", "DiagnosticProtocolTested",
                     "TenantSecurityTested", "MigrationDataTested", "PerformanceMemoryTested",
                     "ReferencePortingTested", "FrontendWorkflowTested", "Reflections",
-                    "ReflectionsDualJudge"
+                    "ReflectionsDualJudge", "Recorder", "Recorded"
                 };
 
                 foreach (string requiredName in requiredNames)

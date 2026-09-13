@@ -259,6 +259,89 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Seed creates the Recorder persona", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Persona? recorder = await testDb.Driver.Personas.ReadByNameAsync(PersonaCatalog.Recorder).ConfigureAwait(false);
+                    AssertNotNull(recorder, "Recorder persona should be seeded");
+                    AssertEqual("Recorder", recorder!.Name, "Persona name");
+                    AssertEqual("persona.recorder", recorder.PromptTemplateName, "Persona prompt template");
+                    AssertTrue(recorder.IsBuiltIn, "Persona should be built in");
+                    AssertTrue(recorder.Active, "Persona should be active");
+                    AssertEqual(Constants.DefaultTenantId, recorder.TenantId, "Persona tenant");
+                }
+            });
+
+            await RunTest("Seed creates the Recorded pipeline as Worker then Recorder", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Pipeline? recorded = await testDb.Driver.Pipelines.ReadByNameAsync("Recorded").ConfigureAwait(false);
+                    AssertPipelineStages(recorded, new List<string> { "Worker", "Recorder" }, "Recorded");
+                    AssertTrue(recorded!.IsBuiltIn, "Pipeline should be built in");
+                    AssertTrue(recorded.Active, "Pipeline should be active");
+                }
+            });
+
+            await RunTest("Seed leaves an existing pipeline named Recorded exactly as it is", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    Pipeline operatorPipeline = new Pipeline("Recorded");
+                    operatorPipeline.Description = "An operator pipeline that happens to carry this name";
+                    operatorPipeline.IsBuiltIn = false;
+                    operatorPipeline.Active = false;
+                    operatorPipeline.Stages = new List<PipelineStage> { new PipelineStage(1, "Worker") };
+                    await testDb.Driver.Pipelines.CreateAsync(operatorPipeline).ConfigureAwait(false);
+
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Pipeline? stored = await testDb.Driver.Pipelines.ReadByNameAsync("Recorded").ConfigureAwait(false);
+                    AssertNotNull(stored, "The operator pipeline should still exist");
+                    AssertEqual(operatorPipeline.Id, stored!.Id, "The same pipeline record is kept");
+                    AssertEqual("An operator pipeline that happens to carry this name", stored.Description ?? "", "Description is untouched");
+                    AssertFalse(stored.IsBuiltIn, "Built-in flag is untouched");
+                    AssertFalse(stored.Active, "Active flag is untouched");
+                    AssertEqual(1, stored.Stages.Count, "Stages are untouched");
+                    AssertEqual("Worker", stored.Stages[0].PersonaName, "Stage persona is untouched");
+                }
+            });
+
+            await RunTest("Seed adds no Recorder stage to any other pipeline", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Pipeline? full = await testDb.Driver.Pipelines.ReadByNameAsync("FullPipeline").ConfigureAwait(false);
+                    AssertPipelineStages(full, new List<string> { "Architect", "Worker", "TestEngineer", "Judge" }, "FullPipeline");
+
+                    List<Pipeline> pipelines = await testDb.Driver.Pipelines.EnumerateAsync().ConfigureAwait(false);
+                    foreach (Pipeline pipeline in pipelines)
+                    {
+                        if (String.Equals(pipeline.Name, "Recorded", StringComparison.Ordinal)) continue;
+                        foreach (PipelineStage stage in pipeline.Stages)
+                            AssertFalse(PersonaCatalog.Matches(stage.PersonaName, PersonaCatalog.Recorder),
+                                "Only the Recorded pipeline carries a Recorder stage, not " + pipeline.Name);
+                    }
+
+                    Pipeline? beforeSecondSeed = await testDb.Driver.Pipelines.ReadByNameAsync("FullPipeline").ConfigureAwait(false);
+                    await service.SeedAsync().ConfigureAwait(false);
+                    Pipeline? afterSecondSeed = await testDb.Driver.Pipelines.ReadByNameAsync("FullPipeline").ConfigureAwait(false);
+                    AssertEqual(beforeSecondSeed!.Id, afterSecondSeed!.Id, "A repeated seed keeps the same pipeline record");
+                    AssertEqual(beforeSecondSeed.LastUpdateUtc.ToString("O"), afterSecondSeed.LastUpdateUtc.ToString("O"), "A repeated seed rewrites nothing");
+                }
+            });
+
             await RunTest("Seed creates reflections pipeline", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

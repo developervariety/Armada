@@ -67,6 +67,24 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   change and delete, with 409 on a conflict.
 - Native memory is independent of the learned-facts feature and reads none of its settings.
 
+### Native captain memory: the Recorder persona and memory recall
+
+- Added the built-in `Recorder` persona with its own editable prompt. It reviews the
+  finished work of a voyage, classifies what is worth keeping, reconciles it against what
+  is already recorded, and writes it to native memory. It writes memory only: it changes
+  no repository file, no vessel model context, and no shared external memory repository,
+  and it hands anything that belongs in shared memory to the operator as a proposal.
+- Added the built-in `Recorded` pipeline: Worker, then Recorder. It is seeded only when no
+  pipeline of that name exists, so an operator pipeline with that name is kept as it is.
+- No existing pipeline gains a Recorder stage. Where the Recorder belongs in a pipeline is
+  an owner decision, so startup changes no other pipeline.
+- Every other built-in persona template now carries a Recall Existing Memory section that
+  tells the agent to read the vessel model context and search memory before acting, to
+  treat a record as working memory rather than proof, and to let a rule from the brief's
+  Shared Memory section win over a memory record on conflict. Startup adds that section once
+  to a built-in persona template that lacks it and changes nothing else, so an operator edit
+  is kept. The Recorder and the learned-facts memory consolidator do not receive it.
+
 ### Judge Check gate on queued armed Checks
 
 - Treat an armed, not-yet-run voyage Check as queued work once the voyage has a

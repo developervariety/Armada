@@ -1625,6 +1625,31 @@ administrator of the default tenant: they reach every record of that tenant and
 no record of another tenant. The feature needs no setting, and it is independent
 of `learnedFactsEnabled`.
 
+### 8.24 The Recorder Persona
+
+The built-in `Recorder` persona reviews the finished work of a voyage and records
+what is worth remembering through the memory tools above. It is seeded with its
+own editable prompt, and the built-in `Recorded` pipeline runs it after a Worker.
+
+Three operator facts:
+
+- **No existing pipeline gains a Recorder stage.** Startup adds the persona and
+  the `Recorded` pipeline, and changes no other pipeline. Whether the Recorder
+  belongs at the end of `FullPipeline`, `Tested` or any other pipeline is an
+  owner decision, not a side effect of a deploy. A pipeline that already carries
+  the name `Recorded` is left exactly as it is.
+- **Run a Recorder stage in a report-only mission mode.** The Recorder writes
+  memory, not code, so it produces no commit. A mission mode that expects a
+  commit reads an empty diff as a captain that did nothing.
+- **The Recorder never writes shared memory.** It writes native memory only, and
+  hands anything that belongs in the shared external memory repository to the
+  operator as a proposal in its summary.
+
+Every other built-in persona template carries a Recall Existing Memory section
+telling the agent to read the vessel model context and search memory before it
+acts. Startup adds that section once to a built-in persona template that lacks
+it and changes nothing else, so an operator edit is kept.
+
 ## 9. Safety Rules
 
 - Read before write.

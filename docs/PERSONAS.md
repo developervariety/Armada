@@ -26,6 +26,7 @@ Armada seeds 13 built-in personas on startup:
 | `PortingReferenceAnalyst` | Compare approved references and parity evidence. |
 | `FrontendWorkflowReviewer` | Review frontend workflow, accessibility, i18n, and responsive states. |
 | `MemoryConsolidator` | Produce a learned-memory proposal from completed evidence. |
+| `Recorder` | Review the finished work of a voyage and record what is worth remembering into native captain memory. Writes memory only; never changes the repository or shared memory. |
 
 The seed service reconciles built-in definitions. Built-in personas cannot be
 deleted. Custom personas can be created, updated, or deleted.

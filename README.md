@@ -170,6 +170,7 @@ Built-in pipelines let work move through the right level of review:
 - `Tested`: Worker, TestEngineer, then Judge.
 - `FullPipeline`: Architect, Worker, TestEngineer, then Judge.
 - `ProductDevelopment`: Product Manager, Architect, Worker, Usability Engineer, TestEngineer, then Judge.
+- `Recorded`: Worker, then Recorder -- do the work, then record what is worth remembering.
 - Specialist-tested pipelines add a domain reviewer before tests and Judge.
 - Reflection pipelines: MemoryConsolidator alone or MemoryConsolidator with parallel Judges.
 
@@ -245,6 +246,8 @@ The Admiral tracks captain state and health so a busy fleet remains debuggable:
 ### Playbooks and Persistent Memory
 
 Playbooks are reusable markdown guidance that can be delivered inline, referenced, or attached into the worktree. Fleet, vessel, persona, captain, voyage, and per-mission selections merge into mission playbook snapshots so every captain receives the guidance that applied at dispatch time.
+
+The built-in `Recorder` persona reviews the finished work of a voyage and records what is worth remembering. It is seeded and available, and the `Recorded` pipeline runs it after a Worker. No existing pipeline gains a Recorder stage: where the Recorder belongs is an owner decision. Every other built-in persona is told to recall existing memory before it acts.
 
 Native captain memory keeps what earlier work learned: a vessel fact, a prior finding, or a procedure worth repeating, classified as episodic, semantic or procedural, with provenance, tags and a salience that orders recall. A stable key makes recording the same finding twice correct one record instead of scattering copies. Manage it over MCP (`search_memory`, `get_memory`, `create_memory`, `update_memory`, `delete_memory`) or REST (`/api/v1/memories`). Where a fleet keeps a shared external memory repository, that repository stays the authority for accepted rules and wins over a native record on conflict.
 

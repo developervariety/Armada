@@ -28,6 +28,7 @@ concurrently.
 | `PerformanceMemoryTested` | Worker, PerformanceMemoryReviewer, TestEngineer, Judge |
 | `ReferencePortingTested` | Worker, PortingReferenceAnalyst, TestEngineer, Judge |
 | `FrontendWorkflowTested` | Worker, FrontendWorkflowReviewer, TestEngineer, Judge |
+| `Recorded` | Worker, Recorder |
 | `Reflections` | MemoryConsolidator |
 | `ReflectionsDualJudge` | MemoryConsolidator, then two parallel Judge stages |
 

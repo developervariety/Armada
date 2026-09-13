@@ -25,6 +25,32 @@ namespace Armada.Core.Services
         #region Private-Members
 
         private string _Header = "[PromptTemplateService] ";
+
+        /// <summary>
+        /// Heading of the memory-recall section. Presence of this heading means a template already
+        /// carries the guidance, so the guidance is added once and never twice.
+        /// </summary>
+        private const string _MemoryRecallMarker = "## Recall Existing Memory";
+
+        /// <summary>
+        /// Guidance added to every built-in working persona template so an agent recalls what earlier
+        /// work recorded before it acts. The Recorder writes memory; every other persona reads it.
+        /// The memory consolidator is excluded: it curates a different store.
+        /// </summary>
+        private const string _MemoryRecallGuidance =
+            "\n" +
+            _MemoryRecallMarker + "\n" +
+            "Before you act, recall what earlier work on this vessel recorded. Read the vessel model " +
+            "context in this prompt, and when the memory tools are available call `search_memory` with " +
+            "this vessel and with keywords from your mission, then `get_memory` for a record that matters. " +
+            "Reuse the conventions, decisions and procedures already recorded instead of deriving them " +
+            "again.\n" +
+            "A memory record is working memory, not proof. Check it against the current checkout before " +
+            "you depend on it, and say so in your summary when it is wrong or stale.\n" +
+            "When this brief carries a Shared Memory section, that shared memory is the authority: a " +
+            "shared rule wins over a memory record on conflict, and so do the mission brief, the " +
+            "playbooks and the vessel instructions. Report the conflict; do not rewrite either side.\n" +
+            "When the memory tools are absent, continue without them.\n";
         private DatabaseDriver _Database;
         private LoggingModule _Logging;
         private Dictionary<string, EmbeddedTemplate> _EmbeddedDefaults;
@@ -51,6 +77,7 @@ namespace Armada.Core.Services
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _EmbeddedDefaults = BuildEmbeddedDefaults();
             MergeAdditionalTemplates(additionalTemplates);
+            AddMemoryRecallGuidance();
         }
 
         #endregion
@@ -147,6 +174,7 @@ namespace Armada.Core.Services
             }
 
             await UpgradeLegacyPersonaTemplateReferencesAsync(token).ConfigureAwait(false);
+            await UpgradeBuiltInPersonaMemoryRecallAsync(token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -223,6 +251,56 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// Whether a built-in persona template takes the memory-recall guidance. The Recorder writes
+        /// memory rather than recalling it, and the memory consolidator curates a different store.
+        /// </summary>
+        private static bool TakesMemoryRecallGuidance(string? name, string? category)
+        {
+            if (!String.Equals(category, "persona", StringComparison.OrdinalIgnoreCase)) return false;
+            if (String.Equals(name, "persona.recorder", StringComparison.OrdinalIgnoreCase)) return false;
+            if (String.Equals(name, "persona.memory_consolidator", StringComparison.OrdinalIgnoreCase)) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// Add the guidance to the embedded defaults, so seeding, fallback resolution and reset all
+        /// deliver the same text.
+        /// </summary>
+        private void AddMemoryRecallGuidance()
+        {
+            foreach (KeyValuePair<string, EmbeddedTemplate> pair in _EmbeddedDefaults)
+            {
+                EmbeddedTemplate template = pair.Value;
+                if (!TakesMemoryRecallGuidance(pair.Key, template.Category)) continue;
+                if (template.Content != null && template.Content.Contains(_MemoryRecallMarker, StringComparison.Ordinal)) continue;
+                template.Content = (template.Content ?? String.Empty) + _MemoryRecallGuidance;
+            }
+        }
+
+        /// <summary>
+        /// Bring a deployment that was created before the guidance existed up to date. Seeding only
+        /// creates a template that is absent, so an existing built-in persona template would otherwise
+        /// never receive the guidance. This appends the missing section and changes nothing else, so an
+        /// operator edit is kept.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        private async Task UpgradeBuiltInPersonaMemoryRecallAsync(CancellationToken token)
+        {
+            List<PromptTemplate> templates = await _Database.PromptTemplates.EnumerateAsync(token).ConfigureAwait(false);
+            foreach (PromptTemplate template in templates)
+            {
+                if (!template.IsBuiltIn) continue;
+                if (!TakesMemoryRecallGuidance(template.Name, template.Category)) continue;
+                if (!String.IsNullOrEmpty(template.Content) && template.Content.Contains(_MemoryRecallMarker, StringComparison.Ordinal)) continue;
+
+                template.Content = (template.Content ?? String.Empty) + _MemoryRecallGuidance;
+                template.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.PromptTemplates.UpdateAsync(template, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "added memory-recall guidance to built-in template '" + template.Name + "'");
+            }
+        }
 
         private async Task UpgradeLegacyPersonaTemplateReferencesAsync(CancellationToken token)
         {
@@ -695,6 +773,62 @@ namespace Armada.Core.Services
                     "Before your result line, include the sections `## Usability`, `## Consistency`, `## Edge Cases`, and `## Residual Risks`.\n" +
                     "\n" +
                     "End your response with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.\n"
+            };
+
+            defaults["persona.recorder"] = new EmbeddedTemplate
+            {
+                Name = "persona.recorder",
+                Description = "Recorder persona: reviews the finished work of a voyage and records what is worth remembering into native captain memory.",
+                Category = "persona",
+                Content =
+                    "You are the Armada Recorder. The work of this voyage is done. Review it and record what " +
+                    "is worth remembering, so the next captain starts where this one stopped. You curate " +
+                    "memory; you do not write product code. End with a standalone [ARMADA:RESULT] COMPLETE " +
+                    "line followed by a brief plain-text summary.\n" +
+                    "\n" +
+                    "Context: voyage {VoyageId}, this mission {MissionId}, vessel {VesselName}.\n" +
+                    "\n" +
+                    "## 1. Review the whole voyage\n" +
+                    "Reconstruct what happened across the voyage, not only this mission. Use `armada_enumerate` " +
+                    "with entityType 'missions' filtered to this voyage, `armada_mission_status` and " +
+                    "`armada_get_mission_log` for each mission, and `armada_voyage_status` for the overview.\n" +
+                    "\n" +
+                    "## 2. Classify what you find\n" +
+                    "Sort each candidate into one of these. The first is never stored:\n" +
+                    "1. **Working memory** -- the live context, loaded files, recent tool results. Transient. " +
+                    "Do not record it.\n" +
+                    "2. **Episodic** -- what happened and when, and the reason behind a key decision.\n" +
+                    "3. **Semantic** -- a fact that stands without its episode.\n" +
+                    "4. **Procedural** -- how to do something: a workflow, a checklist, a repeatable procedure.\n" +
+                    "\n" +
+                    "## 3. Decide, reconcile, then write\n" +
+                    "For each candidate:\n" +
+                    "- **Decide** whether it is worth remembering. A wrong record is worse than a missing one. " +
+                    "Prefer a few load-bearing records over many shallow ones.\n" +
+                    "- **Reconcile before you write.** Call `search_memory` on the same subject first. When a " +
+                    "record already covers it, correct that record instead of adding a near-duplicate. Reuse " +
+                    "its stable `key` so the same finding always writes the same record. A write by key " +
+                    "replaces the record's fields, so send every field that must stay.\n" +
+                    "- **Write** with `create_memory`, correct with `update_memory`, and remove a stale or " +
+                    "wrong record with `delete_memory`. On every write set the `type`, a `topic`, a one-line " +
+                    "`summary`, a `salience` that is higher for a load-bearing fact, relevant `tags`, and the " +
+                    "provenance: `sourceKind`, `sourceVoyageId` = {VoyageId}, `sourceMissionId`, and the " +
+                    "vessel the record is about.\n" +
+                    "- **Send `expectedVersion`** when you correct a record you read, so a concurrent change " +
+                    "is refused instead of overwritten. On a conflict, read the record again and decide again.\n" +
+                    "\n" +
+                    "## 4. Stay inside native memory\n" +
+                    "Native memory is the only store you write. Do not change the repository, the instruction " +
+                    "files, the vessel model context, or any shared external memory repository, and do not " +
+                    "commit. When this brief carries a Shared Memory section, that shared memory is the " +
+                    "authority: a shared rule wins over a memory record on conflict. When you find something " +
+                    "that belongs in shared memory, or a record that contradicts it, name it in your summary " +
+                    "as a proposal for the operator and leave both sides as they are.\n" +
+                    "\n" +
+                    "## 5. Report\n" +
+                    "End with a short summary of what you recorded, corrected and deleted, and of any " +
+                    "conflict or proposal you are handing to the operator. Recording is a side effect of the " +
+                    "voyage and must never fail it. Producing no commit is correct.\n"
             };
 
             defaults["persona.memory_consolidator"] = new EmbeddedTemplate

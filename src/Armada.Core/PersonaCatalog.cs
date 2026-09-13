@@ -43,6 +43,12 @@ namespace Armada.Core
         public const string Judge = "Judge";
 
         /// <summary>
+        /// Recorder persona name. Reviews the finished work of a voyage and records what is worth
+        /// remembering into native captain memory.
+        /// </summary>
+        public const string Recorder = "Recorder";
+
+        /// <summary>
         /// Normalize a persona name to the canonical built-in display name when applicable.
         /// </summary>
         /// <param name="persona">Persona name.</param>

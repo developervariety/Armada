@@ -208,6 +208,7 @@ Built-in personas:
 - `Judge`
 - `TestEngineer`
 - `MemoryConsolidator`
+- `Recorder`
 
 Specialist reviewer personas (`DiagnosticProtocolReviewer`,
 `TenantSecurityReviewer`, `MigrationDataReviewer`,
@@ -237,6 +238,7 @@ Built-in pipelines:
 | `Tested` | Worker, TestEngineer, Judge |
 | `FullPipeline` | Architect, Worker, TestEngineer, Judge |
 | `ProductDevelopment` | Product Manager, Architect, Worker, Usability Engineer, TestEngineer, Judge |
+| `Recorded` | Worker, Recorder |
 | `Reflections` | MemoryConsolidator |
 | `ReflectionsDualJudge` | MemoryConsolidator, then two parallel Judge stages |
 

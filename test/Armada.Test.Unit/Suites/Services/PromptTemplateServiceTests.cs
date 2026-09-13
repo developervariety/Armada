@@ -163,7 +163,11 @@ namespace Armada.Test.Unit.Suites.Services
 
                     PromptTemplate? resolved = await service.ResolveAsync("persona.diagnostic_protocol_reviewer").ConfigureAwait(false);
                     AssertNotNull(resolved, "Resolved template should not be null");
-                    AssertEqual("CUSTOM CONTENT", resolved!.Content, "Seeding should preserve database-edited content");
+                    // Seeding keeps operator content and only adds a missing section: the memory-recall
+                    // note, which every built-in working persona carries.
+                    AssertStartsWith("CUSTOM CONTENT", resolved!.Content, "Seeding should preserve database-edited content");
+                    AssertContains("## Recall Existing Memory", resolved.Content, "Seeding adds the missing recall note");
+                    AssertEqual(1, resolved.Content.Split(new[] { "## Recall Existing Memory" }, StringSplitOptions.None).Length - 1, "The note is added once");
                     AssertEqual("persona", resolved.Category, "Seeding should reconcile built-in category metadata");
                     AssertTrue(resolved.IsBuiltIn, "Seeding should reconcile built-in metadata");
                 }
@@ -190,6 +194,88 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("CUSTOM MEMORY CONTENT", resolved!.Content, "Seeding should not overwrite database-edited MemoryConsolidator content");
                     AssertEqual("persona", resolved.Category, "Seeding should reconcile MemoryConsolidator category metadata");
                     AssertTrue(resolved.IsBuiltIn, "Seeding should reconcile MemoryConsolidator built-in metadata");
+                }
+            });
+
+            await RunTest("Working persona templates carry the memory-recall note; the Recorder does not", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging, FleetRoutingSettings.CreateAdditionalPromptTemplates());
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    foreach (string name in new[] { "persona.worker", "persona.architect", "persona.judge", "persona.test_engineer", "persona.product_manager", "persona.usability_engineer" })
+                    {
+                        PromptTemplate? working = await service.ResolveAsync(name).ConfigureAwait(false);
+                        AssertNotNull(working, "Template should resolve: " + name);
+                        AssertContains("## Recall Existing Memory", working!.Content, name + " should carry the recall note");
+                        AssertContains("search_memory", working.Content, name + " should name the recall tool");
+                    }
+
+                    PromptTemplate? recorder = await service.ResolveAsync("persona.recorder").ConfigureAwait(false);
+                    AssertNotNull(recorder, "persona.recorder should be seeded");
+                    AssertFalse(recorder!.Content.Contains("## Recall Existing Memory", StringComparison.Ordinal), "The Recorder writes memory and takes no recall note");
+                    AssertContains("create_memory", recorder.Content, "The Recorder should name the write tool");
+
+                    PromptTemplate? consolidator = await service.ResolveAsync("persona.memory_consolidator").ConfigureAwait(false);
+                    AssertNotNull(consolidator, "persona.memory_consolidator should be seeded");
+                    AssertFalse(consolidator!.Content.Contains("## Recall Existing Memory", StringComparison.Ordinal), "The learned-facts curator is left unchanged");
+                }
+            });
+
+            await RunTest("The recall note states that shared memory wins on conflict", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    PromptTemplate? worker = await service.ResolveAsync("persona.worker").ConfigureAwait(false);
+                    AssertNotNull(worker, "persona.worker should be seeded");
+                    AssertContains("Shared Memory section", worker!.Content, "The note should point at the shared memory section of the brief");
+                    AssertContains("wins over a memory record on conflict", worker.Content, "The note should state which side wins");
+
+                    PromptTemplate? recorder = await service.ResolveAsync("persona.recorder").ConfigureAwait(false);
+                    AssertContains("wins over a memory record on conflict", recorder!.Content, "The Recorder should state the same rule");
+                    AssertContains("do not commit", recorder.Content, "The Recorder should not change the repository");
+                }
+            });
+
+            await RunTest("The recall note reaches an older built-in template exactly once", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    PromptTemplate legacy = new PromptTemplate("persona.worker", "You are a worker. Do the work.");
+                    legacy.Category = "persona";
+                    legacy.IsBuiltIn = true;
+                    await testDb.Driver.PromptTemplates.CreateAsync(legacy).ConfigureAwait(false);
+
+                    PromptTemplate custom = new PromptTemplate("persona.house_style", "An operator's own persona.");
+                    custom.Category = "persona";
+                    custom.IsBuiltIn = false;
+                    await testDb.Driver.PromptTemplates.CreateAsync(custom).ConfigureAwait(false);
+
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    PromptTemplate? worker = await service.ResolveAsync("persona.worker").ConfigureAwait(false);
+                    AssertNotNull(worker, "persona.worker should exist");
+                    AssertContains("You are a worker. Do the work.", worker!.Content, "The operator's own content is kept");
+                    int occurrences = worker.Content.Split(new[] { "## Recall Existing Memory" }, StringSplitOptions.None).Length - 1;
+                    AssertEqual(1, occurrences, "The note is added once, however often startup runs");
+
+                    PromptTemplate? untouched = await service.ResolveAsync("persona.house_style").ConfigureAwait(false);
+                    AssertEqual("An operator's own persona.", untouched!.Content, "A template that is not built in is left alone");
                 }
             });
 

@@ -70,6 +70,7 @@ namespace Armada.Core.Services
             await SeedPersonaAsync("Usability Engineer", "Improves usability, edge-case experience, and consistency with the surrounding product.", "persona.usability_engineer", token).ConfigureAwait(false);
             await SeedPersonaAsync("Judge", "Reviews completed mission diffs for correctness and completeness.", "persona.judge", token).ConfigureAwait(false);
             await SeedPersonaAsync("TestEngineer", "Writes and updates tests for mission changes.", "persona.test_engineer", token).ConfigureAwait(false);
+            await SeedPersonaAsync(PersonaCatalog.Recorder, "Reviews the finished work of a voyage and records what is worth remembering into native captain memory.", "persona.recorder", token).ConfigureAwait(false);
             await SeedPersonaAsync("MemoryConsolidator", "Curates the per-vessel learned-facts playbook from completed-mission evidence. Read-only on logs/diffs/notes; writes proposals to AgentOutput only.", "persona.memory_consolidator", token).ConfigureAwait(false);
 
             foreach (AdditionalPersonaSettings extra in _AdditionalPersonas)
@@ -152,6 +153,15 @@ namespace Armada.Core.Services
                 },
                 token).ConfigureAwait(false);
 
+            // Seeded only when absent. An operator who already runs a pipeline of this name keeps it,
+            // and no existing pipeline gains a Recorder stage: where the Recorder belongs in a pipeline
+            // is an owner decision, not a side effect of startup.
+            await SeedPipelineIfAbsentAsync(
+                "Recorded",
+                "Worker then Recorder -- do the work, then record what is worth remembering.",
+                new List<PipelineStage> { new PipelineStage(1, "Worker"), new PipelineStage(2, PersonaCatalog.Recorder) },
+                token).ConfigureAwait(false);
+
             await SeedPipelineAsync(
                 "Reflections",
                 "Single-stage memory consolidation. Output is the candidate playbook + diff; orchestrator reviews. No TestEngineer or Judge stage runs.",
@@ -190,6 +200,13 @@ namespace Armada.Core.Services
 
                 await SeedPipelineAsync(extra.Name.Trim(), extra.Description ?? String.Empty, stages, token).ConfigureAwait(false);
             }
+        }
+
+        private async Task SeedPipelineIfAbsentAsync(string name, string description, List<PipelineStage> stages, CancellationToken token)
+        {
+            Pipeline? existing = await _Database.Pipelines.ReadByNameAsync(name, token).ConfigureAwait(false);
+            if (existing != null) return;
+            await SeedPipelineAsync(name, description, stages, token).ConfigureAwait(false);
         }
 
         private async Task SeedPipelineAsync(string name, string description, List<PipelineStage> stages, CancellationToken token)
