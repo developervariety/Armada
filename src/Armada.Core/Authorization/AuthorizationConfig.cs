@@ -63,6 +63,10 @@ namespace Armada.Core.Authorization
             if (path.EndsWith("/tenants") && method == "POST") return PermissionLevel.AdminOnly;
             if (_TenantIdPattern.IsMatch(path) && (method == "PUT" || method == "DELETE")) return PermissionLevel.AdminOnly;
 
+            // Prompt templates are shared by every tenant and found by name alone, so a change
+            // affects all tenants. Enumerate reads through a POST body and keeps the read level.
+            if (path.StartsWith("/api/v1/prompt-templates") && method != "GET" && !path.EndsWith("/enumerate")) return PermissionLevel.AdminOnly;
+
             // Code-index routes use POST bodies for search/graph reads and refresh requests.
             // Route handlers enforce the vessel ACL after authentication.
             if (path.StartsWith("/api/v1/vessels/") && path.Contains("/code-index/")) return PermissionLevel.Authenticated;
@@ -91,6 +95,11 @@ namespace Armada.Core.Authorization
             if (path.StartsWith("/api/v1/events") && method != "GET") return PermissionLevel.TenantAdmin;
             if (path.StartsWith("/api/v1/merge-queue") && method != "GET") return PermissionLevel.TenantAdmin;
             if (path.StartsWith("/api/v1/request-history") && method != "GET") return PermissionLevel.TenantAdmin;
+
+            // Personas and pipelines belong to a tenant. Their handlers find the record inside the
+            // caller's tenant; enumerate reads through a POST body and keeps the read level.
+            if (path.StartsWith("/api/v1/personas") && method != "GET" && !path.EndsWith("/enumerate")) return PermissionLevel.TenantAdmin;
+            if (path.StartsWith("/api/v1/pipelines") && method != "GET" && !path.EndsWith("/enumerate")) return PermissionLevel.TenantAdmin;
 
             // Everything else requires authentication
             return PermissionLevel.Authenticated;

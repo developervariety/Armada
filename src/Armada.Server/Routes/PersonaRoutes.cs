@@ -124,6 +124,10 @@ namespace Armada.Server.Routes
                 }
                 Persona persona = JsonSerializer.Deserialize<Persona>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Persona.");
+                // Ownership comes from the caller, never from the body. Built-in records are
+                // seeded by the server, so a request cannot create one.
+                persona.TenantId = ctx.TenantId;
+                persona.IsBuiltIn = false;
                 persona = await _database.Personas.CreateAsync(persona).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 201;
                 return persona;
@@ -146,7 +150,10 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 string name = req.Parameters["name"];
-                Persona? existing = await _database.Personas.ReadByNameAsync(name).ConfigureAwait(false);
+                // A global administrator reaches every tenant; anyone else stays inside their own.
+                Persona? existing = ctx.IsAdmin
+                    ? await _database.Personas.ReadByNameAsync(name).ConfigureAwait(false)
+                    : await _database.Personas.ReadByNameAsync(ctx.TenantId!, name).ConfigureAwait(false);
                 if (existing == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Persona not found" }; }
                 Persona body = JsonSerializer.Deserialize<Persona>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Persona.");
@@ -176,7 +183,10 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 string name = req.Parameters["name"];
-                Persona? existing = await _database.Personas.ReadByNameAsync(name).ConfigureAwait(false);
+                // A global administrator reaches every tenant; anyone else stays inside their own.
+                Persona? existing = ctx.IsAdmin
+                    ? await _database.Personas.ReadByNameAsync(name).ConfigureAwait(false)
+                    : await _database.Personas.ReadByNameAsync(ctx.TenantId!, name).ConfigureAwait(false);
                 if (existing == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Persona not found" }; }
                 if (existing.IsBuiltIn) { req.Http.Response.StatusCode = 400; return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Built-in personas cannot be deleted" }; }
                 await _database.Personas.DeleteAsync(existing.Id).ConfigureAwait(false);

@@ -124,6 +124,10 @@ namespace Armada.Server.Routes
                 }
                 Pipeline pipeline = JsonSerializer.Deserialize<Pipeline>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Pipeline.");
+                // Ownership comes from the caller, never from the body. Built-in records are
+                // seeded by the server, so a request cannot create one.
+                pipeline.TenantId = ctx.TenantId;
+                pipeline.IsBuiltIn = false;
                 pipeline = await _database.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 201;
                 return pipeline;
@@ -146,7 +150,10 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 string name = req.Parameters["name"];
-                Pipeline? existing = await _database.Pipelines.ReadByNameAsync(name).ConfigureAwait(false);
+                // A global administrator reaches every tenant; anyone else stays inside their own.
+                Pipeline? existing = ctx.IsAdmin
+                    ? await _database.Pipelines.ReadByNameAsync(name).ConfigureAwait(false)
+                    : await _database.Pipelines.ReadByNameAsync(ctx.TenantId!, name).ConfigureAwait(false);
                 if (existing == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Pipeline not found" }; }
                 Pipeline body = JsonSerializer.Deserialize<Pipeline>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Pipeline.");
@@ -176,7 +183,10 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 string name = req.Parameters["name"];
-                Pipeline? existing = await _database.Pipelines.ReadByNameAsync(name).ConfigureAwait(false);
+                // A global administrator reaches every tenant; anyone else stays inside their own.
+                Pipeline? existing = ctx.IsAdmin
+                    ? await _database.Pipelines.ReadByNameAsync(name).ConfigureAwait(false)
+                    : await _database.Pipelines.ReadByNameAsync(ctx.TenantId!, name).ConfigureAwait(false);
                 if (existing == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Pipeline not found" }; }
                 if (existing.IsBuiltIn) { req.Http.Response.StatusCode = 400; return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Built-in pipelines cannot be deleted" }; }
                 await _database.Pipelines.DeleteAsync(existing.Id).ConfigureAwait(false);

@@ -1003,6 +1003,54 @@ namespace Armada.Test.Automated.Suites
 
             #endregion
 
+            #region Shared-Asset-Authorization
+
+            // Personas, pipelines and prompt templates are read by name. A tenant admin must not
+            // reach a record another tenant owns, and shared prompt templates change only through
+            // a global administrator.
+            await RunTest("Persona_DeleteBuiltInFromOtherTenant_Returns404", async () =>
+            {
+                HttpResponseMessage response = await _ClientB!.DeleteAsync("/api/v1/personas/Worker").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, response.StatusCode, "Another tenant's persona must not be reachable by name");
+            }).ConfigureAwait(false);
+
+            await RunTest("Pipeline_DeleteBuiltInFromOtherTenant_Returns404", async () =>
+            {
+                HttpResponseMessage response = await _ClientB!.DeleteAsync("/api/v1/pipelines/FullPipeline").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, response.StatusCode, "Another tenant's pipeline must not be reachable by name");
+            }).ConfigureAwait(false);
+
+            await RunTest("Persona_CreateFromTenantAdmin_RecordsCallerTenant", async () =>
+            {
+                string name = "xt-persona-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                HttpResponseMessage created = await _ClientA!.PostAsync("/api/v1/personas",
+                    JsonHelper.ToJsonContent(new { Name = name, Description = "tenant A persona", PromptTemplateName = "persona.worker", TenantId = "default" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, created.StatusCode);
+                Persona persona = await JsonHelper.DeserializeAsync<Persona>(created).ConfigureAwait(false);
+                AssertEqual(_TenantAId, persona.TenantId, "The server records the caller's tenant, not the body's");
+
+                HttpResponseMessage fromB = await _ClientB!.DeleteAsync("/api/v1/personas/" + name).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, fromB.StatusCode, "Tenant B must not delete tenant A's persona");
+
+                HttpResponseMessage fromA = await _ClientA!.DeleteAsync("/api/v1/personas/" + name).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NoContent, fromA.StatusCode, "Tenant A deletes its own persona");
+            }).ConfigureAwait(false);
+
+            await RunTest("PromptTemplate_ResetFromTenantAdmin_Returns403", async () =>
+            {
+                HttpResponseMessage response = await _ClientA!.PostAsync("/api/v1/prompt-templates/mission.rules/reset", JsonHelper.ToJsonContent(new { })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Forbidden, response.StatusCode, "Shared prompt templates change only through a global administrator");
+            }).ConfigureAwait(false);
+
+            await RunTest("PromptTemplate_UpdateFromTenantAdmin_Returns403", async () =>
+            {
+                HttpResponseMessage response = await _ClientA!.PutAsync("/api/v1/prompt-templates/mission.rules",
+                    JsonHelper.ToJsonContent(new { Description = "tenant A edit" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Forbidden, response.StatusCode, "Shared prompt templates change only through a global administrator");
+            }).ConfigureAwait(false);
+
+            #endregion
+
             #region Cleanup
 
             await RunTest("Cleanup_DeleteTenantResources", async () =>

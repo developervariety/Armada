@@ -124,9 +124,12 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/merge-queue` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/playbooks` | GET/POST/PUT/DELETE | Authenticated / TenantAdmin | Reads are tenant-scoped for any authenticated user. Mutations require tenant admin. |
 | `/api/v1/memories` | ALL | Authenticated | Tenant-scoped. A caller sees the tenant-wide records of its tenant plus its own; only a tenant admin changes a tenant-wide record. |
-| `/api/v1/prompt-templates` | ALL | Authenticated | Tenant-scoped |
-| `/api/v1/personas` | ALL | Authenticated | Tenant-scoped |
-| `/api/v1/pipelines` | ALL | Authenticated | Tenant-scoped |
+| `/api/v1/prompt-templates` | GET, POST `/enumerate` | Authenticated | Templates are shared by every tenant and found by name |
+| `/api/v1/prompt-templates` | POST/PUT, POST `/{name}/reset` | AdminOnly | Global admin only, because a change affects every tenant |
+| `/api/v1/personas` | GET, POST `/enumerate` | Authenticated | |
+| `/api/v1/personas` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and never a built-in flag. Update and delete find the persona inside the caller's tenant; a global admin reaches every tenant |
+| `/api/v1/pipelines` | GET, POST `/enumerate` | Authenticated | |
+| `/api/v1/pipelines` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and never a built-in flag. Update and delete find the pipeline inside the caller's tenant; a global admin reaches every tenant |
 | `/api/v1/planning-sessions` | GET | Authenticated | Planning-session list in caller scope |
 | `/api/v1/planning-sessions` | POST | TenantAdmin | Create one planning session in caller scope |
 | `/api/v1/planning-sessions/{id}` | GET | Authenticated | Read one planning session in caller scope |

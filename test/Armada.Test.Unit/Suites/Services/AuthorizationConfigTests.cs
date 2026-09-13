@@ -213,6 +213,58 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(PermissionLevel.AdminOnly, level);
             });
 
+            // --- Shared assets: personas and pipelines are tenant-owned, prompt templates are global ---
+
+            await RunTest("Personas GET IsAuthenticated", () =>
+            {
+                PermissionLevel level = AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/personas");
+                AssertEqual(PermissionLevel.Authenticated, level);
+            });
+
+            await RunTest("Personas POST IsTenantAdmin", () =>
+            {
+                PermissionLevel level = AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/personas");
+                AssertEqual(PermissionLevel.TenantAdmin, level);
+            });
+
+            await RunTest("Persona PUT IsTenantAdmin", () =>
+            {
+                PermissionLevel level = AuthorizationConfig.GetPermissionLevel("PUT", "/api/v1/personas/Worker");
+                AssertEqual(PermissionLevel.TenantAdmin, level);
+            });
+
+            await RunTest("Pipeline DELETE IsTenantAdmin", () =>
+            {
+                PermissionLevel level = AuthorizationConfig.GetPermissionLevel("DELETE", "/api/v1/pipelines/FullPipeline");
+                AssertEqual(PermissionLevel.TenantAdmin, level);
+            });
+
+            await RunTest("PromptTemplates POST IsAdminOnly", () =>
+            {
+                PermissionLevel level = AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/prompt-templates");
+                AssertEqual(PermissionLevel.AdminOnly, level);
+            });
+
+            await RunTest("PromptTemplate PUT IsAdminOnly", () =>
+            {
+                PermissionLevel level = AuthorizationConfig.GetPermissionLevel("PUT", "/api/v1/prompt-templates/mission.rules");
+                AssertEqual(PermissionLevel.AdminOnly, level);
+            });
+
+            await RunTest("PromptTemplate Reset POST IsAdminOnly", () =>
+            {
+                PermissionLevel level = AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/prompt-templates/mission.rules/reset");
+                AssertEqual(PermissionLevel.AdminOnly, level);
+            });
+
+            // Enumerate routes read through POST bodies, so they keep the read level.
+            await RunTest("SharedAsset Enumerate POST IsAuthenticated", () =>
+            {
+                AssertEqual(PermissionLevel.Authenticated, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/personas/enumerate"));
+                AssertEqual(PermissionLevel.Authenticated, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/pipelines/enumerate"));
+                AssertEqual(PermissionLevel.Authenticated, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/prompt-templates/enumerate"));
+            });
+
             // --- Case insensitivity ---
 
             await RunTest("MethodCaseInsensitive", () =>

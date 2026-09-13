@@ -14,6 +14,20 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Persona, pipeline and prompt template writes respect ownership
+
+- Persona and pipeline create, update and delete now require a tenant
+  administrator. Update and delete find the record inside the caller's tenant;
+  a global administrator still reaches every tenant. Before, any authenticated
+  user could update or delete another tenant's record by name.
+- Persona and pipeline create records the caller's tenant and never a built-in
+  flag from the request body. Before, the body's `TenantId` and `IsBuiltIn`
+  were stored as sent, so a request could plant a record in another tenant or
+  make it undeletable.
+- Prompt template create, update and reset now require a global administrator,
+  because templates are shared by every tenant and are found by name alone.
+  Before, any authenticated user could rewrite or reset a shared template.
+
 ### WebSocket sessions authenticate before they read or change state
 
 - The `/ws` hub now requires an `authenticate` message (bearer or session
