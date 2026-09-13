@@ -14,6 +14,11 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Admission refusal handling
+
+- Honor a refused resource-pressure decision even when its explanation is empty.
+  Keep the mission waiting before captain selection and use a fallback message.
+
 ### Readable runtime log responses
 
 - Add typed text, thinking and tool entries to formatted captain and mission logs,

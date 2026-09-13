@@ -143,3 +143,16 @@ validation status. Backend enrichment remains in progress.
 
 See [backend-logs.md](backend-logs.md) for typed response fields, shared redaction,
 validation and remaining consumer work.
+
+## Admission refusal repair
+
+A regression case showed that a custom resource-pressure policy returning
+`Admit=false` with an empty reason continued to captain selection. Assignment now
+uses the boolean result and supplies a fallback explanation. The global workload
+limit still runs first; the pressure probe, OOM cooldown, fleet capacity and
+sibling-lane policies retain their existing order and limits. This repair does
+not yet persist admission measurements or add a read projection.
+
+Validation: the new regression failed before the repair (22 passed, 1 failed).
+After repair, all 44 assignment, resource-pressure, fleet-capacity and sibling-lane
+cases passed with zero failures or skips. No schema change or deployment occurred.

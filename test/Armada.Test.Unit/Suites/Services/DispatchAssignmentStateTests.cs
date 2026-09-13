@@ -699,6 +699,31 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("TryAssign_RefusedAdmissionWithoutReason_RemainsDeferred", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    IDockService docks = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
+                    MissionService missions = new MissionService(logging, testDb.Driver, settings, docks, captains,
+                        resourcePressureAdmission: new RefusingAdmissionWithoutReason());
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("admission-test", "https://example.com/repo.git"));
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("refused", "No reason supplied")
+                    {
+                        VesselId = vessel.Id,
+                        Status = MissionStatusEnum.Pending
+                    });
+                    AssertFalse(await missions.TryAssignAsync(mission, vessel), "Refusal must prevent assignment");
+                    Mission? stored = await testDb.Driver.Missions.ReadAsync(mission.Id);
+                    AssertEqual(MissionAssignmentStateEnum.WaitingForResourcePressure, stored!.AssignmentState,
+                        "The boolean decision controls admission even when its explanation is empty");
+                    AssertNull(stored.CaptainId, "Refused work must not claim a captain");
+                }
+            });
+
             await RunTest("TryAssign_MissionWithUnknownDependency_ShowsWaitingForDependency", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -1349,6 +1374,18 @@ namespace Armada.Test.Unit.Suites.Services
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
             return logging;
+        }
+
+        private sealed class RefusingAdmissionWithoutReason : IResourcePressureAdmission
+        {
+            public ResourcePressureDecision Evaluate(int activeBuildPressure)
+            {
+                return new ResourcePressureDecision { Admit = false, Reason = String.Empty };
+            }
+
+            public void MarkOom() { }
+
+            public bool IsCapacitySuspended() { return false; }
         }
 
         private ArmadaSettings CreateSettings()

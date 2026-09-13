@@ -562,21 +562,26 @@ namespace Armada.Core.Services
                     globalActive += inProgressCount;
             }
 
+            bool admissionDeferred = false;
             string? deferralReason = null;
             if (_Settings.MaxConcurrentCaptainWorkloads > 0 &&
                 globalActive >= _Settings.MaxConcurrentCaptainWorkloads)
             {
+                admissionDeferred = true;
                 deferralReason = globalActive + " active captain workload(s) reached global limit "
                     + _Settings.MaxConcurrentCaptainWorkloads + " (MaxConcurrentCaptainWorkloads).";
             }
             else
             {
                 ResourcePressureDecision admission = _ResourcePressureAdmission.Evaluate(globalActive);
-                if (!admission.Admit)
-                    deferralReason = admission.Reason;
+                admissionDeferred = !admission.Admit;
+                if (admissionDeferred)
+                    deferralReason = String.IsNullOrWhiteSpace(admission.Reason)
+                        ? "Resource-pressure admission deferred launch without an explanation."
+                        : admission.Reason;
             }
 
-            if (!String.IsNullOrEmpty(deferralReason))
+            if (admissionDeferred)
             {
                 _Logging.Warn(_Header + "resource-pressure admission deferring mission " + mission.Id
                     + " on vessel " + vessel.Id + ": " + deferralReason);
