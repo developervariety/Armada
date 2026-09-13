@@ -16,6 +16,13 @@ Start with compatibility and provider tests, then captain quarantine controls an
 | Upstream | `19242085eed77c9d542bd29d250c8530699c5a97` |
 | Merge base | `e9e3021fac0d146a035b03dbe4df61cebd3a6fdc` |
 
+A later source change landed before this report was committed:
+`fbb6e33567d43a75b9e0151b8cb44a09ba636222` prevents failure evidence at or before
+an incident's mitigation time from reopening it. Its production diff and paired
+tests were inspected as a delta. This strengthens the retain-fork recovery
+decision. It is outside the frozen inventory and test-file counts above; no
+new runtime proof is claimed by this assessment.
+
 The fetched fork and local checkout matched. Git reports 1,187 fork-only and 324 upstream-only commits. These are ancestry counts, not missing-feature counts: earlier selective ports can have different commit IDs.
 
 [Inventory](inventory.json) records every source/configuration path in the three comparisons and every upstream-only commit. Vendor, built dashboard and archive paths have separate counts and are not imported as features. Each inventory area is a routing label, not a claim that every line passed review. Reproduce with `git diff --name-only <base> <tip>`, `git log <fork>..<upstream>`, and `git diff <fork> <upstream>` at the commits above. Skip AppleDouble metadata files.

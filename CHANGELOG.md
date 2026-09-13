@@ -15,6 +15,8 @@ replaced.
 Focus: operator signal fidelity - make a failure say what actually failed.
 
 ### Operator documentation
+- Incident mitigation now acknowledges existing failure evidence. Lifecycle
+  reconciliation reopens a mitigated incident only for a newer failure.
 - Added a fixed-source upstream capability review, full change inventory and
   phased selective-integration plan. Corrected the README comparison and
   captain MCP guidance. The review does not claim that planned ports shipped.

@@ -865,6 +865,11 @@ Use this order for manual diagnosis:
 6. Cancel only the exact mission or voyage that must stop.
 7. Restart or retry only after the cause is understood.
 
+A mitigation acknowledges failure evidence at or before its recorded time.
+Lifecycle reconciliation does not reopen a mitigated or monitoring incident
+from that same old failure when both timestamps are available. A newer failure
+can reopen it.
+
 Incident closure is evidence-driven. Produce a newer passing check, successful
 rescue, shipped release, verified deployment, or completed rollback. Do not
 close an incident only because a captain reported success.
