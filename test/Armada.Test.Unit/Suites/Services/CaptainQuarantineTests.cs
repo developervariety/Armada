@@ -1025,6 +1025,53 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(CaptainStateEnum.Idle, after.State, "the bench is refused while a process is registered");
                 }
             });
+
+            await RunTest("CrashLoopHold_PreservesStrongerHoldAndManualQuarantineCanReplaceIt", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, CreateLogging());
+                    Captain captain = new Captain("strong-hold")
+                    {
+                        State = CaptainStateEnum.Quarantined,
+                        QuarantineUntilUtc = DateTime.UtcNow.AddHours(2),
+                        QuarantineReason = "operator hold"
+                    };
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    bool shortened = await quarantine.TryQuarantineCrashLoopAsync(
+                        captain.Id, "crash loop", DateTime.UtcNow.AddMinutes(30)).ConfigureAwait(false);
+                    AssertFalse(shortened, "A crash loop must not shorten a stronger timed hold.");
+
+                    await quarantine.QuarantineCaptainAsync(
+                        _OperatorAuth, captain.Id, "manual replacement", DateTime.UtcNow.AddMinutes(10)).ConfigureAwait(false);
+                    Captain? after = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual("manual replacement", after!.QuarantineReason, "Manual quarantine must retain its overwrite behavior.");
+                }
+            });
+
+            await RunTest("CrashLoopHold_PreservesIndefiniteAndExtendsShorterAndRefusesOwnedCaptain", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    CaptainQuarantineService quarantine = new CaptainQuarantineService(db, CreateSettings(), CreateLogging());
+                    Captain indefinite = new Captain("indefinite-crash-hold") { State = CaptainStateEnum.Quarantined };
+                    indefinite.QuarantineReason = "operator hold";
+                    await db.Captains.CreateAsync(indefinite).ConfigureAwait(false);
+                    AssertFalse(await quarantine.TryQuarantineCrashLoopAsync(indefinite.Id, "crash loop", DateTime.UtcNow.AddMinutes(30)).ConfigureAwait(false), "Indefinite hold must refuse replacement.");
+
+                    Captain shortHold = new Captain("short-crash-hold") { State = CaptainStateEnum.Quarantined, QuarantineUntilUtc = DateTime.UtcNow.AddMinutes(5), QuarantineReason = "short" };
+                    await db.Captains.CreateAsync(shortHold).ConfigureAwait(false);
+                    AssertTrue(await quarantine.TryQuarantineCrashLoopAsync(shortHold.Id, "crash loop", DateTime.UtcNow.AddMinutes(30)).ConfigureAwait(false), "A longer crash hold must extend a shorter hold.");
+
+                    Captain owned = new Captain("owned-crash-hold") { State = CaptainStateEnum.Working, ProcessId = 1010 };
+                    await db.Captains.CreateAsync(owned).ConfigureAwait(false);
+                    AssertFalse(await quarantine.TryQuarantineCrashLoopAsync(owned.Id, "crash loop", DateTime.UtcNow.AddMinutes(30)).ConfigureAwait(false), "A captain that owns a process must refuse the hold.");
+                }
+            });
         }
 
         /// <summary>Hand-rolled quota probe double returning a fixed recovery verdict.</summary>

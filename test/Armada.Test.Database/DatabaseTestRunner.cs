@@ -600,6 +600,18 @@ namespace Armada.Test.Database
                 DatabaseAssert.Equal("indefinite hold", indefinite.QuarantineReason, "Updated reason");
                 DatabaseAssert.True(!indefinite.QuarantineUntilUtc.HasValue, "A null expiry is an indefinite hold");
 
+                DatabaseAssert.True(!await _Driver.Captains.TryQuarantineIdleAsync(
+                    idle.Id, "shorter crash hold", DateTime.UtcNow.AddMinutes(5), token, true).ConfigureAwait(false),
+                    "A conditional crash hold cannot replace an indefinite hold");
+                DatabaseAssert.Equal("indefinite hold", (await _Driver.Captains.ReadAsync(idle.Id, token).ConfigureAwait(false))!.QuarantineReason,
+                    "The indefinite hold remains after a refused crash hold");
+
+                Captain extendable = await CreateIdleCaptainAsync(fixture, tenantId, userId, "quarantine-extendable", token).ConfigureAwait(false);
+                DatabaseAssert.True(await _Driver.Captains.TryQuarantineIdleAsync(extendable.Id, "short hold", DateTime.UtcNow.AddMinutes(5), token).ConfigureAwait(false), "Short hold");
+                DatabaseAssert.True(await _Driver.Captains.TryQuarantineIdleAsync(extendable.Id, "long crash hold", DateTime.UtcNow.AddMinutes(30), token, true).ConfigureAwait(false), "A conditional crash hold extends a shorter hold");
+                Captain extended = DatabaseAssert.NotNull(await _Driver.Captains.ReadAsync(extendable.Id, token).ConfigureAwait(false), "Extended captain");
+                DatabaseAssert.Equal("long crash hold", extended.QuarantineReason, "The longer crash hold is stored");
+
                 Captain claimed = await CreateIdleCaptainAsync(fixture, tenantId, userId, "quarantine-claimed", token).ConfigureAwait(false);
                 Dock claimedDock = await fixture.CreateDockAsync(tenantId, userId, graph.Vessel.Id, claimed.Id, token).ConfigureAwait(false);
                 DatabaseAssert.True(await _Driver.Captains.TryClaimAsync(claimed.Id, graph.Mission.Id, claimedDock.Id, token).ConfigureAwait(false), "Claim the captain");

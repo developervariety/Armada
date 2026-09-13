@@ -1,7 +1,7 @@
 namespace Armada.Core.Settings
 {
     /// <summary>
-    /// Settings for detecting near-instant runtime exit-code-1 crash loops and benching captains.
+    /// Settings for detecting repeated runtime crash failures and quarantining captains.
     /// </summary>
     public sealed class CrashLoopDetectionSettings
     {
@@ -11,25 +11,17 @@ namespace Armada.Core.Settings
         public bool Enabled { get; set; } = true;
 
         /// <summary>
-        /// Consecutive near-instant exit-1 failures required before benching.
+        /// Distinct runtime crash failures required before quarantine. Values above 256 are capped because the
+        /// tracker retains at most 256 failure identifiers per captain.
         /// </summary>
         public int FailureThreshold
         {
             get => _FailureThreshold;
-            set => _FailureThreshold = Math.Max(2, value);
+            set => _FailureThreshold = Math.Max(2, Math.Min(256, value));
         }
 
         /// <summary>
-        /// Maximum runtime in seconds for a launch to count as near-instant.
-        /// </summary>
-        public int MaxRuntimeSeconds
-        {
-            get => _MaxRuntimeSeconds;
-            set => _MaxRuntimeSeconds = Math.Max(1, Math.Min(60, value));
-        }
-
-        /// <summary>
-        /// Seconds a benched captain remains ineligible before restore sweep may clear the bench.
+        /// Seconds a crash-loop captain remains quarantined before restore may clear the hold.
         /// </summary>
         public int CooldownSeconds
         {
@@ -38,12 +30,16 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// Whether restore should run a probe launch before clearing the bench.
+        /// Minutes in which non-provider crash failures count toward the crash-loop threshold.
         /// </summary>
-        public bool UseProbeOnRestore { get; set; } = false;
+        public int WindowMinutes
+        {
+            get => _WindowMinutes;
+            set => _WindowMinutes = Math.Max(1, Math.Min(1440, value));
+        }
 
         private int _FailureThreshold = 3;
-        private int _MaxRuntimeSeconds = 5;
         private int _CooldownSeconds = 300;
+        private int _WindowMinutes = 10;
     }
 }

@@ -43,6 +43,27 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<bool> TryQuarantineCrashLoopAsync(string captainId, string reason, DateTime untilUtc, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(captainId)) throw new ArgumentException("Captain id is required.", nameof(captainId));
+            if (String.IsNullOrWhiteSpace(reason)) throw new ArgumentException("Quarantine reason is required.", nameof(reason));
+            DateTime expiry = untilUtc.Kind == DateTimeKind.Unspecified
+                ? DateTime.SpecifyKind(untilUtc, DateTimeKind.Utc)
+                : untilUtc.ToUniversalTime();
+            if (expiry <= DateTime.UtcNow) throw new ArgumentException("Crash-loop expiry must be in the future.", nameof(untilUtc));
+            bool applied = await _Database.Captains.TryQuarantineIdleAsync(captainId, reason, expiry, token, true).ConfigureAwait(false);
+            if (applied)
+            {
+                _Logging.Warn(_Header + "captain " + captainId + " crash-loop hold applied untilUtc=" + expiry.ToString("O"));
+            }
+            else
+            {
+                _Logging.Warn(_Header + "captain " + captainId + " crash-loop hold refused because its existing hold or ownership is stronger");
+            }
+            return applied;
+        }
+
+        /// <inheritdoc />
         public async Task<CaptainQuarantineResult> QuarantineCaptainAsync(AuthContext auth, string captainId, string? reason, DateTime? untilUtc, CancellationToken token = default)
         {
             if (auth == null) throw new ArgumentNullException(nameof(auth));

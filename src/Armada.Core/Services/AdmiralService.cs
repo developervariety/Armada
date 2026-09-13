@@ -97,6 +97,7 @@ namespace Armada.Core.Services
         private ICaptainQuarantineService _CaptainQuarantine;
         private IResourcePressureAdmission _ResourcePressureAdmission;
         private readonly FleetCapacityAdmission _FleetCapacityAdmission;
+        private readonly CaptainCrashLoopTracker _CrashLoopTracker;
         private readonly DispatchHold? _DispatchHold;
         private IGitService _Git;
         private bool _RetryDispatchNeeded = false;
@@ -169,6 +170,7 @@ namespace Armada.Core.Services
             _DispatchHold = dispatchHold;
             _FleetCapacityAdmission = fleetCapacityAdmission
                 ?? new FleetCapacityAdmission(_Database, _Settings, _Logging);
+            _CrashLoopTracker = new CaptainCrashLoopTracker(_Settings.CrashLoopDetection);
         }
 
         #endregion
@@ -1531,6 +1533,43 @@ namespace Armada.Core.Services
                 // stall the captain when the failure indicates the runtime itself is unavailable.
                 string failureReason = await BuildProcessExitFailureReasonAsync(missionId, exitCode, token).ConfigureAwait(false);
                 await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, exitCode, failureReason, token).ConfigureAwait(false);
+
+                RuntimeFailureKindEnum failureKind = RuntimeFailureClassifier.Classify(exitCode, failureReason);
+                if (_Settings.CrashLoopDetection.Enabled
+                    && failureKind == RuntimeFailureKindEnum.Crash
+                    && !ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal(failureReason)
+                    && !IsTestOrDefinitionOfDoneFailure(failureReason))
+                {
+                    bool shouldQuarantine = _CrashLoopTracker.Record(
+                        captain.Id,
+                        processId.ToString() + ":" + captain.Id + ":" + mission.Id,
+                        DateTime.UtcNow,
+                        out int count,
+                        out long generation);
+                    if (shouldQuarantine)
+                    {
+                        DateTime untilUtc = DateTime.UtcNow.AddSeconds(_Settings.CrashLoopDetection.CooldownSeconds);
+                        Captain? currentCaptain = await _Database.Captains.ReadAsync(captain.Id, token).ConfigureAwait(false);
+                        bool canApplyCrashHold = currentCaptain != null
+                            && currentCaptain.ProcessId == null
+                            && String.IsNullOrEmpty(currentCaptain.CurrentMissionId)
+                            && String.IsNullOrEmpty(currentCaptain.CurrentDockId)
+                            && (currentCaptain.State != CaptainStateEnum.Quarantined
+                                || (currentCaptain.QuarantineUntilUtc.HasValue && currentCaptain.QuarantineUntilUtc.Value < untilUtc));
+                        if (canApplyCrashHold && currentCaptain != null)
+                        {
+                            bool applied = await _CaptainQuarantine.TryQuarantineCrashLoopAsync(
+                                currentCaptain.Id,
+                                "Crash loop detected after " + count + " runtime failures in the configured window.",
+                                untilUtc,
+                                token).ConfigureAwait(false);
+                            if (applied)
+                            {
+                                _CrashLoopTracker.ResetIfGeneration(captain.Id, generation);
+                            }
+                        }
+                    }
+                }
             }
 
             // Try to dispatch any pending missions now that capacity may have freed up
@@ -1538,6 +1577,14 @@ namespace Armada.Core.Services
         }
 
         #endregion
+
+        private static bool IsTestOrDefinitionOfDoneFailure(string failureReason)
+        {
+            if (String.IsNullOrWhiteSpace(failureReason)) return false;
+            return failureReason.StartsWith("DoD gate failed:", StringComparison.OrdinalIgnoreCase)
+                || failureReason.StartsWith("Tests failed after merge", StringComparison.OrdinalIgnoreCase)
+                || failureReason.StartsWith("Tests failed before merge", StringComparison.OrdinalIgnoreCase);
+        }
 
         #region Private-Methods
 

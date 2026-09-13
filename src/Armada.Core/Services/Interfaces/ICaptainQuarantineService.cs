@@ -26,6 +26,9 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="token">Cancellation token.</param>
         Task QuarantineAsync(Captain captain, string reason, DateTime? retryAfterUtc, CancellationToken token = default);
 
+        /// <summary>Atomically applies a crash-loop hold without replacing a stronger existing hold.</summary>
+        Task<bool> TryQuarantineCrashLoopAsync(string captainId, string reason, DateTime untilUtc, CancellationToken token = default);
+
         /// <summary>
         /// Manually quarantine a captain visible to the caller. The write succeeds only while the captain is Idle or
         /// already quarantined and owns no mission, dock or process; otherwise nothing changes and the outcome is Busy.

@@ -427,7 +427,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
         }
 
         /// <inheritdoc />
-        public async Task<bool> TryQuarantineIdleAsync(string captainId, string reason, DateTime? untilUtc, CancellationToken token = default)
+        public async Task<bool> TryQuarantineIdleAsync(string captainId, string reason, DateTime? untilUtc, CancellationToken token = default, bool preserveStrongerHold = false)
         {
             if (string.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
             if (string.IsNullOrWhiteSpace(reason)) throw new ArgumentNullException(nameof(reason));
@@ -457,11 +457,13 @@ namespace Armada.Core.Database.Sqlite.Implementations
                             quarantine_reason = @quarantine_reason,
                             last_update_utc = @last_update_utc
                             WHERE id = @id AND state IN ('Idle', 'Quarantined')
-                            AND current_mission_id IS NULL AND current_dock_id IS NULL AND process_id IS NULL;";
+                            AND current_mission_id IS NULL AND current_dock_id IS NULL AND process_id IS NULL
+                            AND (@preserve_stronger_hold = 0 OR state = 'Idle' OR (quarantine_until_utc IS NOT NULL AND (@quarantine_until_utc IS NULL OR quarantine_until_utc < @quarantine_until_utc)));";
                     cmd.Parameters.AddWithValue("@id", captainId);
                     cmd.Parameters.AddWithValue("@state", CaptainStateEnum.Quarantined.ToString());
                     cmd.Parameters.AddWithValue("@quarantine_until_utc", untilUtc.HasValue ? (object)SqliteDatabaseDriver.ToIso8601(untilUtc.Value) : DBNull.Value);
                     cmd.Parameters.AddWithValue("@quarantine_reason", reason.Trim());
+                    cmd.Parameters.AddWithValue("@preserve_stronger_hold", preserveStrongerHold ? 1 : 0);
                     cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(now));
                     int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     return rowsAffected > 0;

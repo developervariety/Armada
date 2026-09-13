@@ -85,7 +85,7 @@ namespace Armada.Core.Database.Interfaces
         /// current mission, dock or process. Returns false when that condition no longer holds, so a captain that
         /// was claimed or started a process after it was read is never stripped of its work.
         /// </summary>
-        Task<bool> TryQuarantineIdleAsync(string captainId, string reason, DateTime? untilUtc, CancellationToken token = default);
+        Task<bool> TryQuarantineIdleAsync(string captainId, string reason, DateTime? untilUtc, CancellationToken token = default, bool preserveStrongerHold = false);
 
         /// <summary>
         /// Atomically release a quarantine. Sets state to Idle and clears the reason and expiry, but only while the

@@ -14,6 +14,14 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Generic crash-loop protection
+
+- Repeated distinct runtime crashes use the existing quarantine service.
+  Atomic writes preserve active work and stronger holds. Bounded counters
+  exclude provider failures and retain concurrent crash evidence.
+- Removed the unused CaptainHealthMonitor. Actual quarantine recovery stays
+  with the existing service.
+
 ### Vessel branch inspection
 
 - Added scoped, read-only vessel branch inspection with tip metadata and

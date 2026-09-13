@@ -108,6 +108,7 @@ namespace Armada.Test.Unit
 
             // Service tests
             runner.AddSuite(new AdmiralServiceTests());
+            runner.AddSuite(new CaptainCrashLoopTrackerTests());
             runner.AddSuite(new MemoryHotfixRegressionTests());
             runner.AddSuite(new EntityResolverTests());
             runner.AddSuite(new MessageTemplateServiceTests());
@@ -187,7 +188,6 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CursorLaunchArgumentsTests());
             runner.AddSuite(new OpenCodeProviderConfigBuilderTests());
             runner.AddSuite(new ClaudeCodeProviderRoutingTests());
-            runner.AddSuite(new CaptainHealthMonitorTests());
             runner.AddSuite(new ResourcePressureAdmissionTests());
             runner.AddSuite(new DatabaseValidationModeTests());
             runner.AddSuite(new CaptainQuarantineTests());

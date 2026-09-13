@@ -75,6 +75,39 @@ namespace Armada.Test.Unit.Suites.Services
                 git: git);
         }
 
+        private static async Task<Mission> CreateExitMissionAsync(SqliteDatabaseDriver db, Captain captain, int processId)
+        {
+            Voyage voyage = new Voyage("Crash exclusion voyage " + processId) { Status = VoyageStatusEnum.InProgress };
+            await db.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+            Mission mission = new Mission("Crash exclusion mission " + processId)
+            {
+                VoyageId = voyage.Id,
+                Status = MissionStatusEnum.InProgress,
+                AssignmentState = MissionAssignmentStateEnum.Assigned,
+                ProcessId = processId,
+                StartedUtc = DateTime.UtcNow.AddSeconds(-5)
+            };
+            await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+            captain.CurrentMissionId = mission.Id;
+            captain.ProcessId = processId;
+            captain.State = CaptainStateEnum.Working;
+            await db.Captains.UpdateAsync(captain).ConfigureAwait(false);
+            return mission;
+        }
+
+        private sealed class CrashLoopExcludedFailureCase
+        {
+            public CrashLoopExcludedFailureCase(string name, string logText)
+            {
+                Name = name;
+                LogText = logText;
+            }
+
+            public string Name { get; }
+
+            public string LogText { get; }
+        }
+
         protected override async Task RunTestsAsync()
         {
             await RunTest("HandleProcessExitAsync records the process exit event in the mission owner's scope", async () =>
@@ -1624,6 +1657,174 @@ namespace Armada.Test.Unit.Suites.Services
 
                     EnumerationResult<ArmadaEvent> events = await db.Events.EnumerateAsync(new EnumerationQuery { PageNumber = 1, PageSize = 100 }).ConfigureAwait(false);
                     AssertTrue(events.Objects.Any(e => e.EventType == "mission.failed_recoverable_work" && e.MissionId == mission.Id), "Recoverable-work failure should emit mission.failed_recoverable_work");
+                }
+            });
+
+            await RunTest("HandleProcessExitAsync QuarantinesAfterDistinctGenericCrashes", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    settings.CrashLoopDetection.FailureThreshold = 2;
+                    settings.CrashLoopDetection.WindowMinutes = 10;
+                    settings.CrashLoopDetection.CooldownSeconds = 30;
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, new StubGitService());
+
+                    Captain captain = new Captain("crash-loop-captain") { State = CaptainStateEnum.Working };
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    for (int index = 0; index < 2; index++)
+                    {
+                        Voyage voyage = new Voyage("Crash loop voyage " + index) { Status = VoyageStatusEnum.InProgress };
+                        await db.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+                        Mission mission = new Mission("Generic runtime crash " + index)
+                        {
+                            VoyageId = voyage.Id,
+                            Status = MissionStatusEnum.InProgress,
+                            AssignmentState = MissionAssignmentStateEnum.Assigned,
+                            ProcessId = 9100 + index,
+                            StartedUtc = DateTime.UtcNow.AddSeconds(-5)
+                        };
+                        await db.Missions.CreateAsync(mission).ConfigureAwait(false);
+                        captain.CurrentMissionId = mission.Id;
+                        captain.ProcessId = mission.ProcessId;
+                        captain.State = CaptainStateEnum.Working;
+                        await db.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                        await service.HandleProcessExitAsync(mission.ProcessId!.Value, 139, captain.Id, mission.Id).ConfigureAwait(false);
+                        if (index == 0)
+                        {
+                            // The lifecycle callback can race a health observation. A duplicate
+                            // callback for the same process must not create a second crash sample.
+                            await service.HandleProcessExitAsync(mission.ProcessId!.Value, 139, captain.Id, mission.Id).ConfigureAwait(false);
+                            Captain? duplicateAfter = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                            AssertNotEqual(CaptainStateEnum.Quarantined, duplicateAfter!.State, "A duplicate callback must not reach the crash threshold.");
+                        }
+                        captain = (await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false))!;
+                    }
+
+                    Captain? after = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Quarantined, after!.State, "Repeated generic runtime crashes must quarantine the captain.");
+                    AssertContains("Crash loop detected", after.QuarantineReason ?? String.Empty, "Quarantine must identify crash-loop protection.");
+                    AssertTrue(after.QuarantineUntilUtc.HasValue, "Crash-loop quarantine must have a bounded cooldown.");
+                }
+            });
+
+            await RunTest("HandleProcessExitAsync ExcludesProviderFailuresBeforeGenericCrashFromCrashLoop", async () =>
+            {
+                CrashLoopExcludedFailureCase[] cases = new CrashLoopExcludedFailureCase[]
+                {
+                    new CrashLoopExcludedFailureCase(
+                        "quota",
+                        "[stderr] You've hit your usage limit. try again at 11:57 PM\nAgent exited with code 1"),
+                    new CrashLoopExcludedFailureCase(
+                        "auth",
+                        "[stderr] invalid_api_key\nAgent exited with code 1"),
+                    new CrashLoopExcludedFailureCase(
+                        "safeguard",
+                        "[stderr] Safety measures that flagged this message for a cybersecurity topic\nAgent exited with code 1")
+                };
+
+                foreach (CrashLoopExcludedFailureCase testCase in cases)
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        SqliteDatabaseDriver db = testDb.Driver;
+                        ArmadaSettings settings = CreateSettings();
+                        settings.CrashLoopDetection.FailureThreshold = 2;
+                        settings.CrashLoopDetection.WindowMinutes = 10;
+                        settings.CrashLoopDetection.CooldownSeconds = 30;
+                        AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, new StubGitService());
+
+                        Captain captain = new Captain("excluded-provider-" + testCase.Name)
+                        {
+                            State = CaptainStateEnum.Idle
+                        };
+                        await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                        Mission providerFailure = await CreateExitMissionAsync(db, captain, 9500).ConfigureAwait(false);
+                        string missionLogDir = Path.Combine(settings.LogDirectory, "missions");
+                        Directory.CreateDirectory(missionLogDir);
+                        await File.WriteAllTextAsync(
+                            Path.Combine(missionLogDir, providerFailure.Id + ".log"),
+                            testCase.LogText).ConfigureAwait(false);
+
+                        await service.HandleProcessExitAsync(
+                            providerFailure.ProcessId!.Value,
+                            1,
+                            captain.Id,
+                            providerFailure.Id).ConfigureAwait(false);
+
+                        Captain? providerAfter = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                        AssertEqual(
+                            CaptainStateEnum.Quarantined,
+                            providerAfter!.State,
+                            testCase.Name + " provider failure must use the quarantine path before reassignment.");
+
+                        Mission genericCrash = await CreateExitMissionAsync(db, captain, 9501).ConfigureAwait(false);
+                        await service.HandleProcessExitAsync(
+                            genericCrash.ProcessId!.Value,
+                            139,
+                            captain.Id,
+                            genericCrash.Id).ConfigureAwait(false);
+
+                        Captain? after = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                        AssertNotEqual(
+                            CaptainStateEnum.Quarantined,
+                            after!.State,
+                            testCase.Name + " provider failure must not contribute to the generic crash-loop threshold.");
+                    }
+                }
+            });
+
+            await RunTest("HandleProcessExitAsync DisabledCrashLoopDetectionDoesNotQuarantine", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    settings.CrashLoopDetection.Enabled = false;
+                    settings.CrashLoopDetection.FailureThreshold = 2;
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), testDb.Driver, settings, new StubGitService());
+                    Captain captain = new Captain("disabled-crash-loop") { State = CaptainStateEnum.Idle };
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    for (int index = 0; index < 3; index++)
+                    {
+                        Mission mission = await CreateExitMissionAsync(testDb.Driver, captain, 9200 + index).ConfigureAwait(false);
+                        await service.HandleProcessExitAsync(mission.ProcessId!.Value, 139, captain.Id, mission.Id).ConfigureAwait(false);
+                        captain = (await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false))!;
+                    }
+                    Captain? after = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertNotEqual(CaptainStateEnum.Quarantined, after!.State, "Disabled crash-loop detection must never quarantine.");
+                }
+            });
+
+            await RunTest("HandleProcessExitAsync OomAndInterruptionDoNotCountAsCrashLoop", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    settings.CrashLoopDetection.FailureThreshold = 2;
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), testDb.Driver, settings, new StubGitService());
+                    Captain captain = new Captain("excluded-crash-loop") { State = CaptainStateEnum.Idle };
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    Mission oom = await CreateExitMissionAsync(testDb.Driver, captain, 9300).ConfigureAwait(false);
+                    await service.HandleProcessExitAsync(9300, 137, captain.Id, oom.Id).ConfigureAwait(false);
+                    captain = (await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false))!;
+                    Mission interrupted = await CreateExitMissionAsync(testDb.Driver, captain, 9301).ConfigureAwait(false);
+                    try
+                    {
+                        await service.HandleProcessExitAsync(9301, -1, captain.Id, interrupted.Id, new CancellationToken(true)).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Cancellation before failure handling must not create crash-loop evidence.
+                    }
+                    captain = (await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false))!;
+                    Mission generic = await CreateExitMissionAsync(testDb.Driver, captain, 9302).ConfigureAwait(false);
+                    await service.HandleProcessExitAsync(9302, 139, captain.Id, generic.Id).ConfigureAwait(false);
+                    Captain? after = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertNotEqual(CaptainStateEnum.Quarantined, after!.State, "OOM and interruption must not contribute to crash-loop threshold.");
                 }
             });
         }
