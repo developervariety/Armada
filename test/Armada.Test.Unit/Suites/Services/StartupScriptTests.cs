@@ -41,7 +41,6 @@ namespace Armada.Test.Unit.Suites.Services
                     Path.Combine("scripts", "macos", "remove-launchd-agent.sh"),
                     Path.Combine("scripts", "autonomy", "spawn-helper.sh"),
                     Path.Combine("scripts", "autonomy", "test-spawn-helper.sh"),
-                    Path.Combine("docs", "autonomy", "lead-bootstrap-prompt.md"),
                 };
 
                 foreach (string relativePath in files)
@@ -110,7 +109,6 @@ namespace Armada.Test.Unit.Suites.Services
                 string helperPath = Path.Combine(root, "scripts", "autonomy", "spawn-helper.sh");
                 string testPath = Path.Combine(root, "scripts", "autonomy", "test-spawn-helper.sh");
                 string helperContents = File.ReadAllText(helperPath);
-                string promptContents = File.ReadAllText(Path.Combine(root, "docs", "autonomy", "lead-bootstrap-prompt.md"));
 
                 AssertContains("AUTONOMY_MAX_HELPERS", helperContents, "helper launcher should enforce a concurrency cap");
                 AssertContains("AUTONOMY_HELPER_TIMEOUT_MIN", helperContents, "helper launcher should enforce a timeout");
@@ -119,7 +117,6 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("--mcp-config", helperContents, "Claude helpers in strict mode must receive an explicit MCP config");
                 AssertContains("AUTONOMY_ARMADA_MCP_URL", helperContents, "helper launcher should expose the local Armada MCP endpoint setting");
                 AssertContains("helper working directory", helperContents, "helper contract should state the file-sandbox boundary");
-                AssertContains("fresh session", promptContents, "lead prompt should document fresh-session reconstruction");
 
                 if (OperatingSystem.IsWindows())
                 {

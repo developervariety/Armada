@@ -99,12 +99,6 @@ namespace Armada.Server.Mcp
         public string? BearerToken { get; set; } = null;
 
         /// <summary>
-        /// Optional OAuth broker for a restricted connection proof. This remains internal
-        /// because it is an in-memory POC component, not Armada's production identity system.
-        /// </summary>
-        internal GrokMcpOAuthBroker? OAuthBroker { get; set; } = null;
-
-        /// <summary>
         /// Optional server-assigned participant identity. When set, the server rejects a different
         /// request header and does not trust the caller to select its Armada identity.
         /// </summary>
@@ -220,18 +214,10 @@ namespace Armada.Server.Mcp
             // tool handler can read it without depending on SDK transport internals.
             application.Use(async (context, next) =>
             {
-                if (OAuthBroker != null && OAuthBroker.IsPublicPath(context.Request.Path))
-                {
-                    context.Response.Headers["Cache-Control"] = "no-store";
-                    await next(context).ConfigureAwait(false);
-                    return;
-                }
-
                 if (!IsAuthorized(context))
                 {
                     context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-                    context.Response.Headers.WWWAuthenticate = OAuthBroker?.Challenge
-                        ?? "Bearer realm=\"Armada MCP\"";
+                    context.Response.Headers.WWWAuthenticate = "Bearer realm=\"Armada MCP\"";
                     await context.Response.WriteAsync("Unauthorized").ConfigureAwait(false);
                     return;
                 }
@@ -257,7 +243,6 @@ namespace Armada.Server.Mcp
                 }
             });
 
-            OAuthBroker?.MapEndpoints(application);
             application.MapMcp("/mcp");
             application.MapMcp("/rpc");
 
@@ -396,7 +381,7 @@ namespace Armada.Server.Mcp
 
         private bool IsAuthorized(HttpContext context)
         {
-            if (String.IsNullOrEmpty(BearerToken) && OAuthBroker == null) return true;
+            if (String.IsNullOrEmpty(BearerToken)) return true;
             string authorization = context.Request.Headers.Authorization.ToString();
             const string prefix = "Bearer ";
             if (!authorization.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return false;
@@ -409,7 +394,7 @@ namespace Armada.Server.Mcp
                     && CryptographicOperations.FixedTimeEquals(expectedBytes, suppliedBytes))
                     return true;
             }
-            return OAuthBroker?.IsAccessToken(supplied) == true;
+            return false;
         }
 
         private async Task WriteToolAuditAsync(

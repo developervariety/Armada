@@ -20,14 +20,13 @@ when delivery is `SpawnProcess` or `Both`; a transient registration can override
 that key for a controlled session. OpenCode starts a fresh session and reconstructs
 state from the note, board, and durable memory.
 
-Optional operator-side lead cycles are separate from the built-in scheduler.
-Use `docs/autonomy/lead-bootstrap-prompt.md` for one bounded fresh cycle and
-`scripts/autonomy/spawn-helper.sh` for capped, timed, read-only helper
-processes. Its `offer` mode gives a lead a bounded reassignment window before
+Bounded read-only helper processes use `scripts/autonomy/spawn-helper.sh`.
+Its `offer` mode gives an operator a bounded reassignment window before
 fallback work starts. One process owns one participant key; do not combine a
-resident helper with an AgentWake process owner for the same key. A lead keeps
-several safe writable lanes auto-enabled when the configured scheduler ceiling
-is greater than one.
+resident helper with an AgentWake process owner for the same key.
+
+The standalone lead runner and Grok Bot integration are retired. See the
+[retirement archive](archive/autonomous-lead/README.md).
 
 ---
 

@@ -14,6 +14,14 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Retired standalone lead integration
+- Archived the standalone lead launcher, timer, deployment assets, and guides.
+- Removed the Grok listener, OAuth proof-of-concept broker, lead configuration,
+  lead-control REST routes, and lead-cycle MCP tools. Existing deployments must
+  remove their old listener, gateway, and lead-specific wake configuration.
+- Preserved the objective scheduler, shared coordination, generic AgentWake,
+  helper launcher, watcher, and generic MCP authentication and audit controls.
+
 ### Operator documentation
 - Incident mitigation now acknowledges existing failure evidence. Lifecycle
   reconciliation reopens a mitigated incident only for a newer failure.

@@ -19,8 +19,8 @@ Environment=AUTONOMY_LEAD_KEY=armada-lead
 Environment=AUTONOMY_LEAD_RUNTIME=claude
 Environment=AUTONOMY_LEAD_MODEL=claude-fable-5
 Environment=AUTONOMY_LEAD_API_BASE_URL=https://api.vilao.ai
-Environment=AUTONOMY_LEAD_API_KEY_FILE=/home/armada/.armada/secrets/autonomy-lead-vilao.key
-Environment=AUTONOMY_LEAD_WORKDIR=/home/armada/.armada/autonomy-lead
+Environment=AUTONOMY_LEAD_API_KEY_FILE=<service-home>/.armada/secrets/autonomy-lead-vilao.key
+Environment=AUTONOMY_LEAD_WORKDIR=<service-home>/.armada/autonomy-lead
 Environment=AUTONOMY_LEAD_TIMEOUT_MIN=30
 Environment=AUTONOMY_LEAD_STANDBY_FALLBACK=1
 ExecStart=__ARMADA_CHECKOUT__/scripts/autonomy/lead-cycle.sh run

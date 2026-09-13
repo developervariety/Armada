@@ -21,9 +21,9 @@ LOG_DIR="$(mktemp -d)"
 
 declare -a SUITE_NAMES=(unit automated runtimes)
 declare -a SUITE_PROJECTS=(
-  test/Armada.Test.Unit
-  test/Armada.Test.Automated
-  test/Armada.Test.Runtimes
+  test/Armada.Test.Unit/Test.Unit.csproj
+  test/Armada.Test.Automated/Test.Automated.csproj
+  test/Armada.Test.Runtimes/Armada.Test.Runtimes.csproj
 )
 
 # ClaudeCodeProviderRoutingTests asserts on the environment a child process would

@@ -1,4 +1,4 @@
-grok.skcc.network {
+grok.example.com {
     @mcp path /mcp
     @oauth path /.well-known/oauth-protected-resource /.well-known/oauth-protected-resource/mcp /.well-known/oauth-authorization-server /oauth/register /oauth/authorize /oauth/token
 

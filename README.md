@@ -116,31 +116,16 @@ Armada models work explicitly so a human or orchestrator can inspect every layer
 - Voyages group missions and preserve shared title, description, vessel, objective, planning-session, playbook, pipeline, and landing context.
 - Docks are per-mission git worktrees so captains work on isolated branches instead of sharing the user's checkout.
 
-### Autonomous Scheduling And Operator Cycles
+### Autonomous Scheduling And Operator Tools
 
-Three layers cover different work. The **objective scheduler** selects eligible
-objectives and dispatches captains; its settings persist across Admiral restarts
-and its voyages use the normal Build and UnitTest Check-arming path. The
-**captains** do the code. The **lead cycle** is the operator layer that neither
-covers: landing, incidents, campaign refill, and answering helpers.
+The objective scheduler selects eligible objectives and dispatches captains.
+Its settings persist across Admiral restarts, and its voyages use the normal
+Build and UnitTest Check-arming path. Operators handle landing, incidents,
+campaign planning, and helper requests.
 
-`scripts/autonomy/lead-cycle.sh` runs one bounded pass and exits. Two triggers
-start it: a systemd timer (`scripts/autonomy/systemd/`) for work that arrives
-quietly, and AgentWake for a mission outcome or a note addressed to the lead's
-key. The runner is single-flight, so a tick arriving during a wake-started cycle
-is refused rather than queued and one participant key never gets two process
-owners. Give the lead its own key, never an interactive operator's.
-
-An unattended cycle cannot ask a question, so it posts owner decisions to the
-coordination board and continues. Its permission policy is passed explicitly and
-is the real boundary: the Armada surface plus ordinary file and shell work is
-allowed; fleet-destructive and purge tools, deployment and release, check
-resolution, the dispatch hold, AgentWake registration, force push and host
-service control are denied.
-
-Each cycle records its whole event stream plus a rendered digest of every tool
-call and result, so a run that misbehaves can be read afterwards rather than
-inferred. A stream that ends without a result is reported as incomplete.
+The standalone lead launcher and Grok Bot integration are retired. See the
+[retirement archive](docs/archive/autonomous-lead/README.md) for history and
+host cleanup requirements. Generic AgentWake and shared coordination remain.
 
 `scripts/autonomy/spawn-helper.sh` provides capped, timed helpers for narrow
 delegated work. `scripts/autonomy/watch-armada.mjs` subscribes to the WebSocket

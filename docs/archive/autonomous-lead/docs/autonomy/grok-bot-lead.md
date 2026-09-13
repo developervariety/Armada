@@ -1,3 +1,5 @@
+> Archived: retired integration. Do not use these instructions. See [archive status](../../README.md).
+
 # Grok Bot Lead Integration
 
 ## 1. Executive conclusion
@@ -7,7 +9,7 @@ Bot lead. It does not expose the full Armada MCP catalog. The listener uses one
 shared server-side cycle lease with the legacy runner.
 
 The current deployment is a read-only staging connection at
-`https://grok.skcc.network/mcp`. It uses the fixed `armada-lead-poc`
+`https://grok.example.com/mcp`. It uses the fixed `armada-lead-poc`
 participant and leaves the legacy unattended lead as the fallback. Do not
 enable Grok write tools until durable OAuth storage, owner approval handling,
 and the full failure and recovery test are complete.

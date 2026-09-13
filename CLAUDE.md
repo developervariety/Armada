@@ -49,9 +49,9 @@ dotnet build src/Armada.sln
 ## Test
 
 ```bash
-dotnet run --project test/Armada.Test.Automated --framework net10.0
-dotnet run --project test/Armada.Test.Unit --framework net10.0
-dotnet run --project test/Armada.Test.Runtimes --framework net10.0
+dotnet run --project test/Armada.Test.Automated/Test.Automated.csproj --framework net10.0
+dotnet run --project test/Armada.Test.Unit/Test.Unit.csproj --framework net10.0
+dotnet run --project test/Armada.Test.Runtimes/Armada.Test.Runtimes.csproj --framework net10.0
 ```
 
 Armada's own tests run through `dotnet run --project`, not `dotnet test`. Every

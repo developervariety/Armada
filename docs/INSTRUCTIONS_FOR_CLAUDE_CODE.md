@@ -7,8 +7,8 @@ orchestrator. Captains perform mission work in isolated docks.
 
 Read `docs/armada-ops.md` before you operate Armada. It contains the complete
 workflow and all registered MCP tool names. Read `docs/MCP_API.md` for live
-schema discovery and transport behavior. For an optional fresh autonomous lead
-cycle, use `docs/autonomy/lead-bootstrap-prompt.md`.
+schema discovery and transport behavior. The standalone lead integration is
+retired; see `docs/archive/autonomous-lead/README.md`.
 
 ## Session Start
 
