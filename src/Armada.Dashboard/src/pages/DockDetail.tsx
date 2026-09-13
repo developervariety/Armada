@@ -11,6 +11,7 @@ import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
+import DockGitAnchorPanel from '../components/shared/DockGitAnchorPanel';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 
@@ -143,6 +144,9 @@ export default function DockDetail() {
           </div>
         </div>
       </div>
+
+      {/* Git anchors captured at provisioning */}
+      <DockGitAnchorPanel snapshot={dock.gitAnchorsSnapshot ?? null} />
 
       {/* JSON Viewer */}
       <JsonViewer open={jsonView !== null} title={jsonView?.title ?? ''} data={jsonView?.data ?? null} onClose={() => setJsonView(null)} />

@@ -14,6 +14,16 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Dock starting point
+
+- Dock detail shows the Git evidence captured at provisioning: the provisioned
+  commit, target branch and tip, the snapshot state (Seeded, Complete or
+  Incomplete), recent commits on the mission's paths, paths not on the
+  provisioned revision, external source trees, and prior-art search results.
+  An incomplete snapshot shows its sanitized error code, truncation and
+  resolution error; a dock without a snapshot says so. The snapshot is context
+  evidence, not a landing gate.
+
 ### Mission modes in the dashboard
 
 - The mission create form offers Implementation, Audit (read-only) and Research

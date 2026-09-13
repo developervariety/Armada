@@ -1574,6 +1574,58 @@ export interface Signal {
   createdUtc: string;
 }
 
+/** One commit that touched an anchored path. */
+export interface GitAnchorCommit {
+  sha: string;
+  subject: string;
+  dateUtc: string;
+}
+
+/** Recent history of one path named by the mission, observed on the provisioned revision. */
+export interface GitAnchorFileHistory {
+  path: string;
+  requestedPath: string;
+  existsOnRevision: boolean;
+  isExternalSourceTree: boolean;
+  commits: GitAnchorCommit[];
+}
+
+/** Prior-art search result for one subject term. */
+export interface GitAnchorPriorArt {
+  term: string;
+  found: boolean;
+  matchingFileCount: number;
+  sampleLocations: string[];
+}
+
+export interface GitAnchors {
+  targetBranch: string;
+  baseCommit: string;
+  targetTip: string;
+  files: GitAnchorFileHistory[];
+  priorArt: GitAnchorPriorArt[];
+  resolutionError: string | null;
+  hasContent: boolean;
+}
+
+/** Resolution state of a dock's provisioning evidence. */
+export type DockGitAnchorState = 'Seeded' | 'Complete' | 'Incomplete';
+
+/** Versioned Git evidence captured when a dock was provisioned. Context evidence, not a landing gate. */
+export interface DockGitAnchorSnapshot {
+  version: number;
+  dockId: string;
+  missionId: string;
+  vesselId: string;
+  provisionedCommit: string;
+  provisionedUtc: string;
+  resolvedUtc: string | null;
+  state: DockGitAnchorState;
+  anchors: GitAnchors;
+  truncated: boolean;
+  errorCode: string | null;
+}
+
 export interface Dock {
   id: string;
   tenantId: string | null;
@@ -1582,6 +1634,8 @@ export interface Dock {
   worktreePath: string | null;
   branchName: string | null;
   active: boolean;
+  /** Provisioning evidence; null when absent, invalid or from an unsupported version. */
+  gitAnchorsSnapshot?: DockGitAnchorSnapshot | null;
   createdUtc: string;
   lastUpdateUtc: string;
 }
