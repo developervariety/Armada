@@ -14,6 +14,14 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Typed client route coverage
+
+- Added typed `ArmadaApiClient` methods for existing fork routes covering
+  readiness, landing previews, environments, deployments, releases, checks,
+  token summaries, mission pull requests, and jobs.
+- Added route contract coverage for every new wrapper, including request JSON,
+  typed responses, encoded IDs, server error details, and cancellation.
+
 ### Database test invocation documentation
 
 - The testing guide now states that the database runner requires `--type`.

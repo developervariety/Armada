@@ -4,6 +4,7 @@ namespace Armada.Core.Client
     using System.Net.Http.Json;
     using System.Text.Json;
     using System.Text.Json.Serialization;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
 
     /// <summary>
@@ -64,6 +65,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Get aggregate system status.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<ArmadaStatus?> GetStatusAsync(CancellationToken token = default)
         {
             return await GetAsync<ArmadaStatus>("/api/v1/status", token).ConfigureAwait(false);
@@ -72,6 +74,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Health check (no authentication required).
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<bool> HealthCheckAsync(CancellationToken token = default)
         {
             try
@@ -88,6 +91,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Request server shutdown.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task StopServerAsync(CancellationToken token = default)
         {
             await PostAsync("/api/v1/server/stop", token).ConfigureAwait(false);
@@ -100,6 +104,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// List all fleets.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<EnumerationResult<Fleet>?> ListFleetsAsync(CancellationToken token = default)
         {
             return await GetAsync<EnumerationResult<Fleet>>("/api/v1/fleets", token).ConfigureAwait(false);
@@ -108,6 +113,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Enumerate fleets with pagination and filtering.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<EnumerationResult<Fleet>?> EnumerateFleetsAsync(EnumerationQuery? query = null, CancellationToken token = default)
         {
             return await PostAsync<EnumerationResult<Fleet>, EnumerationQuery>("/api/v1/fleets/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
@@ -116,6 +122,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Get a fleet by ID.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Fleet?> GetFleetAsync(string id, CancellationToken token = default)
         {
             return await GetAsync<Fleet>("/api/v1/fleets/" + id, token).ConfigureAwait(false);
@@ -124,6 +131,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Create a fleet.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Fleet?> CreateFleetAsync(Fleet fleet, CancellationToken token = default)
         {
             return await PostAsync<Fleet, Fleet>("/api/v1/fleets", fleet, token).ConfigureAwait(false);
@@ -132,6 +140,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Update a fleet.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Fleet?> UpdateFleetAsync(string id, Fleet fleet, CancellationToken token = default)
         {
             return await PutAsync<Fleet, Fleet>("/api/v1/fleets/" + id, fleet, token).ConfigureAwait(false);
@@ -140,6 +149,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Delete a fleet.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task DeleteFleetAsync(string id, CancellationToken token = default)
         {
             await DeleteAsync("/api/v1/fleets/" + id, token).ConfigureAwait(false);
@@ -152,6 +162,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// List all vessels, optionally filtered by fleet.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<EnumerationResult<Vessel>?> ListVesselsAsync(string? fleetId = null, CancellationToken token = default)
         {
             string path = "/api/v1/vessels";
@@ -162,6 +173,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Enumerate vessels with pagination and filtering.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<EnumerationResult<Vessel>?> EnumerateVesselsAsync(EnumerationQuery? query = null, CancellationToken token = default)
         {
             return await PostAsync<EnumerationResult<Vessel>, EnumerationQuery>("/api/v1/vessels/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
@@ -170,6 +182,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Get a vessel by ID.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Vessel?> GetVesselAsync(string id, CancellationToken token = default)
         {
             return await GetAsync<Vessel>("/api/v1/vessels/" + id, token).ConfigureAwait(false);
@@ -178,6 +191,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Create a vessel.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Vessel?> CreateVesselAsync(Vessel vessel, CancellationToken token = default)
         {
             return await PostAsync<Vessel, Vessel>("/api/v1/vessels", vessel, token).ConfigureAwait(false);
@@ -186,6 +200,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Update a vessel.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Vessel?> UpdateVesselAsync(string id, Vessel vessel, CancellationToken token = default)
         {
             return await PutAsync<Vessel, Vessel>("/api/v1/vessels/" + id, vessel, token).ConfigureAwait(false);
@@ -194,6 +209,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Delete a vessel.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task DeleteVesselAsync(string id, CancellationToken token = default)
         {
             await DeleteAsync("/api/v1/vessels/" + id, token).ConfigureAwait(false);
@@ -206,6 +222,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// List all captains.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<EnumerationResult<Captain>?> ListCaptainsAsync(CancellationToken token = default)
         {
             return await GetAsync<EnumerationResult<Captain>>("/api/v1/captains", token).ConfigureAwait(false);
@@ -214,6 +231,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Enumerate captains with pagination and filtering.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<EnumerationResult<Captain>?> EnumerateCaptainsAsync(EnumerationQuery? query = null, CancellationToken token = default)
         {
             return await PostAsync<EnumerationResult<Captain>, EnumerationQuery>("/api/v1/captains/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
@@ -222,6 +240,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Get a captain by ID.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Captain?> GetCaptainAsync(string id, CancellationToken token = default)
         {
             return await GetAsync<Captain>("/api/v1/captains/" + id, token).ConfigureAwait(false);
@@ -230,6 +249,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Create a captain.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Captain?> CreateCaptainAsync(Captain captain, CancellationToken token = default)
         {
             return await PostAsync<Captain, Captain>("/api/v1/captains", captain, token).ConfigureAwait(false);
@@ -238,6 +258,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Update a captain.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Captain?> UpdateCaptainAsync(string id, Captain captain, CancellationToken token = default)
         {
             return await PutAsync<Captain, Captain>("/api/v1/captains/" + id, captain, token).ConfigureAwait(false);
@@ -246,6 +267,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Stop a captain.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task StopCaptainAsync(string id, CancellationToken token = default)
         {
             await PostAsync("/api/v1/captains/" + id + "/stop", token).ConfigureAwait(false);
@@ -254,6 +276,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Delete a captain.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task DeleteCaptainAsync(string id, CancellationToken token = default)
         {
             await DeleteAsync("/api/v1/captains/" + id, token).ConfigureAwait(false);
@@ -266,6 +289,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// List missions with optional filters.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<EnumerationResult<Mission>?> ListMissionsAsync(
             string? status = null,
             string? vesselId = null,
@@ -286,6 +310,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Enumerate missions with pagination and filtering.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<EnumerationResult<Mission>?> EnumerateMissionsAsync(EnumerationQuery? query = null, CancellationToken token = default)
         {
             return await PostAsync<EnumerationResult<Mission>, EnumerationQuery>("/api/v1/missions/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
@@ -294,6 +319,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Get a mission by ID.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Mission?> GetMissionAsync(string id, CancellationToken token = default)
         {
             return await GetAsync<Mission>("/api/v1/missions/" + id, token).ConfigureAwait(false);
@@ -302,6 +328,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Create a mission.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Mission?> CreateMissionAsync(Mission mission, CancellationToken token = default)
         {
             return await PostAsync<Mission, Mission>("/api/v1/missions", mission, token).ConfigureAwait(false);
@@ -310,6 +337,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Update a mission.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Mission?> UpdateMissionAsync(string id, Mission mission, CancellationToken token = default)
         {
             return await PutAsync<Mission, Mission>("/api/v1/missions/" + id, mission, token).ConfigureAwait(false);
@@ -318,6 +346,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Delete (cancel) a mission.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task DeleteMissionAsync(string id, CancellationToken token = default)
         {
             await DeleteAsync("/api/v1/missions/" + id, token).ConfigureAwait(false);
@@ -332,6 +361,7 @@ namespace Armada.Core.Client
         /// <param name="description">Optional new description. Pass null to keep the original.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The restarted mission, or null on failure.</returns>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Mission?> RestartMissionAsync(string id, string? title = null, string? description = null, CancellationToken token = default)
         {
             object body = new { Title = title, Description = description };
@@ -345,6 +375,7 @@ namespace Armada.Core.Client
         /// <param name="id">Mission ID.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>Unified diff text, or null if unavailable.</returns>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<string?> GetMissionDiffAsync(string id, CancellationToken token = default)
         {
             try
@@ -366,6 +397,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// List voyages with optional status filter.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<EnumerationResult<Voyage>?> ListVoyagesAsync(string? status = null, CancellationToken token = default)
         {
             string path = "/api/v1/voyages";
@@ -376,6 +408,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Enumerate voyages with pagination and filtering.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<EnumerationResult<Voyage>?> EnumerateVoyagesAsync(EnumerationQuery? query = null, CancellationToken token = default)
         {
             return await PostAsync<EnumerationResult<Voyage>, EnumerationQuery>("/api/v1/voyages/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
@@ -384,6 +417,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Get a voyage by ID.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Voyage?> GetVoyageAsync(string id, CancellationToken token = default)
         {
             return await GetAsync<Voyage>("/api/v1/voyages/" + id, token).ConfigureAwait(false);
@@ -392,6 +426,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Create a voyage.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Voyage?> CreateVoyageAsync(Voyage voyage, CancellationToken token = default)
         {
             return await PostAsync<Voyage, Voyage>("/api/v1/voyages", voyage, token).ConfigureAwait(false);
@@ -400,6 +435,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Dispatch a voyage with mission descriptions and optional playbooks.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Voyage?> DispatchVoyageAsync(VoyageDispatchRequest request, CancellationToken token = default)
         {
             if (request == null) throw new ArgumentNullException(nameof(request));
@@ -409,6 +445,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Cancel a voyage and its pending missions.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task CancelVoyageAsync(string id, CancellationToken token = default)
         {
             await DeleteAsync("/api/v1/voyages/" + id, token).ConfigureAwait(false);
@@ -417,6 +454,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Permanently delete a mission from the database.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task PurgeMissionAsync(string id, CancellationToken token = default)
         {
             await DeleteAsync("/api/v1/missions/" + id + "/purge", token).ConfigureAwait(false);
@@ -425,6 +463,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Permanently delete a voyage and all its associated missions.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task PurgeVoyageAsync(string id, CancellationToken token = default)
         {
             await DeleteAsync("/api/v1/voyages/" + id + "/purge", token).ConfigureAwait(false);
@@ -433,6 +472,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Delete (cancel) a voyage. Kept for backwards compatibility.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task DeleteVoyageAsync(string id, CancellationToken token = default)
         {
             await DeleteAsync("/api/v1/voyages/" + id, token).ConfigureAwait(false);
@@ -445,6 +485,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// List signals.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<EnumerationResult<Signal>?> ListSignalsAsync(CancellationToken token = default)
         {
             return await GetAsync<EnumerationResult<Signal>>("/api/v1/signals", token).ConfigureAwait(false);
@@ -453,6 +494,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Enumerate signals with pagination and filtering.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<EnumerationResult<Signal>?> EnumerateSignalsAsync(EnumerationQuery? query = null, CancellationToken token = default)
         {
             return await PostAsync<EnumerationResult<Signal>, EnumerationQuery>("/api/v1/signals/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
@@ -461,6 +503,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Create a signal.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Signal?> CreateSignalAsync(Signal signal, CancellationToken token = default)
         {
             return await PostAsync<Signal, Signal>("/api/v1/signals", signal, token).ConfigureAwait(false);
@@ -473,6 +516,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// List events with optional filters.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<EnumerationResult<ArmadaEvent>?> ListEventsAsync(
             string? type = null,
             string? captainId = null,
@@ -497,6 +541,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Enumerate events with pagination and filtering.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<EnumerationResult<ArmadaEvent>?> EnumerateEventsAsync(EnumerationQuery? query = null, CancellationToken token = default)
         {
             return await PostAsync<EnumerationResult<ArmadaEvent>, EnumerationQuery>("/api/v1/events/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
@@ -509,6 +554,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// List merge queue entries.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<EnumerationResult<MergeEntry>?> ListMergeQueueAsync(CancellationToken token = default)
         {
             return await GetAsync<EnumerationResult<MergeEntry>>("/api/v1/merge-queue", token).ConfigureAwait(false);
@@ -517,6 +563,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Enumerate merge queue entries with pagination and filtering.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<EnumerationResult<MergeEntry>?> EnumerateMergeQueueAsync(EnumerationQuery? query = null, CancellationToken token = default)
         {
             return await PostAsync<EnumerationResult<MergeEntry>, EnumerationQuery>("/api/v1/merge-queue/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
@@ -525,6 +572,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Get a merge queue entry by ID.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<MergeEntry?> GetMergeEntryAsync(string id, CancellationToken token = default)
         {
             return await GetAsync<MergeEntry>("/api/v1/merge-queue/" + id, token).ConfigureAwait(false);
@@ -533,6 +581,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Enqueue a branch for merge.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<MergeEntry?> EnqueueMergeAsync(MergeEntry entry, CancellationToken token = default)
         {
             return await PostAsync<MergeEntry, MergeEntry>("/api/v1/merge-queue", entry, token).ConfigureAwait(false);
@@ -541,6 +590,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Cancel a merge queue entry.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task CancelMergeAsync(string id, CancellationToken token = default)
         {
             await DeleteAsync("/api/v1/merge-queue/" + id, token).ConfigureAwait(false);
@@ -549,6 +599,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Trigger processing of the merge queue.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task ProcessMergeQueueAsync(CancellationToken token = default)
         {
             await PostAsync("/api/v1/merge-queue/process", token).ConfigureAwait(false);
@@ -561,6 +612,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// List playbooks.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<EnumerationResult<Playbook>?> ListPlaybooksAsync(CancellationToken token = default)
         {
             return await GetAsync<EnumerationResult<Playbook>>("/api/v1/playbooks", token).ConfigureAwait(false);
@@ -569,6 +621,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Enumerate playbooks with pagination and filtering.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<EnumerationResult<Playbook>?> EnumeratePlaybooksAsync(EnumerationQuery? query = null, CancellationToken token = default)
         {
             return await PostAsync<EnumerationResult<Playbook>, EnumerationQuery>("/api/v1/playbooks/enumerate", query ?? new EnumerationQuery(), token).ConfigureAwait(false);
@@ -577,6 +630,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Get a playbook by ID.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Playbook?> GetPlaybookAsync(string id, CancellationToken token = default)
         {
             return await GetAsync<Playbook>("/api/v1/playbooks/" + id, token).ConfigureAwait(false);
@@ -585,6 +639,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Create a playbook.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Playbook?> CreatePlaybookAsync(Playbook playbook, CancellationToken token = default)
         {
             return await PostAsync<Playbook, Playbook>("/api/v1/playbooks", playbook, token).ConfigureAwait(false);
@@ -593,6 +648,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Update a playbook.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Playbook?> UpdatePlaybookAsync(string id, Playbook playbook, CancellationToken token = default)
         {
             return await PutAsync<Playbook, Playbook>("/api/v1/playbooks/" + id, playbook, token).ConfigureAwait(false);
@@ -601,6 +657,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Delete a playbook.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task DeletePlaybookAsync(string id, CancellationToken token = default)
         {
             await DeleteAsync("/api/v1/playbooks/" + id, token).ConfigureAwait(false);
@@ -613,6 +670,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Enumerate backlog items using the user-facing backlog alias surface.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<EnumerationResult<Objective>?> ListBacklogAsync(ObjectiveQuery? query = null, CancellationToken token = default)
         {
             if (query == null)
@@ -624,6 +682,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Apply one or more explicit backlog rank updates using the backlog alias surface.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<List<Objective>?> ReorderBacklogAsync(ObjectiveReorderRequest request, CancellationToken token = default)
         {
             return await PostAsync<List<Objective>, ObjectiveReorderRequest>("/api/v1/backlog/reorder", request, token).ConfigureAwait(false);
@@ -632,6 +691,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Get one backlog item by identifier.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Objective?> GetBacklogItemAsync(string id, CancellationToken token = default)
         {
             return await GetAsync<Objective>("/api/v1/backlog/" + id, token).ConfigureAwait(false);
@@ -640,6 +700,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Create one backlog item.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Objective?> CreateBacklogItemAsync(ObjectiveUpsertRequest request, CancellationToken token = default)
         {
             return await PostAsync<Objective, ObjectiveUpsertRequest>("/api/v1/backlog", request, token).ConfigureAwait(false);
@@ -648,6 +709,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Update one backlog item.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Objective?> UpdateBacklogItemAsync(string id, ObjectiveUpsertRequest request, CancellationToken token = default)
         {
             return await PutAsync<Objective, ObjectiveUpsertRequest>("/api/v1/backlog/" + id, request, token).ConfigureAwait(false);
@@ -656,6 +718,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Delete one backlog item.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task DeleteBacklogItemAsync(string id, CancellationToken token = default)
         {
             await DeleteAsync("/api/v1/backlog/" + id, token).ConfigureAwait(false);
@@ -668,6 +731,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Run a command in a vessel's workspace (the in-browser dock terminal; tenant admins only).
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<WorkspaceExecResult?> ExecWorkspaceCommandAsync(string vesselId, string command, int timeoutSeconds = 60, CancellationToken token = default)
         {
             WorkspaceExecRequest request = new WorkspaceExecRequest { Command = command, TimeoutSeconds = timeoutSeconds };
@@ -677,6 +741,7 @@ namespace Armada.Core.Client
         /// <summary>
         /// Get a unified working-tree diff for a vessel, optionally scoped to one path.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<WorkspaceDiffResult?> GetWorkspaceDiffAsync(string vesselId, string? path = null, CancellationToken token = default)
         {
             string url = "/api/v1/workspace/vessels/" + vesselId + "/diff";
@@ -692,9 +757,270 @@ namespace Armada.Core.Client
         /// <summary>
         /// Get the needs-you inbox: items across the fleet awaiting operator attention.
         /// </summary>
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<List<InboxItem>?> GetInboxAsync(CancellationToken token = default)
         {
             return await GetAsync<List<InboxItem>>("/api/v1/inbox", token).ConfigureAwait(false);
+        }
+
+        #endregion
+
+        #region Public-Methods-ExtendedContracts
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<VesselReadinessResult?> GetVesselReadinessAsync(
+            string id,
+            string? workflowProfileId = null,
+            CheckRunTypeEnum? checkType = null,
+            string? environmentName = null,
+            bool includeWorkflowRequirements = true,
+            CancellationToken token = default)
+        {
+            List<string> query = new List<string>();
+            if (!String.IsNullOrWhiteSpace(workflowProfileId))
+                query.Add("workflowProfileId=" + Uri.EscapeDataString(workflowProfileId));
+            if (checkType.HasValue)
+                query.Add("checkType=" + Uri.EscapeDataString(checkType.Value.ToString()));
+            if (!String.IsNullOrWhiteSpace(environmentName))
+                query.Add("environmentName=" + Uri.EscapeDataString(environmentName));
+            if (!includeWorkflowRequirements)
+                query.Add("includeWorkflowRequirements=false");
+
+            string path = "/api/v1/vessels/" + EscapePathSegment(id) + "/readiness";
+            if (query.Count > 0)
+                path += "?" + String.Join("&", query);
+
+            return await GetAsync<VesselReadinessResult>(path, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<LandingPreviewResult?> GetVesselLandingPreviewAsync(
+            string id,
+            string? sourceBranch = null,
+            CancellationToken token = default)
+        {
+            string path = "/api/v1/vessels/" + EscapePathSegment(id) + "/landing-preview";
+            if (!String.IsNullOrWhiteSpace(sourceBranch))
+                path += "?sourceBranch=" + Uri.EscapeDataString(sourceBranch);
+            return await GetAsync<LandingPreviewResult>(path, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<DeploymentEnvironment?> GetEnvironmentAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<DeploymentEnvironment>("/api/v1/environments/" + EscapePathSegment(id), token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<DeploymentEnvironment?> CreateEnvironmentAsync(
+            DeploymentEnvironmentUpsertRequest request,
+            CancellationToken token = default)
+        {
+            return await PostAsync<DeploymentEnvironment, DeploymentEnvironmentUpsertRequest>(
+                "/api/v1/environments",
+                request,
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<DeploymentEnvironment?> UpdateEnvironmentAsync(
+            string id,
+            DeploymentEnvironmentUpsertRequest request,
+            CancellationToken token = default)
+        {
+            return await PutAsync<DeploymentEnvironment, DeploymentEnvironmentUpsertRequest>(
+                "/api/v1/environments/" + EscapePathSegment(id),
+                request,
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task DeleteEnvironmentAsync(string id, CancellationToken token = default)
+        {
+            await DeleteAsync("/api/v1/environments/" + EscapePathSegment(id), token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<Deployment?> GetDeploymentAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<Deployment>("/api/v1/deployments/" + EscapePathSegment(id), token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<Deployment?> CreateDeploymentAsync(
+            DeploymentUpsertRequest request,
+            CancellationToken token = default)
+        {
+            return await PostAsync<Deployment, DeploymentUpsertRequest>(
+                "/api/v1/deployments",
+                request,
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<Deployment?> UpdateDeploymentAsync(
+            string id,
+            DeploymentUpsertRequest request,
+            CancellationToken token = default)
+        {
+            return await PutAsync<Deployment, DeploymentUpsertRequest>(
+                "/api/v1/deployments/" + EscapePathSegment(id),
+                request,
+                token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<Deployment?> ApproveDeploymentAsync(
+            string id,
+            string? comment = null,
+            CancellationToken token = default)
+        {
+            object body = String.IsNullOrWhiteSpace(comment)
+                ? new { }
+                : new { Comment = comment };
+            return await PostAsync<Deployment>("/api/v1/deployments/" + EscapePathSegment(id) + "/approve", body, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<Deployment?> DenyDeploymentAsync(
+            string id,
+            string? comment = null,
+            CancellationToken token = default)
+        {
+            object body = String.IsNullOrWhiteSpace(comment)
+                ? new { }
+                : new { Comment = comment };
+            return await PostAsync<Deployment>("/api/v1/deployments/" + EscapePathSegment(id) + "/deny", body, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<Deployment?> VerifyDeploymentAsync(string id, CancellationToken token = default)
+        {
+            return await PostAsync<Deployment>("/api/v1/deployments/" + EscapePathSegment(id) + "/verify", new { }, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<Deployment?> RollbackDeploymentAsync(string id, CancellationToken token = default)
+        {
+            return await PostAsync<Deployment>("/api/v1/deployments/" + EscapePathSegment(id) + "/rollback", new { }, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task DeleteDeploymentAsync(string id, CancellationToken token = default)
+        {
+            await DeleteAsync("/api/v1/deployments/" + EscapePathSegment(id), token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<LandingPreviewResult?> GetMissionLandingPreviewAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<LandingPreviewResult>("/api/v1/missions/" + EscapePathSegment(id) + "/landing-preview", token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<GitHubPullRequestDetail?> GetMissionGitHubPullRequestAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<GitHubPullRequestDetail>("/api/v1/missions/" + EscapePathSegment(id) + "/github/pull-request", token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<TokenUsageSummaryResult?> GetTokenUsageSummaryAsync(
+            DateTime? fromUtc = null,
+            DateTime? toUtc = null,
+            double? bucketMinutes = null,
+            string? model = null,
+            string? runtime = null,
+            string? source = null,
+            string? vesselId = null,
+            string? captainId = null,
+            CancellationToken token = default)
+        {
+            List<string> queryParts = new List<string>();
+            if (fromUtc.HasValue) queryParts.Add("fromUtc=" + Uri.EscapeDataString(fromUtc.Value.ToUniversalTime().ToString("o")));
+            if (toUtc.HasValue) queryParts.Add("toUtc=" + Uri.EscapeDataString(toUtc.Value.ToUniversalTime().ToString("o")));
+            if (bucketMinutes.HasValue) queryParts.Add("bucketMinutes=" + bucketMinutes.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            if (!String.IsNullOrEmpty(model)) queryParts.Add("model=" + Uri.EscapeDataString(model));
+            if (!String.IsNullOrEmpty(runtime)) queryParts.Add("runtime=" + Uri.EscapeDataString(runtime));
+            if (!String.IsNullOrEmpty(source)) queryParts.Add("source=" + Uri.EscapeDataString(source));
+            if (!String.IsNullOrEmpty(vesselId)) queryParts.Add("vesselId=" + Uri.EscapeDataString(vesselId));
+            if (!String.IsNullOrEmpty(captainId)) queryParts.Add("captainId=" + Uri.EscapeDataString(captainId));
+            string path = "/api/v1/token-usage/summary";
+            if (queryParts.Count > 0) path += "?" + String.Join("&", queryParts);
+            return await GetAsync<TokenUsageSummaryResult>(path, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<Release?> GetReleaseAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<Release>("/api/v1/releases/" + EscapePathSegment(id), token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<Release?> CreateReleaseAsync(ReleaseUpsertRequest request, CancellationToken token = default)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            return await PostAsync<Release, ReleaseUpsertRequest>("/api/v1/releases", request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<Release?> UpdateReleaseAsync(string id, ReleaseUpsertRequest request, CancellationToken token = default)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            return await PutAsync<Release, ReleaseUpsertRequest>("/api/v1/releases/" + EscapePathSegment(id), request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<Release?> RefreshReleaseAsync(string id, CancellationToken token = default)
+        {
+            return await PostAsync<Release>("/api/v1/releases/" + EscapePathSegment(id) + "/refresh", new { }, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task DeleteReleaseAsync(string id, CancellationToken token = default)
+        {
+            await DeleteAsync("/api/v1/releases/" + EscapePathSegment(id), token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<CheckRun?> GetCheckRunAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<CheckRun>("/api/v1/check-runs/" + EscapePathSegment(id), token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<CheckRun?> RunCheckAsync(CheckRunRequest request, CancellationToken token = default)
+        {
+            return await PostAsync<CheckRun, CheckRunRequest>("/api/v1/check-runs", request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<GitHubActionsSyncResult?> SyncGitHubActionsAsync(GitHubActionsSyncRequest request, CancellationToken token = default)
+        {
+            return await PostAsync<GitHubActionsSyncResult, GitHubActionsSyncRequest>("/api/v1/check-runs/sync/github-actions", request, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<CheckRun?> RetryCheckRunAsync(string id, CancellationToken token = default)
+        {
+            return await PostAsync<CheckRun>("/api/v1/check-runs/" + EscapePathSegment(id) + "/retry", new { }, token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task DeleteCheckRunAsync(string id, CancellationToken token = default)
+        {
+            await DeleteAsync("/api/v1/check-runs/" + EscapePathSegment(id), token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<Job?> GetJobAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<Job>("/api/v1/jobs/" + EscapePathSegment(id), token).ConfigureAwait(false);
+        }
+
+        /// <summary>Calls the corresponding fork REST API contract.</summary>
+        public async Task<Job?> CancelJobAsync(string id, CancellationToken token = default)
+        {
+            return await PostAsync<Job>("/api/v1/jobs/" + EscapePathSegment(id) + "/cancel", new { }, token).ConfigureAwait(false);
         }
 
         #endregion
@@ -722,6 +1048,12 @@ namespace Armada.Core.Client
             response.EnsureSuccessStatusCode();
             string json = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
             return JsonSerializer.Deserialize<T>(json, _JsonOptions);
+        }
+
+        private static string EscapePathSegment(string value)
+        {
+            if (String.IsNullOrWhiteSpace(value)) throw new ArgumentNullException(nameof(value));
+            return Uri.EscapeDataString(value);
         }
 
         private async Task<TResponse?> PostAsync<TResponse, TBody>(string path, TBody body, CancellationToken token)
