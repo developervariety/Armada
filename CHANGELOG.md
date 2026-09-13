@@ -14,6 +14,15 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Readable captain logs
+
+- Captain detail reads its log with `formatted=true` and shows typed entries by
+  default. Thinking, tool call, tool result and status entries carry a label, so
+  they stay distinct from answer text; redacted and truncated entries carry a
+  chip, dropped noise is hidden, and a page cut at the server limit says so.
+  "Show Raw" returns the redacted raw text view. Kinds are runtime
+  observations, not mission outcomes.
+
 ### Bounded dashboard home
 
 - The home page reads the 10 newest mission summaries instead of 200 full

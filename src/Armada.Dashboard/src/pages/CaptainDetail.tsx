@@ -14,7 +14,8 @@ import {
   updateCaptain,
   deleteCaptain,
 } from '../api/client';
-import type { Captain, CaptainQuarantineRequest, Mission, MissionSummary, LogResult, CaptainToolAccessResult } from '../types/models';
+import type { Captain, CaptainQuarantineRequest, Mission, MissionSummary, LogResult, FormattedLogEntry, CaptainToolAccessResult } from '../types/models';
+import RuntimeLogEntries from '../components/shared/RuntimeLogEntries';
 import CaptainQuarantineDialog from '../components/captains/CaptainQuarantineDialog';
 import ActionMenu from '../components/shared/ActionMenu';
 import MuxRuntimeFields from '../components/captains/MuxRuntimeFields';
@@ -60,6 +61,9 @@ export default function CaptainDetail() {
 
   // Log viewer
   const [logText, setLogText] = useState<string | null>(null);
+  const [logEntries, setLogEntries] = useState<FormattedLogEntry[] | null>(null);
+  const [logEntriesTruncated, setLogEntriesTruncated] = useState(false);
+  const [logReadable, setLogReadable] = useState(true);
   const [logLoading, setLogLoading] = useState(false);
   const [showLog, setShowLog] = useState(false);
   const [logInfo, setLogInfo] = useState('');
@@ -151,20 +155,31 @@ export default function CaptainDetail() {
     }
   }
 
-  async function handleViewLog() {
+  // Readable mode asks the server for typed entries; raw mode keeps the redacted text view.
+  async function handleViewLog(readable = logReadable) {
     if (!id) return;
     setLogLoading(true);
     setShowLog(true);
     try {
-      const result: LogResult = await getCaptainLog(id);
+      const result: LogResult = await getCaptainLog(id, 500, readable);
       setLogText(result.log || t('(empty log)'));
+      setLogEntries(readable && result.entries ? result.entries : null);
+      setLogEntriesTruncated(readable && result.entriesTruncated === true);
       setLogInfo(t('({{lines}} of {{totalLines}} lines)', { lines: result.lines || 0, totalLines: result.totalLines || 0 }));
     } catch {
       setLogText(t('Failed to load log.'));
+      setLogEntries(null);
+      setLogEntriesTruncated(false);
       setLogInfo('');
     } finally {
       setLogLoading(false);
     }
+  }
+
+  function handleToggleLogMode() {
+    const nextReadable = !logReadable;
+    setLogReadable(nextReadable);
+    void handleViewLog(nextReadable);
   }
 
   function handleStop() {
@@ -532,10 +547,17 @@ export default function CaptainDetail() {
         <div style={{ marginTop: '1rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h3>{t('Captain Log')} {logInfo && <span className="text-dim">{logInfo}</span>}</h3>
-            <button className="btn" onClick={() => setShowLog(false)}>{t('Hide Log')}</button>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="btn" onClick={handleToggleLogMode} aria-pressed={logReadable}>
+                {logReadable ? t('Show Raw') : t('Show Readable')}
+              </button>
+              <button className="btn" onClick={() => setShowLog(false)}>{t('Hide Log')}</button>
+            </div>
           </div>
           {logLoading ? (
             <p className="text-dim">{t('Loading log...')}</p>
+          ) : logReadable && logEntries ? (
+            <RuntimeLogEntries entries={logEntries} entriesTruncated={logEntriesTruncated} />
           ) : (
             <pre style={{
               background: '#1a1a2e',

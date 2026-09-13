@@ -717,7 +717,9 @@ export const getCaptainTools = (id: string) => get<CaptainToolAccessResult>(`/ap
 export const createCaptain = (data: Partial<Captain>) => post<Captain>('/api/v1/captains', data);
 export const updateCaptain = (id: string, data: Partial<Captain>) => put<Captain>(`/api/v1/captains/${id}`, data);
 export const deleteCaptain = (id: string) => del<void>(`/api/v1/captains/${id}`);
-export const getCaptainLog = (id: string, lines = 500) => get<LogResult>(`/api/v1/captains/${id}/log?lines=${lines}`);
+/** Read a captain log. formatted=true adds typed readable entries (kind, tool, redaction, truncation) to the raw text. */
+export const getCaptainLog = (id: string, lines = 500, formatted = false) =>
+  get<LogResult>(`/api/v1/captains/${encodeURIComponent(id)}/log?lines=${lines}${formatted ? '&formatted=true' : ''}`);
 export const stopCaptain = (id: string) => post<void>(`/api/v1/captains/${id}/stop`);
 /** Hold a captain out of assignment. The server refuses (409 Busy) a captain that owns a mission, dock or process. */
 export const quarantineCaptain = (id: string, request: CaptainQuarantineRequest) =>

@@ -1604,10 +1604,28 @@ export interface DiffResult {
   error?: string;
 }
 
+/** Observed runtime event category from the readable log formatter; not a mission outcome. */
+export type LogEntryKind = 'Text' | 'Thinking' | 'ToolCall' | 'ToolResult' | 'Status' | 'Mixed';
+
+/** One readable log entry returned when a log route is read with formatted=true. */
+export interface FormattedLogEntry {
+  kind: LogEntryKind;
+  text: string;
+  isToolCall: boolean;
+  toolName: string | null;
+  redacted: boolean;
+  truncated: boolean;
+  dropped: boolean;
+}
+
 export interface LogResult {
   log: string;
   lines: number;
   totalLines: number;
+  /** Present only for formatted=true reads; null or absent for the raw text view. */
+  entries?: FormattedLogEntry[] | null;
+  /** True when the formatted page omitted entries at its output limit. */
+  entriesTruncated?: boolean;
 }
 
 export interface InstructionsResult {
