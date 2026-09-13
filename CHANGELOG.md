@@ -14,6 +14,43 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Landing records carry the mission owner's scope
+
+- The landing handler now writes the mission's tenant and user on the merge
+  entry it enqueues and on all of its landing events (pull request open,
+  already integrated, auto-land triggered and skipped, enqueued, completed,
+  no commits, landing failed, branch cleanup failed). The landing-drain safety
+  net also records the merge entry user and scopes its events. Merge-queue
+  processing events (target advanced on failure, branch cleanup failed, target
+  ref sync skipped, working directory synced or skipped, bare HEAD restored or
+  skipped) now carry the entry user as well as its tenant. Before this, a
+  scoped (non-admin) read of the mission's own merge entry or landing events
+  returned nothing. A merge entry carries a tenant only when the mission and
+  vessel share it, because queue processing reads both the vessel and the
+  mission in the entry's tenant; otherwise the entry stays unscoped as before.
+  The landing-drain safety net follows the same rule (it previously used the
+  mission tenant, then the vessel tenant). Deleting a user or tenant now also
+  deletes the merge entries attributed to it. Records written before this
+  change are not backfilled and remain visible only to unscoped administrators.
+
+### Definition-of-done evaluation history
+
+- Mission completion records each definition-of-done result as a scoped
+  `mission.definition_of_done_evaluated` event with a typed, versioned
+  payload: Passed, Skipped, NotVerifiable, Failed or EvaluationError, with
+  captain, dock, branch, known commit, attempt count, times, and redacted,
+  bounded failure output. A failed event write is logged and does not change
+  the gate outcome or the mission decision.
+- `GET /api/v1/missions/{id}/definition-of-done` returns the configuration of
+  the gate mission completion actually runs, or reports that no gate is active
+  (a settings reload does not replace a gate built at startup), as the gate
+  resolves it (enablement, persona and doc-only
+  rules, selected workflow profile and scope, command presence without command
+  text, consumer settings) and the latest recorded evaluation in the caller's
+  scope. Reading it runs no gate and no diff. No record reads `NotRecorded`; a
+  malformed, unknown-version or same-timestamp latest record reads
+  `Unavailable` and never falls back to an older result.
+
 ### Skipped definition-of-done results
 
 - The mission activity log records a skipped definition-of-done gate

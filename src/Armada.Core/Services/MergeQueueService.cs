@@ -123,6 +123,19 @@ namespace Armada.Core.Services
             return entry;
         }
 
+        /// <summary>
+        /// Tenant a merge entry may carry. Processing reads the entry's vessel and mission in the entry's tenant, so a
+        /// tenant is returned only when both are known and equal; otherwise null keeps every processing read unscoped.
+        /// </summary>
+        /// <param name="missionTenantId">Mission tenant.</param>
+        /// <param name="vesselTenantId">Vessel tenant.</param>
+        /// <returns>The shared tenant, or null.</returns>
+        public static string? ResolveSharedEntryTenant(string? missionTenantId, string? vesselTenantId)
+        {
+            if (String.IsNullOrEmpty(missionTenantId) || String.IsNullOrEmpty(vesselTenantId)) return null;
+            return String.Equals(missionTenantId, vesselTenantId, StringComparison.Ordinal) ? missionTenantId : null;
+        }
+
         /// <inheritdoc />
         public async Task<bool> HasActiveMergeEntryForMissionAsync(string missionId, CancellationToken token = default)
         {
@@ -165,7 +178,8 @@ namespace Armada.Core.Services
             MergeEntry entry = new MergeEntry(mission.BranchName, targetBranch);
             entry.MissionId = mission.Id;
             entry.VesselId = mission.VesselId ?? vessel.Id;
-            entry.TenantId = mission.TenantId ?? vessel.TenantId;
+            entry.TenantId = ResolveSharedEntryTenant(mission.TenantId, vessel.TenantId);
+            entry.UserId = mission.UserId ?? vessel.UserId;
             entry = await EnqueueAsync(entry, token).ConfigureAwait(false);
 
             AutoLandPredicate? autoLandPredicate = vessel.GetAutoLandPredicate();
@@ -1617,6 +1631,8 @@ namespace Armada.Core.Services
             try
             {
                 ArmadaEvent evt = new ArmadaEvent(eventType, message);
+                evt.TenantId = mission.TenantId ?? entry.TenantId;
+                evt.UserId = mission.UserId ?? entry.UserId;
                 evt.EntityType = "merge_entry";
                 evt.EntityId = entry.Id;
                 evt.MissionId = mission.Id;
@@ -2018,6 +2034,7 @@ namespace Armada.Core.Services
             {
                 ArmadaEvent evt = new ArmadaEvent();
                 evt.TenantId = entry.TenantId;
+                evt.UserId = entry.UserId;
                 evt.EventType = "merge_queue.failed_target_advanced";
                 evt.EntityType = "merge_entry";
                 evt.EntityId = entry.Id;
@@ -2803,6 +2820,7 @@ namespace Armada.Core.Services
             {
                 ArmadaEvent evt = new ArmadaEvent();
                 evt.TenantId = entry.TenantId;
+                evt.UserId = entry.UserId;
                 evt.EventType = "merge_queue.branch_cleanup_failed";
                 evt.EntityType = "merge_entry";
                 evt.EntityId = entry.Id;
@@ -2836,6 +2854,7 @@ namespace Armada.Core.Services
             {
                 ArmadaEvent evt = new ArmadaEvent();
                 evt.TenantId = entry.TenantId;
+                evt.UserId = entry.UserId;
                 evt.EventType = "merge_queue.target_ref_sync_skipped";
                 evt.EntityType = "merge_entry";
                 evt.EntityId = entry.Id;
@@ -2868,6 +2887,7 @@ namespace Armada.Core.Services
             {
                 ArmadaEvent evt = new ArmadaEvent();
                 evt.TenantId = entry.TenantId;
+                evt.UserId = entry.UserId;
                 evt.EventType = "merge_queue.workdir_synced";
                 evt.EntityType = "merge_entry";
                 evt.EntityId = entry.Id;
@@ -2900,6 +2920,7 @@ namespace Armada.Core.Services
             {
                 ArmadaEvent evt = new ArmadaEvent();
                 evt.TenantId = entry.TenantId;
+                evt.UserId = entry.UserId;
                 evt.EventType = "merge_queue.workdir_sync_skipped";
                 evt.EntityType = "merge_entry";
                 evt.EntityId = entry.Id;
@@ -2933,6 +2954,7 @@ namespace Armada.Core.Services
             {
                 ArmadaEvent evt = new ArmadaEvent();
                 evt.TenantId = entry.TenantId;
+                evt.UserId = entry.UserId;
                 evt.EventType = "merge_queue.bare_head_restored";
                 evt.EntityType = "merge_entry";
                 evt.EntityId = entry.Id;
@@ -2965,6 +2987,7 @@ namespace Armada.Core.Services
             {
                 ArmadaEvent evt = new ArmadaEvent();
                 evt.TenantId = entry.TenantId;
+                evt.UserId = entry.UserId;
                 evt.EventType = "merge_queue.bare_head_restore_skipped";
                 evt.EntityType = "merge_entry";
                 evt.EntityId = entry.Id;

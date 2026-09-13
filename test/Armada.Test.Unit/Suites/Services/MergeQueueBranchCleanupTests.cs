@@ -676,6 +676,8 @@ namespace Armada.Test.Unit.Suites.Services
                         GitService git = new GitService(logging);
 
                         Vessel vessel = new Vessel("wt-skip-vessel", repos.RemoteDir);
+                        vessel.TenantId = Armada.Core.Constants.DefaultTenantId;
+                        vessel.UserId = Armada.Core.Constants.DefaultUserId;
                         vessel.LocalPath = repos.BareDir;
                         vessel.WorkingDirectory = repos.WorkingDir;
                         vessel.DefaultBranch = "main";
@@ -683,6 +685,8 @@ namespace Armada.Test.Unit.Suites.Services
                         await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
 
                         MergeEntry entry = new MergeEntry();
+                        entry.TenantId = Armada.Core.Constants.DefaultTenantId;
+                        entry.UserId = Armada.Core.Constants.DefaultUserId;
                         entry.VesselId = vessel.Id;
                         entry.BranchName = repos.CaptainBranch;
                         entry.TargetBranch = "main";
@@ -713,6 +717,14 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertEqual(1, skipEvents.Count, "Should emit one target_ref_sync_skipped event when worktree blocks local sync");
                         AssertContains("branch_checked_out_in_worktree", skipEvents[0].Payload ?? "", "Payload should include the skip reason");
                         AssertContains(entry.Id, skipEvents[0].Payload ?? "", "Payload should include the entry id");
+
+                        // The event carries the entry owner's scope, so a non-admin owner can read it.
+                        EnumerationResult<ArmadaEvent> scopedSkipEvents = await testDb.Driver.Events.EnumerateAsync(
+                            Armada.Core.Constants.DefaultTenantId,
+                            Armada.Core.Constants.DefaultUserId,
+                            new EnumerationQuery { EventType = "merge_queue.target_ref_sync_skipped" }).ConfigureAwait(false);
+                        AssertEqual(1, scopedSkipEvents.Objects.Count, "The entry owner's tenant and user scoped read must find the skip event");
+                        AssertEqual(Armada.Core.Constants.DefaultUserId, skipEvents[0].UserId, "The skip event must carry the entry user");
 
                         List<ArmadaEvent> rollbackEvents = await testDb.Driver.Events.EnumerateByTypeAsync("merge_queue.failed_target_advanced").ConfigureAwait(false);
                         AssertEqual(0, rollbackEvents.Count, "Successful land must not emit a failed_target_advanced event");

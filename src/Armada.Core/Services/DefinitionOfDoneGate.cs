@@ -97,14 +97,9 @@ namespace Armada.Core.Services
             if (mission == null) throw new ArgumentNullException(nameof(mission));
             if (dock == null) throw new ArgumentNullException(nameof(dock));
 
-            if (!_Settings.Enabled)
-                return DefinitionOfDoneResult.Skipped("DoD gate is disabled");
-
-            if (!IsPersonaApplicable(mission.Persona))
-                return DefinitionOfDoneResult.Skipped("persona '" + (mission.Persona ?? "(none)") + "' is not in AppliedPersonas");
-
-            if (HasDocOnlyMarker(mission.Description))
-                return DefinitionOfDoneResult.Skipped("mission description contains doc-only opt-out marker");
+            string? skipReason = ResolveSkipReason(mission);
+            if (skipReason != null)
+                return DefinitionOfDoneResult.Skipped(skipReason);
 
             string? worktreePath = dock.WorktreePath;
             if (String.IsNullOrWhiteSpace(worktreePath))
@@ -167,9 +162,68 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// Describe the configuration this gate would apply to the mission. Uses the same skip rules and
+        /// workflow-profile resolution as <see cref="EvaluateAsync"/>, but runs no command and reads no diff.
+        /// </summary>
+        /// <param name="mission">The mission to describe.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Current effective configuration.</returns>
+        public async Task<DefinitionOfDoneConfiguration> DescribeAsync(Mission mission, CancellationToken token = default)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+
+            DefinitionOfDoneConfiguration configuration = new DefinitionOfDoneConfiguration
+            {
+                GateActive = true,
+                Enabled = _Settings.Enabled,
+                AppliedPersonas = new List<string>(_Settings.AppliedPersonas ?? new List<string>()),
+                PersonaApplies = IsPersonaApplicable(mission.Persona),
+                DocOnlyMarkerPresent = HasDocOnlyMarker(mission.Description),
+                ExpectedSkipReason = ResolveSkipReason(mission),
+                RunRestoreBeforeBuild = _Settings.RunRestoreBeforeBuild,
+                CommandTimeoutSeconds = _Settings.CommandTimeoutSeconds,
+                VerifyDeclaredConsumers = _Settings.VerifyDeclaredConsumers,
+                FailOnConsumerVerificationError = _Settings.FailOnConsumerVerificationError,
+                RunConsumerTests = _Settings.RunConsumerTests,
+                DefaultConsumerTestTriggerPaths = new List<string>(_Settings.ConsumerTestTriggerPaths ?? new List<string>())
+            };
+
+            WorkflowProfile? profile = await ResolveProfileAsync(mission, token).ConfigureAwait(false);
+            if (profile != null)
+            {
+                configuration.WorkflowProfileId = profile.Id;
+                configuration.WorkflowProfileName = profile.Name;
+                configuration.WorkflowProfileScope = profile.Scope;
+                configuration.HasBuildCommand = !String.IsNullOrWhiteSpace(profile.BuildCommand);
+                configuration.HasUnitTestCommand = !String.IsNullOrWhiteSpace(profile.UnitTestCommand);
+                configuration.HasContainerlessUnitTestCommand = !String.IsNullOrWhiteSpace(profile.ContainerlessUnitTestCommand);
+            }
+
+            configuration.MissingCommands = !configuration.HasBuildCommand && !configuration.HasUnitTestCommand;
+            return configuration;
+        }
+
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// The one definition of when the gate does not apply. Evaluation and description both call it.
+        /// </summary>
+        private string? ResolveSkipReason(Mission mission)
+        {
+            if (!_Settings.Enabled)
+                return "DoD gate is disabled";
+
+            if (!IsPersonaApplicable(mission.Persona))
+                return "persona '" + (mission.Persona ?? "(none)") + "' is not in AppliedPersonas";
+
+            if (HasDocOnlyMarker(mission.Description))
+                return "mission description contains doc-only opt-out marker";
+
+            return null;
+        }
 
         private async Task<DefinitionOfDoneResult> RunGateCommandsAsync(
             Mission mission,

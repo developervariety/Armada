@@ -345,6 +345,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new McpProductionToolsTests());
             runner.AddSuite(new McpResultPreviewTests());
             runner.AddSuite(new DefinitionOfDoneGateTests());
+            runner.AddSuite(new DefinitionOfDoneReportTests());
             runner.AddSuite(new DockBoundaryHookExecutionTests());
             runner.AddSuite(new DockBoundaryHookCoverageTests());
             runner.AddSuite(new UnlandedBranchServiceTests());

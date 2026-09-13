@@ -6,6 +6,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Recovery;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
@@ -40,9 +41,11 @@ namespace Armada.Test.Unit.Suites.Services
         }
 
         private async Task<LandingTestEntitiesResult> CreateTestEntitiesAsync(
-            SqliteDatabaseDriver db, LandingModeEnum? landingMode = null, BranchCleanupPolicyEnum? cleanupPolicy = null)
+            SqliteDatabaseDriver db, LandingModeEnum? landingMode = null, BranchCleanupPolicyEnum? cleanupPolicy = null, string? tenantId = null, string? userId = null)
         {
             Vessel vessel = new Vessel("test-vessel", "https://github.com/test/repo.git");
+            vessel.TenantId = tenantId;
+            vessel.UserId = userId;
             vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
             vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_test_work_" + Guid.NewGuid().ToString("N"));
             vessel.DefaultBranch = "main";
@@ -798,6 +801,229 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
             });
+
+            // === Landing records carry the mission owner's scope ===
+            // Scoped operator reads filter by tenant and user. A merge entry or landing event
+            // written without them is invisible to every non-admin reader of its own mission.
+
+            await RunTest("Merge-queue auto-land skip scopes the merge entry and its events to the mission owner", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    git.DiffResult = "+++ b/docs/readme.md\n+changed\n";
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    MissionLandingHandler handler = CreateScopeHandler(testDb, git, logging, settings);
+
+                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.MergeQueue, null, Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId);
+                    entities.Vessel.AutoLandPredicate = "{\"Enabled\":true,\"DenyPaths\":[\"docs/**\"]}";
+                    await testDb.Driver.Vessels.UpdateAsync(entities.Vessel).ConfigureAwait(false);
+                    Mission mission = await OwnMissionAsync(testDb, entities.Mission, "diff --git a/src/Foo.cs b/src/Foo.cs").ConfigureAwait(false);
+
+                    await handler.HandleMissionCompleteAsync(mission, entities.Dock).ConfigureAwait(false);
+
+                    await AssertMergeEntryOwnedAsync(testDb, mission.Id).ConfigureAwait(false);
+                    await AssertScopedEventAsync(testDb, mission.Id, "merge_queue.auto_land_skipped").ConfigureAwait(false);
+                    await AssertScopedEventAsync(testDb, mission.Id, "merge_queue.enqueued").ConfigureAwait(false);
+                }
+            });
+
+            await RunTest("Merge-queue auto-land trigger scopes its event to the mission owner", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    git.DiffResult = "+++ b/src/Foo.cs\n+changed\n";
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    MissionLandingHandler handler = CreateScopeHandler(testDb, git, logging, settings);
+
+                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.MergeQueue, null, Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId);
+                    entities.Vessel.AutoLandPredicate = "{\"Enabled\":true}";
+                    await testDb.Driver.Vessels.UpdateAsync(entities.Vessel).ConfigureAwait(false);
+                    Mission mission = await OwnMissionAsync(testDb, entities.Mission, "diff --git a/src/Foo.cs b/src/Foo.cs").ConfigureAwait(false);
+
+                    await handler.HandleMissionCompleteAsync(mission, entities.Dock).ConfigureAwait(false);
+
+                    await AssertMergeEntryOwnedAsync(testDb, mission.Id).ConfigureAwait(false);
+                    await AssertScopedEventAsync(testDb, mission.Id, "merge_queue.auto_land_triggered").ConfigureAwait(false);
+                }
+            });
+
+            await RunTest("Local landing completion event is scoped to the mission owner", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    MissionLandingHandler handler = CreateScopeHandler(testDb, git, logging, settings);
+
+                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(
+                        testDb.Driver, LandingModeEnum.LocalMerge, BranchCleanupPolicyEnum.LocalAndRemote);
+                    git.ExistingBranches.Add(entities.Dock.BranchName!);
+                    Mission mission = await OwnMissionAsync(testDb, entities.Mission, "diff --git a/app/routes_ops.py b/app/routes_ops.py").ConfigureAwait(false);
+
+                    await handler.HandleMissionCompleteAsync(mission, entities.Dock).ConfigureAwait(false);
+
+                    Mission? landed = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Complete, landed!.Status, "Mission should land");
+                    await AssertScopedEventAsync(testDb, mission.Id, "mission.completed").ConfigureAwait(false);
+                }
+            });
+
+            await RunTest("Landing-drain safety-net enqueue scopes the merge entry user and its events", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    MergeQueueService mergeQueue = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+
+                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.MergeQueue, null, Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId);
+                    entities.Vessel.AutoLandPredicate = "{\"Enabled\":true}";
+                    await testDb.Driver.Vessels.UpdateAsync(entities.Vessel).ConfigureAwait(false);
+                    Mission mission = await OwnMissionAsync(testDb, entities.Mission, "diff --git a/src/Foo.cs b/src/Foo.cs").ConfigureAwait(false);
+                    mission.BranchName = entities.Dock.BranchName;
+
+                    // No diff: the safety net flags the entry for review and records a skip.
+                    SafetyNetEnqueueResult result = await mergeQueue.TrySafetyNetEnqueueAsync(
+                        mission, entities.Vessel, null, new AutoLandEvaluator(), new ConventionChecker(), new CriticalTriggerEvaluator()).ConfigureAwait(false);
+
+                    AssertEqual(SafetyNetEnqueueOutcomeEnum.EnqueuedFlaggedForReview, result.Outcome, "Missing diff is flagged for review");
+                    await AssertMergeEntryOwnedAsync(testDb, mission.Id).ConfigureAwait(false);
+                    await AssertScopedEventAsync(testDb, mission.Id, "merge_queue.auto_land_skipped").ConfigureAwait(false);
+                    await AssertScopedEventAsync(testDb, mission.Id, "merge_queue.enqueued").ConfigureAwait(false);
+                }
+            });
+
+            await RunTest("Merge-queue enqueue for a vessel without a tenant leaves the entry tenant unset so processing can read the vessel", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    MissionLandingHandler handler = CreateScopeHandler(testDb, git, logging, settings);
+
+                    // Legacy vessel row: no tenant. Queue processing reads the vessel in the entry's tenant,
+                    // so stamping the mission tenant on the entry would make the vessel unreadable.
+                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.MergeQueue, null, null, null);
+                    Mission mission = await OwnMissionAsync(testDb, entities.Mission, "diff --git a/src/Foo.cs b/src/Foo.cs").ConfigureAwait(false);
+
+                    await handler.HandleMissionCompleteAsync(mission, entities.Dock).ConfigureAwait(false);
+
+                    EnumerationResult<MergeEntry> entries = await testDb.Driver.MergeEntries.EnumerateAsync(
+                        new EnumerationQuery { MissionId = mission.Id }).ConfigureAwait(false);
+                    AssertEqual(1, entries.Objects.Count, "The handler enqueues one entry");
+                    MergeEntry entry = entries.Objects[0];
+                    AssertNull(entry.TenantId, "A vessel without a tenant must not receive the mission tenant on its entry");
+                    AssertEqual(Armada.Core.Constants.DefaultUserId, entry.UserId, "The entry still records the mission user");
+                }
+            });
+
+            await RunTest("Merge-queue enqueue leaves the entry tenant unset when the mission and vessel tenants differ", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    MissionLandingHandler handler = CreateScopeHandler(testDb, git, logging, settings);
+
+                    // Queue processing reads both the vessel and the mission in the entry's tenant. With
+                    // different tenants one of those reads finds nothing and the mission is never
+                    // reconciled, so the entry must stay unscoped.
+                    await testDb.Driver.Tenants.CreateAsync(new TenantMetadata { Id = "ten_scope_vessel", Name = "ten_scope_vessel" }).ConfigureAwait(false);
+                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.MergeQueue, null, "ten_scope_vessel", null);
+                    Mission mission = await OwnMissionAsync(testDb, entities.Mission, "diff --git a/src/Foo.cs b/src/Foo.cs").ConfigureAwait(false);
+
+                    await handler.HandleMissionCompleteAsync(mission, entities.Dock).ConfigureAwait(false);
+
+                    EnumerationResult<MergeEntry> entries = await testDb.Driver.MergeEntries.EnumerateAsync(
+                        new EnumerationQuery { MissionId = mission.Id }).ConfigureAwait(false);
+                    AssertEqual(1, entries.Objects.Count, "The handler enqueues one entry");
+                    AssertNull(entries.Objects[0].TenantId, "Differing mission and vessel tenants must leave the entry tenant unset");
+                    await AssertScopedEventAsync(testDb, mission.Id, "merge_queue.enqueued").ConfigureAwait(false);
+                }
+            });
+
+            await RunTest("Landing-drain safety-net enqueue leaves the entry tenant unset when the mission and vessel tenants differ", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    StubGitService git = new StubGitService();
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    MergeQueueService mergeQueue = new MergeQueueService(logging, testDb.Driver, settings, git, new MergeFailureClassifier());
+
+                    await testDb.Driver.Tenants.CreateAsync(new TenantMetadata { Id = "ten_scope_vessel", Name = "ten_scope_vessel" }).ConfigureAwait(false);
+                    LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.MergeQueue, null, "ten_scope_vessel", null);
+                    Mission mission = await OwnMissionAsync(testDb, entities.Mission, "diff --git a/src/Foo.cs b/src/Foo.cs").ConfigureAwait(false);
+                    mission.BranchName = entities.Dock.BranchName;
+
+                    await mergeQueue.TrySafetyNetEnqueueAsync(
+                        mission, entities.Vessel, null, new AutoLandEvaluator(), new ConventionChecker(), new CriticalTriggerEvaluator()).ConfigureAwait(false);
+
+                    EnumerationResult<MergeEntry> entries = await testDb.Driver.MergeEntries.EnumerateAsync(
+                        new EnumerationQuery { MissionId = mission.Id }).ConfigureAwait(false);
+                    AssertEqual(1, entries.Objects.Count, "The safety net enqueues one entry");
+                    AssertNull(entries.Objects[0].TenantId, "Differing mission and vessel tenants must leave the entry tenant unset");
+                }
+            });
+        }
+
+        private MissionLandingHandler CreateScopeHandler(TestDatabase testDb, StubGitService git, LoggingModule logging, ArmadaSettings settings)
+        {
+            IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+            ILandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
+            return new MissionLandingHandler(
+                logging,
+                testDb.Driver,
+                settings,
+                git,
+                new PersistingMergeQueueService(testDb.Driver),
+                landingService,
+                new AutoLandEvaluator(),
+                new ConventionChecker(),
+                new CriticalTriggerEvaluator(),
+                new MessageTemplateService(logging),
+                null,
+                dockService,
+                new NoOpRemoteTriggerService(),
+                null);
+        }
+
+        private static async Task<Mission> OwnMissionAsync(TestDatabase testDb, Mission mission, string diffSnapshot)
+        {
+            mission.TenantId = Armada.Core.Constants.DefaultTenantId;
+            mission.UserId = Armada.Core.Constants.DefaultUserId;
+            mission.Status = MissionStatusEnum.WorkProduced;
+            mission.DiffSnapshot = diffSnapshot;
+            await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+            return mission;
+        }
+
+        private async Task AssertMergeEntryOwnedAsync(TestDatabase testDb, string missionId)
+        {
+            EnumerationResult<MergeEntry> entries = await testDb.Driver.MergeEntries.EnumerateAsync(
+                Armada.Core.Constants.DefaultTenantId,
+                Armada.Core.Constants.DefaultUserId,
+                new EnumerationQuery { MissionId = missionId }).ConfigureAwait(false);
+            AssertEqual(1, entries.Objects.Count, "The mission owner's scoped read must find the merge entry");
+            AssertEqual(Armada.Core.Constants.DefaultTenantId, entries.Objects[0].TenantId, "Merge entry tenant");
+            AssertEqual(Armada.Core.Constants.DefaultUserId, entries.Objects[0].UserId, "Merge entry user");
+        }
+
+        private async Task AssertScopedEventAsync(TestDatabase testDb, string missionId, string eventType)
+        {
+            EnumerationResult<ArmadaEvent> scoped = await testDb.Driver.Events.EnumerateAsync(
+                Armada.Core.Constants.DefaultTenantId,
+                Armada.Core.Constants.DefaultUserId,
+                new EnumerationQuery { MissionId = missionId, EventType = eventType }).ConfigureAwait(false);
+            AssertTrue(scoped.Objects.Count >= 1, "The mission owner's scoped read must find " + eventType);
         }
 
         private static async Task<string> InitNoOpRepoAsync(string repoPath, string captainBranch)
@@ -899,6 +1125,40 @@ namespace Armada.Test.Unit.Suites.Services
             public AgentWakeSessionRegistration? GetAgentWakeSession() => null;
             public AgentWakeStatusSnapshot GetAgentWakeStatus() => new AgentWakeStatusSnapshot();
             public Task FireBoardWakeAsync(string participantKey, string text, CancellationToken token = default) => Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// Merge-queue double that stores enqueued entries, so the handler's later entry update and the
+        /// test's scoped read see the same row the handler created.
+        /// </summary>
+        private sealed class PersistingMergeQueueService : IMergeQueueService
+        {
+            private readonly SqliteDatabaseDriver _Database;
+
+            public PersistingMergeQueueService(SqliteDatabaseDriver database)
+            {
+                _Database = database;
+            }
+
+            public Task<MergeEntry> EnqueueAsync(MergeEntry entry, CancellationToken token = default) => _Database.MergeEntries.CreateAsync(entry, token);
+            public Task ProcessQueueAsync(CancellationToken token = default) => Task.CompletedTask;
+            public Task CancelAsync(string entryId, string? tenantId = null, CancellationToken token = default) => Task.CompletedTask;
+            public Task<List<MergeEntry>> ListAsync(string? tenantId = null, CancellationToken token = default) => Task.FromResult(new List<MergeEntry>());
+            public Task<MergeEntry?> ProcessSingleAsync(string entryId, string? tenantId = null, CancellationToken token = default) => Task.FromResult<MergeEntry?>(null);
+            public Task ProcessEntryByIdAsync(string entryId, CancellationToken token = default) => Task.CompletedTask;
+            public Task<MergeEntry?> GetAsync(string entryId, string? tenantId = null, CancellationToken token = default) => Task.FromResult<MergeEntry?>(null);
+            public Task<bool> DeleteAsync(string entryId, string? tenantId = null, CancellationToken token = default) => Task.FromResult(false);
+            public Task<MergeQueuePurgeResult> DeleteMultipleAsync(List<string> entryIds, string? tenantId = null, CancellationToken token = default)
+                => Task.FromResult(new MergeQueuePurgeResult());
+            public Task<int> PurgeTerminalAsync(string? vesselId = null, MergeStatusEnum? status = null, string? tenantId = null, CancellationToken token = default)
+                => Task.FromResult(0);
+            public Task<int> ReconcilePullRequestEntriesAsync(CancellationToken token = default) => Task.FromResult(0);
+            public Task<int> ReconcileLandingStateMachineAsync(CancellationToken token = default) => Task.FromResult(0);
+            public Task<int> RecoverInFlightLandingsAsync(CancellationToken token = default) => Task.FromResult(0);
+            public Task<bool> TryOpenPullRequestForRecoveryAsync(string mergeEntryId, CancellationToken token = default) => Task.FromResult(false);
+            public Task<bool> HasActiveMergeEntryForMissionAsync(string missionId, CancellationToken token = default) => Task.FromResult(false);
+            public Task<SafetyNetEnqueueResult> TrySafetyNetEnqueueAsync(Mission mission, Vessel vessel, string? unifiedDiff, IAutoLandEvaluator autoLandEvaluator, IConventionChecker conventionChecker, ICriticalTriggerEvaluator criticalTriggerEvaluator, CancellationToken token = default)
+                => Task.FromResult(new SafetyNetEnqueueResult(SafetyNetEnqueueOutcomeEnum.Enqueued, null));
         }
 
         private sealed class StubMergeQueueService : IMergeQueueService

@@ -189,4 +189,48 @@ reason first and writes `validation skipped: <reason>`. Failure and completion
 decisions are unchanged. A regression case in the mission status transition
 suite reads the actual mission activity log. It failed before the change and
 passed after it, and the mission still reaches WorkProduced. This corrects
-reporting only. Structured historical DoD results are not yet persisted.
+reporting only.
+
+## Definition-of-done evaluation history
+
+See [definition-of-done history](backend-dod.md) for the recorded event
+contract, the read-only mission report and its limits. Auto-land and recovery
+outcome projections remain open.
+
+## Landing record scope
+
+Auto-land history needs the landing handler's merge entries and events. The
+normal merge-queue enqueue wrote its merge entry and all ten landing events
+without tenant or user, and the landing-drain safety net wrote no user on its
+entry and no scope on its events. Scoped operator reads filter on both, so a
+non-admin reader saw none of them. Four new cases drive the real landing
+handler (merge-queue auto-land skip and trigger, local landing completion) and
+the real safety-net enqueue, then read the entry and events in the mission
+owner's tenant and user scope. All four failed before the change (the scoped
+read found no merge entry, or no completion event) and pass after it. Earlier
+records are not backfilled. The auto-land history projection itself remains
+open.
+
+A merge entry carries a tenant only when the mission and vessel share it.
+Queue processing reads the vessel (repository path, cleanup policy, protected
+paths) and the mission (status reconciliation, pull-request state) in the
+entry's tenant, and both tenant columns are nullable. An entry stamped with a
+tenant that one of them lacks would stay Queued with "vessel not found", or
+land without ever moving its mission out of WorkProduced. Missions created
+through MCP always take the default tenant, so the two can differ. With
+differing or missing tenants the entry stays unscoped, as it was before this
+change. The landing-drain safety net previously stamped the mission tenant,
+then the vessel tenant, and now follows the same rule. Cases cover a vessel
+without a tenant and a vessel in another tenant, for both the handler and the
+safety net. The entry user comes from the mission, then the vessel. Deleting a
+user or tenant now also deletes the merge entries attributed to it.
+
+Follow-up: `LandingService` still writes its `mission.landing_retry` event
+without tenant or user.
+
+The seven merge-queue processing events set the entry tenant but no user, so
+the same scoped read missed them. A real-git landing case that emits the
+target-ref-sync-skipped event now gives its vessel and entry the default
+tenant and user and reads the event in that scope. It failed before the change
+(the scoped read found no event) and passes after it. The other six events
+share the same one-line assignment, confirmed by an inventory count.

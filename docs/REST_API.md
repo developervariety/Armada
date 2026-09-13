@@ -1673,6 +1673,27 @@ linked voyage returns null configuration and a preview error. See the
 
 ---
 
+#### GET /api/v1/missions/{id}/definition-of-done
+
+Returns the current definition-of-done configuration for the mission and its
+latest recorded gate evaluation in the caller's scope. Reading it runs no gate,
+no command and no diff, and does not change landing readiness.
+`HistoryState` is `Recorded`, `NotRecorded` (no evaluation in scope; not a pass
+or failure) or `Unavailable` (the latest record cannot be read; an older record
+is never shown instead). The configuration reports whether commands exist, not
+their text. See the [definition-of-done history contract](upstream-review/backend-dod.md).
+
+**Path Parameters:**
+
+| Parameter | Description |
+|---|---|
+| `id` | Mission ID (`msn_` prefix) |
+
+**Response:** `200 OK` - `MissionDefinitionOfDoneReport`
+**Error:** `404` - Mission not found
+
+---
+
 ### Captains
 
 A captain is an AI agent instance (Claude Code, Codex, etc.) that executes missions.
@@ -4524,6 +4545,7 @@ Response from `GET /api/v1/captains/{id}/log`.
 | 96 | POST | `/api/v1/planning-sessions/{id}/stop-turn` | Abort the in-flight planning turn | Yes |
 | 97 | POST | `/api/v1/planning-sessions/{id}/stop` | Stop a planning session | Yes |
 | 98 | DELETE | `/api/v1/planning-sessions/{id}` | Delete a planning session | Yes |
+| 99 | GET | `/api/v1/missions/{id}/definition-of-done` | Mission definition-of-done configuration and latest evaluation | Yes |
 
 This table is a quick route index, not the complete contract. Use `/openapi.json` or `/swagger` for the live REST surface.
 

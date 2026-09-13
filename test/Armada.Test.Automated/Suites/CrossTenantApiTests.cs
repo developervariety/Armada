@@ -545,6 +545,22 @@ namespace Armada.Test.Automated.Suites
                 AssertFalse(found, "Expected mission " + missionAId + " NOT to appear in tenant-B list");
             }).ConfigureAwait(false);
 
+            await RunTest("Mission_DefinitionOfDoneReport_PreservesAuthorization", async () =>
+            {
+                string url = "/api/v1/missions/" + missionAId + "/definition-of-done";
+                HttpResponseMessage own = await _ClientA!.GetAsync(url).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, own.StatusCode, "Owning tenant reads the report");
+                MissionDefinitionOfDoneReport report = await JsonHelper.DeserializeAsync<MissionDefinitionOfDoneReport>(own).ConfigureAwait(false);
+                AssertEqual(missionAId, report.MissionId, "Report mission");
+                AssertEqual(Armada.Core.Enums.DefinitionOfDoneHistoryStateEnum.NotRecorded, report.HistoryState, "A new mission has no recorded evaluation");
+
+                HttpResponseMessage denied = await _ClientB!.GetAsync(url).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, denied.StatusCode, "Another tenant cannot read the report");
+
+                HttpResponseMessage anonymous = await _UnauthClient.GetAsync(url).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Unauthorized, anonymous.StatusCode, "Unauthenticated callers are refused");
+            }).ConfigureAwait(false);
+
             await RunTest("Mission_FormattedLog_PreservesAuthorization", async () =>
             {
                 string url = "/api/v1/missions/" + missionAId + "/log?formatted=true";

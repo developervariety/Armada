@@ -1701,6 +1701,10 @@ namespace Armada.Core.Services
                     "validation skipped: definition-of-done gate cannot verify a mission that changed nothing; "
                     + "its commands would measure the base commit, not this captain's work",
                     token).ConfigureAwait(false);
+                await RecordDefinitionOfDoneEvaluationAsync(mission, captain, dock,
+                    DefinitionOfDoneEvaluationRecord.NotVerifiable(
+                        "mission changed nothing since dock start; commands would measure the base commit"),
+                    token).ConfigureAwait(false);
                 _Logging.Warn(_Header + "mission " + mission.Id
                     + " reached the DoD gate having changed nothing since dock start; gate skipped rather than passed");
             }
@@ -1710,6 +1714,7 @@ namespace Armada.Core.Services
             if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForIneffectiveRescue && dock != null
                 && _DefinitionOfDoneGate != null && dodGateHasWorkToVerify)
             {
+                DateTime dodStartedUtc = DateTime.UtcNow;
                 try
                 {
                     await AppendMissionActivityAsync(mission.Id, "validation started: definition-of-done gate", token).ConfigureAwait(false);
@@ -1737,6 +1742,9 @@ namespace Armada.Core.Services
                     {
                         await AppendMissionActivityAsync(mission.Id, "validation passed: definition-of-done gate", token).ConfigureAwait(false);
                     }
+
+                    await RecordDefinitionOfDoneEvaluationAsync(mission, captain, dock,
+                        DefinitionOfDoneEvaluationRecord.FromResult(dodResult, dodStartedUtc), token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested)
                 {
@@ -1755,6 +1763,8 @@ namespace Armada.Core.Services
                     await AppendMissionActivityAsync(mission.Id, "validation failed: " + mission.FailureReason, token).ConfigureAwait(false);
                     _Logging.Warn(_Header + "infrastructure error in DoD gate for mission " + mission.Id +
                         " exceptionType=" + dodEx.GetType().Name);
+                    await RecordDefinitionOfDoneEvaluationAsync(mission, captain, dock,
+                        DefinitionOfDoneEvaluationRecord.EvaluationError(dodStartedUtc, dodEx.GetType().Name), token).ConfigureAwait(false);
                 }
             }
 
@@ -7486,6 +7496,50 @@ namespace Armada.Core.Services
                 };
 
             return null;
+        }
+
+        /// <summary>
+        /// Record one definition-of-done evaluation as a scoped event. A failed write is logged and counted as
+        /// a recording failure only; it never changes the gate outcome or the mission decision.
+        /// </summary>
+        private async Task RecordDefinitionOfDoneEvaluationAsync(
+            Mission mission,
+            Captain captain,
+            Dock dock,
+            DefinitionOfDoneEvaluationRecord record,
+            CancellationToken token)
+        {
+            record.CaptainId = captain.Id;
+            record.DockId = dock.Id;
+            record.BranchName = !String.IsNullOrWhiteSpace(mission.BranchName) ? mission.BranchName : dock.BranchName;
+            record.CommitHash = mission.CommitHash;
+            record.RecoveryAttempts = mission.RecoveryAttempts;
+
+            try
+            {
+                ArmadaEvent evaluationEvent = new ArmadaEvent(
+                    DefinitionOfDoneEvaluationRecord.EventType,
+                    "Definition-of-done evaluation: " + record.Outcome);
+                evaluationEvent.TenantId = mission.TenantId;
+                evaluationEvent.UserId = mission.UserId;
+                evaluationEvent.EntityType = "mission";
+                evaluationEvent.EntityId = mission.Id;
+                evaluationEvent.CaptainId = captain.Id;
+                evaluationEvent.MissionId = mission.Id;
+                evaluationEvent.VesselId = mission.VesselId;
+                evaluationEvent.VoyageId = mission.VoyageId;
+                evaluationEvent.Payload = JsonSerializer.Serialize(record);
+                await _Database.Events.CreateAsync(evaluationEvent, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record definition-of-done evaluation for mission " + mission.Id
+                    + " outcome=" + record.Outcome + " exceptionType=" + ex.GetType().Name + ": " + ex.Message);
+            }
         }
 
         private async Task EmitMissionOutcomeTelemetryAsync(Mission mission, Captain captain, CancellationToken token)
