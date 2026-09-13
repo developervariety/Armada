@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System;
+    using System.Collections.Generic;
     using System.IO;
     using System.Text.Json;
     using System.Threading.Tasks;
@@ -286,7 +287,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Mission complete = await CreateBareMissionAsync(testDb.Driver).ConfigureAwait(false);
                     await CreateEvaluationEventAsync(testDb.Driver, complete.Id,
-                        "{\"SchemaVersion\":1,\"Outcome\":\"Failed\",\"FailureClass\":\"TestFail\"" + times + "}", DateTime.UtcNow).ConfigureAwait(false);
+                        "{\"SchemaVersion\":1,\"Outcome\":\"Failed\",\"CommandLabel\":\"build\",\"FailureClass\":\"TestFail\"" + times + "}", DateTime.UtcNow).ConfigureAwait(false);
                     MissionDefinitionOfDoneReport completeReport = await reports.GetForMissionAsync(_Admin, complete).ConfigureAwait(false);
                     AssertEqual(RecordedHistoryStateEnum.Recorded, completeReport.HistoryState, "A complete record with exact names is Recorded");
                     AssertEqual(DefinitionOfDoneFailureClassEnum.TestFail, completeReport.LatestEvaluation!.FailureClass, "Failure class is read");
@@ -436,6 +437,142 @@ namespace Armada.Test.Unit.Suites.Services
                 DefinitionOfDoneEvaluationRecord skipped = DefinitionOfDoneEvaluationRecord.FromResult(DefinitionOfDoneResult.Skipped("persona"), DateTime.UtcNow);
                 AssertEqual(DefinitionOfDoneEvaluationOutcomeEnum.Skipped, skipped.Outcome, "Skip with Passed=true records Skipped");
                 return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("Stored records the writer cannot produce are Unavailable, and writer-shaped records stay Recorded", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    DefinitionOfDoneReportService reports = new DefinitionOfDoneReportService(testDb.Driver, CreateLogging(), () => null);
+                    string times = ",\"StartedUtc\":\"2026-09-13T12:00:00Z\",\"CompletedUtc\":\"2026-09-13T12:00:01Z\"";
+                    string[] contradictory = new string[]
+                    {
+                        "{\"SchemaVersion\":1,\"Outcome\":\"Passed\",\"FailureClass\":\"TestFail\"" + times + "}",
+                        "{\"SchemaVersion\":1,\"Outcome\":\"Passed\",\"CommandLabel\":\"build\"" + times + "}",
+                        "{\"SchemaVersion\":1,\"Outcome\":\"Passed\",\"ExitCode\":1" + times + "}",
+                        "{\"SchemaVersion\":1,\"Outcome\":\"Passed\",\"OutputTail\":\"boom\"" + times + "}",
+                        "{\"SchemaVersion\":1,\"Outcome\":\"Passed\",\"SkippedReason\":\"persona\"" + times + "}",
+                        "{\"SchemaVersion\":1,\"Outcome\":\"Skipped\"" + times + "}",
+                        "{\"SchemaVersion\":1,\"Outcome\":\"NotVerifiable\"" + times + "}",
+                        "{\"SchemaVersion\":1,\"Outcome\":\"Skipped\",\"SkippedReason\":\"persona\",\"CommandLabel\":\"build\"" + times + "}",
+                        "{\"SchemaVersion\":1,\"Outcome\":\"Failed\",\"FailureClass\":\"TestFail\"" + times + "}",
+                        "{\"SchemaVersion\":1,\"Outcome\":\"Failed\",\"CommandLabel\":\"build\",\"SkippedReason\":\"persona\"" + times + "}",
+                        "{\"SchemaVersion\":1,\"Outcome\":\"EvaluationError\",\"FailureClass\":\"Infra\"" + times + "}",
+                        "{\"SchemaVersion\":1,\"Outcome\":\"Passed\",\"RecoveryAttempts\":-1" + times + "}"
+                    };
+                    foreach (string payload in contradictory)
+                    {
+                        Mission mission = await CreateBareMissionAsync(testDb.Driver).ConfigureAwait(false);
+                        await CreateEvaluationEventAsync(testDb.Driver, mission.Id, payload, DateTime.UtcNow).ConfigureAwait(false);
+                        MissionDefinitionOfDoneReport report = await reports.GetForMissionAsync(_Admin, mission).ConfigureAwait(false);
+                        Console.WriteLine("CONTRADICTION " + payload + " -> " + report.HistoryState);
+                        AssertEqual(RecordedHistoryStateEnum.Unavailable, report.HistoryState, "A record the writer cannot produce is Unavailable: " + payload);
+                        AssertNull(report.LatestEvaluation, "No evaluation is reported for: " + payload);
+                        AssertNotNull(report.HistoryUnavailableReason, "The reason is named for: " + payload);
+                    }
+
+                    DateTime started = new DateTime(2026, 9, 13, 12, 0, 0, DateTimeKind.Utc);
+                    List<DefinitionOfDoneEvaluationRecord> writerShaped = new List<DefinitionOfDoneEvaluationRecord>
+                    {
+                        DefinitionOfDoneEvaluationRecord.FromResult(DefinitionOfDoneResult.Pass(), started),
+                        DefinitionOfDoneEvaluationRecord.FromResult(DefinitionOfDoneResult.Skipped("persona"), started),
+                        DefinitionOfDoneEvaluationRecord.FromResult(DefinitionOfDoneResult.Fail("build", 2, "error", DefinitionOfDoneFailureClassEnum.Compile), started),
+                        DefinitionOfDoneEvaluationRecord.NotVerifiable("the mission changed nothing"),
+                        DefinitionOfDoneEvaluationRecord.EvaluationError(started, "InvalidOperationException")
+                    };
+                    foreach (DefinitionOfDoneEvaluationRecord record in writerShaped)
+                    {
+                        record.RecoveryAttempts = 2;
+                        Mission mission = await CreateBareMissionAsync(testDb.Driver).ConfigureAwait(false);
+                        await CreateEvaluationEventAsync(testDb.Driver, mission.Id, JsonSerializer.Serialize(record), DateTime.UtcNow).ConfigureAwait(false);
+                        MissionDefinitionOfDoneReport report = await reports.GetForMissionAsync(_Admin, mission).ConfigureAwait(false);
+                        AssertEqual(RecordedHistoryStateEnum.Recorded, report.HistoryState, "A writer-shaped " + record.Outcome + " record is Recorded");
+                        AssertEqual(2, report.LatestEvaluation!.RecoveryAttempts, "Recovery attempts are read for " + record.Outcome);
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("An oversized stored record is Unavailable before it is parsed, and a worst-case writer record is Recorded", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    DefinitionOfDoneReportService reports = new DefinitionOfDoneReportService(testDb.Driver, CreateLogging(), () => null);
+
+                    DefinitionOfDoneEvaluationRecord oversized = DefinitionOfDoneEvaluationRecord.FromResult(
+                        DefinitionOfDoneResult.Fail("build", 1, null, DefinitionOfDoneFailureClassEnum.TestFail), DateTime.UtcNow);
+                    oversized.OutputTail = new string('x', 300000);
+                    string oversizedPayload = JsonSerializer.Serialize(oversized);
+                    Mission large = await CreateBareMissionAsync(testDb.Driver).ConfigureAwait(false);
+                    await CreateEvaluationEventAsync(testDb.Driver, large.Id, oversizedPayload, DateTime.UtcNow).ConfigureAwait(false);
+                    MissionDefinitionOfDoneReport largeReport = await reports.GetForMissionAsync(_Admin, large).ConfigureAwait(false);
+                    Console.WriteLine("OVERSIZED payload length " + oversizedPayload.Length + " -> " + largeReport.HistoryState + " (" + largeReport.HistoryUnavailableReason + ")");
+                    AssertEqual(RecordedHistoryStateEnum.Unavailable, largeReport.HistoryState, "A payload far beyond anything the writer produces is Unavailable");
+                    AssertTrue((largeReport.HistoryUnavailableReason ?? String.Empty).Contains("too large", StringComparison.Ordinal), "The reason names the size");
+
+                    string unicodeId = new string('é', 450);
+                    DefinitionOfDoneEvaluationRecord worstCase = DefinitionOfDoneEvaluationRecord.FromResult(
+                        DefinitionOfDoneResult.Fail(new string('é', 1000), 1, new string('é', 20000), DefinitionOfDoneFailureClassEnum.TestFail), DateTime.UtcNow);
+                    worstCase.CaptainId = unicodeId;
+                    worstCase.DockId = unicodeId;
+                    worstCase.BranchName = unicodeId;
+                    worstCase.CommitHash = unicodeId;
+                    string worstPayload = JsonSerializer.Serialize(worstCase);
+                    Mission worst = await CreateBareMissionAsync(testDb.Driver).ConfigureAwait(false);
+                    await CreateEvaluationEventAsync(testDb.Driver, worst.Id, worstPayload, DateTime.UtcNow).ConfigureAwait(false);
+                    MissionDefinitionOfDoneReport worstReport = await reports.GetForMissionAsync(_Admin, worst).ConfigureAwait(false);
+                    Console.WriteLine("WORST-CASE writer payload length " + worstPayload.Length + " -> " + worstReport.HistoryState);
+                    AssertEqual(RecordedHistoryStateEnum.Recorded, worstReport.HistoryState, "The largest record the writer produces is Recorded");
+                    AssertEqual(unicodeId, worstReport.LatestEvaluation!.CaptainId, "A full-length Unicode identifier is returned whole");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Stored skipped reason and command label are redacted and bounded on write and read", async () =>
+            {
+                string secretReason = "token=abcdef123456 " + new string('r', 5000);
+                string secretLabel = "password=supersecret12 " + new string('l', 5000);
+
+                DefinitionOfDoneEvaluationRecord written = DefinitionOfDoneEvaluationRecord.FromResult(
+                    DefinitionOfDoneResult.Fail(secretLabel, 1, "boom", DefinitionOfDoneFailureClassEnum.TestFail), DateTime.UtcNow);
+                AssertFalse(written.CommandLabel!.Contains("supersecret12", StringComparison.Ordinal), "The writer redacts the command label");
+                AssertTrue(written.CommandLabel.Length <= DefinitionOfDoneEvaluationRecord.MaxLabelLength, "The writer bounds the command label");
+
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    DefinitionOfDoneReportService reports = new DefinitionOfDoneReportService(testDb.Driver, CreateLogging(), () => null);
+                    string times = ",\"StartedUtc\":\"2026-09-13T12:00:00Z\",\"CompletedUtc\":\"2026-09-13T12:00:01Z\"";
+
+                    Mission skippedMission = await CreateBareMissionAsync(testDb.Driver).ConfigureAwait(false);
+                    await CreateEvaluationEventAsync(testDb.Driver, skippedMission.Id,
+                        "{\"SchemaVersion\":1,\"Outcome\":\"Skipped\",\"SkippedReason\":" + JsonSerializer.Serialize(secretReason) + times + "}", DateTime.UtcNow).ConfigureAwait(false);
+                    MissionDefinitionOfDoneReport skippedReport = await reports.GetForMissionAsync(_Admin, skippedMission).ConfigureAwait(false);
+                    string reason = skippedReport.LatestEvaluation?.SkippedReason ?? String.Empty;
+                    Console.WriteLine("STORED REASON length " + reason.Length + " secretPresent=" + reason.Contains("abcdef123456", StringComparison.Ordinal));
+                    AssertFalse(reason.Contains("abcdef123456", StringComparison.Ordinal), "A stored skipped reason is redacted on read");
+                    AssertTrue(reason.Length <= DefinitionOfDoneEvaluationRecord.MaxLabelLength, "A stored skipped reason is bounded on read");
+
+                    Mission failedMission = await CreateBareMissionAsync(testDb.Driver).ConfigureAwait(false);
+                    await CreateEvaluationEventAsync(testDb.Driver, failedMission.Id,
+                        "{\"SchemaVersion\":1,\"Outcome\":\"Failed\",\"FailureClass\":\"TestFail\",\"CommandLabel\":" + JsonSerializer.Serialize(secretLabel) + times + "}", DateTime.UtcNow).ConfigureAwait(false);
+                    MissionDefinitionOfDoneReport failedReport = await reports.GetForMissionAsync(_Admin, failedMission).ConfigureAwait(false);
+                    string label = failedReport.LatestEvaluation?.CommandLabel ?? String.Empty;
+                    Console.WriteLine("STORED LABEL length " + label.Length + " secretPresent=" + label.Contains("supersecret12", StringComparison.Ordinal));
+                    AssertFalse(label.Contains("supersecret12", StringComparison.Ordinal), "A stored command label is redacted on read");
+                    AssertTrue(label.Length <= DefinitionOfDoneEvaluationRecord.MaxLabelLength, "A stored command label is bounded on read");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A reversed evaluation time range is still Recorded, because a clock step can produce it", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    DefinitionOfDoneReportService reports = new DefinitionOfDoneReportService(testDb.Driver, CreateLogging(), () => null);
+                    Mission mission = await CreateBareMissionAsync(testDb.Driver).ConfigureAwait(false);
+                    await CreateEvaluationEventAsync(testDb.Driver, mission.Id,
+                        "{\"SchemaVersion\":1,\"Outcome\":\"Passed\",\"StartedUtc\":\"2026-09-13T12:00:01Z\",\"CompletedUtc\":\"2026-09-13T12:00:00Z\"}", DateTime.UtcNow).ConfigureAwait(false);
+                    MissionDefinitionOfDoneReport report = await reports.GetForMissionAsync(_Admin, mission).ConfigureAwait(false);
+                    Console.WriteLine("REVERSED times -> " + report.HistoryState);
+                    AssertEqual(RecordedHistoryStateEnum.Recorded, report.HistoryState, "A reversed range is reported as recorded, not hidden");
+                }
             }).ConfigureAwait(false);
         }
     }

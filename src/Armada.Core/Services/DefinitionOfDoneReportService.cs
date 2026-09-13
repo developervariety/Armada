@@ -171,6 +171,12 @@ namespace Armada.Core.Services
                 return null;
             }
 
+            if (payload.Length > DefinitionOfDoneEvaluationRecord.MaxStoredPayloadLength)
+            {
+                failure = "the latest evaluation record is too large to read (" + payload.Length + " characters)";
+                return null;
+            }
+
             StoredEvaluationPayload? stored;
             try
             {
@@ -224,12 +230,27 @@ namespace Armada.Core.Services
                 return null;
             }
 
+            if (stored.RecoveryAttempts < 0)
+            {
+                failure = "the latest evaluation record has a negative recovery attempt count";
+                return null;
+            }
+
+            string? contradiction = FindContradiction(outcome, stored);
+            if (contradiction != null)
+            {
+                failure = "the latest evaluation record is " + outcome + " but " + contradiction;
+                return null;
+            }
+
+            // A reversed StartedUtc/CompletedUtc range is read as recorded: a clock step can produce it on a real
+            // evaluation, and hiding that result would be worse than showing its times.
             return new DefinitionOfDoneEvaluationRecord
             {
                 SchemaVersion = stored.SchemaVersion.Value,
                 Outcome = outcome,
-                SkippedReason = stored.SkippedReason,
-                CommandLabel = stored.CommandLabel,
+                SkippedReason = DefinitionOfDoneEvaluationRecord.BoundLabel(stored.SkippedReason),
+                CommandLabel = DefinitionOfDoneEvaluationRecord.BoundLabel(stored.CommandLabel),
                 ExitCode = stored.ExitCode,
                 FailureClass = failureClass,
                 OutputTail = stored.OutputTail,
@@ -241,6 +262,39 @@ namespace Armada.Core.Services
                 StartedUtc = stored.StartedUtc.Value,
                 CompletedUtc = stored.CompletedUtc.Value
             };
+        }
+
+        /// <summary>
+        /// Name a combination of outcome and fields that the record writer never produces, or return null. Passed
+        /// carries no skip or failure detail; Skipped and NotVerifiable carry a skipped reason and no failure detail;
+        /// Failed and EvaluationError carry a command label and no skipped reason.
+        /// </summary>
+        private static string? FindContradiction(DefinitionOfDoneEvaluationOutcomeEnum outcome, StoredEvaluationPayload stored)
+        {
+            bool hasFailureDetail = stored.CommandLabel != null
+                || stored.ExitCode != null
+                || stored.FailureClass != null
+                || stored.OutputTail != null;
+
+            switch (outcome)
+            {
+                case DefinitionOfDoneEvaluationOutcomeEnum.Passed:
+                    if (stored.SkippedReason != null) return "carries a skipped reason";
+                    if (hasFailureDetail) return "carries failure details";
+                    return null;
+                case DefinitionOfDoneEvaluationOutcomeEnum.Skipped:
+                case DefinitionOfDoneEvaluationOutcomeEnum.NotVerifiable:
+                    if (String.IsNullOrEmpty(stored.SkippedReason)) return "has no skipped reason";
+                    if (hasFailureDetail) return "carries failure details";
+                    return null;
+                case DefinitionOfDoneEvaluationOutcomeEnum.Failed:
+                case DefinitionOfDoneEvaluationOutcomeEnum.EvaluationError:
+                    if (String.IsNullOrEmpty(stored.CommandLabel)) return "has no command label";
+                    if (stored.SkippedReason != null) return "carries a skipped reason";
+                    return null;
+                default:
+                    return "has an outcome with no field rule";
+            }
         }
 
         /// <summary>

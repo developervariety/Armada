@@ -61,10 +61,34 @@ caller's scope (admin, tenant admin, or tenant and user):
 | --- | --- |
 | `Recorded` | The latest record was read. `LatestEvaluation` holds it. |
 | `NotRecorded` | No record in scope. Missions completed before this change have none. This is not a pass or a failure. |
-| `Unavailable` | The latest record has no payload, is malformed, lacks its schema version, outcome or times, has another schema version, uses a name that is not an exact declared outcome or failure class (numbers, combined names and case variants are rejected), the two latest share a timestamp, or the history could not be read. An older record is never reported instead. |
+| `Unavailable` | The latest record has no payload, is larger than 262,144 characters (checked before it is parsed), is malformed, lacks its schema version, outcome or times, has another schema version, uses a name that is not an exact declared outcome or failure class (numbers, combined names and case variants are rejected), has a negative recovery attempt count, combines an outcome with fields the writer never produces, the two latest share a timestamp, or the history could not be read. An older record is never reported instead. |
 
 The report never infers a result from mission status, `Complete`, or Check
 runs.
+
+### Stored-record validation
+
+Only mission completion writes this event; no REST route or MCP tool creates
+events. The rules below therefore reject rows the writer cannot produce, such
+as a damaged row or a manual edit, and each rejection names its reason.
+
+| Outcome | Required | Rejected |
+| --- | --- | --- |
+| `Passed` | — | a skipped reason, command label, exit code, failure class or output tail |
+| `Skipped`, `NotVerifiable` | a skipped reason | a command label, exit code, failure class or output tail |
+| `Failed`, `EvaluationError` | a command label | a skipped reason |
+
+The skipped reason and command label pass through the shared secret redactor
+and keep their first 1,000 characters, a truncation marker included. The same
+rule applies when the record is written and when it is read, so an older row
+is returned with the same bound. The output tail keeps its existing 4,000
+character bound. Captain, dock, branch and commit identifiers are never
+truncated; the payload size limit is far above the writer's largest record
+with full-length Unicode identifiers.
+
+A reversed start and completion time is still `Recorded`. A clock step during
+evaluation can produce it on a real result, and hiding that result would be
+worse than showing its times. This is an accepted limit.
 
 ## Validation
 

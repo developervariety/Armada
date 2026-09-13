@@ -27,6 +27,17 @@ namespace Armada.Core.Models
         public const int MaxOutputTailLength = 4000;
 
         /// <summary>
+        /// Maximum characters kept for the skipped reason and the command label, including a truncation marker.
+        /// </summary>
+        public const int MaxLabelLength = 1000;
+
+        /// <summary>
+        /// Largest stored payload the report reads. The writer's largest record, with every text field at its bound,
+        /// every character escaped and full-length identifiers, stays far below it; a larger payload is not read.
+        /// </summary>
+        public const int MaxStoredPayloadLength = 262144;
+
+        /// <summary>
         /// Payload version.
         /// </summary>
         public int SchemaVersion { get; set; } = CurrentSchemaVersion;
@@ -126,12 +137,12 @@ namespace Armada.Core.Models
             if (!String.IsNullOrEmpty(result.SkippedReason))
             {
                 record.Outcome = DefinitionOfDoneEvaluationOutcomeEnum.Skipped;
-                record.SkippedReason = result.SkippedReason;
+                record.SkippedReason = BoundLabel(result.SkippedReason);
             }
             else if (!result.Passed)
             {
                 record.Outcome = DefinitionOfDoneEvaluationOutcomeEnum.Failed;
-                record.CommandLabel = result.CommandLabel;
+                record.CommandLabel = BoundLabel(result.CommandLabel);
                 record.ExitCode = result.ExitCode;
                 record.FailureClass = result.FailureClass;
                 record.OutputTail = BoundOutput(result.OutputTail);
@@ -155,7 +166,7 @@ namespace Armada.Core.Models
             return new DefinitionOfDoneEvaluationRecord
             {
                 Outcome = DefinitionOfDoneEvaluationOutcomeEnum.NotVerifiable,
-                SkippedReason = reason,
+                SkippedReason = BoundLabel(reason),
                 StartedUtc = now,
                 CompletedUtc = now
             };
@@ -197,6 +208,23 @@ namespace Armada.Core.Models
         }
 
         private const string _TruncationMarker = "...(earlier output truncated)\n";
+
+        /// <summary>
+        /// Redact secret-shaped values and keep the first characters within <see cref="MaxLabelLength"/>, including the
+        /// truncation marker. Used for the skipped reason and command label on write and on read; identifiers are
+        /// never passed through it. Applying it again to its own result returns the same text.
+        /// </summary>
+        /// <param name="text">Reason or label text.</param>
+        /// <returns>Safe bounded text, or null.</returns>
+        public static string? BoundLabel(string? text)
+        {
+            if (text == null) return null;
+            string redacted = SecretRedactor.Redact(text);
+            if (redacted.Length <= MaxLabelLength) return redacted;
+            return redacted.Substring(0, MaxLabelLength - _LabelTruncationMarker.Length) + _LabelTruncationMarker;
+        }
+
+        private const string _LabelTruncationMarker = "...(truncated)";
 
         #endregion
     }

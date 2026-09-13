@@ -31,6 +31,20 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   they sent a PUT with only the context fields, which reset the rest of the
   vessel.
 
+### Definition of Done stored-record validation
+
+- The mission Definition of Done report reads a stored evaluation record as
+  Unavailable, with a named reason, when it combines an outcome with fields
+  the writer never produces (a pass with failure details, a skip without a
+  reason, a failure without a command label), has a negative recovery attempt
+  count, or is larger than 262,144 characters. The size is checked before the
+  record is parsed. Before, such records were reported as real results.
+- The skipped reason and command label are redacted and kept to 1,000
+  characters when a record is written and when it is read. Before, only the
+  failure output was redacted and bounded. Identifiers are never truncated.
+- A reversed start and completion time is still reported, because a clock
+  step can produce it on a real evaluation.
+
 ### Landing preview Check wording
 
 - The landing preview adds a `latest_check_not_passed` warning when the newest
