@@ -2013,6 +2013,18 @@ a:hover { text-decoration: underline; }
     background: var(--diff-bg);
 }
 
+/* Markdown content in the viewer uses normal text flow instead of preformatted log lines. */
+.viewer-body-markdown {
+    font-family: inherit;
+    font-size: 0.9rem;
+    white-space: normal;
+}
+
+.viewer-body-markdown pre {
+    white-space: pre-wrap;
+    font-family: var(--mono);
+}
+
 /* Log viewer follow mode */
 .log-live-badge {
     display: inline-block;

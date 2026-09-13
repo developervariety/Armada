@@ -31,6 +31,7 @@ import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
 import PageHeader from '../components/shared/PageHeader';
 import CopyButton from '../components/shared/CopyButton';
+import MissionDescriptionCard from '../components/shared/MissionDescriptionCard';
 import Button from '../components/shared/Button';
 import CaptainRef from '../components/shared/CaptainRef';
 import { useLocale } from '../context/LocaleContext';
@@ -502,6 +503,7 @@ export default function MissionDetail() {
         open={instructionsModal.open}
         title={instructionsModal.title}
         content={instructionsModal.content}
+        markdown
         completed={true}
         onClose={() => setInstructionsModal({ open: false, title: '', content: '' })}
       />
@@ -850,12 +852,7 @@ export default function MissionDetail() {
       )}
 
       {/* Description */}
-      {mission.description && (
-        <div style={{ marginTop: '1rem' }}>
-          <h3>{t('Description')}</h3>
-          <div className="card" style={{ padding: '1rem', whiteSpace: 'pre-wrap' }}>{mission.description}</div>
-        </div>
-      )}
+      {mission.description && <MissionDescriptionCard description={mission.description} />}
 
       {mission.playbookSnapshots && mission.playbookSnapshots.length > 0 && (
         <div style={{ marginTop: '1rem' }}>

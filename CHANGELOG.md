@@ -14,6 +14,15 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Mission markdown
+
+- Mission detail renders the mission description as GitHub-flavored markdown,
+  with a "Copy raw markdown" button that copies the stored source.
+- The shared log viewer takes a `markdown` option; the mission instructions view
+  uses it. Copy still copies the raw text. The mission log stays plain text,
+  because runtime logs are event lines, not markdown. Raw HTML in markdown is
+  not rendered as elements.
+
 ### Readable captain logs
 
 - Captain detail reads its log with `formatted=true` and shows typed entries by
