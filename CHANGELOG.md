@@ -18,6 +18,7 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 
 - Vessel forms, details, and the shared landing preview identify the passing
   Check preference as advisory. Actual Check and landing gates are unchanged.
+- The preview response model documentation states the same limit for API clients.
 
 ### Generic crash-loop protection
 

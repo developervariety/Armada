@@ -57,7 +57,8 @@ namespace Armada.Core.Models
         public BranchCleanupPolicyEnum? BranchCleanupPolicy { get; set; } = null;
 
         /// <summary>
-        /// Whether the vessel requires passing checks before landing.
+        /// Whether the vessel policy requests passing checks before landing. This is preview information;
+        /// the actual landing gate still evaluates the effective checks and immutable safety rules.
         /// </summary>
         public bool RequirePassingChecksToLand { get; set; } = false;
 
