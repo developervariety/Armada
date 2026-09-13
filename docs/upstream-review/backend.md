@@ -156,3 +156,10 @@ not yet persist admission measurements or add a read projection.
 Validation: the new regression failed before the repair (22 passed, 1 failed).
 After repair, all 44 assignment, resource-pressure, fleet-capacity and sibling-lane
 cases passed with zero failures or skips. No schema change or deployment occurred.
+
+The pressure policy now captures a typed reason, evaluation time, active count,
+configured limits and OOM deadline in its decision. Older custom implementations
+retain Unknown and nullable evidence. A regression failed before capture; 45
+focused assignment and capacity cases then passed. These fields are not yet
+persisted. Historical PostgreSQL repair takes priority after the deployment
+incident; the native memory port is owned by another session.

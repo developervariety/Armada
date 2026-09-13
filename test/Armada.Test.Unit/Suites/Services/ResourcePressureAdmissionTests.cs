@@ -3,6 +3,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.Threading.Tasks;
     using Armada.Core.Models;
+    using Armada.Core.Enums;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
@@ -48,6 +49,38 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Admission_EvidenceCapturesPolicyAtDecisionTime", () =>
+            {
+                ResourcePressureAdmissionSettings settings = new ResourcePressureAdmissionSettings
+                {
+                    Enabled = true, MinAvailableMemoryMb = 512, MaxConcurrentBuilds = 3
+                };
+                FakeClock clock = new FakeClock();
+                FakeProbe probe = new FakeProbe { AvailableMemoryBytes = 1 };
+                ResourcePressureAdmission admission = CreateAdmission(settings, probe, clock);
+                ResourcePressureDecision decision = admission.Evaluate(2);
+                settings.MinAvailableMemoryMb = 0;
+                settings.MaxConcurrentBuilds = 0;
+                settings.Enabled = false;
+                AssertEqual(ResourcePressureReasonEnum.InsufficientMemory, decision.ReasonCode, "Typed memory reason");
+                AssertEqual((DateTime?)clock.Now, decision.EvaluatedUtc, "Evaluation clock");
+                AssertEqual((bool?)true, decision.PressureEnabled, "Captured enable setting");
+                AssertEqual((long?)(512L * 1024L * 1024L), decision.MinimumAvailableMemoryBytes, "Captured threshold");
+                AssertEqual((int?)3, decision.MaximumConcurrentBuilds, "Captured build limit");
+                AssertEqual((int?)2, decision.ActiveBuildPressure, "Actual policy input");
+                AssertNull(decision.OomCooldownUntilUtc, "No invented cooldown");
+                admission.MarkOom();
+                ResourcePressureDecision suspended = admission.Evaluate(0);
+                AssertFalse(suspended.Admit, "OOM suspension still precedes disabled pressure checks");
+                AssertEqual(ResourcePressureReasonEnum.OomCooldown, suspended.ReasonCode, "Typed cooldown reason");
+                AssertEqual((DateTime?)clock.Now.AddSeconds(settings.OomCooldownSeconds), suspended.OomCooldownUntilUtc, "Actual deadline");
+                clock.Now = clock.Now.AddSeconds(settings.OomCooldownSeconds);
+                ResourcePressureDecision released = admission.Evaluate(0);
+                AssertEqual(ResourcePressureReasonEnum.Disabled, released.ReasonCode, "Disabled reason after cooldown");
+                AssertNull(released.OomCooldownUntilUtc, "Elapsed cooldown is cleared");
+                return Task.CompletedTask;
+            });
+
             await RunTest("Admission_WindowAlwaysAdmitsWhenDisabled", () =>
             {
                 ResourcePressureAdmissionSettings settings = new ResourcePressureAdmissionSettings { Enabled = false, MinAvailableMemoryMb = 1024 };

@@ -3,6 +3,7 @@ namespace Armada.Core.Services
     using System;
     using SyslogLogging;
     using Armada.Core.Models;
+    using Armada.Core.Enums;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
 
@@ -66,7 +67,7 @@ namespace Armada.Core.Services
                     string reason = "Resource pressure: captain OOM (exit 137) detected; retry deferred until capacity returns"
                         + " (cooldown until " + _OomCooldownUntilUtc.Value.ToString("o") + ").";
                     _Logging.Warn(_Header + reason);
-                    return Deferred(reason, snapshot);
+                    return Decision(false, reason, ResourcePressureReasonEnum.OomCooldown, snapshot, now, activeBuildPressure);
                 }
 
                 // OOM suspension window has elapsed: release the capacity suspension
@@ -79,7 +80,7 @@ namespace Armada.Core.Services
 
                 if (!_Settings.Enabled)
                 {
-                    return Admitted(snapshot);
+                    return Decision(true, String.Empty, ResourcePressureReasonEnum.Disabled, snapshot, now, activeBuildPressure);
                 }
 
                 long thresholdBytes = (long)_Settings.MinAvailableMemoryMb * 1024L * 1024L;
@@ -88,7 +89,7 @@ namespace Armada.Core.Services
                     string reason = "Resource pressure: available memory " + snapshot.AvailableMemoryBytes.Value
                         + " bytes is below minimum " + thresholdBytes + " bytes; deferring captain launch.";
                     _Logging.Warn(_Header + reason);
-                    return Deferred(reason, snapshot);
+                    return Decision(false, reason, ResourcePressureReasonEnum.InsufficientMemory, snapshot, now, activeBuildPressure);
                 }
 
                 if (_Settings.MaxConcurrentBuilds > 0 && activeBuildPressure >= _Settings.MaxConcurrentBuilds)
@@ -96,10 +97,10 @@ namespace Armada.Core.Services
                     string reason = "Resource pressure: active build/captain pressure " + activeBuildPressure
                         + " reached max " + _Settings.MaxConcurrentBuilds + "; deferring captain launch.";
                     _Logging.Warn(_Header + reason);
-                    return Deferred(reason, snapshot);
+                    return Decision(false, reason, ResourcePressureReasonEnum.BuildLimit, snapshot, now, activeBuildPressure);
                 }
 
-                return Admitted(snapshot);
+                return Decision(true, String.Empty, ResourcePressureReasonEnum.CapacityAvailable, snapshot, now, activeBuildPressure);
             }
         }
 
@@ -129,14 +130,22 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
-        private static ResourcePressureDecision Admitted(ResourcePressureSnapshot snapshot)
+        private ResourcePressureDecision Decision(bool admit, string reason, ResourcePressureReasonEnum code,
+            ResourcePressureSnapshot snapshot, DateTime now, int activeBuildPressure)
         {
-            return new ResourcePressureDecision { Admit = true, Reason = string.Empty, Snapshot = snapshot };
-        }
-
-        private static ResourcePressureDecision Deferred(string reason, ResourcePressureSnapshot snapshot)
-        {
-            return new ResourcePressureDecision { Admit = false, Reason = reason, Snapshot = snapshot };
+            return new ResourcePressureDecision
+            {
+                Admit = admit,
+                Reason = reason,
+                ReasonCode = code,
+                Snapshot = snapshot,
+                EvaluatedUtc = now,
+                PressureEnabled = _Settings.Enabled,
+                MinimumAvailableMemoryBytes = (long)_Settings.MinAvailableMemoryMb * 1024L * 1024L,
+                MaximumConcurrentBuilds = _Settings.MaxConcurrentBuilds,
+                ActiveBuildPressure = activeBuildPressure,
+                OomCooldownUntilUtc = _OomCooldownUntilUtc
+            };
         }
 
         #endregion

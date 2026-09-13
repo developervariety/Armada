@@ -56,6 +56,12 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   read `integration_merge_failed:` with git's message, instead of the generic
   "Integration worktree merge failed".
 
+### Resource admission evidence
+
+- Capture typed pressure reasons, evaluation time, limits and the OOM deadline
+  in the policy decision without running the policy again. Persistence follows
+  separately after the historical PostgreSQL upgrade repair.
+
 ### Admission refusal handling
 
 - Honor a refused resource-pressure decision even when its explanation is empty.
