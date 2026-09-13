@@ -83,6 +83,15 @@ namespace Armada.Server.Routes
                 }
 
                 string id = req.Parameters["id"];
+
+                // Resolve the captain inside the caller's scope before its runtime can start.
+                Captain? captain = await _captainChat.FindCaptainInScopeAsync(ctx, id).ConfigureAwait(false);
+                if (captain == null)
+                {
+                    req.Http.Response.StatusCode = 404;
+                    return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" };
+                }
+
                 CaptainChatRequest request = JsonSerializer.Deserialize<CaptainChatRequest>(req.Http.Request.DataAsString, _bodyJsonOptions) ?? new CaptainChatRequest();
                 CaptainChatResponse response = await _captainChat.ChatAsync(id, request).ConfigureAwait(false);
                 return response;

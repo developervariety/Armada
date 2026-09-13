@@ -1051,6 +1051,47 @@ namespace Armada.Test.Automated.Suites
 
             #endregion
 
+            #region Fleet-Aggregate-Authorization
+
+            // Inbox and Ask read every tenant with no caller scope, so only a global administrator
+            // may call them.
+            await RunTest("Inbox_FromTenantAdmin_Returns403", async () =>
+            {
+                HttpResponseMessage response = await _ClientA!.GetAsync("/api/v1/inbox").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Forbidden, response.StatusCode, "The fleet-wide inbox requires a global administrator");
+            }).ConfigureAwait(false);
+
+            await RunTest("Ask_FromTenantAdmin_Returns403", async () =>
+            {
+                HttpResponseMessage response = await _ClientA!.PostAsync("/api/v1/ask",
+                    JsonHelper.ToJsonContent(new { Message = "status" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Forbidden, response.StatusCode, "Ask answers from fleet-wide state and requires a global administrator");
+            }).ConfigureAwait(false);
+
+            await RunTest("Inbox_FromGlobalAdmin_Returns200", async () =>
+            {
+                HttpResponseMessage response = await _AdminClient.GetAsync("/api/v1/inbox").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, response.StatusCode, "A global administrator still reads the inbox");
+            }).ConfigureAwait(false);
+
+            // The status intent reads fleet status only and starts no captain runtime.
+            await RunTest("Ask_FromGlobalAdmin_Returns200", async () =>
+            {
+                HttpResponseMessage response = await _AdminClient.PostAsync("/api/v1/ask",
+                    JsonHelper.ToJsonContent(new { Message = "status" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, response.StatusCode, "A global administrator still asks Armada");
+            }).ConfigureAwait(false);
+
+            // The route must refuse before the captain runtime starts, so the test never launches a model.
+            await RunTest("CaptainChat_OtherTenantCaptain_Returns404", async () =>
+            {
+                HttpResponseMessage response = await _ClientB!.PostAsync("/api/v1/captains/" + captainAId + "/chat",
+                    JsonHelper.ToJsonContent(new { Message = "hello" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, response.StatusCode, "Tenant B must not chat with tenant A's captain");
+            }).ConfigureAwait(false);
+
+            #endregion
+
             #region Cleanup
 
             await RunTest("Cleanup_DeleteTenantResources", async () =>

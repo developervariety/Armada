@@ -67,6 +67,11 @@ namespace Armada.Core.Authorization
             // affects all tenants. Enumerate reads through a POST body and keeps the read level.
             if (path.StartsWith("/api/v1/prompt-templates") && method != "GET" && !path.EndsWith("/enumerate")) return PermissionLevel.AdminOnly;
 
+            // The inbox and Ask answer from fleet-wide state that carries no tenant or user
+            // scope, so only a global administrator may read them.
+            if (path == "/api/v1/inbox" || path.StartsWith("/api/v1/inbox/")) return PermissionLevel.AdminOnly;
+            if (path == "/api/v1/ask" || path.StartsWith("/api/v1/ask/")) return PermissionLevel.AdminOnly;
+
             // Code-index routes use POST bodies for search/graph reads and refresh requests.
             // Route handlers enforce the vessel ACL after authentication.
             if (path.StartsWith("/api/v1/vessels/") && path.Contains("/code-index/")) return PermissionLevel.Authenticated;

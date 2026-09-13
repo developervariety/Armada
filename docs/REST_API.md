@@ -128,6 +128,9 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/prompt-templates` | POST/PUT, POST `/{name}/reset` | AdminOnly | Global admin only, because a change affects every tenant |
 | `/api/v1/personas` | GET, POST `/enumerate` | Authenticated | |
 | `/api/v1/personas` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and never a built-in flag. Update and delete find the persona inside the caller's tenant; a global admin reaches every tenant |
+| `/api/v1/inbox` | GET | AdminOnly | Global admin only. The inbox reads fleet-wide state that carries no tenant or user scope |
+| `/api/v1/ask` | POST | AdminOnly | Global admin only. Answers come from fleet-wide state that carries no tenant or user scope |
+| `/api/v1/captains/{id}/chat` | POST | TenantAdmin | The captain is found inside the caller's scope; another tenant's captain returns `404` before its runtime starts |
 | `/api/v1/pipelines` | GET, POST `/enumerate` | Authenticated | |
 | `/api/v1/pipelines` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and never a built-in flag. Update and delete find the pipeline inside the caller's tenant; a global admin reaches every tenant |
 | `/api/v1/planning-sessions` | GET | Authenticated | Planning-session list in caller scope |
@@ -3416,6 +3419,9 @@ a decision or intervention, ordered most-urgent first. It surfaces missions in
 Review, failed landings, failed missions, failed merges, deployments pending
 approval, failed or verification-failed deployments, and stalled captains.
 Purely informational state changes are excluded.
+
+Requires a global administrator. The inbox reads every tenant's missions,
+captains, merges and incidents, so a narrower caller receives `403`.
 
 **Response:** `200 OK` — `List<InboxItem>`
 

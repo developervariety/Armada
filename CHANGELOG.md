@@ -14,6 +14,17 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Inbox, Ask and captain chat respect caller scope
+
+- `GET /api/v1/inbox` and `POST /api/v1/ask` now require a global
+  administrator. Both answer from fleet-wide missions, captains, merges and
+  incidents that carry no tenant or user scope. Before, any authenticated user
+  read that state for every tenant.
+- `POST /api/v1/captains/{id}/chat` finds the captain inside the caller's
+  scope and returns `404` for another tenant's captain before the captain's
+  runtime starts. Before, a tenant administrator could chat with, and run the
+  model of, a captain in another tenant.
+
 ### Persona, pipeline and prompt template writes respect ownership
 
 - Persona and pipeline create, update and delete now require a tenant

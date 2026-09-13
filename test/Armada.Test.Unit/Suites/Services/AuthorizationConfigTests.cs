@@ -265,6 +265,26 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(PermissionLevel.Authenticated, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/prompt-templates/enumerate"));
             });
 
+            // --- Fleet-wide aggregates read across every tenant with no caller scope ---
+
+            await RunTest("Inbox GET IsAdminOnly", () =>
+            {
+                PermissionLevel level = AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/inbox");
+                AssertEqual(PermissionLevel.AdminOnly, level);
+            });
+
+            await RunTest("Ask POST IsAdminOnly", () =>
+            {
+                PermissionLevel level = AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/ask");
+                AssertEqual(PermissionLevel.AdminOnly, level);
+            });
+
+            await RunTest("CaptainChat POST IsTenantAdmin", () =>
+            {
+                PermissionLevel level = AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/captains/cpt_abc/chat");
+                AssertEqual(PermissionLevel.TenantAdmin, level);
+            });
+
             // --- Case insensitivity ---
 
             await RunTest("MethodCaseInsensitive", () =>

@@ -64,6 +64,31 @@ namespace Armada.Server
         #region Public-Methods
 
         /// <summary>
+        /// Find a captain inside the caller's scope. A global administrator reaches every tenant, a
+        /// tenant administrator reaches their own tenant, and any other caller reaches only their own
+        /// captains. Callers resolve the captain through this method before a chat turn starts its runtime.
+        /// </summary>
+        /// <param name="auth">Authenticated caller.</param>
+        /// <param name="captainId">Captain identifier (cpt_ prefix).</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The captain, or null when it does not exist in the caller's scope.</returns>
+        public async Task<Captain?> FindCaptainInScopeAsync(AuthContext auth, string captainId, CancellationToken token = default)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (String.IsNullOrEmpty(captainId)) return null;
+
+            if (auth.IsAdmin)
+                return await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
+            if (String.IsNullOrEmpty(auth.TenantId))
+                return null;
+            if (auth.IsTenantAdmin)
+                return await _Database.Captains.ReadAsync(auth.TenantId, captainId, token).ConfigureAwait(false);
+            if (String.IsNullOrEmpty(auth.UserId))
+                return null;
+            return await _Database.Captains.ReadAsync(auth.TenantId, auth.UserId, captainId, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
         /// Send one chat turn to a captain and return the reply plus per-turn metrics. The captain's runtime
         /// is launched headlessly in a temporary working directory; the reply is the runtime's final-message
         /// artifact (falling back to accumulated stdout).
