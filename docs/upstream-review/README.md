@@ -8,6 +8,30 @@ Use selective adaptation. Do not merge upstream wholesale. The dashboard has use
 
 Start with compatibility and provider tests, then captain quarantine controls and bounded dashboard evidence. Add ownership scope through authenticated server contracts before scoped UI. Evaluate model endpoints separately. Harbor, self-rebuild and native memory remain decision work, not enabled features.
 
+## Integration changes after assessment
+
+The local usage-aware routing work is now committed and integrated with the
+retirement and incident changes. Combined validation passed: 3,982 unit tests,
+907 automated API tests, 183 runtime tests, and 77 dashboard tests. The solution
+build completed with 212 warnings and no errors. Dashboard output was rebuilt.
+Live provider collection, all-provider upgrade tests and a new image rollout
+were not performed by this integration. These results cover this combined
+change, not the remaining upstream phases.
+
+The standalone autonomous lead and Grok bot integration have been retired.
+Shared coordination, generic AgentWake, the watcher, bounded helpers and log
+renderer remain supported. Historical assets are in the
+[retirement archive](../archive/autonomous-lead/README.md). A deployed older
+image can still contain removed server endpoints; use rollout evidence to
+check the running version.
+
+Preserve Routing V2 contracts when integrating upstream: approved persona
+account routes, explicit model and persona constraints, usage windows and
+freshness, reserve thresholds, concurrent account limits, safe unknown-data
+handling, and disabled-by-default configuration. Do not restore legacy
+preference ordering over enabled V2 routes. See [usage routing](../USAGE_ROUTING.md)
+for the landed implementation.
+
 ## Fixed evidence
 
 | Reference | Commit |

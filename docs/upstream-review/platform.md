@@ -61,7 +61,7 @@ Harbor families `215ddfb2f`, `ef18d8753`, `314d3d482`, `7473dbf21`, `9d8707ac9`,
 
 API captain/tool families `b27968875`, `22bc0947c`, `175fdbe3e`, `13e976720`, cloud endpoint family `65630266a`, chat MCP tools `2202a3fd1` add `ApiAgentRuntime.cs`, `Tools/*`, `Mcp/McpToolClient.cs` and model endpoint DB methods. Decision: DEFER to a separate acceptance phase. Keep the fork provider registry. Dependencies: endpoint ownership, credentials, deletion guard, tool/path bounds, cancellation and token accounting. Prove one controlled local endpoint before remote Harbor use.
 
-Native memory/Recorder `09cf86bae`, four-provider `MemoryMethods.cs`, upstream migration 70: DEFER and keep disabled. Current workspace sole-memory and disabled learned bootstrap/reflection policy must remain intact. Do not turn this into a second active durable memory store during parity work. A later product-capability review requires disabled defaults and export/migration design.
+Native memory/Recorder `09cf86bae`, four-provider `MemoryMethods.cs`, upstream migration 70: DEFER and keep disabled. Current workspace sole-memory and disabled learned bootstrap/reflection policy must remain intact. Do not turn this into a second active durable memory store during parity work. The design objective now evaluates compatible capture and retrieval improvements with one Git authority, rebuildable indexes, and reviewed Recorder proposals. Activation still requires the documented validation and deliberate policy changes.
 
 A/B rebuild and rollback `2ce122d30`: DEFER. Depends on Harbor, artifact selection, health cutover and persistent schema compatibility. Prove failed build, failed health, rollback and restart recovery before adding operational use.
 
@@ -83,7 +83,7 @@ Upstream build-server adds pulls from the upstream publisher after push. Decisio
 
 `.cursor/mcp.json` is a new repository-scoped localhost MCP connection. Decision: DEFER/REJECT automatic import. It is local client setup, not a backend capability, and can conflict with the operator/captain connection boundary. Keep installation guidance/configuration explicit and prove the actual server/port/transport before use.
 
-The two `deploy/grok/` gateway files are fork-only and route MCP/OAuth paths through a dedicated Caddy service. Decision: RETAIN required fork gateway functionality; do not delete as upstream parity. Existing deployment-specific values require a separate sanitization review before these files are touched or copied into new docs. No private endpoint is reproduced here.
+The two `deploy/grok/` gateway files are fork-only and route MCP/OAuth paths through a dedicated Caddy service. Original audit decision was retain during upstream parity. A later explicit owner decision retires the Grok bot and gateway. The sanitized historical assets are now in `docs/archive/autonomous-lead`; do not restore the gateway during integration. Shared coordination and generic MCP controls remain. No private endpoint is reproduced here.
 
 ## Proxy follow-up
 

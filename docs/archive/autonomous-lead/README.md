@@ -2,7 +2,7 @@
 
 These files are retained as history. They are not supported deployment or operator instructions. Do not install the archived service, timer, gateway, or scripts.
 
-The standalone lead launcher and Grok Bot integration are retired. The active server no longer exposes the Grok listener, OAuth proof-of-concept broker, lead-control REST routes, or lead-cycle MCP tools. The source and dedicated regression tests for those removed components remain available in Git history.
+The standalone lead launcher and Grok Bot integration are retired. The updated server source no longer exposes the Grok listener, OAuth proof-of-concept broker, lead-control REST routes, or lead-cycle MCP tools. The source and dedicated regression tests for those removed components remain available in Git history. An older deployed image can still contain these endpoints until it is replaced.
 
 The objective scheduler, shared coordination board, generic AgentWake, bounded helper launcher, WebSocket watcher, and log renderer remain supported. Use the current [operator guide](../../armada-ops.md) for those tools.
 
