@@ -525,6 +525,11 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   work to drain and asserts the settled result: the continuation runs exactly
   once, on the alternate-runtime captain, and no captain on the blocking runtime
   takes it.
+- The lost-admission dispatch test drove the loss with a 90 ms lease and a
+  100 ms sleep. Under load the lease could lapse or renew on its own timer, and
+  dispatch then succeeded. The test now keeps the default lease and releases
+  it explicitly after the voyage is created, so only the link fence can
+  detect the loss. A failure message names what dispatch returned.
 
 ### Helm configuration and branch client
 

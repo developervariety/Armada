@@ -1648,30 +1648,32 @@ namespace Armada.Test.Unit.Suites.Services
                 string leaseName = ObjectiveService.BuildDispatchAdmissionLeaseName(
                     Constants.DefaultTenantId,
                     objective.Id);
+                // The release is the only way this attempt loses its lease. The default lease duration
+                // outlives the test and its renewal interval is far longer, so neither expiry nor the
+                // renewal loop can be the one that notices; the link fence must detect the loss itself.
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver)
                 {
                     AfterVoyageCreateAsync = async () =>
                     {
-                        CoordinationLease lease = (await testDb.Driver.CoordinationLeases
-                            .ReadAsync(leaseName).ConfigureAwait(false))!;
+                        CoordinationLease? lease = await testDb.Driver.CoordinationLeases
+                            .ReadAsync(leaseName).ConfigureAwait(false);
+                        AssertNotNull(lease, "The attempt must still hold its admission lease when the voyage is created.");
                         await testDb.Driver.CoordinationLeases.ReleaseAsync(
                             leaseName,
-                            lease.Holder).ConfigureAwait(false);
-                        await Task.Delay(100).ConfigureAwait(false);
+                            lease!.Holder).ConfigureAwait(false);
                     }
                 };
                 VoyageDispatchService service = new VoyageDispatchService(
                     testDb.Driver,
                     admiral,
-                    objectiveService: new ObjectiveService(
-                        testDb.Driver,
-                        dispatchAdmissionTtl: TimeSpan.FromMilliseconds(90)),
+                    objectiveService: new ObjectiveService(testDb.Driver),
                     settings: new ArmadaSettings { CodeIndex = { Enabled = false } });
 
                 Exception? failure = null;
+                VoyageDispatchResult? returned = null;
                 try
                 {
-                    await service.DispatchAsync(new SharedVoyageDispatchRequest
+                    returned = await service.DispatchAsync(new SharedVoyageDispatchRequest
                     {
                         Title = "Lose the lease",
                         VesselId = vessel.Id,
@@ -1687,7 +1689,8 @@ namespace Armada.Test.Unit.Suites.Services
                     failure = ex;
                 }
 
-                AssertNotNull(failure, "Lost durable ownership must fail the dispatch.");
+                AssertNotNull(failure, "Lost durable ownership must fail the dispatch; the dispatch returned instead: "
+                    + (returned == null ? "(nothing)" : System.Text.Json.JsonSerializer.Serialize(returned)));
                 AssertContains("admission was lost", failure!.Message);
                 List<Voyage> voyages = await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false);
                 AssertEqual(1, voyages.Count);
