@@ -306,21 +306,21 @@ Source: `test/Armada.Test.Automated/Suites/WorkflowProfileCheckRunTests.cs`. Con
 
 ## Shared runner failure inventory
 
-Before this change the shared runner reported 2,478 cases: 2,093 passed and 385 failed, with no skips. The reproducible command is in [Testing](../TESTING.md#reproducing-the-inventory). Every failing case is accounted for below; none was deleted.
+Before this change the shared runner reported 2,478 cases: 2,095 passed and 383 failed, with no skips. The reproducible command is in [Testing](../TESTING.md#reproducing-the-inventory). Every failing case is accounted for below; none was deleted.
 
 | Failure family | Failing cases | Classification | Resolution | Passes now | Duplicate record | Awaiting owner |
 |---|---:|---|---|---:|---:|---:|
 | Fleet capacity admission returned 409, and follow-up reads returned NotFound (`E2E.Mission` 57, `E2E.Voyage` 59, `E2E.Event` 2, `E2E.Status` 1) | 119 | Fixture dependency | The end-to-end server uses the automated runner's scheduler and capacity settings; mission and voyage suites cancel each case's active work | 119 | 0 | 0 |
 | MCP requests without the event-stream accept header, unprefixed tool names, unpaginated tool lists, unresolved job handles (`E2E.McpTool`) | 120 | Stale copy | Streamable HTTP accept header and event parsing, served tool names, cursor pagination, job resolution | 116 | 2 | 2 |
 | Unauthenticated WebSocket sessions (`E2E.WebSocket` 96, `E2E.PlanningWebSocket` 2) | 98 | Stale copy | Each session authenticates before any other route | 95 | 1 | 2 |
-| Review-gate fixture raced dispatch's queued assignment work and emitted no structured result (`Services.ReviewGate`) | 5 | Stale copy | The fixture awaits the admiral's queued-assignment drain and emits a structured result | 5 | 0 | 0 |
+| Review-gate fixture raced dispatch's queued assignment work and emitted no structured result (`Services.ReviewGate`) | 3 | Stale copy | The fixture awaits the admiral's queued-assignment drain and emits a structured result | 3 | 0 | 0 |
 | Planning inactivity default asserted from an unused constant (`Services.Settings`) | 2 | Stale copy | Assertion aligned with the executed legacy settings case | 2 | 0 | 0 |
 | A REST vessel update that omitted the token override erased the stored override (`E2E.Vessel`) | 1 | Product defect | Omitted means unchanged | 1 | 0 | 0 |
 | Request-history buckets wider than an hour floored by minute-of-hour (`Services.RequestHistorySummaryBuilder`) | 1 | Product defect | One epoch-grid rule shared with token-usage summaries | 1 | 0 | 0 |
 | Contract drift in copies of executed legacy cases, and behaviour the fork does not implement (remaining suites) | 39 | Duplicate of executed legacy case, or owner decision | Named, counted skip recorded below | 0 | 31 | 8 |
-| **Total** | **385** | | | **339** | **34** | **12** |
+| **Total** | **383** | | | **337** | **34** | **12** |
 
-After the change the shared runner reports no failures and 46 named skips. It also adds four cases that prove a disposition record cannot hide a case. The table below is generated from `src/Test.Shared/Infrastructure/SharedCaseDispositions.cs`; that file is the source of truth.
+The review-gate race is timing-dependent: before the fix, between three and all five of its cases failed across runs. After the change the shared runner reports no failures and 46 named skips. It also adds four cases that prove a disposition record cannot hide a case. The table below is generated from `src/Test.Shared/Infrastructure/SharedCaseDispositions.cs`; that file is the source of truth.
 
 | Shared case | Disposition | Owner | Reason |
 |---|---|---|---|
