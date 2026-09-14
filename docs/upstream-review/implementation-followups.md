@@ -596,6 +596,15 @@ The enrollment migrations follow the captain endpoint-link migrations. Test
 them in that combined order, including partial failure, incompatible partial
 tables, restart, persistence and conditional writes on all four providers.
 
+
+Harbor schema review also found provider-specific nullability and primary-key
+metadata errors, overly broad type acceptance, and incomplete composite-key
+rejection. The provider matrix must prove each incompatible partial table is
+rejected without recording the migration as applied. A separate two-instance
+session test must prove that a fresh durable generation is accepted after
+another instance revokes and re-enrolls the runner, while old sessions stay
+invalid. A stale local generation cache must not reject the new owner forever.
+
 ## FOLLOWUP-021 — Unknown process state must block manual completion
 
 Closed in source after independent review. Unknown or failed runtime liveness
@@ -608,11 +617,3 @@ handoff without a landing callback. Actual HTTP tests cover active ownership
 and unknown state with no mission mutation. Final Check and Judge gates remain
 in force. The combined acceptance counts are recorded in FOLLOWUP-016.
 Deployment remains pending.
-
-Harbor schema review also found provider-specific nullability and primary-key
-metadata errors, overly broad type acceptance, and incomplete composite-key
-rejection. The provider matrix must prove each incompatible partial table is
-rejected without recording the migration as applied. A separate two-instance
-session test must prove that a fresh durable generation is accepted after
-another instance revokes and re-enrolls the runner, while old sessions stay
-invalid. A stale local generation cache must not reject the new owner forever.
