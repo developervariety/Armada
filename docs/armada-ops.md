@@ -2124,6 +2124,14 @@ SQL Server also needs `selfDeploy.sqlServerBackupDirectory`. A failure returns
 a named reason and leaves no archive, so a successful `armada_backup` is
 evidence of a restorable backup.
 
+Archives do not carry secrets. `settings.json` is written with database and
+connection-string passwords, API keys, tokens, provider keys and every other
+value the shared redaction rule marks secret replaced by `[REDACTED]`, and the
+manifest records `settingsRedacted`. A restore keeps the target host's own
+secrets for those values and never writes the placeholder. Secrets that exist
+only in the source host's settings must be set on the target by hand after a
+restore.
+
 The server image ships the PostgreSQL 16 and MySQL 8.0 clients. SQL Server's
 `sqlcmd` must come from a derived image. An image built before those packages
 were added has no server clients, so backup and the self-deploy preflight fail

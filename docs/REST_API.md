@@ -3243,8 +3243,8 @@ The backup uses the configured provider's native tooling: the SQLite online back
 |---|---|
 | `armada.db` | SQLite only: verified online backup of the configured database file |
 | `database/armada-backup.dump` / `.sql` / `.bak` | PostgreSQL custom-format dump, MySQL dump, or a SQL Server backup readable by the admiral |
-| `settings.json` | Current Armada server configuration |
-| `manifest.json` | `databaseType`, `schemaVersion` and `recordCounts` read from the provider; `backupTimestampUtc`, `armadaVersion`, `artifactEntry`, `artifactSha256`, `backupValidated`, `restoreVerified`, and `serverArtifactPath` when SQL Server keeps the artifact on the database host |
+| `settings.json` | Current Armada server configuration with every secret replaced by `[REDACTED]`: database and connection-string passwords, API keys, tokens, provider keys, bearer and encryption keys, and any other value the shared redaction rule marks secret |
+| `manifest.json` | `databaseType`, `schemaVersion` and `recordCounts` read from the provider; `backupTimestampUtc`, `armadaVersion`, `artifactEntry`, `artifactSha256`, `backupValidated`, `restoreVerified`, `settingsRedacted`, `redactedSettingCount`, and `serverArtifactPath` when SQL Server keeps the artifact on the database host |
 
 **Example:**
 
@@ -3272,6 +3272,7 @@ Restore Armada from a previously created backup ZIP file.
 - An archive whose manifest names another provider returns `409` with `backup_provider_mismatch`.
 - The ZIP must contain `armada.db` that passes `PRAGMA integrity_check` and has a `schema_migrations` table; otherwise `409` with `backup_database_entry_missing` or `backup_database_invalid`.
 - A verified safety backup is created first. The database is then replaced through the SQLite online backup API into the configured database file, so open connections stay valid.
+- Archived `settings.json` is merged onto this host's settings before anything is replaced. Each `[REDACTED]` value keeps this host's current secret. A redacted value with no local counterpart is omitted, so a placeholder is never written. Non-secret values come from the archive. An unreadable archived or local settings document returns `409` with `restore_settings_unreadable`. The response adds `PreservedSecretCount` and `DroppedSecretCount`.
 
 **Response:** `200 OK`
 

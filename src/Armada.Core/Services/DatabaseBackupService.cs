@@ -103,7 +103,23 @@ namespace Armada.Core.Services
                     manifest.ServerArtifactPath = native.ArtifactPath;
                 }
 
-                await WriteArchiveAsync(archivePath, manifest, artifactIsLocal ? native.ArtifactPath : null, token).ConfigureAwait(false);
+                string? redactedSettings = null;
+                if (File.Exists(ArmadaSettings.DefaultSettingsPath))
+                {
+                    try
+                    {
+                        string liveSettings = await File.ReadAllTextAsync(ArmadaSettings.DefaultSettingsPath, token).ConfigureAwait(false);
+                        redactedSettings = SettingsSecretRedaction.Redact(liveSettings, out int redactedCount);
+                        manifest.SettingsRedacted = true;
+                        manifest.RedactedSettingCount = redactedCount;
+                    }
+                    catch (JsonException ex)
+                    {
+                        throw new DatabaseBackupException("backup_settings_unreadable", false, ex);
+                    }
+                }
+
+                await WriteArchiveAsync(archivePath, manifest, artifactIsLocal ? native.ArtifactPath : null, redactedSettings, token).ConfigureAwait(false);
 
                 return new DatabaseBackupResult
                 {
@@ -185,6 +201,26 @@ namespace Armada.Core.Services
                 if (!await IsValidArmadaSqliteAsync(extractedDatabase, token).ConfigureAwait(false))
                     throw new DatabaseBackupException("backup_database_invalid", true);
 
+                // Merge settings before anything is replaced, so an unreadable document refuses the restore cleanly.
+                string? mergedSettings = null;
+                int preservedSecrets = 0;
+                int droppedSecrets = 0;
+                if (hasSettings)
+                {
+                    string archivedSettings = await File.ReadAllTextAsync(extractedSettings, token).ConfigureAwait(false);
+                    string? targetSettings = File.Exists(ArmadaSettings.DefaultSettingsPath)
+                        ? await File.ReadAllTextAsync(ArmadaSettings.DefaultSettingsPath, token).ConfigureAwait(false)
+                        : null;
+                    try
+                    {
+                        mergedSettings = SettingsSecretRedaction.MergeForRestore(archivedSettings, targetSettings, out preservedSecrets, out droppedSecrets);
+                    }
+                    catch (JsonException ex)
+                    {
+                        throw new DatabaseBackupException("restore_settings_unreadable", true, ex);
+                    }
+                }
+
                 string safetyPath = Path.Combine(backupsDirectory, "pre-restore-" + DateTime.UtcNow.ToString("yyyy-MM-dd-HHmmss") + "-" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".zip");
                 DatabaseBackupResult safety = await BackupAsync(safetyPath, token).ConfigureAwait(false);
 
@@ -198,17 +234,21 @@ namespace Armada.Core.Services
                     source.BackupDatabase(target);
                 }
 
-                if (hasSettings) File.Copy(extractedSettings, ArmadaSettings.DefaultSettingsPath, true);
+                if (mergedSettings != null) await WriteSettingsAtomicallyAsync(mergedSettings, token).ConfigureAwait(false);
 
                 string displayName = !String.IsNullOrEmpty(originalFilename) ? originalFilename : Path.GetFileName(archivePath);
                 string message = "Database restored from " + displayName + ". ";
                 if (!hasSettings) message += "Warning: settings.json was not found in the backup archive. ";
+                else if (preservedSecrets > 0 || droppedSecrets > 0)
+                    message += "Settings restored with " + preservedSecrets + " secret(s) kept from this host and " + droppedSecrets + " redacted value(s) without a local value omitted. ";
                 message += "Restart the server to reload the restored data.";
                 return new DatabaseRestoreResult
                 {
                     Status = "restored",
                     SafetyBackupPath = safety.Path,
                     SchemaVersion = archivedSchemaVersion,
+                    PreservedSecretCount = preservedSecrets,
+                    DroppedSecretCount = droppedSecrets,
                     Message = message
                 };
             }
@@ -234,6 +274,23 @@ namespace Armada.Core.Services
             }
         }
 
+        private static async Task WriteSettingsAtomicallyAsync(string settingsJson, CancellationToken token)
+        {
+            string path = ArmadaSettings.DefaultSettingsPath;
+            string? directory = Path.GetDirectoryName(path);
+            if (!String.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+            string temporary = path + ".restore-" + Guid.NewGuid().ToString("N");
+            try
+            {
+                await File.WriteAllTextAsync(temporary, settingsJson, token).ConfigureAwait(false);
+                File.Move(temporary, path, true);
+            }
+            finally
+            {
+                if (File.Exists(temporary)) File.Delete(temporary);
+            }
+        }
+
         private static string ArtifactEntryName(DatabaseTypeEnum type)
         {
             switch (type)
@@ -245,7 +302,7 @@ namespace Armada.Core.Services
             }
         }
 
-        private static async Task WriteArchiveAsync(string archivePath, DatabaseBackupManifest manifest, string? artifactPath, CancellationToken token)
+        private static async Task WriteArchiveAsync(string archivePath, DatabaseBackupManifest manifest, string? artifactPath, string? redactedSettings, CancellationToken token)
         {
             string? directory = Path.GetDirectoryName(archivePath);
             if (!String.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
@@ -255,8 +312,14 @@ namespace Armada.Core.Services
                 using (ZipArchive zip = ZipFile.Open(partialPath, ZipArchiveMode.Create))
                 {
                     if (artifactPath != null) zip.CreateEntryFromFile(artifactPath, manifest.ArtifactEntry);
-                    if (File.Exists(ArmadaSettings.DefaultSettingsPath))
-                        zip.CreateEntryFromFile(ArmadaSettings.DefaultSettingsPath, "settings.json");
+                    if (redactedSettings != null)
+                    {
+                        ZipArchiveEntry settingsEntry = zip.CreateEntry("settings.json");
+                        using (StreamWriter writer = new StreamWriter(settingsEntry.Open()))
+                        {
+                            await writer.WriteAsync(redactedSettings.AsMemory(), token).ConfigureAwait(false);
+                        }
+                    }
                     ZipArchiveEntry manifestEntry = zip.CreateEntry("manifest.json");
                     using (Stream stream = manifestEntry.Open())
                     {

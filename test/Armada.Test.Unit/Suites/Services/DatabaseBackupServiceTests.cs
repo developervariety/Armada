@@ -142,6 +142,112 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                 }
             });
+
+            await RunSettingsRedactionTestsAsync();
+        }
+
+        private const string ArchiveSecretSettings = @"{
+  ""admiralPort"": 7890,
+  ""apiKey"": ""armada-api-key-0123456789"",
+  ""gitHubToken"": ""ghp_abcdefghijklmnopqrstuvwxyz0123"",
+  ""sessionTokenEncryptionKey"": ""session-encryption-key-987654"",
+  ""database"": { ""type"": ""Postgresql"", ""hostname"": ""db"", ""password"": ""pg-password-secret-42"", ""connectionString"": ""Host=db;Username=armada;Password=conn-string-secret-77;"" },
+  ""agents"": [ { ""environment"": { ""ANTHROPIC_API_KEY"": ""sk-ant-api03-secretsecretsecret"", ""LOG_LEVEL"": ""debug"" } } ],
+  ""remoteTrigger"": { ""drainerBearerToken"": ""bearer-token-secret-55"" },
+  ""modelProviders"": { ""providers"": { ""vilao"": { ""apiKeyEnv"": ""ARMADA_VILAO_KEY"" } } }
+}";
+
+        private static readonly string[] ArchiveSecretValues =
+        {
+            "armada-api-key-0123456789", "ghp_abcdefghijklmnopqrstuvwxyz0123", "session-encryption-key-987654",
+            "pg-password-secret-42", "conn-string-secret-77", "sk-ant-api03-secretsecretsecret", "bearer-token-secret-55"
+        };
+
+        private async Task RunSettingsRedactionTestsAsync()
+        {
+            await RunTest("Backup_ArchiveSettingsJson_ContainsNoSecretValues", async () =>
+            {
+                using (SelfDeployTestDirectory directory = new SelfDeployTestDirectory())
+                using (SettingsFileScope settingsFile = new SettingsFileScope(ArchiveSecretSettings))
+                {
+                    ArmadaSettings settings = SqliteSettings(directory.Root);
+                    using (DatabaseDriver driver = await DatabaseDriverFactory.CreateAndInitializeAsync(settings.Database)) { }
+                    string archive = Path.Combine(directory.Root, "out", "backup.zip");
+
+                    await BackupAsync(settings, archive);
+
+                    string archived = System.Text.Encoding.UTF8.GetString(ZipEntryBytes(archive, "settings.json"));
+                    foreach (string secret in ArchiveSecretValues)
+                        AssertFalse(archived.Contains(secret, StringComparison.Ordinal), "archive settings must not contain " + secret.Substring(0, 6) + "...");
+                    AssertContains("7890", archived, "non-secret setting kept");
+                    AssertContains("ARMADA_VILAO_KEY", archived, "an environment variable name is not a secret");
+                    AssertContains("debug", archived, "non-secret environment value kept");
+                    DatabaseBackupManifest manifest = ReadManifest(archive);
+                    AssertTrue(manifest.SettingsRedacted, "manifest records the redaction");
+                    AssertEqual(ArchiveSecretValues.Length, manifest.RedactedSettingCount, "every secret value counted");
+                }
+            });
+
+            await RunTest("Restore_RedactedArchive_KeepsTargetSecretsAndNeverWritesPlaceholder", async () =>
+            {
+                using (SelfDeployTestDirectory directory = new SelfDeployTestDirectory())
+                using (SettingsFileScope settingsFile = new SettingsFileScope(ArchiveSecretSettings))
+                {
+                    ArmadaSettings settings = SqliteSettings(directory.Root);
+                    using (DatabaseDriver driver = await DatabaseDriverFactory.CreateAndInitializeAsync(settings.Database)) { }
+                    string archive = Path.Combine(directory.Root, "out", "backup.zip");
+                    await BackupAsync(settings, archive);
+
+                    File.WriteAllText(ArmadaSettings.DefaultSettingsPath, @"{
+  ""admiralPort"": 9999,
+  ""apiKey"": ""target-api-key-live"",
+  ""gitHubToken"": ""ghp_targettargettargettarget0000"",
+  ""sessionTokenEncryptionKey"": ""target-session-key"",
+  ""database"": { ""type"": ""Postgresql"", ""hostname"": ""db"", ""password"": ""target-pg-password"", ""connectionString"": ""Host=db;Password=target-conn;"" },
+  ""agents"": [ { ""environment"": { ""ANTHROPIC_API_KEY"": ""sk-ant-target-live-key"" } } ]
+}");
+
+                    await RestoreAsync(settings, archive);
+
+                    string restored = File.ReadAllText(ArmadaSettings.DefaultSettingsPath);
+                    AssertFalse(restored.Contains("[REDACTED", StringComparison.Ordinal), "no placeholder written");
+                    AssertContains("7890", restored, "non-secret value restored from the archive");
+                    AssertFalse(restored.Contains("9999", StringComparison.Ordinal), "non-secret value replaced by the archive");
+                    foreach (string kept in new[] { "target-api-key-live", "ghp_targettargettargettarget0000", "target-session-key", "target-pg-password", "Host=db;Password=target-conn;", "sk-ant-target-live-key" })
+                        AssertContains(kept, restored, "target secret kept");
+                    foreach (string secret in ArchiveSecretValues)
+                        AssertFalse(restored.Contains(secret, StringComparison.Ordinal), "archive secret never restored");
+                    AssertFalse(restored.Contains("drainerBearerToken", StringComparison.Ordinal), "a redacted setting the target lacks is dropped");
+                }
+            });
+        }
+
+        // Writes the default settings file for one test and restores whatever was there before. The unit test process
+        // redirects the data directory, so this never touches a real settings file.
+        private sealed class SettingsFileScope : IDisposable
+        {
+            private readonly string? _Previous;
+
+            public SettingsFileScope(string content)
+            {
+                string path = ArmadaSettings.DefaultSettingsPath;
+                _Previous = File.Exists(path) ? File.ReadAllText(path) : null;
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                File.WriteAllText(path, content);
+            }
+
+            public void Dispose()
+            {
+                string path = ArmadaSettings.DefaultSettingsPath;
+                if (_Previous == null)
+                {
+                    if (File.Exists(path)) File.Delete(path);
+                }
+                else
+                {
+                    File.WriteAllText(path, _Previous);
+                }
+            }
         }
 
         private bool SkipWindows(string testName)

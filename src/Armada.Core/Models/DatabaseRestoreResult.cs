@@ -23,6 +23,16 @@ namespace Armada.Core.Models
         public int SchemaVersion { get; set; }
 
         /// <summary>
+        /// Secrets kept from the target host's settings in place of redacted archive values.
+        /// </summary>
+        public int PreservedSecretCount { get; set; }
+
+        /// <summary>
+        /// Redacted archive values removed because the target host had no value for them.
+        /// </summary>
+        public int DroppedSecretCount { get; set; }
+
+        /// <summary>
         /// Operator message.
         /// </summary>
         public string Message { get; set; } = String.Empty;

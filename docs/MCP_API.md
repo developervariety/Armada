@@ -295,6 +295,10 @@ authorization and refusal contract.
   after a verified safety backup. PostgreSQL, MySQL and SQL Server are refused
   with `restore_unsupported_for_provider_<type>`, and an archive from another
   provider with `backup_provider_mismatch`. Nothing is changed in either case.
+- Archived `settings.json` has every secret replaced by `[REDACTED]`, and the
+  manifest sets `settingsRedacted` and `redactedSettingCount`. On restore, each
+  redacted value keeps this host's current secret. A redacted value with no
+  local counterpart is omitted, so a placeholder is never written.
 
 ## Native Memory
 

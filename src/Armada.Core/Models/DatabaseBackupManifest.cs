@@ -52,6 +52,16 @@ namespace Armada.Core.Models
         public string ArtifactSha256 { get; set; } = String.Empty;
 
         /// <summary>
+        /// Whether <c>settings.json</c> in the archive had its secret values replaced with a placeholder.
+        /// </summary>
+        public bool SettingsRedacted { get; set; }
+
+        /// <summary>
+        /// Number of settings values replaced with the placeholder.
+        /// </summary>
+        public int RedactedSettingCount { get; set; }
+
+        /// <summary>
         /// Whether the provider-native backup was created and validated.
         /// </summary>
         public bool BackupValidated { get; set; }

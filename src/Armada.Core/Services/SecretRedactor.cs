@@ -24,6 +24,45 @@ namespace Armada.Core.Services
             @"\A(?:api[_\-]?key|apikey|secret|token|password|passwd|authorization|access_token|refresh_token|client_secret)\z",
             RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
+        private static readonly string[] _SecretNameMarkers =
+        {
+            "password", "passwd", "secret", "token", "apikey", "bearer", "encryptionkey", "privatekey", "credential", "accesskey", "signingkey"
+        };
+
+        private static readonly string[] _ReferenceNameSuffixes =
+        {
+            "env", "path", "file", "filepath", "name", "url", "header", "enabled", "seconds", "count", "limit", "budget", "prefix"
+        };
+
+        /// <summary>
+        /// Whether a property name holds a secret value. This is the single rule for settings and structured payloads:
+        /// the exact sensitive names used for display redaction, or a name containing a secret marker (password,
+        /// secret, token, api key, bearer, encryption or private key, credential). Names that only refer to a secret
+        /// elsewhere, such as an environment variable name, a file path or a limit, are not secrets.
+        /// </summary>
+        /// <param name="name">Property or dictionary key name.</param>
+        /// <returns>True when the value must be redacted.</returns>
+        public static bool IsSecretPropertyName(string? name)
+        {
+            if (String.IsNullOrWhiteSpace(name)) return false;
+            if (_SensitiveProperty.IsMatch(name)) return true;
+            System.Text.StringBuilder normalized = new System.Text.StringBuilder(name.Length);
+            foreach (char character in name)
+            {
+                if (Char.IsLetterOrDigit(character)) normalized.Append(Char.ToLowerInvariant(character));
+            }
+            string key = normalized.ToString();
+            foreach (string suffix in _ReferenceNameSuffixes)
+            {
+                if (key.EndsWith(suffix, StringComparison.Ordinal)) return false;
+            }
+            foreach (string marker in _SecretNameMarkers)
+            {
+                if (key.Contains(marker, StringComparison.Ordinal)) return true;
+            }
+            return false;
+        }
+
         /// <summary>Redact protected values without applying a display size limit.</summary>
         public static string Redact(string? text) => RedactCore(text ?? String.Empty, 0);
 

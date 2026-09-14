@@ -84,6 +84,13 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   `restore_unsupported_for_provider_<type>` before the archive is read. An
   archive from another provider is refused with `backup_provider_mismatch`.
   REST returns 409 for refusals and 500 for failures.
+- Backup archives write `settings.json` with every secret replaced by
+  `[REDACTED]`: database and connection-string passwords, API keys, tokens,
+  provider keys and other values the shared rule in `SecretRedactor` marks
+  secret. The manifest records `settingsRedacted` and `redactedSettingCount`.
+  Restore merges archived settings onto the host's settings, keeps the host's
+  own secrets, omits redacted values that have no local counterpart, and never
+  writes the placeholder.
 - The server image installs the PostgreSQL 16 client (`pg_dump`, `pg_restore`,
   `psql`, `createdb`, `dropdb`) and the MySQL 8.0 client (`mysql`,
   `mysqldump`) that native backup and the self-deploy preflight run. SQL
