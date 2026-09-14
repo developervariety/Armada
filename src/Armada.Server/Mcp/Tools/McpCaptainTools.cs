@@ -100,8 +100,10 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     CaptainCreateArgs request = JsonSerializer.Deserialize<CaptainCreateArgs>(args!.Value, _JsonOptions)!;
+                    string? ownedFieldError = CaptainInputMapping.FindServerOwnedFieldViolation(
+                        JsonSerializer.Deserialize<CaptainServerOwnedFields>(args.Value, _JsonOptions), null);
+                    if (ownedFieldError != null) return CreateToolErrorResponse(ownedFieldError);
                     Captain captain = new Captain();
-                    captain.TenantId = ArmadaConstants.DefaultTenantId;
                     captain.Name = request.Name;
                     if (!String.IsNullOrEmpty(request.Runtime) && Enum.TryParse<AgentRuntimeEnum>(request.Runtime, true, out AgentRuntimeEnum rt))
                         captain.Runtime = rt;
@@ -116,6 +118,8 @@ namespace Armada.Server.Mcp.Tools
                     string? reasoningValidationError = CaptainRuntimeOptions.ValidateReasoningEffort(captain.Runtime, request.ReasoningEffort);
                     if (reasoningValidationError != null) return CreateToolErrorResponse(reasoningValidationError);
                     ApplyCaptainOptions(captain, request);
+                    captain = CaptainInputMapping.ForCreate(captain);
+                    captain.TenantId = ArmadaConstants.DefaultTenantId;
 
                     if (agentLifecycle != null)
                     {
@@ -169,9 +173,13 @@ namespace Armada.Server.Mcp.Tools
                 {
                     CaptainUpdateArgs request = JsonSerializer.Deserialize<CaptainUpdateArgs>(args!.Value, _JsonOptions)!;
                     string captainId = request.CaptainId;
-                    Captain? captain = await database.Captains.ReadAsync(captainId).ConfigureAwait(false);
-                    if (captain == null) return (object)new { Error = "Captain not found" };
-                    Captain existingCaptain = CloneForOptionsBaseline(captain);
+                    Captain? stored = await database.Captains.ReadAsync(captainId).ConfigureAwait(false);
+                    if (stored == null) return (object)new { Error = "Captain not found" };
+                    string? ownedFieldError = CaptainInputMapping.FindServerOwnedFieldViolation(
+                        JsonSerializer.Deserialize<CaptainServerOwnedFields>(args.Value, _JsonOptions), stored);
+                    if (ownedFieldError != null) return CreateToolErrorResponse(ownedFieldError);
+                    Captain captain = CaptainInputMapping.ConfigurationOf(stored);
+                    Captain existingCaptain = CloneForOptionsBaseline(stored);
                     if (request.Name != null)
                         captain.Name = request.Name;
                     if (!String.IsNullOrEmpty(request.Runtime) && Enum.TryParse<AgentRuntimeEnum>(request.Runtime, true, out AgentRuntimeEnum rt))
@@ -221,8 +229,7 @@ namespace Armada.Server.Mcp.Tools
                                 if (isSoftFailure)
                                 {
                                     logging?.Warn("[McpCaptainTools] model validation cannot be verified for captain " + captainId + "; edit persisted. Error: " + validationError);
-                                    captain.LastUpdateUtc = DateTime.UtcNow;
-                                    captain = await database.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                                    captain = await database.Captains.UpdateAsync(CaptainInputMapping.ForUpdate(stored, captain)).ConfigureAwait(false);
                                     return (object)new
                                     {
                                         Captain = MaskCaptain(captain),
@@ -236,8 +243,7 @@ namespace Armada.Server.Mcp.Tools
                         }
                     }
 
-                    captain.LastUpdateUtc = DateTime.UtcNow;
-                    captain = await database.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                    captain = await database.Captains.UpdateAsync(CaptainInputMapping.ForUpdate(stored, captain)).ConfigureAwait(false);
                     return (object)MaskCaptain(captain);
                 });
 

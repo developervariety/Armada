@@ -834,6 +834,15 @@ namespace Armada.Test.Automated.Suites
                 AssertStartsWith("cpt_", data.Id);
             }).ConfigureAwait(false);
 
+            await RunTest("CreateCaptain_ServerOwnedState_IsRefusedByName", async () =>
+            {
+                JsonElement resp = await WsCommandAsync("create_captain", new { data = new { Name = "ws-owned-captain", Runtime = "ClaudeCode", State = "Working", QuarantineReason = "caller supplied" } }).ConfigureAwait(false);
+                AssertEqual("command.error", resp.GetProperty("type").GetString());
+                string error = resp.GetProperty("error").GetString() ?? String.Empty;
+                AssertContains("State", error);
+                AssertContains("QuarantineReason", error);
+            }).ConfigureAwait(false);
+
             await RunTest("GetCaptain_ExistingCaptain_ReturnsCaptain", async () =>
             {
                 string captainId = await CreateCaptainViaRestAsync("ws-get-captain").ConfigureAwait(false);

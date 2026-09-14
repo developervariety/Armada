@@ -110,6 +110,29 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   process before any test runs, unless `ARMADA_TEST_KEEP_PROVIDER_ENVIRONMENT`
   is set.
 
+### Captain writes accept configuration only
+
+- Captain create and update on REST, MCP and WebSocket now share one input
+  mapping. It defines which fields a caller may set: name, runtime, model, model
+  endpoint, provider key and base URL, system instructions, personas, runtime
+  options, tier and default playbooks. Before, REST and WebSocket create stored
+  `State`, the assignment, process, heartbeat and quarantine fields from the
+  request body. A caller could create a captain already `Working` or with a
+  forged quarantine, and bypass the state machine.
+- A request that sends a server-owned field with a value other than its default
+  (create) or its stored value (update) is refused. REST returns `400`, MCP
+  returns a tool error and WebSocket returns `command.error`. The message starts
+  with `captain_server_owned_field:` and names every refused field. Nothing is
+  written. Before, MCP dropped such fields without saying so.
+- WebSocket update no longer clears an existing quarantine, tenant, user or
+  process liveness. REST update no longer takes `LastProcessAliveUtc` from the
+  body. Stop, quarantine (bench) and unquarantine (unbench) remain the only ways
+  to change captain state.
+- `armada captain update` no longer sends identity fields. The SDK
+  `CreateCaptainAsync` and `UpdateCaptainAsync` still take a whole `Captain`
+  but send only its configuration fields, so a captain read back from the
+  server can be sent again without a refusal.
+
 ### Data expiry on every provider
 
 - Data expiry now purges through a provider-neutral database driver method set,

@@ -789,9 +789,17 @@ namespace Armada.Server.WebSocket
                         return new { type = "command.result", action = "get_captain", data = (object)foundCaptain };
 
                 case "create_captain":
-                    Captain newCaptain = JsonSerializer.Deserialize<WebSocketDataCommand<Captain>>(rawBody, _JsonOptions)?.Data!;
-                    newCaptain = await _Database.Captains.CreateAsync(newCaptain).ConfigureAwait(false);
+                {
+                    Captain? newCaptainInput = JsonSerializer.Deserialize<WebSocketDataCommand<Captain>>(rawBody, _JsonOptions)?.Data;
+                    if (newCaptainInput == null)
+                        return new { type = "command.error", action = "create_captain", error = "Captain data is required" };
+                    string? createOwnedFieldError = CaptainInputMapping.FindServerOwnedFieldViolation(
+                        JsonSerializer.Deserialize<WebSocketDataCommand<CaptainServerOwnedFields>>(rawBody, _JsonOptions)?.Data, null);
+                    if (createOwnedFieldError != null)
+                        return new { type = "command.error", action = "create_captain", error = createOwnedFieldError };
+                    Captain newCaptain = await _Database.Captains.CreateAsync(CaptainInputMapping.ForCreate(newCaptainInput)).ConfigureAwait(false);
                     return new { type = "command.result", action = "create_captain", data = (object)newCaptain };
+                }
 
                 case "update_captain":
                 {
@@ -801,17 +809,14 @@ namespace Armada.Server.WebSocket
                         return new { type = "command.error", action = "update_captain", error = "Captain not found" };
                     else
                     {
-                        Captain updCpt = JsonSerializer.Deserialize<WebSocketDataCommand<Captain>>(rawBody, _JsonOptions)?.Data!;
-                        updCpt.Id = updCptId;
-                        updCpt.State = existCpt.State;
-                        updCpt.CurrentMissionId = existCpt.CurrentMissionId;
-                        updCpt.CurrentDockId = existCpt.CurrentDockId;
-                        updCpt.ProcessId = existCpt.ProcessId;
-                        updCpt.RecoveryAttempts = existCpt.RecoveryAttempts;
-                        updCpt.LastHeartbeatUtc = existCpt.LastHeartbeatUtc;
-                        updCpt.CreatedUtc = existCpt.CreatedUtc;
-                        updCpt.LastUpdateUtc = DateTime.UtcNow;
-                        updCpt = await _Database.Captains.UpdateAsync(updCpt).ConfigureAwait(false);
+                        Captain? updCptInput = JsonSerializer.Deserialize<WebSocketDataCommand<Captain>>(rawBody, _JsonOptions)?.Data;
+                        if (updCptInput == null)
+                            return new { type = "command.error", action = "update_captain", error = "Captain data is required" };
+                        string? updateOwnedFieldError = CaptainInputMapping.FindServerOwnedFieldViolation(
+                            JsonSerializer.Deserialize<WebSocketDataCommand<CaptainServerOwnedFields>>(rawBody, _JsonOptions)?.Data, existCpt);
+                        if (updateOwnedFieldError != null)
+                            return new { type = "command.error", action = "update_captain", error = updateOwnedFieldError };
+                        Captain updCpt = await _Database.Captains.UpdateAsync(CaptainInputMapping.ForUpdate(existCpt, updCptInput)).ConfigureAwait(false);
                         return new { type = "command.result", action = "update_captain", data = (object)updCpt };
                     }
                 }

@@ -6,6 +6,7 @@ namespace Armada.Core.Client
     using System.Text.Json.Serialization;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Typed HTTP client for the Armada Admiral REST API.
@@ -268,21 +269,21 @@ namespace Armada.Core.Client
         }
 
         /// <summary>
-        /// Create a captain.
+        /// Create a captain. Only the captain's configuration fields are sent; the server assigns
+        /// identity, state and timestamps.
         /// </summary>
-        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Captain?> CreateCaptainAsync(Captain captain, CancellationToken token = default)
         {
-            return await PostAsync<Captain, Captain>("/api/v1/captains", captain, token).ConfigureAwait(false);
+            return await PostAsync<Captain, Dictionary<string, object?>>("/api/v1/captains", CaptainInputMapping.ToRequestBody(captain), token).ConfigureAwait(false);
         }
 
         /// <summary>
-        /// Update a captain.
+        /// Replace a captain's configuration fields. Only configuration is sent; server-owned
+        /// fields keep their stored values.
         /// </summary>
-        /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<Captain?> UpdateCaptainAsync(string id, Captain captain, CancellationToken token = default)
         {
-            return await PutAsync<Captain, Captain>("/api/v1/captains/" + id, captain, token).ConfigureAwait(false);
+            return await PutAsync<Captain, Dictionary<string, object?>>("/api/v1/captains/" + id, CaptainInputMapping.ToRequestBody(captain), token).ConfigureAwait(false);
         }
 
         /// <summary>

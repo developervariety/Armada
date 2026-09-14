@@ -430,6 +430,27 @@ or the key belongs to another record. Read the record again and retry.
 A rule from the Shared Memory section of a brief wins over a native record on
 conflict. The memory tools never write to that repository.
 
+## Captain Writes
+
+`armada_create_captain` accepts `name` (required), `runtime`, `model`, `apiKey`,
+`apiBaseUrl`, `systemInstructions`, `allowedPersonas`, `preferredPersona`,
+`reasoningEffort`, `defaultPlaybooks` and the `mux*` options. A new captain starts
+`Idle`, unassigned and not quarantined.
+
+`armada_update_captain` accepts `captainId` (required) and the same fields. A field
+left out keeps its stored value; an empty string clears a string field.
+
+Both tools apply the same rule as the REST and WebSocket captain writes. Captain
+state, assignment, process, recovery, heartbeat, quarantine, identity and
+timestamps are server-owned: `id`, `tenantId`, `userId`, `state`,
+`currentMissionId`, `currentDockId`, `processId`, `recoveryAttempts`,
+`lastHeartbeatUtc`, `lastProcessAliveUtc`, `quarantineUntilUtc`,
+`quarantineReason`, `createdUtc` and `lastUpdateUtc`. A call that sends one with a
+value other than its default (create) or its stored value (update) returns a tool
+error that starts with `captain_server_owned_field:` and names every refused field.
+Nothing is written. Change captain state with `armada_stop_captain`,
+`armada_bench_captain` and `armada_unbench_captain`.
+
 ## Client Names
 
 MCP clients can add a transport prefix to tool names in their own UI or prompt

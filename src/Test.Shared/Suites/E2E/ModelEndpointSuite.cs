@@ -210,8 +210,10 @@ namespace Test.Shared.Suites.E2E
                         })).ConfigureAwait(false))
                             AssertEqual(HttpStatusCode.OK, enableResponse.StatusCode);
 
-                        using (HttpResponseMessage cloudCaptainResponse = await ownerClient.PostAsync("/api/v1/captains", JsonHelper.ToJsonContent(new Captain("Disabled cloud API captain", Armada.Core.Enums.AgentRuntimeEnum.ApiEndpoint)
+                        using (HttpResponseMessage cloudCaptainResponse = await ownerClient.PostAsync("/api/v1/captains", JsonHelper.ToJsonContent(new
                         {
+                            Name = "Disabled cloud API captain",
+                            Runtime = "ApiEndpoint",
                             Model = "scoped-model",
                             ModelEndpointId = endpointId
                         })).ConfigureAwait(false))
@@ -233,8 +235,10 @@ namespace Test.Shared.Suites.E2E
                         })).ConfigureAwait(false))
                             AssertEqual(HttpStatusCode.OK, localResponse.StatusCode);
 
-                        using (HttpResponseMessage validCaptainResponse = await ownerClient.PostAsync("/api/v1/captains", JsonHelper.ToJsonContent(new Captain("Scoped API captain", Armada.Core.Enums.AgentRuntimeEnum.ApiEndpoint)
+                        using (HttpResponseMessage validCaptainResponse = await ownerClient.PostAsync("/api/v1/captains", JsonHelper.ToJsonContent(new
                         {
+                            Name = "Scoped API captain",
+                            Runtime = "ApiEndpoint",
                             Model = "scoped-model",
                             ModelEndpointId = endpointId
                         })).ConfigureAwait(false))
@@ -246,22 +250,28 @@ namespace Test.Shared.Suites.E2E
                             AssertEqual("Scoped API captain", captain.Name, "Valid captain response must round-trip its name.");
                         }
 
-                        using (HttpResponseMessage crossTenantCreate = await otherClient.PostAsync("/api/v1/captains", JsonHelper.ToJsonContent(new Captain("Cross tenant API captain", Armada.Core.Enums.AgentRuntimeEnum.ApiEndpoint)
+                        using (HttpResponseMessage crossTenantCreate = await otherClient.PostAsync("/api/v1/captains", JsonHelper.ToJsonContent(new
                         {
+                            Name = "Cross tenant API captain",
+                            Runtime = "ApiEndpoint",
                             Model = "scoped-model",
                             ModelEndpointId = endpointId
                         })).ConfigureAwait(false))
                             AssertEqual(HttpStatusCode.BadRequest, crossTenantCreate.StatusCode, "Cross-tenant endpoint admission must be rejected.");
 
-                        using (HttpResponseMessage privateOwnerCreate = await sameTenantOtherClient.PostAsync("/api/v1/captains", JsonHelper.ToJsonContent(new Captain("Private owner mismatch", Armada.Core.Enums.AgentRuntimeEnum.ApiEndpoint)
+                        using (HttpResponseMessage privateOwnerCreate = await sameTenantOtherClient.PostAsync("/api/v1/captains", JsonHelper.ToJsonContent(new
                         {
+                            Name = "Private owner mismatch",
+                            Runtime = "ApiEndpoint",
                             Model = "scoped-model",
                             ModelEndpointId = endpointId
                         })).ConfigureAwait(false))
                             AssertEqual(HttpStatusCode.BadRequest, privateOwnerCreate.StatusCode, "Private endpoint admission by another user must be rejected.");
 
-                        using (HttpResponseMessage crossTenantUpdate = await ownerClient.PutAsync("/api/v1/captains/" + captainId, JsonHelper.ToJsonContent(new Captain("Scoped API captain changed", Armada.Core.Enums.AgentRuntimeEnum.ApiEndpoint)
+                        using (HttpResponseMessage crossTenantUpdate = await ownerClient.PutAsync("/api/v1/captains/" + captainId, JsonHelper.ToJsonContent(new
                         {
+                            Name = "Scoped API captain changed",
+                            Runtime = "ApiEndpoint",
                             Model = "other-model",
                             ModelEndpointId = otherEndpointId
                         })).ConfigureAwait(false))

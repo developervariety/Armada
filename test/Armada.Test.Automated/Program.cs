@@ -132,7 +132,7 @@ namespace Armada.Test.Automated
                 runner.AddSuite(new EnvironmentTests(authClient, unauthClient));
                 runner.AddSuite(new GitHubIntegrationTests(authClient, unauthClient, baseUrl));
                 runner.AddSuite(new IncidentTests(authClient, unauthClient, baseUrl));
-                runner.AddSuite(new ObjectiveTests(authClient, unauthClient));
+                runner.AddSuite(new ObjectiveTests(authClient, unauthClient, server));
                 runner.AddSuite(new ReleaseTests(authClient, unauthClient));
                 runner.AddSuite(new RequestHistoryTests(authClient, unauthClient, baseUrl));
                 runner.AddSuite(new WorkflowProfileCheckRunTests(authClient, unauthClient));

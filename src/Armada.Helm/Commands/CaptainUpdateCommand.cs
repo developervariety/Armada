@@ -59,9 +59,6 @@ namespace Armada.Helm.Commands
 
             object body = new
             {
-                Id = current.Id,
-                TenantId = current.TenantId,
-                UserId = current.UserId,
                 Name = String.IsNullOrWhiteSpace(settings.Name) ? current.Name : settings.Name.Trim(),
                 Runtime = runtimeValue,
                 Model = settings.Model != null ? (String.IsNullOrWhiteSpace(settings.Model) ? null : settings.Model.Trim()) : current.Model,

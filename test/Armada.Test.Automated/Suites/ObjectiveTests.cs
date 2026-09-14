@@ -8,6 +8,7 @@ namespace Armada.Test.Automated.Suites
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Server;
     using Armada.Test.Common;
 
     /// <summary>
@@ -17,6 +18,7 @@ namespace Armada.Test.Automated.Suites
     {
         private readonly HttpClient _AuthClient;
         private readonly HttpClient _UnauthClient;
+        private readonly ArmadaServer _Server;
 
         /// <inheritdoc />
         public override string Name => "Objectives";
@@ -24,10 +26,11 @@ namespace Armada.Test.Automated.Suites
         /// <summary>
         /// Instantiate the suite.
         /// </summary>
-        public ObjectiveTests(HttpClient authClient, HttpClient unauthClient)
+        public ObjectiveTests(HttpClient authClient, HttpClient unauthClient, ArmadaServer server)
         {
             _AuthClient = authClient ?? throw new ArgumentNullException(nameof(authClient));
             _UnauthClient = unauthClient ?? throw new ArgumentNullException(nameof(unauthClient));
+            _Server = server ?? throw new ArgumentNullException(nameof(server));
         }
 
         /// <inheritdoc />
@@ -335,14 +338,10 @@ namespace Armada.Test.Automated.Suites
                     Objective createdObjective = await JsonHelper.DeserializeAsync<Objective>(createObjectiveResponse).ConfigureAwait(false);
                     objectiveId = createdObjective.Id;
 
-                    HttpResponseMessage fixtureCaptainResponse = await _AuthClient.PostAsync("/api/v1/captains",
-                        JsonHelper.ToJsonContent(new
-                        {
-                            Name = "Linkage fixture captain", Runtime = "Custom", Model = String.Empty,
-                            State = "Working", AllowedPersonas = "[\"Worker\"]"
-                        })).ConfigureAwait(false);
-                    await AssertStatusCodeAsync(HttpStatusCode.Created, fixtureCaptainResponse).ConfigureAwait(false);
-                    Captain fixtureCaptain = await JsonHelper.DeserializeAsync<Captain>(fixtureCaptainResponse).ConfigureAwait(false);
+                    // A busy Worker gives the dispatch preview its required coverage without taking
+                    // the voyage's mission. A quarantined captain is not coverage.
+                    Captain fixtureCaptain = await ServerCaptainFixtures.CreateWorkingCaptainAsync(
+                        _Server, null, "Linkage fixture captain", AgentRuntimeEnum.Custom, null, null, "[\"Worker\"]").ConfigureAwait(false);
                     captainId = fixtureCaptain.Id;
 
                     HttpResponseMessage createVoyageResponse = await _AuthClient.PostAsync("/api/v1/voyages",

@@ -210,17 +210,7 @@ namespace Armada.Test.Automated.Suites
                 string missionId = "msn_manual_active_" + suffix;
                 int processId = Process.GetCurrentProcess().Id;
 
-                HttpResponseMessage captainResponse = await _AuthClient.PostAsync("/api/v1/captains",
-                    JsonHelper.ToJsonContent(new
-                    {
-                        Id = captainId,
-                        Name = "manual active captain " + suffix,
-                        Runtime = "ClaudeCode",
-                        State = "Working",
-                        CurrentMissionId = missionId,
-                        ProcessId = processId
-                    })).ConfigureAwait(false);
-                AssertStatusCode(HttpStatusCode.Created, captainResponse);
+                await CreateWorkingCaptainFixtureAsync(captainId, "manual active captain " + suffix, AgentRuntimeEnum.ClaudeCode, missionId, processId).ConfigureAwait(false);
 
                 HttpResponseMessage missionResponse = await _AuthClient.PostAsync("/api/v1/missions",
                     JsonHelper.ToJsonContent(new
@@ -257,17 +247,7 @@ namespace Armada.Test.Automated.Suites
                 string missionId = "msn_manual_unknown_" + suffix;
                 int processId = Process.GetCurrentProcess().Id;
 
-                HttpResponseMessage captainResponse = await _AuthClient.PostAsync("/api/v1/captains",
-                    JsonHelper.ToJsonContent(new
-                    {
-                        Id = captainId,
-                        Name = "manual unverifiable captain " + suffix,
-                        Runtime = "Custom",
-                        State = "Working",
-                        CurrentMissionId = missionId,
-                        ProcessId = processId
-                    })).ConfigureAwait(false);
-                AssertStatusCode(HttpStatusCode.Created, captainResponse);
+                await CreateWorkingCaptainFixtureAsync(captainId, "manual unverifiable captain " + suffix, AgentRuntimeEnum.Custom, missionId, processId).ConfigureAwait(false);
                 HttpResponseMessage missionResponse = await _AuthClient.PostAsync("/api/v1/missions",
                     JsonHelper.ToJsonContent(new
                     {
@@ -319,16 +299,7 @@ namespace Armada.Test.Automated.Suites
                 Voyage voyage = await JsonHelper.DeserializeAsync<Voyage>(voyageResponse).ConfigureAwait(false);
                 voyageId = voyage.Id!;
 
-                HttpResponseMessage captainResponse = await _AuthClient.PostAsync("/api/v1/captains",
-                    JsonHelper.ToJsonContent(new
-                    {
-                        Id = captainId,
-                        Name = "manual handoff captain " + suffix,
-                        Runtime = "ClaudeCode",
-                        State = "Working",
-                        CurrentMissionId = workerId
-                    })).ConfigureAwait(false);
-                AssertStatusCode(HttpStatusCode.Created, captainResponse);
+                await CreateWorkingCaptainFixtureAsync(captainId, "manual handoff captain " + suffix, AgentRuntimeEnum.ClaudeCode, workerId, null).ConfigureAwait(false);
 
                 HttpResponseMessage workerResponse = await _AuthClient.PostAsync("/api/v1/missions",
                     JsonHelper.ToJsonContent(new
@@ -836,6 +807,11 @@ namespace Armada.Test.Automated.Suites
                 JsonElement frame = doc.RootElement.Clone();
                 if (accept(frame)) return frame;
             }
+        }
+
+        private async Task CreateWorkingCaptainFixtureAsync(string captainId, string name, AgentRuntimeEnum runtime, string missionId, int? processId)
+        {
+            await ServerCaptainFixtures.CreateWorkingCaptainAsync(_Server, captainId, name, runtime, missionId, processId, null).ConfigureAwait(false);
         }
 
         private DatabaseDriver ReadServerDatabase()

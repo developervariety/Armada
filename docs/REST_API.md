@@ -1965,14 +1965,35 @@ Register a new captain (AI agent).
 
 **Request Body:** [Captain](#captain)
 
+The request accepts configuration fields only:
+
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `Name` | string | yes | Captain name |
 | `Runtime` | string | no | Agent runtime type (default: `ClaudeCode`) |
 | `Model` | string | no | Optional model override for this captain. When omitted, the runtime selects its default model |
+| `ModelEndpointId` | string | no | Inference model endpoint for an `ApiEndpoint` captain |
+| `ApiKey` | string | no | Per-captain provider credential override |
+| `ApiBaseUrl` | string | no | Per-captain provider base URL override |
+| `SystemInstructions` | string | no | Instructions injected into every mission prompt |
+| `AllowedPersonas` | string | no | JSON array of persona names the captain may fill; null means any |
+| `PreferredPersona` | string | no | Preferred persona for dispatch routing |
+| `RuntimeOptionsJson` | string | no | Runtime-specific options (Mux settings, reasoning effort) |
+| `Tier` | string | no | Capability tier override |
+| `DefaultPlaybooks` | string | no | JSON list of playbooks merged into every mission this captain runs |
+
+All other captain fields are server-owned: `Id`, `TenantId`, `UserId`, `State`,
+`CurrentMissionId`, `CurrentDockId`, `ProcessId`, `RecoveryAttempts`,
+`LastHeartbeatUtc`, `LastProcessAliveUtc`, `QuarantineUntilUtc`,
+`QuarantineReason`, `CreatedUtc` and `LastUpdateUtc`. A new captain always starts
+`Idle`, unassigned and not quarantined, with the tenant and user of the caller. A
+request that sends a server-owned field with a value other than its default is
+refused with `400` and nothing is stored. The message starts with
+`captain_server_owned_field:` and names every refused field. Change captain state
+with `POST /api/v1/captains/{id}/stop`, `/quarantine` and `/unquarantine`.
 
 **Response:** `201 Created` - [Captain](#captain)
-**Error:** `400 Bad Request` - Invalid or unavailable model
+**Error:** `400 Bad Request` - Invalid or unavailable model, or a server-owned field (`captain_server_owned_field`)
 
 ```bash
 curl -X POST http://localhost:7890/api/v1/captains \
@@ -1998,7 +2019,14 @@ Get a single captain by ID.
 
 #### PUT /api/v1/captains/{id}
 
-Update a captain's name, runtime, or model. Operational fields (state, process, mission) are preserved.
+Replace a captain's configuration fields: the same fields that
+[POST /api/v1/captains](#post-apiv1captains) accepts. A configuration field left out
+of the body is cleared, except `RuntimeOptionsJson` on a Mux captain, which is kept.
+Server-owned fields always keep their stored values, so an update never changes
+state, assignment, process, heartbeat or quarantine. A body may repeat a stored
+server-owned value (for example `Id`). A body that sends a server-owned field with
+a different value returns `400` with `captain_server_owned_field:` naming the field,
+and nothing is written.
 
 **Path Parameters:**
 | Parameter | Description |

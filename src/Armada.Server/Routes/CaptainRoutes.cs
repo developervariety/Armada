@@ -192,8 +192,16 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
-                Captain captain = JsonSerializer.Deserialize<Captain>(req.Http.Request.DataAsString, _jsonOptions)
+                Captain input = JsonSerializer.Deserialize<Captain>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Captain.");
+                string? createOwnedFieldError = CaptainInputMapping.FindServerOwnedFieldViolation(
+                    JsonSerializer.Deserialize<CaptainServerOwnedFields>(req.Http.Request.DataAsString, _jsonOptions), null);
+                if (createOwnedFieldError != null)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = createOwnedFieldError };
+                }
+                Captain captain = CaptainInputMapping.ForCreate(input);
                 captain.TenantId = ctx.TenantId;
                 captain.UserId = ctx.UserId;
                 NormalizeCaptainRuntimeOptions(captain);
@@ -217,9 +225,10 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Captains")
                 .WithSummary("Create a captain")
-                .WithDescription("Registers a new captain (AI agent).")
+                .WithDescription("Registers a new captain (AI agent). Accepts configuration fields only (Name, Runtime, Model, ModelEndpointId, ApiKey, ApiBaseUrl, SystemInstructions, AllowedPersonas, PreferredPersona, RuntimeOptionsJson, Tier, DefaultPlaybooks). A server-owned field (Id, TenantId, UserId, State, CurrentMissionId, CurrentDockId, ProcessId, RecoveryAttempts, LastHeartbeatUtc, LastProcessAliveUtc, QuarantineUntilUtc, QuarantineReason, CreatedUtc, LastUpdateUtc) sent with a non-default value returns 400 captain_server_owned_field naming the field.")
                 .WithRequestBody(OpenApiJson.BodyFor<Captain>("Captain data", true))
                 .WithResponse(201, OpenApiJson.For<Captain>("Created captain"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithSecurity("ApiKey"));
 
             app.Get("/api/v1/captains/{id}", async (ApiRequest req) =>
@@ -295,21 +304,16 @@ namespace Armada.Server.Routes
                         ? await _database.Captains.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
                         : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (existing == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" }; }
-                Captain updated = JsonSerializer.Deserialize<Captain>(req.Http.Request.DataAsString, _jsonOptions)
+                Captain input = JsonSerializer.Deserialize<Captain>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Captain.");
-                updated.Id = id;
-                updated.TenantId = existing.TenantId;
-                updated.UserId = existing.UserId;
-                updated.State = existing.State;
-                updated.CurrentMissionId = existing.CurrentMissionId;
-                updated.CurrentDockId = existing.CurrentDockId;
-                updated.ProcessId = existing.ProcessId;
-                updated.RecoveryAttempts = existing.RecoveryAttempts;
-                updated.LastHeartbeatUtc = existing.LastHeartbeatUtc;
-                updated.QuarantineUntilUtc = existing.QuarantineUntilUtc;
-                updated.QuarantineReason = existing.QuarantineReason;
-                updated.CreatedUtc = existing.CreatedUtc;
-                updated.LastUpdateUtc = DateTime.UtcNow;
+                string? updateOwnedFieldError = CaptainInputMapping.FindServerOwnedFieldViolation(
+                    JsonSerializer.Deserialize<CaptainServerOwnedFields>(req.Http.Request.DataAsString, _jsonOptions), existing);
+                if (updateOwnedFieldError != null)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = updateOwnedFieldError };
+                }
+                Captain updated = CaptainInputMapping.ForUpdate(existing, input);
                 NormalizeCaptainRuntimeOptions(updated, existing);
                 bool modelOrRuntimeChanged =
                     !String.Equals(updated.Model, existing.Model, StringComparison.OrdinalIgnoreCase) ||
@@ -339,10 +343,11 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Captains")
                 .WithSummary("Update a captain")
-                .WithDescription("Updates a captain's name, runtime, or max parallelism. Operational fields (state, process, mission) are preserved.")
+                .WithDescription("Replaces a captain's configuration fields (Name, Runtime, Model, ModelEndpointId, ApiKey, ApiBaseUrl, SystemInstructions, AllowedPersonas, PreferredPersona, RuntimeOptionsJson, Tier, DefaultPlaybooks). Server-owned fields keep their stored values; sending one with a different value returns 400 captain_server_owned_field naming the field.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Captain ID (cpt_ prefix)"))
                 .WithRequestBody(OpenApiJson.BodyFor<Captain>("Updated captain data", true))
                 .WithResponse(200, OpenApiJson.For<Captain>("Updated captain"))
+                .WithResponse(400, OpenApiResponseMetadata.BadRequest())
                 .WithResponse(404, OpenApiResponseMetadata.NotFound())
                 .WithSecurity("ApiKey"));
 

@@ -365,6 +365,118 @@ namespace Armada.Test.Automated.Suites
 
             #endregion
 
+            #region Server-Owned-Fields
+
+            await RunTest("Create Captain With Working State Returns 400 Naming The Field", async () =>
+            {
+                string captainName = "owned-state-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                HttpResponseMessage response = await _Client.PostAsync("/api/v1/captains",
+                    JsonHelper.ToJsonContent(new { Name = captainName, Runtime = "ClaudeCode", State = "Working", CurrentMissionId = "msn_caller_supplied" }));
+                string body = await response.Content.ReadAsStringAsync();
+
+                AssertEqual(HttpStatusCode.BadRequest, response.StatusCode, body);
+                AssertContains("State", body);
+                AssertContains("CurrentMissionId", body);
+                AssertFalse(await CaptainNameExistsAsync(captainName), "A refused create must not persist a captain");
+            });
+
+            await RunTest("Create Captain With Quarantine Fields Returns 400 Naming The Fields", async () =>
+            {
+                string captainName = "owned-quarantine-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                HttpResponseMessage response = await _Client.PostAsync("/api/v1/captains",
+                    JsonHelper.ToJsonContent(new { Name = captainName, QuarantineReason = "caller supplied", QuarantineUntilUtc = "2099-01-01T00:00:00Z" }));
+                string body = await response.Content.ReadAsStringAsync();
+
+                AssertEqual(HttpStatusCode.BadRequest, response.StatusCode, body);
+                AssertContains("QuarantineReason", body);
+                AssertContains("QuarantineUntilUtc", body);
+                AssertFalse(await CaptainNameExistsAsync(captainName), "A refused create must not persist a captain");
+            });
+
+            await RunTest("Update Captain With Working State Returns 400 And Leaves Captain Idle", async () =>
+            {
+                Captain created = await CreateCaptainAsync("owned-update-state");
+
+                HttpResponseMessage response = await _Client.PutAsync("/api/v1/captains/" + created.Id,
+                    JsonHelper.ToJsonContent(new { Name = created.Name + "-renamed", Runtime = "ClaudeCode", State = "Working" }));
+                string body = await response.Content.ReadAsStringAsync();
+
+                AssertEqual(HttpStatusCode.BadRequest, response.StatusCode, body);
+                AssertContains("State", body);
+                Captain fetched = await JsonHelper.DeserializeAsync<Captain>(await _Client.GetAsync("/api/v1/captains/" + created.Id));
+                AssertEqual(created.Name, fetched.Name, "A refused update writes nothing");
+                AssertEqual("Idle", fetched.State.ToString());
+            });
+
+            await RunTest("Update Captain With Process Liveness Returns 400", async () =>
+            {
+                Captain created = await CreateCaptainAsync("owned-update-liveness");
+
+                HttpResponseMessage response = await _Client.PutAsync("/api/v1/captains/" + created.Id,
+                    JsonHelper.ToJsonContent(new { Name = created.Name, Runtime = "ClaudeCode", LastProcessAliveUtc = "2099-01-01T00:00:00Z" }));
+                string body = await response.Content.ReadAsStringAsync();
+
+                AssertEqual(HttpStatusCode.BadRequest, response.StatusCode, body);
+                AssertContains("LastProcessAliveUtc", body);
+                Captain fetched = await JsonHelper.DeserializeAsync<Captain>(await _Client.GetAsync("/api/v1/captains/" + created.Id));
+                AssertNull(fetched.LastProcessAliveUtc, "LastProcessAliveUtc");
+            });
+
+            await RunTest("Update Captain Round Trip With Unchanged Identity Is Accepted", async () =>
+            {
+                Captain created = await CreateCaptainAsync("owned-round-trip");
+
+                HttpResponseMessage response = await _Client.PutAsync("/api/v1/captains/" + created.Id,
+                    JsonHelper.ToJsonContent(new { Id = created.Id, TenantId = created.TenantId, UserId = created.UserId, Name = created.Name + "-renamed", Runtime = "ClaudeCode" }));
+                string body = await response.Content.ReadAsStringAsync();
+
+                AssertEqual(HttpStatusCode.OK, response.StatusCode, body);
+            });
+
+            await RunTest("Sdk Create And Update With Whole Captain Objects Send Configuration Only", async () =>
+            {
+                Armada.Core.Client.ArmadaApiClient sdk = new Armada.Core.Client.ArmadaApiClient(_Client, _Client.BaseAddress!.ToString());
+                string captainName = "sdk-whole-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                Captain whole = new Captain(captainName, Armada.Core.Enums.AgentRuntimeEnum.ClaudeCode);
+
+                Captain? created = await sdk.CreateCaptainAsync(whole);
+                AssertNotNull(created, "SDK create returns the captain");
+                _CreatedCaptainIds.Add(created!.Id);
+                AssertEqual(captainName, created.Name);
+                AssertEqual("Idle", created.State.ToString());
+
+                Captain fetched = (await sdk.GetCaptainAsync(created.Id))!;
+                fetched.Name = captainName + "-renamed";
+                Captain? updated = await sdk.UpdateCaptainAsync(created.Id, fetched);
+                AssertNotNull(updated, "SDK update of a captain read back from the server is accepted");
+                AssertEqual(captainName + "-renamed", updated!.Name);
+                AssertEqual(created.Id, updated.Id);
+            });
+
+            await RunTest("Quarantine Then Config Update Then Unquarantine Keeps Operator Control Of State", async () =>
+            {
+                Captain created = await CreateCaptainAsync("owned-quarantine-flow");
+
+                HttpResponseMessage quarantine = await _Client.PostAsync("/api/v1/captains/" + created.Id + "/quarantine",
+                    JsonHelper.ToJsonContent(new { Reason = "operator hold", DurationMinutes = 30 }));
+                AssertEqual(HttpStatusCode.OK, quarantine.StatusCode, await quarantine.Content.ReadAsStringAsync());
+
+                HttpResponseMessage update = await _Client.PutAsync("/api/v1/captains/" + created.Id,
+                    JsonHelper.ToJsonContent(new { Name = created.Name + "-renamed", Runtime = "ClaudeCode" }));
+                AssertEqual(HttpStatusCode.OK, update.StatusCode, await update.Content.ReadAsStringAsync());
+                Captain held = await JsonHelper.DeserializeAsync<Captain>(update);
+                AssertEqual("Quarantined", held.State.ToString());
+                AssertEqual("operator hold", held.QuarantineReason);
+                AssertNotNull(held.QuarantineUntilUtc, "QuarantineUntilUtc");
+
+                HttpResponseMessage release = await _Client.PostAsync("/api/v1/captains/" + created.Id + "/unquarantine", null);
+                AssertEqual(HttpStatusCode.OK, release.StatusCode, await release.Content.ReadAsStringAsync());
+                Captain fetched = await JsonHelper.DeserializeAsync<Captain>(await _Client.GetAsync("/api/v1/captains/" + created.Id));
+                AssertEqual("Idle", fetched.State.ToString());
+            });
+
+            #endregion
+
             #region Delete
 
             await RunTest("Delete Captain Returns 204", async () =>
@@ -1170,6 +1282,17 @@ namespace Armada.Test.Automated.Suites
         {
             Captain captain = await CreateCaptainAsync(name, runtime);
             return captain.Id;
+        }
+
+        /// <summary>
+        /// Reports whether any stored captain carries the given name.
+        /// </summary>
+        private async Task<bool> CaptainNameExistsAsync(string name)
+        {
+            HttpResponseMessage resp = await _Client.GetAsync("/api/v1/captains?pageSize=1000");
+            resp.EnsureSuccessStatusCode();
+            EnumerationResult<Captain> result = await JsonHelper.DeserializeAsync<EnumerationResult<Captain>>(resp);
+            return result.Objects.Any(captain => String.Equals(captain.Name, name, StringComparison.Ordinal));
         }
 
         #endregion

@@ -1904,7 +1904,15 @@ Get a captain by ID.
 
 #### create_captain
 
-Create a new captain.
+Create a new captain. `data` accepts configuration fields only: `Name`, `Runtime`,
+`Model`, `ModelEndpointId`, `ApiKey`, `ApiBaseUrl`, `SystemInstructions`,
+`AllowedPersonas`, `PreferredPersona`, `RuntimeOptionsJson`, `Tier` and
+`DefaultPlaybooks`. The captain starts `Idle`, unassigned and not quarantined. A
+server-owned field (`Id`, `TenantId`, `UserId`, `State`, `CurrentMissionId`,
+`CurrentDockId`, `ProcessId`, `RecoveryAttempts`, `LastHeartbeatUtc`,
+`LastProcessAliveUtc`, `QuarantineUntilUtc`, `QuarantineReason`, `CreatedUtc`,
+`LastUpdateUtc`) with a non-default value returns `command.error` starting with
+`captain_server_owned_field:` and naming the field.
 
 **Request:**
 
@@ -1928,7 +1936,11 @@ Create a new captain.
 
 #### update_captain
 
-Update an existing captain. Operational fields (state, current mission, heartbeat) are preserved and cannot be overwritten.
+Replace an existing captain's configuration fields (the same fields `create_captain`
+accepts). Server-owned fields always keep their stored values, including the
+quarantine, tenant and process liveness. A `data` field that sets a server-owned
+field to a different value returns `command.error` starting with
+`captain_server_owned_field:` and naming the field; nothing is written.
 
 **Request:**
 

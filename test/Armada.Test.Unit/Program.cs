@@ -242,6 +242,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ProtectedPathsTests());
             runner.AddSuite(new VesselAutoLandPredicateRoutesTests());
             runner.AddSuite(new CaptainUpdateValidationTests());
+            runner.AddSuite(new CaptainServerOwnedFieldTests());
             runner.AddSuite(new VesselDefaultPlaybooksTests());
             runner.AddSuite(new VesselModelContextBoundaryTests());
             runner.AddSuite(new VesselSiblingReposRoutesTests());
