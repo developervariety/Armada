@@ -643,8 +643,19 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("ArmadaEnumerate_Missions_WithStatusFilter", async () =>
             {
-                await RestCreateMissionAsync("EnumMission1").ConfigureAwait(false);
-                await RestCreateMissionAsync("EnumMission2").ConfigureAwait(false);
+                // An assignable mission leaves Pending as soon as an idle captain claims it, and earlier
+                // cases leave idle captains behind. A mission whose dependency is cancelled is never
+                // assigned, so these two stay Pending whatever captains exist when they are created.
+                string fleetId = await RestCreateFleetAsync("EnumMissionFleet").ConfigureAwait(false);
+                string vesselId = await RestCreateVesselAsync(fleetId, "EnumMissionVessel").ConfigureAwait(false);
+                string blockerId = await RestCreateMissionAsync("EnumMissionBlocker", vesselId).ConfigureAwait(false);
+                JsonElement cancelled = await CallToolAsync("armada_cancel_mission", new { missionId = blockerId }).ConfigureAwait(false);
+                AssertToolResultValid(cancelled);
+                foreach (string title in new[] { "EnumMission1", "EnumMission2" })
+                {
+                    MissionCreateResponse created = await RestCreateMissionResponseAsync(title, vesselId, blockerId).ConfigureAwait(false);
+                    AssertNotNull(created.Mission, title + " must be reported Pending: it waits for a cancelled dependency");
+                }
                 JsonElement result = await CallToolAsync("armada_enumerate", new
                 {
                     entityType = "missions",
@@ -2089,6 +2100,23 @@ namespace Armada.Test.Automated.Suites
 
             Mission mission = JsonHelper.Deserialize<Mission>(text);
             return mission.Id;
+        }
+
+        /// <summary>
+        /// Create a mission that depends on another and return the raw create response. The response
+        /// carries a <c>Mission</c> wrapper only when the mission stayed Pending.
+        /// </summary>
+        private async Task<MissionCreateResponse> RestCreateMissionResponseAsync(string title, string vesselId, string dependsOnMissionId)
+        {
+            JsonElement result = await CallToolAsync("armada_create_mission", new
+            {
+                title = title,
+                description = "Test mission for MCP",
+                vesselId = vesselId,
+                dependsOnMissionId = dependsOnMissionId
+            }).ConfigureAwait(false);
+            AssertToolResultValid(result);
+            return JsonHelper.Deserialize<MissionCreateResponse>(GetToolResultText(result));
         }
 
         private async Task<string> RestCreateVoyageAsync(string vesselId)

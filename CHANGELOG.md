@@ -549,6 +549,11 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   from there, and every mission service the shared Touchstone service suites
   build now injects it. Those suites used the host memory probe and, under a
   memory cap, deferred assignments that their assertions expect to launch.
+- The MCP enumerate status-filter test created two assignable missions and
+  expected them to be Pending. When the suite ran alone, idle captains left by
+  earlier cases claimed them and the filter found fewer than two. The missions
+  now depend on a cancelled mission, which is never assigned, so they stay
+  Pending whatever captains exist. Each create response must report Pending.
 
 ### Helm configuration and branch client
 
