@@ -23,12 +23,22 @@ namespace Armada.Server
         private readonly ArmadaSettings? _Settings;
         private readonly HttpClient _HttpClient;
         private readonly JsonSerializerOptions _JsonOptions = JsonDefaults.Insensitive;
+        private readonly string _UserProfileDirectory;
 
-        public CaptainRuntimeToolCatalogService(LoggingModule logging, ArmadaSettings? settings = null, HttpClient? httpClient = null)
+        /// <param name="logging">Logging module.</param>
+        /// <param name="settings">Armada settings used to locate per-launch runtime configuration.</param>
+        /// <param name="httpClient">Optional HTTP client for runtime MCP probes.</param>
+        /// <param name="userProfileDirectory">Directory holding the user-level runtime configuration
+        /// (<c>.claude.json</c>, <c>.gemini</c>, <c>.mux</c>). Defaults to the current user's profile. Every MCP
+        /// server listed there may be started to probe it, so a test supplies its own directory.</param>
+        public CaptainRuntimeToolCatalogService(LoggingModule logging, ArmadaSettings? settings = null, HttpClient? httpClient = null, string? userProfileDirectory = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Settings = settings;
             _HttpClient = httpClient ?? new HttpClient();
+            _UserProfileDirectory = String.IsNullOrWhiteSpace(userProfileDirectory)
+                ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+                : userProfileDirectory;
         }
 
         public async Task<RuntimeToolCatalogSnapshot?> TryDescribeAsync(Captain captain, DatabaseDriver database, CancellationToken token = default, bool plannedAsk = false)
@@ -1410,14 +1420,14 @@ namespace Armada.Server
             return File.Exists(candidate) ? candidate : "codex.cmd";
         }
 
-        private static string GetClaudeConfigPath()
+        private string GetClaudeConfigPath()
         {
-            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude.json");
+            return Path.Combine(_UserProfileDirectory, ".claude.json");
         }
 
-        private static string GetGeminiConfigPath()
+        private string GetGeminiConfigPath()
         {
-            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".gemini", "settings.json");
+            return Path.Combine(_UserProfileDirectory, ".gemini", "settings.json");
         }
 
         private static RuntimeBuiltInInventory? TryLoadClaudeBuiltInInventory()
@@ -1824,7 +1834,7 @@ namespace Armada.Server
             };
         }
 
-        private static string ResolveMuxConfigDirectory(MuxProbeResult probe, MuxCaptainOptions? options)
+        private string ResolveMuxConfigDirectory(MuxProbeResult probe, MuxCaptainOptions? options)
         {
             if (!String.IsNullOrWhiteSpace(probe.ConfigDirectory))
             {
@@ -1836,7 +1846,7 @@ namespace Armada.Server
                 return options.ConfigDirectory!;
             }
 
-            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".mux");
+            return Path.Combine(_UserProfileDirectory, ".mux");
         }
 
         private static string BuildMuxBuiltInTarget(MuxProbeResult probe)

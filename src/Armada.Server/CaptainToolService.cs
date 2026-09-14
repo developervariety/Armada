@@ -21,13 +21,15 @@ namespace Armada.Server
         /// <param name="database">Database driver.</param>
         /// <param name="settings">Armada settings used to locate per-launch runtime configuration.</param>
         /// <param name="httpClient">Optional HTTP client for runtime MCP probes.</param>
-        public CaptainToolService(LoggingModule logging, DatabaseDriver database, ArmadaSettings? settings = null, HttpClient? httpClient = null)
+        /// <param name="userProfileDirectory">Directory holding the user-level runtime configuration. Defaults to
+        /// the current user's profile. The MCP servers configured there may be started to probe them.</param>
+        public CaptainToolService(LoggingModule logging, DatabaseDriver database, ArmadaSettings? settings = null, HttpClient? httpClient = null, string? userProfileDirectory = null)
         {
             if (logging == null) throw new ArgumentNullException(nameof(logging));
             if (database == null) throw new ArgumentNullException(nameof(database));
 
             _database = database;
-            _runtimeCatalog = new CaptainRuntimeToolCatalogService(logging, settings, httpClient);
+            _runtimeCatalog = new CaptainRuntimeToolCatalogService(logging, settings, httpClient, userProfileDirectory);
         }
 
         /// <summary>

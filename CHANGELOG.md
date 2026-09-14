@@ -95,6 +95,15 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   and name each executable and its exit code. A suite that needs a real
   runtime opts in through `ARMADA_TEST_REAL_RUNTIMES` and skips with a named
   reason when the runtime is not opted in or not on `PATH`.
+- `CaptainToolService` accepts the user profile directory it reads runtime
+  configuration from; the default is still the current user's profile. A busy
+  Claude Code or Gemini captain's describe reads `.claude.json` or
+  `.gemini/settings.json` there and starts every MCP server listed, so the
+  captain tool discovery unit tests read the developer's configuration and
+  started its MCP bridges, which hung the unit suite. Those tests now pass an
+  empty temporary profile, and a guard points the process profile at a
+  sentinel configuration and fails when any discovery case lists or starts
+  its server.
 - The unit, automated, runtimes and shared runners, and the end-to-end
   fixture, remove model-provider credentials and agent-session variables
   (`ANTHROPIC_*`, `OPENAI_*`, `CLAUDE_CODE_*` and related names) from their own
