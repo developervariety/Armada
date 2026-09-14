@@ -340,6 +340,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new BuildDriftServiceTests());
             runner.AddSuite(new SelfDeployServiceTests());
             runner.AddSuite(new SelfDeployDatabaseBackupProviderTests());
+            runner.AddSuite(new SelfDeployBuildRunnerTests());
             runner.AddSuite(new SelfDeployNativeIntegrationTests());
             runner.AddSuite(new HarborRunnerSessionRegistryTests());
             runner.AddSuite(new AutonomousObjectiveSchedulerSettingsTests());

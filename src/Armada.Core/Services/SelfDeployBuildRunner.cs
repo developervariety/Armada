@@ -1,6 +1,8 @@
 namespace Armada.Core.Services
 {
-    using System.Diagnostics;
+    using System;
+    using System.Threading;
+    using System.Threading.Tasks;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
@@ -12,15 +14,18 @@ namespace Armada.Core.Services
     public sealed class SelfDeployBuildRunner : ISelfDeployBuildRunner
     {
         private readonly LoggingModule _Logging;
+        private readonly ISelfDeployNativeCommandRunner _CommandRunner;
         private const string _Header = "[SelfDeployBuildRunner] ";
 
         /// <summary>
         /// Instantiate.
         /// </summary>
         /// <param name="logging">Logging module.</param>
-        public SelfDeployBuildRunner(LoggingModule logging)
+        /// <param name="commandRunner">Bounded native command runner.</param>
+        public SelfDeployBuildRunner(LoggingModule logging, ISelfDeployNativeCommandRunner? commandRunner = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _CommandRunner = commandRunner ?? new SelfDeployNativeCommandRunner();
         }
 
         /// <inheritdoc />
@@ -33,69 +38,65 @@ namespace Armada.Core.Services
             if (settings == null) throw new ArgumentNullException(nameof(settings));
 
             string solutionPath = Path.Combine(workingDirectory, settings.SolutionRelativePath);
-            string arguments = "build \"" + solutionPath + "\" -c " + settings.BuildConfiguration
-                + " -f " + settings.TargetFramework;
-
-            _Logging.Info(_Header + "running " + arguments + " in " + workingDirectory);
-
-            ProcessStartInfo startInfo = new ProcessStartInfo
+            string[] arguments = new[]
             {
-                FileName = "dotnet",
-                Arguments = arguments,
-                WorkingDirectory = workingDirectory,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
+                "build",
+                solutionPath,
+                "-c",
+                settings.BuildConfiguration,
+                "-f",
+                settings.TargetFramework
             };
 
-            using (Process process = new Process { StartInfo = startInfo })
+            _Logging.Info(_Header + "running dotnet build for " + solutionPath + " in " + workingDirectory);
+
+            using (CancellationTokenSource timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(token))
             {
-                process.Start();
-
-                Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
-                Task<string> stderrTask = process.StandardError.ReadToEndAsync();
-
-                using (CancellationTokenSource timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(token))
+                timeoutSource.CancelAfter(TimeSpan.FromSeconds(settings.BuildTimeoutSeconds));
+                try
                 {
-                    timeoutSource.CancelAfter(TimeSpan.FromSeconds(settings.BuildTimeoutSeconds));
-                    try
+                    SelfDeployNativeCommandResult result = await _CommandRunner.RunAsync(
+                        new SelfDeployNativeCommandRequest
+                        {
+                            FileName = "dotnet",
+                            Arguments = arguments,
+                            WorkingDirectory = workingDirectory
+                        },
+                        timeoutSource.Token).ConfigureAwait(false);
+
+                    string combined = result.StandardOutput ?? String.Empty;
+                    if (!String.IsNullOrEmpty(result.StandardError))
                     {
-                        await process.WaitForExitAsync(timeoutSource.Token).ConfigureAwait(false);
+                        combined += "\n--- STDERR ---\n" + result.StandardError;
                     }
-                    catch (OperationCanceledException) when (!token.IsCancellationRequested)
+
+                    string outputTail = TruncateOutput(combined);
+                    bool outputWasTruncated = result.StandardOutput.Contains(
+                        SelfDeployNativeCommandRunner.OutputTruncationMarker, StringComparison.Ordinal)
+                        || result.StandardError.Contains(
+                            SelfDeployNativeCommandRunner.OutputTruncationMarker, StringComparison.Ordinal);
+                    if (outputWasTruncated && !outputTail.Contains(
+                        SelfDeployNativeCommandRunner.OutputTruncationMarker, StringComparison.Ordinal))
                     {
-                        try
-                        {
-                            process.Kill(entireProcessTree: true);
-                        }
-                        catch
-                        {
-                        }
-
-                        return new SelfDeployBuildResult
-                        {
-                            Succeeded = false,
-                            ExitCode = -1,
-                            OutputTail = "Build timed out after " + settings.BuildTimeoutSeconds + " seconds."
-                        };
+                        outputTail += "\n" + SelfDeployNativeCommandRunner.OutputTruncationMarker;
                     }
-                }
 
-                string stdout = await stdoutTask.ConfigureAwait(false);
-                string stderr = await stderrTask.ConfigureAwait(false);
-                string combined = stdout;
-                if (!String.IsNullOrEmpty(stderr))
-                {
-                    combined += "\n--- STDERR ---\n" + stderr;
+                    return new SelfDeployBuildResult
+                    {
+                        Succeeded = result.Succeeded,
+                        ExitCode = result.ExitCode,
+                        OutputTail = outputTail
+                    };
                 }
-
-                return new SelfDeployBuildResult
+                catch (OperationCanceledException) when (!token.IsCancellationRequested && timeoutSource.IsCancellationRequested)
                 {
-                    Succeeded = process.ExitCode == 0,
-                    ExitCode = process.ExitCode,
-                    OutputTail = TruncateOutput(combined)
-                };
+                    return new SelfDeployBuildResult
+                    {
+                        Succeeded = false,
+                        ExitCode = -1,
+                        OutputTail = "Build timed out after " + settings.BuildTimeoutSeconds + " seconds."
+                    };
+                }
             }
         }
 

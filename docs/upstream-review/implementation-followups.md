@@ -543,11 +543,14 @@ Keep these entries open until the corrected combined tree has independent proof.
 
 ## FOLLOWUP-018 — Self-rebuild cutover and build process safety
 
-The native backup candidate does not complete the self-rebuild objective. The
-current build runner captures unbounded output before truncating it and does
-not terminate the child when the caller cancels. Its timeout path does not
-prove process exit or drain the output tasks. Use the bounded native process
-runner and add real cancellation and output-limit tests.
+The native backup component does not complete the self-rebuild objective.
+The build runner now uses the bounded native process runner and argument-list
+invocation. Independent stub executable tests passed for success, nonzero exit,
+output flooding, timeout and caller cancellation, including child exit proof.
+The combined local self-deploy run passed 38 tests with no failures; one real
+provider integration entry was explicitly skipped because its isolated scope
+was not configured in that local run. The earlier four-provider native proof
+remains separate evidence. This change does not enable self-rebuild.
 
 The current watchdog waits for a numeric PID, can kill it after a timeout, and
 starts the candidate without checking health or retaining a rollback target.

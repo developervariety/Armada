@@ -22,6 +22,9 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Windows storage fails closed until owner-only ACL verification is available.
   The default preflight stays disabled; supervised cutover and rollback remain
   separate acceptance work.
+- Self-deploy Release builds use the bounded native command runner with an
+  argument list, bounded output capture, configured timeout, and caller
+  cancellation that terminates and observes the child process tree.
 
 
 ### Helm configuration and branch client

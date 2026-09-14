@@ -1066,6 +1066,10 @@ stream and observes every pipe task after a bounded timeout. It closes standard
 input only when the request redirected it. A truncation marker fails candidate
 proof, so a noisy command cannot hide its validation result; an inherited child
 pipe returns the stable `native_command_io_drain_timeout` failure.
+The Release build uses this same runner with an argument list and a configured
+build timeout. Caller cancellation and timeout both terminate the process tree
+and observe the redirected pipes before the build result is returned; a build
+that cannot be terminated or drained fails closed.
 
 The real utility checks are separate and disabled by default; the default guard
 performs no database work. To run them against disposable provider databases, set
