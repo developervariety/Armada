@@ -84,6 +84,10 @@ export default function Dashboard() {
   const [fleets, setFleets] = useState<Fleet[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [error, setError] = useState('');
+  // Fleet status is a global-administrator read. A refusal is a role boundary, not a failure: it is named once
+  // and the route is not requested again for this page, so a narrower session never polls into repeated 403s.
+  const [statusRefused, setStatusRefused] = useState(false);
+  const statusRefusedRef = useRef(false);
   const [loading, setLoading] = useState(true);
   const [jsonViewer, setJsonViewer] = useState<{ open: boolean; title: string; data: unknown }>({
     open: false,
@@ -138,7 +142,15 @@ export default function Dashboard() {
   const fetchAll = useCallback(async () => {
     try {
       const [statusRes, missionRes, vesselRes, captainRes, fleetRes] = await Promise.all([
-        getStatus().catch(() => null),
+        statusRefusedRef.current
+          ? Promise.resolve(null)
+          : getStatus().catch((err: unknown) => {
+              if ((err as { status?: number } | null)?.status === 403) {
+                statusRefusedRef.current = true;
+                setStatusRefused(true);
+              }
+              return null;
+            }),
         listMissionSummaries({ pageSize: RECENT_MISSION_COUNT }).catch(() => null),
         listVessels({ pageSize: 9999 }).catch(() => null),
         listCaptains({ pageSize: 9999 }).catch(() => null),
@@ -369,6 +381,16 @@ export default function Dashboard() {
       </div>
 
       <ErrorModal error={error} onClose={() => setError('')} />
+      {statusRefused && (
+        <div className="dashboard-alerts">
+          <div className="dashboard-alert dashboard-alert-warning" role="status">
+            <div className="dashboard-alert-content">
+              <strong>{t('Fleet status is available to global administrators.')}</strong>
+              <span className="dashboard-alert-action"> {t('Your own fleets, vessels, captains and missions are listed below.')}</span>
+            </div>
+          </div>
+        </div>
+      )}
       <ConfirmDialog
         open={confirm.open}
         title={confirm.title}

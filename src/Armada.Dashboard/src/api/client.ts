@@ -247,7 +247,8 @@ async function request<T>(method: string, path: string, body?: unknown, opts?: R
       } catch {
         // use raw text
       }
-      throw new Error(msg);
+      // The HTTP status travels with the error, so a caller can tell a refusal (403) from a failure.
+      throw Object.assign(new Error(msg), { status: res.status });
     }
 
     if (res.status === 204) return undefined as T;

@@ -170,6 +170,27 @@ describe('Dashboard home', () => {
     expect(screen.queryByText(/waiting for resource pressure/)).not.toBeInTheDocument();
   });
 
+  it('names a refused fleet status once and stops requesting it', async () => {
+    vi.mocked(getStatus).mockRejectedValue(
+      Object.assign(new Error('You do not have permission to perform this action'), { status: 403 }) as never,
+    );
+
+    renderDashboard();
+
+    expect(await screen.findByText('Fleet status is available to global administrators.')).toBeInTheDocument();
+    // The scoped lists still load for the narrower session.
+    expect(await screen.findByText('Recent mission')).toBeInTheDocument();
+    expect(screen.queryByText('Failed to load dashboard data.')).not.toBeInTheDocument();
+    expect(getStatus).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => expect(socketHandlers.length).toBeGreaterThan(0));
+    act(() => {
+      socketHandlers.forEach((handler) => handler({ type: 'mission.changed' }));
+    });
+    await waitFor(() => expect(listMissionSummaries).toHaveBeenCalledTimes(2));
+    expect(getStatus).toHaveBeenCalledTimes(1);
+  });
+
   it('registers no refresh timer when auto-refresh is set to None', async () => {
     localStorage.setItem('armada_autorefresh_dashboard', '0');
     const intervalSpy = vi.spyOn(window, 'setInterval');

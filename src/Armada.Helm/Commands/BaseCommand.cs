@@ -312,7 +312,7 @@ namespace Armada.Helm.Commands
             if (!response.IsSuccessStatusCode)
             {
                 string errorBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                throw new HttpRequestException($"HTTP {(int)response.StatusCode} on GET {path}: {errorBody}");
+                throw new HttpRequestException($"HTTP {(int)response.StatusCode} on GET {path}: {errorBody}", null, response.StatusCode);
             }
             string json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
             return JsonSerializer.Deserialize<T>(json, _JsonOptions);

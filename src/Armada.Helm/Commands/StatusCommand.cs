@@ -16,10 +16,36 @@ namespace Armada.Helm.Commands
     [Description("Show Armada status dashboard")]
     public class StatusCommand : BaseCommand<StatusSettings>
     {
+        /// <summary>
+        /// The message shown when the status route refuses the caller, or null when the failure is not a refusal.
+        /// </summary>
+        /// <param name="statusCode">HTTP status of the failed status request.</param>
+        /// <returns>The named refusal message, or null.</returns>
+        internal static string? DescribeStatusRefusal(System.Net.HttpStatusCode? statusCode)
+        {
+            return statusCode == System.Net.HttpStatusCode.Forbidden
+                ? Armada.Core.Client.ArmadaApiClient.StatusRequiresGlobalAdministratorMessage
+                : null;
+        }
+
         /// <inheritdoc />
         protected override async Task<int> ExecuteAsync(CommandContext context, StatusSettings settings, CancellationToken cancellationToken)
         {
-            ArmadaStatus? status = await GetAsync<ArmadaStatus>("/api/v1/status").ConfigureAwait(false);
+            ArmadaStatus? status;
+            try
+            {
+                status = await GetAsync<ArmadaStatus>("/api/v1/status").ConfigureAwait(false);
+            }
+            catch (System.Net.Http.HttpRequestException ex) when (DescribeStatusRefusal(ex.StatusCode) != null)
+            {
+                // A refusal is a role boundary; name it instead of reporting an unreachable Admiral.
+                string refusal = DescribeStatusRefusal(ex.StatusCode)!;
+                if (IsJsonMode(settings))
+                    WriteJson(new { Error = refusal, StatusCode = 403 });
+                else
+                    AnsiConsole.MarkupLine("[red]" + Markup.Escape(refusal) + "[/]");
+                return 1;
+            }
 
             if (IsJsonMode(settings))
             {

@@ -72,6 +72,23 @@ namespace Test.Shared.Suites.Services
                 }
                 }
             }));
+            cases.Add(CaseAsync("status_refused_names_the_required_role", "ArmadaApiClient Refused Status Names The Required Role", TestTags.Negative, async () =>
+            {
+                RecordingHandler handler = new RecordingHandler(HttpStatusCode.Forbidden, "{\"Message\":\"You do not have permission to perform this action\"}");
+                using (ArmadaApiClient client = CreateClient(handler))
+                {
+                try
+                {
+                    await client.GetStatusAsync();
+                    throw new InvalidOperationException("Expected the client to reject the refused status request.");
+                }
+                catch (HttpRequestException ex)
+                {
+                    AssertEqual(HttpStatusCode.Forbidden, ex.StatusCode);
+                    AssertTrue(ex.Message.Contains("global administrator", StringComparison.Ordinal), "A refused status request must name the role it requires: " + ex.Message);
+                }
+                }
+            }));
             cases.Add(CaseAsync("cancellation_is_forwarded", "ArmadaApiClient Cancellation Is Forwarded", TestTags.Negative, async () =>
             {
                 RecordingHandler handler = new RecordingHandler(new OperationCanceledException());

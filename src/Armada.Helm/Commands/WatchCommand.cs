@@ -38,6 +38,7 @@ namespace Armada.Helm.Commands
             // so startup messages don't bleed into the live view.
             await EnsureServerAsync().ConfigureAwait(false);
             AnsiConsole.Clear();
+            string? refusal = null;
 
             await AnsiConsole.Live(new Text("Loading..."))
                 .AutoClear(true)
@@ -135,6 +136,12 @@ namespace Armada.Helm.Commands
                                 firstPoll = false;
                             }
                         }
+                        catch (HttpRequestException ex) when (StatusCommand.DescribeStatusRefusal(ex.StatusCode) != null)
+                        {
+                            // A refused status request never succeeds on retry, so stop instead of polling.
+                            refusal = StatusCommand.DescribeStatusRefusal(ex.StatusCode);
+                            break;
+                        }
                         catch (HttpRequestException)
                         {
                             ctx.UpdateTarget(new Markup("[red]Connection lost. Retrying...[/]"));
@@ -154,6 +161,13 @@ namespace Armada.Helm.Commands
                         }
                     }
                 }).ConfigureAwait(false);
+
+            if (refusal != null)
+            {
+                // The live view clears itself on exit, so the refusal is printed after it ends.
+                AnsiConsole.MarkupLine("[red]" + Markup.Escape(refusal) + "[/]");
+                return 1;
+            }
 
             return 0;
         }

@@ -729,6 +729,12 @@ receives `401`, and a tenant user or tenant administrator receives `403`. A
 narrower caller reads its own records through the scoped list routes. The
 unauthenticated health check is [`GET /api/v1/status/health`](#get-apiv1statushealth).
 
+Clients report a `403` as a role boundary, not a failure. The dashboard home
+page names it once and stops requesting the route, `armada status` and
+`armada watch` print the refusal and exit 1, and the SDK `GetStatusAsync`
+throws an `HttpRequestException` with status `403` and a message that names the
+required role.
+
 **Response:** `200 OK` - [ArmadaStatus](#armadastatus); `401 Unauthorized`; `403 Forbidden`
 
 ```json

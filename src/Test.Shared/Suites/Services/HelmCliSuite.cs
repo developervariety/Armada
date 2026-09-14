@@ -170,6 +170,15 @@ namespace Test.Shared.Suites.Services
                         "Claude Code, Cursor and Gemini CLI payloads must be checked; checked: " + String.Join(", ", checkedClients));
                     AssertTrue(failures.Count == 0, "MCP client payloads must reach the served endpoint:\n" + String.Join("\n", failures));
                 }),
+                CaseAsync("status_refusal_names_the_required_role", "Helm status and watch name a refused fleet status", TestTags.Negative, () =>
+                {
+                    string? forbidden = StatusCommand.DescribeStatusRefusal(System.Net.HttpStatusCode.Forbidden);
+                    AssertNotNull(forbidden, "A 403 on the status route must produce a named message.");
+                    AssertContains("global administrator", forbidden!, "The message must name the role the route requires.");
+                    AssertNull(StatusCommand.DescribeStatusRefusal(System.Net.HttpStatusCode.InternalServerError), "Other failures keep their own handling.");
+                    AssertNull(StatusCommand.DescribeStatusRefusal(null), "A failure without a status code keeps its own handling.");
+                    return Task.CompletedTask;
+                }),
                 CaseAsync("file_based_mcp_clients_install_and_remove_idempotently", "Claude Code and Cursor MCP entries install and remove idempotently", TestTags.Positive, async () =>
                 {
                     string root = TestTemp.NewDirectory("helm-mcp-clients");

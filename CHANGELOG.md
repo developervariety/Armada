@@ -52,6 +52,14 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   `GET /api/v1/status/health` stays unauthenticated.
 - The request-history suites use `GET /api/v1/whoami` as their captured
   request, because every role may read it.
+- Every client of the status route names the refusal instead of treating it as
+  a failure. The dashboard home page shows "Fleet status is available to
+  global administrators." once, keeps loading the caller's own fleets,
+  vessels, captains and missions, and does not request the status route again
+  on refresh or live events. `armada status` prints the refusal and exits 1,
+  and `armada watch` stops with the same message; it had reported
+  "Connection lost" and retried forever. The SDK `GetStatusAsync` throws an
+  `HttpRequestException` with status 403 and that message.
 
 ### Mission assignment stays inside the mission's tenant
 

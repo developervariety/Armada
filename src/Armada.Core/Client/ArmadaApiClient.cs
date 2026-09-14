@@ -68,8 +68,20 @@ namespace Armada.Core.Client
         /// <summary>Calls the corresponding fork REST API contract.</summary>
         public async Task<ArmadaStatus?> GetStatusAsync(CancellationToken token = default)
         {
-            return await GetAsync<ArmadaStatus>("/api/v1/status", token).ConfigureAwait(false);
+            HttpResponseMessage response = await _Client.GetAsync(_BaseUrl + "/api/v1/status", token).ConfigureAwait(false);
+            if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                throw new HttpRequestException(StatusRequiresGlobalAdministratorMessage, null, System.Net.HttpStatusCode.Forbidden);
+            response.EnsureSuccessStatusCode();
+            string json = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+            return JsonSerializer.Deserialize<ArmadaStatus>(json, _JsonOptions);
         }
+
+        /// <summary>
+        /// Message for a status request the Admiral refused. Fleet status aggregates every tenant, so only a global
+        /// administrator may read it; every client that calls the status route reports a refusal with this text.
+        /// </summary>
+        public const string StatusRequiresGlobalAdministratorMessage =
+            "Fleet status requires a global administrator. This credential belongs to a tenant user or tenant administrator; use a global administrator credential, or read your own records through the scoped list routes.";
 
         /// <summary>
         /// Health check (no authentication required).
