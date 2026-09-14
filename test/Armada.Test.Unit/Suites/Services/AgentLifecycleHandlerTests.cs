@@ -950,6 +950,43 @@ namespace Armada.Test.Unit.Suites.Services
                         "unsupported runtime has a stable fail-closed reason");
                 }
             });
+
+            await RunTest("MissionProcessOwnership_ApiEndpointSyntheticProcessFollowsItsLoop", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    Captain captain = new Captain("manual-api-endpoint", AgentRuntimeEnum.ApiEndpoint)
+                    {
+                        State = CaptainStateEnum.Working
+                    };
+                    Mission mission = new Mission("manual-api-endpoint-process")
+                    {
+                        CaptainId = captain.Id,
+                        Status = MissionStatusEnum.InProgress,
+                        StartedUtc = DateTime.UtcNow
+                    };
+                    captain.CurrentMissionId = mission.Id;
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    int syntheticProcessId = Int32.MaxValue - 17;
+                    RegisterTrackedProcess(handler, syntheticProcessId, captain.Id, mission.Id);
+                    Armada.Core.ProcessSupervisor.RegisterSyntheticProcess(syntheticProcessId);
+                    try
+                    {
+                        AssertTrue(await handler.IsMissionProcessActiveAsync(mission).ConfigureAwait(false),
+                            "A running in-process API loop must count as a live mission process");
+                    }
+                    finally
+                    {
+                        Armada.Core.ProcessSupervisor.UnregisterSyntheticProcess(syntheticProcessId);
+                    }
+
+                    AssertFalse(await handler.IsMissionProcessActiveAsync(mission).ConfigureAwait(false),
+                        "An API loop that has exited must not keep the mission process active");
+                }
+            });
         }
 
         private AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings, TimeSpan? modelValidationTimeout = null, IAdmiralService? admiralOverride = null)

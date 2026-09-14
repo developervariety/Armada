@@ -22,6 +22,8 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   oversized, or iteration-exhausted responses.
 - Resolve tenant-owned endpoints for captain chat and stop routes without creating
   an unconfigured API runtime.
+- Manual completion proves an API captain's ownership from its running in-process
+  loop, and unsupported runtimes still fail closed.
 
 ### Native self-deploy preflight
 

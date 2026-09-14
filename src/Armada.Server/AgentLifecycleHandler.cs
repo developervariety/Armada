@@ -12,6 +12,7 @@ namespace Armada.Server
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Runtimes;
+    using Armada.Runtimes.Interfaces;
     using Armada.Server.WebSocket;
 
     /// <summary>
@@ -245,6 +246,81 @@ namespace Armada.Server
             }
 
             return _HandledProcessExits.ContainsKey(processId);
+        }
+
+        /// <summary>
+        /// Prove whether a mission still owns a live captain process. The persisted mission and
+        /// captain bindings, the registered process mapping, and the runtime liveness probe must
+        /// all agree. The registered mapping is authoritative when a persisted PID is missing or
+        /// stale during launch recovery. A PID by itself is not sufficient because the operating
+        /// system can reuse it.
+        /// </summary>
+        /// <param name="mission">Mission whose process ownership is checked.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True only for a live process still registered for this mission.</returns>
+        public async Task<bool> IsMissionProcessActiveAsync(Mission mission, CancellationToken token = default)
+        {
+            if (mission == null || String.IsNullOrWhiteSpace(mission.CaptainId))
+            {
+                return false;
+            }
+
+            Captain? captain = await _Database.Captains.ReadAsync(mission.CaptainId, token).ConfigureAwait(false);
+            if (captain == null
+                || !String.Equals(captain.CurrentMissionId, mission.Id, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            List<int> processIds = new List<int>();
+            lock (_ProcessToCaptain)
+            {
+                foreach (System.Collections.Generic.KeyValuePair<int, string> mapping in _ProcessToMission)
+                {
+                    if (mapping.Key <= 0 || !String.Equals(mapping.Value, mission.Id, StringComparison.Ordinal)) continue;
+                    if (_ProcessToCaptain.TryGetValue(mapping.Key, out string? mappedCaptainId)
+                        && String.Equals(mappedCaptainId, captain.Id, StringComparison.Ordinal))
+                    {
+                        processIds.Add(mapping.Key);
+                    }
+                }
+            }
+            if (processIds.Count == 0) return false;
+
+            if (captain.Runtime == AgentRuntimeEnum.Custom)
+                throw new InvalidOperationException("manual_completion_process_liveness_unknown");
+
+            // An API-endpoint captain runs in-process under a synthetic identifier. Its liveness is the
+            // registration its loop holds until exit; the runtime cannot be recreated without its endpoint.
+            if (captain.Runtime == AgentRuntimeEnum.ApiEndpoint)
+            {
+                foreach (int processId in processIds)
+                {
+                    if (IsProcessExitHandled(processId)) continue;
+                    if (ProcessSupervisor.IsSyntheticProcessAlive(processId)) return true;
+                }
+                return false;
+            }
+
+            IAgentRuntime runtime;
+            try
+            {
+                runtime = _RuntimeFactory.Create(captain.Runtime);
+                foreach (int processId in processIds)
+                {
+                    if (IsProcessExitHandled(processId)) continue;
+                    if (await runtime.IsRunningAsync(processId, token).ConfigureAwait(false)) return true;
+                }
+                return false;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException("manual_completion_process_liveness_unknown", ex);
+            }
         }
 
         /// <summary>

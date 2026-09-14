@@ -38,6 +38,18 @@ namespace Armada.Core
         }
 
         /// <summary>
+        /// Whether a process identifier is currently owned by a running in-process runtime. This never
+        /// consults the operating system, so an unrelated OS process with the same identifier cannot
+        /// make an exited in-process run look alive.
+        /// </summary>
+        /// <param name="processId">Synthetic process identifier.</param>
+        /// <returns>True while the in-process runtime keeps the identifier registered.</returns>
+        public static bool IsSyntheticProcessAlive(int processId)
+        {
+            return _SyntheticProcesses.ContainsKey(processId);
+        }
+
+        /// <summary>
         /// Determine whether the process with the given identifier is alive AND is plausibly the
         /// originally-launched process rather than a recycled PID. When <paramref name="launchedBeforeUtc"/>
         /// is supplied, a process whose start time is meaningfully later than the launch reference is
