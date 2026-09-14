@@ -102,6 +102,14 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   brief budget backstop. Schema migration adds the column on all four providers.
 - Persona overrides, skills and the authorization policy resolve the project
   profile through one shared lookup.
+- A captain refusal is classified by kind (the structured
+  `[ARMADA:RESULT] REFUSED` marker first, then provider safeguard text, then
+  declining prose) and recorded as a `mission.policy_refusal` event with its
+  reason. When the brief carried an owner policy, the mission gets at most one
+  continuation on an approved captain of a different runtime; assignment then
+  excludes every captain on the refusing runtime with no fall-back. A second
+  refusal, or no approved alternate, fails the mission with the reason instead
+  of retrying the blocked path.
 
 ### Native self-deploy preflight
 

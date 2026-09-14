@@ -413,6 +413,24 @@ destructive operations) that the policy cannot relax. The section is
 never elided by the budget backstop. Never put credentials or license
 material in the policy; it is copied into every brief.
 
+When a captain refuses its mission, completion classifies the refusal before
+any other gate: the structured `[ARMADA:RESULT] REFUSED: <reason>` line the
+section asks for, then provider safeguard text, then declining prose in the
+captain's closing lines (never when it wrote a completion marker). Every
+refusal is recorded as a `mission.policy_refusal` event with its kind, reason
+and decision.
+
+| Condition | Outcome |
+| --- | --- |
+| No owner policy applies to the vessel | Normal completion handling |
+| First refusal, an approved captain exists on another runtime | Requeued once as `mission.policy_refusal_continued`; every captain on the refusing runtime is excluded, with no fall-back |
+| Refused again after the continuation | Mission fails with `policy_refusal:` and the reason |
+| No approved captain on another runtime | Mission fails with `policy_refusal:` and the reason |
+
+The continuation never weakens provider safety policy and never repeats the
+blocked path. A provider safeguard block that ends the captain process is
+still re-routed by the existing safeguard path.
+
 ### A quiet-host gate must enumerate TERMINAL states, not guess at active ones
 
 Before any action that interrupts running work - restarting the Admiral,

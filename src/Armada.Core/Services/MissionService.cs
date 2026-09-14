@@ -1624,9 +1624,62 @@ namespace Armada.Core.Services
             // (provider-side behavior), so the platform has to catch it. A no-op completion
             // that reaches WorkProduced corrupts the downstream pipeline with empty progress
             // and breaks rescue judgment.
+            // A captain that refused its mission is classified before any validation gate, because a
+            // refusal usually also looks like a no-op (short run, no diff) and would otherwise be
+            // recorded as a false complete with its reason lost. When the brief carried an owner policy,
+            // the continuation service records the refusal and either requeues the mission once for an
+            // approved alternate runtime or fails it with the reason.
+            bool failedForPolicyRefusal = false;
+            if (!failedForScopeViolation)
+            {
+                CaptainRefusal refusal = CaptainRefusalClassifier.Classify(mission.AgentOutput);
+                if (refusal.IsRefusal)
+                {
+                    Vessel? refusalVessel = null;
+                    if (!String.IsNullOrEmpty(mission.VesselId))
+                    {
+                        refusalVessel = !String.IsNullOrEmpty(mission.TenantId)
+                            ? await _Database.Vessels.ReadAsync(mission.TenantId, mission.VesselId, token).ConfigureAwait(false)
+                            : await _Database.Vessels.ReadAsync(mission.VesselId, token).ConfigureAwait(false);
+                    }
+                    bool policyPresent = refusalVessel != null
+                        && await ResolveAuthorizationPolicyAsync(refusalVessel, token).ConfigureAwait(false) != null;
+
+                    PolicyRefusalContinuationDecision refusalDecision = await new PolicyRefusalContinuationService(_Database, _Settings, _Logging)
+                        .HandleAsync(mission, captain, refusal, policyPresent, token).ConfigureAwait(false);
+                    await AppendMissionActivityAsync(mission.Id, "captain refusal (" + refusal.Kind + "): " + refusalDecision.Outcome +
+                        " -- " + refusalDecision.Reason, token).ConfigureAwait(false);
+
+                    if (refusalDecision.Outcome == PolicyRefusalContinuationOutcomeEnum.Continue)
+                    {
+                        if (dock != null)
+                        {
+                            try
+                            {
+                                await _Docks.ReclaimAsync(dock.Id, token: token).ConfigureAwait(false);
+                            }
+                            catch (Exception reclaimEx)
+                            {
+                                _Logging.Warn(_Header + "error reclaiming dock " + dock.Id +
+                                    " for refusal continuation of mission " + mission.Id + ": " + reclaimEx.Message);
+                            }
+                        }
+
+                        Captain? refusingCaptain = await _Database.Captains.ReadAsync(captain.Id, token).ConfigureAwait(false);
+                        if (refusingCaptain != null && refusingCaptain.CurrentMissionId == mission.Id)
+                        {
+                            await _Captains.ReleaseAsync(refusingCaptain, token).ConfigureAwait(false);
+                        }
+                        return;
+                    }
+
+                    failedForPolicyRefusal = refusalDecision.Outcome == PolicyRefusalContinuationOutcomeEnum.Stop;
+                }
+            }
+
             bool failedForNoOpCompletion = false;
             bool? dockProducedChanges = null;
-            if (!failedForScopeViolation && mission.StartedUtc.HasValue)
+            if (!failedForScopeViolation && !failedForPolicyRefusal && mission.StartedUtc.HasValue)
             {
                 TimeSpan runtime = (mission.CompletedUtc ?? DateTime.UtcNow) - mission.StartedUtc.Value;
                 int diffLineCount = String.IsNullOrEmpty(mission.DiffSnapshot)
@@ -1661,7 +1714,7 @@ namespace Armada.Core.Services
             // have been dispatched to write docs; a RESCUE was dispatched against a named defect,
             // so a change set that cannot carry behavior is evidence on its own.
             bool failedForIneffectiveRescue = false;
-            if (!failedForScopeViolation && !failedForNoOpCompletion && RescueMissionMarker.IsAutoRescue(mission)
+            if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForPolicyRefusal &&RescueMissionMarker.IsAutoRescue(mission)
                 && !PersonaCatalog.IsNoOpCompletionExempt(mission.Persona))
             {
                 IReadOnlyList<string> changedPaths = DiffPathExtractor.ExtractChangedPaths(mission.DiffSnapshot);
@@ -1695,7 +1748,7 @@ namespace Armada.Core.Services
             // intended outcome, and their own report gate judges them.
             bool dodGateHasWorkToVerify = !(dockProducedChanges == false && !mission.IsReadOnlyMode);
 
-            if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForIneffectiveRescue && dock != null
+            if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
                 && _DefinitionOfDoneGate != null && !dodGateHasWorkToVerify)
             {
                 await AppendMissionActivityAsync(
@@ -1713,7 +1766,7 @@ namespace Armada.Core.Services
 
             // Definition-of-done gate: run in-dock build and unit-test before accepting Worker work.
             bool failedForDodGate = false;
-            if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForIneffectiveRescue && dock != null
+            if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
                 && _DefinitionOfDoneGate != null && dodGateHasWorkToVerify)
             {
                 DateTime dodStartedUtc = DateTime.UtcNow;
@@ -7396,6 +7449,20 @@ namespace Armada.Core.Services
         /// <summary>
         /// Whether a captain id sits on a mission's in-place re-run skip list.
         /// </summary>
+        internal static bool IsExcludedForAssignment(Mission? mission, Captain? captain)
+        {
+            if (mission == null || captain == null) return false;
+            if (!PolicyRefusalContinuationService.IsContinuation(mission)) return false;
+
+            // A refusal continuation must never return to the runtime that refused it. Unlike an ordinary
+            // retry skip list, this exclusion has no fall-back-to-any-captain: the mission waits for an
+            // approved alternate captain rather than repeating the blocked path.
+            return IsCaptainOnRetrySkipList(mission.RetrySkipCaptainIds, captain.Id);
+        }
+
+        /// <summary>
+        /// Whether a captain id sits on a mission's in-place re-run skip list.
+        /// </summary>
         internal static bool IsCaptainOnRetrySkipList(string? retrySkipCaptainIds, string? captainId)
         {
             if (String.IsNullOrWhiteSpace(captainId) || String.IsNullOrWhiteSpace(retrySkipCaptainIds)) return false;
@@ -7869,6 +7936,7 @@ namespace Armada.Core.Services
             foreach (Captain idleCaptain in idleCaptains)
             {
                 if (_CaptainQuarantine.IsQuarantined(idleCaptain)) continue;
+                if (IsExcludedForAssignment(mission, idleCaptain)) continue;
                 // Reserved by another mission's in-flight assignment: still Idle in the database,
                 // but spoken for until that pass claims or releases it.
                 if (_CaptainReservations.TryGetValue(idleCaptain.Id, out string? reservedBy)

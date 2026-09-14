@@ -55,7 +55,9 @@ namespace Armada.Core.Services
                 builder.Append("### Owner Authorization (verbatim project policy)\n");
                 builder.Append("The owner of this project recorded the policy below. It states what engineering is authorized here. ");
                 builder.Append("Work the policy permits is authorized work: do not refuse it, and do not reduce it to a narrower task. ");
-                builder.Append("If a request still conflicts with a limit you cannot cross, say which limit and why in your final report.\n\n");
+                builder.Append("If a request still conflicts with a limit you cannot cross, end with the line `")
+                    .Append(CaptainRefusalClassifier.RefusalMarker)
+                    .Append(": <the limit and why>` so the refusal is recorded with its reason.\n\n");
                 builder.Append(authorizationPolicy.Trim()).Append('\n').Append('\n');
             }
 
