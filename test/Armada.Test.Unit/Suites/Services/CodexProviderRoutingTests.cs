@@ -29,6 +29,18 @@ namespace Armada.Test.Unit.Suites.Services
             return new CodexRuntime(logging);
         }
 
+        /// <summary>
+        /// Start info whose environment holds only what the runtime writes. A new ProcessStartInfo
+        /// copies the environment of the process running the suite, so a provider key the operator
+        /// exported would read as a routing write.
+        /// </summary>
+        private static ProcessStartInfo RoutingOnlyStartInfo()
+        {
+            ProcessStartInfo startInfo = new ProcessStartInfo();
+            startInfo.Environment.Clear();
+            return startInfo;
+        }
+
         private static Captain CaptainWithCredential(string name, string? model, string? apiKey, string? apiBaseUrl)
         {
             Captain captain = new Captain(name);
@@ -72,7 +84,10 @@ namespace Armada.Test.Unit.Suites.Services
                     "captain-key-not-a-real-credential",
                     "https://example-provider/v1");
 
-                ProcessStartInfo startInfo = new ProcessStartInfo();
+                // Seed the inherited key explicitly: the removal is the behavior under test, and it
+                // must be proven whether or not the process running the suite exports one.
+                ProcessStartInfo startInfo = RoutingOnlyStartInfo();
+                startInfo.Environment["CODEX_API_KEY"] = "inherited-codex-key";
                 InvokeApplyEnvironment(runtime, startInfo, captain);
 
                 AssertEqual("captain-key-not-a-real-credential", startInfo.Environment["ARMADA_PROVIDER_KEY"],
@@ -143,7 +158,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Captain captain = new Captain("native-sol");
                 captain.Model = "gpt-5.6-sol";
 
-                ProcessStartInfo startInfo = new ProcessStartInfo();
+                ProcessStartInfo startInfo = RoutingOnlyStartInfo();
                 InvokeApplyEnvironment(runtime, startInfo, captain);
                 AssertFalse(startInfo.Environment.ContainsKey("ARMADA_PROVIDER_KEY"),
                     "A native captain must not receive the provider credential");
