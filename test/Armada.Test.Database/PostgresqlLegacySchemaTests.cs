@@ -21,6 +21,20 @@ namespace Armada.Test.Database
             using (DatabaseDriver driver = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token)) { }
             MigrationScenarioRunner history = new MigrationScenarioRunner(_Settings);
             Dictionary<int, string> before = await history.ReadHistoryAsync(token);
+            // The historical columns are the ones the repair contract names. Later migrations add timestamp
+            // columns that were never stored as text, so the proof measures both sets instead of a count.
+            SortedSet<string> historicalColumns = ReadRepairColumns();
+            SortedSet<string> installedTimestamps;
+            using (DbConnection connection = MigrationScenarioRunner.CreateConnection(_Settings))
+            {
+                await connection.OpenAsync(token);
+                installedTimestamps = await ReadColumnsAsync(connection, "timestamp with time zone", token);
+            }
+            List<string> missingHistorical = new List<string>();
+            foreach (string column in historicalColumns) if (!installedTimestamps.Contains(column)) missingHistorical.Add(column);
+            DatabaseAssert.True(historicalColumns.Contains("workflow_profiles.created_utc") && historicalColumns.Contains("workflow_profiles.last_update_utc"),
+                "Repair contract names the workflow profile timestamp columns");
+            DatabaseAssert.True(missingHistorical.Count == 0, "Installed schema has every repair-contract timestamp column; missing: " + String.Join(", ", missingHistorical));
             using (DbConnection connection = MigrationScenarioRunner.CreateConnection(_Settings))
             {
                 await connection.OpenAsync(token);
@@ -65,20 +79,30 @@ namespace Armada.Test.Database
             using (DbConnection connection = MigrationScenarioRunner.CreateConnection(_Settings))
             {
                 await connection.OpenAsync(token);
-                await ExecuteAsync(connection, @"DO $fixture$ DECLARE col record; BEGIN
-                    FOR col IN SELECT table_name,column_name FROM information_schema.columns
-                    WHERE table_schema=current_schema() AND table_name IN ('workflow_profiles','check_runs','environments','releases','deployments')
-                    AND data_type='timestamp with time zone'
-                    LOOP EXECUTE format('ALTER TABLE %I ALTER COLUMN %I TYPE TEXT USING %I::text',col.table_name,col.column_name,col.column_name); END LOOP;
-                    END $fixture$;", token);
-                using (DbCommand command = connection.CreateCommand())
+                foreach (string column in historicalColumns)
                 {
-                    command.CommandText = "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name IN ('workflow_profiles','check_runs','environments','releases','deployments') AND column_name LIKE '%_utc' AND data_type='text';";
-                    DatabaseAssert.Equal(21L, Convert.ToInt64(await command.ExecuteScalarAsync(token)), "All 21 historical timestamp columns represented");
+                    string[] parts = column.Split('.');
+                    await ExecuteAsync(connection, "DO $fixture$ BEGIN IF (SELECT data_type FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='"
+                        + parts[0] + "' AND column_name='" + parts[1] + "')='timestamp with time zone' THEN ALTER TABLE " + parts[0] + " ALTER COLUMN " + parts[1]
+                        + " TYPE TEXT USING " + parts[1] + "::text; END IF; END $fixture$;", token);
                 }
+                SortedSet<string> textColumns = await ReadColumnsAsync(connection, "text", token);
+                List<string> unconverted = new List<string>();
+                foreach (string column in historicalColumns) if (!textColumns.Contains(column)) unconverted.Add(column);
+                DatabaseAssert.True(unconverted.Count == 0, "Every repair-contract timestamp column is historical TEXT before repair; not converted: " + String.Join(", ", unconverted));
+                SortedSet<string> untouched = new SortedSet<string>(installedTimestamps, StringComparer.Ordinal);
+                untouched.ExceptWith(historicalColumns);
+                DatabaseAssert.True(untouched.SetEquals(await ReadColumnsAsync(connection, "timestamp with time zone", token)), "Timestamp columns outside the repair contract stay timestamptz");
             }
             using (DatabaseDriver driver = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token)) { }
             MigrationScenarioRunner.AssertHistory(before, await history.ReadHistoryAsync(token));
+            using (DbConnection connection = MigrationScenarioRunner.CreateConnection(_Settings))
+            {
+                await connection.OpenAsync(token);
+                SortedSet<string> repaired = await ReadColumnsAsync(connection, "timestamp with time zone", token);
+                DatabaseAssert.True(repaired.SetEquals(installedTimestamps), "Startup restores every repair-contract column to timestamptz; expected "
+                    + String.Join(", ", installedTimestamps) + " got " + String.Join(", ", repaired));
+            }
             using (DbConnection connection = MigrationScenarioRunner.CreateConnection(_Settings))
             {
                 await connection.OpenAsync(token);
@@ -111,6 +135,34 @@ namespace Armada.Test.Database
                 command.CommandText = "SELECT COUNT(*) FROM schema_repairs WHERE id='postgres-operational-types-v1';";
                 DatabaseAssert.Equal(0L, Convert.ToInt64(await command.ExecuteScalarAsync(token)), "Failed repair has no accepted ledger entry");
             }
+        }
+
+        private static SortedSet<string> ReadRepairColumns()
+        {
+            string sql = PostgresqlLegacyOperationalRepair.Sql;
+            int start = sql.IndexOf("FROM (VALUES", StringComparison.Ordinal);
+            int end = sql.IndexOf(") AS known(", StringComparison.Ordinal);
+            if (start < 0 || end < start) throw new InvalidOperationException("Repair contract column list not found");
+            SortedSet<string> columns = new SortedSet<string>(StringComparer.Ordinal);
+            foreach (System.Text.RegularExpressions.Match match in System.Text.RegularExpressions.Regex.Matches(sql.Substring(start, end - start), @"\('([a-z_]+)','([a-z_]+)'\)"))
+                columns.Add(match.Groups[1].Value + "." + match.Groups[2].Value);
+            if (columns.Count == 0) throw new InvalidOperationException("Repair contract names no timestamp columns");
+            return columns;
+        }
+
+        private static async Task<SortedSet<string>> ReadColumnsAsync(DbConnection connection, string dataType, CancellationToken token)
+        {
+            SortedSet<string> columns = new SortedSet<string>(StringComparer.Ordinal);
+            using (DbCommand command = connection.CreateCommand())
+            {
+                command.CommandText = "SELECT table_name,column_name FROM information_schema.columns WHERE table_schema=current_schema() AND table_name IN ('workflow_profiles','check_runs','environments','releases','deployments') AND data_type=@type;";
+                DbParameter type = command.CreateParameter(); type.ParameterName = "@type"; type.Value = dataType; command.Parameters.Add(type);
+                using (DbDataReader reader = await command.ExecuteReaderAsync(token))
+                {
+                    while (await reader.ReadAsync(token)) columns.Add(reader.GetString(0) + "." + reader.GetString(1));
+                }
+            }
+            return columns;
         }
 
         private static async Task ExecuteAsync(DbConnection connection, string sql, CancellationToken token)

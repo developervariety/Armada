@@ -830,6 +830,12 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - The refusal happens before any migration, schema guard or prerequisite step,
   and records nothing, so a restart refuses the same way. Existing migration
   bodies and history are unchanged.
+- The PostgreSQL `postgres-legacy` scenario reads its historical timestamp
+  columns from the operational repair contract and converts only those. It
+  proves each is TEXT before repair and timestamptz after startup, and that
+  timestamp columns added by later migrations are never touched. It no longer
+  pins a column count, and no longer converts later columns that no historical
+  database stored as text.
 - The database runner adds the `skipped-version` scenario for all four
   providers. Two unit tests that deleted a ledger row to fake an upgrade now
   stop the real upgrade before that version instead.
