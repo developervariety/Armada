@@ -12,7 +12,7 @@ namespace Armada.Core.Services
     /// Manages durable Harbor runner enrollment and resolves its live owner. Harbor remains disabled
     /// until a transport explicitly enables the session registry with this resolver.
     /// </summary>
-    public sealed class HarborRunnerEnrollmentService : IHarborRunnerOwnerResolver, IHarborRunnerOwnerGenerationResolver, IHarborRunnerOwnerChangeNotifier
+    public sealed class HarborRunnerEnrollmentService : IHarborRunnerOwnerResolver, IHarborRunnerOwnerGenerationResolver, IHarborRunnerOwnerChangeNotifier, IHarborRunnerAuthority
     {
         #region Private-Members
 
@@ -253,6 +253,17 @@ namespace Armada.Core.Services
 
         #endregion
 
+        /// <inheritdoc />
+        public async Task<bool> HasAuthorityOverOwnerAsync(AuthContext caller, string ownerTenantId, string ownerUserId, CancellationToken token = default)
+        {
+            if (caller == null || !caller.IsAuthenticated || String.IsNullOrWhiteSpace(caller.UserId)) return false;
+            if (String.IsNullOrWhiteSpace(ownerTenantId) || String.IsNullOrWhiteSpace(ownerUserId)) return false;
+            if (caller.IsAdmin) return true;
+            if (!caller.IsTenantAdmin || !String.Equals(caller.TenantId, ownerTenantId, StringComparison.Ordinal)) return false;
+            UserMaster? owner = await _Users.ReadAsync(ownerTenantId, ownerUserId, token).ConfigureAwait(false);
+            return owner == null || !owner.IsAdmin;
+        }
+
         #region Private-Methods
 
         private static HarborRunnerIdentity ValidateOwner(string runnerId, AuthContext owner)
@@ -272,26 +283,10 @@ namespace Armada.Core.Services
             }
         }
 
-        private static void ValidateAdministrator(AuthContext administrator, string tenantId)
-        {
-            ValidateAdministratorIdentity(administrator);
-            if (administrator.IsAdmin) return;
-            if (!administrator.IsTenantAdmin || !String.Equals(administrator.TenantId, tenantId, StringComparison.Ordinal))
-                throw new UnauthorizedAccessException("administrator_not_authorized");
-        }
-
-        /// <summary>
-        /// One authority rule for every enrollment change: a global administrator may change any runner; a
-        /// tenant administrator may change only runners whose owner is in the administrator's tenant and is not
-        /// a global administrator. The rule applies to the new owner and to the previous owner of a revoked
-        /// runner identifier.
-        /// </summary>
         private async Task ValidateAuthorityOverOwnerAsync(AuthContext administrator, string tenantId, string userId, CancellationToken token)
         {
-            ValidateAdministrator(administrator, tenantId);
-            if (administrator.IsAdmin) return;
-            UserMaster? owner = await _Users.ReadAsync(tenantId, userId, token).ConfigureAwait(false);
-            if (owner != null && owner.IsAdmin)
+            ValidateAdministratorIdentity(administrator);
+            if (!await HasAuthorityOverOwnerAsync(administrator, tenantId, userId, token).ConfigureAwait(false))
                 throw new UnauthorizedAccessException("administrator_not_authorized_for_owner");
         }
 

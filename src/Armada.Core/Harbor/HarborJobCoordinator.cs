@@ -19,6 +19,7 @@ namespace Armada.Core.Harbor
 
         private readonly object _Gate = new object();
         private readonly HarborRunnerSessionRegistry _Registry;
+        private readonly IHarborRunnerAuthority _Authority;
         private readonly Dictionary<string, RunnerLink> _Links = new Dictionary<string, RunnerLink>(StringComparer.Ordinal);
         private readonly Dictionary<string, JobRecord> _Jobs = new Dictionary<string, JobRecord>(StringComparer.Ordinal);
 
@@ -28,9 +29,11 @@ namespace Armada.Core.Harbor
 
         /// <summary>Instantiate a coordinator over a session registry.</summary>
         /// <param name="registry">Registry that owns runner sessions.</param>
-        public HarborJobCoordinator(HarborRunnerSessionRegistry registry)
+        /// <param name="authority">Shared runner authority rule, the same one enrollment uses.</param>
+        public HarborJobCoordinator(HarborRunnerSessionRegistry registry, IHarborRunnerAuthority authority)
         {
             _Registry = registry ?? throw new ArgumentNullException(nameof(registry));
+            _Authority = authority ?? throw new ArgumentNullException(nameof(authority));
         }
 
         #endregion
@@ -67,7 +70,7 @@ namespace Armada.Core.Harbor
         /// runner that is not connected, not authorized for the caller, at capacity, or already running the same
         /// launch key refuses the launch with a stable reason.
         /// </summary>
-        /// <param name="caller">Verified caller.</param>
+        /// <param name="caller">Verified caller; authorized when it is the runner owner or has authority over the owner.</param>
         /// <param name="runnerId">Runner that must run the job.</param>
         /// <param name="launchKey">Key of the work being launched; one live job per key within the caller's tenant.</param>
         /// <param name="request">Launch plan. Its job identifier is ignored and replaced by a server-issued one.</param>
@@ -85,7 +88,7 @@ namespace Armada.Core.Harbor
                 MarkSessionEnded(session, revalidation);
                 return HarborLaunchResult.Reject(revalidation);
             }
-            if (!HarborCommandAuthorizer.CanCommand(caller, session.Identity))
+            if (!await CanCommandAsync(caller, session.Identity, token).ConfigureAwait(false))
                 return HarborLaunchResult.Reject("harbor_command_unauthorized");
 
             JobRecord record;
@@ -166,7 +169,7 @@ namespace Armada.Core.Harbor
                 MarkSessionEnded(session, revalidation);
                 return HarborCommandResult.Reject(revalidation);
             }
-            if (!HarborCommandAuthorizer.CanCommand(caller, session.Identity))
+            if (!await CanCommandAsync(caller, session.Identity, token).ConfigureAwait(false))
                 return HarborCommandResult.Reject("harbor_command_unauthorized");
 
             RunnerLink? link;
@@ -355,6 +358,19 @@ namespace Armada.Core.Harbor
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// A command is authorized for the runner owner, or for a caller with authority over that owner under the
+        /// shared runner authority rule. The durable read runs before this coordinator's lock is taken.
+        /// </summary>
+        private async Task<bool> CanCommandAsync(AuthContext caller, HarborRunnerIdentity owner, CancellationToken token)
+        {
+            if (caller == null || owner == null || !caller.IsAuthenticated) return false;
+            if (String.IsNullOrWhiteSpace(caller.TenantId) || String.IsNullOrWhiteSpace(caller.UserId)) return false;
+            if (String.Equals(caller.TenantId, owner.TenantId, StringComparison.Ordinal)
+                && String.Equals(caller.UserId, owner.UserId, StringComparison.Ordinal)) return true;
+            return await _Authority.HasAuthorityOverOwnerAsync(caller, owner.TenantId, owner.UserId, token).ConfigureAwait(false);
+        }
 
         private JobRecord? OwnedJob(HarborRunnerSession session, string jobId, out string reason)
         {

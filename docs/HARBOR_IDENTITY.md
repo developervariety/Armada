@@ -52,9 +52,11 @@ identifiers, plus generation and revocation state. It never contains a bearer
 token or other raw credential value.
 
 `CreateAsync` requires a verified owner and an administrator with authority
-over that owner. One rule governs every enrollment change: a global
-administrator may change any runner; a tenant administrator may change only a
-runner whose owner is in the same tenant and is not a global administrator.
+over that owner. One rule, `IHarborRunnerAuthority.HasAuthorityOverOwnerAsync`,
+defines that authority: a global administrator has authority over every
+runner owner; a tenant administrator only over an owner in the same tenant who
+is not a global administrator. Enrollment, reuse, revocation, launch and stop
+all call it; launch and stop also allow the runner owner.
 `CreateAsync` applies the rule to the new owner and, for a revoked runner
 identifier, to the previous owner. `RevokeAsync` applies it to the current
 owner. When a credential identifier is present, the service checks the

@@ -90,8 +90,10 @@ never reused. Each job is bound to:
 - the durable enrollment generation that authorized it, and
 - the connection generation currently allowed to report for it.
 
-A command is authorized when the caller is a global administrator, or is in the runner owner's tenant and is
-the owner or a tenant administrator. A launch is refused with a stable reason when the runner is not connected
+A launch or stop is authorized for the runner owner, or for a caller with authority over the owner under the
+same runner authority rule that governs enrollment and revocation (`IHarborRunnerAuthority`): a global
+administrator has authority over every owner, and a tenant administrator only over an owner in the same tenant
+who is not a global administrator. A launch is refused with a stable reason when the runner is not connected
 (`harbor_runner_unavailable`), fails revalidation, is not authorized (`harbor_command_unauthorized`), is at its
 advertised capacity (`harbor_runner_capacity_exhausted`), or already has a live job with the same launch key in
 the caller's tenant (`harbor_job_duplicate`). A stop goes only to the job's runner and current connection.

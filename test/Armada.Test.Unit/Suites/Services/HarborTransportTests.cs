@@ -213,6 +213,41 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(String.Equals(first.JobId, relaunch.JobId, StringComparison.Ordinal), "server job ids are never reused");
             });
 
+            await RunTest("CommandAuthority_MatchesEnrollmentAuthority", async () =>
+            {
+                await using Harness harness = await Harness.StartAsync().ConfigureAwait(false);
+                Principal globalOwner = await harness.AddPrincipalAsync(harness.OwnerA.TenantId, "global-owner", false, true).ConfigureAwait(false);
+                Principal globalAdministrator = await harness.AddPrincipalAsync(harness.OwnerA.TenantId, "global-admin", false, true).ConfigureAwait(false);
+                string otherTenantId = await harness.AddTenantAsync().ConfigureAwait(false);
+                Principal otherTenantAdministrator = await harness.AddPrincipalAsync(otherTenantId, "other-tenant-admin", true, false).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, await harness.EnrollAsync(globalAdministrator, "hbr_global", globalOwner).ConfigureAwait(false), "global administrator enrolls a global-admin-owned runner");
+                await using FakeRunner runner = await harness.ConnectAsync(globalOwner).ConfigureAwait(false);
+                AssertTrue((await runner.HandshakeAsync("hbr_global").ConfigureAwait(false)).Accepted, "global-admin-owned runner connected");
+
+                HarborLaunchResult tenantAdministratorLaunch = await harness.Coordinator.LaunchAsync(harness.Administrator.Auth, "hbr_global", "mission-authority-tenant-admin", Plan()).ConfigureAwait(false);
+                AssertEqual("harbor_command_unauthorized", tenantAdministratorLaunch.Reason, "tenant administrator cannot launch on a global administrator's runner");
+                HarborLaunchResult otherTenantLaunch = await harness.Coordinator.LaunchAsync(otherTenantAdministrator.Auth, "hbr_global", "mission-authority-other-tenant", Plan()).ConfigureAwait(false);
+                AssertEqual("harbor_command_unauthorized", otherTenantLaunch.Reason, "another tenant's administrator cannot launch");
+                AssertTrue(await runner.NoMessageAsync().ConfigureAwait(false), "refused launches never reach the runner");
+
+                HarborLaunchResult ownerLaunch = await harness.Coordinator.LaunchAsync(globalOwner.Auth, "hbr_global", "mission-authority-owner", Plan()).ConfigureAwait(false);
+                AssertTrue(ownerLaunch.Accepted, "runner owner may launch: " + ownerLaunch.Reason);
+                AssertEqual(ownerLaunch.JobId, (await runner.NextAsync<HarborLaunchRequest>().ConfigureAwait(false)).JobId, "owner launch reaches the runner");
+                HarborLaunchResult globalLaunch = await harness.Coordinator.LaunchAsync(globalAdministrator.Auth, "hbr_global", "mission-authority-global", Plan()).ConfigureAwait(false);
+                AssertTrue(globalLaunch.Accepted, "global administrator may launch: " + globalLaunch.Reason);
+                await runner.NextAsync<HarborLaunchRequest>().ConfigureAwait(false);
+
+                AssertEqual("harbor_command_unauthorized", (await harness.Coordinator.StopAsync(harness.Administrator.Auth, ownerLaunch.JobId!).ConfigureAwait(false)).Reason, "tenant administrator cannot stop a global administrator's job");
+                AssertEqual("harbor_command_unauthorized", (await harness.Coordinator.StopAsync(otherTenantAdministrator.Auth, ownerLaunch.JobId!).ConfigureAwait(false)).Reason, "another tenant's administrator cannot stop");
+                AssertTrue(await runner.NoMessageAsync().ConfigureAwait(false), "refused stops never reach the runner");
+                HarborCommandResult ownerStop = await harness.Coordinator.StopAsync(globalOwner.Auth, ownerLaunch.JobId!).ConfigureAwait(false);
+                AssertTrue(ownerStop.Accepted, "runner owner may stop: " + ownerStop.Reason);
+                AssertEqual(ownerLaunch.JobId, (await runner.NextAsync<HarborKillRequest>().ConfigureAwait(false)).JobId, "owner stop reaches the runner");
+                HarborCommandResult globalStop = await harness.Coordinator.StopAsync(globalAdministrator.Auth, globalLaunch.JobId!).ConfigureAwait(false);
+                AssertTrue(globalStop.Accepted, "global administrator may stop: " + globalStop.Reason);
+                AssertEqual(globalLaunch.JobId, (await runner.NextAsync<HarborKillRequest>().ConfigureAwait(false)).JobId, "global administrator stop reaches the runner");
+            });
+
             await RunTest("Reconnect_RebindsJobsAndStaleLinkCannotTakeOver", async () =>
             {
                 await using Harness harness = await Harness.StartAsync().ConfigureAwait(false);
@@ -347,13 +382,13 @@ namespace Armada.Test.Unit.Suites.Services
             public string BearerToken { get; }
             public AuthContext Auth { get; }
 
-            public Principal(string tenantId, string userId, string credentialId, string bearerToken, bool isTenantAdmin)
+            public Principal(string tenantId, string userId, string credentialId, string bearerToken, bool isTenantAdmin, bool isAdmin = false)
             {
                 TenantId = tenantId;
                 UserId = userId;
                 CredentialId = credentialId;
                 BearerToken = bearerToken;
-                Auth = AuthContext.Authenticated(tenantId, userId, false, isTenantAdmin, "Bearer", credentialId, userId);
+                Auth = AuthContext.Authenticated(tenantId, userId, isAdmin, isAdmin || isTenantAdmin, "Bearer", credentialId, userId);
             }
         }
 
@@ -403,7 +438,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AuthenticationService authentication = new AuthenticationService(database.Driver, new SessionTokenService(), settings, logging);
                 HarborRunnerEnrollmentService enrollments = new HarborRunnerEnrollmentService(database.Driver);
                 HarborRunnerSessionRegistry registry = new HarborRunnerSessionRegistry(true, enrollments);
-                HarborJobCoordinator coordinator = new HarborJobCoordinator(registry);
+                HarborJobCoordinator coordinator = new HarborJobCoordinator(registry, enrollments);
                 HarborLinkEndpoint endpoint = new HarborLinkEndpoint(settings.Harbor, authentication, registry, coordinator, logging);
 
                 int port = ReservePort();
@@ -482,13 +517,25 @@ namespace Armada.Test.Unit.Suites.Services
                 _Database.Dispose();
             }
 
-            private static async Task<Principal> CreatePrincipalAsync(TestDatabase database, string tenantId, string name, bool isTenantAdmin)
+            public Task<Principal> AddPrincipalAsync(string tenantId, string name, bool isTenantAdmin, bool isAdmin)
+            {
+                return CreatePrincipalAsync(_Database, tenantId, name, isTenantAdmin, isAdmin);
+            }
+
+            public async Task<string> AddTenantAsync()
+            {
+                TenantMetadata tenant = await _Database.Driver.Tenants.CreateAsync(new TenantMetadata("harbor-transport-" + Guid.NewGuid().ToString("N"))).ConfigureAwait(false);
+                return tenant.Id;
+            }
+
+            private static async Task<Principal> CreatePrincipalAsync(TestDatabase database, string tenantId, string name, bool isTenantAdmin, bool isAdmin = false)
             {
                 UserMaster user = new UserMaster(tenantId, name + "-" + Guid.NewGuid().ToString("N") + "@example.invalid", "harbor-test-password");
                 user.IsTenantAdmin = isTenantAdmin;
+                user.IsAdmin = isAdmin;
                 user = await database.Driver.Users.CreateAsync(user).ConfigureAwait(false);
                 Credential credential = await database.Driver.Credentials.CreateAsync(new Credential(tenantId, user.Id)).ConfigureAwait(false);
-                return new Principal(tenantId, user.Id, credential.Id, credential.BearerToken, isTenantAdmin);
+                return new Principal(tenantId, user.Id, credential.Id, credential.BearerToken, isTenantAdmin, isAdmin);
             }
 
             private static int ReservePort()

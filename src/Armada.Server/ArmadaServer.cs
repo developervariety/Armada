@@ -840,7 +840,7 @@ namespace Armada.Server
             }
             Armada.Core.Services.HarborRunnerEnrollmentService enrollments = new Armada.Core.Services.HarborRunnerEnrollmentService(_Database);
             Armada.Core.Services.HarborRunnerSessionRegistry registry = new Armada.Core.Services.HarborRunnerSessionRegistry(true, enrollments);
-            Armada.Core.Harbor.HarborJobCoordinator coordinator = new Armada.Core.Harbor.HarborJobCoordinator(registry);
+            Armada.Core.Harbor.HarborJobCoordinator coordinator = new Armada.Core.Harbor.HarborJobCoordinator(registry, enrollments);
             Armada.Server.Harbor.HarborLinkEndpoint endpoint = new Armada.Server.Harbor.HarborLinkEndpoint(_Settings.Harbor, _AuthenticationService, registry, coordinator, _Logging);
             _App.WebSocket(_Settings.Harbor.LinkPath, endpoint.HandleWebSocketAsync);
             new HarborRunnerEnrollmentRoutes(enrollments, _JsonOptions).Register(_App, AuthenticateRequestAsync, _AuthorizationService);
