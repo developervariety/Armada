@@ -288,6 +288,10 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   so it binds the saved ports and accepts the saved bearer key instead of
   silently starting on defaults. First-run settings initialization writes once
   and never rewrites an existing file.
+- `armada mcp install` payloads for Claude Code, Cursor and Gemini CLI (and Mux
+  or OpenCode when present) are checked against a live Admiral: each advertised
+  URL answers an MCP `initialize`, and file-based Claude Code and Cursor entries
+  install and remove idempotently while keeping comments and other servers.
 
 ### Guarded vessel branch writes
 

@@ -89,6 +89,10 @@ in-process Admiral:
 - The embedded Admiral and Helm commands load `settings.json` through one
   loader, so saved ports, data directory and bearer key match. First-run
   initialization writes the file once and does not rewrite an existing one.
+- Every MCP client payload that `armada mcp install` builds advertises a URL
+  that answers an MCP `initialize` on a live Admiral. Codex has no HTTP URL in
+  its payload; it uses the stdio bridge. File-based Claude Code and Cursor
+  entries install and remove idempotently and keep comments and other servers.
 
 The fork keeps `Authorization: Bearer` for Helm REST calls. Admiral startup does
 not generate or write a key, so Helm does not reload settings after embedded
