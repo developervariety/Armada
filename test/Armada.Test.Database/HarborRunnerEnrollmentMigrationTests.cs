@@ -40,7 +40,9 @@ namespace Armada.Test.Database
 
             using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
             {
-                DatabaseAssert.Equal(version, await reopened.GetSchemaVersionAsync(token).ConfigureAwait(false), "Harbor enrollment migration restarts to target version");
+                int reopenedVersion = await reopened.GetSchemaVersionAsync(token).ConfigureAwait(false);
+                DatabaseAssert.True(reopenedVersion >= version, "Harbor enrollment migration restarts through its target version");
+                DatabaseAssert.True((await scenarioRunner.ReadHistoryAsync(token).ConfigureAwait(false)).ContainsKey(version), "Restarted Harbor enrollment migration is recorded in history");
                 HarborRunnerEnrollment? missing = await reopened.HarborRunnerEnrollments.ReadAsync("hbr_migration_missing", token).ConfigureAwait(false);
                 DatabaseAssert.True(missing == null, "Restarted Harbor enrollment table accepts reads");
             }

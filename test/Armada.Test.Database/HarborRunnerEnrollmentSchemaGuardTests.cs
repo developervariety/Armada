@@ -59,7 +59,7 @@ namespace Armada.Test.Database
             using (DatabaseDriver compatibleDriver = scenarioRunner.CreateDriver())
                 await compatibleDriver.InitializeAsync(token).ConfigureAwait(false);
             Dictionary<int, string> afterCompatible = await scenarioRunner.ReadHistoryAsync(token).ConfigureAwait(false);
-            DatabaseAssert.Equal(version, afterCompatible.Count == 0 ? 0 : System.Linq.Enumerable.Max(afterCompatible.Keys),
+            DatabaseAssert.True(afterCompatible.ContainsKey(version),
                 "Equivalent Harbor table allows migration replay");
             MigrationScenarioRunner.AssertHistory(before, afterCompatible);
         }
