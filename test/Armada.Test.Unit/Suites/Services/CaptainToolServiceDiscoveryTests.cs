@@ -53,6 +53,27 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(result.McpConnectionPlanned);
             });
 
+            await RunTest("ApiEndpointCaptain_ReportsWorkspaceToolsWithoutArmadaMcp", async () =>
+            {
+                using TestDatabase database = await TestDatabaseHelper.CreateDatabaseAsync();
+                using HttpClient http = new HttpClient(new McpHandler(new[] { "armada_status" }));
+                LoggingModule logging = new LoggingModule(); logging.Settings.EnableConsole = false;
+                CaptainToolService service = new CaptainToolService(logging, database.Driver, new ArmadaSettings(), http);
+                Captain captain = new Captain { Id = "cpt_api", Name = "Api", Runtime = AgentRuntimeEnum.ApiEndpoint };
+                foreach (bool plannedAsk in new[] { true, false })
+                {
+                    CaptainToolAccessResult result = await service.DescribeAsync(captain, plannedAsk: plannedAsk);
+                    AssertFalse(result.McpConnectionPlanned, "An API captain has no MCP connection to plan.");
+                    AssertEqual(0, result.ArmadaToolCount, "An API captain must not report Armada MCP tools.");
+                    AssertTrue(result.AvailabilityVerified, "The API captain tool list is the runtime's own registry.");
+                    AssertEqual("api-endpoint-workspace-tools", result.AvailabilitySource);
+                    AssertTrue(result.Tools.Any(tool => tool.Name == "read_file"), "Workspace tools must be listed.");
+                    AssertFalse(result.Tools.Any(tool => tool.Name.StartsWith("armada_", StringComparison.Ordinal)), "No Armada administrative tool may be listed.");
+                    AssertFalse(result.Tools.Any(tool => tool.Name == "run_process"), "No shell tool may be listed.");
+                    AssertEqual(result.Tools.Count, result.EffectiveToolCount ?? -1);
+                }
+            });
+
             await RunTest("IdleAskPreflight_CancellationPropagates", async () =>
             {
                 using TestDatabase database = await TestDatabaseHelper.CreateDatabaseAsync();

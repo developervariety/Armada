@@ -24,6 +24,15 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   an unconfigured API runtime.
 - Manual completion proves an API captain's ownership from its running in-process
   loop, and unsupported runtimes still fail closed.
+- Ask chat applies the same endpoint admission rule as mission launch to the exact
+  endpoint snapshot it runs, so private, disabled or mismatched endpoints are refused
+  before a runtime exists.
+- API captain tool calls are emitted as canonical activity records carrying only the
+  tool name, primary path or pattern, and status, so chat and mission output keep them
+  apart from the model answer.
+- The captain tool catalog reports an API captain's real workspace tool registry
+  instead of an Armada MCP preflight, and planning sessions report API captains as
+  unsupported instead of failing at runtime creation.
 
 ### Native self-deploy preflight
 

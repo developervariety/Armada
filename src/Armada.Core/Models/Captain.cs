@@ -56,7 +56,7 @@ namespace Armada.Core.Models
         /// <summary>
         /// Whether this captain's runtime is currently supported by Armada planning sessions.
         /// </summary>
-        public bool SupportsPlanningSessions => Runtime != AgentRuntimeEnum.Custom;
+        public bool SupportsPlanningSessions => Runtime != AgentRuntimeEnum.Custom && Runtime != AgentRuntimeEnum.ApiEndpoint;
 
         /// <summary>
         /// Reason the captain cannot be used for planning sessions, if any.

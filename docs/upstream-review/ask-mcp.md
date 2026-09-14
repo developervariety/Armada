@@ -14,6 +14,13 @@ and tool discovery only; it does not claim that a captain process is running.
 A running mission captain is inspected through its active launch configuration.
 Custom and unsupported runtimes remain unverified.
 
+API-endpoint captains have no MCP client. For both contexts the tools endpoint
+returns the runtime's own workspace tool registry with
+`availabilitySource=api-endpoint-workspace-tools`, `mcpConnectionPlanned=false`
+and zero Armada tools; no shell or administrative tool is listed. Their tool
+calls reach chat as tool cards, never as answer text, and planning sessions
+report these captains as unsupported.
+
 The dashboard shows preflight failures and zero-tool results with the returned
 summary. It shows manual connection instructions only for a confirmed
 nonplanned runtime configuration failure. Existing captain-chat caller scope remains enforced. The local MCP endpoint

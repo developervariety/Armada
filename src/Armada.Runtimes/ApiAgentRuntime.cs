@@ -344,19 +344,51 @@ namespace Armada.Runtimes
         private async Task<string> ExecuteToolAsync(int processId, BuiltInToolRegistry registry, ToolCall call, string workingDirectory, CancellationToken token)
         {
             string argsJson = String.IsNullOrWhiteSpace(call.ArgumentsJson) ? "{}" : call.ArgumentsJson;
-            Emit(processId, "[tool] " + call.Name + " " + Truncate(argsJson, 500));
+            string? detail = ReadPrimaryArgument(argsJson);
 
             try
             {
                 ToolResult result = await registry.ExecuteAsync(call.Id ?? String.Empty, call.Name, argsJson, workingDirectory, token).ConfigureAwait(false);
-                Emit(processId, "[tool:result] " + call.Name + " " + (result.Success ? "ok" : "failed") + " " + Truncate(result.Content, 500));
+                EmitToolActivity(processId, call.Name, detail, result.Success ? StructuredRuntimeLogFormatter.OkStatus : StructuredRuntimeLogFormatter.ErrorStatus, workingDirectory);
                 return result.Content ?? String.Empty;
             }
             catch (Exception ex)
             {
                 string message = "Tool execution failed: " + Truncate(ex.Message, 200);
-                Emit(processId, "[tool:result] " + call.Name + " failed " + message);
+                EmitToolActivity(processId, call.Name, detail, StructuredRuntimeLogFormatter.ErrorStatus, workingDirectory);
                 return JsonSerializer.Serialize(new { error = "invalid_arguments", message });
+            }
+        }
+
+        // Tool calls are runtime activity, not the model's answer: they use the shared activity record so
+        // chat, planning and mission output separate them from answer text. Only the primary argument is
+        // rendered; file content and other arguments are never copied into activity.
+        private void EmitToolActivity(int processId, string? toolName, string? detail, string status, string workingDirectory)
+        {
+            string record = StructuredRuntimeLogFormatter.BuildToolActivity(
+                String.IsNullOrWhiteSpace(toolName) ? "unknown" : toolName,
+                detail,
+                status,
+                workingDirectory);
+            Emit(processId, record);
+        }
+
+        private static string? ReadPrimaryArgument(string argsJson)
+        {
+            try
+            {
+                using JsonDocument document = JsonDocument.Parse(argsJson);
+                if (document.RootElement.ValueKind != JsonValueKind.Object) return null;
+                foreach (string name in new[] { "file_path", "path", "pattern" })
+                {
+                    if (document.RootElement.TryGetProperty(name, out JsonElement value) && value.ValueKind == JsonValueKind.String)
+                        return value.GetString();
+                }
+                return null;
+            }
+            catch (JsonException)
+            {
+                return null;
             }
         }
 

@@ -1126,6 +1126,9 @@ The dashboard calls the captain tools endpoint with `context=ask` to check the
 planned endpoint. A successful probe proves tool discovery from the server,
 not a connection from a running chat process. Failed and empty probes show
 the returned reason. See [Ask MCP availability](upstream-review/ask-mcp.md).
+An API-endpoint captain has no MCP client: its tools response lists the
+built-in workspace tools it actually runs, and Ask applies the launch endpoint
+admission rule before starting it.
 
 **Cursor captains need `--approve-mcps`.** cursor-agent discovers a workspace
 `.cursor/mcp.json` but leaves its servers "not loaded (needs approval)" in a

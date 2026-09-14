@@ -150,9 +150,10 @@ namespace Armada.Server
                             captain.TenantId!,
                             captain.ModelEndpointId!,
                             token).ConfigureAwait(false);
-                        if (endpoint == null)
-                            return Fail("This captain's model endpoint is not available.");
-                        runtime = _RuntimeFactory.Create(endpoint);
+                        string? admissionError = AgentLifecycleHandler.ValidateApiEndpointAdmission(captain, endpoint);
+                        if (admissionError != null)
+                            return Fail(admissionError);
+                        runtime = _RuntimeFactory.Create(endpoint!);
                     }
                     else
                     {

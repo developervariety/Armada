@@ -46,6 +46,13 @@ namespace Armada.Server
                 };
             }
 
+            // An API-endpoint captain runs the in-process workspace tool registry and has no MCP client, so
+            // its inventory is that registry for both Ask and mission contexts.
+            if (captain.Runtime == AgentRuntimeEnum.ApiEndpoint)
+            {
+                return DescribeApiEndpointWorkspaceTools();
+            }
+
             // Ask starts an independent temporary runtime. Idle captains have no process-scoped
             // configuration to inspect, so probe the same Armada endpoint that the next Ask launch plans
             // to use. This is an endpoint preflight, not a claim that the captain is already connected.
@@ -119,6 +126,35 @@ namespace Armada.Server
                         Summary = "Armada does not currently have a runtime-specific tool inventory implementation for this captain."
                     };
             }
+        }
+
+        private static RuntimeToolCatalogSnapshot DescribeApiEndpointWorkspaceTools()
+        {
+            // Describe the exact registry the API runtime advertises to its model, including task planning.
+            Armada.Runtimes.Tools.BuiltInToolRegistry registry = new Armada.Runtimes.Tools.BuiltInToolRegistry(new Armada.Runtimes.Tools.Tasks.TaskPlan());
+            List<CaptainToolSummary> tools = registry.GetToolDefinitions()
+                .OrderBy(tool => tool.Name, StringComparer.Ordinal)
+                .Select(tool => new CaptainToolSummary
+                {
+                    Name = tool.Name,
+                    Description = tool.Description,
+                    InputSchemaJson = JsonSerializer.Serialize(tool.ParametersSchema),
+                    RegistrationSource = "api-endpoint-runtime",
+                    SourceKind = "BuiltIn"
+                })
+                .ToList();
+
+            return new RuntimeToolCatalogSnapshot
+            {
+                ToolsAccessible = tools.Count > 0,
+                AvailabilityVerified = true,
+                McpConnectionPlanned = false,
+                AvailabilitySource = "api-endpoint-workspace-tools",
+                Summary = "API-endpoint captains run " + tools.Count + " built-in workspace tool(s) confined to their working directory. They have no MCP connection, no shell tool and no Armada administrative tools.",
+                ArmadaToolCount = 0,
+                EffectiveToolCount = tools.Count,
+                Tools = tools
+            };
         }
 
         private async Task<RuntimeToolCatalogSnapshot> DescribePlannedArmadaEndpointAsync(CancellationToken token)

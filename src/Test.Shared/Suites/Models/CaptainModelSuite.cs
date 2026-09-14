@@ -121,6 +121,10 @@ namespace Test.Shared.Suites.Models
                 AssertNull(builtIn.PlanningSessionSupportReason);
                 AssertFalse(custom.SupportsPlanningSessions);
                 AssertContains("built-in ClaudeCode, Codex, Gemini, Cursor, OpenCode, and Mux runtimes", custom.PlanningSessionSupportReason ?? String.Empty);
+
+                Captain apiEndpoint = new Captain("api", AgentRuntimeEnum.ApiEndpoint);
+                AssertFalse(apiEndpoint.SupportsPlanningSessions, "API-endpoint captains have no planning session runtime.");
+                AssertContains("built-in ClaudeCode, Codex, Gemini, Cursor, OpenCode, and Mux runtimes", apiEndpoint.PlanningSessionSupportReason ?? String.Empty);
             }));
 
             cases.Add(Case("state_enum_serializes_as_string", "Captain state enum serializes as string", TestTags.Positive, () =>

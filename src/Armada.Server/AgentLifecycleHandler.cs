@@ -369,12 +369,30 @@ namespace Armada.Server
                 return "API-endpoint captain credentials must be configured on the model endpoint.";
 
             ModelEndpoint? endpoint = await _Database.ModelEndpoints.ReadAsync(captain.TenantId!, captain.ModelEndpointId!, token).ConfigureAwait(false);
-            return ValidateApiEndpointCaptain(captain, endpoint);
+            return ValidateApiEndpointAdmission(captain, endpoint);
         }
 
-        private static string? ValidateApiEndpointCaptain(Captain captain, ModelEndpoint? endpoint)
+        /// <summary>
+        /// The one admission rule for an API-endpoint captain and the endpoint snapshot it will run against.
+        /// Every entry point that creates an API runtime (mission launch, Ask chat) must call this with the
+        /// same snapshot it then passes to the runtime factory.
+        /// </summary>
+        /// <param name="captain">Captain to admit.</param>
+        /// <param name="endpoint">Endpoint snapshot read for the captain tenant and endpoint identifier.</param>
+        /// <returns>Null when admitted, otherwise a safe admission error.</returns>
+        public static string? ValidateApiEndpointAdmission(Captain captain, ModelEndpoint? endpoint)
         {
-            if (endpoint == null)
+            if (captain == null)
+                return "The captain is required.";
+            if (captain.Runtime != AgentRuntimeEnum.ApiEndpoint)
+                return "The captain runtime is not an API endpoint.";
+            if (String.IsNullOrWhiteSpace(captain.ModelEndpointId) || String.IsNullOrWhiteSpace(captain.TenantId))
+                return "An API-endpoint captain must reference an authorized tenant-owned model endpoint.";
+            if (!String.IsNullOrWhiteSpace(captain.ApiKey) || !String.IsNullOrWhiteSpace(captain.ApiBaseUrl))
+                return "API-endpoint captain credentials must be configured on the model endpoint.";
+            if (endpoint == null
+                || !String.Equals(endpoint.Id, captain.ModelEndpointId, StringComparison.Ordinal)
+                || !String.Equals(endpoint.TenantId, captain.TenantId, StringComparison.Ordinal))
                 return "The referenced model endpoint is not available to this captain.";
             if (endpoint.Scope == ScopeEnum.UserSpecific
                 && !String.Equals(endpoint.UserId, captain.UserId, StringComparison.Ordinal))
@@ -1367,7 +1385,7 @@ namespace Armada.Server
                 captain.TenantId!,
                 captain.ModelEndpointId!,
                 CancellationToken.None).ConfigureAwait(false);
-            string? validationError = ValidateApiEndpointCaptain(captain, endpoint);
+            string? validationError = ValidateApiEndpointAdmission(captain, endpoint);
             if (!String.IsNullOrEmpty(validationError))
                 throw new InvalidOperationException(validationError);
 

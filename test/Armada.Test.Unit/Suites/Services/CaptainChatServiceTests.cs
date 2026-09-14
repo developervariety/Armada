@@ -7,6 +7,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Models;
     using Armada.Core.Settings;
     using Armada.Runtimes;
+    using Armada.Runtimes.Interfaces;
     using Armada.Server;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
@@ -59,6 +60,53 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertTrue(response.Success, "The chat turn succeeds");
                     AssertEqual("Here are the entries", response.Reply, "The reply is the answer text only");
                     AssertFalse((response.Reply ?? String.Empty).Contains(ActivityRecords.ActivityMarker, StringComparison.Ordinal), "No activity record reaches the reply");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("ChatAsync_ApiEndpointCaptainUsesTheLaunchAdmissionRule", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    TenantMetadata tenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("ChatAdmissionTenant")).ConfigureAwait(false);
+                    UserMaster owner = await testDb.Driver.Users.CreateAsync(new UserMaster(tenant.Id, "owner@chat.test", "pass")).ConfigureAwait(false);
+                    UserMaster other = await testDb.Driver.Users.CreateAsync(new UserMaster(tenant.Id, "other@chat.test", "pass")).ConfigureAwait(false);
+                    ModelEndpoint privateEndpoint = new ModelEndpoint
+                    {
+                        Name = "private-endpoint",
+                        TenantId = tenant.Id,
+                        UserId = owner.Id,
+                        Scope = ScopeEnum.UserSpecific,
+                        Provider = ModelProviderEnum.OpenAICompatible,
+                        Kind = ModelEndpointKindEnum.Inference,
+                        BaseUrl = "http://127.0.0.1:1",
+                        Model = "fixture-model",
+                        Enabled = true
+                    };
+                    await testDb.Driver.ModelEndpoints.CreateAsync(privateEndpoint).ConfigureAwait(false);
+                    Captain captain = new Captain("chat-api-other-user", AgentRuntimeEnum.ApiEndpoint)
+                    {
+                        TenantId = tenant.Id,
+                        UserId = other.Id,
+                        ModelEndpointId = privateEndpoint.Id,
+                        Model = "fixture-model"
+                    };
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    RecordingEndpointRuntimeFactory factory = new RecordingEndpointRuntimeFactory(logging);
+                    CaptainChatService chat = new CaptainChatService(testDb.Driver, factory, null, null, logging, new ArmadaSettings());
+                    CaptainChatResponse response = await chat.ChatAsync(captain.Id, new CaptainChatRequest { Message = "Question" }).ConfigureAwait(false);
+                    AssertFalse(response.Success, "Chat must refuse an endpoint the captain may not use.");
+                    AssertContains("not available to this captain", response.Error ?? String.Empty, "Chat must return the launch admission reason.");
+                    AssertEqual(0, factory.EndpointCreations, "No API runtime may be created for a refused endpoint.");
+
+                    privateEndpoint.Scope = ScopeEnum.TenantWide;
+                    privateEndpoint.Enabled = false;
+                    await testDb.Driver.ModelEndpoints.UpdateAsync(privateEndpoint).ConfigureAwait(false);
+                    response = await chat.ChatAsync(captain.Id, new CaptainChatRequest { Message = "Question" }).ConfigureAwait(false);
+                    AssertFalse(response.Success, "Chat must refuse a disabled endpoint.");
+                    AssertContains("disabled", response.Error ?? String.Empty, "Chat must return the disabled admission reason.");
+                    AssertEqual(0, factory.EndpointCreations, "No API runtime may be created for a disabled endpoint.");
                 }
             }).ConfigureAwait(false);
 
@@ -143,6 +191,24 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("src/B.cs", third.Arguments, "The detail is the card argument");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Factory that counts endpoint runtime creations and refuses to build a real API runtime.
+        /// </summary>
+        private sealed class RecordingEndpointRuntimeFactory : AgentRuntimeFactory
+        {
+            public int EndpointCreations { get; private set; }
+
+            public RecordingEndpointRuntimeFactory(LoggingModule logging) : base(logging)
+            {
+            }
+
+            public override IAgentRuntime Create(ModelEndpoint endpoint)
+            {
+                EndpointCreations++;
+                throw new InvalidOperationException("The endpoint runtime must not be created in this test.");
+            }
         }
     }
 }

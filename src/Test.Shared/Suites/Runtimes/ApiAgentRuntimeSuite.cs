@@ -288,6 +288,46 @@ namespace Test.Shared.Suites.Runtimes
                 }
             }));
 
+            cases.Add(CaseAsync("tool_calls_are_activity_records_not_answer_text", "Tool calls are reported as activity records separate from the model answer", TestTags.Positive, async () =>
+            {
+                string dir = NewTempDir();
+                try
+                {
+                    Queue<ToolChatResponse> script = new Queue<ToolChatResponse>();
+                    script.Enqueue(new ToolChatResponse
+                    {
+                        Success = true,
+                        ToolCalls = new List<ToolCall> { new ToolCall { Id = "a1", Name = "write_file", ArgumentsJson = "{\"file_path\":\"activity.txt\",\"content\":\"secret body\"}" } }
+                    });
+                    script.Enqueue(new ToolChatResponse { Success = true, Text = "The answer.", ToolCalls = new List<ToolCall>() });
+                    ApiAgentRuntime runtime = new ApiAgentRuntime(NewEndpoint("activity"), CreateLogging(), 5, (ep, log) => new ScriptedClient(script, log));
+                    List<string> output = new List<string>();
+                    int? exitCode = null;
+                    using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+                    runtime.OnStdoutReceived += (pid, line) => { lock (output) output.Add(line); };
+                    runtime.OnProcessExited += (pid, code) => { exitCode = code; exited.Set(); };
+                    await runtime.StartAsync(dir, "Write the activity file.").ConfigureAwait(false);
+                    AssertTrue(exited.Wait(TimeSpan.FromSeconds(5)), "The run must finish.");
+                    AssertEqual(0, exitCode ?? -1);
+
+                    List<string> nonAnswer = output.FindAll(line => line != "The answer.");
+                    AssertTrue(nonAnswer.Count > 0, "The tool call must be reported.");
+                    foreach (string line in nonAnswer)
+                    {
+                        AssertTrue(ActivityRecords.TryParseToolActivity(line, out ToolActivityRecord record),
+                            "Every tool line must be a canonical activity record: " + line);
+                        AssertEqual(StructuredRuntimeLogFormatter.NormalizeToolName("write_file"), record.Name);
+                        AssertEqual("activity.txt", record.Detail);
+                        AssertFalse(line.Contains("secret body", StringComparison.Ordinal), "Tool content must not be copied into activity: " + line);
+                    }
+                    AssertTrue(nonAnswer.Exists(line => line.EndsWith("(ok)", StringComparison.Ordinal)), "The completed tool call must report its status.");
+                }
+                finally
+                {
+                    Cleanup(dir);
+                }
+            }));
+
             cases.Add(CaseAsync("stop_cancels_running_loop", "StopAsync cancels a running loop and it is no longer tracked", TestTags.Positive, async () =>
             {
                 string dir = NewTempDir();
