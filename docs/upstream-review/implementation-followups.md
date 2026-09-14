@@ -85,6 +85,7 @@ these areas. Do not duplicate its changes.
 | FOLLOWUP-013 | Open | Top-level OpenCode errors need a captured event and regression proof |
 | FOLLOWUP-014 | Verify | WebSocket exposure blocked by admin-only subscription; scoped delivery remains open |
 | FOLLOWUP-015 | Open | Persona, pipeline and prompt-template read visibility remains unscoped |
+| FOLLOWUP-016 | Open | Manual Complete without an active dock bypasses landing proof |
 
 ## FOLLOWUP-001 — Landing retry event
 
@@ -459,3 +460,15 @@ For each closed entry, add: final source commit, reproduction before the fix,
 verification after it, provider/UI scope where relevant, deployment state, and
 remaining limits. Do not erase earlier failed evidence. Campaign objectives
 remain the authority for assignment and operational status.
+
+## FOLLOWUP-016 — Manual completion without landing proof
+
+At `0152653c`, the mission status route writes `Complete` directly when no
+active dock is available. It logs `mission.manual_complete_no_dock` but checks
+neither target ancestry nor immutable Checks. The existing automated test
+`ManualComplete_NoDock_EmitsAuditEvent` accepts this behavior. This does not meet
+the held Review acceptance rule. Add a regression for unlanded held work and
+route completion through the shared proof gates. Keep valid report-only stage
+completion distinct from code landing. Also audit active-dock manual completion,
+which calls the landing handler directly rather than the Judge completion path.
+No production mission was changed during this review.
