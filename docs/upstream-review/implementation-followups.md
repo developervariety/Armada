@@ -630,10 +630,15 @@ Deployment remains pending.
 
 ## FOLLOWUP-022 — Local image retention must match real Docker behavior
 
-The retention candidate passed its stub tests but failed a read-only real Docker
-contract check: the inspect format emitted a literal backslash-t, while the
-script split on a tab. Correct the format and fixture. An inspection failure
-must not be treated as proof that a tag does not exist. Verify each created
-retention tag resolves to the expected immutable image ID before any build.
-Accept valid local repository tags without requiring a slash. No image was
-built or deployment changed during this review.
+Closed in source after correction and independent real Docker proof. The first
+candidate passed stub tests but used an inspect delimiter that real Docker did
+not expand. The accepted helper uses separate inspect calls, a successful tag
+listing for collision checks, and exact image-ID verification after each tag
+is created. It accepts valid local repository tags.
+
+Independent stub failure tests and an isolated real Docker build passed. The
+real proof retained both source references, changed only the disposable mutable
+tag, and confirmed that both the disposable running container and production
+Admiral kept their original image. Test containers and tags were removed. No
+production build, restart or deployment occurred. Automatic supervised cutover
+and rollback remain open under FOLLOWUP-018.

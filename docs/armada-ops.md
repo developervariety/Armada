@@ -1656,7 +1656,9 @@ roots, not symlinks, past their grace period, and not referenced by active
 docks, missions, or merge-queue entries are ever touched. Docker image and
 build-cache pruning stays an explicit host-side operator action
 (`docker builder prune` with the current and rollback images protected), never
-a container-triggered deletion.
+a container-triggered deletion. Before rebuilding a mutable local image tag, use
+`scripts/common/rebuild-local-image.sh`; it retains the running image and the
+current tag first and prints the rollback references for the deployment record.
 
 | Risk | Tools |
 | --- | --- |

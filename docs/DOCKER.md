@@ -336,6 +336,34 @@ docker build -f src/Armada.Dashboard/Dockerfile -t armada-dashboard:local .
 
 Then update `docker/armada/compose.yaml` or `docker/proxy/compose.yaml` to reference your local tags instead of local builds if you want to pin named images.
 
+### Rebuilding a local image with rollback retention
+
+Before rebuilding a mutable local tag, retain both the image ID used by the
+running container and the image ID currently behind that tag. The helper makes
+two unique UTC-dated tags in the same repository, checks that neither tag
+already exists, and only then runs a local `docker build`. It prints both
+retention tags so an operator can use them during rollback. A missing or
+stopped container, an unreadable tag, a retention collision, or a failed tag
+operation stops before the build. A failed build leaves the retention tags in
+place.
+
+Run it from the repository root with the real container and mutable tag for the
+local deployment:
+
+```bash
+./scripts/common/rebuild-local-image.sh \
+  armada-server \
+  local/armada-server:latest \
+  src/Armada.Server/Dockerfile \
+  .
+```
+
+The command uses a fixed local build invocation and does not accept a push
+flag. The container name and image tag are validated, and all Dockerfile and
+context paths are passed as separate arguments. Set `ARMADA_DOCKER_BIN` only
+when supplying a Docker-compatible test double; do not use it to bypass the
+retention checks.
+
 ---
 
 ## Ports Reference
@@ -368,4 +396,3 @@ The React dashboard makes API calls from the browser, not from the container. En
 
 **CORS errors:**
 The Armada server enables CORS on all routes by default. If you see CORS errors, verify you're accessing the correct port (7890 for the API).
-
