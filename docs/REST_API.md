@@ -3478,6 +3478,8 @@ Generate a dispatch-ready draft from a selected or inferred assistant message wi
 
 Create a voyage directly from planning output. Dispatch also releases the reserved captain and dock.
 
+The session objective and every other objective linked to the session are admitted together before the voyage is created and linked before the response. If any of them is already dispatched or its admission is busy, the request returns `409` with `objective_already_dispatched` or `objective_dispatch_busy` and no voyage is created; `objective_dispatch_busy` is retryable.
+
 ```json
 {
   "MessageId": "psm_abc123",

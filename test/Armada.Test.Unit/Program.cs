@@ -258,6 +258,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ObjectiveServiceTests());
             runner.AddSuite(new KeyedAsyncLockTests());
             runner.AddSuite(new ObjectiveTerminalBacklogStateTests());
+            runner.AddSuite(new ObjectiveDispatchAttemptTests());
             runner.AddSuite(new ObjectiveRefinementCoordinatorTests());
             runner.AddSuite(new ObjectiveDependencyAnalyzerTests());
             runner.AddSuite(new ObjectiveBriefRendererTests());

@@ -559,8 +559,19 @@ namespace Armada.Server
                     {
                         bareAdmission = await _ObjectiveService.AcquireDispatchAdmissionAsync(
                             objectiveAuth,
-                            request.ObjectiveId!,
+                            new[] { request.ObjectiveId! },
+                            new ObjectiveDispatchAttemptDescriptor { Title = request.Title, VesselId = request.VesselId },
                             token).ConfigureAwait(false);
+                    }
+                    catch (ObjectiveDispatchBusyException busy)
+                    {
+                        return new RemoteTunnelRequestResult
+                        {
+                            StatusCode = 409,
+                            ErrorCode = "objective_dispatch_busy",
+                            Message = busy.Message,
+                            Payload = new { Retryable = true, RetryAfterSeconds = (int)Math.Ceiling(busy.RetryAfter.TotalSeconds) }
+                        };
                     }
                     catch (ObjectiveAlreadyDispatchedException alreadyDispatched)
                     {
@@ -589,8 +600,11 @@ namespace Armada.Server
                     }
                     if (objectiveAuth != null)
                     {
+                        if (bareAdmission != null)
+                            await bareAdmission.RecordVoyageCreatedAsync(bareVoyage, token).ConfigureAwait(false);
                         bareAdmission?.ThrowIfOwnershipLost();
-                        await _ObjectiveService.LinkVoyageAsync(objectiveAuth, request.ObjectiveId!, bareVoyage.Id, token).ConfigureAwait(false);
+                        await _ObjectiveService.LinkVoyageAsync(objectiveAuth, request.ObjectiveId!, bareVoyage.Id, token, false, bareAdmission).ConfigureAwait(false);
+                        bareAdmission?.MarkLinked();
                     }
                     voyage = bareVoyage;
                 }

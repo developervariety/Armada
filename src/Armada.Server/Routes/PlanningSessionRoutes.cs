@@ -265,13 +265,9 @@ namespace Armada.Server.Routes
                         return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Planning session not found" };
                     }
 
-                    Voyage voyage = await _planningSessions.DispatchAsync(session, request).ConfigureAwait(false);
-                    List<Objective> linkedObjectives = await _objectives.EnumerateByPlanningSessionAsync(ctx, session.Id).ConfigureAwait(false);
-                    foreach (Objective objective in linkedObjectives)
-                    {
-                        await _objectives.LinkVoyageAsync(ctx, objective.Id, voyage.Id).ConfigureAwait(false);
-                    }
-                    return voyage;
+                    // The planning dispatch admits and links every session objective before it returns,
+                    // so this route never links an objective after the voyage exists.
+                    return await _planningSessions.DispatchAsync(session, request).ConfigureAwait(false);
                 }
                 catch (NotSupportedException ex)
                 {

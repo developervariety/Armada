@@ -1541,6 +1541,23 @@ namespace Armada.Server
                     try { await _JobService.MaintainAsync(token).ConfigureAwait(false); }
                     catch (Exception jobEx) { _Logging.Warn(_Header + "job maintenance error: " + jobEx.Message); }
 
+                    // Close objective dispatch attempts whose process stopped between voyage creation and linking.
+                    try
+                    {
+                        ObjectiveDispatchAttemptReconciliationResult attempts = await _ObjectiveService
+                            .ReconcileDispatchAttemptsAsync(_Admiral.RecallCaptainAsync, token).ConfigureAwait(false);
+                        if (attempts.Kept > 0 || attempts.CancelledOrphans > 0 || attempts.Unresolved.Count > 0)
+                        {
+                            _Logging.Warn(_Header + "dispatch attempt reconciliation kept=" + attempts.Kept
+                                + " cancelledOrphans=" + attempts.CancelledOrphans
+                                + " unresolved=" + String.Join("; ", attempts.Unresolved));
+                        }
+                    }
+                    catch (Exception attemptEx)
+                    {
+                        _Logging.Warn(_Header + "dispatch attempt reconciliation error: " + attemptEx.Message);
+                    }
+
                     // Run log rotation every 10 health check cycles
                     _HealthCheckCycles++;
                     if (_HealthCheckCycles % 10 == 0)

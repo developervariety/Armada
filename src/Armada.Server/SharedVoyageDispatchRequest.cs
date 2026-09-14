@@ -61,6 +61,12 @@ namespace Armada.Server
         public string? ObjectiveId { get; set; }
 
         /// <summary>
+        /// Further objectives admitted and linked in the same operation as <see cref="ObjectiveId"/>.
+        /// Every objective is admitted before the voyage is created and linked before admission ends.
+        /// </summary>
+        public List<string>? LinkedObjectiveIds { get; set; } = null;
+
+        /// <summary>
         /// Auth context used for objective reads and links. MCP callers omit this and use the default tenant admin context.
         /// </summary>
         public AuthContext? ObjectiveAuthContext { get; set; }

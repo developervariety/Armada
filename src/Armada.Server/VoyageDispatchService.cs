@@ -115,6 +115,12 @@ namespace Armada.Server
             VoyageDispatchResult? objectiveValidation = await ValidateObjectiveAsync(
                 NormalizeEmpty(request.ObjectiveId), request.ObjectiveAuthContext, vesselId).ConfigureAwait(false);
             if (objectiveValidation != null) return objectiveValidation;
+            foreach (string linkedObjectiveId in CollectAdmissionObjectiveIds(null, request.LinkedObjectiveIds))
+            {
+                VoyageDispatchResult? linkedValidation = await ValidateObjectiveAsync(
+                    linkedObjectiveId, request.ObjectiveAuthContext, vesselId).ConfigureAwait(false);
+                if (linkedValidation != null) return linkedValidation;
+            }
 
             string? objectiveId = NormalizeEmpty(request.ObjectiveId);
             if (objectiveId != null && _ObjectiveDispatchPreview != null && _ObjectiveService != null)
@@ -252,18 +258,24 @@ namespace Armada.Server
             bool hasAliases = missions.Any(m =>
                 !String.IsNullOrEmpty(m.Alias) || !String.IsNullOrEmpty(m.DependsOnMissionAlias));
             ObjectiveDispatchAdmission? admission = null;
-            if (!String.IsNullOrEmpty(objectiveId) && _ObjectiveService != null)
+            List<string> admissionObjectiveIds = CollectAdmissionObjectiveIds(objectiveId, request.LinkedObjectiveIds);
+            if (admissionObjectiveIds.Count > 0 && _ObjectiveService != null)
             {
                 try
                 {
                     admission = await _ObjectiveService.AcquireDispatchAdmissionAsync(
                         request.ObjectiveAuthContext ?? McpToolHelpers.CreateDefaultTenantAdminContext(),
-                        objectiveId,
+                        admissionObjectiveIds,
+                        new ObjectiveDispatchAttemptDescriptor { Title = title, VesselId = vesselId },
                         token).ConfigureAwait(false);
                 }
                 catch (ObjectiveAlreadyDispatchedException alreadyDispatched)
                 {
-                    return AlreadyDispatchedResult(objectiveId, alreadyDispatched.WinningVoyageId);
+                    return AlreadyDispatchedResult(alreadyDispatched.ObjectiveId, alreadyDispatched.WinningVoyageId);
+                }
+                catch (ObjectiveDispatchBusyException busy)
+                {
+                    return BusyResult(busy);
                 }
             }
 
@@ -299,18 +311,22 @@ namespace Armada.Server
                     return VoyageDispatchResult.BadRequest(dispatchResult);
                 voyage = createdVoyage;
 
+                if (admission != null)
+                    await admission.RecordVoyageCreatedAsync(voyage, token).ConfigureAwait(false);
                 admission?.ThrowIfOwnershipLost();
 
                 VoyageDispatchResult? linkConflict = await LinkObjectiveToVoyageAsync(
-                    objectiveId,
+                    admissionObjectiveIds,
                     request.ObjectiveAuthContext,
                     voyage,
+                    admission,
                     token).ConfigureAwait(false);
                 if (linkConflict != null)
                 {
-                    LogDispatchInfo("dispatch conflict voyage " + voyage.Id + " totalMs=" + dispatchWatch.ElapsedMilliseconds + " objective_already_dispatched=true");
+                    LogDispatchInfo("dispatch conflict voyage " + voyage.Id + " totalMs=" + dispatchWatch.ElapsedMilliseconds + " objective_link_refused=true");
                     return linkConflict;
                 }
+                admission?.MarkLinked();
             }
             catch (FleetCapacityAdmissionException capacity)
             {
@@ -1094,22 +1110,36 @@ namespace Armada.Server
         /// duplicate. Returns null when the link succeeded or did not apply.
         /// </summary>
         private async Task<VoyageDispatchResult?> LinkObjectiveToVoyageAsync(
-            string? objectiveId,
+            List<string> objectiveIds,
             AuthContext? authContext,
             Voyage voyage,
+            ObjectiveDispatchAdmission? admission,
             CancellationToken token)
         {
-            if (String.IsNullOrEmpty(objectiveId)) return null;
+            if (objectiveIds.Count == 0) return null;
             if (_ObjectiveService == null) return null;
 
             AuthContext auth = authContext ?? McpToolHelpers.CreateDefaultTenantAdminContext();
+            List<string> linked = new List<string>();
+            string objectiveId = objectiveIds[0];
             try
             {
-                await _ObjectiveService.LinkVoyageAsync(auth, objectiveId, voyage.Id).ConfigureAwait(false);
+                foreach (string linkObjectiveId in objectiveIds)
+                {
+                    objectiveId = linkObjectiveId;
+                    await _ObjectiveService.LinkVoyageAsync(auth, linkObjectiveId, voyage.Id, token, false, admission).ConfigureAwait(false);
+                    linked.Add(linkObjectiveId);
+                }
                 return null;
+            }
+            catch (ObjectiveDispatchOwnershipLostException)
+            {
+                await RevertObjectiveLinksAsync(auth, linked, voyage, admission).ConfigureAwait(false);
+                throw;
             }
             catch (ObjectiveAlreadyDispatchedException alreadyDispatched)
             {
+                await RevertObjectiveLinksAsync(auth, linked, voyage, admission).ConfigureAwait(false);
                 // The scheduler (or a parallel operator dispatch) won the race for this objective.
                 // The atomic guard refused the link; cancel this duplicate voyage and identify the
                 // winning voyage so the caller sees the objective is already in flight.
@@ -1133,6 +1163,7 @@ namespace Armada.Server
             }
             catch (Exception ex)
             {
+                await RevertObjectiveLinksAsync(auth, linked, voyage, admission).ConfigureAwait(false);
                 string cleanupError = String.Empty;
                 try
                 {
@@ -1160,6 +1191,63 @@ namespace Armada.Server
                     VoyageId = voyage.Id
                 });
             }
+        }
+
+        /// <summary>
+        /// Restore objectives this dispatch linked before a later link in the same admission failed,
+        /// so a refused multi-objective dispatch leaves no objective pointing at its cancelled voyage.
+        /// </summary>
+        private async Task RevertObjectiveLinksAsync(
+            AuthContext auth,
+            List<string> linked,
+            Voyage voyage,
+            ObjectiveDispatchAdmission? admission)
+        {
+            if (_ObjectiveService == null || admission == null) return;
+            foreach (string linkedObjectiveId in linked)
+            {
+                Objective? admitted = admission.FindObjective(linkedObjectiveId);
+                if (admitted == null) continue;
+                try
+                {
+                    await _ObjectiveService.RevertVoyageLinkAsync(auth, admitted, voyage.Id, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging?.Warn("[VoyageDispatchService] could not restore objective " + linkedObjectiveId
+                        + " after voyage " + voyage.Id + " failed to link: " + ex.Message);
+                }
+            }
+        }
+
+        private static List<string> CollectAdmissionObjectiveIds(string? objectiveId, List<string>? linkedObjectiveIds)
+        {
+            List<string> ids = new List<string>();
+            if (!String.IsNullOrWhiteSpace(objectiveId)) ids.Add(objectiveId.Trim());
+            if (linkedObjectiveIds != null)
+            {
+                foreach (string linkedObjectiveId in linkedObjectiveIds)
+                {
+                    string? normalized = NormalizeEmpty(linkedObjectiveId);
+                    if (normalized != null && !ids.Contains(normalized, StringComparer.OrdinalIgnoreCase))
+                        ids.Add(normalized);
+                }
+            }
+            return ids;
+        }
+
+        private static VoyageDispatchResult BusyResult(ObjectiveDispatchBusyException busy)
+        {
+            return VoyageDispatchResult.Conflict(new
+            {
+                Error = "Objective dispatch admission is busy.",
+                Code = "objective_dispatch_busy",
+                Reason = busy.Message,
+                Action = "Retry after RetryAfterSeconds; another request is dispatching this objective and nothing was created.",
+                Retryable = true,
+                RetryAfterSeconds = (int)Math.Ceiling(busy.RetryAfter.TotalSeconds),
+                ObjectiveId = busy.ObjectiveId
+            });
         }
 
         private static VoyageDispatchResult AlreadyDispatchedResult(string objectiveId, string winningVoyageId)

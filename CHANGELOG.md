@@ -143,6 +143,21 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   terminal objective never lists or selects as `ReadyForDispatch`. A data
   migration on all four providers moves existing terminal rows out of active
   backlog states and leaves nonterminal rows unchanged.
+- A planning-session dispatch now admits the session objective and every other
+  objective linked to the session before it creates the voyage, taking their
+  leases in a stable order, and links them all inside that admission. A busy or
+  already-dispatched objective refuses the whole dispatch before creation; a
+  later link failure restores the linked objectives and cancels the voyage. The
+  REST and MCP planning routes no longer link objectives after creation.
+- A busy objective admission now returns a bounded, retryable
+  `objective_dispatch_busy` conflict with `RetryAfterSeconds` after five
+  seconds instead of waiting until the request is cancelled; the scheduler
+  skips with `admission_busy`. Each admitted dispatch writes durable attempt
+  events whose id holds the admission leases, and linking re-confirms lease
+  ownership with a compare-and-set renewal. The health loop reconciles an
+  attempt that stopped between voyage creation and linking: a voyage linked to
+  any admitted objective is kept, an unlinked orphan voyage is cancelled, and an
+  ambiguous match is reported without cancelling anything.
 
 ### Native self-deploy preflight
 

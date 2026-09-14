@@ -16,6 +16,11 @@ namespace Armada.Core.Services
         public string WinningVoyageId { get; }
 
         /// <summary>
+        /// The objective that already has the nonterminal voyage.
+        /// </summary>
+        public string ObjectiveId { get; }
+
+        /// <summary>
         /// Instantiate.
         /// </summary>
         /// <param name="objectiveId">The objective the voyage could not be linked to.</param>
@@ -23,6 +28,7 @@ namespace Armada.Core.Services
         public ObjectiveAlreadyDispatchedException(string objectiveId, string winningVoyageId)
             : base("Objective " + objectiveId + " already has a nonterminal linked voyage " + winningVoyageId + ".")
         {
+            ObjectiveId = objectiveId;
             WinningVoyageId = winningVoyageId;
         }
     }

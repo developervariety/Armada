@@ -57,16 +57,463 @@ namespace Armada.Core.Services
         /// <param name="database">Database driver.</param>
         /// <param name="logging">Optional logging module used to warn about tolerated dangling links.</param>
         /// <param name="dispatchAdmissionTtl">Optional lease duration override for deterministic tests.</param>
+        /// <param name="dispatchAdmissionWait">Optional bound on how long a busy admission is awaited before a retryable busy result.</param>
         public ObjectiveService(
             DatabaseDriver database,
             LoggingModule? logging = null,
-            TimeSpan? dispatchAdmissionTtl = null)
+            TimeSpan? dispatchAdmissionTtl = null,
+            TimeSpan? dispatchAdmissionWait = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Logging = logging;
             _DispatchAdmissionTtl = dispatchAdmissionTtl ?? TimeSpan.FromMinutes(2);
             if (_DispatchAdmissionTtl <= TimeSpan.Zero)
                 throw new ArgumentOutOfRangeException(nameof(dispatchAdmissionTtl));
+            _DispatchAdmissionWait = dispatchAdmissionWait ?? DefaultDispatchAdmissionWait;
+            if (_DispatchAdmissionWait < TimeSpan.Zero)
+                throw new ArgumentOutOfRangeException(nameof(dispatchAdmissionWait));
+        }
+
+        /// <summary>
+        /// Default bound on waiting for a busy objective admission.
+        /// </summary>
+        public static readonly TimeSpan DefaultDispatchAdmissionWait = TimeSpan.FromSeconds(5);
+
+        private readonly TimeSpan _DispatchAdmissionWait;
+
+        /// <summary>
+        /// Acquire admission for every objective one dispatch will link. Leases are acquired in stable
+        /// lease-name order, so two dispatches over overlapping objective sets never wait on each other
+        /// in opposite orders, and each busy lease is awaited only within the bounded admission wait.
+        /// A busy lease raises <see cref="ObjectiveDispatchBusyException"/>; an objective with a
+        /// nonterminal voyage raises <see cref="ObjectiveAlreadyDispatchedException"/>. Either way every
+        /// lease already acquired is released and nothing is created. On success a durable attempt
+        /// record is written before the admission is returned.
+        /// </summary>
+        public async Task<ObjectiveDispatchAdmission> AcquireDispatchAdmissionAsync(
+            AuthContext auth,
+            IEnumerable<string> objectiveIds,
+            ObjectiveDispatchAttemptDescriptor? descriptor,
+            CancellationToken token = default)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (objectiveIds == null) throw new ArgumentNullException(nameof(objectiveIds));
+
+            List<AdmissionKey> keys = objectiveIds
+                .Where(id => !String.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select(id => new AdmissionKey(id, BuildDispatchAdmissionLeaseName(auth.TenantId, id)))
+                .OrderBy(key => key.LeaseName, StringComparer.Ordinal)
+                .ToList();
+            if (keys.Count == 0) throw new ArgumentException("At least one objective id is required.", nameof(objectiveIds));
+
+            string holder = "dispatch-" + Guid.NewGuid().ToString("N");
+            List<string> acquired = new List<string>();
+            DateTime deadline = DateTime.UtcNow + _DispatchAdmissionWait;
+            try
+            {
+                foreach (AdmissionKey key in keys)
+                {
+                    while (true)
+                    {
+                        token.ThrowIfCancellationRequested();
+                        bool won = await _Database.CoordinationLeases.TryAcquireAsync(
+                            key.LeaseName,
+                            holder,
+                            _DispatchAdmissionTtl,
+                            auth.TenantId,
+                            token).ConfigureAwait(false);
+                        if (won)
+                        {
+                            acquired.Add(key.LeaseName);
+                            break;
+                        }
+
+                        TimeSpan remaining = deadline - DateTime.UtcNow;
+                        if (remaining <= TimeSpan.Zero)
+                            throw new ObjectiveDispatchBusyException(key.ObjectiveId, await ReadRetryAfterAsync(key.LeaseName, token).ConfigureAwait(false));
+                        await Task.Delay(remaining < TimeSpan.FromMilliseconds(25) ? remaining : TimeSpan.FromMilliseconds(25), token).ConfigureAwait(false);
+                    }
+                }
+
+                List<Objective> objectives = new List<Objective>();
+                foreach (AdmissionKey key in keys)
+                {
+                    Objective objective = await ReadAsync(auth, key.ObjectiveId, token).ConfigureAwait(false)
+                        ?? throw new InvalidOperationException("Objective not found: " + key.ObjectiveId);
+                    string? activeVoyageId = await FindActiveLinkedVoyageIdAsync(objective, token).ConfigureAwait(false);
+                    if (activeVoyageId != null)
+                        throw new ObjectiveAlreadyDispatchedException(key.ObjectiveId, activeVoyageId);
+                    objectives.Add(objective);
+                }
+
+                ObjectiveDispatchAttemptRecord record = new ObjectiveDispatchAttemptRecord
+                {
+                    AttemptId = holder,
+                    TenantId = auth.TenantId,
+                    ObjectiveIds = keys.Select(key => key.ObjectiveId).ToList(),
+                    LeaseNames = keys.Select(key => key.LeaseName).ToList(),
+                    Title = descriptor?.Title,
+                    VesselId = descriptor?.VesselId,
+                    StartedUtc = DateTime.UtcNow
+                };
+                await ObjectiveDispatchAdmission.WriteAttemptEventAsync(
+                    _Database.Events,
+                    ObjectiveDispatchAdmission.StartedEventType,
+                    record,
+                    "Objective dispatch attempt " + holder + " admitted " + String.Join(", ", record.ObjectiveIds) + ".",
+                    token).ConfigureAwait(false);
+
+                return new ObjectiveDispatchAdmission(
+                    _Database.CoordinationLeases,
+                    _Database.Events,
+                    record,
+                    _DispatchAdmissionTtl,
+                    objectives,
+                    _Logging);
+            }
+            catch
+            {
+                await ReleaseLeasesAsync(acquired, holder).ConfigureAwait(false);
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// Undo a voyage link made by an admitted dispatch that then failed, restoring the objective's
+        /// lineage and lifecycle fields from the state read under admission. A row that no longer
+        /// carries the voyage is left unchanged.
+        /// </summary>
+        public async Task<Objective?> RevertVoyageLinkAsync(
+            AuthContext auth,
+            Objective admitted,
+            string voyageId,
+            CancellationToken token = default)
+        {
+            if (auth == null) throw new ArgumentNullException(nameof(auth));
+            if (admitted == null) throw new ArgumentNullException(nameof(admitted));
+            if (String.IsNullOrWhiteSpace(voyageId)) throw new ArgumentNullException(nameof(voyageId));
+
+            using (await _VoyageLinkLocks.AcquireAsync(admitted.Id, token).ConfigureAwait(false))
+            {
+                Objective? current = await ReadAsync(auth, admitted.Id, token).ConfigureAwait(false);
+                if (current == null || !current.VoyageIds.Contains(voyageId, StringComparer.OrdinalIgnoreCase))
+                    return current;
+
+                current.VoyageIds = admitted.VoyageIds.ToList();
+                current.MissionIds = admitted.MissionIds.ToList();
+                current.VesselIds = admitted.VesselIds.ToList();
+                current.FleetIds = admitted.FleetIds.ToList();
+                current.Status = admitted.Status;
+                current.BacklogState = admitted.BacklogState;
+                return await PersistLinkedObjectiveAsync(auth, current, token).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Reconcile dispatch attempts that were never closed and whose owner no longer holds a live
+        /// admission lease. Reconciliation takes the attempt's admission itself before acting, keeps a
+        /// voyage already linked to any admitted objective (and links it to the remaining admitted
+        /// objectives that have no other active voyage), cancels an active voyage no objective links,
+        /// and closes the attempt. A voyage never recorded by the attempt is matched by the recorded
+        /// title, vessel and start time; an ambiguous match cancels nothing and is reported.
+        /// </summary>
+        /// <param name="recallCaptain">Optional captain recall used when cancelling an orphan voyage.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Counts for this pass.</returns>
+        public async Task<ObjectiveDispatchAttemptReconciliationResult> ReconcileDispatchAttemptsAsync(
+            Func<string, CancellationToken, Task>? recallCaptain = null,
+            CancellationToken token = default)
+        {
+            ObjectiveDispatchAttemptReconciliationResult result = new ObjectiveDispatchAttemptReconciliationResult();
+            List<ArmadaEvent> started = await _Database.Events
+                .EnumerateByTypeAsync(ObjectiveDispatchAdmission.StartedEventType, 500, token).ConfigureAwait(false);
+            if (started.Count == 0) return result;
+
+            HashSet<string> closed = (await _Database.Events
+                    .EnumerateByTypeAsync(ObjectiveDispatchAdmission.ClosedEventType, 5000, token).ConfigureAwait(false))
+                .Where(evt => !String.IsNullOrWhiteSpace(evt.EntityId))
+                .Select(evt => evt.EntityId!)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, string> voyageByAttempt = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (ArmadaEvent evt in await _Database.Events
+                .EnumerateByTypeAsync(ObjectiveDispatchAdmission.VoyageCreatedEventType, 5000, token).ConfigureAwait(false))
+            {
+                ObjectiveDispatchAttemptRecord? voyageRecord = DeserializeAttempt(evt.Payload);
+                if (voyageRecord != null && !String.IsNullOrWhiteSpace(voyageRecord.VoyageId))
+                    voyageByAttempt[voyageRecord.AttemptId] = voyageRecord.VoyageId;
+            }
+
+            DateTime cutoff = DateTime.UtcNow - _DispatchAttemptReconciliationWindow;
+            foreach (ArmadaEvent evt in started.OrderBy(item => item.CreatedUtc))
+            {
+                if (String.IsNullOrWhiteSpace(evt.EntityId) || closed.Contains(evt.EntityId)) continue;
+                if (evt.CreatedUtc < cutoff) continue;
+
+                result.Examined++;
+                ObjectiveDispatchAttemptRecord? record = DeserializeAttempt(evt.Payload);
+                if (record == null || String.IsNullOrWhiteSpace(record.AttemptId))
+                {
+                    string unreadable = evt.EntityId + ": attempt record is unreadable";
+                    result.Unresolved.Add(unreadable);
+                    _Logging?.Warn(_Header + "dispatch attempt " + unreadable + "; closing it without action.");
+                    await ObjectiveDispatchAdmission.WriteAttemptEventAsync(
+                        _Database.Events,
+                        ObjectiveDispatchAdmission.ClosedEventType,
+                        new ObjectiveDispatchAttemptRecord { AttemptId = evt.EntityId, TenantId = evt.TenantId, Outcome = "unreadable_record" },
+                        "Objective dispatch attempt " + evt.EntityId + " closed: unreadable record.",
+                        token).ConfigureAwait(false);
+                    continue;
+                }
+
+                if (await IsAttemptOwnerLiveAsync(record, token).ConfigureAwait(false))
+                {
+                    result.LiveOwners++;
+                    continue;
+                }
+
+                string reconcileHolder = "reconcile-" + Guid.NewGuid().ToString("N");
+                List<string> held = new List<string>();
+                try
+                {
+                    bool allHeld = true;
+                    foreach (string leaseName in record.LeaseNames.OrderBy(name => name, StringComparer.Ordinal))
+                    {
+                        if (!await _Database.CoordinationLeases.TryAcquireAsync(
+                            leaseName, reconcileHolder, _DispatchAdmissionTtl, record.TenantId, token).ConfigureAwait(false))
+                        {
+                            allHeld = false;
+                            break;
+                        }
+                        held.Add(leaseName);
+                    }
+
+                    if (!allHeld)
+                    {
+                        result.Busy++;
+                        continue;
+                    }
+
+                    string? recordedVoyageId;
+                    voyageByAttempt.TryGetValue(record.AttemptId, out recordedVoyageId);
+                    record.VoyageId = recordedVoyageId;
+                    record.Outcome = await ReconcileAttemptAsync(
+                        record,
+                        new HashSet<string>(voyageByAttempt.Values, StringComparer.OrdinalIgnoreCase),
+                        recallCaptain,
+                        result,
+                        token).ConfigureAwait(false);
+                    await ObjectiveDispatchAdmission.WriteAttemptEventAsync(
+                        _Database.Events,
+                        ObjectiveDispatchAdmission.ClosedEventType,
+                        record,
+                        "Objective dispatch attempt " + record.AttemptId + " reconciled: " + record.Outcome + ".",
+                        token).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    result.Unresolved.Add(record.AttemptId + ": " + ex.Message);
+                    _Logging?.Warn(_Header + "could not reconcile dispatch attempt " + record.AttemptId
+                        + "; it stays open for the next pass: " + ex.Message);
+                }
+                finally
+                {
+                    await ReleaseLeasesAsync(held, reconcileHolder).ConfigureAwait(false);
+                }
+            }
+
+            return result;
+        }
+
+        private static readonly TimeSpan _DispatchAttemptReconciliationWindow = TimeSpan.FromDays(7);
+
+        private sealed class AdmissionKey
+        {
+            public AdmissionKey(string objectiveId, string leaseName)
+            {
+                ObjectiveId = objectiveId;
+                LeaseName = leaseName;
+            }
+
+            public string ObjectiveId { get; }
+
+            public string LeaseName { get; }
+        }
+
+        private async Task<string> ReconcileAttemptAsync(
+            ObjectiveDispatchAttemptRecord record,
+            HashSet<string> recordedVoyageIds,
+            Func<string, CancellationToken, Task>? recallCaptain,
+            ObjectiveDispatchAttemptReconciliationResult result,
+            CancellationToken token)
+        {
+            Voyage? voyage;
+            if (!String.IsNullOrWhiteSpace(record.VoyageId))
+            {
+                voyage = await _Database.Voyages.ReadAsync(record.VoyageId, token).ConfigureAwait(false);
+                if (voyage == null)
+                {
+                    result.ClosedWithoutVoyage++;
+                    return "voyage_missing";
+                }
+            }
+            else
+            {
+                List<Voyage> candidates = await FindUnrecordedAttemptVoyagesAsync(record, recordedVoyageIds, token).ConfigureAwait(false);
+                if (candidates.Count == 0)
+                {
+                    result.ClosedWithoutVoyage++;
+                    return "no_voyage";
+                }
+                if (candidates.Count > 1)
+                {
+                    string ambiguous = record.AttemptId + ": " + candidates.Count + " unlinked voyages match the attempt ("
+                        + String.Join(", ", candidates.Select(item => item.Id)) + "); none was cancelled";
+                    result.Unresolved.Add(ambiguous);
+                    _Logging?.Warn(_Header + "dispatch attempt " + ambiguous + ".");
+                    return "ambiguous_voyage";
+                }
+                voyage = candidates[0];
+                record.VoyageId = voyage.Id;
+            }
+
+            List<Objective> objectives = new List<Objective>();
+            foreach (string objectiveId in record.ObjectiveIds)
+            {
+                Objective? objective = await _Database.Objectives.ReadAsync(objectiveId, token).ConfigureAwait(false);
+                if (objective != null) objectives.Add(objective);
+            }
+
+            bool linkedAnywhere = objectives.Any(item => item.VoyageIds.Contains(voyage.Id, StringComparer.OrdinalIgnoreCase));
+            if (linkedAnywhere)
+            {
+                result.Kept++;
+                if (IsActiveVoyageStatus(voyage.Status))
+                {
+                    AuthContext systemAuth = AuthContext.Authenticated(
+                        record.TenantId ?? Armada.Core.Constants.DefaultTenantId,
+                        Armada.Core.Constants.DefaultUserId,
+                        true,
+                        true,
+                        "DispatchAttemptReconciliation");
+                    foreach (Objective objective in objectives.Where(item =>
+                        !item.VoyageIds.Contains(voyage.Id, StringComparer.OrdinalIgnoreCase)
+                        && !ObjectiveLifecycleRules.IsTerminalStatus(item.Status)))
+                    {
+                        try
+                        {
+                            await LinkVoyageAsync(systemAuth, objective.Id, voyage.Id, token).ConfigureAwait(false);
+                        }
+                        catch (ObjectiveAlreadyDispatchedException ex)
+                        {
+                            _Logging?.Warn(_Header + "dispatch attempt " + record.AttemptId + " kept voyage " + voyage.Id
+                                + " but objective " + objective.Id + " already runs voyage " + ex.WinningVoyageId + "; left unlinked.");
+                        }
+                    }
+                }
+                return "kept_linked_voyage";
+            }
+
+            if (!IsActiveVoyageStatus(voyage.Status))
+            {
+                result.ClosedWithoutVoyage++;
+                return "voyage_already_terminal";
+            }
+
+            await VoyageCancellation.CancelVoyageAsync(
+                _Database,
+                voyage,
+                "Voyage cancelled: its objective dispatch attempt stopped before linking.",
+                token,
+                recallCaptain).ConfigureAwait(false);
+            result.CancelledOrphans++;
+            _Logging?.Warn(_Header + "dispatch attempt " + record.AttemptId + " stopped before linking; cancelled orphan voyage " + voyage.Id + ".");
+            return "cancelled_orphan";
+        }
+
+        private async Task<List<Voyage>> FindUnrecordedAttemptVoyagesAsync(
+            ObjectiveDispatchAttemptRecord record,
+            HashSet<string> recordedVoyageIds,
+            CancellationToken token)
+        {
+            List<Voyage> matches = new List<Voyage>();
+            if (String.IsNullOrWhiteSpace(record.Title)) return matches;
+
+            List<Voyage> active = new List<Voyage>();
+            active.AddRange(await _Database.Voyages.EnumerateByStatusAsync(VoyageStatusEnum.Open, token).ConfigureAwait(false));
+            active.AddRange(await _Database.Voyages.EnumerateByStatusAsync(VoyageStatusEnum.InProgress, token).ConfigureAwait(false));
+            if (active.Count == 0) return matches;
+
+            HashSet<string> linkedVoyageIds = (await _Database.Objectives.EnumerateAsync(token).ConfigureAwait(false))
+                .SelectMany(item => item.VoyageIds)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            DateTime earliest = record.StartedUtc - TimeSpan.FromSeconds(5);
+            foreach (Voyage voyage in active)
+            {
+                if (!String.Equals(voyage.Title, record.Title, StringComparison.Ordinal)) continue;
+                if (voyage.CreatedUtc < earliest) continue;
+                if (recordedVoyageIds.Contains(voyage.Id) || linkedVoyageIds.Contains(voyage.Id)) continue;
+                if (!String.IsNullOrWhiteSpace(record.VesselId))
+                {
+                    List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
+                    if (missions.Any(mission => !String.Equals(mission.VesselId, record.VesselId, StringComparison.OrdinalIgnoreCase)))
+                        continue;
+                }
+                matches.Add(voyage);
+            }
+
+            return matches;
+        }
+
+        private async Task<bool> IsAttemptOwnerLiveAsync(ObjectiveDispatchAttemptRecord record, CancellationToken token)
+        {
+            foreach (string leaseName in record.LeaseNames)
+            {
+                CoordinationLease? lease = await _Database.CoordinationLeases.ReadAsync(leaseName, token).ConfigureAwait(false);
+                if (lease != null
+                    && String.Equals(lease.Holder, record.AttemptId, StringComparison.Ordinal)
+                    && lease.ExpiresUtc > DateTime.UtcNow)
+                    return true;
+            }
+            return false;
+        }
+
+        private async Task<TimeSpan> ReadRetryAfterAsync(string leaseName, CancellationToken token)
+        {
+            CoordinationLease? lease = await _Database.CoordinationLeases.ReadAsync(leaseName, token).ConfigureAwait(false);
+            TimeSpan remaining = lease == null ? TimeSpan.Zero : lease.ExpiresUtc - DateTime.UtcNow;
+            if (remaining < TimeSpan.FromSeconds(1)) return TimeSpan.FromSeconds(1);
+            return remaining > _DispatchAdmissionTtl ? _DispatchAdmissionTtl : remaining;
+        }
+
+        private async Task ReleaseLeasesAsync(List<string> leaseNames, string holder)
+        {
+            foreach (string leaseName in leaseNames)
+            {
+                try
+                {
+                    await _Database.CoordinationLeases.ReleaseAsync(leaseName, holder, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception releaseEx)
+                {
+                    _Logging?.Warn(_Header + "could not release dispatch admission " + leaseName + ": " + releaseEx.Message);
+                }
+            }
+        }
+
+        private static ObjectiveDispatchAttemptRecord? DeserializeAttempt(string? payload)
+        {
+            if (String.IsNullOrWhiteSpace(payload)) return null;
+            try
+            {
+                return JsonSerializer.Deserialize<ObjectiveDispatchAttemptRecord>(payload, _JsonOptions);
+            }
+            catch (JsonException)
+            {
+                // The caller reports an unreadable record by attempt id.
+                return null;
+            }
         }
 
         /// <summary>
@@ -75,65 +522,17 @@ namespace Armada.Core.Services
         public static int ActiveVoyageLinkLockCount => _VoyageLinkLocks.Count;
 
         /// <summary>
-        /// Acquire the durable reservation shared by scheduler and operator dispatch. The caller
-        /// must hold the returned lease from before voyage creation until after objective linking.
+        /// Acquire the durable reservation shared by scheduler and operator dispatch for one objective.
+        /// The caller must hold the returned admission from before voyage creation until after
+        /// objective linking.
         /// </summary>
-        public async Task<ObjectiveDispatchAdmission> AcquireDispatchAdmissionAsync(
+        public Task<ObjectiveDispatchAdmission> AcquireDispatchAdmissionAsync(
             AuthContext auth,
             string objectiveId,
             CancellationToken token = default)
         {
-            if (auth == null) throw new ArgumentNullException(nameof(auth));
             if (String.IsNullOrWhiteSpace(objectiveId)) throw new ArgumentNullException(nameof(objectiveId));
-
-            string leaseName = BuildDispatchAdmissionLeaseName(auth.TenantId, objectiveId);
-            string holder = "dispatch-" + Guid.NewGuid().ToString("N");
-            bool acquired = false;
-            try
-            {
-                while (!acquired)
-                {
-                    token.ThrowIfCancellationRequested();
-                    acquired = await _Database.CoordinationLeases.TryAcquireAsync(
-                        leaseName,
-                        holder,
-                        _DispatchAdmissionTtl,
-                        auth.TenantId,
-                        token).ConfigureAwait(false);
-                    if (!acquired)
-                        await Task.Delay(25, token).ConfigureAwait(false);
-                }
-
-                Objective objective = await ReadAsync(auth, objectiveId, token).ConfigureAwait(false)
-                    ?? throw new InvalidOperationException("Objective not found.");
-                string? activeVoyageId = await FindActiveLinkedVoyageIdAsync(objective, token).ConfigureAwait(false);
-                if (activeVoyageId != null)
-                    throw new ObjectiveAlreadyDispatchedException(objectiveId, activeVoyageId);
-
-                return new ObjectiveDispatchAdmission(
-                    _Database.CoordinationLeases,
-                    leaseName,
-                    holder,
-                    _DispatchAdmissionTtl,
-                    objective,
-                    _Logging);
-            }
-            catch
-            {
-                if (acquired)
-                {
-                    try
-                    {
-                        await _Database.CoordinationLeases.ReleaseAsync(leaseName, holder, CancellationToken.None).ConfigureAwait(false);
-                    }
-                    catch (Exception releaseEx)
-                    {
-                        _Logging?.Warn("[ObjectiveService] could not release failed dispatch admission "
-                            + leaseName + ": " + releaseEx.Message);
-                    }
-                }
-                throw;
-            }
+            return AcquireDispatchAdmissionAsync(auth, new[] { objectiveId }, null, token);
         }
 
         /// <summary>
@@ -680,7 +1079,8 @@ namespace Armada.Core.Services
             string objectiveId,
             string voyageId,
             CancellationToken token = default,
-            bool isRescueLink = false)
+            bool isRescueLink = false,
+            ObjectiveDispatchAdmission? admission = null)
         {
             if (auth == null) throw new ArgumentNullException(nameof(auth));
             if (String.IsNullOrWhiteSpace(objectiveId)) throw new ArgumentNullException(nameof(objectiveId));
@@ -716,6 +1116,10 @@ namespace Armada.Core.Services
 
                 PromoteStatus(objective, ObjectiveStatusEnum.InProgress);
                 objective.BacklogState = ObjectiveBacklogStateEnum.Dispatched;
+
+                // Fence the write: an admitted dispatch links only while it still owns every lease.
+                if (admission != null)
+                    await admission.ConfirmOwnershipAsync(token).ConfigureAwait(false);
                 return await PersistLinkedObjectiveAsync(auth, objective, token).ConfigureAwait(false);
             }
         }

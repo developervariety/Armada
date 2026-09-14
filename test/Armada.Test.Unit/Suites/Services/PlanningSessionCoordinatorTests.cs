@@ -288,6 +288,73 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("DispatchAsync links every planning objective inside dispatch admission", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CoordinatorFixture fixture = new CoordinatorFixture(testDb.Driver))
+                {
+                    PlanningObjectivesResult planning = await CreateTwoObjectivePlanningAsync(fixture, testDb, "multi-link").ConfigureAwait(false);
+
+                    Voyage voyage = await fixture.Coordinator.DispatchAsync(
+                        planning.Session,
+                        new PlanningSessionDispatchRequest { MessageId = planning.MessageId, Title = "Multi-objective dispatch" }).ConfigureAwait(false);
+
+                    foreach (Objective objective in new[] { planning.Primary, planning.Secondary })
+                    {
+                        Objective stored = (await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false))!;
+                        AssertTrue(stored.VoyageIds.Contains(voyage.Id),
+                            "The planning dispatch itself must link objective " + objective.Title + "; no caller may link after creation.");
+                        AssertNull(await testDb.Driver.CoordinationLeases.ReadAsync(
+                                ObjectiveService.BuildDispatchAdmissionLeaseName(planning.TenantId, objective.Id)).ConfigureAwait(false),
+                            "Every admission must be released after the admitted links.");
+                    }
+                }
+            });
+
+            await RunTest("DispatchAsync refuses before creating a voyage when any planning objective is already dispatched", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                using (CoordinatorFixture fixture = new CoordinatorFixture(testDb.Driver))
+                {
+                    PlanningObjectivesResult planning = await CreateTwoObjectivePlanningAsync(fixture, testDb, "multi-refuse").ConfigureAwait(false);
+                    Voyage winner = await testDb.Driver.Voyages.CreateAsync(new Voyage("Existing winner")
+                    {
+                        TenantId = planning.TenantId,
+                        UserId = planning.UserId,
+                        Status = VoyageStatusEnum.InProgress
+                    }).ConfigureAwait(false);
+                    Objective secondary = (await testDb.Driver.Objectives.ReadAsync(planning.Secondary.Id).ConfigureAwait(false))!;
+                    secondary.VoyageIds.Add(winner.Id);
+                    secondary.Status = ObjectiveStatusEnum.InProgress;
+                    await testDb.Driver.Objectives.UpdateAsync(secondary).ConfigureAwait(false);
+
+                    Exception? failure = null;
+                    try
+                    {
+                        await fixture.Coordinator.DispatchAsync(
+                            planning.Session,
+                            new PlanningSessionDispatchRequest { MessageId = planning.MessageId, Title = "Refused planning dispatch" }).ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        failure = ex;
+                    }
+
+                    AssertNotNull(failure, "A planning dispatch covering an already-dispatched objective must be refused.");
+                    AssertContains("objective_already_dispatched", failure!.Message);
+                    List<Voyage> voyages = await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false);
+                    AssertEqual(1, voyages.Count, "Admission must refuse before any planning voyage is created.");
+                    Objective primary = (await testDb.Driver.Objectives.ReadAsync(planning.Primary.Id).ConfigureAwait(false))!;
+                    AssertEqual(0, primary.VoyageIds.Count, "No objective may be linked by a refused dispatch.");
+                    foreach (Objective objective in new[] { planning.Primary, planning.Secondary })
+                    {
+                        AssertNull(await testDb.Driver.CoordinationLeases.ReadAsync(
+                                ObjectiveService.BuildDispatchAdmissionLeaseName(planning.TenantId, objective.Id)).ConfigureAwait(false),
+                            "A refused dispatch releases every admission.");
+                    }
+                }
+            });
+
             await RunTest("DispatchAsync defaults to the latest non-empty assistant response", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -685,6 +752,75 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(recoveredDock!.Active);
                 }
             });
+        }
+
+        private sealed class PlanningObjectivesResult
+        {
+            public string TenantId { get; set; } = String.Empty;
+
+            public string UserId { get; set; } = String.Empty;
+
+            public PlanningSession Session { get; set; } = null!;
+
+            public string MessageId { get; set; } = String.Empty;
+
+            public Objective Primary { get; set; } = null!;
+
+            public Objective Secondary { get; set; } = null!;
+        }
+
+        private static async Task<PlanningObjectivesResult> CreateTwoObjectivePlanningAsync(
+            CoordinatorFixture fixture,
+            TestDatabase testDb,
+            string name)
+        {
+            CoordinatorFixture.TenantUserResult tenantUser = await fixture.CreateTenantUserAsync("Tenant " + name).ConfigureAwait(false);
+            Pipeline pipeline = await fixture.CreatePipelineAsync(tenantUser.TenantId, "Pipeline " + name).ConfigureAwait(false);
+            Vessel vessel = await fixture.CreateVesselAsync("vessel-" + name, tenantUser.TenantId, tenantUser.UserId).ConfigureAwait(false);
+            Captain captain = await fixture.CreateCaptainAsync("planner-" + name, AgentRuntimeEnum.ClaudeCode, tenantUser.TenantId, tenantUser.UserId).ConfigureAwait(false);
+            AuthContext auth = AuthContext.Authenticated(tenantUser.TenantId, tenantUser.UserId, false, true, "UnitTest");
+            Objective primary = await fixture.Objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+            {
+                Title = "Primary " + name,
+                VesselIds = new List<string> { vessel.Id }
+            }).ConfigureAwait(false);
+            Objective secondary = await fixture.Objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+            {
+                Title = "Secondary " + name,
+                VesselIds = new List<string> { vessel.Id }
+            }).ConfigureAwait(false);
+
+            PlanningSession session = await fixture.Coordinator.CreateAsync(
+                tenantUser.TenantId,
+                tenantUser.UserId,
+                captain,
+                vessel,
+                new PlanningSessionCreateRequest
+                {
+                    Title = "Plan " + name,
+                    PipelineId = pipeline.Id,
+                    ObjectiveId = primary.Id
+                }).ConfigureAwait(false);
+            await fixture.Objectives.LinkPlanningSessionAsync(auth, primary.Id, session.Id).ConfigureAwait(false);
+            await fixture.Objectives.LinkPlanningSessionAsync(auth, secondary.Id, session.Id).ConfigureAwait(false);
+
+            PlanningSessionMessage message = await testDb.Driver.PlanningSessionMessages.CreateAsync(new PlanningSessionMessage
+            {
+                PlanningSessionId = session.Id,
+                Role = "Assistant",
+                Sequence = 1,
+                Content = "Implement both planned objectives."
+            }).ConfigureAwait(false);
+
+            return new PlanningObjectivesResult
+            {
+                TenantId = tenantUser.TenantId,
+                UserId = tenantUser.UserId,
+                Session = session,
+                MessageId = message.Id,
+                Primary = primary,
+                Secondary = secondary
+            };
         }
 
         private sealed class CoordinatorFixture : IDisposable

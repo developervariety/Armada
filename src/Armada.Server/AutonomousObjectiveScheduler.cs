@@ -1333,7 +1333,19 @@ namespace Armada.Server
             ObjectiveDispatchAdmission admission;
             try
             {
-                admission = await _Objectives.AcquireDispatchAdmissionAsync(objectiveAuth, objective.Id, token).ConfigureAwait(false);
+                admission = await _Objectives.AcquireDispatchAdmissionAsync(
+                    objectiveAuth,
+                    new[] { objective.Id },
+                    new ObjectiveDispatchAttemptDescriptor { Title = objective.Title, VesselId = vesselId },
+                    token).ConfigureAwait(false);
+            }
+            catch (ObjectiveDispatchBusyException busy)
+            {
+                await EmitObjectiveEventAsync("objective_scheduler.skipped_admission_busy",
+                    "Autonomous scheduler skipped objective " + objective.Id + ": another request holds its dispatch admission; retry after "
+                        + Math.Ceiling(busy.RetryAfter.TotalSeconds) + " second(s).",
+                    objective, vesselId, token).ConfigureAwait(false);
+                throw new ObjectiveSkippedException("admission_busy");
             }
             catch (ObjectiveAlreadyDispatchedException alreadyDispatched)
             {
@@ -1370,8 +1382,10 @@ namespace Armada.Server
 
                 try
                 {
+                    await admission.RecordVoyageCreatedAsync(voyage, token).ConfigureAwait(false);
                     admission.ThrowIfOwnershipLost();
-                    await _Objectives.LinkVoyageAsync(objectiveAuth, objective.Id, voyage.Id, token).ConfigureAwait(false);
+                    await _Objectives.LinkVoyageAsync(objectiveAuth, objective.Id, voyage.Id, token, false, admission).ConfigureAwait(false);
+                    admission.MarkLinked();
                 }
                 catch
                 {

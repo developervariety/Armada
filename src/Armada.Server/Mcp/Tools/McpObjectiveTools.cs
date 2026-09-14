@@ -807,12 +807,13 @@ namespace Armada.Server.Mcp.Tools
                         PlanningSession session = await ReadPlanningSessionForContextAsync(database, auth, request.SessionId).ConfigureAwait(false)
                             ?? throw new InvalidOperationException("Planning session not found.");
                         Voyage voyage = await planningSessionCoordinator.DispatchAsync(session, request.ToDispatchRequest()).ConfigureAwait(false);
-                        List<Objective> linkedObjectives = await objectiveService.EnumerateByPlanningSessionAsync(auth, session.Id).ConfigureAwait(false);
-                        List<Objective> updatedObjectives = new List<Objective>();
-                        foreach (Objective linkedObjective in linkedObjectives)
+                        // The planning dispatch links every session objective inside admission; read the result back.
+                        List<Objective> updatedObjectives = (await objectiveService.EnumerateAsync(auth, new ObjectiveQuery
                         {
-                            updatedObjectives.Add(await objectiveService.LinkVoyageAsync(auth, linkedObjective.Id, voyage.Id).ConfigureAwait(false));
-                        }
+                            PageNumber = 1,
+                            PageSize = 500,
+                            VoyageId = voyage.Id
+                        }).ConfigureAwait(false)).Objects;
 
                         return (object)new
                         {

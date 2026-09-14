@@ -238,6 +238,36 @@ losing voyage. A link failure cancels the new voyage and its active mission
 rows. A terminal voyage permits an intentional successor. Recovery uses a
 separate explicit rescue link because it continues a failed chain.
 
+Admission waits are bounded. When another request holds an objective's
+admission for longer than five seconds, dispatch creates nothing and returns
+409 `objective_dispatch_busy` with `Retryable: true` and `RetryAfterSeconds`.
+Bare REST and remote-control dispatch return the same code. The scheduler
+records the skip reason `admission_busy` and tries again on a later sweep.
+
+A planning-session dispatch admits the session objective and every other
+objective linked to the session in one operation. Their leases are taken in a
+stable order before the voyage is created, so two planning dispatches over
+overlapping objectives cannot deadlock, and every link is made inside that
+admission. If any objective is busy or already dispatched, every lease is
+released and no voyage is created. If a later link fails, the objectives already
+linked are restored and the voyage is cancelled. The REST and MCP planning
+dispatch paths perform no objective link after the voyage exists.
+
+Every admitted dispatch writes a durable attempt record as events:
+`objective.dispatch_attempt.started`, `objective.dispatch_attempt.voyage_created`
+and `objective.dispatch_attempt.closed`. The attempt id is the holder of every
+admission lease it owns. Just before each objective write, linking renews every
+lease with a compare-and-set. A dispatch that no longer owns its leases cannot
+link, and its voyage is cancelled. The health loop reconciles an attempt that
+never closed once its owner no longer holds a live lease. Reconciliation first
+takes the attempt's admission. A voyage already linked to any admitted objective
+is the winner: it is never cancelled, and it is linked to the remaining admitted
+objectives that have no other active voyage. An active voyage that no objective
+links is cancelled with its missions. When the process stopped before the voyage
+id was recorded, the voyage is matched by the recorded title, vessel and start
+time. If more than one voyage matches, nothing is cancelled and the attempt is
+closed as unresolved with a warning.
+
 Inside one Admiral process, objective linking is also serialized per objective
 by an in-memory keyed lock. That lock is local defense-in-depth only; it is not
 cross-instance admission. The database lease is the guarantee. A lock entry

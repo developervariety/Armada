@@ -246,7 +246,10 @@ namespace Armada.Server.Routes
                     {
                         try
                         {
-                            admission = await _objectives.AcquireDispatchAdmissionAsync(ctx, linkedObjective.Id).ConfigureAwait(false);
+                            admission = await _objectives.AcquireDispatchAdmissionAsync(
+                                ctx,
+                                new[] { linkedObjective.Id },
+                                new ObjectiveDispatchAttemptDescriptor { Title = voyageReq.Title, VesselId = voyageReq.VesselId }).ConfigureAwait(false);
                         }
                         catch (ObjectiveAlreadyDispatchedException alreadyDispatched)
                         {
@@ -257,6 +260,18 @@ namespace Armada.Server.Routes
                                 Code = "objective_already_dispatched",
                                 ObjectiveId = linkedObjective.Id,
                                 VoyageId = alreadyDispatched.WinningVoyageId
+                            };
+                        }
+                        catch (ObjectiveDispatchBusyException busy)
+                        {
+                            req.Http.Response.StatusCode = 409;
+                            return new
+                            {
+                                Error = "Objective dispatch admission is busy.",
+                                Code = "objective_dispatch_busy",
+                                ObjectiveId = linkedObjective.Id,
+                                Retryable = true,
+                                RetryAfterSeconds = (int)Math.Ceiling(busy.RetryAfter.TotalSeconds)
                             };
                         }
                     }
@@ -280,8 +295,11 @@ namespace Armada.Server.Routes
 
                         if (linkedObjective != null)
                         {
+                            if (admission != null)
+                                await admission.RecordVoyageCreatedAsync(bareVoyage).ConfigureAwait(false);
                             admission?.ThrowIfOwnershipLost();
-                            await _objectives.LinkVoyageAsync(ctx, linkedObjective.Id, bareVoyage.Id).ConfigureAwait(false);
+                            await _objectives.LinkVoyageAsync(ctx, linkedObjective.Id, bareVoyage.Id, default, false, admission).ConfigureAwait(false);
+                            admission?.MarkLinked();
                         }
                         voyage = bareVoyage;
                     }

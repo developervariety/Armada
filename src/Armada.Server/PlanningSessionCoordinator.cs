@@ -355,6 +355,22 @@ namespace Armada.Server
                 new MissionDescription(title, description)
             };
 
+            // Every objective linked to the session is admitted with the session objective before the
+            // voyage exists and linked inside that admission; no caller links after creation.
+            List<string> linkedObjectiveIds = new List<string>();
+            if (_ObjectiveService != null)
+            {
+                AuthContext objectiveAuth = BuildObjectiveAuthContext(session)
+                    ?? Mcp.Tools.McpToolHelpers.CreateDefaultTenantAdminContext();
+                List<Objective> sessionObjectives = await _ObjectiveService
+                    .EnumerateByPlanningSessionAsync(objectiveAuth, session.Id, token).ConfigureAwait(false);
+                foreach (Objective sessionObjective in sessionObjectives)
+                {
+                    if (!String.Equals(sessionObjective.Id, session.ObjectiveId, StringComparison.OrdinalIgnoreCase))
+                        linkedObjectiveIds.Add(sessionObjective.Id);
+                }
+            }
+
             VoyageDispatchService dispatchService = new VoyageDispatchService(
                 _Database,
                 _Admiral,
@@ -371,6 +387,7 @@ namespace Armada.Server
                 CodeContextMode = "off",
                 PipelineId = session.PipelineId,
                 ObjectiveId = session.ObjectiveId,
+                LinkedObjectiveIds = linkedObjectiveIds,
                 ObjectiveAuthContext = BuildObjectiveAuthContext(session),
                 SelectedPlaybooks = session.SelectedPlaybooks,
                 Settings = _Settings

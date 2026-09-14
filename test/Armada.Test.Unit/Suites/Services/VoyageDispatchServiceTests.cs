@@ -1327,6 +1327,176 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(winner.Id, allVoyages[0].Id);
             });
 
+            await RunTest("DispatchAsync_BusyObjectiveAdmission_ReturnsRetryableConflictWithoutCreatingVoyage", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("busy-admission-vessel", "https://github.com/test/busy.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Busy admission",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    VesselIds = new List<string> { vessel.Id }
+                }).ConfigureAwait(false);
+                AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                VoyageDispatchService service = new VoyageDispatchService(
+                    testDb.Driver,
+                    admiral,
+                    objectiveService: new ObjectiveService(testDb.Driver, dispatchAdmissionWait: TimeSpan.FromMilliseconds(200)),
+                    settings: new ArmadaSettings { CodeIndex = { Enabled = false } });
+
+                await using (ObjectiveDispatchAdmission held = await new ObjectiveService(testDb.Driver)
+                    .AcquireDispatchAdmissionAsync(auth, objective.Id).ConfigureAwait(false))
+                {
+                    using (CancellationTokenSource cancel = new CancellationTokenSource(TimeSpan.FromSeconds(5)))
+                    {
+                        VoyageDispatchResult? result = null;
+                        Exception? failure = null;
+                        try
+                        {
+                            result = await service.DispatchAsync(new SharedVoyageDispatchRequest
+                            {
+                                Title = "Busy dispatch",
+                                VesselId = vessel.Id,
+                                ObjectiveId = objective.Id,
+                                Missions = new List<MissionDescription> { new MissionDescription("Implement", "Busy work.") }
+                            }, cancel.Token).ConfigureAwait(false);
+                        }
+                        catch (Exception ex)
+                        {
+                            failure = ex;
+                        }
+
+                        AssertNull(failure, "A busy admission must return a result, not wait for cancellation.");
+                        AssertEqual(409, result!.StatusCode);
+                        string payload = JsonSerializer.Serialize(result.Value);
+                        AssertContains("objective_dispatch_busy", payload);
+                        AssertContains("\"Retryable\":true", payload);
+                        AssertFalse(admiral.DispatchVoyageCalled, "A busy admission must not create a voyage.");
+                    }
+                }
+            });
+
+            await RunTest("DispatchAsync_OppositeOrderMultiObjectiveDispatches_OneWinsWithoutDeadlockOrDuplicate", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("multi-order-vessel", "https://github.com/test/multi-order.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                Objective first = await CreateScopedObjectiveAsync(testDb, "Multi order one", vessel.Id).ConfigureAwait(false);
+                Objective second = await CreateScopedObjectiveAsync(testDb, "Multi order two", vessel.Id).ConfigureAwait(false);
+
+                VoyageDispatchService Build(RecordingAdmiralService admiral)
+                {
+                    return new VoyageDispatchService(
+                        testDb.Driver,
+                        admiral,
+                        objectiveService: new ObjectiveService(testDb.Driver, dispatchAdmissionWait: TimeSpan.FromSeconds(3)),
+                        settings: new ArmadaSettings { CodeIndex = { Enabled = false } });
+                }
+
+                RecordingAdmiralService leftAdmiral = new RecordingAdmiralService(testDb.Driver)
+                {
+                    AfterVoyageCreateAsync = () => Task.Delay(150)
+                };
+                RecordingAdmiralService rightAdmiral = new RecordingAdmiralService(testDb.Driver)
+                {
+                    AfterVoyageCreateAsync = () => Task.Delay(150)
+                };
+                Task<VoyageDispatchResult> left = Build(leftAdmiral).DispatchAsync(new SharedVoyageDispatchRequest
+                {
+                    Title = "Left planning dispatch",
+                    VesselId = vessel.Id,
+                    ObjectiveId = first.Id,
+                    LinkedObjectiveIds = new List<string> { second.Id },
+                    Missions = new List<MissionDescription> { new MissionDescription("Implement", "Left work.") }
+                });
+                Task<VoyageDispatchResult> right = Build(rightAdmiral).DispatchAsync(new SharedVoyageDispatchRequest
+                {
+                    Title = "Right planning dispatch",
+                    VesselId = vessel.Id,
+                    ObjectiveId = second.Id,
+                    LinkedObjectiveIds = new List<string> { first.Id },
+                    Missions = new List<MissionDescription> { new MissionDescription("Implement", "Right work.") }
+                });
+
+                Task both = Task.WhenAll(left, right);
+                Task finished = await Task.WhenAny(both, Task.Delay(TimeSpan.FromSeconds(20))).ConfigureAwait(false);
+                AssertTrue(ReferenceEquals(finished, both), "Opposite-order multi-objective dispatches must not deadlock.");
+
+                VoyageDispatchResult[] results = new[] { left.Result, right.Result };
+                AssertEqual(1, results.Count(result => result.Succeeded), "Exactly one overlapping dispatch may win.");
+                VoyageDispatchResult loser = results.Single(result => !result.Succeeded);
+                AssertEqual(409, loser.StatusCode);
+                AssertEqual(1, leftAdmiral.DispatchVoyageCallCount + rightAdmiral.DispatchVoyageCallCount,
+                    "The loser must be refused before it creates a voyage.");
+
+                Voyage winner = results.Single(result => result.Succeeded).Voyage!;
+                foreach (Objective objective in new[] { first, second })
+                {
+                    Objective stored = (await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false))!;
+                    AssertEqual(1, stored.VoyageIds.Count, "No objective may carry a second nonterminal voyage.");
+                    AssertEqual(winner.Id, stored.VoyageIds[0], "Every objective is linked to the one winning voyage.");
+                }
+            });
+
+            await RunTest("DispatchAsync_MultiObjectiveLaterLinkFailure_RestoresEarlierObjectiveAndCancelsVoyage", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("multi-revert-vessel", "https://github.com/test/multi-revert.git")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId
+                }).ConfigureAwait(false);
+                Objective x = await CreateScopedObjectiveAsync(testDb, "Revert x", vessel.Id).ConfigureAwait(false);
+                Objective y = await CreateScopedObjectiveAsync(testDb, "Revert y", vessel.Id).ConfigureAwait(false);
+                List<Objective> ordered = new[] { x, y }
+                    .OrderBy(item => ObjectiveService.BuildDispatchAdmissionLeaseName(Constants.DefaultTenantId, item.Id), StringComparer.Ordinal)
+                    .ToList();
+                Objective earlier = ordered[0];
+                Objective later = ordered[1];
+                later.SuggestedPipelineId = "ppl_missing";
+                await testDb.Driver.Objectives.UpdateAsync(later).ConfigureAwait(false);
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                VoyageDispatchService service = new VoyageDispatchService(
+                    testDb.Driver,
+                    admiral,
+                    objectiveService: new ObjectiveService(testDb.Driver),
+                    settings: new ArmadaSettings { CodeIndex = { Enabled = false } });
+
+                VoyageDispatchResult result = await service.DispatchAsync(new SharedVoyageDispatchRequest
+                {
+                    Title = "Partial link failure",
+                    VesselId = vessel.Id,
+                    ObjectiveId = earlier.Id,
+                    LinkedObjectiveIds = new List<string> { later.Id },
+                    Missions = new List<MissionDescription> { new MissionDescription("Implement", "Must not survive a partial link.") }
+                }).ConfigureAwait(false);
+
+                AssertFalse(result.Succeeded);
+                AssertContains("objective_link_failed", JsonSerializer.Serialize(result.Value));
+                List<Voyage> voyages = await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false);
+                AssertEqual(1, voyages.Count);
+                AssertEqual(VoyageStatusEnum.Cancelled, voyages[0].Status, "The voyage of a partially linked dispatch must be cancelled.");
+                Objective restored = (await testDb.Driver.Objectives.ReadAsync(earlier.Id).ConfigureAwait(false))!;
+                AssertEqual(0, restored.VoyageIds.Count, "The earlier objective must not keep the cancelled voyage.");
+                AssertEqual(ObjectiveStatusEnum.Scoped, restored.Status);
+                AssertEqual(ObjectiveBacklogStateEnum.ReadyForDispatch, restored.BacklogState);
+                foreach (Objective objective in ordered)
+                {
+                    AssertNull(await testDb.Driver.CoordinationLeases.ReadAsync(
+                            ObjectiveService.BuildDispatchAdmissionLeaseName(Constants.DefaultTenantId, objective.Id)).ConfigureAwait(false),
+                        "Every admission is released after the failure.");
+                }
+            });
+
             await RunTest("DispatchAsync_ObjectiveLinkFailureCancelsCreatedVoyageAndMissions", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -1615,6 +1785,19 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(r.SelectedPlaybooks![j].DeliveryMode, m.SelectedPlaybooks![j].DeliveryMode, "playbook deliveryMode parity #" + i + "." + j);
                 }
             }
+        }
+
+        private static async Task<Objective> CreateScopedObjectiveAsync(TestDatabase testDb, string title, string vesselId)
+        {
+            return await testDb.Driver.Objectives.CreateAsync(new Objective
+            {
+                TenantId = Constants.DefaultTenantId,
+                UserId = Constants.DefaultUserId,
+                Title = title,
+                Status = ObjectiveStatusEnum.Scoped,
+                BacklogState = ObjectiveBacklogStateEnum.ReadyForDispatch,
+                VesselIds = new List<string> { vesselId }
+            }).ConfigureAwait(false);
         }
 
         private sealed class RecordingAdmiralService : IAdmiralService
