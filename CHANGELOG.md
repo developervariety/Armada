@@ -255,6 +255,13 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - The sweep keeps a landed branch that a non-terminal mission still names, and
   it reports a vessel whose default branch is missing as an error instead of a
   clean run. `recover/` refs and human branches remain outside its scope.
+- The sweep now also retires the dock and mission reclaim anchors
+  (`refs/armada/docks/<dockId>`, `refs/armada/missions/<missionId>`) that dock
+  reclaim pushes to origin and that hosted remotes never prune. An anchor is
+  kept while its dock or mission is live, while a `recover/` branch points at
+  the same commit, while its tip is unlanded, and inside
+  `branchCleanupPreservedRefRetentionDays`. Origin deletions carry a lease on
+  the measured tip, and the summary line counts each family separately.
 ### Production attempt facts
 
 - Mission launches, automatic re-runs, restarts, review denials, failures and

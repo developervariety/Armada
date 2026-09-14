@@ -349,6 +349,162 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Prunes landed dock and mission anchors past retention locally and on origin", async () =>
+            {
+                string rootDir = NewTempDir();
+                try
+                {
+                    LandedFixture fx = await CreateLandedFixtureAsync(rootDir).ConfigureAwait(false);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        Vessel vessel = await CreateFixtureVesselAsync(testDb, fx, "sweep-anchors", BranchCleanupPolicyEnum.LocalAndRemote).ConfigureAwait(false);
+
+                        // A terminal mission that names the anchor does not protect it.
+                        Mission finished = new Mission("finished mission", "landed");
+                        finished.Id = "msn_anchorlanded";
+                        finished.VesselId = vessel.Id;
+                        finished.Status = MissionStatusEnum.Complete;
+                        await testDb.Driver.Missions.CreateAsync(finished).ConfigureAwait(false);
+
+                        BranchCleanupSweepService service = new BranchCleanupSweepService(
+                            logging, testDb.Driver, new ArmadaSettings(), new GitService(logging));
+
+                        await service.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+
+                        HashSet<string> local = await ListRefsAsync(fx.Bare).ConfigureAwait(false);
+                        HashSet<string> remote = await ListRefsAsync(fx.Remote).ConfigureAwait(false);
+                        AssertFalse(local.Contains(DockAnchorLanded), "a landed dock anchor older than retention must be deleted from the vessel bare");
+                        AssertFalse(remote.Contains(DockAnchorLanded), "a landed dock anchor older than retention must be deleted from origin");
+                        AssertFalse(remote.Contains(MissionAnchorLanded), "a landed origin-only mission anchor of a terminal mission must be deleted from origin");
+                    }
+                }
+                finally
+                {
+                    TryDelete(rootDir);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Keeps anchors for live missions and docks, unlanded tips, recover pointers and retention", async () =>
+            {
+                string rootDir = NewTempDir();
+                try
+                {
+                    LandedFixture fx = await CreateLandedFixtureAsync(rootDir).ConfigureAwait(false);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        Vessel vessel = await CreateFixtureVesselAsync(testDb, fx, "sweep-anchors-kept", BranchCleanupPolicyEnum.LocalAndRemote).ConfigureAwait(false);
+                        string landedSha = await RunGitAsync(fx.Bare, "rev-parse", "refs/heads/" + LandedOld).ConfigureAwait(false);
+
+                        // Every live anchor below points at a landed commit older than retention, so only
+                        // the live-owner guard can keep it.
+                        Dock liveDock = new Dock(vessel.Id);
+                        liveDock.Active = true;
+                        liveDock = await testDb.Driver.Docks.CreateAsync(liveDock).ConfigureAwait(false);
+
+                        Mission liveMission = new Mission("live mission", "still running");
+                        liveMission.VesselId = vessel.Id;
+                        liveMission.Status = MissionStatusEnum.InProgress;
+                        liveMission.DockId = "dck_anchormissionlive";
+                        liveMission = await testDb.Driver.Missions.CreateAsync(liveMission).ConfigureAwait(false);
+
+                        List<string> liveRefs = new List<string>
+                        {
+                            "refs/armada/docks/" + liveDock.Id,
+                            "refs/armada/docks/dck_anchormissionlive",
+                            "refs/armada/missions/" + liveMission.Id
+                        };
+                        foreach (string liveRef in liveRefs)
+                        {
+                            await RunGitAsync(fx.Bare, "update-ref", liveRef, landedSha).ConfigureAwait(false);
+                            await RunGitAsync(fx.Remote, "update-ref", liveRef, landedSha).ConfigureAwait(false);
+                        }
+
+                        BranchCleanupSweepService service = new BranchCleanupSweepService(
+                            logging, testDb.Driver, new ArmadaSettings(), new GitService(logging));
+
+                        await service.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+
+                        HashSet<string> local = await ListRefsAsync(fx.Bare).ConfigureAwait(false);
+                        HashSet<string> remote = await ListRefsAsync(fx.Remote).ConfigureAwait(false);
+                        foreach (string liveRef in liveRefs)
+                        {
+                            AssertTrue(local.Contains(liveRef) && remote.Contains(liveRef), liveRef + " belongs to a live dock or mission and must survive on both sides");
+                        }
+                        foreach (string kept in new string[] { MissionAnchorUnlanded, DockAnchorYoung, DockAnchorRecover, MissionAnchorRecover })
+                        {
+                            AssertTrue(local.Contains(kept) && remote.Contains(kept), kept + " must survive on both sides");
+                        }
+                        AssertFalse(remote.Contains(DockAnchorLanded), "the sweep must still have removed the unowned landed dock anchor");
+                    }
+                }
+                finally
+                {
+                    TryDelete(rootDir);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Summary line counts the dock and mission anchor families", async () =>
+            {
+                string rootDir = NewTempDir();
+                try
+                {
+                    LandedFixture fx = await CreateLandedFixtureAsync(rootDir).ConfigureAwait(false);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        await CreateFixtureVesselAsync(testDb, fx, "sweep-anchor-summary", BranchCleanupPolicyEnum.LocalAndRemote).ConfigureAwait(false);
+                        BranchCleanupSweepService service = new BranchCleanupSweepService(
+                            logging, testDb.Driver, new ArmadaSettings(), new GitService(logging));
+
+                        BranchCleanupSweepResult result = await service.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+
+                        // Dock anchors: landed-old, young and recover-tip, each in the bare and on origin.
+                        AssertContains(
+                            "dock anchors: candidates 6, kept for active missions 0, kept for recover pointers 2, kept unlanded 0, kept in retention 2, removed local 1, removed origin 1",
+                            result.Summary,
+                            "the summary must count the dock anchor family");
+                        // Mission anchors: landed-old on origin only, unlanded and recover-tip on both sides.
+                        AssertContains(
+                            "mission anchors: candidates 5, kept for active missions 0, kept for recover pointers 2, kept unlanded 2, kept in retention 0, removed local 0, removed origin 1",
+                            result.Summary,
+                            "the summary must count the mission anchor family");
+                    }
+                }
+                finally
+                {
+                    TryDelete(rootDir);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("LocalOnly never removes an anchor from origin", async () =>
+            {
+                string rootDir = NewTempDir();
+                try
+                {
+                    LandedFixture fx = await CreateLandedFixtureAsync(rootDir).ConfigureAwait(false);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        await CreateFixtureVesselAsync(testDb, fx, "sweep-anchor-localonly", BranchCleanupPolicyEnum.LocalOnly).ConfigureAwait(false);
+                        BranchCleanupSweepService service = new BranchCleanupSweepService(
+                            logging, testDb.Driver, new ArmadaSettings(), new GitService(logging));
+
+                        await service.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+
+                        HashSet<string> local = await ListRefsAsync(fx.Bare).ConfigureAwait(false);
+                        HashSet<string> remote = await ListRefsAsync(fx.Remote).ConfigureAwait(false);
+                        AssertFalse(local.Contains(DockAnchorLanded), "LocalOnly must remove a landed dock anchor from the vessel bare");
+                        AssertTrue(remote.Contains(DockAnchorLanded) && remote.Contains(MissionAnchorLanded), "LocalOnly must leave every origin anchor in place");
+                    }
+                }
+                finally
+                {
+                    TryDelete(rootDir);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Logs a summary on a run that removes nothing and names each skipped vessel", async () =>
             {
                 string rootDir = NewTempDir();
@@ -428,6 +584,12 @@ namespace Armada.Test.Unit.Suites.Services
         private const string PreservedOldLanded = "refs/armada-preserved/armada/claude-1/msn_preservedold";
         private const string PreservedYoungLanded = "refs/armada-preserved/armada/claude-1/msn_preservedyoung";
         private const string PreservedUnlanded = "refs/armada-preserved/armada/claude-1/msn_preservedunlanded";
+        private const string DockAnchorLanded = "refs/armada/docks/dck_anchorlanded";
+        private const string DockAnchorYoung = "refs/armada/docks/dck_anchoryoung";
+        private const string DockAnchorRecover = "refs/armada/docks/dck_anchorrecover";
+        private const string MissionAnchorLanded = "refs/armada/missions/msn_anchorlanded";
+        private const string MissionAnchorUnlanded = "refs/armada/missions/msn_anchorunlanded";
+        private const string MissionAnchorRecover = "refs/armada/missions/msn_anchorrecover";
         private const string OldDate = "2020-01-01T00:00:00Z";
 
         private sealed class LandedFixture
@@ -491,7 +653,16 @@ namespace Armada.Test.Unit.Suites.Services
             await RunGitAsync(source, "update-ref", PreservedUnlanded, unlandedSha).ConfigureAwait(false);
             await RunGitAsync(source, "branch", "-D", "tmp/preserved-unlanded").ConfigureAwait(false);
 
-            // Mirror clones carry every ref family, including refs/armada-preserved/.
+            // Reclaim anchors: landed and old, landed and young, unlanded, and at a recover pointer's tip.
+            string recoverSha = await RunGitAsync(source, "rev-parse", RecoverLanded).ConfigureAwait(false);
+            await RunGitAsync(source, "update-ref", DockAnchorLanded, oldLandedSha).ConfigureAwait(false);
+            await RunGitAsync(source, "update-ref", DockAnchorYoung, youngSha).ConfigureAwait(false);
+            await RunGitAsync(source, "update-ref", DockAnchorRecover, recoverSha).ConfigureAwait(false);
+            await RunGitAsync(source, "update-ref", MissionAnchorLanded, oldLandedSha).ConfigureAwait(false);
+            await RunGitAsync(source, "update-ref", MissionAnchorUnlanded, unlandedSha).ConfigureAwait(false);
+            await RunGitAsync(source, "update-ref", MissionAnchorRecover, recoverSha).ConfigureAwait(false);
+
+            // Mirror clones carry every ref family, including refs/armada-preserved/ and refs/armada/.
             await RunGitAsync(rootDir, "clone", "--mirror", source, bare).ConfigureAwait(false);
             await RunGitAsync(rootDir, "clone", "--mirror", source, remote).ConfigureAwait(false);
             await RunGitAsync(rootDir, "clone", remote, working).ConfigureAwait(false);
@@ -499,6 +670,9 @@ namespace Armada.Test.Unit.Suites.Services
             // These two exist only on origin: their bare copies were removed without the origin delete.
             await RunGitAsync(bare, "update-ref", "-d", "refs/heads/" + RemoteOnlyLanded).ConfigureAwait(false);
             await RunGitAsync(bare, "update-ref", "-d", "refs/heads/" + RemoteOnlyUnlanded).ConfigureAwait(false);
+
+            // Dock reclaim pushes anchors to origin, so the vessel bare need not hold one.
+            await RunGitAsync(bare, "update-ref", "-d", MissionAnchorLanded).ConfigureAwait(false);
 
             return new LandedFixture { Bare = bare, Remote = remote, Working = working };
         }

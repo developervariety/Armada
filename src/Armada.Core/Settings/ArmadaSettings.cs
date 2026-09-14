@@ -311,10 +311,12 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// Days the branch cleanup sweep keeps a landed preserved ref (refs/armada-preserved/...),
-        /// measured from the committer time of its tip. A preserved ref whose tip is not an ancestor
-        /// of the default branch is never removed. Zero keeps every preserved ref. Defaults to 14;
-        /// clamped to 0-3650.
+        /// Days the branch cleanup sweep keeps a landed recovery ref written at dock reclaim
+        /// (refs/armada-preserved/..., refs/armada/docks/... and refs/armada/missions/...), measured
+        /// from the committer time of its tip. All three are written by the same reclaim step for the
+        /// same purpose, recovering a produced commit, so they share one window. A ref whose tip is
+        /// not an ancestor of the default branch is never removed. Zero keeps every such ref.
+        /// Defaults to 14; clamped to 0-3650.
         /// </summary>
         public int BranchCleanupPreservedRefRetentionDays
         {

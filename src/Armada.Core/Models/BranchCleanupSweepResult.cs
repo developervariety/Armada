@@ -93,6 +93,16 @@ namespace Armada.Core.Models
         public int SweptPreservedRemote { get; set; } = 0;
 
         /// <summary>
+        /// Dock anchors (refs/armada/docks/&lt;dockId&gt;) written when a dock is reclaimed.
+        /// </summary>
+        public BranchCleanupAnchorFamilyCounts DockAnchors { get; set; } = new BranchCleanupAnchorFamilyCounts();
+
+        /// <summary>
+        /// Mission anchors (refs/armada/missions/&lt;missionId&gt;) written when a dock is reclaimed.
+        /// </summary>
+        public BranchCleanupAnchorFamilyCounts MissionAnchors { get; set; } = new BranchCleanupAnchorFamilyCounts();
+
+        /// <summary>
         /// Deletions or ancestry checks that failed; each is logged.
         /// </summary>
         public int Failed { get; set; } = 0;

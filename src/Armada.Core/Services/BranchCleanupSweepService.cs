@@ -22,9 +22,14 @@ namespace Armada.Core.Services
     /// <remarks>
     /// Rules the sweep holds:
     /// <list type="bullet">
-    /// <item>Only the "armada/" and "armada-landing/" branch namespaces and refs/armada-preserved/ are
-    /// candidates. The two branch prefixes diverge at the character after "armada", so both are
-    /// listed; recover/ refs, human branches and every other ref family are never touched.</item>
+    /// <item>Only the "armada/" and "armada-landing/" branch namespaces, refs/armada-preserved/, and the
+    /// reclaim anchors refs/armada/docks/ and refs/armada/missions/ are candidates. The two branch
+    /// prefixes diverge at the character after "armada", so both are listed; recover/ refs, human
+    /// branches and every other ref family are never touched.</item>
+    /// <item>A reclaim anchor is kept while the dock or mission it names is live, while a recover/
+    /// branch points at the same commit, while its tip is unlanded, and inside the preserved-ref
+    /// retention window. Recover tips come from the vessel bare and, when the sweep lists origin, from
+    /// origin.</item>
     /// <item>Origin is enumerated on its own. A landing can delete the bare copy of a branch while the
     /// origin copy survives, so deciding remote deletions from the bare's branch list misses them.</item>
     /// <item>"Landed" is decided by commit: the ref's tip must be an ancestor of the default branch in the
@@ -41,6 +46,9 @@ namespace Armada.Core.Services
 
         private const string _BranchRefPrefix = "refs/heads/";
         private const string _PreservedRefPrefix = "refs/armada-preserved/";
+        private const string _DockAnchorPrefix = "refs/armada/docks/";
+        private const string _MissionAnchorPrefix = "refs/armada/missions/";
+        private const string _RecoverBranchPrefix = "refs/heads/recover/";
         private const string _RemoteName = "origin";
 
         /// <summary>
@@ -214,10 +222,18 @@ namespace Armada.Core.Services
                 throw new InvalidOperationException("default branch " + defaultBranch + " is not present in " + repoPath);
             }
 
-            HashSet<string> activeBranches = await ReadActiveMissionBranchesAsync(vessel, token).ConfigureAwait(false);
+            List<Mission> missions = await _Database.Missions.EnumerateByVesselAsync(vessel.Id, token).ConfigureAwait(false);
+            HashSet<string> activeBranches = BuildActiveMissionBranches(missions);
+            HashSet<string> liveMissionIds = BuildLiveMissionIds(missions);
+            HashSet<string> liveDockIds = await ReadLiveDockIdsAsync(vessel, missions, token).ConfigureAwait(false);
             DateTime? preservedCutoffUtc = _Settings.BranchCleanupPreservedRefRetentionDays > 0
                 ? DateTime.UtcNow.AddDays(-_Settings.BranchCleanupPreservedRefRetentionDays)
                 : (DateTime?)null;
+
+            // Origin is listed before any local deletion so that a recover/ branch that exists only on
+            // origin still protects the anchors at its tip on both sides.
+            IReadOnlyList<GitRefTip>? remoteTips = await TryListOriginAsync(vessel, policy, result, token).ConfigureAwait(false);
+            HashSet<string> recoverTips = await ReadRecoverTipsAsync(repoPath, remoteTips, token).ConfigureAwait(false);
 
             IReadOnlyList<GitRefTip> localBranches = await _Inventory.EnumerateRefTipsAsync(repoPath, _BranchRefPrefix, token).ConfigureAwait(false);
             foreach (GitRefTip tip in localBranches)
@@ -277,30 +293,11 @@ namespace Armada.Core.Services
                 }
             }
 
-            if (policy != BranchCleanupPolicyEnum.LocalAndRemote)
-            {
-                return;
-            }
+            await SweepLocalAnchorsAsync(vessel, repoPath, _DockAnchorPrefix, liveDockIds, recoverTips, defaultRef, preservedCutoffUtc, result.DockAnchors, result, token).ConfigureAwait(false);
+            await SweepLocalAnchorsAsync(vessel, repoPath, _MissionAnchorPrefix, liveMissionIds, recoverTips, defaultRef, preservedCutoffUtc, result.MissionAnchors, result, token).ConfigureAwait(false);
 
-            if (String.IsNullOrWhiteSpace(vessel.WorkingDirectory) || !Directory.Exists(vessel.WorkingDirectory))
+            if (remoteTips == null)
             {
-                RecordSkip(result, vessel.Id, "origin sweep skipped: no working checkout to reach origin");
-                return;
-            }
-
-            IReadOnlyList<GitRefTip> remoteTips;
-            try
-            {
-                remoteTips = await _Inventory.EnumerateRemoteRefTipsAsync(vessel.WorkingDirectory!, _RemoteName, token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                result.VesselErrors++;
-                RecordSkip(result, vessel.Id, "origin sweep skipped: could not list origin refs: " + ex.Message);
                 return;
             }
 
@@ -318,7 +315,7 @@ namespace Armada.Core.Services
                         continue;
                     }
 
-                    await DeleteRemoteRefAsync(vessel, tip, branch, false, result, token).ConfigureAwait(false);
+                    await DeleteRemoteRefAsync(vessel, tip, branch, () => result.SweptRemote++, result, token).ConfigureAwait(false);
                 }
                 else if (tip.RefName.StartsWith(_PreservedRefPrefix, StringComparison.Ordinal))
                 {
@@ -329,9 +326,185 @@ namespace Armada.Core.Services
                         continue;
                     }
 
-                    await DeleteRemoteRefAsync(vessel, tip, tip.RefName, true, result, token).ConfigureAwait(false);
+                    await DeleteRemoteRefAsync(vessel, tip, tip.RefName, () => result.SweptPreservedRemote++, result, token).ConfigureAwait(false);
+                }
+                else if (tip.RefName.StartsWith(_DockAnchorPrefix, StringComparison.Ordinal))
+                {
+                    await SweepRemoteAnchorAsync(vessel, repoPath, tip, _DockAnchorPrefix, liveDockIds, recoverTips, defaultRef, preservedCutoffUtc, result.DockAnchors, result, token).ConfigureAwait(false);
+                }
+                else if (tip.RefName.StartsWith(_MissionAnchorPrefix, StringComparison.Ordinal))
+                {
+                    await SweepRemoteAnchorAsync(vessel, repoPath, tip, _MissionAnchorPrefix, liveMissionIds, recoverTips, defaultRef, preservedCutoffUtc, result.MissionAnchors, result, token).ConfigureAwait(false);
                 }
             }
+        }
+
+        /// <summary>
+        /// Lists origin for a LocalAndRemote vessel. Returns null, with the reason recorded, when the
+        /// policy does not reach origin or origin cannot be listed.
+        /// </summary>
+        private async Task<IReadOnlyList<GitRefTip>?> TryListOriginAsync(Vessel vessel, BranchCleanupPolicyEnum policy, BranchCleanupSweepResult result, CancellationToken token)
+        {
+            if (policy != BranchCleanupPolicyEnum.LocalAndRemote)
+            {
+                return null;
+            }
+
+            if (String.IsNullOrWhiteSpace(vessel.WorkingDirectory) || !Directory.Exists(vessel.WorkingDirectory))
+            {
+                RecordSkip(result, vessel.Id, "origin sweep skipped: no working checkout to reach origin");
+                return null;
+            }
+
+            try
+            {
+                return await _Inventory.EnumerateRemoteRefTipsAsync(vessel.WorkingDirectory!, _RemoteName, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                result.VesselErrors++;
+                RecordSkip(result, vessel.Id, "origin sweep skipped: could not list origin refs: " + ex.Message);
+                return null;
+            }
+        }
+
+        private async Task<HashSet<string>> ReadRecoverTipsAsync(string repoPath, IReadOnlyList<GitRefTip>? remoteTips, CancellationToken token)
+        {
+            HashSet<string> tips = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            IReadOnlyList<GitRefTip> local = await _Inventory.EnumerateRefTipsAsync(repoPath, _RecoverBranchPrefix, token).ConfigureAwait(false);
+            foreach (GitRefTip tip in local)
+            {
+                tips.Add(tip.CommitSha);
+            }
+
+            if (remoteTips != null)
+            {
+                foreach (GitRefTip tip in remoteTips)
+                {
+                    if (tip.RefName.StartsWith(_RecoverBranchPrefix, StringComparison.Ordinal))
+                    {
+                        tips.Add(tip.CommitSha);
+                    }
+                }
+            }
+
+            return tips;
+        }
+
+        private async Task SweepLocalAnchorsAsync(
+            Vessel vessel,
+            string repoPath,
+            string prefix,
+            HashSet<string> liveIds,
+            HashSet<string> recoverTips,
+            string defaultRef,
+            DateTime? cutoffUtc,
+            BranchCleanupAnchorFamilyCounts counts,
+            BranchCleanupSweepResult result,
+            CancellationToken token)
+        {
+            IReadOnlyList<GitRefTip> anchors = await _Inventory.EnumerateRefTipsAsync(repoPath, prefix, token).ConfigureAwait(false);
+            foreach (GitRefTip tip in anchors)
+            {
+                token.ThrowIfCancellationRequested();
+                if (!await IsPrunableAnchorAsync(vessel, repoPath, tip, prefix, tip.CommitUtc, liveIds, recoverTips, defaultRef, cutoffUtc, counts, result, token).ConfigureAwait(false))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    await _Inventory.DeleteRefIfAtAsync(repoPath, tip.RefName, tip.CommitSha, token).ConfigureAwait(false);
+                    counts.SweptLocal++;
+                    await EmitSweptEventAsync(vessel, tip.RefName, true, false, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    result.Failed++;
+                    _Logging.Warn(_Header + "failed to delete landed anchor " + tip.RefName + " from vessel " + vessel.Id + ": " + ex.Message);
+                }
+            }
+        }
+
+        private async Task SweepRemoteAnchorAsync(
+            Vessel vessel,
+            string repoPath,
+            GitRefTip tip,
+            string prefix,
+            HashSet<string> liveIds,
+            HashSet<string> recoverTips,
+            string defaultRef,
+            DateTime? cutoffUtc,
+            BranchCleanupAnchorFamilyCounts counts,
+            BranchCleanupSweepResult result,
+            CancellationToken token)
+        {
+            // A remote listing carries no commit time; the bare holds every landed commit.
+            DateTime? commitUtc = await _Inventory.TryGetCommitTimeUtcAsync(repoPath, tip.CommitSha, token).ConfigureAwait(false);
+            if (!await IsPrunableAnchorAsync(vessel, repoPath, tip, prefix, commitUtc, liveIds, recoverTips, defaultRef, cutoffUtc, counts, result, token).ConfigureAwait(false))
+            {
+                return;
+            }
+
+            await DeleteRemoteRefAsync(vessel, tip, tip.RefName, () => counts.SweptRemote++, result, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// The one retention rule for both reclaim anchor families. Each candidate is counted in
+        /// exactly one kept bucket unless it is removable or its ancestry check fails.
+        /// </summary>
+        private async Task<bool> IsPrunableAnchorAsync(
+            Vessel vessel,
+            string repoPath,
+            GitRefTip tip,
+            string prefix,
+            DateTime? commitUtc,
+            HashSet<string> liveIds,
+            HashSet<string> recoverTips,
+            string defaultRef,
+            DateTime? cutoffUtc,
+            BranchCleanupAnchorFamilyCounts counts,
+            BranchCleanupSweepResult result,
+            CancellationToken token)
+        {
+            counts.Candidates++;
+
+            string ownerId = tip.RefName.Substring(prefix.Length);
+            if (liveIds.Contains(ownerId))
+            {
+                counts.KeptActive++;
+                return false;
+            }
+
+            if (recoverTips.Contains(tip.CommitSha))
+            {
+                counts.KeptRecoverPointer++;
+                return false;
+            }
+
+            bool? landed = await TryIsLandedAsync(vessel, repoPath, tip.RefName, tip.CommitSha, defaultRef, result, token).ConfigureAwait(false);
+            if (landed == null) return false;
+            if (!landed.Value)
+            {
+                counts.KeptUnlanded++;
+                return false;
+            }
+
+            if (cutoffUtc == null || commitUtc == null || commitUtc.Value > cutoffUtc.Value)
+            {
+                counts.KeptInRetention++;
+                return false;
+            }
+
+            return true;
         }
 
         private static bool IsSweepCandidate(string branch, string defaultBranch)
@@ -430,13 +603,12 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task DeleteRemoteRefAsync(Vessel vessel, GitRefTip tip, string displayName, bool preserved, BranchCleanupSweepResult result, CancellationToken token)
+        private async Task DeleteRemoteRefAsync(Vessel vessel, GitRefTip tip, string displayName, Action onDeleted, BranchCleanupSweepResult result, CancellationToken token)
         {
             try
             {
                 await _Inventory.DeleteRemoteRefIfAtAsync(vessel.WorkingDirectory!, _RemoteName, tip.RefName, tip.CommitSha, token).ConfigureAwait(false);
-                if (preserved) result.SweptPreservedRemote++;
-                else result.SweptRemote++;
+                onDeleted();
                 await EmitSweptEventAsync(vessel, displayName, false, true, token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
@@ -450,10 +622,9 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task<HashSet<string>> ReadActiveMissionBranchesAsync(Vessel vessel, CancellationToken token)
+        private static HashSet<string> BuildActiveMissionBranches(List<Mission> missions)
         {
             HashSet<string> branches = new HashSet<string>(StringComparer.Ordinal);
-            List<Mission> missions = await _Database.Missions.EnumerateByVesselAsync(vessel.Id, token).ConfigureAwait(false);
             foreach (Mission mission in missions)
             {
                 if (String.IsNullOrWhiteSpace(mission.BranchName)) continue;
@@ -461,6 +632,38 @@ namespace Armada.Core.Services
                 branches.Add(mission.BranchName!.Trim());
             }
             return branches;
+        }
+
+        private static HashSet<string> BuildLiveMissionIds(List<Mission> missions)
+        {
+            HashSet<string> ids = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Mission mission in missions)
+            {
+                if (MissionStateMachine.IsTerminal(mission.Status)) continue;
+                ids.Add(mission.Id);
+            }
+            return ids;
+        }
+
+        /// <summary>
+        /// A dock is live while its record is active or while a non-terminal mission names it.
+        /// </summary>
+        private async Task<HashSet<string>> ReadLiveDockIdsAsync(Vessel vessel, List<Mission> missions, CancellationToken token)
+        {
+            HashSet<string> ids = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Mission mission in missions)
+            {
+                if (MissionStateMachine.IsTerminal(mission.Status)) continue;
+                if (String.IsNullOrWhiteSpace(mission.DockId)) continue;
+                ids.Add(mission.DockId!.Trim());
+            }
+
+            List<Dock> docks = await _Database.Docks.EnumerateByVesselAsync(vessel.Id, token).ConfigureAwait(false);
+            foreach (Dock dock in docks)
+            {
+                if (dock.Active) ids.Add(dock.Id);
+            }
+            return ids;
         }
 
         private BranchCleanupSweepResult Complete(BranchCleanupSweepResult result)
@@ -494,6 +697,8 @@ namespace Armada.Core.Services
                 + ", kept in retention " + result.KeptPreservedInRetention
                 + ", removed local " + result.SweptPreservedLocal
                 + ", removed origin " + result.SweptPreservedRemote
+                + DescribeAnchorFamily("dock anchors", result.DockAnchors)
+                + DescribeAnchorFamily("mission anchors", result.MissionAnchors)
                 + "; failed operations " + result.Failed;
 
             if (result.SkipReasons.Count > 0)
@@ -507,6 +712,17 @@ namespace Armada.Core.Services
             }
 
             return summary;
+        }
+
+        private static string DescribeAnchorFamily(string label, BranchCleanupAnchorFamilyCounts counts)
+        {
+            return "; " + label + ": candidates " + counts.Candidates
+                + ", kept for active missions " + counts.KeptActive
+                + ", kept for recover pointers " + counts.KeptRecoverPointer
+                + ", kept unlanded " + counts.KeptUnlanded
+                + ", kept in retention " + counts.KeptInRetention
+                + ", removed local " + counts.SweptLocal
+                + ", removed origin " + counts.SweptRemote;
         }
 
         private async Task EmitSweptEventAsync(Vessel vessel, string name, bool localOk, bool remoteOk, CancellationToken token)

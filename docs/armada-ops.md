@@ -2237,17 +2237,21 @@ The health loop runs the branch cleanup sweep every
 `[BranchCleanupSweepService] sweep complete:`. The line gives vessels swept,
 skipped and in error; branch candidates in the vessel bare and on origin;
 landed, kept unlanded, kept for active missions, removed local and removed
-origin; the same counts for preserved refs; failed operations; and the reason
-for each skip. A run that removed nothing still writes the line, so a missing
+origin; the same counts for preserved refs; for each anchor family (`dock
+anchors`, `mission anchors`) candidates, kept for active missions, kept for
+recover pointers, kept unlanded, kept in retention, removed local and removed
+origin; failed operations; and the reason for each skip. A run that removed
+nothing still writes the line, so a missing
 line means the sweep did not run. A maintenance step failure on the loop logs
 as `[ArmadaServer] <step> failed: <reason>`. Each removal also records a
 `branch_cleanup.swept` event.
 
 The sweep follows these rules:
 
-- Candidates are `armada/` and `armada-landing/` branches and
-  `refs/armada-preserved/` refs. `recover/` refs, human branches and other ref
-  families are never touched.
+- Candidates are `armada/` and `armada-landing/` branches,
+  `refs/armada-preserved/` refs, and the reclaim anchors under
+  `refs/armada/docks/` and `refs/armada/missions/`. `recover/` refs, human
+  branches and other ref families are never touched.
 - A ref is landed when its tip is an ancestor of the default branch in the
   vessel bare. A tip that the bare does not hold reads as unlanded and is kept.
 - A branch that a non-terminal mission names is kept, even when it reads as
@@ -2261,10 +2265,44 @@ The sweep follows these rules:
 - A missing default branch, an unreachable origin or a missing working checkout
   appears as an error or skip in the summary, never as a clean run.
 
+#### Reclaim anchor refs
+
+When a dock is reclaimed, `DockService` pushes the dock `HEAD` to origin under
+two names, so a produced commit can be found by dock or mission id without
+knowing its SHA. The push goes to origin through the dock worktree, so the
+vessel bare normally does not hold these refs and the hosted remote never prunes
+them.
+
+- `refs/armada/docks/<dockId>` names every reclaimed dock, including a
+  branchless Architect fan-out worker (`AnchorDockCommitAsync`,
+  `src/Armada.Core/Services/DockService.cs:720-721`).
+- `refs/armada/missions/<missionId>` names the mission that owned the dock, when
+  it can be resolved (`src/Armada.Core/Services/DockService.cs:723-728`).
+
+Both families use one retention rule. The sweep keeps an anchor in these cases:
+
+- The dock or mission it names is live. A mission is live while its status is
+  not terminal (`Complete`, `Failed`, `Cancelled`). A dock is live while its
+  record is active or a non-terminal mission names it.
+- A `recover/` branch in the vessel bare, or on origin when the sweep lists
+  origin, points at the same commit.
+- Its tip is not an ancestor of the default branch in the vessel bare. A tip the
+  bare does not hold counts as unlanded.
+- Its tip commit is younger than `branchCleanupPreservedRefRetentionDays`. The
+  anchors share the preserved-ref window because the same reclaim step writes
+  all three families to recover the same commit. `0` keeps every anchor.
+
+Otherwise the sweep removes the anchor from the vessel bare and, under
+`LocalAndRemote`, from origin with a lease on the measured tip. A mission that
+stays in `WorkProduced` after its voyage ends is not terminal, so its anchor is
+counted as kept for active missions until the mission status changes.
+
 To confirm the sweep on a running admiral, read the next summary line. Then
 compare `git for-each-ref refs/heads/armada-landing refs/heads/armada
-refs/armada-preserved` in the vessel bare and `git ls-remote origin` before and
-after that run.
+refs/armada-preserved refs/armada/docks refs/armada/missions` in the vessel bare
+and `git ls-remote origin` before and after that run. For the anchor families,
+count per family on origin through the vessel working checkout:
+`git ls-remote origin 'refs/armada/*' | cut -f2 | cut -d/ -f1-3 | sort | uniq -c`.
 
 ## 9. Safety Rules
 
