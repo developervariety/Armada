@@ -174,6 +174,33 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("report_only", result.Reason, "Report-only reason");
                 }
             });
+
+            await RunTest("PendingVoyageJudgeCannotBeBypassed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Voyage voyage = new Voyage { Title = "manual judge voyage" };
+                    await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+                    Mission worker = new Mission("manual worker")
+                    {
+                        VoyageId = voyage.Id,
+                        Mode = MissionModeEnum.Implementation
+                    };
+                    await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
+                    Mission judge = new Mission("manual judge")
+                    {
+                        VoyageId = voyage.Id,
+                        Persona = PersonaCatalog.Judge,
+                        Status = MissionStatusEnum.InProgress
+                    };
+                    await testDb.Driver.Missions.CreateAsync(judge).ConfigureAwait(false);
+                    ManualCompletionProofResult result = await new ManualCompletionProofService(
+                        testDb.Driver, new StubGitService { IsAncestorResult = true })
+                        .EvaluateAsync(worker, true).ConfigureAwait(false);
+                    AssertFalse(result.Allowed, "A pending voyage Judge must retain authority");
+                    AssertEqual("manual_completion_judge_required", result.Reason, "Pending Judge reason");
+                }
+            });
         }
 
         private static GitService CreateGit()

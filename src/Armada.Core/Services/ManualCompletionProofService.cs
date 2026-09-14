@@ -60,6 +60,18 @@ namespace Armada.Core.Services
                 return ManualCompletionProofResult.Fail("manual_completion_judge_required");
             }
 
+            if (!String.IsNullOrWhiteSpace(mission.VoyageId))
+            {
+                List<Mission> voyageMissions = await _Database.Missions
+                    .EnumerateByVoyageAsync(mission.VoyageId, token).ConfigureAwait(false);
+                if (voyageMissions.Any(candidate => candidate.Id != mission.Id
+                    && PersonaCatalog.Matches(candidate.Persona, PersonaCatalog.Judge)
+                    && candidate.Status != MissionStatusEnum.Complete))
+                {
+                    return ManualCompletionProofResult.Fail("manual_completion_judge_required");
+                }
+            }
+
             if (mission.IsReadOnlyMode)
             {
                 return ManualCompletionProofResult.Pass("report_only");
