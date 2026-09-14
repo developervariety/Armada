@@ -541,3 +541,18 @@ Replace this path with verified process ownership, immutable candidate and
 rollback artifacts, bounded health validation, and a durable restart record.
 Prove failure and interrupted-restart recovery on isolated processes before
 enabling it. A successful restore rehearsal does not prove safe cutover.
+
+## FOLLOWUP-019 — API runtime workspace tools remain unaccepted
+
+The candidate removes unrestricted shell execution, but its path check compares
+paths without case sensitivity on every host. On a case-sensitive filesystem,
+a different directory that varies only by case can pass that check. Match the
+filesystem contract and test sibling directories with different case.
+
+Recursive grep validates only its initial directory. It then reads discovered
+files without checking each path for symlinks. It also reads whole files before
+applying the match limit, and reports success after cancellation or skipped
+read errors. Check every discovered path, bound file input and result output,
+and report cancellation and skipped files accurately. Review all sibling tools
+for the same defects. Keep runtime activation blocked until real model/tool
+round trips and workspace boundary tests pass.
