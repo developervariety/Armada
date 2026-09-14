@@ -162,6 +162,100 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(newSession!.EnrollmentGeneration > oldSession!.EnrollmentGeneration, "registry accepts newer durable generation");
             });
 
+            await RunTest("RevokedRunnerReuse_RequiresAuthorityOverPreviousOwner", async () =>
+            {
+                EnrollmentStore enrollments = new EnrollmentStore();
+                CredentialStore credentials = new CredentialStore();
+                PrincipalStore principals = new PrincipalStore();
+                principals.Add("ten_one", "usr_global");
+                principals.SetUserAdmin("ten_one", "usr_global", true);
+                principals.Add("ten_one", "usr_member");
+                credentials.Add("crd_global", "ten_one", "usr_global");
+                credentials.Add("crd_member", "ten_one", "usr_member");
+                HarborRunnerEnrollmentService service = new HarborRunnerEnrollmentService(enrollments, credentials, principals, principals);
+                AuthContext globalAdministrator = Authenticated("ten_one", "global_admin", null, true);
+                AuthContext tenantAdministrator = Authenticated("ten_one", "tenant_admin", null, false, true);
+                AuthContext globalOwner = Authenticated("ten_one", "usr_global", "crd_global");
+                AuthContext memberOwner = Authenticated("ten_one", "usr_member", "crd_member");
+
+                await service.CreateAsync("hbr_global", globalOwner, globalAdministrator).ConfigureAwait(false);
+                await AssertThrowsAsync<UnauthorizedAccessException>(() => service.RevokeAsync("hbr_global", tenantAdministrator),
+                    "tenant administrator cannot revoke a global administrator's runner").ConfigureAwait(false);
+                AssertTrue(await service.RevokeAsync("hbr_global", globalAdministrator).ConfigureAwait(false), "global administrator revokes");
+                await AssertThrowsAsync<UnauthorizedAccessException>(() => service.CreateAsync("hbr_global", memberOwner, tenantAdministrator),
+                    "tenant administrator cannot reuse a runner revoked from a global administrator").ConfigureAwait(false);
+                await AssertThrowsAsync<UnauthorizedAccessException>(() => service.CreateAsync("hbr_new", globalOwner, tenantAdministrator),
+                    "tenant administrator cannot bind a runner to a global administrator").ConfigureAwait(false);
+
+                await service.CreateAsync("hbr_member", memberOwner, tenantAdministrator).ConfigureAwait(false);
+                AssertTrue(await service.RevokeAsync("hbr_member", tenantAdministrator).ConfigureAwait(false), "tenant administrator revokes a member runner");
+                HarborRunnerEnrollment reused = await service.CreateAsync("hbr_member", memberOwner, tenantAdministrator).ConfigureAwait(false);
+                AssertEqual(3L, reused.Generation, "tenant administrator reuses a runner previously owned by a tenant member");
+            });
+
+            await RunTest("RegistryAcceptsExternallyReboundOwnerWhileStaleSessionConnected", async () =>
+            {
+                EnrollmentStore enrollments = new EnrollmentStore();
+                CredentialStore credentials = new CredentialStore();
+                PrincipalStore principals = new PrincipalStore();
+                principals.Add("ten_one", "usr_one");
+                principals.Add("ten_one", "usr_two");
+                credentials.Add("crd_one", "ten_one", "usr_one");
+                credentials.Add("crd_two", "ten_one", "usr_two");
+                HarborRunnerEnrollmentService firstService = new HarborRunnerEnrollmentService(enrollments, credentials, principals, principals);
+                HarborRunnerEnrollmentService secondService = new HarborRunnerEnrollmentService(enrollments, credentials, principals, principals);
+                AuthContext oldOwner = Authenticated("ten_one", "usr_one", "crd_one");
+                AuthContext newOwner = Authenticated("ten_one", "usr_two", "crd_two");
+                AuthContext administrator = Authenticated("ten_one", "admin", null, false, true);
+                await firstService.CreateAsync("hbr_moved", oldOwner, administrator).ConfigureAwait(false);
+                HarborRunnerSessionRegistry registry = new HarborRunnerSessionRegistry(true, firstService);
+                AssertTrue(registry.TryRegister("hbr_moved", oldOwner, out HarborRunnerSession? oldSession, out string oldReason), oldReason);
+                AssertTrue(registry.TryRegisterPending(oldSession!, out HarborPendingRequest<string>? oldPending, out string pendingReason), pendingReason);
+
+                AssertTrue(await secondService.RevokeAsync("hbr_moved", administrator).ConfigureAwait(false), "second instance revokes");
+                await secondService.CreateAsync("hbr_moved", newOwner, administrator).ConfigureAwait(false);
+
+                AssertTrue(registry.TryRegister("hbr_moved", newOwner, out HarborRunnerSession? newSession, out string newReason),
+                    "new owner accepted after external rebind: " + newReason);
+                AssertTrue(oldPending!.Completion.IsCanceled, "stale owner pending work is canceled");
+                AssertFalse(registry.TryRegisterPending(oldSession!, out HarborPendingRequest<string>? stale, out string _), "stale owner cannot create work");
+                AssertNull(stale, "stale owner pending request");
+                AssertFalse(registry.TryDisconnect(oldSession!), "stale owner cannot disconnect the new owner");
+                AssertTrue(registry.IsCurrent(newSession!), "new owner remains current");
+            });
+
+            await RunTest("RevalidateEvictsConnectedSessionAfterExternalRevocation", async () =>
+            {
+                EnrollmentStore enrollments = new EnrollmentStore();
+                CredentialStore credentials = new CredentialStore();
+                PrincipalStore principals = new PrincipalStore();
+                principals.Add("ten_one", "usr_one");
+                credentials.Add("crd_one", "ten_one", "usr_one");
+                HarborRunnerEnrollmentService firstService = new HarborRunnerEnrollmentService(enrollments, credentials, principals, principals);
+                HarborRunnerEnrollmentService secondService = new HarborRunnerEnrollmentService(enrollments, credentials, principals, principals);
+                AuthContext owner = Authenticated("ten_one", "usr_one", "crd_one");
+                AuthContext administrator = Authenticated("ten_one", "admin", null, false, true);
+                await firstService.CreateAsync("hbr_live", owner, administrator).ConfigureAwait(false);
+                HarborRunnerSessionRegistry registry = new HarborRunnerSessionRegistry(true, firstService);
+                AssertTrue(registry.TryRegister("hbr_live", owner, out HarborRunnerSession? session, out string registerReason), registerReason);
+                AssertTrue(registry.TryRegisterPending(session!, out HarborPendingRequest<string>? pending, out string pendingReason), pendingReason);
+                AssertTrue(registry.TryRevalidate(session!, out string liveReason), "active session revalidates: " + liveReason);
+
+                AssertTrue(await secondService.RevokeAsync("hbr_live", administrator).ConfigureAwait(false), "second instance revokes");
+                AssertFalse(registry.TryRevalidate(session!, out string revokedReason), "revoked session fails revalidation");
+                AssertFalse(String.IsNullOrEmpty(revokedReason), "revocation failure is named");
+                AssertFalse(registry.IsCurrent(session!), "revoked session is removed from the registry");
+                AssertTrue(pending!.Completion.IsCanceled, "revoked session pending work is canceled");
+                AssertEqual(0, registry.SessionCount, "no live session remains");
+
+                HarborRunnerEnrollment reenrolled = await secondService.CreateAsync("hbr_live", owner, administrator).ConfigureAwait(false);
+                AssertFalse(registry.TryRevalidate(session!, out string _), "re-enrollment does not revive the old session");
+                AssertFalse(registry.TryRegisterPending(session!, out HarborPendingRequest<string>? revived, out string _), "old session cannot create work after re-enrollment");
+                AssertNull(revived, "old session pending request");
+                AssertTrue(registry.TryRegister("hbr_live", owner, out HarborRunnerSession? fresh, out string freshReason), freshReason);
+                AssertEqual(reenrolled.Generation, fresh!.EnrollmentGeneration, "new session binds the re-enrolled generation");
+            });
+
             await RunTest("SqliteEnrollment_PersistsAcrossReopenAndCASRace", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -286,6 +380,11 @@ namespace Armada.Test.Unit.Suites.Services
             public void SetUserActive(string tenantId, string userId, bool active)
             {
                 _Users[tenantId + ":" + userId].Active = active;
+            }
+
+            public void SetUserAdmin(string tenantId, string userId, bool isAdmin)
+            {
+                _Users[tenantId + ":" + userId].IsAdmin = isAdmin;
             }
 
             public Task<TenantMetadata?> ReadAsync(string id, CancellationToken token = default) => Task.FromResult(_Tenants.TryGetValue(id, out TenantMetadata? tenant) ? tenant : null);

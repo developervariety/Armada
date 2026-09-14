@@ -112,7 +112,7 @@ these areas. Do not duplicate its changes.
 | FOLLOWUP-017 | Verify | Accepted components have proof; remaining candidate findings are tracked below |
 | FOLLOWUP-018 | Verify | Supervised cutover, rollback and recovery implemented; preflight wiring and live rehearsal remain |
 | FOLLOWUP-019 | Open | API runtime lifecycle, usage, response limits and atomic-write proof |
-| FOLLOWUP-020 | Open | Harbor enrollment schema compatibility and session revocation proof |
+| FOLLOWUP-020 | Addressed in source; acceptance pending | Harbor enrollment schema compatibility and session revocation proof |
 | FOLLOWUP-021 | Closed | Unknown process state blocks manual completion before mutation |
 | FOLLOWUP-022 | Closed | Local image retention matches real Docker behavior and verifies both tags |
 
@@ -728,6 +728,27 @@ catalog lists only the workspace registry. Hosted cloud providers stay refused
 until explicitly enabled, with loopback request translation tests.
 
 ## FOLLOWUP-020 — Harbor revocation must reach connected sessions
+
+Addressed in source; independent acceptance and the server-provider evidence
+remain with the root review. Changes and their behavioral tests:
+
+- `TryRevalidate` rechecks the durable owner and generation outside the registry
+  lock, removes a failed session and cancels its pending work
+  (`RevalidateEvictsConnectedSessionAfterExternalRevocation`). Re-enrollment
+  does not revive the removed session.
+- A registration with a newer durable generation replaces a stale connected
+  session instead of failing with an identity conflict
+  (`RegistryAcceptsExternallyReboundOwnerWhileStaleSessionConnected`; failed
+  before the change with `runner_identity_conflict`).
+- One authority rule governs create, reuse and revoke: a tenant administrator
+  needs the owner in the same tenant and the owner must not be a global
+  administrator (`RevokedRunnerReuse_RequiresAuthorityOverPreviousOwner`;
+  failed before the change).
+- `DurableOwnerResolution_RunsOutsideRegistryLock` guards the lock rule.
+- The `harbor-enrollment-combined` database scenario interrupts the captain
+  endpoint-link migration, then the Harbor migration, rejects an incompatible
+  partial Harbor table, restarts and checks history, persisted revocation and
+  conditional writes.
 
 The durable enrollment candidate checks the credential when a runner registers.
 The existing session registry does not recheck enrollment when it accepts new

@@ -28,6 +28,13 @@ nullability, type, default, and primary-key fixtures without changing applied
 migration history. The scenario then replays the migration against an
 equivalent preexisting table.
 
+Use `--migration-scenario harbor-enrollment-combined` to run the captain
+endpoint-link and Harbor enrollment migrations in their shipped order. The
+scenario interrupts each migration, rejects an incompatible partial Harbor table
+between restarts, and then restarts to completion. It checks applied history,
+revocation persistence across a reopen, and compare-and-set enrollment and
+revocation after restart.
+
 | Scenario | Providers | Proof |
 | --- | --- | --- |
 | `fresh` | All four | Initial schema, repeat startup and ordinary persistence cases |
@@ -48,6 +55,7 @@ equivalent preexisting table.
 | `model-endpoint-guards` | All four | Incompatible pre-existing model endpoint table and malformed captain link are rejected without advancing history; interrupted table and captain-link migrations restart successfully |
 | `harbor-enrollment-migration` | All four | Interrupted Harbor enrollment table/index DDL restarts, preserves migration history, and supports provider-backed reads |
 | `harbor-enrollment-guards` | All four | Independent malformed Harbor enrollment schemas are rejected without advancing history; an equivalent preexisting table replays successfully |
+| `harbor-enrollment-combined` | All four | Endpoint-link then Harbor faults, incompatible partial table rejection, restart, unchanged history, persisted revocation and conditional writes |
 
 The server catalog fixture also tests disabled primary-key and foreign-key
 state where supported. PostgreSQL's historical UTC conversion runs with a

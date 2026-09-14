@@ -2,6 +2,7 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Harbor;
     using Armada.Core.Models;
@@ -127,6 +128,19 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(7, fresh!.Completion.Result, "replacement response value");
             });
 
+            await RunTest("DurableOwnerResolution_RunsOutsideRegistryLock", () =>
+            {
+                LockProbeResolver resolver = new LockProbeResolver();
+                HarborRunnerSessionRegistry registry = new HarborRunnerSessionRegistry(true, resolver);
+                resolver.Registry = registry;
+                AuthContext auth = VerifiedAuth("ten_one", "usr_one", "cred_one");
+                AssertTrue(registry.TryRegister("hbr_one", auth, out HarborRunnerSession? session, out string registerReason), registerReason);
+                AssertTrue(registry.TryRegisterPending(session!, out HarborPendingRequest<int>? pending, out string pendingReason), pendingReason);
+                AssertTrue(registry.TryCompletePending(session!, pending!.RequestId, 1), "response accepted while resolution probes the lock");
+                AssertTrue(resolver.Calls >= 3, "registration, request and response each resolve the durable owner");
+                AssertEqual(0, resolver.LockHeldObservations, "no durable resolution ran while the registry lock was held");
+            });
+
             await RunTest("PendingResponse_ServerIssuedIdsCannotBeReusedAfterReplayCacheEviction", () =>
             {
                 HarborRunnerSessionRegistry registry = new HarborRunnerSessionRegistry(true, new TestRunnerOwnerResolver());
@@ -148,6 +162,31 @@ namespace Armada.Test.Unit.Suites.Services
         private static AuthContext VerifiedAuth(string tenantId, string userId, string credentialId)
         {
             return AuthContext.Authenticated(tenantId, userId, false, false, "Bearer", credentialId, userId);
+        }
+
+        private sealed class LockProbeResolver : IHarborRunnerOwnerResolver
+        {
+            private int _Calls;
+            private int _LockHeldObservations;
+
+            public HarborRunnerSessionRegistry? Registry { get; set; }
+
+            public int Calls => Volatile.Read(ref _Calls);
+
+            public int LockHeldObservations => Volatile.Read(ref _LockHeldObservations);
+
+            public bool TryGetOwner(string runnerId, out AuthContext? owner)
+            {
+                Interlocked.Increment(ref _Calls);
+                HarborRunnerSessionRegistry? registry = Registry;
+                if (registry != null)
+                {
+                    Task<int> probe = Task.Run(() => registry.SessionCount);
+                    if (!probe.Wait(TimeSpan.FromSeconds(2))) Interlocked.Increment(ref _LockHeldObservations);
+                }
+                owner = VerifiedAuth("ten_one", "usr_one", "cred_one");
+                return String.Equals(runnerId, "hbr_one", StringComparison.Ordinal);
+            }
         }
 
         private sealed class TestRunnerOwnerResolver : IHarborRunnerOwnerResolver

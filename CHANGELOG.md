@@ -293,6 +293,17 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Validate Harbor schema types, nullability, keys, names and MySQL binary
   collations before replay. Exercise fresh, restart, malformed-schema and
   provider race cases against isolated databases.
+- Revalidate connected sessions against the durable generation. A session that
+  fails, including after a revocation on another instance, is removed and its
+  pending work is canceled; re-enrollment does not revive it. A newer durable
+  generation replaces a stale connected session instead of blocking the new
+  owner.
+- Apply one authority rule to enrollment, reuse of a revoked runner and
+  revocation: a tenant administrator needs the owner in the same tenant, and
+  the owner must not be a global administrator.
+- Add a combined database scenario that interrupts the captain endpoint-link
+  and Harbor enrollment migrations in order, rejects an incompatible partial
+  table and checks restart, history, persistence and conditional writes.
 
 ### OpenCode provider failures
 

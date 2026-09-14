@@ -118,7 +118,17 @@ namespace Armada.Core.Services
                     failureReason = "runner_enrollment_generation_stale";
                     return false;
                 }
-                if (_Sessions.TryGetValue(identity.RunnerId, out HarborRunnerSession? existing)
+                _Sessions.TryGetValue(identity.RunnerId, out HarborRunnerSession? existing);
+                if (existing != null && existing.EnrollmentGeneration < enrollmentGeneration)
+                {
+                    // The durable enrollment changed after the live session was accepted, possibly on another
+                    // instance. The old session can no longer authorize anything and must not block the owner
+                    // of the current generation.
+                    InvalidatePendingForSession(existing);
+                    _Sessions.Remove(identity.RunnerId);
+                    existing = null;
+                }
+                if (existing != null
                     && (!String.Equals(existing.Identity.TenantId, identity.TenantId, StringComparison.Ordinal)
                         || !String.Equals(existing.Identity.UserId, identity.UserId, StringComparison.Ordinal)
                         || !String.Equals(existing.Identity.AuthMethod, identity.AuthMethod, StringComparison.Ordinal)
@@ -157,6 +167,45 @@ namespace Armada.Core.Services
             {
                 return _Sessions.TryGetValue(session.Identity.RunnerId, out HarborRunnerSession? current)
                     && Object.ReferenceEquals(current, session);
+            }
+        }
+
+        /// <summary>
+        /// Revalidate a live session against the durable owner and enrollment generation. Durable resolution
+        /// runs before the registry lock is taken. A session that fails revalidation is removed when it is
+        /// still current, and its pending work is canceled, so revocation reaches connected runners even
+        /// when it happened on another instance.
+        /// </summary>
+        /// <param name="session">Session lease to revalidate.</param>
+        /// <param name="failureReason">Stable denial reason.</param>
+        /// <returns>True only when the session remains authorized and current.</returns>
+        public bool TryRevalidate(HarborRunnerSession session, out string failureReason)
+        {
+            failureReason = String.Empty;
+            if (session == null)
+            {
+                failureReason = "runner_session_missing";
+                return false;
+            }
+            bool ownerCurrent = SessionOwnerIsCurrent(session, out failureReason);
+            lock (_Gate)
+            {
+                bool isCurrent = _Sessions.TryGetValue(session.Identity.RunnerId, out HarborRunnerSession? current)
+                    && Object.ReferenceEquals(current, session);
+                if (!isCurrent)
+                {
+                    if (String.IsNullOrEmpty(failureReason)) failureReason = "runner_session_stale";
+                    return false;
+                }
+                if (ownerCurrent && IsEnrollmentGenerationStale(session.Identity.RunnerId, session.EnrollmentGeneration))
+                {
+                    ownerCurrent = false;
+                    failureReason = "runner_enrollment_generation_stale";
+                }
+                if (ownerCurrent) return true;
+                _Sessions.Remove(session.Identity.RunnerId);
+                InvalidatePendingForSession(session);
+                return false;
             }
         }
 

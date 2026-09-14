@@ -89,12 +89,12 @@ namespace Armada.Core.Services
             CancellationToken token = default)
         {
             HarborRunnerIdentity identity = ValidateOwner(runnerId, owner);
-            ValidateAdministrator(administrator, identity.TenantId);
+            await ValidateAuthorityOverOwnerAsync(administrator, identity.TenantId, identity.UserId, token).ConfigureAwait(false);
             HarborRunnerEnrollment? current = await _Enrollments.ReadAsync(identity.RunnerId, token).ConfigureAwait(false);
             if (current != null && current.Active)
                 throw new InvalidOperationException("runner_already_enrolled");
             if (current != null)
-                ValidateAdministrator(administrator, current.TenantId);
+                await ValidateAuthorityOverOwnerAsync(administrator, current.TenantId, current.UserId, token).ConfigureAwait(false);
             await ValidateCredentialAsync(identity, token).ConfigureAwait(false);
 
             long expectedGeneration = current?.Generation ?? 0;
@@ -137,7 +137,7 @@ namespace Armada.Core.Services
             ValidateAdministratorIdentity(administrator);
             HarborRunnerEnrollment? current = await _Enrollments.ReadAsync(runnerId.Trim(), token).ConfigureAwait(false);
             if (current == null) return false;
-            ValidateAdministrator(administrator, current.TenantId);
+            await ValidateAuthorityOverOwnerAsync(administrator, current.TenantId, current.UserId, token).ConfigureAwait(false);
             if (!current.Active) return false;
             if (current.Generation <= 0 || current.Generation == Int64.MaxValue)
                 throw new InvalidOperationException("runner_enrollment_generation_invalid");
@@ -243,6 +243,21 @@ namespace Armada.Core.Services
             if (administrator.IsAdmin) return;
             if (!administrator.IsTenantAdmin || !String.Equals(administrator.TenantId, tenantId, StringComparison.Ordinal))
                 throw new UnauthorizedAccessException("administrator_not_authorized");
+        }
+
+        /// <summary>
+        /// One authority rule for every enrollment change: a global administrator may change any runner; a
+        /// tenant administrator may change only runners whose owner is in the administrator's tenant and is not
+        /// a global administrator. The rule applies to the new owner and to the previous owner of a revoked
+        /// runner identifier.
+        /// </summary>
+        private async Task ValidateAuthorityOverOwnerAsync(AuthContext administrator, string tenantId, string userId, CancellationToken token)
+        {
+            ValidateAdministrator(administrator, tenantId);
+            if (administrator.IsAdmin) return;
+            UserMaster? owner = await _Users.ReadAsync(tenantId, userId, token).ConfigureAwait(false);
+            if (owner != null && owner.IsAdmin)
+                throw new UnauthorizedAccessException("administrator_not_authorized_for_owner");
         }
 
         private static void ValidateAdministratorIdentity(AuthContext administrator)

@@ -49,8 +49,13 @@ contains only runner, tenant, user, authentication-method, and credential
 identifiers, plus generation and revocation state. It never contains a bearer
 token or other raw credential value.
 
-`CreateAsync` requires a verified owner and a global or same-tenant
-administrator. When a credential identifier is present, the service checks the
+`CreateAsync` requires a verified owner and an administrator with authority
+over that owner. One rule governs every enrollment change: a global
+administrator may change any runner; a tenant administrator may change only a
+runner whose owner is in the same tenant and is not a global administrator.
+`CreateAsync` applies the rule to the new owner and, for a revoked runner
+identifier, to the previous owner. `RevokeAsync` applies it to the current
+owner. When a credential identifier is present, the service checks the
 durable credential row and its active state before enrollment. `RevokeAsync`
 uses a generation compare-and-set, and revocation advances the generation.
 Enrollment after revocation also uses compare-and-set, so concurrent
@@ -62,6 +67,15 @@ enrollments, inactive credentials, and tenant or user mismatches return no
 owner. Requests and responses also revalidate the durable generation outside
 the registry lock. Revocation therefore cancels old pending work, and a
 same-credential re-enrollment cannot resurrect that work; only a new
-registration with the new generation can create work. Harbor stays disabled
+registration with the new generation can create work.
+
+`TryRevalidate` rechecks a connected session against the durable owner and
+generation. The durable read runs before the registry lock is taken. A session
+that fails revalidation is removed while it is still current, and its pending
+work is canceled. A transport calls it on every heartbeat, so a revocation made
+by another instance reaches the connected runner. When a registration presents
+a newer durable generation than a connected session, the registry removes the
+stale session and accepts the current owner instead of reporting an identity
+conflict. The stale session cannot disconnect its replacement. Harbor stays disabled
 until a future transport explicitly enables the registry and injects this
 service.
