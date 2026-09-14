@@ -591,6 +591,74 @@ namespace Test.Shared.Suites.Runtimes
                 }
             }));
 
+            foreach (ModelProviderEnum cloudProvider in new[] { ModelProviderEnum.OpenAI, ModelProviderEnum.Anthropic, ModelProviderEnum.Gemini })
+            {
+                ModelProviderEnum provider = cloudProvider;
+                cases.Add(CaseAsync("cloud_request_translation_" + provider.ToString().ToLowerInvariant(), provider + " requests carry the endpoint model, credential and workspace tool catalog", TestTags.Positive, async () =>
+                {
+                    string dir = NewTempDir();
+                    TcpListener listener = new TcpListener(IPAddress.Loopback, 0);
+                    listener.Start();
+                    TaskCompletionSource<string> captured = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    Task server = ServeCaptureAndRejectAsync(listener, captured);
+                    try
+                    {
+                        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+                        ModelEndpoint endpoint = new ModelEndpoint
+                        {
+                            Name = "translation-" + provider,
+                            Provider = provider,
+                            Kind = ModelEndpointKindEnum.Inference,
+                            Model = "translation-model",
+                            BaseUrl = "http://127.0.0.1:" + port,
+                            ApiKey = "translation-secret",
+                            Enabled = true
+                        };
+                        ApiAgentRuntime runtime = new ApiAgentRuntime(endpoint, CreateLogging(), 1);
+                        int? exitCode = null;
+                        using ManualResetEventSlim exited = new ManualResetEventSlim(false);
+                        runtime.OnProcessExited += (pid, code) => { exitCode = code; exited.Set(); };
+                        await runtime.StartAsync(dir, "Translate this request.").ConfigureAwait(false);
+                        string request = await captured.Task.WaitAsync(TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                        AssertTrue(exited.Wait(TimeSpan.FromSeconds(10)), "A rejected provider request must end the run.");
+                        AssertTrue((exitCode ?? 0) != 0, "A rejected provider request must be a failed run.");
+
+                        string requestLine = request.Substring(0, Math.Max(0, request.IndexOf("\r\n", StringComparison.Ordinal)));
+                        AssertContains("POST ", requestLine, "Provider request method");
+                        AssertContains("translation-model", request, "Provider request model");
+                        AssertContains("write_file", request, "Workspace tool catalog in the provider request");
+                        AssertContains("Translate this request.", request, "Mission prompt in the provider request");
+                        AssertFalse(request.Contains("run_process", StringComparison.Ordinal), "No shell tool may be advertised.");
+                        AssertFalse(request.Contains("armada_", StringComparison.Ordinal), "No Armada administrative tool may be advertised.");
+                        switch (provider)
+                        {
+                            case ModelProviderEnum.OpenAI:
+                                AssertContains("/v1/chat/completions", requestLine, "OpenAI chat completions path");
+                                AssertContains("Authorization: Bearer translation-secret", request, "OpenAI bearer credential");
+                                AssertContains("\"tools\"", request, "OpenAI tool catalog field");
+                                break;
+                            case ModelProviderEnum.Anthropic:
+                                AssertContains("/v1/messages", requestLine, "Anthropic messages path");
+                                AssertTrue(request.Contains("x-api-key: translation-secret", StringComparison.OrdinalIgnoreCase), "Anthropic API key header");
+                                AssertTrue(request.Contains("anthropic-version:", StringComparison.OrdinalIgnoreCase), "Anthropic version header");
+                                AssertContains("\"tools\"", request, "Anthropic tool catalog field");
+                                break;
+                            case ModelProviderEnum.Gemini:
+                                AssertContains("models/translation-model:", requestLine, "Gemini model-addressed path");
+                                AssertTrue(request.Contains("x-goog-api-key: translation-secret", StringComparison.OrdinalIgnoreCase) || requestLine.Contains("key=translation-secret", StringComparison.Ordinal), "Gemini API key");
+                                AssertContains("functionDeclarations", request, "Gemini function declarations");
+                                break;
+                        }
+                    }
+                    finally
+                    {
+                        listener.Stop();
+                        try { await server.ConfigureAwait(false); } catch { }
+                        Cleanup(dir);
+                    }
+                }));
+            }
+
             return new TestSuiteDescriptor(
                 suiteId: "Runtimes.ApiAgentRuntime",
                 displayName: "API Agent Runtime",
@@ -667,6 +735,19 @@ namespace Test.Shared.Suites.Runtimes
                     };
                 await WriteHttpStreamingResponseAsync(stream, response).ConfigureAwait(false);
             }
+        }
+
+        private static async Task ServeCaptureAndRejectAsync(TcpListener listener, TaskCompletionSource<string> captured)
+        {
+            using TcpClient client = await listener.AcceptTcpClientAsync().ConfigureAwait(false);
+            using NetworkStream stream = client.GetStream();
+            string request = await ReadHttpRequestAsync(stream).ConfigureAwait(false);
+            captured.TrySetResult(request);
+            byte[] body = Encoding.UTF8.GetBytes("{\"error\":{\"message\":\"fixture rejects every request\"}}");
+            string headers = "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: " + body.Length + "\r\nConnection: close\r\n\r\n";
+            await stream.WriteAsync(Encoding.ASCII.GetBytes(headers)).ConfigureAwait(false);
+            await stream.WriteAsync(body).ConfigureAwait(false);
+            await stream.FlushAsync().ConfigureAwait(false);
         }
 
         private static async Task ServeBlockedHttpAsync(TcpListener listener, TaskCompletionSource<bool> received)

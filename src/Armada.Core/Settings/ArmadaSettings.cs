@@ -537,6 +537,13 @@ namespace Armada.Core.Settings
         public string? DefaultRuntime { get; set; } = null;
 
         /// <summary>
+        /// Hosted cloud providers an API-endpoint captain may run against. Empty by default: only
+        /// operator-hosted Ollama and OpenAI-compatible endpoints run until an operator lists a
+        /// provider here explicitly.
+        /// </summary>
+        public List<ModelProviderEnum> ApiCaptainCloudProviders { get; set; } = new List<ModelProviderEnum>();
+
+        /// <summary>
         /// Enable desktop notifications on mission completion/failure.
         /// </summary>
         public bool Notifications { get; set; } = true;

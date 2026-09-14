@@ -150,7 +150,7 @@ namespace Armada.Server
                             captain.TenantId!,
                             captain.ModelEndpointId!,
                             token).ConfigureAwait(false);
-                        string? admissionError = AgentLifecycleHandler.ValidateApiEndpointAdmission(captain, endpoint);
+                        string? admissionError = AgentLifecycleHandler.ValidateApiEndpointAdmission(captain, endpoint, _Settings.ApiCaptainCloudProviders);
                         if (admissionError != null)
                             return Fail(admissionError);
                         runtime = _RuntimeFactory.Create(endpoint!);

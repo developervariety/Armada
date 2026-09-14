@@ -33,6 +33,11 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - The captain tool catalog reports an API captain's real workspace tool registry
   instead of an Armada MCP preflight, and planning sessions report API captains as
   unsupported instead of failing at runtime creation.
+- Hosted cloud providers (OpenAI, Anthropic, Gemini) are refused for API captains
+  until `apiCaptainCloudProviders` lists them; operator-hosted Ollama and
+  OpenAI-compatible endpoints need no opt-in. Loopback fixtures verify each hosted
+  provider's request path, credential header, model and workspace tool catalog.
+  Azure OpenAI, Vertex AI and Bedrock remain unavailable.
 
 ### Native self-deploy preflight
 

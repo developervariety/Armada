@@ -558,6 +558,67 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("validate_api_endpoint_captain_cloud_provider_requires_opt_in", "ValidateCaptainModelAsync keeps hosted cloud providers disabled until explicitly enabled", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    foreach (ModelProviderEnum provider in new[] { ModelProviderEnum.OpenAI, ModelProviderEnum.Anthropic, ModelProviderEnum.Gemini })
+                    {
+                        ModelEndpoint endpoint = new ModelEndpoint
+                        {
+                            TenantId = "tenant-cloud-" + provider,
+                            UserId = "user-cloud-" + provider,
+                            Name = "Cloud " + provider,
+                            Kind = ModelEndpointKindEnum.Inference,
+                            Provider = provider,
+                            BaseUrl = "http://127.0.0.1:9",
+                            Model = "cloud-model",
+                            Enabled = true
+                        };
+                        await testDb.Driver.ModelEndpoints.CreateAsync(endpoint).ConfigureAwait(false);
+                        AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings);
+                        Captain captain = new Captain("Cloud captain " + provider, AgentRuntimeEnum.ApiEndpoint)
+                        {
+                            TenantId = endpoint.TenantId,
+                            UserId = endpoint.UserId,
+                            ModelEndpointId = endpoint.Id
+                        };
+
+                        string? disabled = await handler.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
+                        AssertNotNull(disabled, provider + " must be disabled for API captains by default");
+                        AssertContains("apiCaptainCloudProviders", disabled!, "The refusal must name the opt-in setting");
+                        AssertContains(provider.ToString(), disabled!, "The refusal must name the provider");
+
+                        settings.ApiCaptainCloudProviders.Add(provider);
+                        AssertNull(await handler.ValidateCaptainModelAsync(captain).ConfigureAwait(false), provider + " must be admitted once explicitly enabled");
+                    }
+
+                    foreach (ModelProviderEnum local in new[] { ModelProviderEnum.Ollama, ModelProviderEnum.OpenAICompatible })
+                    {
+                        ModelEndpoint endpoint = new ModelEndpoint
+                        {
+                            TenantId = "tenant-local-" + local,
+                            UserId = "user-local-" + local,
+                            Name = "Local " + local,
+                            Kind = ModelEndpointKindEnum.Inference,
+                            Provider = local,
+                            BaseUrl = "http://127.0.0.1:9",
+                            Model = "local-model",
+                            Enabled = true
+                        };
+                        await testDb.Driver.ModelEndpoints.CreateAsync(endpoint).ConfigureAwait(false);
+                        AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                        Captain captain = new Captain("Local captain " + local, AgentRuntimeEnum.ApiEndpoint)
+                        {
+                            TenantId = endpoint.TenantId,
+                            UserId = endpoint.UserId,
+                            ModelEndpointId = endpoint.Id
+                        };
+                        AssertNull(await handler.ValidateCaptainModelAsync(captain).ConfigureAwait(false), local + " endpoints need no cloud opt-in");
+                    }
+                }
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Agent Lifecycle Handler",

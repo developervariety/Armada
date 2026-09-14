@@ -44,9 +44,15 @@ request and verifies the returned model output. The automatic health sweep
 remains connectivity-only. Redirects are disabled, endpoint URLs are checked
 before requests, and caller cancellation propagates.
 
-The current provider registry covers the six registered provider values. Cloud
-provider adapters from upstream remain deferred until a separate ownership and
-runtime acceptance slice.
+The current provider registry covers the six registered provider values. API
+captains run operator-hosted Ollama and OpenAI-compatible endpoints by default.
+Hosted OpenAI, Anthropic and Gemini endpoints are refused at captain admission,
+launch and Ask chat until the `apiCaptainCloudProviders` setting lists them.
+Loopback fixtures verify each hosted provider's request path, credential header,
+model and advertised workspace tools; no live provider call is part of the
+proof. Upstream Azure OpenAI, Vertex AI and Bedrock adapters need a newer model
+client, new endpoint columns and their own verification, so they remain
+unavailable.
 
 Captains can reference an enabled, inference-kind endpoint in their tenant.
 Private endpoint ownership and the captain model are checked at admission.

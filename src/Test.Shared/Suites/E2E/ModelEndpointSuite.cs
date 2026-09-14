@@ -185,7 +185,7 @@ namespace Test.Shared.Suites.E2E
                             Name = "Other tenant endpoint",
                             Kind = Armada.Core.Enums.ModelEndpointKindEnum.Inference,
                             Scope = Armada.Core.Enums.ScopeEnum.TenantWide,
-                            Provider = Armada.Core.Enums.ModelProviderEnum.OpenAI,
+                            Provider = Armada.Core.Enums.ModelProviderEnum.OpenAICompatible,
                             BaseUrl = "http://127.0.0.1:1",
                             Model = "other-model",
                             Enabled = true
@@ -209,6 +209,29 @@ namespace Test.Shared.Suites.E2E
                             Enabled = true
                         })).ConfigureAwait(false))
                             AssertEqual(HttpStatusCode.OK, enableResponse.StatusCode);
+
+                        using (HttpResponseMessage cloudCaptainResponse = await ownerClient.PostAsync("/api/v1/captains", JsonHelper.ToJsonContent(new Captain("Disabled cloud API captain", Armada.Core.Enums.AgentRuntimeEnum.ApiEndpoint)
+                        {
+                            Model = "scoped-model",
+                            ModelEndpointId = endpointId
+                        })).ConfigureAwait(false))
+                        {
+                            AssertEqual(HttpStatusCode.BadRequest, cloudCaptainResponse.StatusCode, "A hosted cloud endpoint must be refused until the operator enables its provider.");
+                            string cloudBody = await cloudCaptainResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+                            AssertContains("apiCaptainCloudProviders", cloudBody, "The refusal must name the opt-in setting.");
+                        }
+
+                        using (HttpResponseMessage localResponse = await ownerClient.PutAsync("/api/v1/model-endpoints/" + endpointId, JsonHelper.ToJsonContent(new ModelEndpointCreateRequest
+                        {
+                            Name = "Scoped captain endpoint",
+                            Kind = Armada.Core.Enums.ModelEndpointKindEnum.Inference,
+                            Scope = Armada.Core.Enums.ScopeEnum.UserSpecific,
+                            Provider = Armada.Core.Enums.ModelProviderEnum.OpenAICompatible,
+                            BaseUrl = "http://127.0.0.1:1",
+                            Model = "scoped-model",
+                            Enabled = true
+                        })).ConfigureAwait(false))
+                            AssertEqual(HttpStatusCode.OK, localResponse.StatusCode);
 
                         using (HttpResponseMessage validCaptainResponse = await ownerClient.PostAsync("/api/v1/captains", JsonHelper.ToJsonContent(new Captain("Scoped API captain", Armada.Core.Enums.AgentRuntimeEnum.ApiEndpoint)
                         {

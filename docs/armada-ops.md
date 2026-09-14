@@ -50,6 +50,7 @@ Check these settings before you depend on the related workflow:
 | --- | --- |
 | `codeIndex.enabled` | Enables code search, graph search, and context packs. |
 | `seedDockRuntimeMcpConfig` | Gives supported captains the local Armada MCP URL through runtime-appropriate dock or launch configuration. Default: enabled. |
+| `apiCaptainCloudProviders` | Lists the hosted providers (`OpenAI`, `Anthropic`, `Gemini`) an API-endpoint captain may run against. Default: empty, so only operator-hosted `Ollama` and `OpenAICompatible` endpoints run. Azure OpenAI, Vertex AI and Bedrock are not available. |
 | `autonomousRecovery.enabled` | Enables bounded server-side mission recovery. |
 | `incidentLifecycle.enabled` | Enables evidence-driven incident transitions. |
 | `remoteTrigger.enabled`, mode, and `agentWake.deliveryMode` | Enables AgentWake process and/or signal delivery. |

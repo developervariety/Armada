@@ -369,7 +369,20 @@ namespace Armada.Server
                 return "API-endpoint captain credentials must be configured on the model endpoint.";
 
             ModelEndpoint? endpoint = await _Database.ModelEndpoints.ReadAsync(captain.TenantId!, captain.ModelEndpointId!, token).ConfigureAwait(false);
-            return ValidateApiEndpointAdmission(captain, endpoint);
+            return ValidateApiEndpointAdmission(captain, endpoint, _Settings.ApiCaptainCloudProviders);
+        }
+
+        /// <summary>
+        /// Whether a provider is a hosted cloud service that needs explicit operator opt-in for API captains.
+        /// Ollama and OpenAI-compatible endpoints are operator-hosted and need no opt-in.
+        /// </summary>
+        /// <param name="provider">Endpoint provider.</param>
+        /// <returns>True for hosted cloud inference providers.</returns>
+        public static bool IsHostedCloudProvider(ModelProviderEnum provider)
+        {
+            return provider == ModelProviderEnum.OpenAI
+                || provider == ModelProviderEnum.Anthropic
+                || provider == ModelProviderEnum.Gemini;
         }
 
         /// <summary>
@@ -379,8 +392,9 @@ namespace Armada.Server
         /// </summary>
         /// <param name="captain">Captain to admit.</param>
         /// <param name="endpoint">Endpoint snapshot read for the captain tenant and endpoint identifier.</param>
+        /// <param name="enabledCloudProviders">Hosted cloud providers the operator explicitly enabled for API captains.</param>
         /// <returns>Null when admitted, otherwise a safe admission error.</returns>
-        public static string? ValidateApiEndpointAdmission(Captain captain, ModelEndpoint? endpoint)
+        public static string? ValidateApiEndpointAdmission(Captain captain, ModelEndpoint? endpoint, IReadOnlyCollection<ModelProviderEnum>? enabledCloudProviders)
         {
             if (captain == null)
                 return "The captain is required.";
@@ -394,6 +408,9 @@ namespace Armada.Server
                 || !String.Equals(endpoint.Id, captain.ModelEndpointId, StringComparison.Ordinal)
                 || !String.Equals(endpoint.TenantId, captain.TenantId, StringComparison.Ordinal))
                 return "The referenced model endpoint is not available to this captain.";
+            if (IsHostedCloudProvider(endpoint.Provider)
+                && (enabledCloudProviders == null || !enabledCloudProviders.Contains(endpoint.Provider)))
+                return "The " + endpoint.Provider + " provider is disabled for API captains. List it in apiCaptainCloudProviders to enable it.";
             if (endpoint.Scope == ScopeEnum.UserSpecific
                 && !String.Equals(endpoint.UserId, captain.UserId, StringComparison.Ordinal))
                 return "The referenced model endpoint is not available to this captain.";
@@ -1385,7 +1402,7 @@ namespace Armada.Server
                 captain.TenantId!,
                 captain.ModelEndpointId!,
                 CancellationToken.None).ConfigureAwait(false);
-            string? validationError = ValidateApiEndpointAdmission(captain, endpoint);
+            string? validationError = ValidateApiEndpointAdmission(captain, endpoint, _Settings.ApiCaptainCloudProviders);
             if (!String.IsNullOrEmpty(validationError))
                 throw new InvalidOperationException(validationError);
 
