@@ -303,7 +303,8 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   the owner must not be a global administrator.
 - Add a combined database scenario that interrupts the captain endpoint-link
   and Harbor enrollment migrations in order, rejects an incompatible partial
-  table and checks restart, history, persistence and conditional writes.
+  table and checks restart, history, persistence and conditional writes. It
+  asserts the specific migration versions, so later migrations do not break it.
 
 ### Harbor runner link
 

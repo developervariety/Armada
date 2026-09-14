@@ -64,7 +64,7 @@ namespace Armada.Test.Database
 
             if (scenario == "harbor-enrollment-combined")
             {
-                await new HarborRunnerEnrollmentMigrationTests(_Settings).VerifyCombinedAsync(token).ConfigureAwait(false);
+                await new HarborRunnerEnrollmentCombinedMigrationTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
                 Console.WriteLine("PASS migration scenario " + scenario + ": ordered faults, partial table rejection, restart, persistence and conditional writes");
                 return;
             }
