@@ -47,6 +47,15 @@ namespace Armada.Test.Database
             if (scenario == "admission-migration")
                 await new MissionAdmissionMigrationTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
 
+            if (scenario == "model-endpoint-migration")
+                await new ModelEndpointMigrationTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
+
+            if (scenario == "model-endpoint-guards")
+            {
+                await new ModelEndpointMigrationTests(_Settings).VerifyGuardAsync(token).ConfigureAwait(false);
+                return;
+            }
+
             if (scenario == "postgres-legacy")
                 await new PostgresqlLegacySchemaTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
 
@@ -92,7 +101,7 @@ namespace Armada.Test.Database
                     await Task.WhenAll(firstStart, secondStart).ConfigureAwait(false);
                 }
             }
-            else if (scenario != "fresh" && scenario != "catalog-guards" && scenario != "mysql-compat" && scenario != "sqlserver-corrections" && scenario != "preview-migration" && scenario != "backend-migration" && scenario != "anchor-migration" && scenario != "memory-migration" && scenario != "postgres-legacy" && scenario != "admission-migration")
+            else if (scenario != "fresh" && scenario != "catalog-guards" && scenario != "mysql-compat" && scenario != "sqlserver-corrections" && scenario != "preview-migration" && scenario != "backend-migration" && scenario != "anchor-migration" && scenario != "memory-migration" && scenario != "postgres-legacy" && scenario != "admission-migration" && scenario != "model-endpoint-migration")
             {
                 int anchorVersion = _Settings.Type switch
                 {
@@ -240,7 +249,7 @@ namespace Armada.Test.Database
             };
         }
 
-        private DatabaseDriver CreateDriver()
+        internal DatabaseDriver CreateDriver()
         {
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;

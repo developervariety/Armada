@@ -96,6 +96,7 @@ namespace Armada.Core.Database.SqlServer
             CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);
             Jobs = new JobMethods(this, _Settings, _Logging);
             TokenUsage = new TokenUsageMethods(this);
+            ModelEndpoints = new ModelEndpointMethods(this, _Settings, _Logging);
         }
 
         #endregion
@@ -151,6 +152,8 @@ namespace Armada.Core.Database.SqlServer
 
                         using (SqlTransaction tx = (SqlTransaction)await conn.BeginTransactionAsync(token).ConfigureAwait(false))
                         {
+                            if (migration.Version == 83)
+                                await ModelEndpointSchemaGuard.EnsureAsync(conn, tx, DatabaseTypeEnum.SqlServer, token).ConfigureAwait(false);
                             for (int statementOrdinal = 0; statementOrdinal < migration.Statements.Count; statementOrdinal++)
                             {
                                 string sql = migration.Statements[statementOrdinal];

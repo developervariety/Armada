@@ -916,6 +916,10 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(82, "Persist last admission observations",
                     @"ALTER TABLE missions ADD last_admission_json NVARCHAR(MAX) NULL;",
                     @"ALTER TABLE missions ADD admission_revision BIGINT NOT NULL DEFAULT 0;"
+                ),
+                new SchemaMigration(83, "Persist managed model endpoints",
+                    @"IF OBJECT_ID('model_endpoints','U') IS NULL CREATE TABLE model_endpoints (id NVARCHAR(450) NOT NULL PRIMARY KEY, tenant_id NVARCHAR(450) NULL, user_id NVARCHAR(450) NULL, name NVARCHAR(450) NOT NULL DEFAULT '', kind NVARCHAR(64) NOT NULL, provider NVARCHAR(64) NOT NULL, base_url NVARCHAR(2000) NOT NULL DEFAULT '', api_key NVARCHAR(4000) NULL, model NVARCHAR(450) NULL, dimensionality INT NOT NULL DEFAULT 0, timeout_ms INT NOT NULL DEFAULT 120000, enabled BIT NOT NULL DEFAULT 0, health_status NVARCHAR(64) NOT NULL DEFAULT 'Unknown', last_health_check_utc DATETIME2 NULL, last_health_error NVARCHAR(4000) NULL, last_latency_ms INT NULL, health_history_json NVARCHAR(MAX) NULL, scope NVARCHAR(32) NOT NULL DEFAULT 'TenantWide', created_utc DATETIME2 NOT NULL, last_update_utc DATETIME2 NOT NULL);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_model_endpoints_tenant' AND object_id=OBJECT_ID('model_endpoints')) CREATE INDEX idx_model_endpoints_tenant ON model_endpoints(tenant_id);"
                 )
             };
         }

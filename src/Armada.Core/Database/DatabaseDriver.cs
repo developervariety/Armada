@@ -221,6 +221,9 @@ namespace Armada.Core.Database
         /// </summary>
         public ITokenUsageMethods TokenUsage { get; protected set; } = null!;
 
+        /// <summary>Model endpoint persistence operations.</summary>
+        public IModelEndpointMethods ModelEndpoints { get; protected set; } = null!;
+
         #endregion
 
         #region Constructors-and-Factories

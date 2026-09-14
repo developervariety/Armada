@@ -1049,6 +1049,10 @@ namespace Armada.Core.Database.Postgresql.Queries
                 new SchemaMigration(88, "Persist last admission observations",
                     @"ALTER TABLE missions ADD COLUMN last_admission_json TEXT NULL;",
                     @"ALTER TABLE missions ADD COLUMN admission_revision BIGINT NOT NULL DEFAULT 0;"
+                ),
+                new SchemaMigration(89, "Persist managed model endpoints",
+                    @"CREATE TABLE IF NOT EXISTS model_endpoints (id TEXT PRIMARY KEY, tenant_id TEXT, user_id TEXT, name TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL, provider TEXT NOT NULL, base_url TEXT NOT NULL DEFAULT '', api_key TEXT, model TEXT, dimensionality INTEGER NOT NULL DEFAULT 0, timeout_ms INTEGER NOT NULL DEFAULT 120000, enabled BOOLEAN NOT NULL DEFAULT FALSE, health_status TEXT NOT NULL DEFAULT 'Unknown', last_health_check_utc TIMESTAMPTZ NULL, last_health_error TEXT, last_latency_ms INTEGER, health_history_json TEXT, scope TEXT NOT NULL DEFAULT 'TenantWide', created_utc TIMESTAMPTZ NOT NULL, last_update_utc TIMESTAMPTZ NOT NULL);",
+                    @"CREATE INDEX IF NOT EXISTS idx_model_endpoints_tenant ON model_endpoints(tenant_id);"
                 )
             };
         }

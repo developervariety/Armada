@@ -73,6 +73,9 @@ namespace Armada.Test.Database
                 DatabaseAssert.Equal(version, await _Driver.GetSchemaVersionAsync(token).ConfigureAwait(false), "Repeated startup schema version");
             }, token);
 
+            await RunTest("ModelEndpoint_Persistence_Scope_Unicode_Reopen", "Operational", () => TestModelEndpointPersistenceAsync(token), token);
+            await RunTest("ModelEndpoint_Persistence_Rejects_Corrupt_Enums", "Operational", () => TestModelEndpointCorruptEnumsAsync(token), token);
+
             if (_Settings.Type == Armada.Core.Enums.DatabaseTypeEnum.Mysql)
                 await RunTest("MySQL_Unicode_Full_Uniqueness_Concurrency_Rollback", "Schema", () => new MysqlUnicodeUniquenessTests(_Settings).VerifyAsync(token), token);
 
@@ -138,6 +141,131 @@ namespace Armada.Test.Database
             _Results.AddRange(scopingResults);
 
             return _Results;
+        }
+
+        private async Task TestModelEndpointPersistenceAsync(CancellationToken token)
+        {
+            string longId = "mep_" + new string('界', 446);
+            string secondLongId = "mep_" + new string('界', 445) + "甲";
+            ModelEndpoint endpoint = new ModelEndpoint
+            {
+                Id = longId,
+                TenantId = "tenant-ユニコード",
+                UserId = "user-ユニコード",
+                Name = "Endpoint 名前",
+                Kind = ModelEndpointKindEnum.Embedding,
+                Scope = ScopeEnum.UserSpecific,
+                Provider = ModelProviderEnum.OpenAICompatible,
+                BaseUrl = "http://localhost:9999/v1",
+                Model = "モデル",
+                Dimensionality = 1536,
+                TimeoutMs = 5000,
+                Enabled = false,
+                HealthStatus = EndpointHealthStatusEnum.Unhealthy,
+                LastHealthError = "failure",
+                LastLatencyMs = 42,
+                HealthHistory = new List<ModelEndpointHealthRecord> { new ModelEndpointHealthRecord { Success = true } }
+            };
+            ModelEndpoint created = await _Driver.ModelEndpoints.CreateAsync(endpoint, token).ConfigureAwait(false);
+            ModelEndpoint stored = DatabaseAssert.NotNull(await _Driver.ModelEndpoints.ReadAsync(longId, token).ConfigureAwait(false), "Model endpoint survives create");
+            DatabaseAssert.Equal(ScopeEnum.UserSpecific, stored.Scope, "Scope round trip");
+            DatabaseAssert.Equal("モデル", stored.Model, "Unicode model round trip");
+            DatabaseAssert.Equal(ModelEndpointKindEnum.Embedding, stored.Kind, "Kind round trip");
+            DatabaseAssert.Equal(ModelProviderEnum.OpenAICompatible, stored.Provider, "Provider round trip");
+            DatabaseAssert.Equal("http://localhost:9999/v1", stored.BaseUrl, "Base URL round trip");
+            DatabaseAssert.Equal(1536, stored.Dimensionality, "Dimensionality round trip");
+            DatabaseAssert.Equal(5000, stored.TimeoutMs, "Timeout round trip");
+            DatabaseAssert.True(!stored.Enabled, "Enabled round trip");
+            DatabaseAssert.Equal(EndpointHealthStatusEnum.Unhealthy, stored.HealthStatus, "Health status round trip");
+            DatabaseAssert.Equal("failure", stored.LastHealthError, "Health error round trip");
+            DatabaseAssert.Equal(42L, stored.LastLatencyMs, "Latency round trip");
+            DatabaseAssert.Equal(1, stored.HealthHistory.Count, "Health history round trip");
+            stored.Scope = ScopeEnum.TenantWide;
+            stored.LastHealthError = null;
+            stored.HealthHistory = new List<ModelEndpointHealthRecord>();
+            await _Driver.ModelEndpoints.UpdateAsync(stored, token).ConfigureAwait(false);
+            using (DatabaseDriver reopenedDriver = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+            {
+                ModelEndpoint reopened = DatabaseAssert.NotNull(await reopenedDriver.ModelEndpoints.ReadAsync(longId, token).ConfigureAwait(false), "Model endpoint survives reopen");
+            DatabaseAssert.Equal(ScopeEnum.TenantWide, reopened.Scope, "Updated scope survives reopen");
+            DatabaseAssert.True(reopened.LastHealthError == null, "Nullable health error clears");
+            DatabaseAssert.Equal(0, reopened.HealthHistory.Count, "Health history clears");
+                ModelEndpoint other = new ModelEndpoint { Id = secondLongId, TenantId = endpoint.TenantId, UserId = "other-user", Name = "Other", Scope = ScopeEnum.UserSpecific, BaseUrl = "http://localhost:9998" };
+                await reopenedDriver.ModelEndpoints.CreateAsync(other, token).ConfigureAwait(false);
+                ModelEndpoint otherStored = DatabaseAssert.NotNull(await reopenedDriver.ModelEndpoints.ReadAsync(other.Id, token).ConfigureAwait(false), "Second model endpoint survives create");
+                DatabaseAssert.True(!otherStored.Enabled, "New model endpoints default to disabled");
+                DatabaseAssert.Equal(2, (await reopenedDriver.ModelEndpoints.EnumerateAsync(endpoint.TenantId!, token).ConfigureAwait(false)).Count, "Tenant enumeration includes both records");
+                DatabaseAssert.Equal(0, (await reopenedDriver.ModelEndpoints.EnumerateAsync("other-tenant", token).ConfigureAwait(false)).Count, "Other tenant cannot enumerate records");
+                DatabaseAssert.True(await reopenedDriver.ModelEndpoints.ReadAsync("other-tenant", longId, token).ConfigureAwait(false) == null, "Other tenant cannot read record");
+                DatabaseAssert.True(await reopenedDriver.ModelEndpoints.ReadAsync(endpoint.TenantId!, "other-user", longId, token).ConfigureAwait(false) == null, "Other user cannot read user-specific record");
+                await reopenedDriver.ModelEndpoints.DeleteAsync(longId, token).ConfigureAwait(false);
+                await reopenedDriver.ModelEndpoints.DeleteAsync(other.Id, token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task TestModelEndpointCorruptEnumsAsync(CancellationToken token)
+        {
+            string id = "mep_corrupt_enum_" + Guid.NewGuid().ToString("N");
+            ModelEndpoint endpoint = new ModelEndpoint
+            {
+                Id = id,
+                TenantId = "tenant-corrupt-enum",
+                UserId = "user-corrupt-enum",
+                Name = "Corrupt enum fixture",
+                Kind = ModelEndpointKindEnum.Inference,
+                Scope = ScopeEnum.TenantWide,
+                Provider = ModelProviderEnum.OpenAI,
+                BaseUrl = "http://localhost:9999",
+                Enabled = false
+            };
+            await _Driver.ModelEndpoints.CreateAsync(endpoint, token).ConfigureAwait(false);
+
+            foreach (string field in new[] { "kind", "scope", "provider" })
+            {
+                await UpdateRawEndpointFieldAsync(id, field, "Corrupt", token).ConfigureAwait(false);
+                bool rejected = false;
+                try
+                {
+                    await _Driver.ModelEndpoints.ReadAsync(id, token).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex) when (ex.Message.Contains("Invalid model endpoint " + field, StringComparison.Ordinal))
+                {
+                    rejected = true;
+                }
+
+                DatabaseAssert.True(rejected, "Persisted invalid " + field + " must be rejected");
+                string valid = field switch
+                {
+                    "kind" => ModelEndpointKindEnum.Inference.ToString(),
+                    "scope" => ScopeEnum.TenantWide.ToString(),
+                    "provider" => ModelProviderEnum.OpenAI.ToString(),
+                    _ => throw new InvalidOperationException("Unexpected enum field")
+                };
+                await UpdateRawEndpointFieldAsync(id, field, valid, token).ConfigureAwait(false);
+            }
+
+            await _Driver.ModelEndpoints.DeleteAsync(id, token).ConfigureAwait(false);
+        }
+
+        private async Task UpdateRawEndpointFieldAsync(string id, string field, string value, CancellationToken token)
+        {
+            using (DbConnection connection = MigrationScenarioRunner.CreateConnection(_Settings))
+            {
+                await connection.OpenAsync(token).ConfigureAwait(false);
+                using (DbCommand command = connection.CreateCommand())
+                {
+                    command.CommandText = "UPDATE model_endpoints SET " + field + " = @value WHERE id = @id;";
+                    DbParameter valueParameter = command.CreateParameter();
+                    valueParameter.ParameterName = "@value";
+                    valueParameter.Value = value;
+                    command.Parameters.Add(valueParameter);
+                    DbParameter idParameter = command.CreateParameter();
+                    idParameter.ParameterName = "@id";
+                    idParameter.Value = id;
+                    command.Parameters.Add(idParameter);
+                    await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
+            }
         }
 
         private async Task RunTest(string name, string category, Func<Task> action, CancellationToken token, [CallerFilePath] string sourcePath = "", [CallerLineNumber] int sourceLine = 0)

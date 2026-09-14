@@ -89,6 +89,7 @@ namespace Armada.Core.Database.Mysql
             CoordinationLeases = new CoordinationLeaseMethods(_ConnectionString);
             Jobs = new JobMethods(_ConnectionString);
             TokenUsage = new TokenUsageMethods(_ConnectionString);
+            ModelEndpoints = new ModelEndpointMethods(_ConnectionString);
         }
 
         #endregion
@@ -141,6 +142,8 @@ namespace Armada.Core.Database.Mysql
                         if (migration.Version > currentVersion) MigrationCheckpoint?.Invoke(migration.Version, -1);
                         if (migration.Version <= currentVersion) continue;
                         _Logging.Info(_Header + "applying migration v" + migration.Version + ": " + migration.Description);
+                        if (migration.Version == 80)
+                            await ModelEndpointSchemaGuard.EnsureAsync(conn, null, DatabaseTypeEnum.Mysql, token).ConfigureAwait(false);
                         await runner.ApplyAsync(migration, token).ConfigureAwait(false);
                         applied++;
                     }
@@ -651,7 +654,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(78, "Add native captain memory", MemorySchema.MigrationV78Statements),
                 new SchemaMigration(79, "Persist last admission observations",
                     @"ALTER TABLE missions ADD COLUMN last_admission_json LONGTEXT CHARACTER SET utf8mb4 NULL;",
-                    @"ALTER TABLE missions ADD COLUMN admission_revision BIGINT NOT NULL DEFAULT 0;")
+                    @"ALTER TABLE missions ADD COLUMN admission_revision BIGINT NOT NULL DEFAULT 0;"),
+                new SchemaMigration(80, "Persist managed model endpoints", TableQueries.MigrationV80Statements)
             };
         }
 

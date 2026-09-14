@@ -45,16 +45,19 @@ changes are not deployed.
 Advisory UI labels landed in `8f6cd7c2`, with four rendered tests passing.
 The response model documentation carries the same wording in `e16bd1b9`.
 
-Model endpoint persistence remains unaccepted. The provider review found and
-fixed a MySQL string-default mismatch. Fresh installs and historical upgrades
-pass on all four providers, but the MySQL partial-index restart still fails.
-The service candidate also needs a scoped health sweep, safe credential handling,
-real model validation and health writes that preserve concurrent configuration.
-Do not enable endpoints or advance the objective on the persistence result alone.
+Model endpoint persistence passed independent checks on all four providers:
+fresh installation, partial restart, schema guards and historical upgrade.
+Persistence tests passed 71 per provider and 72 on MySQL, including corrupt enum
+rejection and full Unicode IDs. The final disabled-default check passed on each
+provider. The service candidate still needs REST boundary checks, real model
+validation and health writes that preserve concurrent configuration. Endpoints
+remain disabled by default; persistence acceptance does not complete the objective.
 
-Self-rebuild has a candidate preflight gate and a default refusal provider.
-Provider-native backup, isolated restore and candidate/process proof remain in
-progress. An interface and mocked success flags do not satisfy deployment proof.
+Self-rebuild preflight landed in `e52018a8`. Root validation passed 12 tests.
+The default provider refuses deployment until backup, restore and candidate proof
+all pass. Native backup and isolated restore remain under review. Candidate and
+process proof are incomplete. This source is not deployed. Mocked success flags
+do not satisfy deployment proof.
 
 A fetch of both remotes found a later upstream Linter persona addition. The
 comparison remains pinned to the accepted review anchor. The new persona and
@@ -343,13 +346,13 @@ part of the combined closeout.
 
 ## FOLLOWUP-013 — OpenCode top-level errors
 
-Runtime answer cleanup is landed and accepted in `7bdb2d27`, but neither compared
-adapter parses a top-level OpenCode error event. The implementation record says
-no captured sample exists. Obtain a non-secret real JSON event fixture, then
-prove that the error produces a named chat/planning failure and activity record,
-not an empty answer. Do not guess the schema. A live provider capture is listed
-as requiring owner approval in the operational follow-up; an owner-supplied
-capture can also supply the missing prerequisite. No such call was made here.
+Runtime answer cleanup landed in `7bdb2d27`. A real OpenCode 1.18.30 run
+against an isolated local HTTP fixture now supplies the missing top-level
+`error.data` event. The fixture returned HTTP 400; no paid provider or Armada
+operation was used. The adapter candidate parses this shape and removes response
+body, header, URL and session metadata from its activity output. Acceptance still
+requires behavioral chat, planning and refinement tests, including partial text
+followed by a terminal error. A classification helper test alone is insufficient.
 
 ## FOLLOWUP-014 — WebSocket and MCP scope
 

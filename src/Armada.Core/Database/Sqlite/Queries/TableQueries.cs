@@ -1579,6 +1579,10 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(87, "Persist last admission observations",
                     @"ALTER TABLE missions ADD COLUMN last_admission_json TEXT NULL;",
                     @"ALTER TABLE missions ADD COLUMN admission_revision INTEGER NOT NULL DEFAULT 0;"
+                ),
+                new SchemaMigration(88, "Persist managed model endpoints",
+                    @"CREATE TABLE IF NOT EXISTS model_endpoints (id TEXT PRIMARY KEY, tenant_id TEXT, user_id TEXT, name TEXT NOT NULL DEFAULT '', kind TEXT NOT NULL, provider TEXT NOT NULL, base_url TEXT NOT NULL DEFAULT '', api_key TEXT, model TEXT, dimensionality INTEGER NOT NULL DEFAULT 0, timeout_ms INTEGER NOT NULL DEFAULT 120000, enabled INTEGER NOT NULL DEFAULT 0, health_status TEXT NOT NULL DEFAULT 'Unknown', last_health_check_utc TEXT, last_health_error TEXT, last_latency_ms INTEGER, health_history_json TEXT, scope TEXT NOT NULL DEFAULT 'TenantWide', created_utc TEXT NOT NULL, last_update_utc TEXT NOT NULL);",
+                    @"CREATE INDEX IF NOT EXISTS idx_model_endpoints_tenant ON model_endpoints(tenant_id);"
                 )
             };
         }

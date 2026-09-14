@@ -1188,6 +1188,13 @@ namespace Armada.Core.Database.Mysql.Queries
             @"ALTER TABLE objectives ADD COLUMN preparation_json LONGTEXT NULL;"
         };
 
+        /// <summary>Migration v80 statements for managed model endpoint persistence.</summary>
+        public static readonly string[] MigrationV80Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS model_endpoints (id VARCHAR(450) CHARACTER SET utf8mb4 NOT NULL, tenant_id VARCHAR(450) CHARACTER SET utf8mb4 NULL, user_id VARCHAR(450) CHARACTER SET utf8mb4 NULL, name TEXT NOT NULL, kind VARCHAR(64) NOT NULL, provider VARCHAR(64) NOT NULL, base_url TEXT NOT NULL, api_key TEXT NULL, model TEXT NULL, dimensionality INT NOT NULL DEFAULT 0, timeout_ms INT NOT NULL DEFAULT 120000, enabled TINYINT(1) NOT NULL DEFAULT 0, health_status VARCHAR(64) NOT NULL DEFAULT 'Unknown', last_health_check_utc DATETIME(6) NULL, last_health_error TEXT NULL, last_latency_ms INT NULL, health_history_json LONGTEXT NULL, scope VARCHAR(32) NOT NULL DEFAULT 'TenantWide', created_utc DATETIME(6) NOT NULL, last_update_utc DATETIME(6) NOT NULL, PRIMARY KEY (id));",
+            @"CREATE INDEX idx_model_endpoints_tenant ON model_endpoints(tenant_id);"
+        };
+
         /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>

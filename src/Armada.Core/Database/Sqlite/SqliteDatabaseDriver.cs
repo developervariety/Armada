@@ -149,6 +149,7 @@ namespace Armada.Core.Database.Sqlite
             CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);
             Jobs = new JobMethods(this, _Settings, _Logging);
             TokenUsage = new TokenUsageMethods(this, _Settings, _Logging);
+            ModelEndpoints = new ModelEndpointMethods(this, _Settings, _Logging);
         }
 
         #endregion
@@ -224,6 +225,8 @@ namespace Armada.Core.Database.Sqlite
                             int lockedVersion = Convert.ToInt32(await versionCommand.ExecuteScalarAsync(token).ConfigureAwait(false));
                             if (migration.Version <= lockedVersion) continue;
                         }
+                        if (migration.Version == 88)
+                            await ModelEndpointSchemaGuard.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
                         for (int statementOrdinal = 0; statementOrdinal < migration.Statements.Count; statementOrdinal++)
                         {
                             string sql = migration.Statements[statementOrdinal];

@@ -17,6 +17,9 @@ namespace Armada.Core
         /// </summary>
         public static readonly string ProductName = "Armada";
 
+        /// <summary>Model endpoint identifier prefix.</summary>
+        public static readonly string ModelEndpointIdPrefix = "mep_";
+
         /// <summary>
         /// Product version.
         /// </summary>

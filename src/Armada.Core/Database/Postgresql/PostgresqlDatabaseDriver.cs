@@ -130,6 +130,8 @@ namespace Armada.Core.Database.Postgresql
 
                         using (NpgsqlTransaction tx = await conn.BeginTransactionAsync(token).ConfigureAwait(false))
                         {
+                            if (migration.Version == 89)
+                                await ModelEndpointSchemaGuard.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Postgresql, token).ConfigureAwait(false);
                             for (int statementOrdinal = 0; statementOrdinal < migration.Statements.Count; statementOrdinal++)
                             {
                                 string sql = migration.Statements[statementOrdinal];
@@ -309,6 +311,7 @@ namespace Armada.Core.Database.Postgresql
             JudgeFollowUps = new JudgeFollowUpMethods(_Settings);
             Jobs = new JobMethods(this, _Settings, _Logging);
             TokenUsage = new TokenUsageMethods(_DataSource);
+            ModelEndpoints = new ModelEndpointMethods(this, _Settings, _Logging);
             ProjectProfiles = new ProjectProfileMethods(this);
             Skills = new SkillMethods(this);
             CoordinationLeases = new CoordinationLeaseMethods(this, _Settings, _Logging);

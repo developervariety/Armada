@@ -14,6 +14,13 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Model endpoint persistence
+
+- Add append-only endpoint storage on all four database providers. Preserve
+  Unicode IDs, full-value uniqueness and existing migration history.
+- Default endpoints to disabled. Reject incompatible partial schemas and corrupt
+  stored provider, kind and scope values.
+
 ### Self-deploy safety gate
 
 - Require validated backup, isolated restore and candidate proof before a
