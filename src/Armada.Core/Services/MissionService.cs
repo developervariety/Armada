@@ -1668,7 +1668,7 @@ namespace Armada.Core.Services
                 Objective? rescuedObjective = await FindLinkedObjectiveAsync(mission, token).ConfigureAwait(false);
                 RescueEffectivenessAssessment assessment = RescueEffectivenessEvaluator.Assess(
                     changedPaths,
-                    RescueEffectivenessEvaluator.RequiresCodeChange(mission.Mode, rescuedObjective?.Kind));
+                    RescueEffectivenessEvaluator.RequiredChange(mission.Mode, rescuedObjective?.Kind));
 
                 if (assessment.IsIneffective)
                 {

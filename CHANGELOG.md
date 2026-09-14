@@ -40,6 +40,17 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   OpenAI-compatible endpoints need no opt-in. Loopback fixtures verify each hosted
   provider's request path, credential header, model and workspace tool catalog.
   Azure OpenAI, Vertex AI and Bedrock remain unavailable.
+### Rescue effectiveness follows the objective's declared deliverable
+
+- The ineffective-rescue rule now reads what the linked objective kind
+  declares as its deliverable. A rescue under a `Chore` objective, whose
+  deliverable is a committed document such as an audit report, a
+  discoveries record or a census, is effective when it commits any change,
+  documentation included. An empty change set is still `ineffective_rescue`.
+- `Research` objectives stay report-only. `Feature`, `Bug`, `Refactor`,
+  `Initiative` and unlinked rescues still fail as `ineffective_rescue` when
+  they change nothing or only documentation.
+
 ### Dispatch hold covers autonomous rescues
 
 - Autonomous rescue dispatch now obeys the fleet-wide dispatch hold through the

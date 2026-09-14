@@ -1016,6 +1016,14 @@ Three limits keep this from firing on correct work:
 - **Only Implementation mode.** An Audit or Research mission delivers a report
   and is never expected to change code. Judging those by a diff is the same
   mistake in the other direction, and it once marked correct work Failed.
+- **The objective kind declares the deliverable.** A `Research` objective is
+  report-only, so its rescue is not assessed. A `Chore` objective delivers a
+  committed document, such as a report under `docs/audits/`, a
+  `discoveries.d` record or a census. Its rescue is effective when it commits
+  any change, documentation included, and ineffective only when it commits
+  nothing. `Feature`, `Bug`, `Refactor`, `Initiative` and rescues with no
+  linked objective owe a change that can carry behavior. A committed-document
+  deliverable must therefore be filed as `Chore`, not as a code kind.
 - **The original mission's paths are NOT compared against.** A rescue is
   expected to rewrite the prior branch from scratch over the same files, so
   treating an overlapping path set as a no-op would flag the normal case.

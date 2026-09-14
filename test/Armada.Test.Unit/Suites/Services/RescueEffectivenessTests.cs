@@ -24,7 +24,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("A rescue that changed only documentation is flagged", () =>
             {
                 RescueEffectivenessAssessment assessment = RescueEffectivenessEvaluator.Assess(
-                    new List<string> { "docs/armada-ops.md" }, true);
+                    new List<string> { "docs/armada-ops.md" }, RescueChangeRequirementEnum.BehaviorChange);
 
                 AssertTrue(assessment.IsIneffective, "Describing the defect is not fixing it.");
                 AssertEqual(ChangeSubstanceEnum.DocumentationOnly, assessment.Substance);
@@ -35,7 +35,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("A rescue that changed nothing is flagged", () =>
             {
                 RescueEffectivenessAssessment assessment = RescueEffectivenessEvaluator.Assess(
-                    new List<string>(), true);
+                    new List<string>(), RescueChangeRequirementEnum.BehaviorChange);
 
                 AssertTrue(assessment.IsIneffective);
                 AssertEqual(ChangeSubstanceEnum.None, assessment.Substance);
@@ -45,7 +45,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("One behavior-carrying file makes the whole change set substantive", () =>
             {
                 RescueEffectivenessAssessment assessment = RescueEffectivenessEvaluator.Assess(
-                    new List<string> { "CHANGELOG.md", "docs/notes.md", "src/Thing.cs" }, true);
+                    new List<string> { "CHANGELOG.md", "docs/notes.md", "src/Thing.cs" }, RescueChangeRequirementEnum.BehaviorChange);
 
                 AssertFalse(assessment.IsIneffective, "A real code change alongside docs is a real change.");
                 AssertEqual(ChangeSubstanceEnum.Substantive, assessment.Substance);
@@ -56,37 +56,68 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 // Audit and Research missions deliver a report. Judging them by a diff is the same
                 // mistake in the other direction, and it once marked correct work Failed.
-                RescueEffectivenessAssessment none = RescueEffectivenessEvaluator.Assess(new List<string>(), false);
+                RescueEffectivenessAssessment none = RescueEffectivenessEvaluator.Assess(new List<string>(), RescueChangeRequirementEnum.None);
                 RescueEffectivenessAssessment docs = RescueEffectivenessEvaluator.Assess(
-                    new List<string> { "docs/findings.md" }, false);
+                    new List<string> { "docs/findings.md" }, RescueChangeRequirementEnum.None);
 
                 AssertFalse(none.IsIneffective, "A read-only mission that produces no commit has succeeded.");
                 AssertFalse(docs.IsIneffective);
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
-            await RunTest("A rescue owes a code change only in Implementation mode under a non-Research objective", () =>
+            await RunTest("A rescue's owed change follows its mode and the objective kind's declared deliverable", () =>
             {
-                // A Research objective delivers findings, and its vessel may hold nothing but
-                // documents. A documentation-only rescue under one is the job done, not a defect
-                // described. Cover every mode x kind pair, not the one case that prompted this.
+                // Research delivers findings and owes nothing; Chore delivers a committed document and
+                // owes a commit; every other kind owes behavior. Only Implementation mode owes
+                // anything. Cover every mode x kind pair, not the cases that prompted the rule.
                 foreach (MissionModeEnum mode in System.Enum.GetValues<MissionModeEnum>())
                 {
                     bool implementation = mode == MissionModeEnum.Implementation;
-                    AssertEqual(implementation, RescueEffectivenessEvaluator.RequiresCodeChange(mode, null),
+                    AssertEqual(
+                        implementation ? RescueChangeRequirementEnum.BehaviorChange : RescueChangeRequirementEnum.None,
+                        RescueEffectivenessEvaluator.RequiredChange(mode, null),
                         "no linked objective, mode " + mode);
                     foreach (ObjectiveKindEnum kind in System.Enum.GetValues<ObjectiveKindEnum>())
                     {
-                        bool expected = implementation && kind != ObjectiveKindEnum.Research;
-                        AssertEqual(expected, RescueEffectivenessEvaluator.RequiresCodeChange(mode, kind),
+                        RescueChangeRequirementEnum expected = !implementation || kind == ObjectiveKindEnum.Research
+                            ? RescueChangeRequirementEnum.None
+                            : kind == ObjectiveKindEnum.Chore
+                                ? RescueChangeRequirementEnum.AnyCommittedChange
+                                : RescueChangeRequirementEnum.BehaviorChange;
+                        AssertEqual(expected, RescueEffectivenessEvaluator.RequiredChange(mode, kind),
                             "mode " + mode + ", objective kind " + kind);
                     }
                 }
 
                 RescueEffectivenessAssessment census = RescueEffectivenessEvaluator.Assess(
                     new List<string> { "discoveries.d/decrypted-db-census.md" },
-                    RescueEffectivenessEvaluator.RequiresCodeChange(MissionModeEnum.Implementation, ObjectiveKindEnum.Research));
+                    RescueEffectivenessEvaluator.RequiredChange(MissionModeEnum.Implementation, ObjectiveKindEnum.Research));
                 AssertFalse(census.IsIneffective, "A census delivered as a document under a Research objective is the work.");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("A committed-document rescue under a Chore objective is effective; under a code kind it is not", () =>
+            {
+                // A Chore objective's deliverable is a committed document (an audit report, a
+                // discoveries record, a census). Its rescue fixing that document is the work.
+                List<string> reportOnly = new List<string> { "docs/audits/port-coverage-audit.md" };
+                RescueEffectivenessAssessment chore = RescueEffectivenessEvaluator.Assess(
+                    reportOnly,
+                    RescueEffectivenessEvaluator.RequiredChange(MissionModeEnum.Implementation, ObjectiveKindEnum.Chore));
+                AssertFalse(chore.IsIneffective, "A Chore rescue that commits its report delivered the report.");
+
+                foreach (ObjectiveKindEnum codeKind in new[] { ObjectiveKindEnum.Feature, ObjectiveKindEnum.Bug, ObjectiveKindEnum.Refactor })
+                {
+                    RescueEffectivenessAssessment code = RescueEffectivenessEvaluator.Assess(
+                        reportOnly,
+                        RescueEffectivenessEvaluator.RequiredChange(MissionModeEnum.Implementation, codeKind));
+                    AssertTrue(code.IsIneffective, "A " + codeKind + " rescue that only wrote documentation described the defect.");
+                }
+
+                RescueEffectivenessAssessment emptyChore = RescueEffectivenessEvaluator.Assess(
+                    new List<string>(),
+                    RescueEffectivenessEvaluator.RequiredChange(MissionModeEnum.Implementation, ObjectiveKindEnum.Chore));
+                AssertTrue(emptyChore.IsIneffective, "A Chore rescue that committed nothing did not deliver its document.");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
@@ -172,7 +203,7 @@ namespace Armada.Test.Unit.Suites.Services
                 string diff = "diff --git a/docs/armada-ops.md b/docs/armada-ops.md\n@@ -1 +1 @@\n-a\n+b";
 
                 RescueEffectivenessAssessment assessment = RescueEffectivenessEvaluator.Assess(
-                    DiffPathExtractor.ExtractChangedPaths(diff), true);
+                    DiffPathExtractor.ExtractChangedPaths(diff), RescueChangeRequirementEnum.BehaviorChange);
 
                 AssertTrue(assessment.IsIneffective, "This is the twenty-four-hour rescue, reduced to its evidence.");
                 return Task.CompletedTask;

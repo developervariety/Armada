@@ -29,46 +29,19 @@ namespace Armada.Core.Services
         /// Assess whether a rescue produced work capable of addressing its defect.
         /// </summary>
         /// <param name="changedPaths">Repository-relative paths the rescue changed.</param>
-        /// <param name="requiresCodeChange">
-        /// Whether the mission's mode requires a commit. Audit and Research missions deliver a
-        /// report and are never expected to change code, so they are never flagged - judging them
-        /// by a diff is the same mistake in the other direction.
+        /// <param name="requirement">
+        /// What the rescue owes, from <see cref="RequiredChange"/>. Audit and Research missions
+        /// deliver a report and are never flagged - judging them by a diff is the same mistake in
+        /// the other direction.
         /// </param>
         /// <returns>The assessment, including a reason suitable for a failure record.</returns>
         public static RescueEffectivenessAssessment Assess(
             IEnumerable<string>? changedPaths,
-            bool requiresCodeChange)
-        {
-            return AssessCore(changedPaths, requiresCodeChange);
-        }
-
-        /// <summary>
-        /// Decide whether a rescue owes a code change. This is the one definition of that rule;
-        /// every gate that judges a rescue by its diff must call it rather than restate it.
-        /// </summary>
-        /// <param name="mode">The rescue mission's mode.</param>
-        /// <param name="linkedObjectiveKind">
-        /// The kind of the objective the rescued voyage belongs to, or null when the voyage links
-        /// no objective. A Research objective delivers findings - a census, a survey, a ledger -
-        /// and its vessel may hold nothing but documents, so a rescue under it that commits only
-        /// documentation is doing exactly its job. Only an Implementation mission under a
-        /// non-Research objective owes a change that can carry behavior.
-        /// </param>
-        /// <returns>True when a documentation-only or empty rescue is evidence of no fix.</returns>
-        public static bool RequiresCodeChange(MissionModeEnum mode, ObjectiveKindEnum? linkedObjectiveKind)
-        {
-            if (mode != MissionModeEnum.Implementation) return false;
-            if (linkedObjectiveKind == ObjectiveKindEnum.Research) return false;
-            return true;
-        }
-
-        private static RescueEffectivenessAssessment AssessCore(
-            IEnumerable<string>? changedPaths,
-            bool requiresCodeChange)
+            RescueChangeRequirementEnum requirement)
         {
             ChangeSubstanceEnum substance = ChangeSubstanceClassifier.Classify(changedPaths);
 
-            if (!requiresCodeChange)
+            if (requirement == RescueChangeRequirementEnum.None)
             {
                 return new RescueEffectivenessAssessment(
                     false,
@@ -76,14 +49,24 @@ namespace Armada.Core.Services
                     "Report-only mission; a change set is not expected and is not evidence either way.");
             }
 
+            if (substance == ChangeSubstanceEnum.None)
+            {
+                return new RescueEffectivenessAssessment(
+                    true,
+                    substance,
+                    "The rescue produced no changes at all, so the defect it was dispatched for cannot have been addressed.");
+            }
+
+            if (requirement == RescueChangeRequirementEnum.AnyCommittedChange)
+            {
+                return new RescueEffectivenessAssessment(
+                    false,
+                    substance,
+                    "The objective's deliverable is a committed document, and the rescue committed a change to it.");
+            }
+
             switch (substance)
             {
-                case ChangeSubstanceEnum.None:
-                    return new RescueEffectivenessAssessment(
-                        true,
-                        substance,
-                        "The rescue produced no changes at all, so the defect it was dispatched for cannot have been addressed.");
-
                 case ChangeSubstanceEnum.DocumentationOnly:
                     return new RescueEffectivenessAssessment(
                         true,
@@ -96,6 +79,33 @@ namespace Armada.Core.Services
                         substance,
                         "The rescue changed at least one file that can carry behavior.");
             }
+        }
+
+        /// <summary>
+        /// Decide what a rescue owes. This is the one definition of that rule; every gate that
+        /// judges a rescue by its diff must call it rather than restate it.
+        /// </summary>
+        /// <param name="mode">The rescue mission's mode.</param>
+        /// <param name="linkedObjectiveKind">
+        /// The kind of the objective the rescued voyage belongs to, or null when the voyage links
+        /// no objective. The kind declares the deliverable:
+        /// <list type="bullet">
+        /// <item>Research delivers findings and owes no change set.</item>
+        /// <item>Chore delivers a committed document (an audit report, a discoveries record, a
+        /// census); Research mode would suppress that commit, so such rows are Chore by design. A
+        /// rescue under it owes a committed change, and documentation counts.</item>
+        /// <item>Every other kind (Feature, Bug, Refactor, Initiative, or no linked objective)
+        /// owes a change that can carry behavior.</item>
+        /// </list>
+        /// Only Implementation mode owes anything; Audit and Research missions are report-only.
+        /// </param>
+        /// <returns>The change the rescue owes.</returns>
+        public static RescueChangeRequirementEnum RequiredChange(MissionModeEnum mode, ObjectiveKindEnum? linkedObjectiveKind)
+        {
+            if (mode != MissionModeEnum.Implementation) return RescueChangeRequirementEnum.None;
+            if (linkedObjectiveKind == ObjectiveKindEnum.Research) return RescueChangeRequirementEnum.None;
+            if (linkedObjectiveKind == ObjectiveKindEnum.Chore) return RescueChangeRequirementEnum.AnyCommittedChange;
+            return RescueChangeRequirementEnum.BehaviorChange;
         }
 
         #endregion
