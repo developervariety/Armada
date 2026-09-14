@@ -25,6 +25,12 @@ Harbor and self-rebuild require hardened implementations. Harbor must validate
 credentials; self-rebuild must stop after backup failure. Keep existing deployment
 and rollback controls until replacement acceptance.
 
+The Harbor identity core passed seven independent tests. It requires an
+injected authoritative owner resolver and verified authentication context.
+Connection replacement and pending response ownership reject stale callers.
+Registration remains disabled. Durable enrollment, authenticated transport,
+process delegation and deployed proof remain open.
+
 Ask launch and discovery fixes landed in `cb2ccb14`. Temporary chat runtimes
 receive their MCP configuration; the UI reports the planned endpoint separately
 from an active mission. Root checks passed: chat/discovery 11, launch planner 11,

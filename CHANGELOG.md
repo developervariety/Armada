@@ -14,6 +14,14 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Harbor identity core
+
+- Add a disabled session registry that requires a verified principal and an
+  authoritative runner owner. Deny unknown owners and stale connections.
+- Bind pending responses to the runner and connection generation. Issue unique
+  request IDs and reject replayed responses. Transport and process launch remain
+  separate integration work.
+
 ### OpenCode provider failures
 
 - Parse captured top-level provider errors into bounded, redacted activity.

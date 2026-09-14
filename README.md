@@ -68,7 +68,7 @@ are not shipped features.
 | Captain control | Quarantine, model tiers, reasoning effort, per-stage assignment and OpenCode | The fork adds manual timed or indefinite bench, provider-aware recovery, persona policy and configured routing. Generic crash-loop tracking uses the fork quarantine service and preserves stronger holds and active work. Upstream list details remain dashboard integration work. |
 | Operator experience | Consolidated dashboard, Ask/Planning, workspace terminal/diff, Needs You, background jobs and token usage | The fork adds coordination, claims, directed wakes, preparation evidence and scoped voyage counts with paged vessel associations. Formatted runtime log responses include bounded typed text, thinking and tool entries with shared redaction. OpenCode provider failures become named chat, planning and refinement failures. Summary, log-chip and anchor display wiring still need adaptation. |
 | Identity and configuration | Tenants, users, skills, project profiles and operational assets | Upstream adds broader per-user ownership and scoped controls. Integration must preserve fork resources and deny invalid credentials through the official MCP transport. |
-| Execution and deployment | Local runtime execution and process supervision; the fork self-deploy gate requires backup, restore and candidate proof | Model endpoint persistence is adapted across all four providers with Unicode IDs, scoped storage and disabled defaults. Endpoint services, API captains, detached Harbor runners and A/B rebuild still need acceptance before use. |
+| Execution and deployment | Local runtime execution and process supervision; the fork self-deploy gate requires backup, restore and candidate proof | Model endpoint persistence is adapted across all four providers with Unicode IDs, scoped storage and disabled defaults. A disabled Harbor session core now checks enrolled ownership, connection generations and pending responses. Endpoint services, API captains, Harbor transport and process delegation, and A/B rebuild still need acceptance before use. |
 | Repository context and autonomy | Supplied repository context and shared git-anchor concepts | The fork adds code index, symbol graph, context packs, bounded objective scheduling, prepared claims and sibling lanes. Dock snapshots preserve bounded evidence from the actual provisioning commit. |
 
 Features first developed in the fork now also exist upstream: boundary
@@ -110,8 +110,7 @@ idle client.
 
 Native upstream memory and Recorder guidance remain separate decision work.
 Deployments with one external durable memory source must not enable a second
-store as an incidental update. Harbor and self-rebuild also remain optional
-architecture decisions. The review gives the blockers and required proof.
+store as an incidental update. Harbor and self-rebuild remain disabled during their safety integration. The review gives the blockers and required proof.
 
 ---
 
