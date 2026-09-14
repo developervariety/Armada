@@ -67,6 +67,48 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("GetCommitTimeUtcAsync reads a bare repository tip as UTC and returns null when it cannot resolve one", async () =>
+            {
+                GitService git = CreateService();
+                string root = Path.Combine(Path.GetTempPath(), "armada-commit-time-" + Guid.NewGuid().ToString("N"));
+                string work = Path.Combine(root, "work");
+                string bare = Path.Combine(root, "bare.git");
+                string notRepository = Path.Combine(root, "not-a-repository");
+                Directory.CreateDirectory(work);
+                Directory.CreateDirectory(bare);
+                Directory.CreateDirectory(notRepository);
+                try
+                {
+                    await RunGitAsync(bare, "init", "--bare", "-b", "main");
+                    await RunGitAsync(work, "init", "-b", "main");
+                    await RunGitAsync(work, "config", "user.name", "Armada Tests");
+                    await RunGitAsync(work, "config", "user.email", "armada-tests@example.com");
+                    File.WriteAllText(Path.Combine(work, "tip.txt"), "tip");
+                    await RunGitAsync(work, "add", "tip.txt");
+                    Dictionary<string, string> dates = new Dictionary<string, string>
+                    {
+                        ["GIT_COMMITTER_DATE"] = "2030-01-02T03:04:05+02:00",
+                        ["GIT_AUTHOR_DATE"] = "2029-12-31T00:00:00+00:00"
+                    };
+                    await RunGitAsync(work, dates, "commit", "-m", "Tip with a fixed committer time");
+                    await RunGitAsync(work, "push", bare, "main");
+
+                    DateTime? tip = await git.GetCommitTimeUtcAsync(bare, "main");
+                    AssertTrue(tip.HasValue, "the tip of an existing branch resolves");
+                    AssertEqual(DateTimeKind.Utc, tip!.Value.Kind, "the time is returned as UTC");
+                    AssertEqual(new DateTime(2030, 1, 2, 1, 4, 5, DateTimeKind.Utc), tip.Value,
+                        "the committer time is converted to UTC, and the author time is not used");
+
+                    AssertNull(await git.GetCommitTimeUtcAsync(bare, "no-such-branch"), "a missing ref returns null without throwing");
+                    AssertNull(await git.GetCommitTimeUtcAsync(notRepository, "main"), "a directory that is not a repository returns null");
+                    AssertNull(await git.GetCommitTimeUtcAsync(Path.Combine(root, "missing"), "main"), "a path that does not exist returns null");
+                }
+                finally
+                {
+                    Directory.Delete(root, true);
+                }
+            });
+
             await RunTest("GetRepositoryHeadRefAsync preserves detached failure contract", async () =>
             {
                 GitService service = CreateService();
@@ -1695,7 +1737,12 @@ namespace Armada.Test.Unit.Suites.Services
             });
         }
 
-        private static async Task<string> RunGitAsync(string workingDirectory, params string[] args)
+        internal static Task<string> RunGitAsync(string workingDirectory, params string[] args)
+        {
+            return RunGitAsync(workingDirectory, null, args);
+        }
+
+        internal static async Task<string> RunGitAsync(string workingDirectory, IReadOnlyDictionary<string, string>? environment, params string[] args)
         {
             ProcessStartInfo startInfo = new ProcessStartInfo
             {
@@ -1706,6 +1753,14 @@ namespace Armada.Test.Unit.Suites.Services
                 RedirectStandardError = true,
                 CreateNoWindow = true
             };
+
+            if (environment != null)
+            {
+                foreach (KeyValuePair<string, string> variable in environment)
+                {
+                    startInfo.Environment[variable.Key] = variable.Value;
+                }
+            }
 
             foreach (string arg in args)
             {

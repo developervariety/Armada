@@ -126,7 +126,34 @@ namespace Armada.Test.Unit.Suites.Services
             Directory.SetLastWriteTimeUtc(root, old);
         }
 
-        private static AutonomousRecoveryOrchestrator CreateOrchestrator(Scene scene)
+        // Creates a bare repository whose Branch tip has the given committer time, and points the
+        // scene's vessel at it.
+        private static async Task UseRealRepositoryAsync(Scene scene, DateTime tipCommittedUtc)
+        {
+            string root = Path.Combine(scene.Settings.ReposDirectory, "real");
+            string work = Path.Combine(root, "work");
+            string bare = Path.Combine(root, "stall.git");
+            Directory.CreateDirectory(work);
+            Directory.CreateDirectory(bare);
+            await GitServiceTests.RunGitAsync(bare, "init", "--bare", "-b", "main").ConfigureAwait(false);
+            await GitServiceTests.RunGitAsync(work, "init", "-b", "main").ConfigureAwait(false);
+            await GitServiceTests.RunGitAsync(work, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+            await GitServiceTests.RunGitAsync(work, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+            File.WriteAllText(Path.Combine(work, "ExampleReader.cs"), "// example");
+            await GitServiceTests.RunGitAsync(work, "add", "ExampleReader.cs").ConfigureAwait(false);
+            string gitDate = "@" + new DateTimeOffset(tipCommittedUtc).ToUnixTimeSeconds() + " +0000";
+            await GitServiceTests.RunGitAsync(work, new Dictionary<string, string>
+            {
+                ["GIT_COMMITTER_DATE"] = gitDate,
+                ["GIT_AUTHOR_DATE"] = gitDate
+            }, "commit", "-m", "Port the example reader").ConfigureAwait(false);
+            await GitServiceTests.RunGitAsync(work, "push", bare, "HEAD:refs/heads/" + Branch).ConfigureAwait(false);
+
+            scene.Vessel.LocalPath = bare;
+            scene.Vessel = await scene.Db.Vessels.UpdateAsync(scene.Vessel).ConfigureAwait(false);
+        }
+
+        private static AutonomousRecoveryOrchestrator CreateOrchestrator(Scene scene, IGitService? git = null)
         {
             LoggingModule logging = CreateLogging();
             return new AutonomousRecoveryOrchestrator(
@@ -137,7 +164,7 @@ namespace Armada.Test.Unit.Suites.Services
                 scene.Settings,
                 logging,
                 null,
-                scene.Git,
+                git ?? scene.Git,
                 null,
                 null,
                 null,
@@ -239,6 +266,42 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertEqual(1, await CountNudgesAsync(scene).ConfigureAwait(false), "git metadata writes do not clear a stall");
                     AssertEqual(1, (await StallEventsAsync(scene, ConfirmedEvent).ConfigureAwait(false)).Count, "the stall is confirmed");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("RecoveryNudge_RealRepositoryTipCommittedInsideWindow_ClearsTheStall", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Scene scene = await CreateSceneAsync(testDb, DockActivity.Old, DateTime.UtcNow.AddMinutes(-20)).ConfigureAwait(false);
+                    await UseRealRepositoryAsync(scene, DateTime.UtcNow.AddMinutes(-1)).ConfigureAwait(false);
+                    AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(scene, new GitService(CreateLogging()));
+
+                    await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                    AssertEqual(0, await CountNudgesAsync(scene).ConfigureAwait(false), "a real branch tip committed a minute ago means the captain is working");
+                    List<ArmadaEvent> cleared = await StallEventsAsync(scene, ClearedEvent).ConfigureAwait(false);
+                    AssertEqual(1, cleared.Count, "the clearing is recorded");
+                    AssertContains("branch_tip", cleared[0].Message, "the real tip time is the clearing signal");
+                    AssertEqual(0, (await StallEventsAsync(scene, ConfirmedEvent).ConfigureAwait(false)).Count, "no stall is confirmed");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("RecoveryNudge_RealRepositoryTipOlderThanWindow_ConfirmsTheStallWithTheTipTime", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Scene scene = await CreateSceneAsync(testDb, DockActivity.Old, DateTime.UtcNow.AddMinutes(-20)).ConfigureAwait(false);
+                    await UseRealRepositoryAsync(scene, DateTime.UtcNow.AddHours(-2)).ConfigureAwait(false);
+                    AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(scene, new GitService(CreateLogging()));
+
+                    await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                    AssertEqual(1, await CountNudgesAsync(scene).ConfigureAwait(false), "an old real tip does not clear the stall");
+                    List<ArmadaEvent> confirmed = await StallEventsAsync(scene, ConfirmedEvent).ConfigureAwait(false);
+                    AssertEqual(1, confirmed.Count, "the confirmed stall is recorded");
+                    AssertContains("branch tip " + Branch + " committed 120", confirmed[0].Message,
+                        "the event carries the tip time read from the real repository");
                 }
             }).ConfigureAwait(false);
 
