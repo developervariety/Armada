@@ -252,6 +252,21 @@ namespace Armada.Test.Automated.Suites
                 AssertTrue(judgeResponse.IsSuccessStatusCode,
                     "downstream creation response " + (int)judgeResponse.StatusCode + ": " + judgeBody);
 
+                Vessel armedVessel = await CreateVesselWithLandingModeAsync("Manual-armed-voyage-check", "MergeQueue");
+                HttpResponseMessage armedCheckResponse = await _AuthClient.PostAsync(
+                    "/api/v1/check-runs/import",
+                    JsonHelper.ToJsonContent(new
+                    {
+                        VesselId = armedVessel.Id,
+                        VoyageId = voyageId,
+                        Type = "Build",
+                        Status = "Pending",
+                        ProviderName = "manual-test",
+                        ExternalId = Guid.NewGuid().ToString("N"),
+                        Label = "Build (armed at dispatch)"
+                    })).ConfigureAwait(false);
+                AssertStatusCode(HttpStatusCode.Created, armedCheckResponse);
+
                 await TransitionAsync(workerId, "Assigned");
                 await TransitionAsync(workerId, "InProgress");
                 HttpResponseMessage complete = await TransitionAsync(workerId, "Complete");

@@ -61,11 +61,12 @@ namespace Armada.Core.Services
             }
 
             List<Mission>? voyageMissions = null;
+            bool hasDependentPipelineStage = false;
             if (!String.IsNullOrWhiteSpace(mission.VoyageId))
             {
                 voyageMissions = await _Database.Missions
                     .EnumerateByVoyageAsync(mission.VoyageId, token).ConfigureAwait(false);
-                bool hasDependentPipelineStage = voyageMissions.Any(candidate =>
+                hasDependentPipelineStage = voyageMissions.Any(candidate =>
                     String.Equals(candidate.DependsOnMissionId, mission.Id, StringComparison.Ordinal));
                 if (!hasDependentPipelineStage && voyageMissions.Any(candidate => candidate.Id != mission.Id
                     && PersonaCatalog.Matches(candidate.Persona, PersonaCatalog.Judge)
@@ -81,7 +82,13 @@ namespace Armada.Core.Services
                 return ManualCompletionProofResult.Pass("report_only");
             }
 
-            List<CheckRun> checks = await ReadChecksAsync(mission, token).ConfigureAwait(false);
+            // A dependent stage is handed off before voyage-wide checks are evaluated by the
+            // downstream Judge. Keep checks attached directly to this mission authoritative, but
+            // do not make a future-stage voyage marker block the same handoff path used by agents.
+            List<CheckRun> checks = await ReadChecksAsync(
+                mission,
+                includeVoyageChecks: !hasDependentPipelineStage,
+                token: token).ConfigureAwait(false);
             foreach (CheckRun check in checks)
             {
                 if (!CheckRunGateRules.ParticipatesInRealSignalGate(check, mission.CommitHash)) continue;
@@ -99,12 +106,10 @@ namespace Armada.Core.Services
                 }
             }
 
-            bool hasDependentPipelineStageForHandoff = voyageMissions != null && voyageMissions.Any(candidate =>
-                String.Equals(candidate.DependsOnMissionId, mission.Id, StringComparison.Ordinal));
-            if (activeLandingPipeline || hasDependentPipelineStageForHandoff)
+            if (activeLandingPipeline || hasDependentPipelineStage)
             {
                 return ManualCompletionProofResult.Pass(
-                    hasDependentPipelineStageForHandoff ? "pipeline_handoff" : "landing_pipeline");
+                    activeLandingPipeline ? "landing_pipeline" : "pipeline_handoff");
             }
 
             Vessel? vessel = String.IsNullOrWhiteSpace(mission.VesselId)
@@ -145,10 +150,13 @@ namespace Armada.Core.Services
             return ManualCompletionProofResult.Pass("target_ancestry");
         }
 
-        private async Task<List<CheckRun>> ReadChecksAsync(Mission mission, CancellationToken token)
+        private async Task<List<CheckRun>> ReadChecksAsync(
+            Mission mission,
+            bool includeVoyageChecks,
+            CancellationToken token)
         {
             List<CheckRunQuery> queries = new List<CheckRunQuery>();
-            if (!String.IsNullOrWhiteSpace(mission.VoyageId))
+            if (includeVoyageChecks && !String.IsNullOrWhiteSpace(mission.VoyageId))
             {
                 queries.Add(new CheckRunQuery { VoyageId = mission.VoyageId });
             }
@@ -160,27 +168,4 @@ namespace Armada.Core.Services
         }
     }
 
-    /// <summary>
-    /// Immutable result of the manual completion proof.
-    /// </summary>
-    public sealed class ManualCompletionProofResult
-    {
-        private ManualCompletionProofResult(bool allowed, string reason)
-        {
-            Allowed = allowed;
-            Reason = reason;
-        }
-
-        /// <summary>True when the route may proceed.</summary>
-        public bool Allowed { get; }
-
-        /// <summary>Stable reason suitable for an API response and audit event.</summary>
-        public string Reason { get; }
-
-        /// <summary>Creates a passing result.</summary>
-        public static ManualCompletionProofResult Pass(string reason) => new ManualCompletionProofResult(true, reason);
-
-        /// <summary>Creates a fail-closed result.</summary>
-        public static ManualCompletionProofResult Fail(string reason) => new ManualCompletionProofResult(false, reason);
-    }
 }
