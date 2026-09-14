@@ -70,9 +70,11 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Throw InvalidOperationException when the hold is active. The message
-        /// carries the holder and reason so the caller can report why dispatch
-        /// was refused.
+        /// The one dispatch-hold admission rule. Every path that creates a voyage or dispatches a
+        /// mission calls this before it writes anything. Throws
+        /// <see cref="DispatchHoldActiveException"/> (an InvalidOperationException) when the hold
+        /// is active; the message carries the holder and reason so the caller can report why
+        /// dispatch was refused.
         /// </summary>
         public void ThrowIfActive()
         {
@@ -80,7 +82,13 @@ namespace Armada.Core.Services
             {
                 if (!_Active) return;
                 string holder = String.IsNullOrWhiteSpace(_SetBy) ? "unknown" : _SetBy!;
-                throw new InvalidOperationException(
+                DispatchHoldSnapshot snapshot = new DispatchHoldSnapshot
+                {
+                    Reason = _Reason,
+                    SetBy = _SetBy,
+                    SetByUtc = _SetByUtc
+                };
+                throw new DispatchHoldActiveException(snapshot,
                     "Dispatch hold active since " + _SetByUtc.ToString("u") +
                     " (set by " + holder + "): " + _Reason +
                     " Clear the hold with armada_dispatch_hold action=clear once Armada is redeployed.");

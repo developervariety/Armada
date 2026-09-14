@@ -51,6 +51,14 @@ namespace Armada.Server
         private readonly SemaphoreSlim _SweepLock = new SemaphoreSlim(1, 1);
         private readonly CheckRunService? _CheckRuns;
         private readonly Func<Mission, string, string?, CancellationToken, Task<JudgeFollowUp>> _CaptureJudgeFollowUp;
+        private readonly DispatchHold? _DispatchHold;
+
+        // Rescues refused by an engaged dispatch hold, keyed by failed mission id. Each entry
+        // records which hold engagement refused it, so the refusal is written to the incident once
+        // per engagement, and the first sweep after the hold clears re-evaluates every entry even
+        // when the failure has aged out of the sweep's lookback window.
+        private readonly ConcurrentDictionary<string, HoldDeferredRescue> _HoldDeferredRescues =
+            new ConcurrentDictionary<string, HoldDeferredRescue>(StringComparer.Ordinal);
 
         /// <summary>
         /// Instantiate.
@@ -111,8 +119,10 @@ namespace Armada.Server
             ICriticalTriggerEvaluator? criticalTriggerEvaluator,
             ProviderProgressTracker? providerProgress,
             CheckRunService? checkRuns = null,
-            Func<Mission, string, string?, CancellationToken, Task<JudgeFollowUp>>? captureJudgeFollowUp = null)
+            Func<Mission, string, string?, CancellationToken, Task<JudgeFollowUp>>? captureJudgeFollowUp = null,
+            DispatchHold? dispatchHold = null)
         {
+            _DispatchHold = dispatchHold;
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
             _Incidents = incidents ?? throw new ArgumentNullException(nameof(incidents));
@@ -189,6 +199,8 @@ namespace Armada.Server
 
         private async Task ProcessRecentFailedMissionsAsync(CancellationToken token)
         {
+            await ReevaluateHoldDeferredRescuesAsync(token).ConfigureAwait(false);
+
             DateTime cutoff = DateTime.UtcNow.AddHours(-_Settings.AutonomousRecovery.FailedMissionLookbackHours);
 
             // Enumerate lightweight summaries (id/status/tenant/last-update only) rather than
@@ -245,6 +257,74 @@ namespace Armada.Server
                 if (await ApplyFailurePolicyAsync(candidate.TenantId, candidate.Id, token).ConfigureAwait(false))
                     processed++;
             }
+        }
+
+        /// <summary>
+        /// Number of rescues currently deferred by an engaged dispatch hold and waiting for it to clear.
+        /// </summary>
+        public int HoldDeferredRescueCount => _HoldDeferredRescues.Count;
+
+        private async Task ReevaluateHoldDeferredRescuesAsync(CancellationToken token)
+        {
+            if (_HoldDeferredRescues.IsEmpty) return;
+            if (_DispatchHold != null && _DispatchHold.Snapshot() != null) return;
+
+            foreach (KeyValuePair<string, HoldDeferredRescue> deferred in _HoldDeferredRescues.ToArray())
+            {
+                token.ThrowIfCancellationRequested();
+                if (!_HoldDeferredRescues.TryRemove(deferred.Key, out HoldDeferredRescue? _)) continue;
+
+                _Logging.Info(_Header + "dispatch hold cleared; re-evaluating the rescue deferred for mission " + deferred.Key);
+                await ApplyFailurePolicyAsync(deferred.Value.TenantId, deferred.Key, token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task<bool> DeferRescueForDispatchHoldAsync(
+            AuthContext auth,
+            Mission mission,
+            RecoveryDecision decision,
+            DispatchHoldSnapshot hold,
+            CancellationToken token)
+        {
+            if (_HoldDeferredRescues.TryGetValue(mission.Id, out HoldDeferredRescue? recorded)
+                && recorded.HoldSetByUtc == hold.SetByUtc)
+            {
+                // This engagement's refusal is already on the incident; the entry is re-evaluated
+                // when the hold clears.
+                return false;
+            }
+
+            Incident incident = await EnsureIncidentAsync(auth, mission, decision, token).ConfigureAwait(false);
+            await LinkIncidentToOwningObjectivesAsync(auth, mission, incident, token).ConfigureAwait(false);
+
+            string holder = String.IsNullOrWhiteSpace(hold.SetBy) ? "unknown" : hold.SetBy!;
+            string holdDetail = "dispatch_hold engaged by " + holder + " at " + hold.SetByUtc.ToString("u") + ": " + hold.Reason;
+            await _Incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+            {
+                RecoveryNotes = AppendNote(incident.RecoveryNotes,
+                    "Autonomous rescue deferred: " + holdDetail + ". No rescue was dispatched and no recovery attempt was spent; "
+                    + "the rescue is re-evaluated on the first recovery sweep after the hold clears.")
+            }, token).ConfigureAwait(false);
+
+            _HoldDeferredRescues[mission.Id] = new HoldDeferredRescue(mission.TenantId, hold.SetByUtc);
+            _Logging.Info(_Header + "rescue for mission " + mission.Id + " deferred: " + holdDetail);
+            await EmitEventAsync("autonomous_recovery.rescue_deferred_dispatch_hold",
+                "Autonomous rescue for failed mission " + mission.Id + " deferred: " + holdDetail + ".",
+                mission, incident.Id, token).ConfigureAwait(false);
+            return false;
+        }
+
+        private sealed class HoldDeferredRescue
+        {
+            public HoldDeferredRescue(string? tenantId, DateTime holdSetByUtc)
+            {
+                TenantId = tenantId;
+                HoldSetByUtc = holdSetByUtc;
+            }
+
+            public string? TenantId { get; }
+
+            public DateTime HoldSetByUtc { get; }
         }
 
         private async Task<bool> IsTerminalVoyageAsync(string? voyageId, Dictionary<string, bool> cache, CancellationToken token)
@@ -856,6 +936,21 @@ namespace Armada.Server
                     return true;
                 }
 
+                // A rescue is a dispatch, so it obeys the fleet-wide dispatch hold through the same
+                // admission rule every other dispatch path calls. It is checked before any incident,
+                // runbook, or voyage work so a held tick writes nothing but the named deferral.
+                if (decision.DispatchRescue && !latest.IsReadOnlyMode && _DispatchHold != null)
+                {
+                    try
+                    {
+                        _DispatchHold.ThrowIfActive();
+                    }
+                    catch (DispatchHoldActiveException held)
+                    {
+                        return await DeferRescueForDispatchHoldAsync(auth, latest, decision, held.Hold, token).ConfigureAwait(false);
+                    }
+                }
+
                 Incident incident = await EnsureIncidentAsync(auth, latest, decision, token).ConfigureAwait(false);
                 await LinkIncidentToOwningObjectivesAsync(auth, latest, incident, token).ConfigureAwait(false);
                 RunbookExecution? execution = await ExecuteRecoveryRunbookAsync(auth, latest, incident, decision, token).ConfigureAwait(false);
@@ -895,7 +990,16 @@ namespace Armada.Server
                     return true;
                 }
 
-                Mission rescue = await DispatchRescueMissionAsync(latest, incident, rescueStartFromRef, token).ConfigureAwait(false);
+                Mission rescue;
+                try
+                {
+                    rescue = await DispatchRescueMissionAsync(latest, incident, rescueStartFromRef, token).ConfigureAwait(false);
+                }
+                catch (DispatchHoldActiveException held)
+                {
+                    // The hold was engaged between the admission check above and the dispatch.
+                    return await DeferRescueForDispatchHoldAsync(auth, latest, decision, held.Hold, token).ConfigureAwait(false);
+                }
                 await ApplyClaudeThinkingDisableAsync(latest, rescue, token).ConfigureAwait(false);
                 latest.RecoveryAttempts++;
                 latest.LastRecoveryActionUtc = DateTime.UtcNow;
@@ -1553,6 +1657,9 @@ namespace Armada.Server
             List<SelectedPlaybook> rescuePlaybooks,
             CancellationToken token)
         {
+            // The rescue voyage is written before the admiral admits the Worker, so the hold is
+            // checked first; otherwise a held dispatch leaves a created-then-cancelled voyage.
+            _DispatchHold?.ThrowIfActive();
             Voyage rescueVoyage = await _Database.Voyages.CreateAsync(new Voyage(
                 "Rescue " + attemptNumber + ": " + Truncate(failedMission.Title, 80),
                 "Autonomous revise/retest/rejudge loop for failed mission " + failedMission.Id + ".")

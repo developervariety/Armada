@@ -918,7 +918,9 @@ When autonomous recovery is enabled, Armada classifies failed missions,
 creates or updates an incident, records a recovery runbook execution, and can
 dispatch a bounded rescue mission. It does not use generic rescue missions for
 landing failures. Authentication, quota, review, protected-path, dependency,
-and exhausted-recovery failures remain for operator action.
+and exhausted-recovery failures remain for operator action. While the dispatch
+hold is engaged, a rescue is deferred and named on the incident, not
+dispatched (section 8.18).
 
 The recovery incident is linked to each objective that already owns the failed
 mission or its voyage. This annotation preserves the objective's existing
@@ -1640,6 +1642,20 @@ The hold is fleet-wide: while it is engaged every new dispatch is refused,
 whichever session or scheduler asks, and in-flight voyages continue. Engage it
 with your session name and a reason before an Admiral rebuild; a successful
 restart clears it by design. Hold changes require an authorized operator.
+
+Autonomous recovery obeys the same hold. A recoverable failure that arrives
+while the hold is engaged gets no rescue voyage or mission and spends no
+recovery attempt. Its incident's `RecoveryNotes` gets one
+`Autonomous rescue deferred: dispatch_hold ...` line per engagement, and an
+`autonomous_recovery.rescue_deferred_dispatch_hold` event is recorded. The
+first recovery sweep after the hold clears re-evaluates each deferred rescue,
+even when the failure is older than the sweep lookback window. Deferrals are
+runtime state like the hold itself: after a restart, the sweep picks up only
+failures inside its lookback window.
+
+Empty voyages created through REST, WebSocket or the remote-control tunnel
+dispatch no work. Missions added to them later go through the admiral
+dispatch, which the hold refuses.
 
 AgentWake is a process-delivery transport, not the work queue or the source of
 truth. Put the authorized operator key in `remoteTrigger.agentWake.participantKey` when

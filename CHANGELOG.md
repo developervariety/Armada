@@ -40,6 +40,18 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   OpenAI-compatible endpoints need no opt-in. Loopback fixtures verify each hosted
   provider's request path, credential header, model and workspace tool catalog.
   Azure OpenAI, Vertex AI and Bedrock remain unavailable.
+### Dispatch hold covers autonomous rescues
+
+- Autonomous rescue dispatch now obeys the fleet-wide dispatch hold through the
+  same admission rule as operator and scheduler dispatch. While the hold is
+  engaged, a recoverable failure creates no rescue voyage or mission and spends
+  no recovery attempt. The incident's recovery notes name the hold once per
+  engagement (`dispatch_hold`, holder, time, reason), and an
+  `autonomous_recovery.rescue_deferred_dispatch_hold` event is recorded.
+- The first recovery sweep after the hold clears re-evaluates every deferred
+  rescue, including failures older than the sweep lookback window. A hold
+  refusal is a typed `DispatchHoldActiveException`, so callers can defer the
+  work instead of failing it.
 
 ### Native self-deploy preflight
 

@@ -1,8 +1,12 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System;
+    using System.Collections.Generic;
+    using System.Linq;
     using System.Text.Json;
     using System.Threading.Tasks;
+    using Armada.Core;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Settings;
@@ -138,6 +142,178 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertStartsWith("msn_", dispatched.Id);
                 }
             });
+
+            await RunSharedHoldTestAsync();
+        }
+
+        private async Task RunSharedHoldTestAsync()
+        {
+            await RunTest("One hold refuses operator, scheduler and autonomous rescue dispatch, and all resume after clear", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    DispatchHold hold = new DispatchHold();
+                    AdmiralService admiral = BuildAdmiral(testDb, logging, hold, 10);
+
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Name = "held-vessel",
+                        RepoUrl = "https://git.example.com/held.git",
+                        DefaultBranch = "main"
+                    });
+                    Vessel operatorVessel = await testDb.Driver.Vessels.CreateAsync(new Vessel
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Name = "held-operator-vessel",
+                        RepoUrl = "https://git.example.com/held-operator.git",
+                        DefaultBranch = "main"
+                    });
+                    Vessel schedulerVessel = await testDb.Driver.Vessels.CreateAsync(new Vessel
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Name = "held-scheduler-vessel",
+                        RepoUrl = "https://git.example.com/held-scheduler.git",
+                        DefaultBranch = "main"
+                    });
+
+                    Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Title = "Held objective",
+                        Status = ObjectiveStatusEnum.Scoped,
+                        AutoDispatchEnabled = true,
+                        VesselIds = new List<string> { schedulerVessel.Id }
+                    });
+
+                    Voyage parent = await testDb.Driver.Voyages.CreateAsync(new Voyage("Parent voyage", "pipeline")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Status = VoyageStatusEnum.Failed
+                    });
+                    Mission failed = await testDb.Driver.Missions.CreateAsync(new Mission
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        VesselId = vessel.Id,
+                        VoyageId = parent.Id,
+                        Persona = "Worker",
+                        Title = "Failed worker",
+                        Description = "Original mission description",
+                        Status = MissionStatusEnum.Failed,
+                        FailureReason = "DoD gate failed: classification=TestFail; unit-test command exited 1",
+                        CommitHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                        CompletedUtc = DateTime.UtcNow.AddMinutes(-1),
+                        LastUpdateUtc = DateTime.UtcNow.AddMinutes(-1)
+                    });
+
+                    ArmadaSettings schedulerSettings = new ArmadaSettings
+                    {
+                        AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                        {
+                            Enabled = true,
+                            IntervalMinutes = 1,
+                            MaxConcurrentVoyages = 3
+                        }
+                    };
+                    IncidentService incidents = new IncidentService(testDb.Driver);
+                    RunbookService runbooks = new RunbookService(testDb.Driver, logging);
+                    AutonomousRecoveryOrchestrator orchestrator = new AutonomousRecoveryOrchestrator(
+                        testDb.Driver, admiral, incidents, runbooks, new ArmadaSettings(), logging,
+                        null, null, null, null, null, null, null, null, hold);
+
+                    hold.Engage("redeploy window", "session-hold");
+
+                    Exception? operatorRefusal = await CaptureAsync(() => admiral.DispatchMissionAsync(
+                        new Mission { Title = "operator", VesselId = operatorVessel.Id }));
+                    AssertTrue(operatorRefusal is DispatchHoldActiveException, "operator dispatch must be refused by the hold");
+
+                    AutonomousObjectiveScheduler heldScheduler = BuildScheduler(testDb, admiral, schedulerSettings, logging, hold);
+                    await heldScheduler.SweepAsync();
+                    AssertEqual("dispatch_hold", heldScheduler.LastSkipReason, "the scheduler names the hold");
+
+                    await orchestrator.HandleMissionOutcomeAsync(failed, false);
+                    await orchestrator.SweepAsync();
+
+                    List<Voyage> heldVoyages = await testDb.Driver.Voyages.EnumerateAsync();
+                    AssertEqual(1, heldVoyages.Count, "no voyage may be created while held, not even one cancelled at once; found: "
+                        + String.Join(", ", heldVoyages.Select(v => v.Title + "/" + v.Status)));
+                    List<Mission> heldRescues = (await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id))
+                        .Where(m => m.ParentMissionId == failed.Id).ToList();
+                    AssertEqual(0, heldRescues.Count, "no rescue mission may exist while held");
+
+                    AuthContext auth = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, true, "UnitTest");
+                    EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
+                    {
+                        MissionId = failed.Id,
+                        PageNumber = 1,
+                        PageSize = 10
+                    });
+                    AssertEqual(1, incidentPage.Objects.Count, "the refused rescue is recorded on one incident");
+                    string notes = incidentPage.Objects[0].RecoveryNotes ?? String.Empty;
+                    AssertContains("dispatch_hold", notes, "the refusal is named on the incident");
+                    AssertContains("redeploy window", notes, "the note carries the hold reason");
+                    AssertEqual(1, CountOccurrences(notes, "dispatch_hold"), "repeat sweeps under one hold record the refusal once");
+
+                    Mission? heldOriginal = await testDb.Driver.Missions.ReadAsync(failed.Id);
+                    AssertEqual(0, heldOriginal!.RecoveryAttempts, "a refused rescue spends no recovery budget");
+
+                    hold.Clear();
+
+                    Mission operatorMission = await admiral.DispatchMissionAsync(new Mission { Title = "operator", VesselId = operatorVessel.Id });
+                    AssertStartsWith("msn_", operatorMission.Id);
+
+                    AutonomousObjectiveScheduler clearScheduler = BuildScheduler(testDb, admiral, schedulerSettings, logging, hold);
+                    await clearScheduler.SweepAsync();
+                    Objective? dispatchedObjective = await testDb.Driver.Objectives.ReadAsync(objective.Id);
+                    AssertTrue(dispatchedObjective!.VoyageIds.Count == 1,
+                        "the scheduler dispatches after clear; skip=" + clearScheduler.LastSkipReason + " summary=" + clearScheduler.LastResultSummary);
+
+                    await orchestrator.SweepAsync();
+                    List<Mission> rescues = (await testDb.Driver.Missions.EnumerateByVesselAsync(vessel.Id))
+                        .Where(m => m.ParentMissionId == failed.Id).ToList();
+                    AssertEqual(1, rescues.Count, "the deferred rescue is dispatched on the first sweep after clear");
+                    AssertTrue(!String.IsNullOrEmpty(rescues[0].VoyageId) && rescues[0].VoyageId != parent.Id,
+                        "the rescue runs in its own rescue voyage");
+                }
+            });
+        }
+
+        private static int CountOccurrences(string text, string value)
+        {
+            int count = 0;
+            int index = text.IndexOf(value, StringComparison.Ordinal);
+            while (index >= 0)
+            {
+                count++;
+                index = text.IndexOf(value, index + value.Length, StringComparison.Ordinal);
+            }
+            return count;
+        }
+
+        private static AutonomousObjectiveScheduler BuildScheduler(
+            TestDatabase testDb,
+            AdmiralService admiral,
+            ArmadaSettings settings,
+            LoggingModule logging,
+            DispatchHold hold)
+        {
+            return new AutonomousObjectiveScheduler(
+                testDb.Driver,
+                new ObjectiveService(testDb.Driver),
+                admiral,
+                new Armada.Test.Unit.Suites.Recovery.MergeRecoveryHandlerRebasePathTests.StubMergeQueueServiceForRecovery(),
+                settings,
+                logging,
+                null,
+                hold);
         }
 
         private static Exception? Capture(Action action)
@@ -183,10 +359,14 @@ namespace Armada.Test.Unit.Suites.Services
             return (handler!, coordination, hold);
         }
 
-        private AdmiralService BuildAdmiral(TestDatabase testDb, LoggingModule logging, DispatchHold hold)
+        private AdmiralService BuildAdmiral(TestDatabase testDb, LoggingModule logging, DispatchHold hold, int maxConcurrentVoyages = 1)
         {
             ArmadaSettings settings = new ArmadaSettings
             {
+                AutonomousObjectiveScheduler = new AutonomousObjectiveSchedulerSettings
+                {
+                    MaxConcurrentVoyages = maxConcurrentVoyages
+                },
                 DataDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_hold_fixture_" + Guid.NewGuid().ToString("N")),
                 DatabasePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_hold_fixture_" + Guid.NewGuid().ToString("N"), "unused.db"),
                 LogDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_hold_fixture_" + Guid.NewGuid().ToString("N"), "logs"),
