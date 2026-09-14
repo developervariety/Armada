@@ -978,8 +978,7 @@ namespace Armada.Core.Services
             // selections via PlaybookMerge.MergeWithVesselDefaults before reaching here);
             // F3 prepends the fleet layer (least specific) and F2 appends persona then
             // captain (most specific). Fleet/persona/captain entries with novel playbookIds
-            // (the common case for fleet-<id>-learned, persona-<name>-learned, and
-            // captain-<id>-learned) are appended; collisions land captain last.
+            // are appended; collisions land captain last.
             List<SelectedPlaybook> caller = ClonePlaybookSelections(selections);
             List<SelectedPlaybook> fleetLayer = await ResolveFleetLayerAsync(mission, token).ConfigureAwait(false);
             (List<SelectedPlaybook> personaLayer, List<SelectedPlaybook> captainLayer)

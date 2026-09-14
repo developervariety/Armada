@@ -15,7 +15,7 @@ namespace Armada.Test.Unit.Suites.Database
 
     /// <summary>
     /// Verifies that migration v42 drops the unique constraint on pipeline_stages(pipeline_id, stage_order),
-    /// enabling same-order parallel sibling stages (e.g. ReflectionsDualJudge with two Judge stages at Order 2).
+    /// enabling same-order parallel sibling stages (e.g. a dual-Judge pipeline with two Judge stages at Order 2).
     /// </summary>
     public class SchemaMigrationV42PipelineStageParallelTests : TestSuite
     {
@@ -66,7 +66,7 @@ namespace Armada.Test.Unit.Suites.Database
                     Pipeline pipeline = new Pipeline("DualJudgeParallelTest");
                     pipeline.Stages = new List<PipelineStage>
                     {
-                        new PipelineStage(1, "MemoryConsolidator") { PreferredModel = "high" },
+                        new PipelineStage(1, "Analyst") { PreferredModel = "high" },
                         new PipelineStage(2, "Judge") { PreferredModel = "high" },
                         new PipelineStage(2, "Judge") { PreferredModel = "high" }
                     };
@@ -79,7 +79,7 @@ namespace Armada.Test.Unit.Suites.Database
 
                     List<PipelineStage> ordered = loaded.Stages.OrderBy(s => s.Order).ToList();
                     AssertEqual(1, ordered[0].Order, "First stage order");
-                    AssertEqual("MemoryConsolidator", ordered[0].PersonaName, "First stage persona");
+                    AssertEqual("Analyst", ordered[0].PersonaName, "First stage persona");
                     AssertEqual(2, ordered[1].Order, "Second stage order");
                     AssertEqual("Judge", ordered[1].PersonaName, "Second stage persona");
                     AssertEqual(2, ordered[2].Order, "Third stage order (sibling)");

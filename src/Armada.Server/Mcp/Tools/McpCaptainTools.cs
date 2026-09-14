@@ -559,8 +559,6 @@ namespace Armada.Server.Mcp.Tools
                 QuarantineUntilUtc = captain.QuarantineUntilUtc,
                 QuarantineReason = captain.QuarantineReason,
                 DefaultPlaybooks = captain.DefaultPlaybooks,
-                CurateThreshold = captain.CurateThreshold,
-                LearnedPlaybookId = captain.LearnedPlaybookId,
                 CreatedUtc = captain.CreatedUtc,
                 LastUpdateUtc = captain.LastUpdateUtc
             };

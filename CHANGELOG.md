@@ -181,6 +181,33 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   fails the Check with its reason; none passes it.
 - The dispatch preview lists the Slop Check when dispatch would arm it, and the
   dashboard offers the type for .NET workflow profiles.
+### Learned-facts data and schema deletion
+
+- A new migration on all four providers deletes the remaining learned-facts
+  data. It removes the learned playbooks, their voyage links, mission snapshots
+  and default-playbook entries on fleets, vessels, personas and captains. It
+  removes the `Reflections` and `ReflectionsDualJudge` pipelines and their
+  stages, and clears fleet, vessel, project-profile, objective and planning
+  references to them. It also removes the `MemoryConsolidator` persona, its
+  prompt template and the learned-fact proposal template. Every pipeline stage
+  that names the consolidator is removed, the remaining stages are renumbered
+  without gaps, and a pipeline left with no stages is removed. The consolidator
+  is cleared from captain preferred personas and removed from allowed-persona
+  lists; a list that held only the consolidator becomes empty, which still
+  restricts the captain.
+- The migration drops the pack-hint table and the reflection, reorganize,
+  pack-curate, curate and learned-playbook columns. Operator rows outside
+  those names and native captain memory are unchanged. A restarted migration
+  completes; MySQL skips a column it already dropped.
+- Removed the pack-hint store and its context-pack effects: pack hints no
+  longer filter results, and context packs no longer report matched hint ids.
+- Removed the vessel reflection fields from the vessel model, REST responses
+  and the dashboard update payload, and the curate and learned-playbook fields
+  from fleets, personas and captains.
+- The brief renderer no longer skips playbooks by the learned file-name
+  suffix. An operator playbook with that suffix now renders like any other.
+- A settings file that still carries the removed learned-facts keys loads,
+  and saving it drops those keys.
 
 ### Native self-deploy preflight
 

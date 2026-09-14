@@ -2307,8 +2307,8 @@ namespace Armada.Core.Services
                     playbookSnapshots,
                     token).ConfigureAwait(false);
 
-                // The renderer can drop every snapshot: a suppressed legacy learned-fact playbook,
-                // or a body that holds only a heading or a placeholder line. The wrapper calls
+                // The renderer can drop every snapshot whose body holds only a heading or a
+                // placeholder line. The wrapper calls
                 // its content required reading, so emitting it empty tells a captain to read material
                 // that the brief does not contain.
                 if (!String.IsNullOrWhiteSpace(playbooksMarkdown))
@@ -3604,8 +3604,6 @@ namespace Armada.Core.Services
             for (int i = 0; i < snapshots.Count; i++)
             {
                 MissionPlaybookSnapshot snapshot = snapshots[i];
-                // Legacy learned-fact playbooks are retained as inert data and never rendered into a brief.
-                if (IsLearnedFactsPlaybook(snapshot.FileName)) continue;
 
                 // A playbook whose body is only a heading, or a "no accepted notes yet"
                 // placeholder, costs the captain a read (or prompt tokens) to learn nothing.
@@ -3666,12 +3664,6 @@ namespace Armada.Core.Services
             }
 
             return String.Join("\n\n", sections);
-        }
-
-        private static bool IsLearnedFactsPlaybook(string? fileName)
-        {
-            if (String.IsNullOrWhiteSpace(fileName)) return false;
-            return fileName.Trim().EndsWith("-learned.md", StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -3793,8 +3785,8 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Returns true when a playbook body carries instruction a captain can act on. A snapshot
-        /// holding only headings, rules, or the reflection scaffolding placeholder (emitted for a
-        /// playbook that has never had an accepted reflection) is not staged or referenced.
+        /// holding only headings, rules, or a "no accepted notes yet" placeholder line is not staged
+        /// or referenced.
         /// </summary>
         /// <param name="content">Captured playbook markdown.</param>
         internal static bool HasSubstantivePlaybookContent(string? content)

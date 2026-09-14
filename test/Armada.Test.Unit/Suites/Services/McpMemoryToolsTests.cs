@@ -18,7 +18,7 @@ namespace Armada.Test.Unit.Suites.Services
     /// <summary>
     /// Tests for the native memory MCP tools: the registered names, the write-search-read-correct-delete
     /// round trip a captain performs, the refusals a captain must be able to act on, the tenant fence,
-    /// and the proof that every memory path works while the learned-facts feature is disabled.
+    /// and the proof that every memory path works through the registered tool catalog alone.
     /// </summary>
     public class McpMemoryToolsTests : TestSuite
     {
@@ -155,9 +155,9 @@ namespace Armada.Test.Unit.Suites.Services
                     foreach (string name in new[] { "search_memory", "get_memory", "create_memory", "update_memory", "delete_memory" })
                         AssertTrue(handlers.ContainsKey(name), "Native memory tool registered: " + name);
 
-                    string created = await CallAsync(handlers, "create_memory", new { content = "a finding recorded with learned facts off", key = "off/one" }).ConfigureAwait(false);
+                    string created = await CallAsync(handlers, "create_memory", new { content = "a finding recorded through the tool catalog", key = "off/one" }).ConfigureAwait(false);
                     string memoryId = ValueOf(created, "id");
-                    AssertContains(memoryId, await CallAsync(handlers, "search_memory", new { search = "learned facts off" }).ConfigureAwait(false));
+                    AssertContains(memoryId, await CallAsync(handlers, "search_memory", new { search = "through the tool catalog" }).ConfigureAwait(false));
                     AssertContains("a finding", await CallAsync(handlers, "get_memory", new { memoryId = memoryId }).ConfigureAwait(false));
                     AssertContains("\"version\":2", Compact(await CallAsync(handlers, "update_memory", new { memoryId = memoryId, salience = 0.7 }).ConfigureAwait(false)));
                     AssertContains("deleted", await CallAsync(handlers, "delete_memory", new { memoryId = memoryId }).ConfigureAwait(false));

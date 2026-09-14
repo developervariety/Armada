@@ -1972,8 +1972,8 @@ namespace Armada.Test.Unit.Suites.Services
         }
 
         /// <summary>
-        /// Persists voyages and missions from DispatchVoyageAsync for reflection drain coverage
-        /// (matches the RecordingAdmiralService pattern used in reflection audit drain tests).
+        /// Persists voyages and missions from DispatchVoyageAsync for audit drain coverage
+        /// (matches the RecordingAdmiralService pattern).
         /// </summary>
         private sealed class DrainRecordingAdmiral : IAdmiralService
         {
@@ -2037,7 +2037,7 @@ namespace Armada.Test.Unit.Suites.Services
                     mission.UserId = Constants.DefaultUserId;
                     mission.VoyageId = voyage.Id;
                     mission.VesselId = vesselId;
-                    mission.Persona = pipelineId == "Reflections" ? "MemoryConsolidator" : "Worker";
+                    mission.Persona = "Worker";
                     mission.PreferredModel = md.PreferredModel;
                     await _Database.Missions.CreateAsync(mission, token).ConfigureAwait(false);
                 }

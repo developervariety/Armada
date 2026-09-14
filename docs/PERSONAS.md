@@ -61,8 +61,8 @@ Use these MCP tools:
 - `reset_prompt_template`.
 
 `create_persona` and `update_persona` accept `defaultPlaybooks`. Read the
-current persona before you replace that list. Do not attach inactive or
-learned playbooks unless the feature and owner policy enable them.
+current persona before you replace that list. Do not attach inactive
+playbooks.
 
 ## Captain Interaction
 

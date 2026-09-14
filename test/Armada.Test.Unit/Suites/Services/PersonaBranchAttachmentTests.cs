@@ -25,8 +25,6 @@ namespace Armada.Test.Unit.Suites.Services
                     "Worker commits its implementation and must hold the branch");
                 AssertTrue(MissionService.PersonaRequiresBranchAttachment("TestEngineer"),
                     "TestEngineer commits tests and must hold the branch");
-                AssertTrue(MissionService.PersonaRequiresBranchAttachment("MemoryConsolidator"),
-                    "MemoryConsolidator writes playbook updates and must hold the branch");
             });
 
             await RunTest("ReadOnlyPersonas_DoNotRequireAttachment", () =>

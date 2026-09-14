@@ -46,7 +46,8 @@ namespace Armada.Test.Database
             using (DatabaseDriver driver = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
             {
                 Dictionary<int, string> committed = await history.ReadHistoryAsync(token).ConfigureAwait(false);
-                DatabaseAssert.Equal(before.Count + 1, committed.Count, "The restarted run commits exactly the memory version");
+                // Later migrations may follow this one, so prove this version committed rather than a count.
+                DatabaseAssert.True(committed.ContainsKey(version), "The restarted run commits the memory version");
                 MigrationScenarioRunner.AssertHistory(before, committed);
                 DatabaseAssert.True(await TableExistsAsync(token).ConfigureAwait(false), "Memories exist after the migration");
 

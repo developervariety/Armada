@@ -13,7 +13,6 @@ const loaded = {
   siblingRepos: '[{"name":"Sibling"}]',
   defaultPlaybooks: '[{"playbookId":"pbk_example","deliveryMode":"InlineFullContent"}]',
   autoLandPredicate: '{"Enabled":true,"MaxFiles":5}',
-  reflectionThreshold: 7,
   architectMaxMissionsPerVoyage: 4,
   hasGitHubTokenOverride: true,
   autoLandCalibrationLandedCount: 12,
@@ -31,7 +30,6 @@ describe('buildVesselUpdatePayload', () => {
     expect(payload.protectedPaths).toEqual(['**/CLAUDE.md']);
     expect(payload.siblingRepos).toBe('[{"name":"Sibling"}]');
     expect(payload.defaultPlaybooks).toBe('[{"playbookId":"pbk_example","deliveryMode":"InlineFullContent"}]');
-    expect(payload.reflectionThreshold).toBe(7);
     expect(payload.architectMaxMissionsPerVoyage).toBe(4);
   });
 

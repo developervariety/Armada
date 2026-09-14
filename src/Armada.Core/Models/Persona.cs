@@ -81,19 +81,6 @@ namespace Armada.Core.Models
         public string? DefaultPlaybooks { get; set; } = null;
 
         /// <summary>
-        /// Legacy per-persona curate trigger threshold. Retained as inert data for backward
-        /// compatibility; no longer drives dispatch.
-        /// </summary>
-        public int? CurateThreshold { get; set; } = null;
-
-        /// <summary>
-        /// FK reference to the persona-&lt;name&gt;-learned playbook. Set at v2-F2 install bootstrap
-        /// (or at first <c>PersonaSeedService</c> seed for personas added after install).
-        /// Null means the persona has no learned playbook yet.
-        /// </summary>
-        public string? LearnedPlaybookId { get; set; } = null;
-
-        /// <summary>
         /// Lazy-parses the <see cref="DefaultPlaybooks"/> JSON string. Returns an empty list when unset or malformed.
         /// </summary>
         /// <returns>List of <see cref="SelectedPlaybook"/> entries.</returns>

@@ -378,7 +378,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Pipeline dualJudge = new Pipeline("AliasDualJudge");
                     dualJudge.Stages = new List<PipelineStage>
                     {
-                        new PipelineStage(1, "MemoryConsolidator") { PreferredModel = "high" },
+                        new PipelineStage(1, "Analyst") { PreferredModel = "high" },
                         new PipelineStage(2, "Judge") { PreferredModel = "high" },
                         new PipelineStage(2, "Judge") { PreferredModel = "high" }
                     };
@@ -402,7 +402,7 @@ namespace Armada.Test.Unit.Suites.Services
                         pipeline = "AliasDualJudge",
                         missions = new object[]
                         {
-                            new { title = "consolidate memory", description = "reorganize playbook", alias = "C1" }
+                            new { title = "analyze module", description = "summarize module", alias = "C1" }
                         }
                     });
 
@@ -414,21 +414,21 @@ namespace Armada.Test.Unit.Suites.Services
                     List<Mission> all = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
                     AssertEqual(3, all.Count, "One MD * three pipeline stages = 3 missions");
 
-                    Mission? consolidatorMission = all.FirstOrDefault(m => m.Persona == "MemoryConsolidator");
+                    Mission? analystMission = all.FirstOrDefault(m => m.Persona == "Analyst");
                     List<Mission> judgeMissions = all.Where(m => m.Persona == "Judge").ToList();
 
-                    AssertNotNull(consolidatorMission, "MemoryConsolidator mission should exist");
+                    AssertNotNull(analystMission, "Analyst mission should exist");
                     AssertEqual(2, judgeMissions.Count, "Should have exactly two Judge missions");
 
-                    // MemoryConsolidator is the first stage -- no upstream dep.
-                    AssertTrue(String.IsNullOrEmpty(consolidatorMission!.DependsOnMissionId),
-                        "MemoryConsolidator should have no upstream dependency");
+                    // Analyst is the first stage -- no upstream dep.
+                    AssertTrue(String.IsNullOrEmpty(analystMission!.DependsOnMissionId),
+                        "Analyst should have no upstream dependency");
 
-                    // Both Judge siblings depend on MemoryConsolidator, not on each other.
-                    AssertEqual(consolidatorMission.Id, judgeMissions[0].DependsOnMissionId,
-                        "First Judge should depend on MemoryConsolidator");
-                    AssertEqual(consolidatorMission.Id, judgeMissions[1].DependsOnMissionId,
-                        "Second Judge should depend on MemoryConsolidator (same as first Judge)");
+                    // Both Judge siblings depend on Analyst, not on each other.
+                    AssertEqual(analystMission.Id, judgeMissions[0].DependsOnMissionId,
+                        "First Judge should depend on Analyst");
+                    AssertEqual(analystMission.Id, judgeMissions[1].DependsOnMissionId,
+                        "Second Judge should depend on Analyst (same as first Judge)");
 
                     // The two Judge missions must be distinct.
                     AssertFalse(judgeMissions[0].Id == judgeMissions[1].Id,
@@ -444,8 +444,8 @@ namespace Armada.Test.Unit.Suites.Services
                     // The barrier key (StageOrder) must be persisted on every alias-path stage mission:
                     // without it the downstream Judge barrier is a no-op and the next order could start
                     // while a parallel sibling reviewer is still running.
-                    AssertTrue(consolidatorMission!.StageOrder == 1,
-                        "MemoryConsolidator must carry StageOrder 1; was " + (consolidatorMission.StageOrder?.ToString() ?? "null"));
+                    AssertTrue(analystMission!.StageOrder == 1,
+                        "Analyst must carry StageOrder 1; was " + (analystMission.StageOrder?.ToString() ?? "null"));
                     AssertTrue(judgeMissions.All(m => m.StageOrder == 2),
                         "Both parallel Judge missions must carry StageOrder 2 so the next stage barriers on the whole group");
                 }
@@ -461,7 +461,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Pipeline dualJudge = new Pipeline("AliasDualJudgeDependent");
                     dualJudge.Stages = new List<PipelineStage>
                     {
-                        new PipelineStage(1, "MemoryConsolidator") { PreferredModel = "high" },
+                        new PipelineStage(1, "Analyst") { PreferredModel = "high" },
                         new PipelineStage(2, "Judge") { PreferredModel = "high" },
                         new PipelineStage(2, "Judge") { PreferredModel = "high" }
                     };
@@ -485,8 +485,8 @@ namespace Armada.Test.Unit.Suites.Services
                         pipeline = "AliasDualJudgeDependent",
                         missions = new object[]
                         {
-                            new { title = "first consolidation", description = "d1", alias = "M1" },
-                            new { title = "second consolidation", description = "d2", alias = "M2", dependsOnMissionAlias = "M1" }
+                            new { title = "first analysis", description = "d1", alias = "M1" },
+                            new { title = "second analysis", description = "d2", alias = "M2", dependsOnMissionAlias = "M1" }
                         }
                     });
 
@@ -498,27 +498,27 @@ namespace Armada.Test.Unit.Suites.Services
                     List<Mission> all = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
                     AssertEqual(6, all.Count, "Two MDs * three pipeline stages = 6 missions");
 
-                    List<Mission> m1Stages = all.Where(m => m.Title.Contains("first consolidation")).ToList();
-                    List<Mission> m2Stages = all.Where(m => m.Title.Contains("second consolidation")).ToList();
+                    List<Mission> m1Stages = all.Where(m => m.Title.Contains("first analysis")).ToList();
+                    List<Mission> m2Stages = all.Where(m => m.Title.Contains("second analysis")).ToList();
                     AssertEqual(3, m1Stages.Count, "M1 should produce three stage missions");
                     AssertEqual(3, m2Stages.Count, "M2 should produce three stage missions");
 
-                    Mission m1Memory = m1Stages.First(m => m.Persona == "MemoryConsolidator");
+                    Mission m1Memory = m1Stages.First(m => m.Persona == "Analyst");
                     List<Mission> m1Judges = m1Stages.Where(m => m.Persona == "Judge").ToList();
-                    Mission m2Memory = m2Stages.First(m => m.Persona == "MemoryConsolidator");
+                    Mission m2Memory = m2Stages.First(m => m.Persona == "Analyst");
                     List<Mission> m2Judges = m2Stages.Where(m => m.Persona == "Judge").ToList();
 
                     AssertEqual(2, m1Judges.Count, "M1 should have two Judge siblings");
                     AssertEqual(2, m2Judges.Count, "M2 should have two Judge siblings");
                     AssertTrue(m1Judges.Any(m => m.Id == m2Memory.DependsOnMissionId),
-                        "M2 MemoryConsolidator should wait for a Judge sibling from M1");
+                        "M2 Analyst should wait for a Judge sibling from M1");
                     AssertFalse(m1Memory.Id == m2Memory.DependsOnMissionId,
-                        "M2 MemoryConsolidator should not depend on M1 MemoryConsolidator before M1 Judges finish");
+                        "M2 Analyst should not depend on M1 Analyst before M1 Judges finish");
 
                     AssertEqual(m2Memory.Id, m2Judges[0].DependsOnMissionId,
-                        "First M2 Judge should depend on M2 MemoryConsolidator");
+                        "First M2 Judge should depend on M2 Analyst");
                     AssertEqual(m2Memory.Id, m2Judges[1].DependsOnMissionId,
-                        "Second M2 Judge should depend on M2 MemoryConsolidator");
+                        "Second M2 Judge should depend on M2 Analyst");
                 }
             });
 

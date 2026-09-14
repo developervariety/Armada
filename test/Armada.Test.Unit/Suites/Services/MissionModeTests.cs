@@ -96,7 +96,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("An Audit brief drops commit, merge-conflict and learned-fact modules", async () =>
+            await RunTest("An Audit brief drops commit and merge-conflict modules", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -139,9 +139,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                         // The audit brief must not carry implementation-only instructions.
                         AssertFalse(auditBrief.Contains("Commit all changes to the current branch", StringComparison.Ordinal), "audit brief must not order commits");
-                        AssertFalse(auditBrief.Contains("Avoiding Merge Conflicts", StringComparison.Ordinal), "audit brief must not carry merge-conflict guidance");
-                        AssertFalse(auditBrief.Contains("LEARNED-FACT-PROPOSAL", StringComparison.Ordinal), "audit brief must not request learned facts");
-                        AssertContains("read-only", auditBrief, "audit brief must state that it is read-only");
+                        AssertFalse(auditBrief.Contains("Avoiding Merge Conflicts", StringComparison.Ordinal), "audit brief must not carry merge-conflict guidance");                        AssertContains("read-only", auditBrief, "audit brief must state that it is read-only");
                         // The test-ownership directive tells a producing captain to run tests and commit
                         // them, which contradicts a read-only brief.
                         AssertFalse(auditBrief.Contains("You own the tests for this change", StringComparison.Ordinal),

@@ -52,8 +52,8 @@ namespace Armada.Core.Database.Mysql.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (MySqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO personas (id, tenant_id, name, description, prompt_template_name, is_built_in, default_playbooks, curate_threshold, learned_playbook_id, active, default_captain_id, created_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @name, @description, @prompt_template_name, @is_built_in, @default_playbooks, @curate_threshold, @learned_playbook_id, @active, @default_captain_id, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO personas (id, tenant_id, name, description, prompt_template_name, is_built_in, default_playbooks, active, default_captain_id, created_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @name, @description, @prompt_template_name, @is_built_in, @default_playbooks, @active, @default_captain_id, @created_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", persona.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)persona.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@name", persona.Name);
@@ -62,8 +62,6 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@default_captain_id", (object?)persona.DefaultCaptainId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@is_built_in", persona.IsBuiltIn ? 1 : 0);
                     cmd.Parameters.AddWithValue("@default_playbooks", (object?)persona.DefaultPlaybooks ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@curate_threshold", (object?)persona.CurateThreshold ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@learned_playbook_id", (object?)persona.LearnedPlaybookId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@active", persona.Active ? 1 : 0);
                     cmd.Parameters.AddWithValue("@created_utc", ToDatabaseTimestamp(persona.CreatedUtc));
                     cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(persona.LastUpdateUtc));
@@ -185,8 +183,6 @@ namespace Armada.Core.Database.Mysql.Implementations
                         default_captain_id = @default_captain_id,
                         is_built_in = @is_built_in,
                         default_playbooks = @default_playbooks,
-                        curate_threshold = @curate_threshold,
-                        learned_playbook_id = @learned_playbook_id,
                         active = @active,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
@@ -198,8 +194,6 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.Parameters.AddWithValue("@default_captain_id", (object?)persona.DefaultCaptainId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@is_built_in", persona.IsBuiltIn ? 1 : 0);
                     cmd.Parameters.AddWithValue("@default_playbooks", (object?)persona.DefaultPlaybooks ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@curate_threshold", (object?)persona.CurateThreshold ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@learned_playbook_id", (object?)persona.LearnedPlaybookId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@active", persona.Active ? 1 : 0);
                     cmd.Parameters.AddWithValue("@last_update_utc", ToDatabaseTimestamp(persona.LastUpdateUtc));
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
@@ -384,8 +378,6 @@ namespace Armada.Core.Database.Mysql.Implementations
             try { persona.DefaultCaptainId = MysqlDatabaseDriver.NullableString(reader["default_captain_id"]); } catch { }
             persona.IsBuiltIn = Convert.ToInt64(reader["is_built_in"]) == 1;
             try { persona.DefaultPlaybooks = MysqlDatabaseDriver.NullableString(reader["default_playbooks"]); } catch { }
-            try { persona.CurateThreshold = reader["curate_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["curate_threshold"]); } catch { }
-            try { persona.LearnedPlaybookId = MysqlDatabaseDriver.NullableString(reader["learned_playbook_id"]); } catch { }
             persona.Active = Convert.ToInt64(reader["active"]) == 1;
             persona.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
             persona.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);

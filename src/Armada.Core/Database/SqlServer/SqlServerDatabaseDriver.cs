@@ -90,7 +90,6 @@ namespace Armada.Core.Database.SqlServer
             CheckRuns = new CheckRunMethods(this);
             Releases = new ReleaseMethods(this);
             Deployments = new DeploymentMethods(this);
-            VesselPackHints = new VesselPackHintMethods(this, _Settings, _Logging);
             JudgeFollowUps = new JudgeFollowUpMethods(this);
             ProjectProfiles = new ProjectProfileMethods(this);
             Skills = new SkillMethods(this);
@@ -402,8 +401,6 @@ namespace Armada.Core.Database.SqlServer
             fleet.Description = NullableString(reader["description"]);
             try { fleet.DefaultPipelineId = NullableString(reader["default_pipeline_id"]); } catch { }
             try { fleet.DefaultPlaybooks = NullableString(reader["default_playbooks"]); } catch { }
-            try { fleet.CurateThreshold = reader["curate_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["curate_threshold"]); } catch { }
-            try { fleet.LearnedPlaybookId = NullableString(reader["learned_playbook_id"]); } catch { }
             fleet.Active = Convert.ToBoolean(reader["active"]);
             fleet.CreatedUtc = FromIso8601(reader["created_utc"].ToString()!);
             fleet.LastUpdateUtc = FromIso8601(reader["last_update_utc"].ToString()!);
@@ -445,10 +442,6 @@ namespace Armada.Core.Database.SqlServer
             try { vessel.AutoLandCalibrationLandedCount = Convert.ToInt32(reader["auto_land_calibration_landed_count"]); } catch { vessel.AutoLandCalibrationLandedCount = 0; }
             try { vessel.DefaultPlaybooks = reader["default_playbooks"] as string; } catch { }
             try { vessel.SiblingRepos = reader["sibling_repos"] as string; } catch { }
-            try { vessel.LastReflectionMissionId = NullableString(reader["last_reflection_mission_id"]); } catch { }
-            try { vessel.ReflectionThreshold = reader["reflection_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["reflection_threshold"]); } catch { }
-            try { vessel.ReorganizeThreshold = reader["reorganize_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["reorganize_threshold"]); } catch { }
-            try { vessel.PackCurateThreshold = reader["pack_curate_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["pack_curate_threshold"]); } catch { }
             try { vessel.ArchitectMaxMissionsPerVoyage = reader["architect_max_missions_per_voyage"] == DBNull.Value ? null : Convert.ToInt32(reader["architect_max_missions_per_voyage"]); } catch { }
             VesselPreviewPersistence.Read(reader, vessel);
             BackendMetadataPersistence.ReadVessel(reader, vessel);
@@ -495,8 +488,6 @@ namespace Armada.Core.Database.SqlServer
             try { captain.PreferredPersona = NullableString(reader["preferred_persona"]); } catch { }
             try { captain.RuntimeOptionsJson = NullableString(reader["runtime_options_json"]); } catch { }
             try { captain.DefaultPlaybooks = NullableString(reader["default_playbooks"]); } catch { }
-            try { captain.CurateThreshold = reader["curate_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["curate_threshold"]); } catch { }
-            try { captain.LearnedPlaybookId = NullableString(reader["learned_playbook_id"]); } catch { }
             return captain;
         }
 

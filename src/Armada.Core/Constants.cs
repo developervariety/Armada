@@ -265,11 +265,6 @@ namespace Armada.Core
         public static readonly string AgentRuntimeIdPrefix = "art_";
 
         /// <summary>
-        /// Vessel pack-hint ID prefix (v2-F1 pack-curate hints).
-        /// </summary>
-        public static readonly string VesselPackHintIdPrefix = "vph_";
-
-        /// <summary>
         /// Judge follow-up ID prefix.
         /// </summary>
         public static readonly string JudgeFollowUpIdPrefix = "jfu_";

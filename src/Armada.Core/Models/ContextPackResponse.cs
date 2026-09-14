@@ -50,13 +50,6 @@ namespace Armada.Core.Models
         public List<string> GraphIncludedFiles { get; set; } = new List<string>();
 
         /// <summary>
-        /// Identifiers of <c>vessel_pack_hints</c> rows that fired during pre-selection (v2-F1).
-        /// Empty when no pack hints matched the goal text. Returned as an empty array (not null)
-        /// for consistent caller handling.
-        /// </summary>
-        public List<string> MatchedHintIds { get; set; } = new List<string>();
-
-        /// <summary>
         /// Non-blocking warnings emitted during pack assembly (v2-F1). Examples:
         /// "hard_include_truncated: forced-include files exceeded token budget; truncated by priority order".
         /// </summary>
@@ -97,12 +90,6 @@ namespace Armada.Core.Models
 
         /// <summary>Distinct repo-relative files represented by the included results.</summary>
         public List<string> IncludedFiles { get; set; } = new List<string>();
-
-        /// <summary>Number of vessel_pack_hints rows that matched the goal.</summary>
-        public int MatchedHintCount { get; set; }
-
-        /// <summary>Identifiers of vessel_pack_hints rows that matched the goal.</summary>
-        public List<string> MatchedHintIds { get; set; } = new List<string>();
 
         /// <summary>Whether symbol-graph expansion contributed additional context.</summary>
         public bool GraphExpansionUsed { get; set; }

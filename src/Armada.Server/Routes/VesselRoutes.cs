@@ -311,7 +311,6 @@ namespace Armada.Server.Routes
                 updated.UserId = existing.UserId;
                 updated.CreatedUtc = existing.CreatedUtc;
                 updated.AutoLandCalibrationLandedCount = existing.AutoLandCalibrationLandedCount;
-                updated.LastReflectionMissionId = existing.LastReflectionMissionId;
                 updated = await _database.Vessels.UpdateAsync(updated).ConfigureAwait(false);
                 return (object)updated;
             },

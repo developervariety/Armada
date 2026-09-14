@@ -10,8 +10,7 @@
       "MigrationDataReviewer",
       "PerformanceMemoryReviewer",
       "PortingReferenceAnalyst",
-      "FrontendWorkflowReviewer",
-      "MemoryConsolidator"
+      "FrontendWorkflowReviewer"
     ],
     "reservedHighTierSlots": 1,
     "preferNonNativeFirst": true,

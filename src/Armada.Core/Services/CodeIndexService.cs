@@ -661,30 +661,7 @@ namespace Armada.Core.Services
             budgetCts.CancelAfter(TimeSpan.FromMilliseconds(budgetMs));
             CancellationToken budgetToken = budgetCts.Token;
 
-            // v2-F1 pre-selection pass: load vessel_pack_hints, filter by goal regex, compute hard-include / hard-exclude.
-            List<VesselPackHint> matchedHints = new List<VesselPackHint>();
             List<string> warnings = new List<string>();
-            HashSet<string> hardExcludePatterns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            try
-            {
-                List<VesselPackHint> activeHints = await _Database.VesselPackHints
-                    .EnumerateActiveByVesselAsync(request.VesselId, budgetToken).ConfigureAwait(false);
-                foreach (VesselPackHint h in activeHints)
-                {
-                    if (TryMatchGoalPattern(h.GoalPattern, request.Goal))
-                    {
-                        matchedHints.Add(h);
-                        foreach (string excl in h.GetMustExclude())
-                            if (!String.IsNullOrWhiteSpace(excl))
-                                hardExcludePatterns.Add(excl);
-                    }
-                }
-                matchedHints = matchedHints.OrderByDescending(h => h.Priority).ToList();
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "vessel_pack_hints lookup failed for " + request.VesselId + ": " + ex.Message);
-            }
 
             CodeSearchRequest searchRequest = new CodeSearchRequest
             {
@@ -715,26 +692,6 @@ namespace Armada.Core.Services
             {
                 warnings.Add("context_pack_budget_expired: search exceeded " + budgetMs + "ms budget; returning search-only pack");
                 _Logging.Warn(_Header + "context pack budget expired during search for vessel " + request.VesselId + "; returning search-only pack");
-            }
-
-            if (hardExcludePatterns.Count > 0)
-            {
-                Matcher excludeMatcher = new Matcher();
-                foreach (string p in hardExcludePatterns) excludeMatcher.AddInclude(p);
-                List<CodeSearchResult> filtered = new List<CodeSearchResult>();
-                int dropped = 0;
-                foreach (CodeSearchResult r in search.Results)
-                {
-                    string path = r.Record?.Path ?? "";
-                    PatternMatchingResult match = excludeMatcher.Match(path);
-                    if (match.HasMatches) { dropped++; continue; }
-                    filtered.Add(r);
-                }
-                search.Results = filtered;
-                if (dropped > 0)
-                {
-                    warnings.Add("hard_exclude_filtered: dropped " + dropped + " result(s) matching pack-hint mustExclude globs");
-                }
             }
 
             // Large vessels skip graph/impact expansion automatically. The indexed document count is a
@@ -857,8 +814,6 @@ namespace Armada.Core.Services
                 IsSummarized = isSummarized
             };
             response.PrestagedFiles.Add(new PrestagedFile(materializedPath, "_briefing/context-pack.md"));
-            foreach (VesselPackHint h in matchedHints)
-                response.MatchedHintIds.Add(h.Id);
             foreach (string w in warnings)
                 response.Warnings.Add(w);
             totalStopwatch.Stop();
@@ -914,7 +869,6 @@ namespace Armada.Core.Services
 
             List<string> warnings = new List<string>();
             List<string> includedFiles = new List<string>();
-            List<string> matchedHintIds = new List<string>();
             int resultCount = 0;
             bool graphExpansionUsed = false;
             foreach (Vessel vessel in vessels)
@@ -940,10 +894,6 @@ namespace Armada.Core.Services
                     foreach (string file in vesselPack.Metrics.IncludedFiles)
                     {
                         includedFiles.Add(vessel.Id + ":" + file);
-                    }
-                    foreach (string hintId in vesselPack.Metrics.MatchedHintIds)
-                    {
-                        matchedHintIds.Add(hintId);
                     }
                     foreach (string warning in vesselPack.Warnings)
                     {
@@ -1004,8 +954,6 @@ namespace Armada.Core.Services
                 ResultCount = resultCount,
                 IncludedFileCount = includedFiles.Distinct(StringComparer.OrdinalIgnoreCase).Count(),
                 IncludedFiles = includedFiles.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList(),
-                MatchedHintCount = matchedHintIds.Distinct(StringComparer.OrdinalIgnoreCase).Count(),
-                MatchedHintIds = matchedHintIds.Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(id => id, StringComparer.OrdinalIgnoreCase).ToList(),
                 GraphExpansionUsed = graphExpansionUsed,
                 WarningCount = warnings.Count,
                 IsSummarized = isSummarized,
@@ -1538,23 +1486,6 @@ namespace Armada.Core.Services
                 CacheKey = cacheKey
             };
             return response;
-        }
-
-        private static bool TryMatchGoalPattern(string? pattern, string goal)
-        {
-            if (String.IsNullOrEmpty(pattern)) return false;
-            try
-            {
-                return System.Text.RegularExpressions.Regex.IsMatch(
-                    goal,
-                    pattern,
-                    System.Text.RegularExpressions.RegexOptions.IgnoreCase,
-                    TimeSpan.FromMilliseconds(50));
-            }
-            catch (Exception)
-            {
-                return false;
-            }
         }
 
         #endregion
@@ -3611,11 +3542,6 @@ namespace Armada.Core.Services
                 ResultCount = response.Results.Count,
                 IncludedFileCount = includedFiles.Count,
                 IncludedFiles = includedFiles,
-                MatchedHintCount = response.MatchedHintIds.Count,
-                MatchedHintIds = response.MatchedHintIds
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .OrderBy(id => id, StringComparer.OrdinalIgnoreCase)
-                    .ToList(),
                 GraphExpansionUsed = graphExpansionUsed,
                 FastPackFallbackUsed = fastPackFallbackUsed,
                 WarningCount = response.Warnings.Count,

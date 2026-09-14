@@ -83,7 +83,6 @@ namespace Armada.Core.Database.Mysql
             CheckRuns = new CheckRunMethods(_ConnectionString);
             Releases = new ReleaseMethods(_ConnectionString);
             Deployments = new DeploymentMethods(_ConnectionString);
-            VesselPackHints = new VesselPackHintMethods(_ConnectionString, _Settings, _Logging);
             JudgeFollowUps = new JudgeFollowUpMethods(_ConnectionString);
             ProjectProfiles = new ProjectProfileMethods(_ConnectionString);
             Skills = new SkillMethods(_ConnectionString);
@@ -664,7 +663,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(81, "Persist captain model endpoint links", TableQueries.MigrationV81Statements),
                 new SchemaMigration(82, "Persist Harbor runner enrollments", TableQueries.MigrationV82Statements),
                 new SchemaMigration(83, "Persist project authorization policy", TableQueries.MigrationV83Statements),
-                new SchemaMigration(84, "Move terminal objectives out of dispatchable backlog states", TableQueries.MigrationV84Statements)
+                new SchemaMigration(84, "Move terminal objectives out of dispatchable backlog states", TableQueries.MigrationV84Statements),
+                new SchemaMigration(85, "Remove learned-facts data, pack hints and reflection columns", LearnedFactsRemovalSchema.MysqlStatements)
             };
         }
 
@@ -779,8 +779,6 @@ namespace Armada.Core.Database.Mysql
             fleet.Name = reader["name"].ToString()!;
             fleet.Description = NullableString(reader["description"]);
             try { fleet.DefaultPlaybooks = NullableString(reader["default_playbooks"]); } catch { }
-            try { fleet.CurateThreshold = reader["curate_threshold"] == DBNull.Value ? null : Convert.ToInt32(reader["curate_threshold"]); } catch { }
-            try { fleet.LearnedPlaybookId = NullableString(reader["learned_playbook_id"]); } catch { }
             fleet.Active = Convert.ToInt64(reader["active"]) == 1;
             fleet.CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]);
             fleet.LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"]);

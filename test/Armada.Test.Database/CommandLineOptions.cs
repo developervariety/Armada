@@ -230,7 +230,7 @@ namespace Armada.Test.Database
             if (MigrationScenario == "catalog-guards" && Type == "sqlite")
                 errors.Add(MigrationScenario + " requires a server provider.");
 
-            if (MigrationScenario.Length > 0 && !new HashSet<string> { "fresh", "concurrent-fresh", "upgrade-51", "partial-first", "partial-52", "catalog-guards", "mysql-compat", "partial-identity", "sqlserver-corrections", "preview-migration", "backend-migration", "anchor-migration", "partial-anchor", "memory-migration", "postgres-legacy", "admission-migration", "model-endpoint-migration", "model-endpoint-guards", "harbor-enrollment-migration", "harbor-enrollment-guards", "harbor-enrollment-combined" }.Contains(MigrationScenario))
+            if (MigrationScenario.Length > 0 && !new HashSet<string> { "fresh", "concurrent-fresh", "upgrade-51", "partial-first", "partial-52", "catalog-guards", "mysql-compat", "partial-identity", "sqlserver-corrections", "preview-migration", "backend-migration", "anchor-migration", "partial-anchor", "memory-migration", "postgres-legacy", "admission-migration", "model-endpoint-migration", "model-endpoint-guards", "harbor-enrollment-migration", "harbor-enrollment-guards", "harbor-enrollment-combined", "learned-facts-removal" }.Contains(MigrationScenario))
                 errors.Add("Unknown migration scenario: " + MigrationScenario);
 
             if (Port < 0 || Port > 65535)

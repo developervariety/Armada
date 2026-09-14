@@ -1104,8 +1104,8 @@ The body replaces every client-editable field. A field the body omits is stored 
 vessel as read with your changes applied. To change only the context fields, use
 `PATCH /api/v1/vessels/{id}/context`.
 
-The server keeps `TenantId`, `UserId`, `CreatedUtc`, `AutoLandCalibrationLandedCount` and `LastReflectionMissionId`
-from the stored vessel; body values for them are ignored.
+The server keeps `TenantId`, `UserId`, `CreatedUtc` and `AutoLandCalibrationLandedCount` from the stored vessel; body
+values for them are ignored.
 
 `autoLandPredicate` must be a JSON object (or `null` to clear it). The key matches in any letter case. A GET returns
 the stored predicate as a JSON string, so parse it before sending it back.

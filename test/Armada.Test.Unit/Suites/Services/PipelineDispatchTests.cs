@@ -406,10 +406,10 @@ namespace Armada.Test.Unit.Suites.Services
                     await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
 
                     // Pipeline with two Judge stages at the same Order (parallel siblings).
-                    Pipeline pipeline = new Pipeline("ReflectionsDualJudge");
+                    Pipeline pipeline = new Pipeline("AnalysisDualJudge");
                     pipeline.Stages = new List<PipelineStage>
                     {
-                        new PipelineStage(1, "MemoryConsolidator") { PreferredModel = "high" },
+                        new PipelineStage(1, "Analyst") { PreferredModel = "high" },
                         new PipelineStage(2, "Judge") { PreferredModel = "high" },
                         new PipelineStage(2, "Judge") { PreferredModel = "high" }
                     };
@@ -417,7 +417,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     List<MissionDescription> missions = new List<MissionDescription>
                     {
-                        new MissionDescription("Consolidate memory", "Reorganize the learned-facts playbook")
+                        new MissionDescription("Analyze module", "Summarize the module")
                     };
 
                     Voyage voyage = await admiralService.DispatchVoyageAsync(
@@ -430,22 +430,22 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(voyage, "Voyage should be created");
 
                     List<Mission> voyageMissions = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
-                    AssertEqual(3, voyageMissions.Count, "Should have 3 missions: 1 MemoryConsolidator + 2 Judge siblings");
+                    AssertEqual(3, voyageMissions.Count, "Should have 3 missions: 1 Analyst + 2 Judge siblings");
 
-                    Mission? consolidatorMission = voyageMissions.FirstOrDefault(m => m.Persona == "MemoryConsolidator");
+                    Mission? analystMission = voyageMissions.FirstOrDefault(m => m.Persona == "Analyst");
                     List<Mission> judgeMissions = voyageMissions.Where(m => m.Persona == "Judge").ToList();
 
-                    AssertNotNull(consolidatorMission, "MemoryConsolidator mission should exist");
+                    AssertNotNull(analystMission, "Analyst mission should exist");
                     AssertEqual(2, judgeMissions.Count, "Should have exactly two Judge missions");
 
-                    // MemoryConsolidator is the first stage, so it has no dependency.
-                    AssertNull(consolidatorMission!.DependsOnMissionId, "MemoryConsolidator should have no upstream dependency");
+                    // Analyst is the first stage, so it has no dependency.
+                    AssertNull(analystMission!.DependsOnMissionId, "Analyst should have no upstream dependency");
 
-                    // Both Judge siblings depend on the MemoryConsolidator, not on each other.
-                    AssertEqual(consolidatorMission.Id, judgeMissions[0].DependsOnMissionId,
-                        "First Judge should depend on MemoryConsolidator");
-                    AssertEqual(consolidatorMission.Id, judgeMissions[1].DependsOnMissionId,
-                        "Second Judge should depend on MemoryConsolidator (same as first Judge)");
+                    // Both Judge siblings depend on the Analyst, not on each other.
+                    AssertEqual(analystMission.Id, judgeMissions[0].DependsOnMissionId,
+                        "First Judge should depend on Analyst");
+                    AssertEqual(analystMission.Id, judgeMissions[1].DependsOnMissionId,
+                        "Second Judge should depend on Analyst (same as first Judge)");
 
                     // Verify the two Judge missions have distinct IDs (they are separate missions).
                     AssertFalse(judgeMissions[0].Id == judgeMissions[1].Id, "Two Judge missions should be distinct");

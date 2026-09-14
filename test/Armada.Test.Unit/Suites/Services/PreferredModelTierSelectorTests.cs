@@ -602,11 +602,11 @@ namespace Armada.Test.Unit.Suites.Services
                 // because the curated high list only knew claude-opus-4-7.
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("claude-opus-4-8", "[\"MemoryConsolidator\"]")
+                    MakeCaptain("claude-opus-4-8", "[\"Analyst\"]")
                 };
 
-                string? selected = PreferredModelTierSelector.SelectModel("high", captains, "MemoryConsolidator", _ => 0, null, null, Fleet());
-                AssertEqual("claude-opus-4-8", selected, "Upgraded Opus captain should be selectable for a high-tier MemoryConsolidator mission");
+                string? selected = PreferredModelTierSelector.SelectModel("high", captains, "Analyst", _ => 0, null, null, Fleet());
+                AssertEqual("claude-opus-4-8", selected, "Upgraded Opus captain should be selectable for a high-tier Analyst mission");
                 return Task.CompletedTask;
             });
 

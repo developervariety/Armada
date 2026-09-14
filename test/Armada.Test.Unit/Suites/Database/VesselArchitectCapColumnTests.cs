@@ -158,22 +158,6 @@ namespace Armada.Test.Unit.Suites.Database
                 }
             });
 
-            await RunTest("VesselArchitectMaxMissionsPerVoyage_IndependentOfReflectionThreshold", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
-                {
-                    Vessel vessel = new Vessel("ArchitectCapIndependent", "https://github.com/test/architect-cap-independent");
-                    vessel.ReflectionThreshold = 5;
-                    vessel.ArchitectMaxMissionsPerVoyage = 15;
-
-                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
-
-                    Vessel? loaded = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
-                    AssertNotNull(loaded, "vessel should load");
-                    AssertEqual(5, loaded!.ReflectionThreshold!.Value, "ReflectionThreshold should remain distinct");
-                    AssertEqual(15, loaded.ArchitectMaxMissionsPerVoyage!.Value, "ArchitectMaxMissionsPerVoyage should persist alongside reflection threshold");
-                }
-            });
         }
 
         private static async Task<string?> ColumnTypeAsync(SqliteConnection conn, string columnName)

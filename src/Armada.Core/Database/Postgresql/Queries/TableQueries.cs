@@ -1068,7 +1068,8 @@ namespace Armada.Core.Database.Postgresql.Queries
                 ),
                 new SchemaMigration(93, "Move terminal objectives out of dispatchable backlog states",
                     @"UPDATE objectives SET backlog_state = 'Inbox' WHERE status IN ('Completed', 'Cancelled') AND (backlog_state IS NULL OR backlog_state <> 'Inbox');"
-                )
+                ),
+                new SchemaMigration(94, "Remove learned-facts data, pack hints and reflection columns", LearnedFactsRemovalSchema.PostgresqlStatements)
             };
         }
 

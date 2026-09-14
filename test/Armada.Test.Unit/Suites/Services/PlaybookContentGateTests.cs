@@ -5,10 +5,10 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Test.Common;
 
     /// <summary>
-    /// Guards the empty-playbook staging gate: a playbook that has never had an accepted
-    /// reflection carries only a heading plus a placeholder line, yet was still materialized
-    /// and referenced in every mission's instructions -- costing the captain a read to learn
-    /// nothing. Substantive playbooks must keep flowing through untouched.
+    /// Guards the empty-playbook staging gate: a playbook that carries only a heading plus a
+    /// placeholder line must not be materialized or referenced in a mission's instructions --
+    /// it costs the captain a read to learn nothing. Substantive playbooks must keep flowing
+    /// through untouched.
     /// </summary>
     public class PlaybookContentGateTests : TestSuite
     {
@@ -20,16 +20,15 @@ namespace Armada.Test.Unit.Suites.Services
         {
             await RunTest("PlaceholderPlaybooks_AreNotSubstantive", () =>
             {
-                // The exact persona-worker-learned.md body observed in staged missions (72 chars).
                 AssertTrue(!MissionService.HasSubstantivePlaybookContent(
-                    "# Persona Learned Notes -- Worker\n\nNo accepted persona-curate notes yet.\n"),
+                    "# Persona Notes -- Worker\n\nNo accepted persona notes yet.\n"),
                     "a heading plus the persona placeholder is not substantive");
 
                 AssertTrue(!MissionService.HasSubstantivePlaybookContent(
-                    "# Vessel Learned Facts\n\nNo accepted reflection notes yet."),
+                    "# Vessel Notes\n\nNo accepted review notes yet."),
                     "a heading plus the vessel placeholder is not substantive");
 
-                AssertTrue(!MissionService.HasSubstantivePlaybookContent("no accepted persona-curate notes yet"),
+                AssertTrue(!MissionService.HasSubstantivePlaybookContent("no accepted persona notes yet"),
                     "placeholder matching is case- and trailing-period-insensitive");
             });
 
@@ -46,9 +45,9 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("RealPlaybooks_AreSubstantive", () =>
             {
-                // Shape of the real vessel learned-facts playbook: heading + actionable bullets.
+                // Shape of a real vessel playbook: heading + actionable bullets.
                 AssertTrue(MissionService.HasSubstantivePlaybookContent(
-                    "# Vessel Learned Facts\n## Static extraction boundaries\n" +
+                    "# Vessel Rules\n## Static extraction boundaries\n" +
                     "- Keep the main Diesel extractor pipeline static-only.\n"),
                     "a heading plus a real bullet is substantive");
 
@@ -56,7 +55,7 @@ namespace Armada.Test.Unit.Suites.Services
                     "a bare instruction line is substantive");
 
                 AssertTrue(MissionService.HasSubstantivePlaybookContent(
-                    "# Notes\n\nNo accepted persona-curate notes yet.\n\n- But this rule was added later.\n"),
+                    "# Notes\n\nNo accepted persona notes yet.\n\n- But this rule was added later.\n"),
                     "a placeholder does not suppress real content that follows it");
             });
 

@@ -35,7 +35,6 @@ namespace Armada.Core.Services
         /// <summary>
         /// Guidance added to every built-in working persona template so an agent recalls what earlier
         /// work recorded before it acts. The Recorder writes memory; every other persona reads it.
-        /// The memory consolidator is excluded: it curates a different store.
         /// </summary>
         private const string _MemoryRecallGuidance =
             "\n" +
@@ -254,7 +253,7 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Whether a built-in persona template takes the memory-recall guidance. The Recorder writes
-        /// memory rather than recalling it, and the memory consolidator curates a different store.
+        /// memory rather than recalling it.
         /// </summary>
         private static bool TakesMemoryRecallGuidance(string? name, string? category)
         {

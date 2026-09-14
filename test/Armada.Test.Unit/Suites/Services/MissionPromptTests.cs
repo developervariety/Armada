@@ -1335,55 +1335,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("GenerateClaudeMdAsync_OmitsProposalAndLearnedPlaybook", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    LoggingModule logging = CreateLogging();
-                    ArmadaSettings settings = CreateSettings();
-                    StubGitService git = new StubGitService();
-                    MissionService service = CreateMissionService(logging, testDb.Driver, settings, git);
-
-                    string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
-                    Directory.CreateDirectory(tempDir);
-
-                    try
-                    {
-                        Vessel vessel = new Vessel("DisabledLearnedFactsVessel", "https://github.com/test/repo");
-                        vessel.EnableModelContext = true;
-                        vessel.ModelContext = "Legacy context remains readable.";
-
-                        Mission mission = new Mission("Task", "Do something.");
-                        mission.PlaybookSnapshots = new List<MissionPlaybookSnapshot>
-                        {
-                            new MissionPlaybookSnapshot
-                            {
-                                FileName = "vessel-disabled-learned.md",
-                                Content = "# Learned\n\nSecret learned guidance that must be disabled."
-                            },
-                            new MissionPlaybookSnapshot
-                            {
-                                FileName = "normal-playbook.md",
-                                Content = "# Normal\n\nNormal playbook guidance remains enabled."
-                            }
-                        };
-
-                        await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
-
-                        string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
-                        AssertContains("Normal playbook guidance remains enabled.", content);
-                        AssertFalse(content.Contains("## Model Context"), "global disable must suppress legacy model context");
-                        AssertFalse(content.Contains("Legacy context remains readable."), "global disable must suppress legacy learned facts");
-                        AssertFalse(content.Contains("## Learned-Fact Proposals"), "global disable must suppress proposal routing");
-                        AssertFalse(content.Contains("Secret learned guidance"), "global disable must suppress learned playbooks");
-                    }
-                    finally
-                    {
-                        try { Directory.Delete(tempDir, true); } catch { }
-                    }
-                }
-            });
-
             await RunTest("GenerateClaudeMdAsync omits the playbook wrapper when every playbook is filtered out", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -1398,25 +1349,25 @@ namespace Armada.Test.Unit.Suites.Services
 
                     try
                     {
-                        Vessel vessel = new Vessel("OnlyLearnedPlaybookVessel", "https://github.com/test/repo");
+                        Vessel vessel = new Vessel("PlaceholderPlaybookVessel", "https://github.com/test/repo");
 
-                        // The only attached playbook is a learned-fact one, which the renderer drops
-                        // while learned facts are disabled. The wrapper calls its content required
-                        // reading, so an empty wrapper points the captain at material it never got.
+                        // The only attached playbook holds a heading and a placeholder line, which the
+                        // renderer drops. The wrapper calls its content required reading, so an empty
+                        // wrapper points the captain at material it never got.
                         Mission mission = new Mission("Task", "Do something.");
                         mission.PlaybookSnapshots = new List<MissionPlaybookSnapshot>
                         {
                             new MissionPlaybookSnapshot
                             {
-                                FileName = "vessel-onlylearned-learned.md",
-                                Content = "# Learned\n\nSecret learned guidance that must be disabled."
+                                FileName = "vessel-notes.md",
+                                Content = "# Placeholder Heading\n\nNo accepted notes yet."
                             }
                         };
 
                         await service.GenerateClaudeMdAsync(tempDir, mission, vessel);
 
                         string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
-                        AssertFalse(content.Contains("Secret learned guidance"), "the learned playbook body must be suppressed");
+                        AssertFalse(content.Contains("Placeholder Heading"), "the placeholder playbook body must be suppressed");
                         AssertFalse(content.Contains("## Playbooks"), "an empty playbook wrapper must not be emitted");
                     }
                     finally
@@ -1452,7 +1403,6 @@ namespace Armada.Test.Unit.Suites.Services
 
                         string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
                         AssertFalse(content.Contains("## Model Context"), "Should not contain Model Context when disabled");
-                        AssertFalse(content.Contains("## Learned-Fact Proposals"), "Should not contain learned-fact proposal instructions when disabled");
                     }
                     finally
                     {

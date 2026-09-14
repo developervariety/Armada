@@ -87,6 +87,44 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(Constants.DefaultAdmiralPort, settings.AdmiralPort);
             });
 
+            await RunTest("ArmadaSettings LoadAsync RemovedLearnedFactsKeys AreIgnoredAndNotWrittenBack", async () =>
+            {
+                string tempFile = Path.Combine(Path.GetTempPath(), "armada_test_settings_" + Guid.NewGuid().ToString("N") + ".json");
+
+                try
+                {
+                    // A settings file written before the learned-facts feature was removed.
+                    string legacy = "{\n"
+                        + "  \"admiralPort\": 9123,\n"
+                        + "  \"learnedFactsEnabled\": false,\n"
+                        + "  \"defaultReflectionThreshold\": 15,\n"
+                        + "  \"initialReflectionWindow\": 50,\n"
+                        + "  \"defaultReflectionTokenBudget\": 60000,\n"
+                        + "  \"defaultReorganizeTokenBudget\": 40000,\n"
+                        + "  \"defaultPackCurateTokenBudget\": 30000,\n"
+                        + "  \"allowCaptainCurateFanOut\": true,\n"
+                        + "  \"fleetVesselConflictThreshold\": 0.6,\n"
+                        + "  \"crossVesselSuggestionThreshold\": 0.7,\n"
+                        + "  \"learnedFactsPrune\": { \"enabled\": true, \"maxAgeDays\": 30 },\n"
+                        + "  \"heartbeatIntervalSeconds\": 45\n"
+                        + "}";
+                    await File.WriteAllTextAsync(tempFile, legacy);
+
+                    ArmadaSettings loaded = await ArmadaSettings.LoadAsync(tempFile);
+                    AssertEqual(9123, loaded.AdmiralPort, "keys before the removed ones still load");
+                    AssertEqual(45, loaded.HeartbeatIntervalSeconds, "keys after the removed ones still load");
+
+                    await loaded.SaveAsync(tempFile);
+                    string saved = await File.ReadAllTextAsync(tempFile);
+                    foreach (string removed in new[] { "learnedFactsEnabled", "Reflection", "Reorganize", "PackCurate", "CurateFanOut", "learnedFactsPrune", "ConflictThreshold", "SuggestionThreshold" })
+                        AssertFalse(saved.Contains(removed, StringComparison.OrdinalIgnoreCase), "a saved settings file must not carry the removed key " + removed);
+                }
+                finally
+                {
+                    if (File.Exists(tempFile)) File.Delete(tempFile);
+                }
+            });
+
             await RunTest("ArmadaSettings InitializeDirectories NormalizesRelativeSqliteFilename", () =>
             {
                 string tempDir = Path.Combine(Path.GetTempPath(), "armada_settings_db_" + Guid.NewGuid().ToString("N"));

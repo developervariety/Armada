@@ -195,18 +195,6 @@ namespace Armada.Core.Models
         public string? DefaultPlaybooks { get; set; } = null;
 
         /// <summary>
-        /// Legacy per-captain curate trigger threshold. Retained as inert data for backward
-        /// compatibility; no longer drives dispatch.
-        /// </summary>
-        public int? CurateThreshold { get; set; } = null;
-
-        /// <summary>
-        /// Legacy FK reference to a per-captain learned playbook. Retained as inert data for
-        /// backward compatibility; no longer populated.
-        /// </summary>
-        public string? LearnedPlaybookId { get; set; } = null;
-
-        /// <summary>
         /// Lazy-parses the <see cref="DefaultPlaybooks"/> JSON string. Returns an empty list when unset or malformed.
         /// </summary>
         /// <returns>List of <see cref="Models.SelectedPlaybook"/> entries.</returns>

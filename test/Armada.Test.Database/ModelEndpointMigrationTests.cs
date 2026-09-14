@@ -172,7 +172,8 @@ namespace Armada.Test.Database
             MigrationScenarioRunner.AssertHistory(before, await scenarioRunner.ReadHistoryAsync(token).ConfigureAwait(false));
             using (DatabaseDriver driver = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
             {
-                DatabaseAssert.Equal(version, await driver.GetSchemaVersionAsync(token).ConfigureAwait(false), "Captain model endpoint link restart completes migration");
+                // Later migrations may follow this one, so the restart must reach at least this version.
+                DatabaseAssert.True(await driver.GetSchemaVersionAsync(token).ConfigureAwait(false) >= version, "Captain model endpoint link restart completes migration");
             }
             DatabaseAssert.True(await CaptainLinkExistsAsync(token).ConfigureAwait(false), "Captain model endpoint foreign key is present after restart");
         }

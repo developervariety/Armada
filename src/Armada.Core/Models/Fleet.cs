@@ -67,18 +67,6 @@ namespace Armada.Core.Models
         public string? DefaultPlaybooks { get; set; } = null;
 
         /// <summary>
-        /// Legacy per-fleet curate trigger threshold. Retained as inert data for backward
-        /// compatibility; no longer drives dispatch.
-        /// </summary>
-        public int? CurateThreshold { get; set; } = null;
-
-        /// <summary>
-        /// Legacy FK reference to a per-fleet learned playbook. Retained as inert data for
-        /// backward compatibility; no longer populated.
-        /// </summary>
-        public string? LearnedPlaybookId { get; set; } = null;
-
-        /// <summary>
         /// Whether the fleet is active.
         /// </summary>
         public bool Active { get; set; } = true;

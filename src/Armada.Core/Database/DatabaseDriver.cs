@@ -190,11 +190,6 @@ namespace Armada.Core.Database
         public IDeploymentMethods Deployments { get; protected set; } = null!;
 
         /// <summary>
-        /// Vessel pack-curate hint operations (v2-F1).
-        /// </summary>
-        public IVesselPackHintMethods VesselPackHints { get; protected set; } = null!;
-
-        /// <summary>
         /// Durable Judge follow-up operations.
         /// </summary>
         public IJudgeFollowUpMethods JudgeFollowUps { get; protected set; } = null!;

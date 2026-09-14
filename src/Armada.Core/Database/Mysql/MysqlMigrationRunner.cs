@@ -80,7 +80,8 @@ namespace Armada.Core.Database.Mysql
                 bool parallelIndex = migration.Version == 42;
                 bool packIndex = migration.Version == 43 && ordinal >= 2;
                 bool ddl = parallelIndex || packIndex || statement.TrimStart().StartsWith("CREATE ", StringComparison.OrdinalIgnoreCase)
-                    || statement.TrimStart().StartsWith("ALTER ", StringComparison.OrdinalIgnoreCase);
+                    || statement.TrimStart().StartsWith("ALTER ", StringComparison.OrdinalIgnoreCase)
+                    || statement.TrimStart().StartsWith("DROP ", StringComparison.OrdinalIgnoreCase);
                 if (ddl)
                 {
                     if (parallelIndex)

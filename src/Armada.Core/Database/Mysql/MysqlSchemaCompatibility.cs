@@ -35,7 +35,15 @@ namespace Armada.Core.Database.Mysql
             Match column = Regex.Match(sql, @"^ALTER TABLE `?(\w+)`? ADD (?:COLUMN )?(?:IF NOT EXISTS )?`?(\w+)`? (.+);$", RegexOptions.IgnoreCase | RegexOptions.Singleline);
             Match index = Regex.Match(sql, @"^CREATE (UNIQUE )?INDEX (?:IF NOT EXISTS )?`?(\w+)`?\s+ON `?(\w+)`?\s*\((.+)\);$", RegexOptions.IgnoreCase | RegexOptions.Singleline);
             Match foreignKey = Regex.Match(sql, @"^ALTER TABLE (\w+) ADD CONSTRAINT (\w+) FOREIGN KEY \((\w+)\) REFERENCES (\w+)\((\w+)\)(?: ON DELETE (CASCADE|SET NULL|NO ACTION|RESTRICT))?;$", RegexOptions.IgnoreCase);
-            if (table.Success)
+            Match dropColumn = Regex.Match(sql, @"^ALTER TABLE `?(\w+)`? DROP COLUMN `?(\w+)`?;$", RegexOptions.IgnoreCase);
+            if (dropColumn.Success)
+            {
+                // MySQL commits DDL on its own, so a restarted migration can meet a column it already dropped.
+                List<Dictionary<string, string?>> columns = await ColumnsAsync(dropColumn.Groups[1].Value, token).ConfigureAwait(false);
+                if (columns.Exists(item => item["column_name"] == dropColumn.Groups[2].Value))
+                    await ExecuteSqlAsync(sql, token).ConfigureAwait(false);
+            }
+            else if (table.Success)
             {
                 await EnsureTableAsync(table.Groups[1].Value, sql, version, token).ConfigureAwait(false);
             }

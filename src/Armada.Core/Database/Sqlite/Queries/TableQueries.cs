@@ -1597,7 +1597,8 @@ namespace Armada.Core.Database.Sqlite.Queries
                 ),
                 new SchemaMigration(92, "Move terminal objectives out of dispatchable backlog states",
                     @"UPDATE objectives SET backlog_state = 'Inbox' WHERE status IN ('Completed', 'Cancelled') AND (backlog_state IS NULL OR backlog_state <> 'Inbox');"
-                )
+                ),
+                new SchemaMigration(93, "Remove learned-facts data, pack hints and reflection columns", LearnedFactsRemovalSchema.SqliteStatements)
             };
         }
 

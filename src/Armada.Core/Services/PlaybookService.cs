@@ -62,8 +62,7 @@ namespace Armada.Core.Services
                 Playbook? playbook = await _Database.Playbooks.ReadAsync(tenantId, selection.PlaybookId, token).ConfigureAwait(false);
                 if (playbook == null)
                     throw new InvalidOperationException("Playbook not found: " + selection.PlaybookId);
-                // Inactive playbooks (e.g. learned-facts stubs while learned-facts are
-                // disabled) are skipped rather than failing dispatch: a playbook can be
+                // Inactive playbooks are skipped rather than failing dispatch: a playbook can be
                 // toggled off at any time and voyages must still dispatch without it.
                 if (!playbook.Active)
                     continue;

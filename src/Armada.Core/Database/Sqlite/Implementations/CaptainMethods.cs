@@ -57,8 +57,8 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqliteCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO captains (id, tenant_id, user_id, name, runtime, model, model_endpoint_id, api_key, api_base_url, system_instructions, allowed_personas, preferred_persona, runtime_options_json, default_playbooks, curate_threshold, learned_playbook_id, state, current_mission_id, current_dock_id, process_id, recovery_attempts, last_heartbeat_utc, quarantine_until_utc, quarantine_reason, created_utc, last_update_utc, tier)
-                            VALUES (@id, @tenant_id, @user_id, @name, @runtime, @model, @model_endpoint_id, @api_key, @api_base_url, @system_instructions, @allowed_personas, @preferred_persona, @runtime_options_json, @default_playbooks, @curate_threshold, @learned_playbook_id, @state, @current_mission_id, @current_dock_id, @process_id, @recovery_attempts, @last_heartbeat_utc, @quarantine_until_utc, @quarantine_reason, @created_utc, @last_update_utc, @tier);";
+                    cmd.CommandText = @"INSERT INTO captains (id, tenant_id, user_id, name, runtime, model, model_endpoint_id, api_key, api_base_url, system_instructions, allowed_personas, preferred_persona, runtime_options_json, default_playbooks, state, current_mission_id, current_dock_id, process_id, recovery_attempts, last_heartbeat_utc, quarantine_until_utc, quarantine_reason, created_utc, last_update_utc, tier)
+                            VALUES (@id, @tenant_id, @user_id, @name, @runtime, @model, @model_endpoint_id, @api_key, @api_base_url, @system_instructions, @allowed_personas, @preferred_persona, @runtime_options_json, @default_playbooks, @state, @current_mission_id, @current_dock_id, @process_id, @recovery_attempts, @last_heartbeat_utc, @quarantine_until_utc, @quarantine_reason, @created_utc, @last_update_utc, @tier);";
                     cmd.Parameters.AddWithValue("@id", captain.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)captain.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)captain.UserId ?? DBNull.Value);
@@ -74,8 +74,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.Parameters.AddWithValue("@preferred_persona", (object?)captain.PreferredPersona ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@runtime_options_json", (object?)captain.RuntimeOptionsJson ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@default_playbooks", (object?)captain.DefaultPlaybooks ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@curate_threshold", (object?)captain.CurateThreshold ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@learned_playbook_id", (object?)captain.LearnedPlaybookId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@state", captain.State.ToString());
                     cmd.Parameters.AddWithValue("@current_mission_id", (object?)captain.CurrentMissionId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@current_dock_id", (object?)captain.CurrentDockId ?? DBNull.Value);
@@ -179,8 +177,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
                             preferred_persona = @preferred_persona,
                             runtime_options_json = @runtime_options_json,
                             default_playbooks = @default_playbooks,
-                            curate_threshold = @curate_threshold,
-                            learned_playbook_id = @learned_playbook_id,
                             state = @state,
                             current_mission_id = @current_mission_id,
                             current_dock_id = @current_dock_id,
@@ -206,8 +202,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
                     cmd.Parameters.AddWithValue("@preferred_persona", (object?)captain.PreferredPersona ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@runtime_options_json", (object?)captain.RuntimeOptionsJson ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@default_playbooks", (object?)captain.DefaultPlaybooks ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@curate_threshold", (object?)captain.CurateThreshold ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@learned_playbook_id", (object?)captain.LearnedPlaybookId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@state", captain.State.ToString());
                     cmd.Parameters.AddWithValue("@current_mission_id", (object?)captain.CurrentMissionId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@current_dock_id", (object?)captain.CurrentDockId ?? DBNull.Value);

@@ -8,7 +8,6 @@ const EXCLUDED_KEYS = [
   'userId',
   'hasGitHubTokenOverride',
   'autoLandCalibrationLandedCount',
-  'lastReflectionMissionId',
   'createdUtc',
   'lastUpdateUtc',
   'autoLandEnabled',
