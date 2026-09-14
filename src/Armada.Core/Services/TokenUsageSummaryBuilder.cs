@@ -52,7 +52,7 @@ namespace Armada.Core.Services
 
                 Accumulate(byModel, model, record);
 
-                DateTime bucketStart = FloorToBucket(record.CreatedUtc, result.BucketMinutes);
+                DateTime bucketStart = TimeBucketGrid.FloorUtc(record.CreatedUtc, result.BucketMinutes);
                 if (!buckets.TryGetValue(bucketStart, out TokenUsageBucket? bucket))
                 {
                     bucket = new TokenUsageBucket
@@ -74,7 +74,7 @@ namespace Armada.Core.Services
             // Gap-fill the requested window so the time axis is continuous.
             if (safeQuery.FromUtc.HasValue && safeQuery.ToUtc.HasValue)
             {
-                DateTime cursor = FloorToBucket(safeQuery.FromUtc.Value.ToUniversalTime(), result.BucketMinutes);
+                DateTime cursor = TimeBucketGrid.FloorUtc(safeQuery.FromUtc.Value.ToUniversalTime(), result.BucketMinutes);
                 DateTime end = safeQuery.ToUtc.Value.ToUniversalTime();
                 while (cursor <= end)
                 {
@@ -126,19 +126,6 @@ namespace Armada.Core.Services
             breakdown.OutputTokens += record.OutputTokens;
             breakdown.CacheReadTokens += record.CachedTokens;
             breakdown.TotalTokens += record.TotalTokens;
-        }
-
-        private static DateTime FloorToBucket(DateTime value, double bucketMinutes)
-        {
-            // Floor on the absolute epoch grid so bucket boundaries match the dashboard's
-            // Math.floor(timeMs / bucketMs) * bucketMs alignment for every bucket width. Supports
-            // fractional bucket widths (for example 0.5 minutes = 30-second buckets).
-            DateTime utc = value.ToUniversalTime();
-            double minutes = bucketMinutes > 0 ? bucketMinutes : 1;
-            long bucketTicks = (long)(minutes * TimeSpan.TicksPerMinute);
-            if (bucketTicks < 1) bucketTicks = 1;
-            long flooredTicks = (utc.Ticks / bucketTicks) * bucketTicks;
-            return new DateTime(flooredTicks, DateTimeKind.Utc);
         }
 
         #endregion

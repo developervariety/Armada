@@ -36,7 +36,7 @@ namespace Armada.Core.Services
             Dictionary<DateTime, RequestHistorySummaryBucket> buckets = new Dictionary<DateTime, RequestHistorySummaryBucket>();
             foreach (RequestHistoryEntry entry in safeEntries)
             {
-                DateTime bucketStart = FloorToBucket(entry.CreatedUtc, result.BucketMinutes);
+                DateTime bucketStart = TimeBucketGrid.FloorUtc(entry.CreatedUtc, result.BucketMinutes);
                 if (!buckets.TryGetValue(bucketStart, out RequestHistorySummaryBucket? bucket))
                 {
                     bucket = new RequestHistorySummaryBucket
@@ -57,7 +57,7 @@ namespace Armada.Core.Services
 
             if (safeQuery.FromUtc.HasValue && safeQuery.ToUtc.HasValue)
             {
-                DateTime cursor = FloorToBucket(safeQuery.FromUtc.Value.ToUniversalTime(), result.BucketMinutes);
+                DateTime cursor = TimeBucketGrid.FloorUtc(safeQuery.FromUtc.Value.ToUniversalTime(), result.BucketMinutes);
                 DateTime end = safeQuery.ToUtc.Value.ToUniversalTime();
                 while (cursor <= end)
                 {
@@ -78,13 +78,6 @@ namespace Armada.Core.Services
                 .OrderBy(bucket => bucket.BucketStartUtc)
                 .ToList();
             return result;
-        }
-
-        private static DateTime FloorToBucket(DateTime value, int bucketMinutes)
-        {
-            DateTime utc = value.ToUniversalTime();
-            int minute = utc.Minute - (utc.Minute % bucketMinutes);
-            return new DateTime(utc.Year, utc.Month, utc.Day, utc.Hour, minute, 0, DateTimeKind.Utc);
         }
     }
 }

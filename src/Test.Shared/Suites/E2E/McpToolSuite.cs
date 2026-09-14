@@ -74,43 +74,43 @@ namespace Test.Shared.Suites.E2E
 
                 string[] expected = new string[]
                 {
-                    "status",
-                    "stop_server",
-                    "enumerate",
+                    "armada_status",
+                    "armada_stop_server",
+                    "armada_enumerate",
                     "get_check_run",
                     "run_check",
                     "retry_check_run",
-                    "get_fleet",
-                    "create_fleet",
-                    "update_fleet",
-                    "delete_fleet",
-                    "get_vessel",
-                    "add_vessel",
-                    "update_vessel",
-                    "delete_vessel",
-                    "dispatch",
-                    "voyage_status",
-                    "cancel_voyage",
-                    "purge_voyage",
-                    "mission_status",
-                    "create_mission",
-                    "update_mission",
-                    "cancel_mission",
-                    "transition_mission_status",
-                    "get_mission_diff",
-                    "get_mission_log",
-                    "get_captain",
-                    "create_captain",
-                    "update_captain",
-                    "stop_captain",
-                    "stop_all",
-                    "delete_captain",
-                    "get_captain_log",
-                    "send_signal",
-                    "get_merge_entry",
-                    "enqueue_merge",
-                    "cancel_merge",
-                    "process_merge_queue",
+                    "armada_get_fleet",
+                    "armada_create_fleet",
+                    "armada_update_fleet",
+                    "armada_delete_fleet",
+                    "armada_get_vessel",
+                    "armada_add_vessel",
+                    "armada_update_vessel",
+                    "armada_delete_vessel",
+                    "armada_dispatch",
+                    "armada_voyage_status",
+                    "armada_cancel_voyage",
+                    "armada_purge_voyage",
+                    "armada_mission_status",
+                    "armada_create_mission",
+                    "armada_update_mission",
+                    "armada_cancel_mission",
+                    "armada_transition_mission_status",
+                    "armada_get_mission_diff",
+                    "armada_get_mission_log",
+                    "armada_get_captain",
+                    "armada_create_captain",
+                    "armada_update_captain",
+                    "armada_stop_captain",
+                    "armada_stop_all",
+                    "armada_delete_captain",
+                    "armada_get_captain_log",
+                    "armada_send_signal",
+                    "armada_get_merge_entry",
+                    "armada_enqueue_merge",
+                    "armada_cancel_merge",
+                    "armada_process_merge_queue",
                     "get_release",
                     "create_release"
                 };
@@ -251,7 +251,7 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual(release.Id, fetched.Id);
                 AssertEqual("MCP Draft Release", fetched.Title);
 
-                JsonElement enumerateResult = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement enumerateResult = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "releases",
                     pageSize = 50,
@@ -347,7 +347,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "status", new { }).ConfigureAwait(false);
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_status", new { }).ConfigureAwait(false);
                 AssertToolResultValid(result);
             }));
 
@@ -357,7 +357,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "status", new { }).ConfigureAwait(false);
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_status", new { }).ConfigureAwait(false);
                 string text = GetToolResultText(result);
                 AssertFalse(string.IsNullOrEmpty(text));
                 ArmadaStatus status = JsonHelper.Deserialize<ArmadaStatus>(text);
@@ -373,7 +373,7 @@ namespace Test.Shared.Suites.E2E
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "DispatchFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "DispatchVessel").ConfigureAwait(false);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "dispatch", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_dispatch", new
                 {
                     title = "Test Dispatch Voyage",
                     description = "Dispatched via MCP",
@@ -385,7 +385,7 @@ namespace Test.Shared.Suites.E2E
                 }).ConfigureAwait(false);
 
                 AssertToolResultValid(result);
-                string text = GetToolResultText(result);
+                string text = await AwaitJobResultTextAsync(mcpClient, sessionId, GetToolResultText(result)).ConfigureAwait(false);
                 Voyage voyage = JsonHelper.Deserialize<Voyage>(text);
                 AssertStartsWith("vyg_", voyage.Id);
             }));
@@ -399,7 +399,7 @@ namespace Test.Shared.Suites.E2E
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "DispatchMultiFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "DispatchMultiVessel").ConfigureAwait(false);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "dispatch", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_dispatch", new
                 {
                     title = "Multi-Mission Voyage",
                     vesselId = vesselId,
@@ -421,7 +421,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string captainId = await RestCreateCaptainAsync(mcpClient, sessionId, "signal-captain").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "send_signal", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_send_signal", new
                 {
                     captainId = captainId,
                     message = "Hello from MCP test"
@@ -438,13 +438,13 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string captainId = await RestCreateCaptainAsync(mcpClient, sessionId, "signal-list-captain").ConfigureAwait(false);
-                await CallToolAsync(mcpClient, sessionId, "send_signal", new
+                await CallToolAsync(mcpClient, sessionId, "armada_send_signal", new
                 {
                     captainId = captainId,
                     message = "Signal visibility test"
                 }).ConfigureAwait(false);
 
-                JsonElement listResult = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement listResult = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "signals",
                     pageSize = 50,
@@ -461,7 +461,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string missionId = await RestCreateMissionAsync(mcpClient, sessionId, "MissionStatusTest").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "mission_status", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_mission_status", new
                 {
                     missionId = missionId
                 }).ConfigureAwait(false);
@@ -477,7 +477,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "mission_status", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_mission_status", new
                 {
                     missionId = "msn_nonexistent"
                 }).ConfigureAwait(false);
@@ -493,7 +493,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string missionId = await RestCreateMissionAsync(mcpClient, sessionId, "StatusCheckMission").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "mission_status", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_mission_status", new
                 {
                     missionId = missionId
                 }).ConfigureAwait(false);
@@ -509,7 +509,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string missionId = await RestCreateMissionAsync(mcpClient, sessionId, "DiffSnapshotExclusionTest").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "mission_status", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_mission_status", new
                 {
                     missionId = missionId
                 }).ConfigureAwait(false);
@@ -528,7 +528,7 @@ namespace Test.Shared.Suites.E2E
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "VoyageStatusFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "VoyageStatusVessel").ConfigureAwait(false);
                 string voyageId = await RestCreateVoyageAsync(mcpClient, sessionId, vesselId).ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "voyage_status", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_voyage_status", new
                 {
                     voyageId = voyageId
                 }).ConfigureAwait(false);
@@ -543,7 +543,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "voyage_status", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_voyage_status", new
                 {
                     voyageId = "vyg_nonexistent"
                 }).ConfigureAwait(false);
@@ -561,7 +561,7 @@ namespace Test.Shared.Suites.E2E
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "VoyageMissionsFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "VoyageMissionsVessel").ConfigureAwait(false);
                 string voyageId = await RestCreateVoyageAsync(mcpClient, sessionId, vesselId).ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "voyage_status", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_voyage_status", new
                 {
                     voyageId = voyageId
                 }).ConfigureAwait(false);
@@ -578,7 +578,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "GetFleetTest").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "get_fleet", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_get_fleet", new
                 {
                     fleetId = fleetId
                 }).ConfigureAwait(false);
@@ -594,7 +594,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "get_fleet", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_get_fleet", new
                 {
                     fleetId = "flt_nonexistent"
                 }).ConfigureAwait(false);
@@ -612,7 +612,7 @@ namespace Test.Shared.Suites.E2E
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "FleetWithVessels").ConfigureAwait(false);
                 await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "FleetVessel1").ConfigureAwait(false);
                 await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "FleetVessel2").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "get_fleet", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_get_fleet", new
                 {
                     fleetId = fleetId
                 }).ConfigureAwait(false);
@@ -630,7 +630,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "AddVesselFleet").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "add_vessel", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_add_vessel", new
                 {
                     name = "MCP Added Vessel",
                     repoUrl = TestRepoHelper.GetLocalBareRepoUrl(),
@@ -649,7 +649,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "AddVesselBranchFleet").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "add_vessel", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_add_vessel", new
                 {
                     name = "Custom Branch Vessel",
                     repoUrl = TestRepoHelper.GetLocalBareRepoUrl(),
@@ -668,7 +668,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "AddVesselVisibleFleet").ConfigureAwait(false);
-                JsonElement addResult = await CallToolAsync(mcpClient, sessionId, "add_vessel", new
+                JsonElement addResult = await CallToolAsync(mcpClient, sessionId, "armada_add_vessel", new
                 {
                     name = "Visible Vessel",
                     repoUrl = TestRepoHelper.GetLocalBareRepoUrl(),
@@ -678,7 +678,7 @@ namespace Test.Shared.Suites.E2E
                 Vessel vessel = JsonHelper.Deserialize<Vessel>(addText);
                 string vesselId = vessel.Id;
 
-                JsonElement listResult = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement listResult = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "vessels",
                     fleetId = fleetId
@@ -695,7 +695,7 @@ namespace Test.Shared.Suites.E2E
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "AddVesselGitHubOverrideFleet").ConfigureAwait(false);
                 string token = "ghp_mcp_" + Guid.NewGuid().ToString("N").Substring(0, 10);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "add_vessel", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_add_vessel", new
                 {
                     name = "MCP GitHub Override Vessel",
                     repoUrl = TestRepoHelper.GetLocalBareRepoUrl(),
@@ -718,7 +718,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "UpdateVesselGitHubOverrideFleet").ConfigureAwait(false);
-                JsonElement addResult = await CallToolAsync(mcpClient, sessionId, "add_vessel", new
+                JsonElement addResult = await CallToolAsync(mcpClient, sessionId, "armada_add_vessel", new
                 {
                     name = "MCP Clear Override Vessel",
                     repoUrl = TestRepoHelper.GetLocalBareRepoUrl(),
@@ -728,7 +728,7 @@ namespace Test.Shared.Suites.E2E
                 Vessel added = JsonHelper.Deserialize<Vessel>(GetToolResultText(addResult));
                 AssertTrue(added.HasGitHubTokenOverride);
 
-                JsonElement updateResult = await CallToolAsync(mcpClient, sessionId, "update_vessel", new
+                JsonElement updateResult = await CallToolAsync(mcpClient, sessionId, "armada_update_vessel", new
                 {
                     vesselId = added.Id,
                     gitHubTokenOverride = ""
@@ -745,7 +745,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string captainId = await RestCreateCaptainAsync(mcpClient, sessionId, "stop-idle-captain").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "stop_captain", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_stop_captain", new
                 {
                     captainId = captainId
                 }).ConfigureAwait(false);
@@ -775,7 +775,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "stop_all", new { }).ConfigureAwait(false);
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_stop_all", new { }).ConfigureAwait(false);
                 AssertToolResultValid(result);
                 string text = GetToolResultText(result);
                 AssertContains("all_stopped", text);
@@ -789,7 +789,7 @@ namespace Test.Shared.Suites.E2E
 
                 await RestCreateCaptainAsync(mcpClient, sessionId, "stop-all-captain-1").ConfigureAwait(false);
                 await RestCreateCaptainAsync(mcpClient, sessionId, "stop-all-captain-2").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "stop_all", new { }).ConfigureAwait(false);
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_stop_all", new { }).ConfigureAwait(false);
                 AssertToolResultValid(result);
                 string text = GetToolResultText(result);
                 AssertContains("all_stopped", text);
@@ -802,7 +802,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string missionId = await RestCreateMissionAsync(mcpClient, sessionId, "CancelMeMission").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "cancel_mission", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_cancel_mission", new
                 {
                     missionId = missionId
                 }).ConfigureAwait(false);
@@ -817,7 +817,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "cancel_mission", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_cancel_mission", new
                 {
                     missionId = "msn_nonexistent"
                 }).ConfigureAwait(false);
@@ -833,13 +833,13 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string missionId = await RestCreateMissionAsync(mcpClient, sessionId, "CancelVerifyMission").ConfigureAwait(false);
-                await CallToolAsync(mcpClient, sessionId, "cancel_mission", new
+                await CallToolAsync(mcpClient, sessionId, "armada_cancel_mission", new
                 {
                     missionId = missionId
                 }).ConfigureAwait(false);
 
                 // Verify via MCP tool instead of REST (different ports)
-                JsonElement getResult = await CallToolAsync(mcpClient, sessionId, "mission_status", new { missionId = missionId }).ConfigureAwait(false);
+                JsonElement getResult = await CallToolAsync(mcpClient, sessionId, "armada_mission_status", new { missionId = missionId }).ConfigureAwait(false);
                 string getBody = GetToolResultText(getResult);
                 Mission mission = JsonHelper.Deserialize<Mission>(getBody);
                 AssertEqual("Cancelled", mission.Status.ToString());
@@ -854,7 +854,7 @@ namespace Test.Shared.Suites.E2E
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "CancelVoyageFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "CancelVoyageVessel").ConfigureAwait(false);
                 string voyageId = await RestCreateVoyageAsync(mcpClient, sessionId, vesselId).ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "cancel_voyage", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_cancel_voyage", new
                 {
                     voyageId = voyageId
                 }).ConfigureAwait(false);
@@ -869,7 +869,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "cancel_voyage", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_cancel_voyage", new
                 {
                     voyageId = "vyg_nonexistent"
                 }).ConfigureAwait(false);
@@ -887,7 +887,7 @@ namespace Test.Shared.Suites.E2E
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "CancelVoyageMissionsFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "CancelVoyageMissionsVessel").ConfigureAwait(false);
                 string voyageId = await RestCreateVoyageAsync(mcpClient, sessionId, vesselId).ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "cancel_voyage", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_cancel_voyage", new
                 {
                     voyageId = voyageId
                 }).ConfigureAwait(false);
@@ -905,13 +905,13 @@ namespace Test.Shared.Suites.E2E
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "CancelVoyageVerifyFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "CancelVoyageVerifyVessel").ConfigureAwait(false);
                 string voyageId = await RestCreateVoyageAsync(mcpClient, sessionId, vesselId).ConfigureAwait(false);
-                await CallToolAsync(mcpClient, sessionId, "cancel_voyage", new
+                await CallToolAsync(mcpClient, sessionId, "armada_cancel_voyage", new
                 {
                     voyageId = voyageId
                 }).ConfigureAwait(false);
 
                 // Verify via MCP tool instead of REST (different ports)
-                JsonElement getResult = await CallToolAsync(mcpClient, sessionId, "voyage_status", new { voyageId = voyageId }).ConfigureAwait(false);
+                JsonElement getResult = await CallToolAsync(mcpClient, sessionId, "armada_voyage_status", new { voyageId = voyageId }).ConfigureAwait(false);
                 string getBody = GetToolResultText(getResult);
                 VoyageDetailResponse voyageResult = JsonHelper.Deserialize<VoyageDetailResponse>(getBody);
                 AssertEqual("Cancelled", voyageResult.Voyage!.Status.ToString());
@@ -925,7 +925,7 @@ namespace Test.Shared.Suites.E2E
 
                 await RestCreateFleetAsync(mcpClient, sessionId, "EnumFleet1").ConfigureAwait(false);
                 await RestCreateFleetAsync(mcpClient, sessionId, "EnumFleet2").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "fleets",
                     pageSize = 10,
@@ -948,7 +948,7 @@ namespace Test.Shared.Suites.E2E
 
                 await RestCreateMissionAsync(mcpClient, sessionId, "EnumMission1").ConfigureAwait(false);
                 await RestCreateMissionAsync(mcpClient, sessionId, "EnumMission2").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "missions",
                     status = "Pending"
@@ -968,7 +968,7 @@ namespace Test.Shared.Suites.E2E
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "EnumVesselFleet").ConfigureAwait(false);
                 await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "EnumVessel1").ConfigureAwait(false);
                 await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "EnumVessel2").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "vessels",
                     fleetId = fleetId
@@ -986,7 +986,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 await RestCreateCaptainAsync(mcpClient, sessionId, "enum-captain-1").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "captains"
                 }).ConfigureAwait(false);
@@ -1002,7 +1002,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "voyages"
                 }).ConfigureAwait(false);
@@ -1018,7 +1018,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "docks"
                 }).ConfigureAwait(false);
@@ -1034,7 +1034,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "signals"
                 }).ConfigureAwait(false);
@@ -1050,7 +1050,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "events"
                 }).ConfigureAwait(false);
@@ -1066,7 +1066,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "widgets"
                 }).ConfigureAwait(false);
@@ -1084,7 +1084,7 @@ namespace Test.Shared.Suites.E2E
                 for (int i = 0; i < 5; i++)
                     await RestCreateFleetAsync(mcpClient, sessionId, "PageFleet" + i).ConfigureAwait(false);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "fleets",
                     pageSize = 2,
@@ -1105,7 +1105,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "fleets",
                     order = "CreatedAscending"
@@ -1119,7 +1119,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "fleet"
                 }).ConfigureAwait(false);
@@ -1135,7 +1135,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "merge_queue"
                 }).ConfigureAwait(false);
@@ -1149,7 +1149,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "create_fleet", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_create_fleet", new
                 {
                     name = "MCP Created Fleet",
                     description = "Created via MCP tool"
@@ -1166,7 +1166,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement createResult = await CallToolAsync(mcpClient, sessionId, "create_fleet", new
+                JsonElement createResult = await CallToolAsync(mcpClient, sessionId, "armada_create_fleet", new
                 {
                     name = "FleetVisibilityTest"
                 }).ConfigureAwait(false);
@@ -1174,7 +1174,7 @@ namespace Test.Shared.Suites.E2E
                 Fleet fleet = JsonHelper.Deserialize<Fleet>(createText);
                 string fleetId = fleet.Id;
 
-                JsonElement listResult = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement listResult = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "fleets",
                     pageSize = 50
@@ -1190,7 +1190,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "OriginalName").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "update_fleet", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_update_fleet", new
                 {
                     fleetId = fleetId,
                     name = "UpdatedName"
@@ -1206,7 +1206,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "update_fleet", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_update_fleet", new
                 {
                     fleetId = "flt_nonexistent",
                     name = "Whatever"
@@ -1223,7 +1223,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "DeleteMeFleet").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "delete_fleet", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_delete_fleet", new
                 {
                     fleetId = fleetId
                 }).ConfigureAwait(false);
@@ -1238,7 +1238,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "delete_fleet", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_delete_fleet", new
                 {
                     fleetId = "flt_nonexistent"
                 }).ConfigureAwait(false);
@@ -1255,7 +1255,7 @@ namespace Test.Shared.Suites.E2E
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "GetVesselFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "GetVesselTest").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "get_vessel", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_get_vessel", new
                 {
                     vesselId = vesselId
                 }).ConfigureAwait(false);
@@ -1271,7 +1271,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "get_vessel", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_get_vessel", new
                 {
                     vesselId = "vsl_nonexistent"
                 }).ConfigureAwait(false);
@@ -1288,7 +1288,7 @@ namespace Test.Shared.Suites.E2E
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "UpdateVesselFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "OriginalVessel").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "update_vessel", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_update_vessel", new
                 {
                     vesselId = vesselId,
                     name = "UpdatedVessel"
@@ -1304,7 +1304,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "update_vessel", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_update_vessel", new
                 {
                     vesselId = "vsl_nonexistent",
                     name = "Whatever"
@@ -1322,7 +1322,7 @@ namespace Test.Shared.Suites.E2E
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "DeleteVesselFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "DeleteMeVessel").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "delete_vessel", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_delete_vessel", new
                 {
                     vesselId = vesselId
                 }).ConfigureAwait(false);
@@ -1337,7 +1337,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "delete_vessel", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_delete_vessel", new
                 {
                     vesselId = "vsl_nonexistent"
                 }).ConfigureAwait(false);
@@ -1352,7 +1352,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "create_captain", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_create_captain", new
                 {
                     name = "mcp-created-captain"
                 }).ConfigureAwait(false);
@@ -1368,7 +1368,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "create_captain", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_create_captain", new
                 {
                     name = "runtime-captain",
                     runtime = "ClaudeCode"
@@ -1384,7 +1384,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement createResult = await CallToolAsync(mcpClient, sessionId, "create_captain", new
+                JsonElement createResult = await CallToolAsync(mcpClient, sessionId, "armada_create_captain", new
                 {
                     name = "visible-captain"
                 }).ConfigureAwait(false);
@@ -1392,7 +1392,7 @@ namespace Test.Shared.Suites.E2E
                 Captain captain = JsonHelper.Deserialize<Captain>(createText);
                 string captainId = captain.Id;
 
-                JsonElement listResult = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement listResult = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "captains",
                     pageSize = 50
@@ -1408,7 +1408,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string captainId = await RestCreateCaptainAsync(mcpClient, sessionId, "get-captain-test").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "get_captain", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_get_captain", new
                 {
                     captainId = captainId
                 }).ConfigureAwait(false);
@@ -1424,7 +1424,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "get_captain", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_get_captain", new
                 {
                     captainId = "cpt_nonexistent"
                 }).ConfigureAwait(false);
@@ -1440,7 +1440,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string captainId = await RestCreateCaptainAsync(mcpClient, sessionId, "original-captain").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "update_captain", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_update_captain", new
                 {
                     captainId = captainId,
                     name = "updated-captain"
@@ -1456,7 +1456,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "update_captain", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_update_captain", new
                 {
                     captainId = "cpt_nonexistent",
                     name = "whatever"
@@ -1473,7 +1473,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string captainId = await RestCreateCaptainAsync(mcpClient, sessionId, "delete-captain").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "delete_captain", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_delete_captain", new
                 {
                     captainId = captainId
                 }).ConfigureAwait(false);
@@ -1488,7 +1488,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "delete_captain", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_delete_captain", new
                 {
                     captainId = "cpt_nonexistent"
                 }).ConfigureAwait(false);
@@ -1504,7 +1504,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string captainId = await RestCreateCaptainAsync(mcpClient, sessionId, "log-captain").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "get_captain_log", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_get_captain_log", new
                 {
                     captainId = captainId
                 }).ConfigureAwait(false);
@@ -1520,7 +1520,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "get_captain_log", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_get_captain_log", new
                 {
                     captainId = "cpt_nonexistent"
                 }).ConfigureAwait(false);
@@ -1537,7 +1537,7 @@ namespace Test.Shared.Suites.E2E
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "CreateMissionFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "CreateMissionVessel").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "create_mission", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_create_mission", new
                 {
                     title = "MCP Created Mission",
                     description = "Created via MCP tool",
@@ -1557,7 +1557,7 @@ namespace Test.Shared.Suites.E2E
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "CreateMissionVisFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "CreateMissionVisVessel").ConfigureAwait(false);
-                JsonElement createResult = await CallToolAsync(mcpClient, sessionId, "create_mission", new
+                JsonElement createResult = await CallToolAsync(mcpClient, sessionId, "armada_create_mission", new
                 {
                     title = "VisibleMission",
                     description = "Should be visible",
@@ -1567,7 +1567,7 @@ namespace Test.Shared.Suites.E2E
                 MissionCreateResponse createResponse = JsonHelper.Deserialize<MissionCreateResponse>(createText);
                 string missionId = createResponse.Mission != null ? createResponse.Mission.Id : JsonHelper.Deserialize<Mission>(createText).Id;
 
-                JsonElement statusResult = await CallToolAsync(mcpClient, sessionId, "mission_status", new
+                JsonElement statusResult = await CallToolAsync(mcpClient, sessionId, "armada_mission_status", new
                 {
                     missionId = missionId
                 }).ConfigureAwait(false);
@@ -1582,7 +1582,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string missionId = await RestCreateMissionAsync(mcpClient, sessionId, "UpdateTitleMission").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "update_mission", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_update_mission", new
                 {
                     missionId = missionId,
                     title = "Updated Title"
@@ -1599,7 +1599,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string missionId = await RestCreateMissionAsync(mcpClient, sessionId, "UpdateMultiMission").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "update_mission", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_update_mission", new
                 {
                     missionId = missionId,
                     title = "Multi Update",
@@ -1623,7 +1623,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "update_mission", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_update_mission", new
                 {
                     missionId = "msn_nonexistent",
                     title = "Should Fail"
@@ -1640,7 +1640,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string missionId = await RestCreateMissionAsync(mcpClient, sessionId, "TransitionMission").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "transition_mission_status", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_transition_mission_status", new
                 {
                     missionId = missionId,
                     status = "Assigned"
@@ -1658,7 +1658,7 @@ namespace Test.Shared.Suites.E2E
 
                 string missionId = await RestCreateMissionAsync(mcpClient, sessionId, "InvalidTransMission").ConfigureAwait(false);
                 // Try transitioning to Pending which should be invalid from any state
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "transition_mission_status", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_transition_mission_status", new
                 {
                     missionId = missionId,
                     status = "Pending"
@@ -1675,7 +1675,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "transition_mission_status", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_transition_mission_status", new
                 {
                     missionId = "msn_nonexistent",
                     status = "Assigned"
@@ -1692,7 +1692,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string missionId = await RestCreateMissionAsync(mcpClient, sessionId, "BadStatusMission").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "transition_mission_status", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_transition_mission_status", new
                 {
                     missionId = missionId,
                     status = "BogusStatus"
@@ -1709,7 +1709,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string missionId = await RestCreateMissionAsync(mcpClient, sessionId, "TransVerifyMission").ConfigureAwait(false);
-                await CallToolAsync(mcpClient, sessionId, "transition_mission_status", new
+                await CallToolAsync(mcpClient, sessionId, "armada_transition_mission_status", new
                 {
                     missionId = missionId,
                     status = "Assigned"
@@ -1717,7 +1717,7 @@ namespace Test.Shared.Suites.E2E
 
                 // Verify via MCP tool instead of REST (different ports)
                 // Mission may auto-advance to InProgress or beyond if a captain picks it up
-                JsonElement getResult = await CallToolAsync(mcpClient, sessionId, "mission_status", new { missionId = missionId }).ConfigureAwait(false);
+                JsonElement getResult = await CallToolAsync(mcpClient, sessionId, "armada_mission_status", new { missionId = missionId }).ConfigureAwait(false);
                 string getBody = GetToolResultText(getResult);
                 Mission mission = JsonHelper.Deserialize<Mission>(getBody);
                 string status = mission.Status.ToString();
@@ -1732,7 +1732,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string missionId = await RestCreateMissionAsync(mcpClient, sessionId, "DiffMission").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "get_mission_diff", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_get_mission_diff", new
                 {
                     missionId = missionId
                 }).ConfigureAwait(false);
@@ -1748,7 +1748,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "get_mission_diff", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_get_mission_diff", new
                 {
                     missionId = "msn_nonexistent"
                 }).ConfigureAwait(false);
@@ -1766,7 +1766,7 @@ namespace Test.Shared.Suites.E2E
                 string missionId = await RestCreateMissionAsync(mcpClient, sessionId, "LogMission").ConfigureAwait(false);
                 JsonElement rawResult = await SendRawMcpRequestAsync(mcpClient, sessionId, "tools/call", new
                 {
-                    name = "get_mission_log",
+                    name = "armada_get_mission_log",
                     arguments = new { missionId = missionId }
                 }).ConfigureAwait(false);
 
@@ -1793,7 +1793,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "get_mission_log", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_get_mission_log", new
                 {
                     missionId = "msn_nonexistent"
                 }).ConfigureAwait(false);
@@ -1812,7 +1812,7 @@ namespace Test.Shared.Suites.E2E
 
                 JsonElement rawResult = await SendRawMcpRequestAsync(mcpClient, sessionId, "tools/call", new
                 {
-                    name = "get_mission_log",
+                    name = "armada_get_mission_log",
                     arguments = new { missionId = missionId, lines = 10, offset = 5 }
                 }).ConfigureAwait(false);
 
@@ -1840,10 +1840,10 @@ namespace Test.Shared.Suites.E2E
                 string voyageId = await RestCreateVoyageAsync(mcpClient, sessionId, vesselId).ConfigureAwait(false);
 
                 // Cancel the voyage first — purge is blocked on Open/InProgress voyages
-                await CallToolAsync(mcpClient, sessionId, "cancel_voyage", new { voyageId = voyageId }).ConfigureAwait(false);
+                await CallToolAsync(mcpClient, sessionId, "armada_cancel_voyage", new { voyageId = voyageId }).ConfigureAwait(false);
 
                 // Also cancel any InProgress missions individually (cancel_voyage only cancels Pending/Assigned)
-                JsonElement statusResult = await CallToolAsync(mcpClient, sessionId, "voyage_status", new
+                JsonElement statusResult = await CallToolAsync(mcpClient, sessionId, "armada_voyage_status", new
                 {
                     voyageId = voyageId,
                     summary = false,
@@ -1858,12 +1858,12 @@ namespace Test.Shared.Suites.E2E
                         if (m.Status == Armada.Core.Enums.MissionStatusEnum.InProgress ||
                             m.Status == Armada.Core.Enums.MissionStatusEnum.Assigned)
                         {
-                            await CallToolAsync(mcpClient, sessionId, "cancel_mission", new { missionId = m.Id }).ConfigureAwait(false);
+                            await CallToolAsync(mcpClient, sessionId, "armada_cancel_mission", new { missionId = m.Id }).ConfigureAwait(false);
                         }
                     }
                 }
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "purge_voyage", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_purge_voyage", new
                 {
                     voyageId = voyageId
                 }).ConfigureAwait(false);
@@ -1883,7 +1883,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "purge_voyage", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_purge_voyage", new
                 {
                     voyageId = "vyg_nonexistent"
                 }).ConfigureAwait(false);
@@ -1898,7 +1898,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "get_merge_entry", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_get_merge_entry", new
                 {
                     entryId = "mrg_nonexistent"
                 }).ConfigureAwait(false);
@@ -1915,7 +1915,7 @@ namespace Test.Shared.Suites.E2E
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "MergeQueueFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "MergeQueueVessel").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enqueue_merge", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enqueue_merge", new
                 {
                     vesselId = vesselId,
                     branchName = "feature/test-merge"
@@ -1934,7 +1934,7 @@ namespace Test.Shared.Suites.E2E
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "MergeVisFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "MergeVisVessel").ConfigureAwait(false);
-                JsonElement enqResult = await CallToolAsync(mcpClient, sessionId, "enqueue_merge", new
+                JsonElement enqResult = await CallToolAsync(mcpClient, sessionId, "armada_enqueue_merge", new
                 {
                     vesselId = vesselId,
                     branchName = "feature/visible-merge"
@@ -1943,7 +1943,7 @@ namespace Test.Shared.Suites.E2E
                 MergeEntry entry = JsonHelper.Deserialize<MergeEntry>(enqText);
                 string entryId = entry.Id;
 
-                JsonElement listResult = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement listResult = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "merge_queue",
                     vesselId = vesselId
@@ -1960,7 +1960,7 @@ namespace Test.Shared.Suites.E2E
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "MergeGetFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "MergeGetVessel").ConfigureAwait(false);
-                JsonElement enqResult = await CallToolAsync(mcpClient, sessionId, "enqueue_merge", new
+                JsonElement enqResult = await CallToolAsync(mcpClient, sessionId, "armada_enqueue_merge", new
                 {
                     vesselId = vesselId,
                     branchName = "feature/get-merge"
@@ -1969,7 +1969,7 @@ namespace Test.Shared.Suites.E2E
                 MergeEntry entry = JsonHelper.Deserialize<MergeEntry>(enqText);
                 string entryId = entry.Id;
 
-                JsonElement getResult = await CallToolAsync(mcpClient, sessionId, "get_merge_entry", new
+                JsonElement getResult = await CallToolAsync(mcpClient, sessionId, "armada_get_merge_entry", new
                 {
                     entryId = entryId
                 }).ConfigureAwait(false);
@@ -1987,7 +1987,7 @@ namespace Test.Shared.Suites.E2E
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "MergeCancelFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "MergeCancelVessel").ConfigureAwait(false);
-                JsonElement enqResult = await CallToolAsync(mcpClient, sessionId, "enqueue_merge", new
+                JsonElement enqResult = await CallToolAsync(mcpClient, sessionId, "armada_enqueue_merge", new
                 {
                     vesselId = vesselId,
                     branchName = "feature/cancel-merge"
@@ -1996,7 +1996,7 @@ namespace Test.Shared.Suites.E2E
                 MergeEntry entry = JsonHelper.Deserialize<MergeEntry>(enqText);
                 string entryId = entry.Id;
 
-                JsonElement cancelResult = await CallToolAsync(mcpClient, sessionId, "cancel_merge", new
+                JsonElement cancelResult = await CallToolAsync(mcpClient, sessionId, "armada_cancel_merge", new
                 {
                     entryId = entryId
                 }).ConfigureAwait(false);
@@ -2011,9 +2011,9 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "process_merge_queue", new { }).ConfigureAwait(false);
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_process_merge_queue", new { }).ConfigureAwait(false);
                 AssertToolResultValid(result);
-                string text = GetToolResultText(result);
+                string text = await AwaitJobResultTextAsync(mcpClient, sessionId, GetToolResultText(result)).ConfigureAwait(false);
                 AssertContains("processed", text);
             }));
 
@@ -2054,7 +2054,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "CrossFleet").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "fleets",
                     pageSize = 50
@@ -2070,7 +2070,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "CrossGetFleet").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "get_fleet", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_get_fleet", new
                 {
                     fleetId = fleetId
                 }).ConfigureAwait(false);
@@ -2086,7 +2086,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string captainId = await RestCreateCaptainAsync(mcpClient, sessionId, "cross-captain").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "captains",
                     pageSize = 50
@@ -2103,7 +2103,7 @@ namespace Test.Shared.Suites.E2E
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "CrossDispatchFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "CrossDispatchVessel").ConfigureAwait(false);
-                JsonElement dispatchResult = await CallToolAsync(mcpClient, sessionId, "dispatch", new
+                JsonElement dispatchResult = await CallToolAsync(mcpClient, sessionId, "armada_dispatch", new
                 {
                     title = "Cross Dispatch Voyage",
                     vesselId = vesselId,
@@ -2113,12 +2113,12 @@ namespace Test.Shared.Suites.E2E
                     }
                 }).ConfigureAwait(false);
                 AssertToolResultValid(dispatchResult);
-                string dispatchText = GetToolResultText(dispatchResult);
+                string dispatchText = await AwaitJobResultTextAsync(mcpClient, sessionId, GetToolResultText(dispatchResult)).ConfigureAwait(false);
                 Voyage voyage = JsonHelper.Deserialize<Voyage>(dispatchText);
                 string voyageId = voyage.Id;
 
                 // Verify via MCP tool instead of REST (different ports)
-                JsonElement getResult = await CallToolAsync(mcpClient, sessionId, "voyage_status", new { voyageId = voyageId }).ConfigureAwait(false);
+                JsonElement getResult = await CallToolAsync(mcpClient, sessionId, "armada_voyage_status", new { voyageId = voyageId }).ConfigureAwait(false);
                 string getBody = GetToolResultText(getResult);
                 VoyageDetailResponse voyageData = JsonHelper.Deserialize<VoyageDetailResponse>(getBody);
                 AssertEqual(voyageId, voyageData.Voyage!.Id);
@@ -2132,7 +2132,7 @@ namespace Test.Shared.Suites.E2E
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "CrossAddVesselFleet").ConfigureAwait(false);
                 string vesselName = "Cross-Added-Vessel-" + Guid.NewGuid().ToString("N").Substring(0, 8);
-                JsonElement addResult = await CallToolAsync(mcpClient, sessionId, "add_vessel", new
+                JsonElement addResult = await CallToolAsync(mcpClient, sessionId, "armada_add_vessel", new
                 {
                     name = vesselName,
                     repoUrl = TestRepoHelper.GetLocalBareRepoUrl(),
@@ -2142,7 +2142,7 @@ namespace Test.Shared.Suites.E2E
                 Vessel addedVessel = JsonHelper.Deserialize<Vessel>(addText);
                 string vesselId = addedVessel.Id;
 
-                JsonElement getResult = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement getResult = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "vessels",
                     fleetId = fleetId
@@ -2158,13 +2158,13 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string missionId = await RestCreateMissionAsync(mcpClient, sessionId, "CrossCancelMission").ConfigureAwait(false);
-                await CallToolAsync(mcpClient, sessionId, "cancel_mission", new
+                await CallToolAsync(mcpClient, sessionId, "armada_cancel_mission", new
                 {
                     missionId = missionId
                 }).ConfigureAwait(false);
 
                 // Verify via MCP tool instead of REST (different ports)
-                JsonElement getResult = await CallToolAsync(mcpClient, sessionId, "mission_status", new { missionId = missionId }).ConfigureAwait(false);
+                JsonElement getResult = await CallToolAsync(mcpClient, sessionId, "armada_mission_status", new { missionId = missionId }).ConfigureAwait(false);
                 string getBody = GetToolResultText(getResult);
                 Mission mission = JsonHelper.Deserialize<Mission>(getBody);
                 AssertEqual("Cancelled", mission.Status.ToString());
@@ -2177,13 +2177,13 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 string captainId = await RestCreateCaptainAsync(mcpClient, sessionId, "cross-signal-captain").ConfigureAwait(false);
-                await CallToolAsync(mcpClient, sessionId, "send_signal", new
+                await CallToolAsync(mcpClient, sessionId, "armada_send_signal", new
                 {
                     captainId = captainId,
                     message = "Cross-interface signal"
                 }).ConfigureAwait(false);
 
-                JsonElement listResult = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement listResult = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "signals",
                     includeMessage = true,
@@ -2199,7 +2199,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "status", new { }).ConfigureAwait(false);
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_status", new { }).ConfigureAwait(false);
                 AssertToolResultValid(result);
             }));
 
@@ -2212,7 +2212,7 @@ namespace Test.Shared.Suites.E2E
                 using CancellationTokenSource cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
                 try
                 {
-                    JsonElement result = await CallToolAsync(mcpClient, sessionId, "stop_all", new { }).ConfigureAwait(false);
+                    JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_stop_all", new { }).ConfigureAwait(false);
                     AssertToolResultValid(result);
                 }
                 catch (TaskCanceledException)
@@ -2231,7 +2231,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enumerate", new { entityType = "fleets" }).ConfigureAwait(false);
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new { entityType = "fleets" }).ConfigureAwait(false);
                 AssertToolResultValid(result);
             }));
 
@@ -2242,7 +2242,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 await RestCreateMissionAsync(mcpClient, sessionId, "EnumFlagsMission").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "missions"
                 }).ConfigureAwait(false);
@@ -2260,7 +2260,7 @@ namespace Test.Shared.Suites.E2E
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
                 await RestCreateMissionAsync(mcpClient, sessionId, "EnumDescMission").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "missions",
                     includeDescription = true
@@ -2278,7 +2278,7 @@ namespace Test.Shared.Suites.E2E
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "EnumCtxFleet").ConfigureAwait(false);
                 await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "EnumCtxVessel").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "vessels",
                     includeContext = true
@@ -2298,7 +2298,7 @@ namespace Test.Shared.Suites.E2E
 
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "EnumNoCtxFleet").ConfigureAwait(false);
                 await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "EnumNoCtxVessel").ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "vessels"
                 }).ConfigureAwait(false);
@@ -2314,7 +2314,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "enumerate", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_enumerate", new
                 {
                     entityType = "fleets"
                 }).ConfigureAwait(false);
@@ -2333,7 +2333,7 @@ namespace Test.Shared.Suites.E2E
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "VoySumFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "VoySumVessel").ConfigureAwait(false);
                 string voyageId = await RestCreateVoyageAsync(mcpClient, sessionId, vesselId).ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "voyage_status", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_voyage_status", new
                 {
                     voyageId = voyageId
                 }).ConfigureAwait(false);
@@ -2353,7 +2353,7 @@ namespace Test.Shared.Suites.E2E
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "VoyNonSumFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "VoyNonSumVessel").ConfigureAwait(false);
                 string voyageId = await RestCreateVoyageAsync(mcpClient, sessionId, vesselId).ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "voyage_status", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_voyage_status", new
                 {
                     voyageId = voyageId,
                     summary = false,
@@ -2376,7 +2376,7 @@ namespace Test.Shared.Suites.E2E
                 string fleetId = await RestCreateFleetAsync(mcpClient, sessionId, "VoyDescFleet").ConfigureAwait(false);
                 string vesselId = await RestCreateVesselAsync(mcpClient, sessionId, fleetId, "VoyDescVessel").ConfigureAwait(false);
                 string voyageId = await RestCreateVoyageAsync(mcpClient, sessionId, vesselId).ConfigureAwait(false);
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "voyage_status", new
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_voyage_status", new
                 {
                     voyageId = voyageId,
                     summary = false,
@@ -2398,8 +2398,9 @@ namespace Test.Shared.Suites.E2E
                 HttpClient mcpClient = fx.McpClient;
                 string sessionId = await InitMcpSessionAsync(mcpClient);
 
-                JsonElement result = await CallToolAsync(mcpClient, sessionId, "process_merge_queue", new { }).ConfigureAwait(false);
+                JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_process_merge_queue", new { }).ConfigureAwait(false);
                 AssertToolResultValid(result);
+                await AwaitJobResultTextAsync(mcpClient, sessionId, GetToolResultText(result)).ConfigureAwait(false);
             }));
 
             return new TestSuiteDescriptor(
@@ -2445,6 +2446,31 @@ namespace Test.Shared.Suites.E2E
         /// <returns>The result element of the response.</returns>
         private static async Task<JsonElement> SendMcpRequestAsync(HttpClient mcpClient, string sessionId, string method, object parameters)
         {
+            JsonElement result = await SendSingleMcpRequestAsync(mcpClient, sessionId, method, parameters).ConfigureAwait(false);
+            if (!String.Equals(method, "tools/list", StringComparison.Ordinal)
+                || !result.TryGetProperty("nextCursor", out JsonElement cursorElement))
+            {
+                return result;
+            }
+
+            // The tool catalog is paginated; follow every cursor so a tool on a later page is visible.
+            List<JsonElement> tools = result.GetProperty("tools").EnumerateArray().Select(tool => tool.Clone()).ToList();
+            string? cursor = cursorElement.GetString();
+            while (!String.IsNullOrWhiteSpace(cursor))
+            {
+                JsonElement page = await SendSingleMcpRequestAsync(mcpClient, sessionId, "tools/list", new { cursor }).ConfigureAwait(false);
+                tools.AddRange(page.GetProperty("tools").EnumerateArray().Select(tool => tool.Clone()));
+                cursor = page.TryGetProperty("nextCursor", out JsonElement nextCursor) ? nextCursor.GetString() : null;
+            }
+
+            return JsonSerializer.SerializeToElement(new { tools });
+        }
+
+        /// <summary>
+        /// Send one MCP JSON-RPC request and return the <c>result</c> payload, throwing on error.
+        /// </summary>
+        private static async Task<JsonElement> SendSingleMcpRequestAsync(HttpClient mcpClient, string sessionId, string method, object parameters)
+        {
             object request = new
             {
                 jsonrpc = "2.0",
@@ -2455,17 +2481,19 @@ namespace Test.Shared.Suites.E2E
 
             StringContent content = JsonHelper.ToJsonContent(request);
 
-            HttpRequestMessage httpRequest = new HttpRequestMessage(HttpMethod.Post, "/rpc");
+            HttpRequestMessage httpRequest = new HttpRequestMessage(HttpMethod.Post, "/mcp");
             httpRequest.Content = content;
             httpRequest.Headers.Add("X-Session-Id", sessionId);
+            httpRequest.Headers.Add("Accept", "application/json, text/event-stream");
 
             HttpResponseMessage response = await mcpClient.SendAsync(httpRequest).ConfigureAwait(false);
             string responseBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
 
             Assert(response.IsSuccessStatusCode,
-                "MCP request to /rpc failed with " + response.StatusCode + ": " + responseBody);
+                "MCP request to /mcp failed with " + response.StatusCode + ": " + responseBody);
 
-            JsonElement responseJson = JsonSerializer.Deserialize<JsonElement>(responseBody);
+            JsonElement responseJson = JsonSerializer.Deserialize<JsonElement>(
+                ExtractJsonRpcResponse(responseBody, response.Content.Headers.ContentType?.MediaType));
 
             if (responseJson.TryGetProperty("error", out JsonElement error))
             {
@@ -2512,13 +2540,36 @@ namespace Test.Shared.Suites.E2E
 
             StringContent content = JsonHelper.ToJsonContent(request);
 
-            HttpRequestMessage httpRequest = new HttpRequestMessage(HttpMethod.Post, "/rpc");
+            HttpRequestMessage httpRequest = new HttpRequestMessage(HttpMethod.Post, "/mcp");
             httpRequest.Content = content;
             httpRequest.Headers.Add("X-Session-Id", sessionId);
+            httpRequest.Headers.Add("Accept", "application/json, text/event-stream");
 
             HttpResponseMessage response = await mcpClient.SendAsync(httpRequest).ConfigureAwait(false);
             string responseBody = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-            return JsonSerializer.Deserialize<JsonElement>(responseBody);
+            return JsonSerializer.Deserialize<JsonElement>(
+                ExtractJsonRpcResponse(responseBody, response.Content.Headers.ContentType?.MediaType));
+        }
+
+        /// <summary>
+        /// Return the JSON-RPC payload of an MCP response, reading the first SSE data event when the
+        /// Streamable HTTP endpoint answers with an event stream.
+        /// </summary>
+        /// <param name="body">Raw response body.</param>
+        /// <param name="mediaType">Response media type.</param>
+        /// <returns>The JSON-RPC response text.</returns>
+        private static string ExtractJsonRpcResponse(string body, string? mediaType)
+        {
+            if (!String.Equals(mediaType, "text/event-stream", StringComparison.OrdinalIgnoreCase))
+                return body;
+
+            foreach (string line in body.Split('\n'))
+            {
+                if (line.StartsWith("data:", StringComparison.Ordinal))
+                    return line.Substring(5).Trim();
+            }
+
+            throw new InvalidDataException("MCP SSE response did not contain a data event.");
         }
 
         /// <summary>
@@ -2553,7 +2604,7 @@ namespace Test.Shared.Suites.E2E
         private static async Task<string> RestCreateFleetAsync(HttpClient mcpClient, string sessionId, string name = "McpTestFleet")
         {
             string uniqueName = name + "-" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            JsonElement result = await CallToolAsync(mcpClient, sessionId, "create_fleet", new { name = uniqueName }).ConfigureAwait(false);
+            JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_create_fleet", new { name = uniqueName }).ConfigureAwait(false);
             string text = GetToolResultText(result);
             Fleet fleet = JsonHelper.Deserialize<Fleet>(text);
             return fleet.Id;
@@ -2571,7 +2622,7 @@ namespace Test.Shared.Suites.E2E
         private static async Task<string> RestCreateVesselAsync(HttpClient mcpClient, string sessionId, string fleetId, string name = "McpTestVessel", string? workingDirectory = null)
         {
             string uniqueName = name + "-" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            JsonElement result = await CallToolAsync(mcpClient, sessionId, "add_vessel", new
+            JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_add_vessel", new
             {
                 name = uniqueName,
                 repoUrl = TestRepoHelper.GetLocalBareRepoUrl(),
@@ -2593,7 +2644,7 @@ namespace Test.Shared.Suites.E2E
         private static async Task<string> RestCreateCaptainAsync(HttpClient mcpClient, string sessionId, string name = "mcp-test-captain")
         {
             string uniqueName = name + "-" + Guid.NewGuid().ToString("N").Substring(0, 8);
-            JsonElement result = await CallToolAsync(mcpClient, sessionId, "create_captain", new
+            JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_create_captain", new
             {
                 name = uniqueName,
                 runtime = "ClaudeCode"
@@ -2643,7 +2694,7 @@ namespace Test.Shared.Suites.E2E
                 vesselId = await EnsureMissionVesselAsync(mcpClient, sessionId).ConfigureAwait(false);
             }
 
-            JsonElement result = await CallToolAsync(mcpClient, sessionId, "create_mission", new
+            JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_create_mission", new
             {
                 title = title,
                 description = "Test mission for MCP",
@@ -2670,7 +2721,7 @@ namespace Test.Shared.Suites.E2E
         /// <returns>The created voyage id.</returns>
         private static async Task<string> RestCreateVoyageAsync(HttpClient mcpClient, string sessionId, string vesselId)
         {
-            JsonElement result = await CallToolAsync(mcpClient, sessionId, "dispatch", new
+            JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_dispatch", new
             {
                 title = "McpTestVoyage-" + Guid.NewGuid().ToString("N").Substring(0, 8),
                 description = "Voyage for MCP testing",
@@ -2680,9 +2731,56 @@ namespace Test.Shared.Suites.E2E
                     new { title = "VoyageMission1", description = "Desc1" }
                 }
             }).ConfigureAwait(false);
-            string text = GetToolResultText(result);
+            string text = await AwaitJobResultTextAsync(mcpClient, sessionId, GetToolResultText(result)).ConfigureAwait(false);
             Voyage voyage = JsonHelper.Deserialize<Voyage>(text);
             return voyage.Id;
+        }
+
+        /// <summary>
+        /// Resolve a long-running tool result. Tools such as armada_dispatch and armada_process_merge_queue
+        /// validate synchronously and return an accepted job handle ({ JobId, Operation, Status: "Accepted" });
+        /// the real payload exists only once the job finishes. Poll armada_job_status and return the completed
+        /// job's Result JSON. A synchronous tool result is returned unchanged.
+        /// </summary>
+        /// <param name="mcpClient">HTTP client targeting the MCP port.</param>
+        /// <param name="sessionId">MCP session id.</param>
+        /// <param name="toolResultText">Text payload of the tool result.</param>
+        /// <returns>Result JSON of the completed job, or the original text.</returns>
+        private static async Task<string> AwaitJobResultTextAsync(HttpClient mcpClient, string sessionId, string toolResultText)
+        {
+            JsonElement handle = JsonSerializer.Deserialize<JsonElement>(toolResultText);
+            if (handle.ValueKind != JsonValueKind.Object
+                || !handle.TryGetProperty("JobId", out JsonElement jobIdElement)
+                || jobIdElement.ValueKind != JsonValueKind.String)
+            {
+                return toolResultText;
+            }
+
+            string jobId = jobIdElement.GetString()!;
+            string statusText = toolResultText;
+            for (int attempt = 0; attempt < 240; attempt++)
+            {
+                JsonElement statusResult = await CallToolAsync(mcpClient, sessionId, "armada_job_status", new { jobId = jobId }).ConfigureAwait(false);
+                statusText = GetToolResultText(statusResult);
+                JsonElement status = JsonSerializer.Deserialize<JsonElement>(statusText);
+                string state = status.TryGetProperty("Status", out JsonElement stateElement) ? (stateElement.GetString() ?? "") : "";
+                if (!String.Equals(state, "Accepted", StringComparison.OrdinalIgnoreCase)
+                    && !String.Equals(state, "Running", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (status.TryGetProperty("Result", out JsonElement resultElement)
+                        && resultElement.ValueKind != JsonValueKind.Null
+                        && resultElement.ValueKind != JsonValueKind.Undefined)
+                    {
+                        return resultElement.GetRawText();
+                    }
+
+                    return statusText;
+                }
+
+                await Task.Delay(250).ConfigureAwait(false);
+            }
+
+            throw new TimeoutException("MCP job " + jobId + " did not finish; last status: " + statusText);
         }
 
         private static TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)

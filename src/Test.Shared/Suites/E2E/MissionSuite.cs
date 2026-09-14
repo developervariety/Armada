@@ -2371,13 +2371,24 @@ namespace Test.Shared.Suites.E2E
             AssertTrue(stored.CompletedUtc == null, "refused completion does not stamp CompletedUtc");
         }
 
-        private static TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)
+        private TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)
         {
             return new TestCaseDescriptor(
                 suiteId: "E2E.Mission",
                 caseId: caseId,
                 displayName: displayName,
-                executeAsync: (CancellationToken ct) => body(),
+                executeAsync: async (CancellationToken ct) =>
+                {
+                    // Cancel the case's active work so accumulated rows never exhaust fleet capacity for later cases.
+                    try
+                    {
+                        await body().ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        await E2EServerFixture.CancelActiveWorkAsync(this).ConfigureAwait(false);
+                    }
+                },
                 tags: new List<string> { tag });
         }
 

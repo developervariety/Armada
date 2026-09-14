@@ -45,7 +45,7 @@ namespace Test.Shared.Suites.E2E
 
                 try
                 {
-                    using ClientWebSocket ws = await ConnectAsync(restPort).ConfigureAwait(false);
+                    using ClientWebSocket ws = await ConnectAsync(fx).ConfigureAwait(false);
                     await SubscribeAsync(ws).ConfigureAwait(false);
 
                     string fleetId = await CreateFleetAsync(authClient, createdFleetIds).ConfigureAwait(false);
@@ -87,7 +87,7 @@ namespace Test.Shared.Suites.E2E
 
                 try
                 {
-                    using ClientWebSocket ws = await ConnectAsync(restPort).ConfigureAwait(false);
+                    using ClientWebSocket ws = await ConnectAsync(fx).ConfigureAwait(false);
                     await SubscribeAsync(ws).ConfigureAwait(false);
 
                     string fleetId = await CreateFleetAsync(authClient, createdFleetIds).ConfigureAwait(false);
@@ -203,10 +203,13 @@ namespace Test.Shared.Suites.E2E
 
         #region Private-Methods
 
-        private static async Task<ClientWebSocket> ConnectAsync(int restPort)
+        private static async Task<ClientWebSocket> ConnectAsync(E2EServerFixture fx)
         {
             ClientWebSocket ws = new ClientWebSocket();
-            await ws.ConnectAsync(new Uri("ws://127.0.0.1:" + restPort + "/ws"), CancellationToken.None).ConfigureAwait(false);
+            await ws.ConnectAsync(new Uri("ws://127.0.0.1:" + fx.RestPort + "/ws"), CancellationToken.None).ConfigureAwait(false);
+            byte[] bytes = Encoding.UTF8.GetBytes(JsonHelper.Serialize(new { Route = "authenticate", apiKey = fx.ApiKey }));
+            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+            await WaitForEventAsync(ws, root => root.GetProperty("type").GetString() == "auth.result").ConfigureAwait(false);
             return ws;
         }
 

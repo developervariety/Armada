@@ -9,6 +9,7 @@ namespace Test.Shared.Infrastructure
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
+    using Armada.Core.Models;
     using Armada.Core.Settings;
     using Armada.Runtimes;
     using Armada.Server;
@@ -213,6 +214,72 @@ namespace Test.Shared.Infrastructure
             Shutdown();
         }
 
+        /// <summary>
+        /// Cancel every active voyage and mission on the isolated server owned by <paramref name="suiteKey"/>.
+        /// Fleet capacity admission counts each active voyage and each active standalone mission as a work
+        /// unit, so a CRUD suite that leaves its work active exhausts capacity and later creates return 409.
+        /// Suites that create missions or voyages call this after each case, as the legacy runner does.
+        /// Every refused cancellation is reported, never swallowed.
+        /// </summary>
+        /// <param name="suiteKey">The suite instance that acquired its isolated server.</param>
+        /// <returns>Task.</returns>
+        public static async Task CancelActiveWorkAsync(object suiteKey)
+        {
+            if (suiteKey == null) throw new ArgumentNullException(nameof(suiteKey));
+            E2EServerFixture? current = _Current;
+            if (current == null || !ReferenceEquals(_CurrentKey, suiteKey)) return;
+
+            List<string> refused = new List<string>();
+
+            foreach (Voyage voyage in await EnumerateAllAsync<Voyage>(current.AuthClient, "/api/v1/voyages/enumerate").ConfigureAwait(false))
+            {
+                if (voyage.Status != VoyageStatusEnum.Open && voyage.Status != VoyageStatusEnum.InProgress) continue;
+                HttpResponseMessage response = await current.AuthClient.DeleteAsync("/api/v1/voyages/" + voyage.Id).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode && response.StatusCode != HttpStatusCode.NotFound)
+                    refused.Add(voyage.Id + " (" + (int)response.StatusCode + ")");
+            }
+
+            foreach (Mission mission in await EnumerateAllAsync<Mission>(current.AuthClient, "/api/v1/missions/enumerate").ConfigureAwait(false))
+            {
+                if (!IsActiveMissionStatus(mission.Status)) continue;
+                HttpResponseMessage response = await current.AuthClient.DeleteAsync("/api/v1/missions/" + mission.Id).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode && response.StatusCode != HttpStatusCode.NotFound)
+                    refused.Add(mission.Id + " (" + (int)response.StatusCode + ")");
+            }
+
+            if (refused.Count > 0)
+                throw new InvalidOperationException("Case cleanup could not cancel active work: " + String.Join(", ", refused));
+        }
+
+        private static async Task<List<T>> EnumerateAllAsync<T>(HttpClient client, string route)
+        {
+            List<T> all = new List<T>();
+            const int pageSize = 1000;
+            for (int page = 1; ; page++)
+            {
+                HttpResponseMessage response = await client.PostAsync(route,
+                    JsonHelper.ToJsonContent(new { PageNumber = page, PageSize = pageSize })).ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                    throw new InvalidOperationException("Case cleanup could not enumerate " + route + ": " + (int)response.StatusCode);
+                EnumerationResult<T> result = await JsonHelper.DeserializeAsync<EnumerationResult<T>>(response).ConfigureAwait(false);
+                List<T> objects = result.Objects ?? new List<T>();
+                all.AddRange(objects);
+                if (objects.Count < pageSize) return all;
+            }
+        }
+
+        private static bool IsActiveMissionStatus(MissionStatusEnum status)
+        {
+            return status == MissionStatusEnum.Pending
+                || status == MissionStatusEnum.Assigned
+                || status == MissionStatusEnum.InProgress
+                || status == MissionStatusEnum.WorkProduced
+                || status == MissionStatusEnum.PullRequestOpen
+                || status == MissionStatusEnum.Testing
+                || status == MissionStatusEnum.Review
+                || status == MissionStatusEnum.WaitingForInput;
+        }
+
         private async Task StartAsync(Action<ArmadaSettings>? configure = null)
         {
             // Upstream lowers BaseAgentRuntime.GracefulStopTimeoutMs here so a stop-all does not wait
@@ -246,6 +313,13 @@ namespace Test.Shared.Infrastructure
             settings.McpPort = McpPort;
             settings.ApiKey = ApiKey;
             settings.HeartbeatIntervalSeconds = 300;
+            // CRUD and paging suites retain a bounded corpus of active rows until suite cleanup, so the
+            // production fleet capacity limits (one active work unit) would refuse their second mission
+            // with 409. Dedicated admission suites exercise those limits separately. Matches the legacy
+            // automated harness.
+            settings.AutonomousObjectiveScheduler.Enabled = false;
+            settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages = 100;
+            settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel = 50;
             // Bind the REST and MCP listeners to IPv4 loopback explicitly. The default "localhost"
             // makes clients resolve ::1 (IPv6) first on Windows, stalling every connection before it
             // falls back to 127.0.0.1 -- which massively inflates E2E time and pushes cases toward the

@@ -311,6 +311,10 @@ namespace Armada.Server.Routes
                 updated.UserId = existing.UserId;
                 updated.CreatedUtc = existing.CreatedUtc;
                 updated.AutoLandCalibrationLandedCount = existing.AutoLandCalibrationLandedCount;
+                // The token override is write-only, so a client can never echo it back. An update that
+                // omits it keeps the stored credential; only an explicit value (empty clears) replaces it.
+                if (!updated.GitHubTokenOverrideSpecified)
+                    updated.GitHubTokenOverride = existing.GitHubTokenOverride;
                 updated = await _database.Vessels.UpdateAsync(updated).ConfigureAwait(false);
                 return (object)updated;
             },

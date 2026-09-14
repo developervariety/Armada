@@ -614,6 +614,15 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   dialog stating source, target, strategy or remote, and busy and refusal
   states.
 
+### Shared test runner
+
+- `src/Test.Automated` is in `src/Armada.sln`, so the solution build compiles the shared suite runner on every change.
+- Shared end-to-end suites start their server with the same scheduler and capacity settings as the automated runner, and the mission and voyage suites cancel each case's active work afterwards, so fleet capacity admission no longer refuses later creates with 409.
+- Shared MCP cases call the Streamable HTTP endpoint with the event-stream accept header, use the served tool names, follow `tools/list` pagination, and wait for asynchronous dispatch and merge-queue jobs.
+- Shared WebSocket cases authenticate each session before subscribing or sending a command.
+- A REST vessel update that omits `gitHubTokenOverride` keeps the stored override; only an explicit value replaces or clears it.
+- Request-history summary buckets sit on the epoch grid for every bucket width, through the same rule token-usage summaries use, so a two-hour bucket no longer splits into hourly buckets.
+
 ### API collection and client route contracts
 
 - The Postman collection now covers every served Admiral `/api/` route and every

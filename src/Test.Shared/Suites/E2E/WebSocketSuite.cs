@@ -40,7 +40,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                using ClientWebSocket ws = await ConnectAsync(restPort).ConfigureAwait(false);
+                using ClientWebSocket ws = await ConnectAsync(fx).ConfigureAwait(false);
 
                 string msg = JsonHelper.Serialize(new { Route = "subscribe" });
                 byte[] bytes = Encoding.UTF8.GetBytes(msg);
@@ -64,7 +64,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient authClient = fx.AuthClient;
                 int restPort = fx.RestPort;
 
-                using ClientWebSocket ws = await ConnectAsync(restPort).ConfigureAwait(false);
+                using ClientWebSocket ws = await ConnectAsync(fx).ConfigureAwait(false);
                 await SubscribeAsync(ws).ConfigureAwait(false);
 
                 string vesselId = await CreateVesselViaRestAsync(authClient, "ws-checkrun-broadcast").ConfigureAwait(false);
@@ -99,7 +99,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient authClient = fx.AuthClient;
                 int restPort = fx.RestPort;
 
-                using ClientWebSocket ws = await ConnectAsync(restPort).ConfigureAwait(false);
+                using ClientWebSocket ws = await ConnectAsync(fx).ConfigureAwait(false);
                 await SubscribeAsync(ws).ConfigureAwait(false);
 
                 string missionId = await CreateMissionViaRestAsync(authClient, "ws-approval-needed").ConfigureAwait(false);
@@ -141,7 +141,7 @@ namespace Test.Shared.Suites.E2E
 
                 try
                 {
-                    using ClientWebSocket ws = await ConnectAsync(restPort).ConfigureAwait(false);
+                    using ClientWebSocket ws = await ConnectAsync(fx).ConfigureAwait(false);
                     await SubscribeAsync(ws).ConfigureAwait(false);
 
                     HttpResponseMessage createResponse = await authClient.PostAsync(
@@ -184,7 +184,7 @@ namespace Test.Shared.Suites.E2E
 
                 try
                 {
-                    using ClientWebSocket ws = await ConnectAsync(restPort).ConfigureAwait(false);
+                    using ClientWebSocket ws = await ConnectAsync(fx).ConfigureAwait(false);
                     await SubscribeAsync(ws).ConfigureAwait(false);
 
                     Objective objective = await CreateObjectiveViaRestAsync(authClient, "WebSocket refinement objective").ConfigureAwait(false);
@@ -284,7 +284,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "status").ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "status").ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 AssertEqual("status", resp.GetProperty("action").GetString());
                 ArmadaStatus status = DeserializeData<ArmadaStatus>(resp);
@@ -298,7 +298,7 @@ namespace Test.Shared.Suites.E2E
 
                 try
                 {
-                    JsonElement resp = await WsCommandAsync(restPort, "stop_all").ConfigureAwait(false);
+                    JsonElement resp = await WsCommandAsync(fx, "stop_all").ConfigureAwait(false);
                     AssertEqual("command.result", resp.GetProperty("type").GetString());
                     AssertEqual("stop_all", resp.GetProperty("action").GetString());
                     AssertEqual("all_stopped", resp.GetProperty("data").GetProperty("status").GetString());
@@ -319,7 +319,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "list_fleets").ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "list_fleets").ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 AssertEqual("list_fleets", resp.GetProperty("action").GetString());
                 EnumerationResult<Fleet> data = DeserializeData<EnumerationResult<Fleet>>(resp);
@@ -331,7 +331,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "create_fleet", new { data = new { Name = "ws-fleet" } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "create_fleet", new { data = new { Name = "ws-fleet" } }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 AssertEqual("create_fleet", resp.GetProperty("action").GetString());
                 Fleet data = DeserializeData<Fleet>(resp);
@@ -345,7 +345,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string fleetId = await CreateFleetViaRestAsync(authClient, "ws-get-fleet").ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "get_fleet", new { id = fleetId }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "get_fleet", new { id = fleetId }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 FleetDetailResponse data = DeserializeData<FleetDetailResponse>(resp);
                 AssertEqual(fleetId, data.Fleet!.Id);
@@ -357,7 +357,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "get_fleet", new { id = "flt_nonexistent" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "get_fleet", new { id = "flt_nonexistent" }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
                 AssertEqual("Fleet not found", resp.GetProperty("error").GetString());
             }));
@@ -369,7 +369,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string fleetId = await CreateFleetViaRestAsync(authClient, "ws-upd-fleet").ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "update_fleet", new { id = fleetId, data = new { Name = "ws-upd-fleet-renamed" } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "update_fleet", new { id = fleetId, data = new { Name = "ws-upd-fleet-renamed" } }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 Fleet data = DeserializeData<Fleet>(resp);
                 AssertEqual(fleetId, data.Id);
@@ -380,7 +380,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "update_fleet", new { id = "flt_nonexistent", data = new { Name = "x" } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "update_fleet", new { id = "flt_nonexistent", data = new { Name = "x" } }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
                 AssertEqual("Fleet not found", resp.GetProperty("error").GetString());
             }));
@@ -392,7 +392,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string fleetId = await CreateFleetViaRestAsync(authClient, "ws-del-fleet").ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "delete_fleet", new { id = fleetId }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "delete_fleet", new { id = fleetId }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 DeleteFleetResponse data = DeserializeData<DeleteFleetResponse>(resp);
                 AssertEqual("deleted", data.Status);
@@ -403,8 +403,8 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                await WsCommandAsync(restPort, "create_fleet", new { data = new { Name = "ws-list-fleet" } }).ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "list_fleets").ConfigureAwait(false);
+                await WsCommandAsync(fx, "create_fleet", new { data = new { Name = "ws-list-fleet" } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "list_fleets").ConfigureAwait(false);
                 EnumerationResult<Fleet> data = DeserializeData<EnumerationResult<Fleet>>(resp);
                 AssertTrue(data.TotalRecords >= 1);
             }));
@@ -419,7 +419,7 @@ namespace Test.Shared.Suites.E2E
                 await CreateFleetViaRestAsync(authClient, "ws-page-2").ConfigureAwait(false);
                 await CreateFleetViaRestAsync(authClient, "ws-page-3").ConfigureAwait(false);
 
-                JsonElement resp = await WsCommandAsync(restPort, "list_fleets", new { query = new { pageSize = 2, pageNumber = 1 } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "list_fleets", new { query = new { pageSize = 2, pageNumber = 1 } }).ConfigureAwait(false);
                 EnumerationResult<Fleet> data = DeserializeData<EnumerationResult<Fleet>>(resp);
                 AssertEqual(2, data.PageSize);
                 AssertEqual(2, data.Objects.Count);
@@ -431,7 +431,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "list_vessels").ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "list_vessels").ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 AssertEqual("list_vessels", resp.GetProperty("action").GetString());
             }));
@@ -441,7 +441,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "create_vessel", new { data = new { Name = "ws-vessel", RepoUrl = TestRepoHelper.GetLocalBareRepoUrl() } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "create_vessel", new { data = new { Name = "ws-vessel", RepoUrl = TestRepoHelper.GetLocalBareRepoUrl() } }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 Vessel data = DeserializeData<Vessel>(resp);
                 AssertStartsWith("vsl_", data.Id);
@@ -453,7 +453,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string token = "ghp_ws_" + Guid.NewGuid().ToString("N").Substring(0, 10);
-                JsonElement resp = await WsCommandAsync(restPort, "create_vessel", new
+                JsonElement resp = await WsCommandAsync(fx, "create_vessel", new
                 {
                     data = new
                     {
@@ -477,7 +477,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string vesselId = await CreateVesselViaRestAsync(authClient, "ws-get-vessel").ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "get_vessel", new { id = vesselId }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "get_vessel", new { id = vesselId }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 Vessel data = DeserializeData<Vessel>(resp);
                 AssertEqual(vesselId, data.Id);
@@ -488,7 +488,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "get_vessel", new { id = "vsl_nonexistent" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "get_vessel", new { id = "vsl_nonexistent" }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
                 AssertEqual("Vessel not found", resp.GetProperty("error").GetString());
             }));
@@ -500,7 +500,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string vesselId = await CreateVesselViaRestAsync(authClient, "ws-upd-vessel").ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "update_vessel", new { id = vesselId, data = new { Name = "ws-upd-vessel-renamed", RepoUrl = TestRepoHelper.GetLocalBareRepoUrl() } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "update_vessel", new { id = vesselId, data = new { Name = "ws-upd-vessel-renamed", RepoUrl = TestRepoHelper.GetLocalBareRepoUrl() } }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 Vessel data = DeserializeData<Vessel>(resp);
                 AssertEqual(vesselId, data.Id);
@@ -511,7 +511,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement createResponse = await WsCommandAsync(restPort, "create_vessel", new
+                JsonElement createResponse = await WsCommandAsync(fx, "create_vessel", new
                 {
                     data = new
                     {
@@ -523,7 +523,7 @@ namespace Test.Shared.Suites.E2E
                 Vessel created = DeserializeData<Vessel>(createResponse);
                 AssertTrue(created.HasGitHubTokenOverride);
 
-                JsonElement updateResponse = await WsCommandAsync(restPort, "update_vessel", new
+                JsonElement updateResponse = await WsCommandAsync(fx, "update_vessel", new
                 {
                     id = created.Id,
                     data = new
@@ -542,7 +542,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "update_vessel", new { id = "vsl_nonexistent", data = new { Name = "x", RepoUrl = TestRepoHelper.GetLocalBareRepoUrl() } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "update_vessel", new { id = "vsl_nonexistent", data = new { Name = "x", RepoUrl = TestRepoHelper.GetLocalBareRepoUrl() } }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
             }));
 
@@ -553,7 +553,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string vesselId = await CreateVesselViaRestAsync(authClient, "ws-del-vessel").ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "delete_vessel", new { id = vesselId }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "delete_vessel", new { id = vesselId }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 DeleteVesselResponse data = DeserializeData<DeleteVesselResponse>(resp);
                 AssertEqual("deleted", data.Status);
@@ -565,7 +565,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "list_voyages").ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "list_voyages").ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 AssertEqual("list_voyages", resp.GetProperty("action").GetString());
             }));
@@ -575,7 +575,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "create_voyage", new { data = new { title = "ws-voyage", description = "test voyage" } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "create_voyage", new { data = new { title = "ws-voyage", description = "test voyage" } }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 AssertEqual("create_voyage", resp.GetProperty("action").GetString());
                 Voyage data = DeserializeData<Voyage>(resp);
@@ -589,7 +589,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string voyageId = await CreateVoyageViaRestAsync(authClient, "ws-get-voyage").ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "get_voyage", new { id = voyageId }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "get_voyage", new { id = voyageId }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 VoyageDetailResponse data = DeserializeData<VoyageDetailResponse>(resp);
                 AssertNotNull(data.Voyage);
@@ -601,7 +601,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "get_voyage", new { id = "vyg_nonexistent" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "get_voyage", new { id = "vyg_nonexistent" }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
                 AssertEqual("Voyage not found", resp.GetProperty("error").GetString());
             }));
@@ -613,7 +613,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string voyageId = await CreateVoyageViaRestAsync(authClient, "ws-cancel-voyage").ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "cancel_voyage", new { id = voyageId }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "cancel_voyage", new { id = voyageId }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 CancelVoyageResponse data = DeserializeData<CancelVoyageResponse>(resp);
                 AssertEqual("Cancelled", data.Voyage!.Status.ToString());
@@ -625,7 +625,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "cancel_voyage", new { id = "vyg_nonexistent" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "cancel_voyage", new { id = "vyg_nonexistent" }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
                 AssertEqual("Voyage not found", resp.GetProperty("error").GetString());
             }));
@@ -639,9 +639,9 @@ namespace Test.Shared.Suites.E2E
                 string voyageId = await CreateVoyageViaRestAsync(authClient, "ws-purge-voyage").ConfigureAwait(false);
 
                 // Cancel first — purge is blocked on Open/InProgress voyages
-                await WsCommandAsync(restPort, "cancel_voyage", new { id = voyageId }).ConfigureAwait(false);
+                await WsCommandAsync(fx, "cancel_voyage", new { id = voyageId }).ConfigureAwait(false);
 
-                JsonElement resp = await WsCommandAsync(restPort, "purge_voyage", new { id = voyageId }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "purge_voyage", new { id = voyageId }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 PurgeVoyageResponse data = DeserializeData<PurgeVoyageResponse>(resp);
                 AssertEqual("deleted", data.Status);
@@ -652,7 +652,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "purge_voyage", new { id = "vyg_nonexistent" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "purge_voyage", new { id = "vyg_nonexistent" }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
                 AssertEqual("Voyage not found", resp.GetProperty("error").GetString());
             }));
@@ -662,8 +662,8 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                await WsCommandAsync(restPort, "create_voyage", new { data = new { title = "ws-list-voyage" } }).ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "list_voyages").ConfigureAwait(false);
+                await WsCommandAsync(fx, "create_voyage", new { data = new { title = "ws-list-voyage" } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "list_voyages").ConfigureAwait(false);
                 EnumerationResult<Voyage> data = DeserializeData<EnumerationResult<Voyage>>(resp);
                 AssertTrue(data.TotalRecords >= 1);
             }));
@@ -674,7 +674,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "list_missions").ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "list_missions").ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 AssertEqual("list_missions", resp.GetProperty("action").GetString());
                 EnumerationResult<Mission> data = DeserializeData<EnumerationResult<Mission>>(resp);
@@ -686,7 +686,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "list_missions_summary").ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "list_missions_summary").ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 AssertEqual("list_missions_summary", resp.GetProperty("action").GetString());
                 EnumerationResult<MissionSummary> data = DeserializeData<EnumerationResult<MissionSummary>>(resp);
@@ -698,7 +698,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "create_mission", new { data = new { Title = "ws-mission" } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "create_mission", new { data = new { Title = "ws-mission" } }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 Mission data = DeserializeData<Mission>(resp);
                 AssertStartsWith("msn_", data.Id);
@@ -711,7 +711,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string missionId = await CreateMissionViaRestAsync(authClient, "ws-get-mission").ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "get_mission", new { id = missionId }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "get_mission", new { id = missionId }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 Mission data = DeserializeData<Mission>(resp);
                 AssertEqual(missionId, data.Id);
@@ -722,7 +722,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "get_mission", new { id = "msn_nonexistent" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "get_mission", new { id = "msn_nonexistent" }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
                 AssertEqual("Mission not found", resp.GetProperty("error").GetString());
             }));
@@ -734,7 +734,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string missionId = await CreateMissionViaRestAsync(authClient, "ws-upd-mission").ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "update_mission", new { id = missionId, data = new { Title = "ws-upd-mission-renamed" } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "update_mission", new { id = missionId, data = new { Title = "ws-upd-mission-renamed" } }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 Mission data = DeserializeData<Mission>(resp);
                 AssertEqual(missionId, data.Id);
@@ -745,7 +745,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "update_mission", new { id = "msn_nonexistent", data = new { Title = "x" } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "update_mission", new { id = "msn_nonexistent", data = new { Title = "x" } }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
             }));
 
@@ -756,7 +756,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string missionId = await CreateMissionViaRestAsync(authClient, "ws-cancel-mission").ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "cancel_mission", new { id = missionId }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "cancel_mission", new { id = missionId }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 Mission data = DeserializeData<Mission>(resp);
                 AssertEqual("Cancelled", data.Status.ToString());
@@ -768,7 +768,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "cancel_mission", new { id = "msn_nonexistent" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "cancel_mission", new { id = "msn_nonexistent" }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
                 AssertEqual("Mission not found", resp.GetProperty("error").GetString());
             }));
@@ -786,7 +786,7 @@ namespace Test.Shared.Suites.E2E
                     JsonHelper.ToJsonContent(new { Status = "Assigned" })).ConfigureAwait(false);
 
                 // Assigned -> InProgress via WebSocket
-                JsonElement resp = await WsCommandAsync(restPort, "transition_mission_status", new { id = missionId, status = "InProgress" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "transition_mission_status", new { id = missionId, status = "InProgress" }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 Mission data = DeserializeData<Mission>(resp);
                 AssertEqual("InProgress", data.Status.ToString());
@@ -801,7 +801,7 @@ namespace Test.Shared.Suites.E2E
                 string missionId = await CreateMissionViaRestAsync(authClient, "ws-bad-transition").ConfigureAwait(false);
 
                 // Pending -> Complete is not valid
-                JsonElement resp = await WsCommandAsync(restPort, "transition_mission_status", new { id = missionId, status = "Complete" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "transition_mission_status", new { id = missionId, status = "Complete" }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
                 AssertContains("Invalid transition", resp.GetProperty("error").GetString()!);
             }));
@@ -813,7 +813,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string missionId = await CreateMissionViaRestAsync(authClient, "ws-bad-status").ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "transition_mission_status", new { id = missionId, status = "BogusStatus" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "transition_mission_status", new { id = missionId, status = "BogusStatus" }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
                 AssertContains("Invalid status", resp.GetProperty("error").GetString()!);
             }));
@@ -823,7 +823,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "transition_mission_status", new { id = "msn_nonexistent", status = "InProgress" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "transition_mission_status", new { id = "msn_nonexistent", status = "InProgress" }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
                 AssertEqual("Mission not found", resp.GetProperty("error").GetString());
             }));
@@ -842,7 +842,7 @@ namespace Test.Shared.Suites.E2E
                 await authClient.PutAsync("/api/v1/missions/" + missionId + "/status",
                     JsonHelper.ToJsonContent(new { Status = "InProgress" })).ConfigureAwait(false);
 
-                JsonElement resp = await WsCommandAsync(restPort, "transition_mission_status", new { id = missionId, status = "Complete" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "transition_mission_status", new { id = missionId, status = "Complete" }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 Mission data = DeserializeData<Mission>(resp);
                 AssertNotNull(data.CompletedUtc);
@@ -858,7 +858,7 @@ namespace Test.Shared.Suites.E2E
                 await CreateMissionViaRestAsync(authClient, "ws-page-m2").ConfigureAwait(false);
                 await CreateMissionViaRestAsync(authClient, "ws-page-m3").ConfigureAwait(false);
 
-                JsonElement resp = await WsCommandAsync(restPort, "list_missions", new { query = new { pageSize = 2 } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "list_missions", new { query = new { pageSize = 2 } }).ConfigureAwait(false);
                 EnumerationResult<Mission> data = DeserializeData<EnumerationResult<Mission>>(resp);
                 AssertEqual(2, data.Objects.Count);
             }));
@@ -873,7 +873,7 @@ namespace Test.Shared.Suites.E2E
                 await CreateMissionViaRestAsync(authClient, "ws-page-summary-m2").ConfigureAwait(false);
                 await CreateMissionViaRestAsync(authClient, "ws-page-summary-m3").ConfigureAwait(false);
 
-                JsonElement resp = await WsCommandAsync(restPort, "list_missions_summary", new { query = new { pageSize = 2 } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "list_missions_summary", new { query = new { pageSize = 2 } }).ConfigureAwait(false);
                 EnumerationResult<MissionSummary> data = DeserializeData<EnumerationResult<MissionSummary>>(resp);
                 AssertEqual(2, data.Objects.Count);
             }));
@@ -884,7 +884,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "list_captains").ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "list_captains").ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 AssertEqual("list_captains", resp.GetProperty("action").GetString());
             }));
@@ -894,7 +894,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "create_captain", new { data = new { Name = "ws-captain", Runtime = "ClaudeCode" } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "create_captain", new { data = new { Name = "ws-captain", Runtime = "ClaudeCode" } }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 Captain data = DeserializeData<Captain>(resp);
                 AssertStartsWith("cpt_", data.Id);
@@ -907,7 +907,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string captainId = await CreateCaptainViaRestAsync(authClient, "ws-get-captain").ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "get_captain", new { id = captainId }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "get_captain", new { id = captainId }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 Captain data = DeserializeData<Captain>(resp);
                 AssertEqual(captainId, data.Id);
@@ -918,7 +918,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "get_captain", new { id = "cpt_nonexistent" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "get_captain", new { id = "cpt_nonexistent" }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
                 AssertEqual("Captain not found", resp.GetProperty("error").GetString());
             }));
@@ -930,7 +930,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string captainId = await CreateCaptainViaRestAsync(authClient, "ws-upd-captain").ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "update_captain", new { id = captainId, data = new { Name = "ws-upd-captain-renamed", Runtime = "ClaudeCode" } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "update_captain", new { id = captainId, data = new { Name = "ws-upd-captain-renamed", Runtime = "ClaudeCode" } }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 Captain data = DeserializeData<Captain>(resp);
                 AssertEqual(captainId, data.Id);
@@ -943,7 +943,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string captainId = await CreateCaptainViaRestAsync(authClient, "ws-preserve-captain").ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "update_captain", new { id = captainId, data = new { Name = "ws-preserve-renamed", Runtime = "ClaudeCode" } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "update_captain", new { id = captainId, data = new { Name = "ws-preserve-renamed", Runtime = "ClaudeCode" } }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 Captain data = DeserializeData<Captain>(resp);
                 AssertEqual("Idle", data.State.ToString());
@@ -954,7 +954,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "update_captain", new { id = "cpt_nonexistent", data = new { Name = "x" } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "update_captain", new { id = "cpt_nonexistent", data = new { Name = "x" } }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
                 AssertEqual("Captain not found", resp.GetProperty("error").GetString());
             }));
@@ -966,7 +966,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string captainId = await CreateCaptainViaRestAsync(authClient, "ws-del-captain").ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "delete_captain", new { id = captainId }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "delete_captain", new { id = captainId }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 DeleteCaptainResponse data = DeserializeData<DeleteCaptainResponse>(resp);
                 AssertEqual("deleted", data.Status);
@@ -977,7 +977,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "delete_captain", new { id = "cpt_nonexistent" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "delete_captain", new { id = "cpt_nonexistent" }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
                 AssertEqual("Captain not found", resp.GetProperty("error").GetString());
             }));
@@ -989,7 +989,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string captainId = await CreateCaptainViaRestAsync(authClient, "ws-stop-captain").ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "stop_captain", new { captainId = captainId }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "stop_captain", new { captainId = captainId }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 StopCaptainResponse data = DeserializeData<StopCaptainResponse>(resp);
                 AssertEqual("stopped", data.Status);
@@ -1001,7 +1001,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "list_signals").ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "list_signals").ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 AssertEqual("list_signals", resp.GetProperty("action").GetString());
             }));
@@ -1011,7 +1011,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "send_signal", new { data = new { Type = "Nudge", Payload = "hello" } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "send_signal", new { data = new { Type = "Nudge", Payload = "hello" } }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 AssertEqual("send_signal", resp.GetProperty("action").GetString());
                 Signal data = DeserializeData<Signal>(resp);
@@ -1023,8 +1023,8 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                await WsCommandAsync(restPort, "send_signal", new { data = new { Type = "Mail", Payload = "test-mail" } }).ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "list_signals").ConfigureAwait(false);
+                await WsCommandAsync(fx, "send_signal", new { data = new { Type = "Mail", Payload = "test-mail" } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "list_signals").ConfigureAwait(false);
                 EnumerationResult<Signal> data = DeserializeData<EnumerationResult<Signal>>(resp);
                 AssertTrue(data.TotalRecords >= 1);
             }));
@@ -1035,7 +1035,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "list_events").ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "list_events").ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 AssertEqual("list_events", resp.GetProperty("action").GetString());
                 EnumerationResult<ArmadaEvent> data = DeserializeData<EnumerationResult<ArmadaEvent>>(resp);
@@ -1048,7 +1048,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "list_docks").ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "list_docks").ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 AssertEqual("list_docks", resp.GetProperty("action").GetString());
                 EnumerationResult<Dock> data = DeserializeData<EnumerationResult<Dock>>(resp);
@@ -1061,7 +1061,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "list_merge_queue").ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "list_merge_queue").ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 AssertEqual("list_merge_queue", resp.GetProperty("action").GetString());
             }));
@@ -1071,7 +1071,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "enqueue_merge", new { data = new { BranchName = "feature/ws-test", TargetBranch = "main" } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "enqueue_merge", new { data = new { BranchName = "feature/ws-test", TargetBranch = "main" } }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 AssertEqual("enqueue_merge", resp.GetProperty("action").GetString());
                 MergeEntry data = DeserializeData<MergeEntry>(resp);
@@ -1083,11 +1083,11 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement createResp = await WsCommandAsync(restPort, "enqueue_merge", new { data = new { BranchName = "feature/ws-get-merge", TargetBranch = "main" } }).ConfigureAwait(false);
+                JsonElement createResp = await WsCommandAsync(fx, "enqueue_merge", new { data = new { BranchName = "feature/ws-get-merge", TargetBranch = "main" } }).ConfigureAwait(false);
                 MergeEntry created = DeserializeData<MergeEntry>(createResp);
                 string mergeId = created.Id;
 
-                JsonElement resp = await WsCommandAsync(restPort, "get_merge_entry", new { id = mergeId }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "get_merge_entry", new { id = mergeId }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 MergeEntry data = DeserializeData<MergeEntry>(resp);
                 AssertEqual(mergeId, data.Id);
@@ -1098,7 +1098,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "get_merge_entry", new { id = "mrg_nonexistent" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "get_merge_entry", new { id = "mrg_nonexistent" }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
                 AssertEqual("Merge entry not found", resp.GetProperty("error").GetString());
             }));
@@ -1108,11 +1108,11 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement createResp = await WsCommandAsync(restPort, "enqueue_merge", new { data = new { BranchName = "feature/ws-cancel-merge", TargetBranch = "main" } }).ConfigureAwait(false);
+                JsonElement createResp = await WsCommandAsync(fx, "enqueue_merge", new { data = new { BranchName = "feature/ws-cancel-merge", TargetBranch = "main" } }).ConfigureAwait(false);
                 MergeEntry created = DeserializeData<MergeEntry>(createResp);
                 string mergeId = created.Id;
 
-                JsonElement resp = await WsCommandAsync(restPort, "cancel_merge", new { id = mergeId }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "cancel_merge", new { id = mergeId }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 CancelMergeResponse data = DeserializeData<CancelMergeResponse>(resp);
                 AssertEqual("cancelled", data.Status);
@@ -1123,7 +1123,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "process_merge_queue").ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "process_merge_queue").ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 ProcessMergeQueueResponse data = DeserializeData<ProcessMergeQueueResponse>(resp);
                 AssertEqual("processed", data.Status);
@@ -1136,7 +1136,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "get_mission_diff", new { id = "msn_nonexistent" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "get_mission_diff", new { id = "msn_nonexistent" }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
             }));
 
@@ -1147,7 +1147,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string missionId = await CreateMissionViaRestAsync(authClient, "ws-diff-mission").ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "get_mission_diff", new { id = missionId }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "get_mission_diff", new { id = missionId }).ConfigureAwait(false);
                 // May return error (no worktree/settings) or result — just verify action is correct
                 string action = resp.GetProperty("action").GetString()!;
                 AssertEqual("get_mission_diff", action);
@@ -1158,7 +1158,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "get_mission_log", new { id = "msn_nonexistent" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "get_mission_log", new { id = "msn_nonexistent" }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
             }));
 
@@ -1169,7 +1169,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string missionId = await CreateMissionViaRestAsync(authClient, "ws-log-mission").ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "get_mission_log", new { id = missionId }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "get_mission_log", new { id = missionId }).ConfigureAwait(false);
                 // May return error (settings not configured) or result with empty log
                 string action = resp.GetProperty("action").GetString()!;
                 AssertEqual("get_mission_log", action);
@@ -1180,7 +1180,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "get_captain_log", new { id = "cpt_nonexistent" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "get_captain_log", new { id = "cpt_nonexistent" }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
             }));
 
@@ -1191,7 +1191,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 string captainId = await CreateCaptainViaRestAsync(authClient, "ws-log-captain").ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "get_captain_log", new { id = captainId }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "get_captain_log", new { id = captainId }).ConfigureAwait(false);
                 // May return error (settings not configured) or result with empty log
                 string action = resp.GetProperty("action").GetString()!;
                 AssertEqual("get_captain_log", action);
@@ -1208,7 +1208,7 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 await CreateFleetViaRestAsync(authClient, "ws-enum-fleet").ConfigureAwait(false);
-                JsonElement resp = await WsCommandAsync(restPort, "enumerate", new { entityType = "fleets", query = new { pageSize = 10, pageNumber = 1 } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "enumerate", new { entityType = "fleets", query = new { pageSize = 10, pageNumber = 1 } }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
                 AssertEqual("enumerate", resp.GetProperty("action").GetString());
                 EnumerationResult<Fleet> data = DeserializeData<EnumerationResult<Fleet>>(resp);
@@ -1220,7 +1220,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "enumerate", new { entityType = "vessels" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "enumerate", new { entityType = "vessels" }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
             }));
 
@@ -1229,7 +1229,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "enumerate", new { entityType = "captains" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "enumerate", new { entityType = "captains" }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
             }));
 
@@ -1238,7 +1238,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "enumerate", new { entityType = "missions" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "enumerate", new { entityType = "missions" }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
             }));
 
@@ -1247,7 +1247,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "enumerate", new { entityType = "voyages" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "enumerate", new { entityType = "voyages" }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
             }));
 
@@ -1256,7 +1256,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "enumerate", new { entityType = "docks" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "enumerate", new { entityType = "docks" }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
             }));
 
@@ -1265,7 +1265,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "enumerate", new { entityType = "signals" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "enumerate", new { entityType = "signals" }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
             }));
 
@@ -1274,7 +1274,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "enumerate", new { entityType = "events" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "enumerate", new { entityType = "events" }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
             }));
 
@@ -1283,7 +1283,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "enumerate", new { entityType = "merge_queue" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "enumerate", new { entityType = "merge_queue" }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
             }));
 
@@ -1292,7 +1292,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "enumerate", new { entityType = "fleets", query = new { pageSize = 5, pageNumber = 1 } }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "enumerate", new { entityType = "fleets", query = new { pageSize = 5, pageNumber = 1 } }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
             }));
 
@@ -1301,7 +1301,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "enumerate", new { entityType = "fleet" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "enumerate", new { entityType = "fleet" }).ConfigureAwait(false);
                 AssertEqual("command.result", resp.GetProperty("type").GetString());
             }));
 
@@ -1310,7 +1310,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "enumerate", new { entityType = "bananas" }).ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "enumerate", new { entityType = "bananas" }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
                 AssertContains("Unknown entity type", resp.GetProperty("error").GetString()!);
             }));
@@ -1321,7 +1321,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                JsonElement resp = await WsCommandAsync(restPort, "totally_bogus_action").ConfigureAwait(false);
+                JsonElement resp = await WsCommandAsync(fx, "totally_bogus_action").ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
                 AssertContains("Unknown action", resp.GetProperty("error").GetString()!);
             }));
@@ -1331,7 +1331,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                using ClientWebSocket ws = await ConnectAsync(restPort).ConfigureAwait(false);
+                using ClientWebSocket ws = await ConnectAsync(fx).ConfigureAwait(false);
 
                 string msg = JsonHelper.Serialize(new { Route = "bad_route" });
                 byte[] bytes = Encoding.UTF8.GetBytes(msg);
@@ -1352,7 +1352,7 @@ namespace Test.Shared.Suites.E2E
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 int restPort = fx.RestPort;
 
-                using ClientWebSocket ws = await ConnectAsync(restPort).ConfigureAwait(false);
+                using ClientWebSocket ws = await ConnectAsync(fx).ConfigureAwait(false);
 
                 string msg = JsonHelper.Serialize(new { hello = "world" });
                 byte[] bytes = Encoding.UTF8.GetBytes(msg);
@@ -1375,30 +1375,30 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 // Create
-                JsonElement createResp = await WsCommandAsync(restPort, "create_fleet", new { data = new { Name = "lifecycle-fleet" } }).ConfigureAwait(false);
+                JsonElement createResp = await WsCommandAsync(fx, "create_fleet", new { data = new { Name = "lifecycle-fleet" } }).ConfigureAwait(false);
                 AssertEqual("command.result", createResp.GetProperty("type").GetString());
                 Fleet createdFleet = DeserializeData<Fleet>(createResp);
                 string fleetId = createdFleet.Id;
                 AssertStartsWith("flt_", fleetId);
 
                 // Get
-                JsonElement getResp = await WsCommandAsync(restPort, "get_fleet", new { id = fleetId }).ConfigureAwait(false);
+                JsonElement getResp = await WsCommandAsync(fx, "get_fleet", new { id = fleetId }).ConfigureAwait(false);
                 AssertEqual("command.result", getResp.GetProperty("type").GetString());
                 FleetDetailResponse getDetail = DeserializeData<FleetDetailResponse>(getResp);
                 AssertEqual(fleetId, getDetail.Fleet!.Id);
 
                 // Update
-                JsonElement updateResp = await WsCommandAsync(restPort, "update_fleet", new { id = fleetId, data = new { Name = "lifecycle-fleet-updated" } }).ConfigureAwait(false);
+                JsonElement updateResp = await WsCommandAsync(fx, "update_fleet", new { id = fleetId, data = new { Name = "lifecycle-fleet-updated" } }).ConfigureAwait(false);
                 AssertEqual("command.result", updateResp.GetProperty("type").GetString());
 
                 // Delete
-                JsonElement deleteResp = await WsCommandAsync(restPort, "delete_fleet", new { id = fleetId }).ConfigureAwait(false);
+                JsonElement deleteResp = await WsCommandAsync(fx, "delete_fleet", new { id = fleetId }).ConfigureAwait(false);
                 AssertEqual("command.result", deleteResp.GetProperty("type").GetString());
                 DeleteFleetResponse deleted = DeserializeData<DeleteFleetResponse>(deleteResp);
                 AssertEqual("deleted", deleted.Status);
 
                 // Verify deleted
-                JsonElement verifyResp = await WsCommandAsync(restPort, "get_fleet", new { id = fleetId }).ConfigureAwait(false);
+                JsonElement verifyResp = await WsCommandAsync(fx, "get_fleet", new { id = fleetId }).ConfigureAwait(false);
                 AssertEqual("command.error", verifyResp.GetProperty("type").GetString());
             }));
 
@@ -1408,37 +1408,37 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 // Create bare voyage
-                JsonElement createResp = await WsCommandAsync(restPort, "create_voyage", new { data = new { title = "lifecycle-voyage", description = "test" } }).ConfigureAwait(false);
+                JsonElement createResp = await WsCommandAsync(fx, "create_voyage", new { data = new { title = "lifecycle-voyage", description = "test" } }).ConfigureAwait(false);
                 AssertEqual("command.result", createResp.GetProperty("type").GetString());
                 Voyage createdVoyage = DeserializeData<Voyage>(createResp);
                 string voyageId = createdVoyage.Id;
 
                 // Get
-                JsonElement getResp = await WsCommandAsync(restPort, "get_voyage", new { id = voyageId }).ConfigureAwait(false);
+                JsonElement getResp = await WsCommandAsync(fx, "get_voyage", new { id = voyageId }).ConfigureAwait(false);
                 AssertEqual("command.result", getResp.GetProperty("type").GetString());
 
                 // Create another voyage for purge test
-                JsonElement create2Resp = await WsCommandAsync(restPort, "create_voyage", new { data = new { title = "purge-voyage" } }).ConfigureAwait(false);
+                JsonElement create2Resp = await WsCommandAsync(fx, "create_voyage", new { data = new { title = "purge-voyage" } }).ConfigureAwait(false);
                 Voyage createdVoyage2 = DeserializeData<Voyage>(create2Resp);
                 string purgeId = createdVoyage2.Id;
 
                 // Cancel first
-                JsonElement cancelResp = await WsCommandAsync(restPort, "cancel_voyage", new { id = voyageId }).ConfigureAwait(false);
+                JsonElement cancelResp = await WsCommandAsync(fx, "cancel_voyage", new { id = voyageId }).ConfigureAwait(false);
                 AssertEqual("command.result", cancelResp.GetProperty("type").GetString());
                 CancelVoyageResponse cancelData = DeserializeData<CancelVoyageResponse>(cancelResp);
                 AssertEqual("Cancelled", cancelData.Voyage!.Status.ToString());
 
                 // Cancel second before purge — purge is blocked on Open/InProgress voyages
-                await WsCommandAsync(restPort, "cancel_voyage", new { id = purgeId }).ConfigureAwait(false);
+                await WsCommandAsync(fx, "cancel_voyage", new { id = purgeId }).ConfigureAwait(false);
 
                 // Purge second
-                JsonElement purgeResp = await WsCommandAsync(restPort, "purge_voyage", new { id = purgeId }).ConfigureAwait(false);
+                JsonElement purgeResp = await WsCommandAsync(fx, "purge_voyage", new { id = purgeId }).ConfigureAwait(false);
                 AssertEqual("command.result", purgeResp.GetProperty("type").GetString());
                 PurgeVoyageResponse purgeData = DeserializeData<PurgeVoyageResponse>(purgeResp);
                 AssertEqual("deleted", purgeData.Status);
 
                 // Verify purged
-                JsonElement verifyResp = await WsCommandAsync(restPort, "get_voyage", new { id = purgeId }).ConfigureAwait(false);
+                JsonElement verifyResp = await WsCommandAsync(fx, "get_voyage", new { id = purgeId }).ConfigureAwait(false);
                 AssertEqual("command.error", verifyResp.GetProperty("type").GetString());
             }));
 
@@ -1448,21 +1448,21 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 // Create
-                JsonElement createResp = await WsCommandAsync(restPort, "create_mission", new { data = new { Title = "lifecycle-mission" } }).ConfigureAwait(false);
+                JsonElement createResp = await WsCommandAsync(fx, "create_mission", new { data = new { Title = "lifecycle-mission" } }).ConfigureAwait(false);
                 AssertEqual("command.result", createResp.GetProperty("type").GetString());
                 Mission createdMission = DeserializeData<Mission>(createResp);
                 string missionId = createdMission.Id;
 
                 // Transition: Pending -> Assigned
-                JsonElement t1 = await WsCommandAsync(restPort, "transition_mission_status", new { id = missionId, status = "Assigned" }).ConfigureAwait(false);
+                JsonElement t1 = await WsCommandAsync(fx, "transition_mission_status", new { id = missionId, status = "Assigned" }).ConfigureAwait(false);
                 AssertEqual("command.result", t1.GetProperty("type").GetString());
 
                 // Transition: Assigned -> InProgress
-                JsonElement t2 = await WsCommandAsync(restPort, "transition_mission_status", new { id = missionId, status = "InProgress" }).ConfigureAwait(false);
+                JsonElement t2 = await WsCommandAsync(fx, "transition_mission_status", new { id = missionId, status = "InProgress" }).ConfigureAwait(false);
                 AssertEqual("command.result", t2.GetProperty("type").GetString());
 
                 // Cancel
-                JsonElement cancelResp = await WsCommandAsync(restPort, "cancel_mission", new { id = missionId }).ConfigureAwait(false);
+                JsonElement cancelResp = await WsCommandAsync(fx, "cancel_mission", new { id = missionId }).ConfigureAwait(false);
                 AssertEqual("command.result", cancelResp.GetProperty("type").GetString());
                 Mission cancelledMission = DeserializeData<Mission>(cancelResp);
                 AssertEqual("Cancelled", cancelledMission.Status.ToString());
@@ -1474,25 +1474,25 @@ namespace Test.Shared.Suites.E2E
                 int restPort = fx.RestPort;
 
                 // Create
-                JsonElement createResp = await WsCommandAsync(restPort, "create_captain", new { data = new { Name = "lifecycle-captain", Runtime = "ClaudeCode" } }).ConfigureAwait(false);
+                JsonElement createResp = await WsCommandAsync(fx, "create_captain", new { data = new { Name = "lifecycle-captain", Runtime = "ClaudeCode" } }).ConfigureAwait(false);
                 AssertEqual("command.result", createResp.GetProperty("type").GetString());
                 Captain createdCaptain = DeserializeData<Captain>(createResp);
                 string captainId = createdCaptain.Id;
 
                 // Get
-                JsonElement getResp = await WsCommandAsync(restPort, "get_captain", new { id = captainId }).ConfigureAwait(false);
+                JsonElement getResp = await WsCommandAsync(fx, "get_captain", new { id = captainId }).ConfigureAwait(false);
                 AssertEqual("command.result", getResp.GetProperty("type").GetString());
 
                 // Update
-                JsonElement updateResp = await WsCommandAsync(restPort, "update_captain", new { id = captainId, data = new { Name = "lifecycle-renamed", Runtime = "ClaudeCode" } }).ConfigureAwait(false);
+                JsonElement updateResp = await WsCommandAsync(fx, "update_captain", new { id = captainId, data = new { Name = "lifecycle-renamed", Runtime = "ClaudeCode" } }).ConfigureAwait(false);
                 AssertEqual("command.result", updateResp.GetProperty("type").GetString());
 
                 // Delete
-                JsonElement deleteResp = await WsCommandAsync(restPort, "delete_captain", new { id = captainId }).ConfigureAwait(false);
+                JsonElement deleteResp = await WsCommandAsync(fx, "delete_captain", new { id = captainId }).ConfigureAwait(false);
                 AssertEqual("command.result", deleteResp.GetProperty("type").GetString());
 
                 // Verify deleted
-                JsonElement verifyResp = await WsCommandAsync(restPort, "get_captain", new { id = captainId }).ConfigureAwait(false);
+                JsonElement verifyResp = await WsCommandAsync(fx, "get_captain", new { id = captainId }).ConfigureAwait(false);
                 AssertEqual("command.error", verifyResp.GetProperty("type").GetString());
             }));
 
@@ -1512,12 +1512,28 @@ namespace Test.Shared.Suites.E2E
 
         #region Private-Methods
 
-        private static async Task<ClientWebSocket> ConnectAsync(int restPort)
+        private static async Task<ClientWebSocket> ConnectAsync(E2EServerFixture fx)
         {
             ClientWebSocket ws = new ClientWebSocket();
-            Uri uri = new Uri("ws://127.0.0.1:" + restPort + "/ws");
+            Uri uri = new Uri("ws://127.0.0.1:" + fx.RestPort + "/ws");
             await ws.ConnectAsync(uri, CancellationToken.None).ConfigureAwait(false);
+            await AuthenticateAsync(ws, fx.ApiKey).ConfigureAwait(false);
             return ws;
+        }
+
+        /// <summary>
+        /// Authenticate a hub session with the fixture API key. The hub refuses every other route on
+        /// an unauthenticated session, so every connection authenticates before it subscribes or sends
+        /// a command.
+        /// </summary>
+        private static async Task AuthenticateAsync(ClientWebSocket ws, string apiKey)
+        {
+            byte[] bytes = Encoding.UTF8.GetBytes(JsonHelper.Serialize(new { Route = "authenticate", apiKey = apiKey }));
+            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
+            JsonElement reply = await WaitForEventAsync(ws, root => root.TryGetProperty("type", out JsonElement type)
+                && (type.GetString() == "auth.result" || type.GetString() == "auth.error" || type.GetString() == "error")).ConfigureAwait(false);
+            if (reply.GetProperty("type").GetString() != "auth.result")
+                throw new InvalidOperationException("WebSocket authentication failed: " + reply.GetRawText());
         }
 
         private static async Task SubscribeAsync(ClientWebSocket ws)
@@ -1554,9 +1570,9 @@ namespace Test.Shared.Suites.E2E
             return JsonHelper.Deserialize<T>(dataJson);
         }
 
-        private static async Task<JsonElement> WsCommandAsync(int restPort, string action, object? extraFields = null)
+        private static async Task<JsonElement> WsCommandAsync(E2EServerFixture fx, string action, object? extraFields = null)
         {
-            using ClientWebSocket ws = await ConnectAsync(restPort).ConfigureAwait(false);
+            using ClientWebSocket ws = await ConnectAsync(fx).ConfigureAwait(false);
 
             Dictionary<string, object?> msg = new Dictionary<string, object?>
             {

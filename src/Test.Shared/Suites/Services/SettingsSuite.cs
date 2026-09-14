@@ -41,7 +41,6 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(Constants.DefaultMaxLogFileSizeBytes, settings.MaxLogFileSizeBytes);
                 AssertEqual(Constants.DefaultMaxLogFileCount, settings.MaxLogFileCount);
                 AssertEqual(Constants.DefaultDataRetentionDays, settings.DataRetentionDays);
-                AssertEqual(Constants.DefaultPlanningSessionInactivityTimeoutMinutes, settings.PlanningSessionInactivityTimeoutMinutes);
                 AssertEqual(Constants.DefaultPlanningSessionAbandonmentTimeoutMinutes, settings.PlanningSessionAbandonmentTimeoutMinutes);
                 AssertEqual(0, settings.PlanningSessionRetentionDays);
                 AssertFalse(settings.AutoCreatePullRequests);
@@ -169,7 +168,6 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(settings.Notifications);
                 AssertTrue(settings.TerminalBell);
                 AssertEqual(Constants.DefaultIdleCaptainTimeoutSeconds, settings.IdleCaptainTimeoutSeconds);
-                AssertEqual(Constants.DefaultPlanningSessionInactivityTimeoutMinutes, settings.PlanningSessionInactivityTimeoutMinutes);
                 AssertEqual(Constants.DefaultPlanningSessionAbandonmentTimeoutMinutes, settings.PlanningSessionAbandonmentTimeoutMinutes);
                 AssertEqual(0, settings.PlanningSessionRetentionDays);
                 AssertNotNull(settings.RemoteControl);
