@@ -178,8 +178,8 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   processed inside that window, whichever path returned the mission for another
   attempt: a Judge Check-hold or missing-verdict re-run, a refusal or safeguard
   continuation, a transient requeue or quota re-route, an operator restart, a
-  review denial, a merge-recovery redispatch, a stale-captain reset, or a stall
-  relaunch. Before, a requeued mission that completed again inside the window
+  review denial, a merge-recovery redispatch, a stale-captain reset, a stall
+  relaunch, or an operator transition from WaitingForInput to Pending. Before, a requeued mission that completed again inside the window
   stayed InProgress with its completion silently dropped.
 - A launch is identified by the mission's start time and agent process. One
   rule decides it for every path, and the refusal continuation's private

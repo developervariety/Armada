@@ -7,6 +7,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
+    using Armada.Server;
     using Armada.Test.Common;
     using Armada.Test.Unit.Suites.Recovery;
     using Armada.Test.Unit.TestHelpers;
@@ -426,6 +427,33 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission after = await ReadJudgeAsync(rig).ConfigureAwait(false);
                     AssertTrue(after.Status != MissionStatusEnum.InProgress,
                         "after a stall relaunch, a completion inside the duplicate window must be processed, but the mission is still " + after.Status);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("ManualTransitionWaitingForInputToPending_SecondCompletionInsideWindow_IsProcessed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Rig rig = await CreateRigAsync(testDb).ConfigureAwait(false);
+                    await HandleFirstCompletionAsync(rig).ConfigureAwait(false);
+
+                    await LaunchAsync(rig, rig.Primary).ConfigureAwait(false);
+                    Mission blocked = await ReadJudgeAsync(rig).ConfigureAwait(false);
+                    blocked.Status = MissionStatusEnum.WaitingForInput;
+                    blocked = await rig.Db.Missions.UpdateAsync(blocked).ConfigureAwait(false);
+
+                    // REST, WebSocket and MCP status transitions all apply through this one service.
+                    MissionStatusTransitionService transitions = new MissionStatusTransitionService(
+                        rig.Db, rig.Admiral, rig.Missions, new StubGitService(),
+                        (_, _) => Task.FromResult(false),
+                        (_, _) => Task.CompletedTask,
+                        (_, _, _, _, _, _, _, _) => Task.CompletedTask,
+                        rig.Logging);
+                    await transitions.TransitionAsync(blocked, MissionStatusEnum.Pending).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Pending, (await ReadJudgeAsync(rig).ConfigureAwait(false)).Status,
+                        "precondition: the operator transition returns the blocked mission to Pending");
+
+                    await AssertSecondCompletionProcessedAsync(rig, rig.Alternate, "a manual WaitingForInput to Pending transition").ConfigureAwait(false);
                 }
             }).ConfigureAwait(false);
 
