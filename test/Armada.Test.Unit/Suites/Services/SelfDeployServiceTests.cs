@@ -298,15 +298,41 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("ExecuteAsync_DefaultPreflight_FailsClosed", async () =>
+            await RunTest("DefaultNativePreflight_BackupFails_NoProcessAndNoRecord", async () =>
             {
+                if (SkipWindows("DefaultNativePreflight_BackupFails_NoProcessAndNoRecord")) return;
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 using (SelfDeployTestContext context = await CreateContextAsync(testDb, enabled: true, includePreflight: false))
                 {
-                    bool restarted = await context.Service.ExecuteAsync(context.Vessel.Id, "mrg_test", "test land");
-                    AssertFalse(restarted, "restarted");
-                    AssertEqual(0, context.Host.Starts.Count, "process launches");
-                    AssertEqual(1, context.Artifacts.CaptureOrder.Count, "only the rollback target was captured");
+                    context.Settings.Database.Filename = Path.Combine(context.Root, "missing-source.db");
+                    await AssertDefaultPreflightRefusesAsync(testDb, context, "sqlite_source_missing");
+                }
+            });
+
+            await RunTest("DefaultNativePreflight_RestoreVerificationFails_NoProcessAndNoRecord", async () =>
+            {
+                if (SkipWindows("DefaultNativePreflight_RestoreVerificationFails_NoProcessAndNoRecord")) return;
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                using (SelfDeployTestContext context = await CreateContextAsync(testDb, enabled: true, includePreflight: false))
+                {
+                    context.Settings.Database.Filename = CreateSqliteSource(context.Root, "no-migrations.db", includeMigrations: false);
+                    await AssertDefaultPreflightRefusesAsync(testDb, context, "sqlite_restore_verification_failed");
+                }
+            });
+
+            await RunTest("DefaultNativePreflight_CandidateValidationFails_NoProcessAndNoRecord", async () =>
+            {
+                if (SkipWindows("DefaultNativePreflight_CandidateValidationFails_NoProcessAndNoRecord")) return;
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                using (SelfDeployTestContext context = await CreateContextAsync(testDb, enabled: true, includePreflight: false))
+                {
+                    context.Settings.Database.Filename = CreateSqliteSource(context.Root, "source.db", includeMigrations: true);
+                    string candidateDll = Path.Combine(context.Root, "bin", "Armada.Server.dll");
+                    Directory.CreateDirectory(Path.GetDirectoryName(candidateDll)!);
+                    File.WriteAllText(candidateDll, "not a managed assembly");
+                    await AssertDefaultPreflightRefusesAsync(testDb, context, "candidate_database_validation_failed");
+                    AssertEqual(0, CountIsolatedTargets(Path.Combine(context.Root, "data", "self-deploy", "backups")),
+                        "isolated restore target cleaned up after the candidate check");
                 }
             });
 
@@ -334,6 +360,43 @@ namespace Armada.Test.Unit.Suites.Services
             AssertEqual(0, context.Host.Starts.Count, "no supervisor or server launched");
             AssertEqual(0, context.ProcessExit.Calls, "process exit calls");
             AssertFalse(File.Exists(context.Records.RecordPath), "no restart record written");
+        }
+
+        private async Task AssertDefaultPreflightRefusesAsync(TestDatabase testDb, SelfDeployTestContext context, string expectedReason)
+        {
+            bool restarted = await context.Service.ExecuteAsync(context.Vessel.Id, "mrg_test", "test land");
+            AssertFalse(restarted, "restarted");
+            AssertEqual(1, context.BuildRunner.Calls.Count, "build ran before the preflight");
+            AssertEqual(0, context.Host.Starts.Count, "no supervisor or server launched");
+            AssertEqual(0, context.ProcessExit.Calls, "admiral stays running");
+            AssertFalse(File.Exists(context.Records.RecordPath), "no restart record written");
+            List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("self_deploy.preflight_failed");
+            AssertEqual(1, events.Count, "preflight failure event");
+            Incident incident = await LatestIncidentAsync(testDb, context);
+            AssertTrue((incident.RootCause ?? String.Empty).StartsWith(expectedReason, StringComparison.Ordinal),
+                "native preflight reason " + expectedReason + " reached the incident; got " + incident.RootCause);
+        }
+
+        private static string CreateSqliteSource(string root, string fileName, bool includeMigrations)
+        {
+            string path = Path.Combine(root, fileName);
+            using (Microsoft.Data.Sqlite.SqliteConnection connection = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=" + path + ";Pooling=False"))
+            {
+                connection.Open();
+                using (Microsoft.Data.Sqlite.SqliteCommand command = connection.CreateCommand())
+                {
+                    command.CommandText = includeMigrations
+                        ? "CREATE TABLE schema_migrations (version INTEGER NOT NULL);"
+                        : "CREATE TABLE unrelated (id INTEGER NOT NULL);";
+                    command.ExecuteNonQuery();
+                }
+            }
+            return path;
+        }
+
+        private static int CountIsolatedTargets(string backupRoot)
+        {
+            return Directory.GetFiles(backupRoot, "isolated.db", SearchOption.AllDirectories).Length;
         }
 
         private bool SkipWindows(string testName)
@@ -384,6 +447,8 @@ namespace Armada.Test.Unit.Suites.Services
             await testDb.Driver.Vessels.CreateAsync(vessel);
 
             ArmadaSettings settings = new ArmadaSettings();
+            settings.DataDirectory = Path.Combine(directory.Root, "data");
+            settings.Database.Filename = Path.Combine(directory.Root, "unused-source.db");
             settings.SelfDeploy.Enabled = enabled;
             settings.SelfDeploy.SelfVesselId = vessel.Id;
             settings.SelfDeploy.DebounceSeconds = 0;
@@ -413,6 +478,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             return new SelfDeployTestContext(directory)
             {
+                Settings = settings,
                 Vessel = vessel,
                 Service = service,
                 Git = git,
@@ -443,6 +509,8 @@ namespace Armada.Test.Unit.Suites.Services
                 _Directory = directory;
             }
 
+            public string Root => _Directory.Root;
+            public ArmadaSettings Settings { get; set; } = null!;
             public Vessel Vessel { get; set; } = null!;
             public SelfDeployService Service { get; set; } = null!;
             public SelfDeployStubGitService Git { get; set; } = null!;

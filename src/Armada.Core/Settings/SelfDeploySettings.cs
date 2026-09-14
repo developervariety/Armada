@@ -77,6 +77,12 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Backup directory visible to the SQL Server host, required when the admiral uses SQL Server.
+        /// Without it the default preflight fails and no cutover runs.
+        /// </summary>
+        public string? SqlServerBackupDirectory { get; set; }
+
+        /// <summary>
         /// Solution path relative to the vessel WorkingDirectory.
         /// </summary>
         public string SolutionRelativePath { get; set; } = "src/Armada.sln";

@@ -30,7 +30,7 @@ namespace Armada.Core.Services
         private const string _Header = "[SelfDeployService] ";
 
         /// <summary>
-        /// Instantiate with the fail-closed default preflight.
+        /// Instantiate with the default native preflight for the configured database.
         /// </summary>
         /// <param name="logging">Logging module.</param>
         /// <param name="database">Armada database driver.</param>
@@ -54,7 +54,7 @@ namespace Armada.Core.Services
                 git,
                 buildRunner,
                 cutover,
-                new FailClosedSelfDeployPreflight(),
+                SelfDeployNativePreflight.CreateDefault(settings ?? throw new ArgumentNullException(nameof(settings))),
                 requestProcessExit)
         {
         }

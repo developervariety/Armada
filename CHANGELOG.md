@@ -188,8 +188,13 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   validation for all four providers. Native process output and cancellation are
   bounded, and Unix settings and backup directories use private permissions.
 - Windows storage fails closed until owner-only ACL verification is available.
-  The default preflight stays unwired, so self-deploy cannot cut over until the
-  native preflight is accepted and connected.
+- The native preflight is now the default for every self-deploy cutover: backup,
+  owned isolated restore, candidate `--validate-database` and cleanup against
+  the running admiral's database. A failed step, a missing native utility, or
+  SQL Server without `selfDeploy.sqlServerBackupDirectory` refuses the cutover
+  before any process starts or restart record is written. The placeholder
+  preflight that always refused is removed. Self-deploy stays disabled by
+  default.
 - Self-deploy Release builds use the bounded native command runner with an
   argument list, bounded output capture, configured timeout, and caller
   cancellation that terminates and observes the child process tree.

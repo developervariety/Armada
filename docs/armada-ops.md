@@ -1290,8 +1290,14 @@ or `-No` from `DatabaseSettings.RequireEncryption` and pass `-C` explicitly to
 match the typed server-certificate trust contract; a wrapper must not weaken
 TLS checks.
 
-The default preflight is still fail-closed. When
-`SelfDeployCandidateProcessValidator` is connected, the native provider adapter
+The native preflight is the default for every cutover. It runs against the
+running admiral's database and writes disposable backups under
+`<dataDirectory>/self-deploy/backups`. SQL Server also needs
+`selfDeploy.sqlServerBackupDirectory`, a path visible to the SQL Server host;
+without it the preflight fails with
+`sqlserver_server_backup_directory_not_configured`. Any failed step, missing
+native utility or unverifiable private storage refuses the cutover before any
+process starts or restart record is written. `SelfDeployCandidateProcessValidator`
 writes temporary settings with the effective connection fields and the owned
 isolated target, then runs the candidate DLL with `--validate-database`. It
 requires both a zero process exit and the validation pass marker before it
@@ -1386,9 +1392,7 @@ interruption, run the server with `--self-deploy-recover`:
 Exit code 0 means the record proves a healthy owner or no record exists.
 
 Current limits: the release store is not pruned; supervised processes inherit
-the supervisor's standard streams; Windows storage fails closed; and the
-default preflight is still unwired, so no cutover runs until the native
-preflight is connected and accepted.
+the supervisor's standard streams; and Windows storage fails closed.
 
 The real utility checks are separate and disabled by default; the default guard
 performs no database work. To run them against disposable provider databases, set

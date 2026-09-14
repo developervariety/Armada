@@ -110,7 +110,7 @@ these areas. Do not duplicate its changes.
 | FOLLOWUP-015 | Open | Persona, pipeline and prompt-template read visibility remains unscoped |
 | FOLLOWUP-016 | Closed | Manual Complete uses immutable Check and target ancestry proof; report-only completion remains allowed |
 | FOLLOWUP-017 | Verify | Accepted components have proof; remaining candidate findings are tracked below |
-| FOLLOWUP-018 | Verify | Supervised cutover, rollback and recovery implemented; preflight wiring and live rehearsal remain |
+| FOLLOWUP-018 | Verify | Supervised cutover, native default preflight, rollback and recovery implemented; process-host rehearsal remains |
 | FOLLOWUP-019 | Open | API runtime lifecycle, usage, response limits and atomic-write proof |
 | FOLLOWUP-020 | Addressed in source; acceptance pending | Harbor enrollment schema compatibility and session revocation proof |
 | FOLLOWUP-021 | Closed | Unknown process state blocks manual completion before mutation |
@@ -554,8 +554,8 @@ These findings apply to unaccepted candidates, not the deployed image:
   Unix storage and includes the quoted SQL Server path. Windows storage still
   fails closed until owner-only ACL verification is available. Process cutover,
   health validation, rollback and restart recovery are now implemented; their
-  acceptance state is in FOLLOWUP-018. Self-rebuild remains disabled and the
-  default preflight remains unwired.
+  acceptance state is in FOLLOWUP-018. The native preflight is now the default
+  preflight; self-rebuild remains disabled by default.
 
 Keep these entries open until the corrected combined tree has independent proof.
 
@@ -674,8 +674,22 @@ The owner authorizes this window separately. No server change was made here.
    - Supervised processes survive their standard streams closing under the host
      service manager.
 
-Keep this entry at Verify until the rehearsal passes and the native preflight is
-connected by an accepted change.
+### Native preflight as the default
+
+The native preflight is now the default wired into the admiral; the placeholder
+that always refused is removed. Service tests run the real default path against
+a disposable SQLite source and a real `dotnet` candidate invocation:
+
+- A missing source fails the backup (`sqlite_source_missing`).
+- A source without migration history fails restore verification
+  (`sqlite_restore_verification_failed`).
+- A candidate that is not an assembly fails validation
+  (`candidate_database_validation_failed`).
+
+In each case no process starts, no restart record is written, and the isolated
+target is cleaned up.
+
+Keep this entry at Verify until the rehearsal passes on a process-owned host.
 
 ## FOLLOWUP-019 — API runtime workspace tools remain unaccepted
 
