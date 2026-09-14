@@ -32,6 +32,8 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   observed version. Preserve concurrent configuration changes on all providers.
 - Preserve SQL Server fractional timestamps so valid health updates can pass
   the version check.
+- Run endpoint health sweeps in a separate cancellable loop so a slow provider
+  cannot delay the core captain and dispatch health loop.
 
 ### Harbor identity core
 

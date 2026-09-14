@@ -121,6 +121,7 @@ namespace Armada.Server
 
         private CancellationTokenSource _TokenSource = new CancellationTokenSource();
         private Task _HealthCheckTask = null!;
+        private Task _ModelEndpointHealthTask = null!;
         private int _HealthCheckCycles = 0;
         private DateTime _StartUtc = DateTime.UtcNow;
         private readonly ConditionalWeakTable<HttpContextBase, AuthContext> _RequestAuthContexts = new ConditionalWeakTable<HttpContextBase, AuthContext>();
@@ -628,6 +629,7 @@ namespace Armada.Server
 
             // Start health check loop
             _HealthCheckTask = HealthCheckLoopAsync(_TokenSource.Token);
+            _ModelEndpointHealthTask = ModelEndpointHealthLoopAsync(_TokenSource.Token);
         }
 
         /// <summary>
@@ -742,6 +744,17 @@ namespace Armada.Server
             }
 
             _TokenSource.Cancel();
+            try
+            {
+                _ModelEndpointHealthTask?.GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "model endpoint health loop stop error: " + ex.Message);
+            }
             _ObjectiveScheduler?.Dispose();
             _RemoteTunnel?.StopAsync().GetAwaiter().GetResult();
             _RemoteDashboardRelay?.DisposeAsync().GetAwaiter().GetResult();
@@ -1501,7 +1514,6 @@ namespace Armada.Server
             try
             {
                 await _Admiral.HealthCheckAsync(token).ConfigureAwait(false);
-                await _ModelEndpointService.CheckHealthAllAsync(token).ConfigureAwait(false);
                 _AutomaticCheckRuns.TriggerBackgroundSweep(token);
                 _AutonomousRecovery.TriggerBackgroundSweep(token);
                 _IncidentLifecycle.TriggerBackgroundSweep(token);
@@ -1519,7 +1531,6 @@ namespace Armada.Server
                 {
                     await Task.Delay(_Settings.HeartbeatIntervalSeconds * 1000, token).ConfigureAwait(false);
                     await _Admiral.HealthCheckAsync(token).ConfigureAwait(false);
-                    await _ModelEndpointService.CheckHealthAllAsync(token).ConfigureAwait(false);
                     _AutomaticCheckRuns.TriggerBackgroundSweep(token);
                     _AutonomousRecovery.TriggerBackgroundSweep(token);
                     _IncidentLifecycle.TriggerBackgroundSweep(token);
@@ -1607,6 +1618,34 @@ namespace Armada.Server
                 catch (Exception ex)
                 {
                     _Logging.Warn(_Header + "health check error: " + ex.Message);
+                }
+            }
+        }
+
+        private async Task ModelEndpointHealthLoopAsync(CancellationToken token)
+        {
+            while (!token.IsCancellationRequested)
+            {
+                try
+                {
+                    await _ModelEndpointService.CheckHealthAllAsync(token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "model endpoint health sweep error: " + ex.Message);
+                }
+
+                try
+                {
+                    await Task.Delay(Math.Max(1, _Settings.HeartbeatIntervalSeconds) * 1000, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    break;
                 }
             }
         }

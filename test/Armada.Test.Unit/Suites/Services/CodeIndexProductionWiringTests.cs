@@ -72,6 +72,20 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
+            await RunTest("ArmadaServer isolates model endpoint health from the core heartbeat loop", () =>
+            {
+                string path = Path.Combine(FindRepositoryRoot(), "src", "Armada.Server", "ArmadaServer.cs");
+                string contents = File.ReadAllText(path);
+                int coreStart = contents.IndexOf("private async Task HealthCheckLoopAsync", StringComparison.Ordinal);
+                int endpointStart = contents.IndexOf("private async Task ModelEndpointHealthLoopAsync", StringComparison.Ordinal);
+                AssertTrue(coreStart >= 0 && endpointStart > coreStart, "ArmadaServer should define both health loops");
+                string coreLoop = contents.Substring(coreStart, endpointStart - coreStart);
+                AssertFalse(coreLoop.Contains("CheckHealthAllAsync", StringComparison.Ordinal), "A blocked model provider must not block the core heartbeat loop");
+                AssertContains("await _ModelEndpointService.CheckHealthAllAsync(token)", contents, "The endpoint health loop must retain the provider sweep");
+                AssertContains("_ModelEndpointHealthTask = ModelEndpointHealthLoopAsync(_TokenSource.Token)", contents, "The endpoint health loop must start independently");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await RunTest("ArmadaServer source runs can auto-detect the React dashboard build", () =>
             {
                 string path = Path.Combine(FindRepositoryRoot(), "src", "Armada.Server", "ArmadaServer.cs");
