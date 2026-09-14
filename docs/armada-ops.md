@@ -2120,6 +2120,17 @@ SQL Server also needs `selfDeploy.sqlServerBackupDirectory`. A failure returns
 a named reason and leaves no archive, so a successful `armada_backup` is
 evidence of a restorable backup.
 
+The server image ships the PostgreSQL 16 and MySQL 8.0 clients. SQL Server's
+`sqlcmd` must come from a derived image. An image built before those packages
+were added has no server clients, so backup and the self-deploy preflight fail
+with `native_client_missing_<tool>` (for example
+`native_client_missing_pg_dump`). The deploy window that adds them rebuilds
+the image with rollback retention. Inside the new container, `pg_dump
+--version` must report a major version at least the PostgreSQL server's. One
+`armada_backup` must then produce a manifest with the configured
+`databaseType`, non-zero `recordCounts` and both verification flags true.
+`docs/DOCKER.md` ("Database Client Tools") has the steps.
+
 Restore replaces the database only on SQLite. On PostgreSQL, MySQL and SQL
 Server it is refused with `restore_unsupported_for_provider_<type>`. For those
 providers, stop the admiral and restore the archive's native artifact with

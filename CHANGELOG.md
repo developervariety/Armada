@@ -84,6 +84,15 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   `restore_unsupported_for_provider_<type>` before the archive is read. An
   archive from another provider is refused with `backup_provider_mismatch`.
   REST returns 409 for refusals and 500 for failures.
+- The server image installs the PostgreSQL 16 client (`pg_dump`, `pg_restore`,
+  `psql`, `createdb`, `dropdb`) and the MySQL 8.0 client (`mysql`,
+  `mysqldump`) that native backup and the self-deploy preflight run. SQL
+  Server's ODBC 18 `sqlcmd` still has to be added in a derived image, because
+  it needs Microsoft's repository and an EULA acceptance.
+- A missing native client or `dotnet` runtime is reported as
+  `native_client_missing_<tool>` by the backup provider, the backup service,
+  the self-deploy preflight and the candidate validator, instead of a generic
+  stage failure.
 
 ### API endpoint runtime lifecycle
 

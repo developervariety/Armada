@@ -123,6 +123,10 @@ namespace Armada.Core.Services
                 {
                     return Failure(ex.FailureReason, artifactPath, isolatedTarget);
                 }
+                catch (SelfDeployNativeClientMissingException ex)
+                {
+                    return Failure(ex.FailureReason, artifactPath, isolatedTarget);
+                }
                 catch
                 {
                     return Failure(stage, artifactPath, isolatedTarget);

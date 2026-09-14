@@ -366,6 +366,41 @@ retention checks.
 
 ---
 
+## Database Client Tools
+
+Backup (`armada_backup`, `GET /api/v1/backup`, WebSocket `backup`) and the
+self-deploy preflight use the configured provider's native client tools inside
+the admiral container. When a tool is absent they fail with
+`native_client_missing_<tool>`. They never report a successful backup without
+the tool.
+
+| Provider | Tools the admiral container needs | In `src/Armada.Server/Dockerfile` |
+| --- | --- | --- |
+| SQLite | none (built in) | yes |
+| PostgreSQL | `pg_dump`, `pg_restore`, `psql`, `createdb`, `dropdb`; client major at least the server major | `postgresql-client-16` |
+| MySQL | `mysql`, `mysqldump` | `mysql-client-8.0` |
+| SQL Server | ODBC 18 `sqlcmd` (`mssql-tools18`) | not installed: needs Microsoft's apt repository and `ACCEPT_EULA=Y`; add it in a derived image |
+
+A PostgreSQL server newer than 16 needs a matching client package in the image.
+
+### Upgrading a running deployment
+
+An image built before these packages were added has none of the server
+clients. Adding them takes a rebuild; there is no runtime switch.
+
+1. Rebuild with `scripts/common/rebuild-local-image.sh` so the running image
+   and the current tag are retained for rollback, then recreate the container
+   (see "Rebuilding a local image with rollback retention").
+2. Verify the tools inside the new container:
+   `docker exec armada-admiral pg_dump --version` must report 16.x or later
+   for the PostgreSQL server in use. For MySQL also check `mysqldump --version`.
+3. Run `armada_backup` once. The archive's `manifest.json` must name the
+   configured `databaseType`, carry non-zero `recordCounts` and
+   `backupValidated`/`restoreVerified` set to `true`.
+   `native_client_missing_<tool>` means the image still lacks the tool.
+
+Restore replaces the database only on SQLite; see `docs/REST_API.md`.
+
 ## Ports Reference
 
 | Port | Protocol | Service | Description |

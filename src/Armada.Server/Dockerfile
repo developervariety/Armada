@@ -46,9 +46,19 @@ WORKDIR /app
 # CLI_REFRESH busts this layer so @latest actually re-pulls. Pass
 # --build-arg CLI_REFRESH=$(date +%s) to refresh the agent CLIs on a rebuild;
 # omit it to keep the last-built versions (Docker caches this RUN otherwise).
+#
+# Database backup and the self-deploy preflight run the configured provider's
+# native client tools inside this container. The PostgreSQL client major must
+# be at least the server major, so it is pinned by package name to 16
+# (pg_dump, pg_restore, psql, createdb, dropdb). The MySQL client is pinned to
+# 8.0 (mysql, mysqldump). Both come from the base image's Ubuntu archive. SQL
+# Server's ODBC 18 sqlcmd is not installed: it needs Microsoft's apt repository
+# and an in-image EULA acceptance. Install mssql-tools18 in a derived image
+# when the admiral uses SQL Server.
 ARG CLI_REFRESH=0
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl default-jdk-headless gh git glab gnupg iproute2 \
+        postgresql-client-16 mysql-client-8.0 \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key \
         | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \

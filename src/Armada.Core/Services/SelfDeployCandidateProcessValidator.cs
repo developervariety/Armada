@@ -119,6 +119,10 @@ namespace Armada.Core.Services
                 {
                     validation = Failure("candidate_validation_timeout");
                 }
+                catch (SelfDeployNativeClientMissingException ex)
+                {
+                    validation = Failure(ex.FailureReason);
+                }
                 catch
                 {
                     validation = Failure("candidate_validator_failed");

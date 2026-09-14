@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.ComponentModel;
     using System.Diagnostics;
     using System.IO;
     using System.Text;
@@ -55,7 +56,17 @@ namespace Armada.Core.Services
             using (Process process = new Process())
             {
                 process.StartInfo = startInfo;
-                if (!process.Start()) throw new InvalidOperationException("Native database utility did not start.");
+                try
+                {
+                    if (!process.Start()) throw new InvalidOperationException("Native database utility did not start.");
+                }
+                catch (Win32Exception ex)
+                {
+                    // ENOENT / ERROR_FILE_NOT_FOUND (2) and ERROR_PATH_NOT_FOUND (3) mean the tool is not installed;
+                    // any other start failure (for example EACCES) means it exists but cannot be executed.
+                    bool missing = ex.NativeErrorCode == 2 || ex.NativeErrorCode == 3;
+                    throw new SelfDeployNativeClientMissingException(request.FileName, !missing, ex);
+                }
 
                 Task inputTask = Task.CompletedTask;
                 if (!String.IsNullOrWhiteSpace(request.StandardInputFilePath))
