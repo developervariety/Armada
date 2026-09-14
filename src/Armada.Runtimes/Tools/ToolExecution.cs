@@ -83,9 +83,9 @@ namespace Armada.Runtimes.Tools
             Directory.CreateDirectory(directory);
             string temporary = Path.Combine(directory, ".armada-write-" + Guid.NewGuid().ToString("N") + ".tmp");
             UnixFileMode? existingMode = null;
-            if (File.Exists(path))
+            if (!OperatingSystem.IsWindows() && File.Exists(path))
             {
-                try { existingMode = File.GetUnixFileMode(path); } catch (Exception) { }
+                existingMode = File.GetUnixFileMode(path);
             }
 
             try
@@ -96,10 +96,11 @@ namespace Armada.Runtimes.Tools
                     await stream.WriteAsync(bytes.AsMemory(), token).ConfigureAwait(false);
                     await stream.FlushAsync(token).ConfigureAwait(false);
                 }
+                token.ThrowIfCancellationRequested();
 
                 if (existingMode.HasValue)
                 {
-                    try { File.SetUnixFileMode(temporary, existingMode.Value); } catch (Exception) { }
+                    File.SetUnixFileMode(temporary, existingMode.Value);
                 }
 
                 token.ThrowIfCancellationRequested();
