@@ -134,6 +134,8 @@ namespace Armada.Core.Database.Postgresql
                                 await ModelEndpointSchemaGuard.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Postgresql, token).ConfigureAwait(false);
                             if (migration.Version == 90)
                                 await CaptainModelEndpointSchemaGuard.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Postgresql, false, token).ConfigureAwait(false);
+                            if (migration.Version == 91)
+                                await HarborRunnerSchemaGuard.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Postgresql, token).ConfigureAwait(false);
                             for (int statementOrdinal = 0; statementOrdinal < migration.Statements.Count; statementOrdinal++)
                             {
                                 string sql = migration.Statements[statementOrdinal];
@@ -299,6 +301,7 @@ namespace Armada.Core.Database.Postgresql
             Tenants = new TenantMethods(this, _Settings, _Logging);
             Users = new UserMethods(this, _Settings, _Logging);
             Credentials = new CredentialMethods(this, _Settings, _Logging);
+            HarborRunnerEnrollments = new HarborRunnerEnrollmentMethods(_DataSource);
             PromptTemplates = new PromptTemplateMethods(this, _Settings, _Logging);
             Playbooks = new PlaybookMethods(this, _Settings, _Logging);
             Memories = new MemoryMethods(this, _Settings, _Logging);

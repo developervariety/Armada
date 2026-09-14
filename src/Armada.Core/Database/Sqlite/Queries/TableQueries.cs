@@ -1586,6 +1586,11 @@ namespace Armada.Core.Database.Sqlite.Queries
                 ),
                 new SchemaMigration(89, "Persist captain model endpoint links",
                     @"ALTER TABLE captains ADD COLUMN model_endpoint_id TEXT NULL REFERENCES model_endpoints(id) ON DELETE RESTRICT;"
+                ),
+                new SchemaMigration(90, "Persist Harbor runner enrollments",
+                    @"CREATE TABLE IF NOT EXISTS harbor_runner_enrollments (runner_id TEXT NOT NULL PRIMARY KEY, tenant_id TEXT NOT NULL, user_id TEXT NOT NULL, auth_method TEXT NOT NULL, credential_id TEXT, generation INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1, created_utc TEXT NOT NULL, last_update_utc TEXT NOT NULL, revoked_utc TEXT, revoked_by_user_id TEXT);",
+                    @"CREATE INDEX IF NOT EXISTS idx_harbor_runner_enrollments_tenant ON harbor_runner_enrollments(tenant_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_harbor_runner_enrollments_active ON harbor_runner_enrollments(active);"
                 )
             };
         }

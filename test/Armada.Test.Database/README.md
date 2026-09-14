@@ -18,6 +18,16 @@ database for each invocation. A failed scenario leaves its database available
 for diagnosis; do not rerun fixture setup against it. To check a saved database
 without constructing a scenario, omit `--migration-scenario`.
 
+Use `--migration-scenario harbor-enrollment-migration` to fault and restart the
+Harbor enrollment migration. The scenario uses the selected provider and
+checks the durable table after restart.
+
+Use `--migration-scenario harbor-enrollment-guards` to stage malformed Harbor
+enrollment tables for the selected provider. The driver must reject independent
+nullability, type, default, and primary-key fixtures without changing applied
+migration history. The scenario then replays the migration against an
+equivalent preexisting table.
+
 | Scenario | Providers | Proof |
 | --- | --- | --- |
 | `fresh` | All four | Initial schema, repeat startup and ordinary persistence cases |
@@ -36,6 +46,8 @@ without constructing a scenario, omit `--migration-scenario`.
 | `mysql-compat` | MySQL | Populated Unicode backfill, no repeat row update, damaged mapping, duplicate/orphan/FK/default rejection |
 | `sqlserver-corrections` | SQL Server | Equivalent and incompatible pre-staged v59/v68 objects; separate correction evidence and complete model value |
 | `model-endpoint-guards` | All four | Incompatible pre-existing model endpoint table and malformed captain link are rejected without advancing history; interrupted table and captain-link migrations restart successfully |
+| `harbor-enrollment-migration` | All four | Interrupted Harbor enrollment table/index DDL restarts, preserves migration history, and supports provider-backed reads |
+| `harbor-enrollment-guards` | All four | Independent malformed Harbor enrollment schemas are rejected without advancing history; an equivalent preexisting table replays successfully |
 
 The server catalog fixture also tests disabled primary-key and foreign-key
 state where supported. PostgreSQL's historical UTC conversion runs with a

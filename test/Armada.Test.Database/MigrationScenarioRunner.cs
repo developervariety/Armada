@@ -56,6 +56,18 @@ namespace Armada.Test.Database
                 return;
             }
 
+            if (scenario == "harbor-enrollment-migration")
+            {
+                await new HarborRunnerEnrollmentMigrationTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
+                return;
+            }
+
+            if (scenario == "harbor-enrollment-guards")
+            {
+                await new HarborRunnerEnrollmentSchemaGuardTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
+                return;
+            }
+
             if (scenario == "postgres-legacy")
                 await new PostgresqlLegacySchemaTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
 

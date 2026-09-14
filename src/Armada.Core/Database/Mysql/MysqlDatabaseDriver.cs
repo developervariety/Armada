@@ -72,6 +72,7 @@ namespace Armada.Core.Database.Mysql
             Tenants = new TenantMethods(_ConnectionString);
             Users = new UserMethods(_ConnectionString);
             Credentials = new CredentialMethods(_ConnectionString);
+            HarborRunnerEnrollments = new HarborRunnerEnrollmentMethods(_ConnectionString);
             PromptTemplates = new PromptTemplateMethods(_ConnectionString);
             Playbooks = new PlaybookMethods(_ConnectionString);
             Memories = new MemoryMethods(_ConnectionString);
@@ -146,6 +147,8 @@ namespace Armada.Core.Database.Mysql
                             await ModelEndpointSchemaGuard.EnsureAsync(conn, null, DatabaseTypeEnum.Mysql, token).ConfigureAwait(false);
                         if (migration.Version == 81)
                             await CaptainModelEndpointSchemaGuard.EnsureAsync(conn, null, DatabaseTypeEnum.Mysql, false, token).ConfigureAwait(false);
+                        if (migration.Version == 82)
+                            await HarborRunnerSchemaGuard.EnsureAsync(conn, null, DatabaseTypeEnum.Mysql, token).ConfigureAwait(false);
                         await runner.ApplyAsync(migration, token).ConfigureAwait(false);
                         applied++;
                     }
@@ -658,7 +661,8 @@ namespace Armada.Core.Database.Mysql
                     @"ALTER TABLE missions ADD COLUMN last_admission_json LONGTEXT CHARACTER SET utf8mb4 NULL;",
                     @"ALTER TABLE missions ADD COLUMN admission_revision BIGINT NOT NULL DEFAULT 0;"),
                 new SchemaMigration(80, "Persist managed model endpoints", TableQueries.MigrationV80Statements),
-                new SchemaMigration(81, "Persist captain model endpoint links", TableQueries.MigrationV81Statements)
+                new SchemaMigration(81, "Persist captain model endpoint links", TableQueries.MigrationV81Statements),
+                new SchemaMigration(82, "Persist Harbor runner enrollments", TableQueries.MigrationV82Statements)
             };
         }
 

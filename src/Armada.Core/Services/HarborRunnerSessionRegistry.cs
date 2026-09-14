@@ -18,6 +18,7 @@ namespace Armada.Core.Services
         private readonly object _Gate = new object();
         private readonly IHarborRunnerOwnerResolver? _OwnerResolver;
         private readonly Dictionary<string, HarborRunnerSession> _Sessions = new Dictionary<string, HarborRunnerSession>(StringComparer.Ordinal);
+        private readonly Dictionary<string, long> _LatestEnrollmentGenerations = new Dictionary<string, long>(StringComparer.Ordinal);
         private readonly Dictionary<string, IPendingRequest> _Pending = new Dictionary<string, IPendingRequest>(StringComparer.Ordinal);
         private readonly HashSet<string> _ReplayIds = new HashSet<string>(StringComparer.Ordinal);
         private readonly Queue<string> _ReplayOrder = new Queue<string>();
@@ -34,6 +35,8 @@ namespace Armada.Core.Services
         {
             Enabled = enabled;
             _OwnerResolver = ownerResolver;
+            if (_OwnerResolver is IHarborRunnerOwnerChangeNotifier notifier)
+                notifier.OwnerChanged += HandleOwnerChanged;
         }
 
         /// <summary>
@@ -87,9 +90,10 @@ namespace Armada.Core.Services
             }
 
             AuthContext? ownerAuth;
+            long enrollmentGeneration;
             try
             {
-                if (!_OwnerResolver.TryGetOwner(identity.RunnerId, out ownerAuth) || ownerAuth == null)
+                if (!TryResolveOwner(identity.RunnerId, out ownerAuth, out enrollmentGeneration) || ownerAuth == null)
                 {
                     failureReason = "runner_owner_unknown";
                     return false;
@@ -109,6 +113,11 @@ namespace Armada.Core.Services
 
             lock (_Gate)
             {
+                if (IsEnrollmentGenerationStale(identity.RunnerId, enrollmentGeneration))
+                {
+                    failureReason = "runner_enrollment_generation_stale";
+                    return false;
+                }
                 if (_Sessions.TryGetValue(identity.RunnerId, out HarborRunnerSession? existing)
                     && (!String.Equals(existing.Identity.TenantId, identity.TenantId, StringComparison.Ordinal)
                         || !String.Equals(existing.Identity.UserId, identity.UserId, StringComparison.Ordinal)
@@ -120,7 +129,7 @@ namespace Armada.Core.Services
                 }
 
                 if (existing != null) InvalidatePendingForSession(existing);
-                HarborRunnerSession replacement = new HarborRunnerSession(identity, ++_NextGeneration);
+                HarborRunnerSession replacement = new HarborRunnerSession(identity, ++_NextGeneration, enrollmentGeneration);
                 _Sessions[identity.RunnerId] = replacement;
                 session = replacement;
                 return true;
@@ -192,12 +201,19 @@ namespace Armada.Core.Services
                 return false;
             }
 
+            if (!SessionOwnerIsCurrent(session, out failureReason)) return false;
+
             lock (_Gate)
             {
                 if (!_Sessions.TryGetValue(session.Identity.RunnerId, out HarborRunnerSession? current)
                     || !Object.ReferenceEquals(current, session))
                 {
                     failureReason = "runner_session_stale";
+                    return false;
+                }
+                if (IsEnrollmentGenerationStale(session.Identity.RunnerId, session.EnrollmentGeneration))
+                {
+                    failureReason = "runner_enrollment_generation_stale";
                     return false;
                 }
                 string requestId = "g" + session.Generation.ToString(CultureInfo.InvariantCulture)
@@ -231,10 +247,26 @@ namespace Armada.Core.Services
         public bool TryCompletePending<T>(HarborRunnerSession session, string requestId, T response)
         {
             if (session == null || String.IsNullOrWhiteSpace(requestId)) return false;
+            if (!SessionOwnerIsCurrent(session, out _))
+            {
+                lock (_Gate)
+                {
+                    if (_Pending.TryGetValue(requestId, out IPendingRequest? stale)
+                        && String.Equals(stale.RunnerId, session?.Identity.RunnerId, StringComparison.Ordinal)
+                        && stale.Generation == session?.Generation)
+                    {
+                        stale.Cancel();
+                        _Pending.Remove(requestId);
+                        RememberReplay(requestId);
+                    }
+                }
+                return false;
+            }
             IPendingRequest? pending;
             lock (_Gate)
             {
                 if (!_Pending.TryGetValue(requestId, out pending)) return false;
+                if (IsEnrollmentGenerationStale(session.Identity.RunnerId, session.EnrollmentGeneration)) return false;
                 if (!String.Equals(pending.RunnerId, session.Identity.RunnerId, StringComparison.Ordinal)
                     || pending.Generation != session.Generation
                     || !_Sessions.TryGetValue(session.Identity.RunnerId, out HarborRunnerSession? current)
@@ -284,6 +316,77 @@ namespace Armada.Core.Services
                 string removed = _ReplayOrder.Dequeue();
                 _ReplayIds.Remove(removed);
             }
+        }
+
+        private bool TryResolveOwner(string runnerId, out AuthContext? owner, out long enrollmentGeneration)
+        {
+            enrollmentGeneration = 0;
+            if (_OwnerResolver is IHarborRunnerOwnerGenerationResolver versioned)
+                return versioned.TryGetOwner(runnerId, out owner, out enrollmentGeneration);
+            return _OwnerResolver!.TryGetOwner(runnerId, out owner);
+        }
+
+        private bool SessionOwnerIsCurrent(HarborRunnerSession session, out string failureReason)
+        {
+            failureReason = String.Empty;
+            AuthContext? owner;
+            long enrollmentGeneration;
+            try
+            {
+                if (!TryResolveOwner(session.Identity.RunnerId, out owner, out enrollmentGeneration) || owner == null)
+                {
+                    failureReason = "runner_owner_unavailable";
+                    return false;
+                }
+            }
+            catch
+            {
+                failureReason = "runner_owner_unavailable";
+                return false;
+            }
+            if (!session.Identity.Matches(owner))
+            {
+                failureReason = "runner_owner_mismatch";
+                return false;
+            }
+            if (_OwnerResolver is IHarborRunnerOwnerGenerationResolver
+                && enrollmentGeneration != session.EnrollmentGeneration)
+            {
+                failureReason = "runner_enrollment_generation_stale";
+                return false;
+            }
+            return true;
+        }
+
+        private void HandleOwnerChanged(string runnerId, long generation)
+        {
+            if (String.IsNullOrWhiteSpace(runnerId) || generation <= 0) return;
+            lock (_Gate)
+            {
+                if (_LatestEnrollmentGenerations.TryGetValue(runnerId, out long known) && known >= generation) return;
+                _LatestEnrollmentGenerations[runnerId] = generation;
+                if (_Sessions.TryGetValue(runnerId, out HarborRunnerSession? session)
+                    && session.EnrollmentGeneration != generation)
+                {
+                    InvalidatePendingForSession(session);
+                    _Sessions.Remove(runnerId);
+                }
+            }
+        }
+
+        private bool IsEnrollmentGenerationStale(string runnerId, long generation)
+        {
+            if (!_LatestEnrollmentGenerations.TryGetValue(runnerId, out long known))
+            {
+                _LatestEnrollmentGenerations[runnerId] = generation;
+                return false;
+            }
+            if (generation > known)
+            {
+                _LatestEnrollmentGenerations[runnerId] = generation;
+                return false;
+            }
+            return generation < known;
         }
 
         private interface IPendingRequest

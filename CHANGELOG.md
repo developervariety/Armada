@@ -63,6 +63,22 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   request IDs and reject replayed responses. Transport and process launch remain
   separate integration work.
 
+### Harbor runner enrollment
+
+- Persist administrator-controlled runner ownership with tenant, user,
+  authentication-method, and credential identifiers. Raw credential values are
+  never stored in the enrollment record.
+- Use atomic generation checks for enrollment and revocation. Revalidate the
+  enrollment and its credential on every owner resolution so revoked runners
+  and credentials fail closed without a process restart. Harbor remains
+  disabled by default.
+- Bind each live session and pending response to the durable enrollment
+  generation. Revocation and re-enrollment invalidate old sessions and pending
+  work before a new generation can create work.
+- Validate Harbor schema types, nullability, keys, names and MySQL binary
+  collations before replay. Exercise fresh, restart, malformed-schema and
+  provider race cases against isolated databases.
+
 ### OpenCode provider failures
 
 - Parse captured top-level provider errors into bounded, redacted activity.

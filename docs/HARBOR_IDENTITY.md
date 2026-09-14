@@ -13,9 +13,10 @@ authentication method, and matches the enrolled owner. Unknown runners and
 different users, tenants, authentication methods, or credentials are rejected,
 including after a prior session disconnects.
 
-Each accepted registration receives a new `HarborRunnerSession` generation. A
-stale session cannot disconnect its replacement. A transport must keep the
-session lease and present it for every request, response, and disconnect.
+Each accepted registration receives a new `HarborRunnerSession` generation and
+records the durable enrollment generation that authorized it. A stale session
+cannot disconnect its replacement. A transport must keep the session lease and
+present it for every request, response, and disconnect.
 
 Typed pending responses are registered with `TryRegisterPending<T>`. The
 registry issues each correlation identifier from the connection generation and
@@ -38,3 +39,29 @@ bool accepted = registry.TryRegister(runnerId, verifiedAuth, out HarborRunnerSes
 The transport integration must continue to use the application's verified
 authentication service and must not replace it with a non-empty access-key or
 caller-supplied tenant header check.
+
+## Durable runner enrollment
+
+`HarborRunnerEnrollmentService` is the administrator-controlled owner source for
+the registry. It persists one current row per runner in the
+`harbor_runner_enrollments` table on every supported database provider. The row
+contains only runner, tenant, user, authentication-method, and credential
+identifiers, plus generation and revocation state. It never contains a bearer
+token or other raw credential value.
+
+`CreateAsync` requires a verified owner and a global or same-tenant
+administrator. When a credential identifier is present, the service checks the
+durable credential row and its active state before enrollment. `RevokeAsync`
+uses a generation compare-and-set, and revocation advances the generation.
+Enrollment after revocation also uses compare-and-set, so concurrent
+administrators cannot replace an active owner.
+
+`TryGetOwner` reads the enrollment on every call and rechecks the bound
+credential, active user, and active tenant. Unknown runners, inactive
+enrollments, inactive credentials, and tenant or user mismatches return no
+owner. Requests and responses also revalidate the durable generation outside
+the registry lock. Revocation therefore cancels old pending work, and a
+same-credential re-enrollment cannot resurrect that work; only a new
+registration with the new generation can create work. Harbor stays disabled
+until a future transport explicitly enables the registry and injects this
+service.

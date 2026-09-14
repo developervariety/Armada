@@ -135,6 +135,11 @@ namespace Armada.Core.Database
         public ICredentialMethods Credentials { get; protected set; } = null!;
 
         /// <summary>
+        /// Durable Harbor runner enrollment operations.
+        /// </summary>
+        public IHarborRunnerEnrollmentMethods HarborRunnerEnrollments { get; protected set; } = null!;
+
+        /// <summary>
         /// Prompt template operations.
         /// </summary>
         public IPromptTemplateMethods PromptTemplates { get; protected set; } = null!;
@@ -255,6 +260,7 @@ namespace Armada.Core.Database
             if (Skills == null) missing.Add(nameof(Skills));
             if (CoordinationLeases == null) missing.Add(nameof(CoordinationLeases));
             if (JudgeFollowUps == null) missing.Add(nameof(JudgeFollowUps));
+            if (HarborRunnerEnrollments == null) missing.Add(nameof(HarborRunnerEnrollments));
 
             return missing;
         }

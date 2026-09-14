@@ -1202,6 +1202,14 @@ namespace Armada.Core.Database.Mysql.Queries
             @"ALTER TABLE captains ADD CONSTRAINT fk_captains_model_endpoint FOREIGN KEY (model_endpoint_id) REFERENCES model_endpoints(id) ON DELETE RESTRICT;"
         };
 
+        /// <summary>Migration v82 statements for Harbor runner enrollment persistence.</summary>
+        public static readonly string[] MigrationV82Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS harbor_runner_enrollments (runner_id VARCHAR(450) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, tenant_id VARCHAR(450) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, user_id VARCHAR(450) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, auth_method VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, credential_id VARCHAR(450) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL, generation BIGINT NOT NULL, active TINYINT(1) NOT NULL DEFAULT 1, created_utc DATETIME(6) NOT NULL, last_update_utc DATETIME(6) NOT NULL, revoked_utc DATETIME(6) NULL, revoked_by_user_id VARCHAR(450) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL, PRIMARY KEY (runner_id));",
+            @"CREATE INDEX idx_harbor_runner_enrollments_tenant ON harbor_runner_enrollments(tenant_id);",
+            @"CREATE INDEX idx_harbor_runner_enrollments_active ON harbor_runner_enrollments(active);"
+        };
+
         /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>

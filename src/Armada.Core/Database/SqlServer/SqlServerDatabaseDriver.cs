@@ -79,6 +79,7 @@ namespace Armada.Core.Database.SqlServer
             Tenants = new TenantMethods(this, _Settings, _Logging);
             Users = new UserMethods(this, _Settings, _Logging);
             Credentials = new CredentialMethods(this, _Settings, _Logging);
+            HarborRunnerEnrollments = new HarborRunnerEnrollmentMethods(this);
             PromptTemplates = new PromptTemplateMethods(this, _Settings, _Logging);
             Playbooks = new PlaybookMethods(this, _Settings, _Logging);
             Memories = new MemoryMethods(this, _Settings, _Logging);
@@ -156,6 +157,8 @@ namespace Armada.Core.Database.SqlServer
                                 await ModelEndpointSchemaGuard.EnsureAsync(conn, tx, DatabaseTypeEnum.SqlServer, token).ConfigureAwait(false);
                             if (migration.Version == 84)
                                 await CaptainModelEndpointSchemaGuard.EnsureAsync(conn, tx, DatabaseTypeEnum.SqlServer, false, token).ConfigureAwait(false);
+                            if (migration.Version == 85)
+                                await HarborRunnerSchemaGuard.EnsureAsync(conn, tx, DatabaseTypeEnum.SqlServer, token).ConfigureAwait(false);
                             for (int statementOrdinal = 0; statementOrdinal < migration.Statements.Count; statementOrdinal++)
                             {
                                 string sql = migration.Statements[statementOrdinal];

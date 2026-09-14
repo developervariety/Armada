@@ -14,13 +14,17 @@ namespace Armada.Core.Harbor
         /// <summary>Monotonic connection generation assigned by the registry.</summary>
         public long Generation { get; }
 
+        /// <summary>Durable enrollment generation accepted for this connection.</summary>
+        public long EnrollmentGeneration { get; }
+
         /// <summary>UTC time at which this generation was registered.</summary>
         public DateTime ConnectedUtc { get; }
 
-        internal HarborRunnerSession(HarborRunnerIdentity identity, long generation)
+        internal HarborRunnerSession(HarborRunnerIdentity identity, long generation, long enrollmentGeneration)
         {
             Identity = identity ?? throw new ArgumentNullException(nameof(identity));
             Generation = generation;
+            EnrollmentGeneration = enrollmentGeneration;
             ConnectedUtc = DateTime.UtcNow;
         }
     }
