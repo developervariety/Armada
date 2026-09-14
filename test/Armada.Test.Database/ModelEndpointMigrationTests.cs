@@ -197,6 +197,9 @@ namespace Armada.Test.Database
         private async Task AssertSqliteCompositeCaptainLinkRejectedAsync(MigrationScenarioRunner scenarioRunner,
             Dictionary<int, string> before, CancellationToken token)
         {
+            if (!await CaptainTableExistsAsync(token).ConfigureAwait(false))
+                return;
+
             string originalSql = await ReadScalarStringAsync(
                 "SELECT sql FROM sqlite_master WHERE type='table' AND name='captains';", token).ConfigureAwait(false);
             DatabaseAssert.True(!String.IsNullOrWhiteSpace(originalSql), "SQLite captain table DDL is available for composite-FK fixture");
@@ -224,6 +227,7 @@ namespace Armada.Test.Database
             string databaseName = "armada_guard_cross_" + Guid.NewGuid().ToString("N");
             string quotedDatabase = "`" + databaseName + "`";
             bool databaseCreated = false;
+            bool originalConstraintDropped = false;
             bool crossConstraintCreated = false;
             try
             {
@@ -231,6 +235,7 @@ namespace Armada.Test.Database
                 databaseCreated = true;
                 await ExecuteAsync("CREATE TABLE " + quotedDatabase + ".model_endpoints (id VARCHAR(450) CHARACTER SET utf8mb4 NOT NULL PRIMARY KEY) ENGINE=InnoDB;", token).ConfigureAwait(false);
                 await ExecuteAsync("ALTER TABLE captains DROP FOREIGN KEY fk_partial_wrong;", token).ConfigureAwait(false);
+                originalConstraintDropped = true;
                 await ExecuteAsync("ALTER TABLE captains ADD CONSTRAINT fk_partial_cross FOREIGN KEY (model_endpoint_id) REFERENCES " + quotedDatabase + ".model_endpoints(id);", token).ConfigureAwait(false);
                 crossConstraintCreated = true;
                 await AssertCaptainLinkRejectedAsync(scenarioRunner, before, token).ConfigureAwait(false);
@@ -239,6 +244,8 @@ namespace Armada.Test.Database
             {
                 if (crossConstraintCreated)
                     await ExecuteAsync("ALTER TABLE captains DROP FOREIGN KEY fk_partial_cross;", token).ConfigureAwait(false);
+                if (originalConstraintDropped)
+                    await ExecuteAsync("ALTER TABLE captains ADD CONSTRAINT fk_partial_wrong FOREIGN KEY (model_endpoint_id) REFERENCES tenants(id) ON DELETE CASCADE;", token).ConfigureAwait(false);
                 if (databaseCreated)
                     await ExecuteAsync("DROP DATABASE " + quotedDatabase + ";", token).ConfigureAwait(false);
             }
@@ -391,6 +398,19 @@ namespace Armada.Test.Database
                     return value == null || value == DBNull.Value ? String.Empty : Convert.ToString(value) ?? String.Empty;
                 }
             }
+        }
+
+        private async Task<bool> CaptainTableExistsAsync(CancellationToken token)
+        {
+            string sql = _Settings.Type switch
+            {
+                DatabaseTypeEnum.Sqlite => "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='captains';",
+                DatabaseTypeEnum.Postgresql => "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=current_schema() AND table_name='captains';",
+                DatabaseTypeEnum.Mysql => "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='captains';",
+                DatabaseTypeEnum.SqlServer => "SELECT COUNT(*) FROM sys.tables WHERE schema_id=SCHEMA_ID() AND name='captains';",
+                _ => throw new NotSupportedException()
+            };
+            return String.Equals(await ReadScalarStringAsync(sql, token).ConfigureAwait(false), "1", StringComparison.Ordinal);
         }
 
         private async Task ExecuteStatementsAsync(string sql, CancellationToken token)

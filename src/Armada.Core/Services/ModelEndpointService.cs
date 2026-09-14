@@ -449,7 +449,8 @@ namespace Armada.Core.Services
                 // unrelated text, so they are not a reliable deletion-in-use signal.
                 if (current is Microsoft.Data.Sqlite.SqliteException sqlite
                     && sqlite.SqliteErrorCode == 19
-                    && (sqlite.SqliteExtendedErrorCode == 787 || sqlite.SqliteExtendedErrorCode == 19))
+                    && (sqlite.SqliteExtendedErrorCode == 787
+                        || sqlite.SqliteExtendedErrorCode == 1811))
                     return true;
                 if (current is Npgsql.PostgresException postgres && postgres.SqlState == "23503")
                     return true;

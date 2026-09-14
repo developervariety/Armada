@@ -748,9 +748,6 @@ namespace Armada.Server
             {
                 _ModelEndpointHealthTask?.GetAwaiter().GetResult();
             }
-            catch (OperationCanceledException)
-            {
-            }
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "model endpoint health loop stop error: " + ex.Message);

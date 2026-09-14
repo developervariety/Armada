@@ -134,6 +134,124 @@ namespace Test.Shared.Suites.E2E
                     AssertEqual(HttpStatusCode.BadRequest, updateResponse.StatusCode);
             }));
 
+            cases.Add(CaseAsync("captain_endpoint_linkage_enforces_scope_and_delete_guard", "Captain model endpoint linkage enforces scope and deletion guard", TestTags.Negative, async () =>
+            {
+                E2EServerFixture fixture = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);
+                (TenantMetadata ownerTenant, UserMaster ownerUser, Credential ownerCredential) = await CreateRoutePrincipalAsync(fixture, "endpoint-link-owner").ConfigureAwait(false);
+                (TenantMetadata otherTenant, UserMaster otherUser, Credential otherCredential) = await CreateRoutePrincipalAsync(fixture, "endpoint-link-other").ConfigureAwait(false);
+                UserMaster sameTenantOtherUser = new UserMaster
+                {
+                    TenantId = ownerTenant.Id,
+                    Email = "endpoint-link-same-tenant-" + Guid.NewGuid().ToString("N") + "@example.test",
+                    PasswordSha256 = UserMaster.ComputePasswordHash("route-test-password"),
+                    IsTenantAdmin = true,
+                    IsAdmin = false
+                };
+                using (HttpResponseMessage sameTenantUserResponse = await fixture.AuthClient.PostAsync("/api/v1/users", JsonHelper.ToJsonContent(sameTenantOtherUser)).ConfigureAwait(false))
+                {
+                    AssertEqual(HttpStatusCode.Created, sameTenantUserResponse.StatusCode);
+                    sameTenantOtherUser = await JsonHelper.DeserializeAsync<UserMaster>(sameTenantUserResponse).ConfigureAwait(false);
+                }
+                Credential sameTenantOtherCredential = await CreateCredentialAsync(fixture, ownerTenant.Id, sameTenantOtherUser.Id, "endpoint-link-same-tenant").ConfigureAwait(false);
+                string? endpointId = null;
+                string? captainId = null;
+                using (HttpClient ownerClient = CreateBearerClient(fixture, ownerCredential.BearerToken))
+                using (HttpClient otherClient = CreateBearerClient(fixture, otherCredential.BearerToken))
+                using (HttpClient sameTenantOtherClient = CreateBearerClient(fixture, sameTenantOtherCredential.BearerToken))
+                {
+                    try
+                    {
+                        using (HttpResponseMessage createEndpointResponse = await ownerClient.PostAsync("/api/v1/model-endpoints", JsonHelper.ToJsonContent(new ModelEndpointCreateRequest
+                        {
+                            Name = "Scoped captain endpoint",
+                            Kind = Armada.Core.Enums.ModelEndpointKindEnum.Inference,
+                            Scope = Armada.Core.Enums.ScopeEnum.UserSpecific,
+                            Provider = Armada.Core.Enums.ModelProviderEnum.OpenAI,
+                            BaseUrl = "http://127.0.0.1:1",
+                            Model = "scoped-model"
+                        })).ConfigureAwait(false))
+                        {
+                            AssertEqual(HttpStatusCode.Created, createEndpointResponse.StatusCode);
+                            ModelEndpoint endpoint = await JsonHelper.DeserializeAsync<ModelEndpoint>(createEndpointResponse).ConfigureAwait(false);
+                            endpointId = endpoint.Id;
+                            AssertEqual("Scoped captain endpoint", endpoint.Name);
+                            AssertFalse(endpoint.Enabled, "Endpoint creation must default to disabled.");
+                            AssertFalse(String.IsNullOrEmpty(endpoint.Id), "Created endpoint must return its server ID.");
+                        }
+
+                        using (HttpResponseMessage enableResponse = await ownerClient.PutAsync("/api/v1/model-endpoints/" + endpointId, JsonHelper.ToJsonContent(new ModelEndpointCreateRequest
+                        {
+                            Name = "Scoped captain endpoint",
+                            Kind = Armada.Core.Enums.ModelEndpointKindEnum.Inference,
+                            Scope = Armada.Core.Enums.ScopeEnum.UserSpecific,
+                            Provider = Armada.Core.Enums.ModelProviderEnum.OpenAI,
+                            BaseUrl = "http://127.0.0.1:1",
+                            Model = "scoped-model",
+                            Enabled = true
+                        })).ConfigureAwait(false))
+                            AssertEqual(HttpStatusCode.OK, enableResponse.StatusCode);
+
+                        using (HttpResponseMessage validCaptainResponse = await ownerClient.PostAsync("/api/v1/captains", JsonHelper.ToJsonContent(new Captain("Scoped API captain", Armada.Core.Enums.AgentRuntimeEnum.ApiEndpoint)
+                        {
+                            Model = "scoped-model",
+                            ModelEndpointId = endpointId
+                        })).ConfigureAwait(false))
+                        {
+                            AssertEqual(HttpStatusCode.Created, validCaptainResponse.StatusCode);
+                            Captain captain = await JsonHelper.DeserializeAsync<Captain>(validCaptainResponse).ConfigureAwait(false);
+                            captainId = captain.Id;
+                            AssertEqual(endpointId, captain.ModelEndpointId, "Valid captain must retain its endpoint link.");
+                            AssertEqual("Scoped API captain", captain.Name, "Valid captain response must round-trip its name.");
+                        }
+
+                        using (HttpResponseMessage crossTenantCreate = await otherClient.PostAsync("/api/v1/captains", JsonHelper.ToJsonContent(new Captain("Cross tenant API captain", Armada.Core.Enums.AgentRuntimeEnum.ApiEndpoint)
+                        {
+                            Model = "scoped-model",
+                            ModelEndpointId = endpointId
+                        })).ConfigureAwait(false))
+                            AssertEqual(HttpStatusCode.BadRequest, crossTenantCreate.StatusCode, "Cross-tenant endpoint admission must be rejected.");
+
+                        using (HttpResponseMessage privateOwnerCreate = await sameTenantOtherClient.PostAsync("/api/v1/captains", JsonHelper.ToJsonContent(new Captain("Private owner mismatch", Armada.Core.Enums.AgentRuntimeEnum.ApiEndpoint)
+                        {
+                            Model = "scoped-model",
+                            ModelEndpointId = endpointId
+                        })).ConfigureAwait(false))
+                            AssertEqual(HttpStatusCode.BadRequest, privateOwnerCreate.StatusCode, "Private endpoint admission by another user must be rejected.");
+
+                        using (HttpResponseMessage crossTenantUpdate = await ownerClient.PutAsync("/api/v1/captains/" + captainId, JsonHelper.ToJsonContent(new Captain("Scoped API captain changed", Armada.Core.Enums.AgentRuntimeEnum.ApiEndpoint)
+                        {
+                            Model = "other-model",
+                            ModelEndpointId = "mep_cross_tenant"
+                        })).ConfigureAwait(false))
+                            AssertEqual(HttpStatusCode.BadRequest, crossTenantUpdate.StatusCode, "Cross-tenant captain update must be rejected.");
+
+                        using (HttpResponseMessage listResponse = await fixture.AuthClient.GetAsync("/api/v1/captains").ConfigureAwait(false))
+                        {
+                            string listJson = await listResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+                            AssertContains("Scoped API captain", listJson, "Rejected update must leave the valid captain present.");
+                            AssertFalse(listJson.Contains("Cross tenant API captain", StringComparison.Ordinal), "Rejected cross-tenant create must not create a captain.");
+                            AssertFalse(listJson.Contains("Private owner mismatch", StringComparison.Ordinal), "Rejected private-owner create must not create a captain.");
+                        }
+
+                        using (HttpResponseMessage deleteInUse = await fixture.AuthClient.DeleteAsync("/api/v1/model-endpoints/" + endpointId).ConfigureAwait(false))
+                            AssertEqual(HttpStatusCode.Conflict, deleteInUse.StatusCode, "A referenced endpoint must return HTTP 409 on deletion.");
+                    }
+                    finally
+                    {
+                        if (captainId != null)
+                        {
+                            using (HttpResponseMessage response = await ownerClient.DeleteAsync("/api/v1/captains/" + captainId).ConfigureAwait(false)) { }
+                        }
+                        if (endpointId != null)
+                        {
+                            using (HttpResponseMessage response = await fixture.AuthClient.DeleteAsync("/api/v1/model-endpoints/" + endpointId).ConfigureAwait(false)) { }
+                        }
+                        using (HttpResponseMessage response = await fixture.AuthClient.DeleteAsync("/api/v1/tenants/" + ownerTenant.Id).ConfigureAwait(false)) { }
+                        using (HttpResponseMessage response = await fixture.AuthClient.DeleteAsync("/api/v1/tenants/" + otherTenant.Id).ConfigureAwait(false)) { }
+                    }
+                }
+            }));
+
             cases.Add(CaseAsync("non_admin_health_sweep_is_forbidden", "ModelEndpointHealthSweep_RejectsAuthenticatedNonAdmin", TestTags.Negative, async () =>
             {
                 E2EServerFixture fixture = await E2EServerFixture.AcquireAsync(this).ConfigureAwait(false);
@@ -327,6 +445,8 @@ namespace Test.Shared.Suites.E2E
             /// <summary>Write-only provider API key.</summary>
             [System.Text.Json.Serialization.JsonPropertyName("apiKey")]
             public string? ApiKey { get; set; } = null;
+            /// <summary>Whether the endpoint is enabled for captain admission.</summary>
+            public bool? Enabled { get; set; } = null;
         }
 
         private sealed class TenantCreateRequest
@@ -343,6 +463,51 @@ namespace Test.Shared.Suites.E2E
             public string UserId { get; set; } = String.Empty;
             /// <summary>Credential display name.</summary>
             public string Name { get; set; } = String.Empty;
+        }
+
+        private static HttpClient CreateBearerClient(E2EServerFixture fixture, string bearerToken)
+        {
+            HttpClient client = new HttpClient { BaseAddress = new Uri(fixture.BaseUrl) };
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
+            return client;
+        }
+
+        private static async Task<(TenantMetadata Tenant, UserMaster User, Credential Credential)> CreateRoutePrincipalAsync(E2EServerFixture fixture, string name)
+        {
+            using (HttpResponseMessage tenantResponse = await fixture.AuthClient.PostAsync("/api/v1/tenants", JsonHelper.ToJsonContent(new TenantCreateRequest { Name = name + "-" + Guid.NewGuid().ToString("N") })).ConfigureAwait(false))
+            {
+                AssertEqual(HttpStatusCode.Created, tenantResponse.StatusCode);
+                TenantMetadata tenant = await JsonHelper.DeserializeAsync<TenantMetadata>(tenantResponse).ConfigureAwait(false);
+                UserMaster user = new UserMaster
+                {
+                    TenantId = tenant.Id,
+                    Email = name + "-" + Guid.NewGuid().ToString("N") + "@example.test",
+                    PasswordSha256 = UserMaster.ComputePasswordHash("route-test-password"),
+                    IsTenantAdmin = true,
+                    IsAdmin = false
+                };
+                using (HttpResponseMessage userResponse = await fixture.AuthClient.PostAsync("/api/v1/users", JsonHelper.ToJsonContent(user)).ConfigureAwait(false))
+                {
+                    AssertEqual(HttpStatusCode.Created, userResponse.StatusCode);
+                    user = await JsonHelper.DeserializeAsync<UserMaster>(userResponse).ConfigureAwait(false);
+                }
+                Credential credential = await CreateCredentialAsync(fixture, tenant.Id, user.Id, name + "-credential").ConfigureAwait(false);
+                return (tenant, user, credential);
+            }
+        }
+
+        private static async Task<Credential> CreateCredentialAsync(E2EServerFixture fixture, string tenantId, string userId, string name)
+        {
+            using (HttpResponseMessage response = await fixture.AuthClient.PostAsync("/api/v1/credentials", JsonHelper.ToJsonContent(new CredentialCreateRequest
+            {
+                TenantId = tenantId,
+                UserId = userId,
+                Name = name
+            })).ConfigureAwait(false))
+            {
+                AssertEqual(HttpStatusCode.Created, response.StatusCode);
+                return await JsonHelper.DeserializeAsync<Credential>(response).ConfigureAwait(false);
+            }
         }
     }
 }

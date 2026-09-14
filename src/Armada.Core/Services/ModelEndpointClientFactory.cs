@@ -75,6 +75,7 @@ namespace Armada.Core.Services
                     case ModelProviderEnum.OpenAI:
                     case ModelProviderEnum.OpenAICompatible:
                     case ModelProviderEnum.VoyageAI:
+                    case ModelProviderEnum.Ollama:
                         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", endpoint.ApiKey);
                         break;
                     case ModelProviderEnum.Anthropic:
@@ -82,8 +83,6 @@ namespace Armada.Core.Services
                         break;
                     case ModelProviderEnum.Gemini:
                         client.DefaultRequestHeaders.Add("x-goog-api-key", endpoint.ApiKey);
-                        break;
-                    case ModelProviderEnum.Ollama:
                         break;
                     default:
                         throw new ArgumentException("Unknown model endpoint provider.");

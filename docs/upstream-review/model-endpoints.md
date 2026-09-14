@@ -44,6 +44,10 @@ request and verifies the returned model output. The automatic health sweep
 remains connectivity-only. Redirects are disabled, endpoint URLs are checked
 before requests, and caller cancellation propagates.
 
+The current provider registry covers the six registered provider values. Cloud
+provider adapters from upstream remain deferred until a separate ownership and
+runtime acceptance slice.
+
 Captains can reference an enabled, inference-kind endpoint in their tenant.
 Private endpoint ownership and the captain model are checked at admission.
 The captain link is persisted by a new append-only migration after the endpoint

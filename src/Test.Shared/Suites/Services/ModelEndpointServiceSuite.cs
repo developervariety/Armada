@@ -318,8 +318,8 @@ namespace Test.Shared.Suites.Services
                     new ValidationFixture(ModelProviderEnum.Gemini, ModelEndpointKindEnum.Embedding, "/v1beta/models/fixture-model:embedContent", "x-goog-api-key: fixture-key"),
                     new ValidationFixture(ModelProviderEnum.Gemini, ModelEndpointKindEnum.Inference, "/v1beta/models/fixture-model:generateContent", "x-goog-api-key: fixture-key"),
                     new ValidationFixture(ModelProviderEnum.VoyageAI, ModelEndpointKindEnum.Embedding, "/v1/embeddings", "Authorization: Bearer fixture-key"),
-                    new ValidationFixture(ModelProviderEnum.Ollama, ModelEndpointKindEnum.Embedding, "/api/embeddings", null),
-                    new ValidationFixture(ModelProviderEnum.Ollama, ModelEndpointKindEnum.Inference, "/api/chat", null)
+                    new ValidationFixture(ModelProviderEnum.Ollama, ModelEndpointKindEnum.Embedding, "/api/embeddings", "Authorization: Bearer fixture-key"),
+                    new ValidationFixture(ModelProviderEnum.Ollama, ModelEndpointKindEnum.Inference, "/api/chat", "Authorization: Bearer fixture-key")
                 };
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 AuthContext auth = AuthContext.Authenticated("ten_mep_wire", "usr_mep_wire", false, true, "UnitTest");
