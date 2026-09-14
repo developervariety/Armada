@@ -16,6 +16,9 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 
 ### Model endpoint health persistence
 
+- Track remaining configuration, migration, heartbeat and manual-completion
+  review findings before accepting their integration candidates.
+
 - Update endpoint health only when the stored update timestamp matches the
   observed version. Preserve concurrent configuration changes on all providers.
 - Preserve SQL Server fractional timestamps so valid health updates can pass

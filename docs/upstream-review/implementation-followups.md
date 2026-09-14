@@ -488,3 +488,28 @@ route completion through the shared proof gates. Keep valid report-only stage
 completion distinct from code landing. Also audit active-dock manual completion,
 which calls the landing handler directly rather than the Judge completion path.
 No production mission was changed during this review.
+
+The candidate remains under review. It must load every page of relevant Checks,
+preserve valid intermediate-stage completion, use the shared immutable gate,
+and protect active process ownership before any landing action. A post-landing
+status correction does not substitute for a pre-landing gate.
+
+## FOLLOWUP-017 — Pending integration review findings
+
+These findings apply to unaccepted candidates, not the deployed image:
+
+- Helm configuration editing must validate the original JSONC before replacing
+  or removing a managed value. Preserve encoding and unrelated bytes, with
+  exact-output tests for OpenCode, generic MCP configuration and Mux.
+- Captain endpoint links need interruption/restart and incompatible partial
+  schema tests for their new migrations. Required link-column reads must not
+  silently ignore database errors.
+- Endpoint health probes must not block the Admiral heartbeat, Check execution,
+  recovery or incident sweeps. Use a bounded, non-overlapping background sweep.
+- Provider request fixtures must use each provider's actual response shape.
+- Native self-rebuild backup, isolated restore, candidate validation and cleanup
+  passed on all four providers after the SQL Server restore-command fix.
+  Quoted paths, process cutover, health verification and rollback still need
+  acceptance. Self-rebuild remains disabled.
+
+Keep these entries open until the corrected combined tree has independent proof.
