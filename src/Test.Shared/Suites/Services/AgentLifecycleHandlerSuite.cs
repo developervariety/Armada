@@ -138,6 +138,128 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("validate_api_endpoint_captain_rejects_disabled_endpoint", "ValidateCaptainModelAsync rejects a disabled API endpoint", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ModelEndpoint endpoint = new ModelEndpoint
+                    {
+                        TenantId = "tenant-api-captain",
+                        UserId = "user-api-captain",
+                        Name = "Disabled inference",
+                        Kind = ModelEndpointKindEnum.Inference,
+                        Provider = ModelProviderEnum.OpenAICompatible,
+                        BaseUrl = "http://localhost:9999",
+                        Model = "disabled-model",
+                        Enabled = false
+                    };
+                    await testDb.Driver.ModelEndpoints.CreateAsync(endpoint).ConfigureAwait(false);
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    Captain captain = new Captain("API endpoint captain", AgentRuntimeEnum.ApiEndpoint)
+                    {
+                        TenantId = endpoint.TenantId,
+                        UserId = endpoint.UserId,
+                        ModelEndpointId = endpoint.Id
+                    };
+
+                    string? error = await handler.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
+                    AssertNotNull(error, "A disabled endpoint must fail captain admission");
+                    AssertContains("disabled", error!, "Admission error must identify disabled endpoint");
+                }
+            }));
+
+            cases.Add(CaseAsync("validate_api_endpoint_captain_rejects_cross_tenant_endpoint", "ValidateCaptainModelAsync rejects a cross-tenant endpoint", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ModelEndpoint endpoint = new ModelEndpoint
+                    {
+                        TenantId = "tenant-owned",
+                        UserId = "user-owned",
+                        Name = "Owned inference",
+                        Kind = ModelEndpointKindEnum.Inference,
+                        Provider = ModelProviderEnum.OpenAICompatible,
+                        BaseUrl = "http://localhost:9999",
+                        Model = "owned-model",
+                        Enabled = true
+                    };
+                    await testDb.Driver.ModelEndpoints.CreateAsync(endpoint).ConfigureAwait(false);
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    Captain captain = new Captain("Cross tenant captain", AgentRuntimeEnum.ApiEndpoint)
+                    {
+                        TenantId = "tenant-other",
+                        UserId = "user-other",
+                        ModelEndpointId = endpoint.Id
+                    };
+
+                    string? error = await handler.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
+                    AssertNotNull(error, "A cross-tenant endpoint must fail captain admission");
+                    AssertContains("not available", error!, "Cross-tenant admission must be denied without endpoint details");
+                }
+            }));
+
+            cases.Add(CaseAsync("validate_api_endpoint_captain_rejects_private_endpoint_owner_mismatch", "ValidateCaptainModelAsync rejects a private endpoint owned by another user", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ModelEndpoint endpoint = new ModelEndpoint
+                    {
+                        TenantId = "tenant-private-api",
+                        UserId = "user-owner",
+                        Scope = ScopeEnum.UserSpecific,
+                        Name = "Private inference",
+                        Kind = ModelEndpointKindEnum.Inference,
+                        Provider = ModelProviderEnum.OpenAICompatible,
+                        BaseUrl = "http://localhost:9999",
+                        Model = "private-model",
+                        Enabled = true
+                    };
+                    await testDb.Driver.ModelEndpoints.CreateAsync(endpoint).ConfigureAwait(false);
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    Captain captain = new Captain("Private endpoint captain", AgentRuntimeEnum.ApiEndpoint)
+                    {
+                        TenantId = endpoint.TenantId,
+                        UserId = "user-other",
+                        ModelEndpointId = endpoint.Id
+                    };
+
+                    string? error = await handler.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
+                    AssertNotNull(error, "A private endpoint owner mismatch must fail admission");
+                    AssertContains("not available", error!, "Private endpoint denial must not disclose ownership");
+                }
+            }));
+
+            cases.Add(CaseAsync("validate_api_endpoint_captain_rejects_model_mismatch", "ValidateCaptainModelAsync rejects a captain model that differs from the endpoint", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ModelEndpoint endpoint = new ModelEndpoint
+                    {
+                        TenantId = "tenant-model-api",
+                        UserId = "user-model-api",
+                        Name = "Configured inference",
+                        Kind = ModelEndpointKindEnum.Inference,
+                        Provider = ModelProviderEnum.OpenAICompatible,
+                        BaseUrl = "http://localhost:9999",
+                        Model = "configured-model",
+                        Enabled = true
+                    };
+                    await testDb.Driver.ModelEndpoints.CreateAsync(endpoint).ConfigureAwait(false);
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    Captain captain = new Captain("Model mismatch captain", AgentRuntimeEnum.ApiEndpoint)
+                    {
+                        TenantId = endpoint.TenantId,
+                        UserId = endpoint.UserId,
+                        ModelEndpointId = endpoint.Id,
+                        Model = "different-model"
+                    };
+
+                    string? error = await handler.ValidateCaptainModelAsync(captain).ConfigureAwait(false);
+                    AssertNotNull(error, "A mismatched captain model must fail admission");
+                    AssertContains("must match", error!, "Model mismatch must be explicit");
+                }
+            }));
+
             cases.Add(CaseAsync("handle_launch_agent_async_passes_captain_model_to_runtime", "HandleLaunchAgentAsync passes captain model to runtime startup", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

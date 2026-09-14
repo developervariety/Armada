@@ -140,7 +140,7 @@ namespace Armada.Core.Database.Postgresql
                                     cmd.Connection = conn;
                                     cmd.Transaction = tx;
                                     cmd.CommandText = sql;
-                                    if (migration.Version == 84 || migration.Version == 85 || migration.Version == 86 || migration.Version == 88)
+                                    if (migration.Version == 84 || migration.Version == 85 || migration.Version == 86 || migration.Version == 88 || (migration.Version == 90 && statementOrdinal == 0))
                                         await AdditiveColumnMigration.ExecuteAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Postgresql, sql, token).ConfigureAwait(false);
                                     else
                                         await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);

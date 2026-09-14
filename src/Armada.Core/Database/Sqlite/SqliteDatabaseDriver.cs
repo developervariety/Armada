@@ -236,7 +236,7 @@ namespace Armada.Core.Database.Sqlite
                                 cmd.CommandText = sql;
                                 try
                                 {
-                                    if (migration.Version == 83 || migration.Version == 84 || migration.Version == 85 || migration.Version == 87)
+                                    if (migration.Version == 83 || migration.Version == 84 || migration.Version == 85 || migration.Version == 87 || (migration.Version == 89 && statementOrdinal == 0))
                                         await AdditiveColumnMigration.ExecuteAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, sql, token).ConfigureAwait(false);
                                     else
                                         await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
@@ -545,6 +545,7 @@ namespace Armada.Core.Database.Sqlite
             captain.Name = reader["name"].ToString()!;
             captain.Runtime = Enum.Parse<AgentRuntimeEnum>(reader["runtime"].ToString()!);
             try { captain.Model = NullableString(reader["model"]); } catch { }
+            captain.ModelEndpointId = NullableString(reader["model_endpoint_id"]);
             try { captain.ApiKey = NullableString(reader["api_key"]); } catch { }
             try { captain.ApiBaseUrl = NullableString(reader["api_base_url"]); } catch { }
             captain.SystemInstructions = NullableString(reader["system_instructions"]);

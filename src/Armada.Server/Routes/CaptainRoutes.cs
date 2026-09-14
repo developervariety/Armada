@@ -314,6 +314,7 @@ namespace Armada.Server.Routes
                 bool modelOrRuntimeChanged =
                     !String.Equals(updated.Model, existing.Model, StringComparison.OrdinalIgnoreCase) ||
                     updated.Runtime != existing.Runtime ||
+                    !String.Equals(updated.ModelEndpointId, existing.ModelEndpointId, StringComparison.Ordinal) ||
                     !String.Equals(updated.ApiKey, existing.ApiKey, StringComparison.Ordinal) ||
                     !String.Equals(updated.ApiBaseUrl, existing.ApiBaseUrl, StringComparison.Ordinal);
                 if (modelOrRuntimeChanged)

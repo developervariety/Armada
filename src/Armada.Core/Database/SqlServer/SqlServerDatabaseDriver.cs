@@ -160,7 +160,7 @@ namespace Armada.Core.Database.SqlServer
                                 using (SqlCommand cmd = conn.CreateCommand())
                                 {
                                     cmd.Transaction = tx;
-                                    if (migration.Version == 78 || migration.Version == 79 || migration.Version == 80 || migration.Version == 82)
+                                    if (migration.Version == 78 || migration.Version == 79 || migration.Version == 80 || migration.Version == 82 || (migration.Version == 84 && statementOrdinal == 0))
                                         await AdditiveColumnMigration.ExecuteAsync(conn, tx, DatabaseTypeEnum.SqlServer, sql, token).ConfigureAwait(false);
                                     else
                                     {
@@ -469,6 +469,7 @@ namespace Armada.Core.Database.SqlServer
             captain.Name = reader["name"].ToString()!;
             captain.Runtime = Enum.Parse<AgentRuntimeEnum>(reader["runtime"].ToString()!);
             try { captain.Model = NullableString(reader["model"]); } catch { }
+            captain.ModelEndpointId = NullableString(reader["model_endpoint_id"]);
             try { captain.ApiKey = NullableString(reader["api_key"]); } catch { }
             try { captain.ApiBaseUrl = NullableString(reader["api_base_url"]); } catch { }
             captain.SystemInstructions = NullableString(reader["system_instructions"]);

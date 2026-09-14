@@ -34,7 +34,7 @@ namespace Armada.Core.Database.Mysql
             Match table = Regex.Match(sql, @"^CREATE TABLE (?:IF NOT EXISTS )?`?(\w+)`? \(", RegexOptions.IgnoreCase);
             Match column = Regex.Match(sql, @"^ALTER TABLE `?(\w+)`? ADD (?:COLUMN )?(?:IF NOT EXISTS )?`?(\w+)`? (.+);$", RegexOptions.IgnoreCase | RegexOptions.Singleline);
             Match index = Regex.Match(sql, @"^CREATE (UNIQUE )?INDEX (?:IF NOT EXISTS )?`?(\w+)`?\s+ON `?(\w+)`?\s*\((.+)\);$", RegexOptions.IgnoreCase | RegexOptions.Singleline);
-            Match foreignKey = Regex.Match(sql, @"^ALTER TABLE (\w+) ADD CONSTRAINT (\w+) FOREIGN KEY \((\w+)\) REFERENCES (\w+)\((\w+)\)(?: ON DELETE (CASCADE|SET NULL|NO ACTION))?;$", RegexOptions.IgnoreCase);
+            Match foreignKey = Regex.Match(sql, @"^ALTER TABLE (\w+) ADD CONSTRAINT (\w+) FOREIGN KEY \((\w+)\) REFERENCES (\w+)\((\w+)\)(?: ON DELETE (CASCADE|SET NULL|NO ACTION|RESTRICT))?;$", RegexOptions.IgnoreCase);
             if (table.Success)
             {
                 await EnsureTableAsync(table.Groups[1].Value, sql, version, token).ConfigureAwait(false);
@@ -86,7 +86,7 @@ namespace Armada.Core.Database.Mysql
                 || primary.Any(row => row["sub_part"] != null || row["non_unique"] != "0"))
                 throw Incompatible(table, "primary key");
 
-            foreach (Match key in Regex.Matches(sql, @"(?:CONSTRAINT (\w+) )?FOREIGN KEY \((\w+)\) REFERENCES (\w+)\((\w+)\)(?: ON DELETE (CASCADE|SET NULL|NO ACTION))?"))
+            foreach (Match key in Regex.Matches(sql, @"(?:CONSTRAINT (\w+) )?FOREIGN KEY \((\w+)\) REFERENCES (\w+)\((\w+)\)(?: ON DELETE (CASCADE|SET NULL|NO ACTION|RESTRICT))?"))
             {
                 string source = key.Groups[2].Value;
                 string target = key.Groups[3].Value;
@@ -118,6 +118,15 @@ namespace Armada.Core.Database.Mysql
             if (table == "docks" && version == 77 && name == "git_anchors_json"
                 && !SupportsFullUnicode(column["character_set_name"]))
                 throw Incompatible(table, name + " requires a full Unicode character set");
+            if (table == "captains" && version == 81 && name == "model_endpoint_id")
+            {
+                if (!SupportsFullUnicode(column["character_set_name"]))
+                    throw Incompatible(table, name + " requires a full Unicode character set");
+                Dictionary<string, string?>? captainId = columns.Find(item => item["column_name"] == "id");
+                if (captainId == null || column["character_set_name"] != captainId["character_set_name"]
+                    || column["collation_name"] != captainId["collation_name"])
+                    throw Incompatible(table, name + " must match the captain identifier Unicode domain");
+            }
             if (table == "voyages" && version == 76
                 && name is "source_planning_session_id" or "source_planning_message_id"
                 && !SupportsFullUnicode(column["character_set_name"]))

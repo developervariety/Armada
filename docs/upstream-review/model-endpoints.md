@@ -31,3 +31,23 @@ SQL Server reads preserve fractional timestamp precision. Independent fresh
 database runs passed 72 tests each on SQLite, PostgreSQL and SQL Server, and
 73 on MySQL. These runs include null health values, fractional timestamps and
 stale-write rejection. No applied migration changed.
+
+The service layer exposes authenticated CRUD and REST routes. Tenant-wide
+records are visible to tenant members and editable by tenant administrators;
+user-specific records are visible only to their owner and administrators. API
+keys are write-only, and omitted update keys preserve the stored value while an
+explicit null clears it. The global health sweep is administrator-only and
+probes each enabled endpoint with its own bounded client and credentials.
+
+Explicit validation sends the provider-specific embedding or completion
+request and verifies the returned model output. The automatic health sweep
+remains connectivity-only. Redirects are disabled, endpoint URLs are checked
+before requests, and caller cancellation propagates.
+
+Captains can reference an enabled, inference-kind endpoint in their tenant.
+Private endpoint ownership and the captain model are checked at admission.
+The captain link is persisted by a new append-only migration after the endpoint
+migration for each provider. A database foreign key is the atomic delete
+backstop when a captain link races endpoint deletion; the service reports a
+safe in-use conflict. API runtime execution remains a separate acceptance
+step.

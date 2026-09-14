@@ -40,6 +40,12 @@ namespace Armada.Core.Enums
         OpenCode,
 
         /// <summary>
+        /// In-process runtime driven by a configured inference model endpoint.
+        /// </summary>
+        [EnumMember(Value = "ApiEndpoint")]
+        ApiEndpoint,
+
+        /// <summary>
         /// Mux CLI.
         /// </summary>
         [EnumMember(Value = "Mux")]

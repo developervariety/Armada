@@ -3,6 +3,7 @@ namespace Armada.Server
     using System.Collections.Generic;
     using System.IO;
     using System.Net.Http;
+    using System.Linq;
     using System.Runtime.CompilerServices;
     using System.Text.Json;
     using SyslogLogging;
@@ -105,6 +106,7 @@ namespace Armada.Server
         private GitHubIntegrationService _GitHubIntegrationService = null!;
         private LandingPreviewService _LandingPreviewService = null!;
         private HistoricalTimelineService _HistoricalTimelineService = null!;
+        private ModelEndpointService _ModelEndpointService = null!;
 
         private ISessionTokenService _SessionTokenService = null!;
         private IAuthenticationService _AuthenticationService = null!;
@@ -282,6 +284,14 @@ namespace Armada.Server
             _GitHubIntegrationService = new GitHubIntegrationService(_Database, _ObjectiveService, _CheckRunService, _DeploymentService, _Settings, _Logging);
             _LandingPreviewService = new LandingPreviewService(_Database, _Logging, _Settings);
             _HistoricalTimelineService = new HistoricalTimelineService(_Database);
+            _ModelEndpointService = new ModelEndpointService(
+                _Database,
+                _Logging,
+                isInUse: async (endpointId, token) =>
+                {
+                    List<Captain> captains = await _Database.Captains.EnumerateAsync(token).ConfigureAwait(false);
+                    return captains.Any(captain => String.Equals(captain.ModelEndpointId, endpointId, StringComparison.Ordinal));
+                });
             _RemoteTunnel = new RemoteTunnelManager(_Logging, _Settings);
             _RemoteDashboardRelay = new RemoteDashboardRelayService(_Logging, _Settings, _RemoteTunnel.PublishEventAsync);
             admiralService.OnGetRemoteTunnelStatus = _RemoteTunnel.GetStatus;
@@ -845,6 +855,10 @@ namespace Armada.Server
 
             // Environments
             new EnvironmentRoutes(_EnvironmentService)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Managed model endpoints (embedding/inference)
+            new ModelEndpointRoutes(_ModelEndpointService)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Structured check runs
@@ -1487,6 +1501,7 @@ namespace Armada.Server
             try
             {
                 await _Admiral.HealthCheckAsync(token).ConfigureAwait(false);
+                await _ModelEndpointService.CheckHealthAllAsync(token).ConfigureAwait(false);
                 _AutomaticCheckRuns.TriggerBackgroundSweep(token);
                 _AutonomousRecovery.TriggerBackgroundSweep(token);
                 _IncidentLifecycle.TriggerBackgroundSweep(token);
@@ -1504,6 +1519,7 @@ namespace Armada.Server
                 {
                     await Task.Delay(_Settings.HeartbeatIntervalSeconds * 1000, token).ConfigureAwait(false);
                     await _Admiral.HealthCheckAsync(token).ConfigureAwait(false);
+                    await _ModelEndpointService.CheckHealthAllAsync(token).ConfigureAwait(false);
                     _AutomaticCheckRuns.TriggerBackgroundSweep(token);
                     _AutonomousRecovery.TriggerBackgroundSweep(token);
                     _IncidentLifecycle.TriggerBackgroundSweep(token);

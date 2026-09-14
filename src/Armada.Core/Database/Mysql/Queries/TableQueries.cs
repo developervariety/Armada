@@ -1195,6 +1195,13 @@ namespace Armada.Core.Database.Mysql.Queries
             @"CREATE INDEX idx_model_endpoints_tenant ON model_endpoints(tenant_id);"
         };
 
+        /// <summary>Migration v81 statements for nullable captain model endpoint links.</summary>
+        public static readonly string[] MigrationV81Statements = new string[]
+        {
+            @"ALTER TABLE captains ADD COLUMN model_endpoint_id VARCHAR(450) CHARACTER SET utf8mb4 NULL;",
+            @"ALTER TABLE captains ADD CONSTRAINT fk_captains_model_endpoint FOREIGN KEY (model_endpoint_id) REFERENCES model_endpoints(id) ON DELETE RESTRICT;"
+        };
+
         /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
