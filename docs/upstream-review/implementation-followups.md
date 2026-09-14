@@ -560,3 +560,30 @@ read errors. Check every discovered path, bound file input and result output,
 and report cancellation and skipped files accurately. Review all sibling tools
 for the same defects. Keep runtime activation blocked until real model/tool
 round trips and workspace boundary tests pass.
+
+## FOLLOWUP-020 — Harbor revocation must reach connected sessions
+
+The durable enrollment candidate checks the credential when a runner registers.
+The existing session registry does not recheck enrollment when it accepts new
+work or a response. A revoked runner can therefore retain its current session.
+Bind sessions to the durable enrollment generation, reject work and responses
+after revocation, and prove that re-enrollment cannot revive an old session.
+Keep database calls outside the registry lock. Tenant administrators must also
+have authority over the previous owner before they reuse a revoked runner ID.
+
+The enrollment migrations follow the captain endpoint-link migrations. Test
+them in that combined order, including partial failure, incompatible partial
+tables, restart, persistence and conditional writes on all four providers.
+
+## FOLLOWUP-021 — Unknown process state must block manual completion
+
+The manual completion candidate returns inactive when a registered process
+liveness check fails. Its Custom runtime branch always takes that failure path.
+An unknown result must block completion with a stated reason. A captain state
+label alone must not permit mutation while the captain still owns a live
+process. Prove the failure path through HTTP with no mission mutation.
+
+The intermediate-stage test must include an active dock and a produced commit.
+A test without a dock cannot reproduce the former direct-landing bypass. Assert
+that no landing callback runs and that shared downstream handoff occurs. Keep
+final Check and Judge gates intact.
