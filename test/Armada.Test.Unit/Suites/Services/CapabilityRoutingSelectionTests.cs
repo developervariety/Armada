@@ -92,7 +92,7 @@ namespace Armada.Test.Unit.Suites.Services
             IDockService dockService = new DockService(logging, db, settings, git);
             CaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
             captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(64001);
-            return new MissionService(logging, db, settings, dockService, captainService, captainQuarantine: quarantine);
+            return new MissionService(logging, db, settings, dockService, captainService, captainQuarantine: quarantine, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
         }
 
         private static async Task<Captain> SeedCaptainAsync(SqliteDatabaseDriver db, string name, string model, CaptainStateEnum state)

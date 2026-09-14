@@ -109,7 +109,7 @@ namespace Armada.Test.Unit.Suites.Services
                     StubGitService git = new StubGitService();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService service = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService service = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     string auditDir = Path.Combine(Path.GetTempPath(), "armada_mode_audit_" + Guid.NewGuid().ToString("N"));
                     string implDir = Path.Combine(Path.GetTempPath(), "armada_mode_impl_" + Guid.NewGuid().ToString("N"));
@@ -242,7 +242,7 @@ namespace Armada.Test.Unit.Suites.Services
                     StubGitService git = new StubGitService();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService service = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService service = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     string auditDir = Path.Combine(Path.GetTempPath(), "armada_mode_audit_te_" + Guid.NewGuid().ToString("N"));
                     string implDir = Path.Combine(Path.GetTempPath(), "armada_mode_impl_te_" + Guid.NewGuid().ToString("N"));

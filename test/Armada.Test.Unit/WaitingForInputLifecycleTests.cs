@@ -44,7 +44,7 @@ namespace Armada.Test.Unit
 
             IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
             ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-            return new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+            return new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
         }
 
         private static string FindRepositoryRoot()

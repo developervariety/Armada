@@ -92,7 +92,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.LocalMerge);
                     Captain captain = entities.Captain;
@@ -119,7 +119,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     LandingTestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver, LandingModeEnum.LocalMerge);
                     Captain captain = entities.Captain;
@@ -154,7 +154,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     ILandingService landingService = new LandingService(logging, testDb.Driver, settings, git);
                     IMessageTemplateService templateService = new MessageTemplateService(logging);
                     MissionLandingHandler handler = new MissionLandingHandler(

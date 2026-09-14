@@ -124,7 +124,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     TestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver);
                     Captain captain = entities.Captain;
@@ -154,7 +154,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                         ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                        MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                        MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                         missionService.DefinitionOfDone = new DefinitionOfDoneGate(
                             new DefinitionOfDoneSettings { Enabled = false }, testDb.Driver, logging);
 
@@ -199,7 +199,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     TestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver);
                     Captain captain = entities.Captain;
@@ -229,7 +229,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     TestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver);
                     Captain captain = entities.Captain;
@@ -258,7 +258,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     TestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver);
                     Captain captain = entities.Captain;
@@ -284,7 +284,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     await AssertThrowsAsync<ArgumentNullException>(async () =>
                     {
@@ -303,7 +303,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     Captain captain = new Captain("idle-captain");
                     captain.CurrentMissionId = null;
@@ -511,7 +511,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     IDockService dockService = new DockService(logging, db, settings, git);
                     ICaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, db, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, db, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     IVoyageService voyageService = new VoyageService(logging, db);
                     AdmiralService admiral = new AdmiralService(logging, db, settings, captainService, missionService, voyageService, dockService);
 

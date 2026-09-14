@@ -1024,7 +1024,7 @@ namespace Armada.Test.Unit.Suites.Recovery
         {
             DockService docks = new DockService(logging, database, settings, git);
             CaptainService captains = new CaptainService(logging, database, settings, git, docks);
-            return new MissionService(logging, database, settings, docks, captains, null, git);
+            return new MissionService(logging, database, settings, docks, captains, null, git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
         }
 
         private static AutonomousRecoveryOrchestrator CreateOrchestratorWithLandingDrain(

@@ -56,7 +56,8 @@ namespace Armada.Test.Unit.Suites.Services
                 settings,
                 docks,
                 captains,
-                captainQuarantine: quarantine);
+                captainQuarantine: quarantine,
+                resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
             IVoyageService voyages = new VoyageService(logging, database);
             return new AdmiralService(
                 logging,
@@ -84,7 +85,8 @@ namespace Armada.Test.Unit.Suites.Services
                 settings,
                 docks,
                 captains,
-                captainQuarantine: quarantine);
+                captainQuarantine: quarantine,
+                resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
         }
 
         private static async Task WriteMissionLogAsync(ArmadaSettings settings, string missionId, string failureLine)

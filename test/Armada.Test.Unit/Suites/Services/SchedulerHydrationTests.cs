@@ -222,7 +222,7 @@ namespace Armada.Test.Unit.Suites.Services
                     IDockService dockService = new DockService(logging, db, settings, new StubGitService());
                     CaptainService captainService = new CaptainService(logging, db, settings, new StubGitService(), dockService);
                     captainService.OnLaunchAgent = (captain, mission, dock) => Task.FromResult(9999);
-                    MissionService missionService = new MissionService(logging, db, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, db, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     // MissionService.IsBroadScope on summary should detect the broad-scope title
                     AssertTrue(missionService.IsBroadScope(summaries[0]), "IsBroadScope(ActiveMissionSummary) should detect broad-scope title");
@@ -402,7 +402,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     IDockService dockService = new DockService(logging, db, settings, new StubGitService());
                     CaptainService captainService = new CaptainService(logging, db, settings, new StubGitService(), dockService);
-                    MissionService missionService = new MissionService(logging, db, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, db, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     string[] broadTitles = new string[]
                     {

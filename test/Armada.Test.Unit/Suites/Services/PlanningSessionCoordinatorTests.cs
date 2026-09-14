@@ -971,7 +971,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 IDockService dockService = new DockService(logging, db, settings, git);
                 ICaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
-                IMissionService missionService = new MissionService(logging, db, settings, dockService, captainService);
+                IMissionService missionService = new MissionService(logging, db, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                 IVoyageService voyageService = new VoyageService(logging, db);
                 return new AdmiralService(logging, db, settings, captainService, missionService, voyageService, dockService);
             }

@@ -70,7 +70,7 @@ namespace Armada.Test.Unit
                     StubGitService git = new StubGitService();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     Vessel vessel = new Vessel("drain-voyage-vessel", "https://github.com/test/repo.git");
                     vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_drain_bare_" + Guid.NewGuid().ToString("N"));
@@ -137,7 +137,7 @@ namespace Armada.Test.Unit
                     StubGitService git = new StubGitService();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     Vessel vessel = new Vessel("drain-mission-vessel", "https://github.com/test/repo.git");
                     vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_drain_bare_" + Guid.NewGuid().ToString("N"));
@@ -215,7 +215,7 @@ namespace Armada.Test.Unit
                     StubGitService git = new StubGitService();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     Vessel vessel = new Vessel("drain-reread-vessel", "https://github.com/test/repo.git");
                     vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_drain_bare_" + Guid.NewGuid().ToString("N"));
@@ -314,7 +314,7 @@ namespace Armada.Test.Unit
                     StubGitService git = new StubGitService();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     Vessel vessel = new Vessel("drain-sibling-vessel", "https://github.com/test/repo.git");
                     vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_drain_bare_" + Guid.NewGuid().ToString("N"));
@@ -393,7 +393,7 @@ namespace Armada.Test.Unit
                     StubGitService git = new StubGitService();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(12345);
 
                     Vessel vessel = new Vessel("drain-architect-vessel", "https://github.com/test/repo.git");
@@ -479,7 +479,7 @@ namespace Armada.Test.Unit
                     StubGitService git = new StubGitService();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     Vessel vessel = new Vessel("drain-malformed-vessel", "https://github.com/test/repo.git");
                     vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_drain_bare_" + Guid.NewGuid().ToString("N"));
@@ -545,7 +545,7 @@ namespace Armada.Test.Unit
                     StubGitService git = new StubGitService();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     Vessel vessel = new Vessel("drain-nonapp-vessel", "https://github.com/test/repo.git");
                     vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_drain_bare_" + Guid.NewGuid().ToString("N"));
@@ -624,7 +624,7 @@ namespace Armada.Test.Unit
                     StubGitService git = new StubGitService();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     Vessel vessel = new Vessel("drain-multi-vessel", "https://github.com/test/repo.git");
                     vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_drain_bare_" + Guid.NewGuid().ToString("N"));

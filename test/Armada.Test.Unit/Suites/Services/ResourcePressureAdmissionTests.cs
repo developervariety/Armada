@@ -8,6 +8,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Test.Common;
+    using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
 
     /// <summary>Tests for the resource-pressure admission policy and OOM classification.</summary>
@@ -15,15 +16,6 @@ namespace Armada.Test.Unit.Suites.Services
     {
         /// <summary>Suite name.</summary>
         public override string Name => "Resource Pressure Admission";
-
-        private sealed class FakeProbe : IResourcePressureProbe
-        {
-            public long? AvailableMemoryBytes;
-            public ResourcePressureSnapshot Probe()
-            {
-                return new ResourcePressureSnapshot { AvailableMemoryBytes = AvailableMemoryBytes };
-            }
-        }
 
         private sealed class FakeClock
         {
@@ -40,7 +32,7 @@ namespace Armada.Test.Unit.Suites.Services
 
         private static ResourcePressureAdmission CreateAdmission(
             ResourcePressureAdmissionSettings settings,
-            FakeProbe probe,
+            FixedResourcePressureProbe probe,
             FakeClock clock)
         {
             return new ResourcePressureAdmission(settings, probe, CreateLogging(), clock.GetNow);
@@ -56,7 +48,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Enabled = true, MinAvailableMemoryMb = 512, MaxConcurrentBuilds = 3
                 };
                 FakeClock clock = new FakeClock();
-                FakeProbe probe = new FakeProbe { AvailableMemoryBytes = 1 };
+                FixedResourcePressureProbe probe = new FixedResourcePressureProbe { AvailableMemoryBytes = 1 };
                 ResourcePressureAdmission admission = CreateAdmission(settings, probe, clock);
                 ResourcePressureDecision decision = admission.Evaluate(2);
                 settings.MinAvailableMemoryMb = 0;
@@ -84,7 +76,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("Admission_WindowAlwaysAdmitsWhenDisabled", () =>
             {
                 ResourcePressureAdmissionSettings settings = new ResourcePressureAdmissionSettings { Enabled = false, MinAvailableMemoryMb = 1024 };
-                FakeProbe probe = new FakeProbe { AvailableMemoryBytes = 1L };
+                FixedResourcePressureProbe probe = new FixedResourcePressureProbe { AvailableMemoryBytes = 1L };
                 ResourcePressureAdmission admission = CreateAdmission(settings, probe, new FakeClock());
 
                 ResourcePressureDecision decision = admission.Evaluate(0);
@@ -97,7 +89,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("Admission_AvailableMemoryBelowThreshold_DeferredsWithClearReason", () =>
             {
                 ResourcePressureAdmissionSettings settings = new ResourcePressureAdmissionSettings { Enabled = true, MinAvailableMemoryMb = 512, MaxConcurrentBuilds = 0 };
-                FakeProbe probe = new FakeProbe { AvailableMemoryBytes = 64L * 1024L * 1024L };
+                FixedResourcePressureProbe probe = new FixedResourcePressureProbe { AvailableMemoryBytes = 64L * 1024L * 1024L };
                 ResourcePressureAdmission admission = CreateAdmission(settings, probe, new FakeClock());
 
                 ResourcePressureDecision decision = admission.Evaluate(0);
@@ -113,7 +105,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("Admission_AvailableMemoryAboveThreshold_Admitted", () =>
             {
                 ResourcePressureAdmissionSettings settings = new ResourcePressureAdmissionSettings { Enabled = true, MinAvailableMemoryMb = 512, MaxConcurrentBuilds = 0 };
-                FakeProbe probe = new FakeProbe { AvailableMemoryBytes = 2L * 1024L * 1024L * 1024L };
+                FixedResourcePressureProbe probe = new FixedResourcePressureProbe { AvailableMemoryBytes = 2L * 1024L * 1024L * 1024L };
                 ResourcePressureAdmission admission = CreateAdmission(settings, probe, new FakeClock());
 
                 ResourcePressureDecision decision = admission.Evaluate(0);
@@ -126,7 +118,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("Admission_TypelessMemorySnapshot_Admitted", () =>
             {
                 ResourcePressureAdmissionSettings settings = new ResourcePressureAdmissionSettings { Enabled = true, MinAvailableMemoryMb = 512 };
-                FakeProbe probe = new FakeProbe { AvailableMemoryBytes = null };
+                FixedResourcePressureProbe probe = new FixedResourcePressureProbe { AvailableMemoryBytes = null };
                 ResourcePressureAdmission admission = CreateAdmission(settings, probe, new FakeClock());
 
                 ResourcePressureDecision decision = admission.Evaluate(0);
@@ -138,7 +130,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("Admission_BuildPressureAtMax_DeferredsWithClearReason", () =>
             {
                 ResourcePressureAdmissionSettings settings = new ResourcePressureAdmissionSettings { Enabled = true, MinAvailableMemoryMb = 0, MaxConcurrentBuilds = 2 };
-                FakeProbe probe = new FakeProbe { AvailableMemoryBytes = 8L * 1024L * 1024L * 1024L };
+                FixedResourcePressureProbe probe = new FixedResourcePressureProbe { AvailableMemoryBytes = 8L * 1024L * 1024L * 1024L };
                 ResourcePressureAdmission admission = CreateAdmission(settings, probe, new FakeClock());
 
                 ResourcePressureDecision decision = admission.Evaluate(2);
@@ -152,7 +144,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("Admission_BuildPressureBelowMax_Admitted", () =>
             {
                 ResourcePressureAdmissionSettings settings = new ResourcePressureAdmissionSettings { Enabled = true, MinAvailableMemoryMb = 0, MaxConcurrentBuilds = 2 };
-                FakeProbe probe = new FakeProbe { AvailableMemoryBytes = 8L * 1024L * 1024L * 1024L };
+                FixedResourcePressureProbe probe = new FixedResourcePressureProbe { AvailableMemoryBytes = 8L * 1024L * 1024L * 1024L };
                 ResourcePressureAdmission admission = CreateAdmission(settings, probe, new FakeClock());
 
                 ResourcePressureDecision decision = admission.Evaluate(1);
@@ -164,7 +156,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("OOM_MarkOom_SuspendsAdmissionUntilCapacityReturns", () =>
             {
                 ResourcePressureAdmissionSettings settings = new ResourcePressureAdmissionSettings { Enabled = true, MinAvailableMemoryMb = 512, OomCooldownSeconds = 120 };
-                FakeProbe probe = new FakeProbe { AvailableMemoryBytes = 8L * 1024L * 1024L * 1024L };
+                FixedResourcePressureProbe probe = new FixedResourcePressureProbe { AvailableMemoryBytes = 8L * 1024L * 1024L * 1024L };
                 FakeClock clock = new FakeClock();
                 ResourcePressureAdmission admission = CreateAdmission(settings, probe, clock);
 
@@ -190,7 +182,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("OOM_CapacityRelease_UnderMemoryPressure_StillDeferred", () =>
             {
                 ResourcePressureAdmissionSettings settings = new ResourcePressureAdmissionSettings { Enabled = true, MinAvailableMemoryMb = 512, OomCooldownSeconds = 60 };
-                FakeProbe probe = new FakeProbe { AvailableMemoryBytes = 8L * 1024L * 1024L * 1024L };
+                FixedResourcePressureProbe probe = new FixedResourcePressureProbe { AvailableMemoryBytes = 8L * 1024L * 1024L * 1024L };
                 FakeClock clock = new FakeClock();
                 ResourcePressureAdmission admission = CreateAdmission(settings, probe, clock);
 
@@ -224,7 +216,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("OOM_RepeatedMarkOom_ExtendsCooldown", () =>
             {
                 ResourcePressureAdmissionSettings settings = new ResourcePressureAdmissionSettings { Enabled = true, MinAvailableMemoryMb = 0, OomCooldownSeconds = 60 };
-                FakeProbe probe = new FakeProbe { AvailableMemoryBytes = 8L * 1024L * 1024L * 1024L };
+                FixedResourcePressureProbe probe = new FixedResourcePressureProbe { AvailableMemoryBytes = 8L * 1024L * 1024L * 1024L };
                 FakeClock clock = new FakeClock();
                 ResourcePressureAdmission admission = CreateAdmission(settings, probe, clock);
 

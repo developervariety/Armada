@@ -144,7 +144,7 @@ namespace Armada.Test.Unit.Suites.Services
                     StubGitService git = new StubGitService();
                     IDockService docks = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, docks, captains);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, docks, captains, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("replay-captain")).ConfigureAwait(false);
                     Mission judge = new Mission("Judge replay", "Review the work")
                     {

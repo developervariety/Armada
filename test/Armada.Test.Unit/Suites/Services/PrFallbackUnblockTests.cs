@@ -60,7 +60,7 @@ namespace Armada.Test.Unit.Suites.Services
             DockService docks = new DockService(logging, testDb.Driver, settings, git);
             CaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
             captains.OnLaunchAgent = (_, _, _) => Task.FromResult(54321);
-            return new MissionService(logging, testDb.Driver, settings, docks, captains);
+            return new MissionService(logging, testDb.Driver, settings, docks, captains, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
         }
 
         /// <summary>Run all tests.</summary>

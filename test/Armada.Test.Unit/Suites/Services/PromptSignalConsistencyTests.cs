@@ -50,7 +50,7 @@ namespace Armada.Test.Unit.Suites.Services
             StubGitService git = new StubGitService();
             IDockService dockService = new DockService(logging, db, settings, git);
             ICaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
-            return new MissionService(logging, db, settings, dockService, captainService);
+            return new MissionService(logging, db, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
         }
 
         private static PromptFixtureResult CreatePromptFixture(string persona)

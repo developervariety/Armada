@@ -63,7 +63,7 @@ namespace Armada.Test.Unit.Suites.Services
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     CaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
                     captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(64010);
-                    MissionService missions = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+                    MissionService missions = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
                     Directory.CreateDirectory(Path.GetDirectoryName(vessel.LocalPath!)!);
@@ -133,7 +133,7 @@ namespace Armada.Test.Unit.Suites.Services
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     CaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
                     captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(64011);
-                    MissionService missions = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+                    MissionService missions = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
                     Directory.CreateDirectory(Path.GetDirectoryName(vessel.LocalPath!)!);

@@ -246,7 +246,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 Harness h = new Harness();
                 h._Db = testDb;
-                h.Missions = new MissionService(logging, testDb.Driver, settings, docks, captains);
+                h.Missions = new MissionService(logging, testDb.Driver, settings, docks, captains, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                 Vessel vessel = new Vessel("barrier-vessel", "https://github.com/test/repo.git");
                 vessel.DefaultBranch = "main";

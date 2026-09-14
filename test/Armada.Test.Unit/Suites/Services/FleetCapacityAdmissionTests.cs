@@ -288,7 +288,7 @@ namespace Armada.Test.Unit.Suites.Services
             StubGitService git = new StubGitService();
             IDockService docks = new DockService(logging, database, settings, git);
             ICaptainService captains = new CaptainService(logging, database, settings, git, docks);
-            IMissionService missions = new MissionService(logging, database, settings, docks, captains);
+            IMissionService missions = new MissionService(logging, database, settings, docks, captains, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
             IVoyageService voyages = new VoyageService(logging, database);
             return new AdmiralService(logging, database, settings, captains, missions, voyages, docks, git: git);
         }

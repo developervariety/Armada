@@ -483,6 +483,17 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Cutover decisions re-read a briefly unverifiable process state for a bounded
   window before failing closed. A candidate that exits at once is therefore
   recorded as exited rather than as unverifiable.
+### Deterministic assignment test harnesses
+
+- Unit test harnesses that build a mission service now inject resource-pressure
+  admission with a fixed memory probe. Before, they used the production default,
+  which reads live host and container memory. Under a loaded full gate that
+  measurement fell below the admission floor, and the assignment, pipeline
+  handoff and self-heal families failed together with "should assign" false.
+  They passed alone. Each harness keeps its own admission policy.
+- Added a self-heal test proving that a missed handoff deferred by memory
+  pressure still stamps the upstream branch, parks at WaitingForResourcePressure
+  and leaves the captain idle.
 
 ### Helm configuration and branch client
 

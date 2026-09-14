@@ -87,7 +87,7 @@ namespace Armada.Test.Unit.Suites.Services
             StubGitService git = new StubGitService();
             IDockService docks = new DockService(logging, db, settings, git);
             ICaptainService captains = new CaptainService(logging, db, settings, git, docks);
-            MissionService missions = new MissionService(logging, db, settings, docks, captains);
+            MissionService missions = new MissionService(logging, db, settings, docks, captains, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
             missions.DefinitionOfDone = new DefinitionOfDoneGate(dodSettings, db, logging);
             return missions;
         }

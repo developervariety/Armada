@@ -279,7 +279,7 @@ namespace Armada.Test.Unit
             vessel.WorkingDirectory = Path.Combine(Path.GetTempPath(), "armada_profile_work_" + Guid.NewGuid().ToString("N"));
             vessel.DefaultBranch = "main";
 
-            return new MissionService(logging, testDb.Driver, settings, docks, captains, git: git);
+            return new MissionService(logging, testDb.Driver, settings, docks, captains, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
         }
 
         /// <summary>

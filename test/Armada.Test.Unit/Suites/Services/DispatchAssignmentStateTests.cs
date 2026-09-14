@@ -52,7 +52,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DelayingDockService delayingDock = new DelayingDockService(realDock, delayMs: 2000);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, delayingDock);
                     captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, delayingDock, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, delayingDock, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
                     IAdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, delayingDock);
                     admiral.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
@@ -94,7 +94,7 @@ namespace Armada.Test.Unit.Suites.Services
                     GatedDockService gatedDock = new GatedDockService(realDock);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, gatedDock);
                     captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, gatedDock, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, gatedDock, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
                     IAdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, gatedDock);
                     admiral.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
@@ -163,7 +163,7 @@ namespace Armada.Test.Unit.Suites.Services
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
                     captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
                     IAdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService);
                     admiral.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
@@ -238,7 +238,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
                     IAdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService);
 
@@ -288,7 +288,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ThrowOnceThenSucceedDockService faultyDock = new ThrowOnceThenSucceedDockService(realDock);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, faultyDock);
                     captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, faultyDock, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, faultyDock, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
                     IAdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, faultyDock);
                     admiral.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
@@ -363,7 +363,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
                     IAdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService);
 
@@ -403,7 +403,7 @@ namespace Armada.Test.Unit.Suites.Services
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
                     captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     Vessel vessel = new Vessel("fanout-vessel", "https://github.com/test/repo.git");
                     vessel.DefaultBranch = "main";
@@ -475,7 +475,7 @@ namespace Armada.Test.Unit.Suites.Services
                         launchCalls++;
                         return Task.FromResult(12345);
                     };
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     Vessel vessel = new Vessel("start-ref-vessel", "https://github.com/test/repo.git");
                     vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
@@ -511,7 +511,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(CaptainStateEnum.Idle, captainAfter!.State, "The captain is released.");
 
                     // The same mission shape with a ref that resolves is cut at that commit before provisioning.
-                    missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+                    missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     const string resolvedStartCommit = "abcdef0123456789abcdef0123456789abcdef01";
                     git.RevisionCommitShaResult = resolvedStartCommit;
                     git.IsAncestorResult = true;
@@ -594,7 +594,7 @@ namespace Armada.Test.Unit.Suites.Services
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
                     captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     Vessel vessel = new Vessel("race-vessel", "https://github.com/test/repo.git");
                     vessel.DefaultBranch = "main";
@@ -654,7 +654,7 @@ namespace Armada.Test.Unit.Suites.Services
                     IDockService docks = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
                     captains.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
-                    MissionService missions = new MissionService(logging, testDb.Driver, settings, docks, captains);
+                    MissionService missions = new MissionService(logging, testDb.Driver, settings, docks, captains, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     Vessel producer = await testDb.Driver.Vessels.CreateAsync(
                         new Vessel("lane-producer-assignment", "https://github.com/test/lane-producer-assignment.git")
@@ -751,7 +751,7 @@ namespace Armada.Test.Unit.Suites.Services
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
                     captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     Vessel vessel = new Vessel("missing-dep-vessel", "https://github.com/test/repo.git");
                     vessel.DefaultBranch = "main";
@@ -803,7 +803,7 @@ namespace Armada.Test.Unit.Suites.Services
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
                     captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
                     IAdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService);
                     admiral.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
@@ -871,7 +871,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DelayingDockService delayingDock = new DelayingDockService(realDock, delayMs: 1000);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, delayingDock);
                     captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, delayingDock, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, delayingDock, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
                     IAdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, delayingDock);
                     admiral.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
@@ -916,7 +916,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DelayingDockService delayingDock = new DelayingDockService(realDock, delayMs: 5000);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, delayingDock);
                     captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, delayingDock, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, delayingDock, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
                     IAdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, delayingDock);
                     admiral.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);

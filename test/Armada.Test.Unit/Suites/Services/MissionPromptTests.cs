@@ -34,7 +34,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             IDockService dockService = new DockService(logging, db, settings, git);
             ICaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
-            return new MissionService(logging, db, settings, dockService, captainService);
+            return new MissionService(logging, db, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
         }
 
         private MissionService CreateMissionServiceWithTemplates(LoggingModule logging, SqliteDatabaseDriver db, ArmadaSettings settings, StubGitService git, out IPromptTemplateService templateService)
@@ -42,7 +42,7 @@ namespace Armada.Test.Unit.Suites.Services
             IDockService dockService = new DockService(logging, db, settings, git);
             ICaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
             templateService = new PromptTemplateService(db, logging);
-            return new MissionService(logging, db, settings, dockService, captainService, templateService);
+            return new MissionService(logging, db, settings, dockService, captainService, templateService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
         }
 
         protected override async Task RunTestsAsync()
@@ -83,7 +83,7 @@ namespace Armada.Test.Unit.Suites.Services
                     StubGitService git = new StubGitService();
                     IDockService docks = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
-                    MissionService service = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git);
+                    MissionService service = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("anchors", "https://example.invalid/repo"));
                     Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("anchors"));
                     Mission mission = new Mission { Title = "inspect", VesselId = vessel.Id, CaptainId = captain.Id };

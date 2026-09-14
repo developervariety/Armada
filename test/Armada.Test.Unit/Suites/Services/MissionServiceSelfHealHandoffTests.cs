@@ -40,12 +40,20 @@ namespace Armada.Test.Unit.Suites.Services
 
         private MissionService CreateMissionService(SqliteDatabaseDriver db, ArmadaSettings settings)
         {
+            return CreateMissionService(db, settings, TestResourcePressure.Unconstrained(settings));
+        }
+
+        private MissionService CreateMissionService(
+            SqliteDatabaseDriver db,
+            ArmadaSettings settings,
+            IResourcePressureAdmission resourcePressureAdmission)
+        {
             LoggingModule logging = CreateLogging();
             StubGitService git = new StubGitService();
             IDockService dockService = new DockService(logging, db, settings, git);
             CaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
             captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(64010);
-            return new MissionService(logging, db, settings, dockService, captainService);
+            return new MissionService(logging, db, settings, dockService, captainService, resourcePressureAdmission: resourcePressureAdmission);
         }
 
         private async Task<Vessel> CreateVesselAsync(SqliteDatabaseDriver db, ArmadaSettings settings)
@@ -337,6 +345,52 @@ namespace Armada.Test.Unit.Suites.Services
                         "The TestEngineer persona preamble is injected exactly once on the post-gate pass.");
                     AssertEqual(1, CountOccurrences(afterSecond.Description ?? "", "## Prior Stage Output"),
                         "Prior-stage context is injected exactly once -- no double-prepare from the race.");
+                }
+            });
+
+            await RunTest("TryAssign_MissedHandoff_MemoryBelowAdmissionFloor_HealsThenWaitsForResourcePressure", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    FixedResourcePressureProbe probe = new FixedResourcePressureProbe(1024L * 1024L);
+                    MissionService missions = CreateMissionService(
+                        testDb.Driver, settings, TestResourcePressure.WithAvailableMemory(settings, probe));
+                    Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
+
+                    Mission worker = await CreateUpstreamAsync(testDb.Driver, vessel, "Worker", "armada/worker-pressure").ConfigureAwait(false);
+                    Mission testEngineer = await CreateDependentAsync(
+                        testDb.Driver, vessel, "TestEngineer", worker.Id, "Original TestEngineer brief.").ConfigureAwait(false);
+                    Captain captain = await CreateIdleCaptainAsync(testDb.Driver, "te-captain", "claude-opus-5", "[\"TestEngineer\"]").ConfigureAwait(false);
+
+                    bool firstAssigned = await missions.TryAssignAsync(testEngineer, vessel).ConfigureAwait(false);
+                    Mission afterFirst = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
+                    Captain captainAfterFirst = (await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false))!;
+
+                    AssertTrue(probe.ProbeCount > 0, "The admission gate must consult the memory probe.");
+                    AssertFalse(firstAssigned, "Memory below the admission floor must defer the launch.");
+                    AssertEqual(MissionStatusEnum.Pending, afterFirst.Status, "A memory-deferred dependent stays Pending.");
+                    AssertEqual(MissionAssignmentStateEnum.WaitingForResourcePressure, afterFirst.AssignmentState,
+                        "The deferral must name resource pressure, not an idle-captain or dependency wait.");
+                    AssertNull(afterFirst.CaptainId, "A memory-deferred dependent must not hold a captain.");
+                    AssertEqual(CaptainStateEnum.Idle, captainAfterFirst.State, "The eligible captain stays Idle.");
+                    AssertEqual("armada/worker-pressure", afterFirst.BranchName,
+                        "The handoff self-heal runs before admission, so the branch is already stamped.");
+                    AssertEqual(1, CountOccurrences(afterFirst.Description ?? "", "## Your Role: TestEngineer"),
+                        "The persona preamble is injected once by the self-heal.");
+
+                    probe.AvailableMemoryBytes = TestResourcePressure.AmpleAvailableMemoryBytes;
+
+                    bool secondAssigned = await missions.TryAssignAsync(afterFirst, vessel).ConfigureAwait(false);
+                    Mission afterSecond = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
+
+                    AssertTrue(secondAssigned, "Once memory returns, the next pass must assign.");
+                    AssertEqual(MissionStatusEnum.InProgress, afterSecond.Status, "The dependent launches after pressure clears.");
+                    AssertEqual(captain.Id, afterSecond.CaptainId, "The dependent takes the idle eligible captain.");
+                    AssertEqual(1, CountOccurrences(afterSecond.Description ?? "", "## Your Role: TestEngineer"),
+                        "The retried pass must not re-run the handoff or double-inject the preamble.");
+                    AssertEqual(1, CountOccurrences(afterSecond.Description ?? "", "## Prior Stage Output"),
+                        "Prior-stage context stays injected exactly once across the deferral.");
                 }
             });
         }

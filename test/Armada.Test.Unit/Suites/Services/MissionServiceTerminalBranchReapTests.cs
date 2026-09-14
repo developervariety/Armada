@@ -44,7 +44,7 @@ namespace Armada.Test.Unit.Suites.Services
             IDockService dockService = new DockService(logging, db, settings, git);
             CaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
             captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(64010);
-            return new MissionService(logging, db, settings, dockService, captainService, null, git);
+            return new MissionService(logging, db, settings, dockService, captainService, null, git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
         }
 
         // Builds an AdmiralService whose MissionService is git-injected so the terminal reap path
@@ -57,7 +57,7 @@ namespace Armada.Test.Unit.Suites.Services
             IDockService dockService = new DockService(logging, db, settings, git);
             CaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
             captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(64010);
-            IMissionService missionService = new MissionService(logging, db, settings, dockService, captainService, null, git);
+            IMissionService missionService = new MissionService(logging, db, settings, dockService, captainService, null, git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
             IVoyageService voyageService = new VoyageService(logging, db);
             return new AdmiralService(logging, db, settings, captainService, missionService, voyageService, dockService);
         }

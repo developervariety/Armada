@@ -226,7 +226,7 @@ namespace Armada.Test.Unit.Suites.Services
             DirCreatingGitStub git = new DirCreatingGitStub();
             IDockService dockService = new DockService(logging, db, settings, git);
             CaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
-            MissionService missionService = new MissionService(logging, db, settings, dockService, captainService, git: git);
+            MissionService missionService = new MissionService(logging, db, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
             IVoyageService voyageService = new VoyageService(logging, db);
             AdmiralService admiralService = new AdmiralService(logging, db, settings, captainService, missionService, voyageService, dockService);
 

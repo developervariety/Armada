@@ -110,7 +110,7 @@ namespace Armada.Test.Unit
                 StubGitService git = new StubGitService();
                 IDockService docks = new DockService(logging, testDb.Driver, settings, git);
                 ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
-                MissionService svc = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git);
+                MissionService svc = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                 Voyage voyage = new Voyage("lens-voyage");
                 voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);

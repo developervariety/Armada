@@ -44,7 +44,7 @@ namespace Armada.Test.Unit.Suites.Services
             IDockService dockService = new DockService(logging, db, settings, git);
             CaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
             captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(64001);
-            return new MissionService(logging, db, settings, dockService, captainService, captainQuarantine: quarantine);
+            return new MissionService(logging, db, settings, dockService, captainService, captainQuarantine: quarantine, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
         }
 
         private static async Task<Captain> CreateOwningCaptainAsync(SqliteDatabaseDriver db, CaptainStateEnum state)
@@ -76,7 +76,7 @@ namespace Armada.Test.Unit.Suites.Services
             StubGitService git = new StubGitService();
             IDockService dockService = new DockService(logging, db, settings, git);
             CaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
-            MissionService missionService = new MissionService(logging, db, settings, dockService, captainService, captainQuarantine: quarantine);
+            MissionService missionService = new MissionService(logging, db, settings, dockService, captainService, captainQuarantine: quarantine, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
             IVoyageService voyageService = new VoyageService(logging, db);
             return new AdmiralService(logging, db, settings, captainService, missionService, voyageService, dockService, captainQuarantine: quarantine);
         }

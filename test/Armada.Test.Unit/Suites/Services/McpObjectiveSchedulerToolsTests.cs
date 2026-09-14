@@ -322,7 +322,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                 ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                 IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
                 AdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService);
 
@@ -347,7 +347,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                 ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                 IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
                 AdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService);
 

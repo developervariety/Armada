@@ -378,7 +378,7 @@ namespace Armada.Test.Unit.Suites.Services
             GitService git = new GitService(logging);
             DockService docks = new DockService(logging, testDb.Driver, settings, git);
             CaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
-            MissionService missions = new MissionService(logging, testDb.Driver, settings, docks, captains);
+            MissionService missions = new MissionService(logging, testDb.Driver, settings, docks, captains, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
             VoyageService voyages = new VoyageService(logging, testDb.Driver);
             return new AdmiralService(logging, testDb.Driver, settings, captains, missions, voyages, docks, null, null, null, null, git, hold);
         }

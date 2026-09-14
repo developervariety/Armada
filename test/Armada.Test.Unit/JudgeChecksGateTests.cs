@@ -45,7 +45,7 @@ namespace Armada.Test.Unit
             StubGitService git = new StubGitService();
             IDockService docks = new DockService(logging, testDb.Driver, settings, git);
             ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
-            MissionService svc = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git);
+            MissionService svc = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
             Vessel vessel = new Vessel("report-only-vessel", "https://github.com/test/repo.git");
             vessel.DefaultBranch = "main";
@@ -81,7 +81,7 @@ namespace Armada.Test.Unit
             StubGitService git = new StubGitService();
             IDockService docks = new DockService(logging, testDb.Driver, settings, git);
             ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
-            MissionService svc = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git);
+            MissionService svc = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
             Vessel vessel = new Vessel("gate-vessel", "https://github.com/test/repo.git");
             vessel.DefaultBranch = "main";
@@ -125,7 +125,7 @@ namespace Armada.Test.Unit
             StubGitService git = new StubGitService();
             IDockService docks = new DockService(logging, testDb.Driver, settings, git);
             ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
-            MissionService svc = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git);
+            MissionService svc = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
             Vessel vessel = new Vessel("measurable-vessel", "https://github.com/test/repo.git");
             vessel.DefaultBranch = "main";
@@ -324,7 +324,7 @@ namespace Armada.Test.Unit
                     StubGitService git = new StubGitService();
                     IDockService docks = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
-                    MissionService svc = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git);
+                    MissionService svc = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     Vessel vessel = new Vessel("gate-vessel-2", "https://github.com/test/repo.git");
                     vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
@@ -608,7 +608,7 @@ namespace Armada.Test.Unit
                     StubGitService git = new StubGitService();
                     IDockService docks = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
-                    MissionService svc = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git);
+                    MissionService svc = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     Vessel vessel = new Vessel("marker-vessel", "https://github.com/test/repo.git");
                     vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);

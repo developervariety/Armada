@@ -57,7 +57,7 @@ namespace Armada.Test.Unit.Suites.Services
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
                     captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     Vessel vessel = new Vessel("setup-vessel", "https://github.com/test/repo.git");
                     vessel.DefaultBranch = "main";
@@ -91,7 +91,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
 
                     string workingDirectory = Path.Combine(Path.GetTempPath(), "armada_shared_dispatch_" + Guid.NewGuid().ToString("N"));
@@ -146,7 +146,7 @@ namespace Armada.Test.Unit.Suites.Services
                     StubGitService git = new StubGitService();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
                     AdmiralService admiralService = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService);
 
@@ -203,7 +203,7 @@ namespace Armada.Test.Unit.Suites.Services
                     StubGitService git = new StubGitService();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
                     AdmiralService admiralService = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService);
 
@@ -273,7 +273,7 @@ namespace Armada.Test.Unit.Suites.Services
                     StubGitService git = new StubGitService();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
                     AdmiralService admiralService = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService, git: git);
 
@@ -395,7 +395,7 @@ namespace Armada.Test.Unit.Suites.Services
                     StubGitService git = new StubGitService();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
                     AdmiralService admiralService = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, dockService);
 
@@ -461,7 +461,7 @@ namespace Armada.Test.Unit.Suites.Services
                     StubGitService git = new StubGitService();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     // Create vessel
                     Vessel vessel = new Vessel("dep-vessel", "https://github.com/test/repo.git");
@@ -503,7 +503,7 @@ namespace Armada.Test.Unit.Suites.Services
                     StubGitService git = new StubGitService();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     Vessel vessel = new Vessel("cancelled-voyage-vessel", "https://github.com/test/repo.git");
                     vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
@@ -548,7 +548,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(12345);
 
                     // Create vessel
@@ -612,7 +612,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     int landingCalls = 0;
                     missionService.OnMissionComplete = (Mission mission, Dock dock) =>
@@ -704,7 +704,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(2500 + git.WorktreeCalls.Count);
 
                     Vessel vessel = new Vessel("architect-summary-vessel", "https://github.com/test/repo.git");
@@ -812,7 +812,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(2600 + git.WorktreeCalls.Count);
 
                     Vessel vessel = new Vessel("architect-markdown-vessel", "https://github.com/test/repo.git");
@@ -917,7 +917,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(1000 + git.WorktreeCalls.Count);
 
                     int landingCalls = 0;
@@ -1087,7 +1087,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(2000 + git.WorktreeCalls.Count);
 
                     int landingCalls = 0;
@@ -1251,7 +1251,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(3000 + git.WorktreeCalls.Count);
 
                     Vessel vessel = new Vessel("dedupe-vessel", "https://github.com/test/repo.git");
@@ -1355,7 +1355,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(2700 + git.WorktreeCalls.Count);
 
                     Vessel vessel = new Vessel("architect-title-only-vessel", "https://github.com/test/repo.git");
@@ -1448,7 +1448,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(4000 + git.WorktreeCalls.Count);
 
                     Vessel vessel = new Vessel("signal-scrub-vessel", "https://github.com/test/repo.git");
@@ -1544,7 +1544,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(4000 + git.WorktreeCalls.Count);
 
                     Vessel vessel = new Vessel("planner-code-vessel", "https://github.com/test/repo.git");
@@ -1626,7 +1626,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(4000 + git.WorktreeCalls.Count);
 
                     Vessel vessel = new Vessel("planner-docs-vessel", "https://github.com/test/repo.git");
@@ -1706,7 +1706,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(4000 + git.WorktreeCalls.Count);
 
                     Vessel vessel = new Vessel("placeholder-vessel", "https://github.com/test/repo.git");
@@ -1798,7 +1798,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     Vessel vessel = new Vessel("fanout-branch-vessel", "https://github.com/test/repo.git");
                     vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_test_bare_" + Guid.NewGuid().ToString("N"));
@@ -1879,7 +1879,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(4000 + git.WorktreeCalls.Count);
 
                     Vessel vessel = new Vessel("sequenced-vessel", "https://github.com/test/repo.git");
@@ -1944,7 +1944,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     int landingCalls = 0;
                     missionService.OnMissionComplete = (m, d) =>
                     {
@@ -2011,7 +2011,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     int landingCalls = 0;
                     missionService.OnMissionComplete = (m, d) =>
                     {
@@ -2082,7 +2082,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     int landingCalls = 0;
                     missionService.OnMissionComplete = (m, d) =>
                     {
@@ -2161,7 +2161,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     int landingCalls = 0;
                     missionService.OnMissionComplete = (m, d) =>
                     {
@@ -2239,7 +2239,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     int landingCalls = 0;
                     missionService.OnMissionComplete = (m, d) =>
                     {
@@ -2316,7 +2316,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     int landingCalls = 0;
                     missionService.OnMissionComplete = (m, d) =>
                     {
@@ -2406,7 +2406,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     int landingCalls = 0;
                     missionService.OnMissionComplete = (m, d) =>
                     {
@@ -2490,7 +2490,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     int landingCalls = 0;
                     missionService.OnMissionComplete = (m, d) =>
                     {
@@ -2560,7 +2560,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     int landingCalls = 0;
                     missionService.OnMissionComplete = (m, d) =>
                     {
@@ -2643,7 +2643,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(2000 + git.WorktreeCalls.Count);
 
                     Vessel vessel = new Vessel("branch-backfill-vessel", "https://github.com/test/repo.git");
@@ -2726,7 +2726,7 @@ namespace Armada.Test.Unit.Suites.Services
                     };
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     bool landingCalled = false;
                     missionService.OnMissionComplete = (m, d) =>
@@ -2810,7 +2810,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(12345);
 
                     // Create vessel
@@ -2864,7 +2864,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(12345);
 
                     // Create vessel
@@ -2920,7 +2920,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => Task.FromResult(12345);
 
                     Vessel vessel = new Vessel("no-eligible-vessel", "https://github.com/test/repo.git");
@@ -2959,7 +2959,7 @@ namespace Armada.Test.Unit.Suites.Services
                     DirCreatingGitStub git = new DirCreatingGitStub();
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) => throw new InvalidOperationException("synthetic launch failure");
 
                     Vessel vessel = new Vessel("launch-failure-vessel", "https://github.com/test/repo.git");
@@ -3013,7 +3013,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    MissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     int launchCalls = 0;
                     captainService.OnLaunchAgent = (Captain c, Mission m, Dock d) =>
                     {
