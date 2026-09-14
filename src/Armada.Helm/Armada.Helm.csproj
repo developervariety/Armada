@@ -12,6 +12,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Test.Shared" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Spectre.Console" Version="0.57.2" />
     <PackageReference Include="Spectre.Console.Cli" Version="0.55.0" />
     <PackageReference Include="SyslogLogging" Version="2.2.1" />

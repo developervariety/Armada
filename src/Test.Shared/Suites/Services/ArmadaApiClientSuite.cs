@@ -86,6 +86,63 @@ namespace Test.Shared.Suites.Services
             }));
             AddContractCases(cases);
             AddProfileObjectiveCases(cases);
+            cases.Add(CaseAsync("live_health_route_returns_success", "ArmadaApiClient Live Health Route", TestTags.Positive, async () =>
+            {
+                E2EServerFixture fixture = await E2EServerFixture.AcquireAsync(this);
+                using (ArmadaApiClient client = new ArmadaApiClient(fixture.UnauthClient, fixture.BaseUrl))
+                {
+                    AssertTrue(await client.HealthCheckAsync(), "The live health route must return success without authentication.");
+                }
+            }));
+            cases.Add(CaseAsync("live_vessel_list_deserializes_server_response", "ArmadaApiClient Live Vessel List", TestTags.Positive, async () =>
+            {
+                E2EServerFixture fixture = await E2EServerFixture.AcquireAsync(this);
+                using (ArmadaApiClient client = new ArmadaApiClient(fixture.AuthClient, fixture.BaseUrl))
+                {
+                    EnumerationResult<Vessel>? result = await client.ListVesselsAsync();
+                    AssertNotNull(result);
+                    AssertTrue(result!.Success, "The live vessel list response must deserialize its success flag.");
+                    AssertTrue(result.Objects != null, "The live vessel list response must deserialize its object collection.");
+                }
+            }));
+            cases.Add(CaseAsync("live_branch_route_deserializes_repository_inspection", "ArmadaApiClient Live Branch Route", TestTags.Positive, async () =>
+            {
+                E2EServerFixture fixture = await E2EServerFixture.AcquireAsync(this);
+                string repositoryPath = TestGitRepoHelper.CreateWorkingRepoCopy();
+                using (ArmadaApiClient client = new ArmadaApiClient(fixture.AuthClient, fixture.BaseUrl))
+                {
+                    Vessel? vessel = await client.CreateVesselAsync(new Vessel
+                    {
+                        Name = "SdkBranchRoundTrip-" + Guid.NewGuid().ToString("N"),
+                        RepoUrl = "file:///sdk-branch-round-trip",
+                        LocalPath = repositoryPath,
+                        WorkingDirectory = repositoryPath
+                    });
+                    AssertNotNull(vessel);
+                    BranchListResponse? result = await client.ListVesselBranchesAsync(vessel!.Id);
+                    AssertNotNull(result);
+                    AssertEqual(vessel.Id, result!.VesselId);
+                    AssertEqual("LocalPath", result.Source);
+                    AssertTrue(result.BranchCount > 0, "The live branch response must include the repository branch.");
+                    AssertTrue(result.Branches.Exists(branch => String.Equals(branch.Name, "main", StringComparison.Ordinal)), "The live branch response must include main.");
+                }
+            }));
+            cases.Add(CaseAsync("live_branch_route_rejects_missing_authentication", "ArmadaApiClient Live Branch Auth Error", TestTags.Negative, async () =>
+            {
+                E2EServerFixture fixture = await E2EServerFixture.AcquireAsync(this);
+                using (ArmadaApiClient client = new ArmadaApiClient(fixture.UnauthClient, fixture.BaseUrl))
+                {
+                    try
+                    {
+                        await client.ListVesselBranchesAsync("vsl_missing");
+                        AssertTrue(false, "The live branch route must reject an unauthenticated request.");
+                    }
+                    catch (HttpRequestException exception)
+                    {
+                        AssertEqual(HttpStatusCode.Unauthorized, exception.StatusCode);
+                    }
+                }
+            }));
             return new TestSuiteDescriptor(
                 suiteId: "Services.ArmadaApiClient",
                 displayName: "Armada API Client",
@@ -94,6 +151,7 @@ namespace Test.Shared.Suites.Services
 
         private static void AddContractCases(List<TestCaseDescriptor> cases)
         {
+            cases.Add(ContractCaseTyped("list_vessel_branches", "GET", "/api/v1/vessels/vsl_test/branches", "{\"vesselId\":\"vsl_response\",\"defaultBranch\":\"main\",\"source\":\"LocalPath\",\"headState\":\"attached\",\"headRef\":\"main\",\"branchCount\":1,\"branches\":[{\"name\":\"main\",\"isCurrent\":true}]}", (c,t) => c.ListVesselBranchesAsync("vsl_test", t), r => { AssertEqual("vsl_response", r.VesselId); AssertEqual("main", r.Branches[0].Name); }, null));
             cases.Add(ContractCaseTyped("list_check_runs", "GET", "/api/v1/check-runs", "{\"totalRecords\":1,\"objects\":[{\"id\":\"chk_list\"}]}", (c,t) => c.ListCheckRunsAsync(t), r => AssertEqual("chk_list", r.Objects[0].Id), null));
             cases.Add(ContractCaseTyped("enumerate_check_runs", "POST", "/api/v1/check-runs/enumerate", "{\"totalRecords\":1,\"objects\":[{\"id\":\"chk_enum\"}]}", (c,t) => c.EnumerateCheckRunsAsync(new EnumerationQuery { PageSize = 7 }, t), r => AssertEqual("chk_enum", r.Objects[0].Id), b => AssertJsonPropertyNumber(b, "PageSize", 7)));
             cases.Add(ContractCaseTyped("list_deployments", "GET", "/api/v1/deployments", "{\"totalRecords\":1,\"objects\":[{\"id\":\"dpl_list\"}]}", (c,t) => c.ListDeploymentsAsync(t), r => AssertEqual("dpl_list", r.Objects[0].Id), null));

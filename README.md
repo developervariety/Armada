@@ -88,6 +88,11 @@ check probes the planned chat endpoint, including when the selected captain has
 an active mission. Endpoint readiness does not prove a running chat connection.
 See [Ask MCP availability](docs/upstream-review/ask-mcp.md).
 
+Helm adopts upstream grouped help and detected OpenCode/Mux MCP setup. The fork
+retains Board commands and the Codex startup timeout. Managed JSONC edits preserve
+unrelated text and UTF-8 encoding, and reject malformed or ambiguous input.
+The typed client also exposes the fork's read-only vessel branch inspection.
+
 Manual quarantine and release share one service across REST, MCP and Captain
 Detail **Lift Quarantine**. A hold is refused while the captain owns a mission,
 dock or process, and a release never forces a working captain to Idle. Manual

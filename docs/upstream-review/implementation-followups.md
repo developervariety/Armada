@@ -498,9 +498,10 @@ status correction does not substitute for a pre-landing gate.
 
 These findings apply to unaccepted candidates, not the deployed image:
 
-- Helm configuration editing must validate the original JSONC before replacing
-  or removing a managed value. Preserve encoding and unrelated bytes, with
-  exact-output tests for OpenCode, generic MCP configuration and Mux.
+- Helm configuration editing is corrected: original JSONC validation, UTF-8 BOM
+  preservation and exact-output fixtures passed independent checks. The combined
+  Helm and SDK run passed 101 tests with no failures or skips. CLI help aliases
+  also passed. Deployment remains pending.
 - Captain endpoint links need interruption/restart and incompatible partial
   schema tests for their new migrations. Required link-column reads must not
   silently ignore database errors.

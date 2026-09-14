@@ -1,12 +1,14 @@
 # SDK client coverage
 
-The typed `ArmadaApiClient` now covers the fork routes for vessel readiness and
-landing previews, deployments, mission landing and GitHub pull request details,
-token usage summaries, releases, check runs, and background jobs.
+The typed `ArmadaApiClient` now covers the fork routes for vessel readiness,
+landing previews, and read-only branch inspection, deployments, mission landing
+and GitHub pull request details, token usage summaries, releases, check runs,
+and background jobs.
 
 | Client method group | Fork route(s) |
 | --- | --- |
 | Vessel readiness and landing | `GET /api/v1/vessels/{id}/readiness`, `GET /api/v1/vessels/{id}/landing-preview` |
+| Vessel branches | `GET /api/v1/vessels/{id}/branches` |
 | Environments | `POST /api/v1/environments`, `GET/PUT/DELETE /api/v1/environments/{id}` |
 | Deployments | `POST /api/v1/deployments`, `GET/PUT/DELETE /api/v1/deployments/{id}`, `POST /api/v1/deployments/{id}/approve`, `/deny`, `/verify`, `/rollback` |
 | Mission preview and pull request | `GET /api/v1/missions/{id}/landing-preview`, `GET /api/v1/missions/{id}/github/pull-request` |
@@ -59,8 +61,15 @@ The final route inventory also includes these list and enumeration wrappers:
 | `ListTokenUsageAsync` | `GET /api/v1/token-usage` with filter query | Added |
 
 The upstream names `List*` and `Enumerate*` are retained as explicit wrappers
-where both fork routes exist. Harbor routes are not yet integrated. The scoped
-branch-inspection route is now present; its client wrapper remains a follow-up.
+where both fork routes exist. Harbor routes are not yet integrated. The
+read-only branch-inspection route is exposed through
+`ListVesselBranchesAsync`, including typed branch, HEAD, and divergence data.
+
+The shared client suite also runs representative round trips against an
+isolated in-process HTTP server. These checks cover the health route, typed
+vessel-list serialization, branch inspection against a real repository, and the
+401 authentication response. They do not dispatch missions or change live
+operational state.
 
 Each added wrapper has a route contract test with exact path and query,
 non-default typed response assertions, and populated request JSON assertions.

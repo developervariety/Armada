@@ -188,6 +188,15 @@ namespace Armada.Core.Client
             return await GetAsync<Vessel>("/api/v1/vessels/" + id, token).ConfigureAwait(false);
         }
 
+        /// <summary>List local branches and repository head information for a vessel.</summary>
+        /// <param name="id">Vessel identifier.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The read-only branch inspection response.</returns>
+        public async Task<BranchListResponse?> ListVesselBranchesAsync(string id, CancellationToken token = default)
+        {
+            return await GetAsync<BranchListResponse>("/api/v1/vessels/" + EscapePathSegment(id) + "/branches", token).ConfigureAwait(false);
+        }
+
         /// <summary>
         /// Create a vessel.
         /// </summary>

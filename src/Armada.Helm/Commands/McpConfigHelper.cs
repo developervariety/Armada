@@ -1,6 +1,8 @@
 namespace Armada.Helm.Commands
 {
+    using System.IO;
     using System.Diagnostics;
+    using System.Text;
     using System.Text.Json;
     using System.Text.Json.Nodes;
 
@@ -18,7 +20,9 @@ namespace Armada.Helm.Commands
             string? RemoveBeforeInstallName = null,
             string? ManualInstallCommand = null,
             string? ManualRemoveCommand = null,
-            int? StartupTimeoutSeconds = null);
+            int? StartupTimeoutSeconds = null,
+            bool IsMuxServers = false,
+            bool IsOpenCodeConfig = false);
 
         internal sealed record ApplyResult(string ClientName, string FilePath, bool Changed, string Message, bool IsProjectScoped = false);
         internal sealed record InstructionTarget(string ClientName, string FilePath, string Content, bool IsProjectScoped = false);
@@ -29,10 +33,16 @@ namespace Armada.Helm.Commands
         private const string SourceMcpFramework = "net10.0";
         private const int CodexMcpStartupTimeoutSeconds = 120;
 
-        internal static string GetMcpHttpUrl(int mcpPort)
+        internal static string GetMcpUrl(int mcpPort)
         {
+            // Armada serves the modern MCP Streamable HTTP transport at /mcp (POST for JSON-RPC,
+            // GET for the SSE notification stream, DELETE to terminate the session). This is the
+            // endpoint modern MCP clients (Claude Code, Gemini, Cursor, Mux) expect. The legacy
+            // The legacy transport is not advertised by Helm.
             return $"http://localhost:{mcpPort}/mcp";
         }
+
+        internal static string GetMcpHttpUrl(int mcpPort) => GetMcpUrl(mcpPort);
 
         internal static string GetClaudeJsonPath()
         {
@@ -42,6 +52,18 @@ namespace Armada.Helm.Commands
         internal static string GetClaudeAgentPath()
         {
             return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "agents", "armada.md");
+        }
+
+        internal static string GetOpenCodeConfigPath()
+        {
+            string directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "opencode");
+            string jsonc = Path.Combine(directory, "opencode.jsonc");
+            return File.Exists(jsonc) ? jsonc : Path.Combine(directory, "opencode.json");
+        }
+
+        internal static bool IsOpenCodeAvailable()
+        {
+            return File.Exists(GetOpenCodeConfigPath()) || Directory.Exists(Path.GetDirectoryName(GetOpenCodeConfigPath())!);
         }
 
         internal static string GetCodexConfigPath()
@@ -69,13 +91,89 @@ namespace Armada.Helm.Commands
             return Path.Combine(Environment.CurrentDirectory, ".cursor", "mcp.json");
         }
 
+        /// <summary>
+        /// Resolve Mux's config directory: the MUX_CONFIG_DIR environment variable if set, otherwise ~/.mux.
+        /// </summary>
+        internal static string GetMuxConfigDirectory()
+        {
+            string? envDir = Environment.GetEnvironmentVariable("MUX_CONFIG_DIR");
+            if (!String.IsNullOrWhiteSpace(envDir))
+                return Path.GetFullPath(Environment.ExpandEnvironmentVariables(envDir.Trim()));
+
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".mux");
+        }
+
+        /// <summary>
+        /// Path to Mux's MCP servers file (mcp-servers.json) inside the active Mux config directory.
+        /// </summary>
+        internal static string GetMuxMcpServersPath()
+        {
+            return Path.Combine(GetMuxConfigDirectory(), "mcp-servers.json");
+        }
+
+        /// <summary>
+        /// Resolve a Mux executable on PATH, or null if none is found.
+        /// </summary>
+        internal static string? ResolveMuxExecutable()
+        {
+            string? pathEnv = Environment.GetEnvironmentVariable("PATH");
+            if (String.IsNullOrEmpty(pathEnv))
+                return null;
+
+            string[] names = OperatingSystem.IsWindows()
+                ? new[] { "mux.exe", "mux.cmd", "mux.bat", "mux" }
+                : new[] { "mux" };
+
+            foreach (string dir in pathEnv.Split(Path.PathSeparator))
+            {
+                if (String.IsNullOrWhiteSpace(dir))
+                    continue;
+
+                foreach (string name in names)
+                {
+                    try
+                    {
+                        string candidate = Path.Combine(dir.Trim(), name);
+                        if (File.Exists(candidate))
+                            return candidate;
+                    }
+                    catch (Exception)
+                    {
+                        continue;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Whether Mux appears to be installed on this machine, so `armada mcp install` can configure it.
+        /// True when Mux's config directory already exists (created on Mux's first run) or a Mux
+        /// executable is resolvable on PATH.
+        /// </summary>
+        internal static bool IsMuxAvailable()
+        {
+            try
+            {
+                if (Directory.Exists(GetMuxConfigDirectory()))
+                    return true;
+            }
+            catch (Exception)
+            {
+                return ResolveMuxExecutable() != null;
+            }
+
+            return ResolveMuxExecutable() != null;
+        }
+
         internal static List<ConfigTarget> BuildTargets(int mcpPort)
         {
-            string mcpHttpUrl = GetMcpHttpUrl(mcpPort);
+            string mcpUrl = GetMcpUrl(mcpPort);
             string codexCommand = ResolveCliCommand("codex");
             string geminiCommand = ResolveCliCommand("gemini");
 
-            return new List<ConfigTarget>
+            List<ConfigTarget> targets = new List<ConfigTarget>
             {
                 new(
                     "Claude Code",
@@ -83,7 +181,7 @@ namespace Armada.Helm.Commands
                     new JsonObject
                     {
                         ["type"] = "http",
-                        ["url"] = mcpHttpUrl,
+                        ["url"] = mcpUrl,
                     },
                     InstallAgent: true,
                     ManualInstallCommand: BuildClaudeCliCommand(mcpPort)),
@@ -101,20 +199,49 @@ namespace Armada.Helm.Commands
                     "Gemini CLI",
                     GetGeminiConfigPath(),
                     CliCommand: geminiCommand,
-                    InstallArgs: new[] { "mcp", "add", "--scope", "user", "--transport", "http", "armada", mcpHttpUrl },
+                    InstallArgs: new[] { "mcp", "add", "--scope", "user", "--transport", "http", "armada", mcpUrl },
                     RemoveArgs: new[] { "mcp", "remove", "armada" },
-                    ManualInstallCommand: geminiCommand + " mcp add --scope user --transport http armada " + mcpHttpUrl,
+                    ManualInstallCommand: geminiCommand + " mcp add --scope user --transport http armada " + mcpUrl,
                     ManualRemoveCommand: geminiCommand + " mcp remove armada"),
                 new(
                     "Cursor",
                     GetCursorConfigPath(),
                     new JsonObject
                     {
-                        ["url"] = mcpHttpUrl,
+                        ["url"] = mcpUrl,
                         ["transport"] = "http",
                     },
                     IsProjectScoped: true),
             };
+
+            // Mux stores MCP servers as an array in mcp-servers.json (a different shape from the other
+            // clients). Only offer it when Mux is actually present so `armada mcp install` does not
+            // create a stray ~/.mux directory on machines without Mux.
+            if (IsMuxAvailable())
+            {
+                targets.Add(new(
+                    "Mux",
+                    GetMuxMcpServersPath(),
+                    new JsonObject
+                    {
+                        ["name"] = "armada",
+                        ["transport"] = "http",
+                        ["url"] = $"http://localhost:{mcpPort}",
+                        ["mcpPath"] = "/mcp",
+                    },
+                    IsMuxServers: true));
+            }
+
+            if (IsOpenCodeAvailable())
+            {
+                targets.Add(new(
+                    "OpenCode",
+                    GetOpenCodeConfigPath(),
+                    new JsonObject { ["type"] = "remote", ["url"] = mcpUrl },
+                    IsOpenCodeConfig: true));
+            }
+
+            return targets;
         }
 
         internal static List<InstructionTarget> BuildInstructionTargets()
@@ -136,53 +263,43 @@ namespace Armada.Helm.Commands
 
         internal static async Task<ApplyResult> InstallTargetAsync(ConfigTarget target)
         {
+            if (target.IsMuxServers)
+                return await InstallMuxServerAsync(target).ConfigureAwait(false);
+
+            if (target.IsOpenCodeConfig)
+                return await InstallOpenCodeAsync(target).ConfigureAwait(false);
+
             if (!String.IsNullOrEmpty(target.CliCommand) && target.InstallArgs != null)
             {
                 if (!String.IsNullOrEmpty(target.RemoveBeforeInstallName))
                     await RunCliCommandAsync(target.CliCommand, new[] { "mcp", "remove", target.RemoveBeforeInstallName }).ConfigureAwait(false);
 
                 bool success = await RunCliCommandAsync(target.CliCommand, target.InstallArgs).ConfigureAwait(false);
-                bool timeoutChanged = false;
-                if (success && target.StartupTimeoutSeconds.HasValue)
-                {
-                    timeoutChanged = await EnsureTomlMcpServerStartupTimeoutAsync(
-                        target.FilePath,
-                        "armada",
-                        target.StartupTimeoutSeconds.Value).ConfigureAwait(false);
-                }
-
-                string message = success
-                    ? "Configured Armada MCP entry via native CLI."
-                    : "Failed to configure Armada MCP entry via native CLI.";
-                if (timeoutChanged)
-                {
-                    message += " Set startup_timeout_sec to " + target.StartupTimeoutSeconds!.Value + ".";
-                }
-
+                bool timeoutChanged = success && target.StartupTimeoutSeconds.HasValue
+                    && await EnsureTomlMcpServerStartupTimeoutAsync(target.FilePath, "armada", target.StartupTimeoutSeconds.Value).ConfigureAwait(false);
                 return new ApplyResult(
                     target.ClientName,
                     target.FilePath,
-                    success || timeoutChanged,
-                    message,
+                    success,
+                    success || timeoutChanged
+                        ? "Configured Armada MCP entry via native CLI."
+                        : "Failed to configure Armada MCP entry via native CLI.",
                     target.IsProjectScoped);
             }
 
             if (target.ArmadaConfig == null)
                 throw new InvalidOperationException("Config target does not define ArmadaConfig for file-based installation.");
 
-            JsonObject root = await ReadOrCreateRootAsync(target.FilePath).ConfigureAwait(false);
-            if (root["mcpServers"] is not JsonObject)
-            {
-                root["mcpServers"] = new JsonObject();
-            }
-
-            JsonObject mcpServers = root["mcpServers"]!.AsObject();
-            JsonNode? existing = mcpServers["armada"];
-            bool changed = existing == null || !JsonNode.DeepEquals(existing, target.ArmadaConfig);
-            mcpServers["armada"] = target.ArmadaConfig.DeepClone();
-
             Directory.CreateDirectory(Path.GetDirectoryName(target.FilePath)!);
-            await File.WriteAllTextAsync(target.FilePath, root.ToJsonString(JsonOptions)).ConfigureAwait(false);
+            JsoncFile file = File.Exists(target.FilePath) ? await ReadJsoncFileAsync(target.FilePath).ConfigureAwait(false) : new JsoncFile(String.Empty, false);
+            string original = file.Content;
+            if (!String.IsNullOrWhiteSpace(original)) ValidateJsoncObject(original);
+            string updated = JsoncScopedEditor.Upsert(original, "mcpServers", "armada", target.ArmadaConfig.ToJsonString(JsonOptions), out bool changed);
+            if (changed)
+            {
+                ValidateJsoncObject(updated);
+                await WriteJsoncFileAsync(target.FilePath, updated, file.HasUtf8Bom).ConfigureAwait(false);
+            }
 
             return new ApplyResult(
                 target.ClientName,
@@ -194,6 +311,12 @@ namespace Armada.Helm.Commands
 
         internal static async Task<ApplyResult> RemoveTargetAsync(ConfigTarget target)
         {
+            if (target.IsMuxServers)
+                return await RemoveMuxServerAsync(target).ConfigureAwait(false);
+
+            if (target.IsOpenCodeConfig)
+                return await RemoveOpenCodeAsync(target).ConfigureAwait(false);
+
             if (!String.IsNullOrEmpty(target.CliCommand) && target.RemoveArgs != null)
             {
                 bool success = await RunCliCommandAsync(target.CliCommand, target.RemoveArgs).ConfigureAwait(false);
@@ -217,31 +340,83 @@ namespace Armada.Helm.Commands
                     target.IsProjectScoped);
             }
 
-            JsonObject root = await ReadOrCreateRootAsync(target.FilePath).ConfigureAwait(false);
-            JsonObject? mcpServers = root["mcpServers"] as JsonObject;
-            if (mcpServers == null || !mcpServers.ContainsKey("armada"))
+            JsoncFile file = await ReadJsoncFileAsync(target.FilePath).ConfigureAwait(false);
+            string original = file.Content;
+            if (!String.IsNullOrWhiteSpace(original)) ValidateJsoncObject(original);
+            string updated = JsoncScopedEditor.Remove(original, "mcpServers", "armada", out bool changed);
+            if (changed)
+            {
+                ValidateJsoncObject(updated);
+                await WriteJsoncFileAsync(target.FilePath, updated, file.HasUtf8Bom).ConfigureAwait(false);
+            }
+
+            return new ApplyResult(
+                target.ClientName,
+                target.FilePath,
+                changed,
+                changed ? "Removed Armada MCP entry." : "No Armada MCP entry was present.",
+                target.IsProjectScoped);
+        }
+
+        /// <summary>
+        /// Install the Armada HTTP server into Mux's mcp-servers.json, which stores servers as a
+        /// "servers" array of objects (each carrying its own "name"), unlike the keyed "mcpServers"
+        /// object used by the other clients.
+        /// </summary>
+        private static async Task<ApplyResult> InstallMuxServerAsync(ConfigTarget target)
+        {
+            if (target.ArmadaConfig == null)
+                throw new InvalidOperationException("Mux config target does not define ArmadaConfig.");
+
+            Directory.CreateDirectory(Path.GetDirectoryName(target.FilePath)!);
+            JsoncFile file = File.Exists(target.FilePath) ? await ReadJsoncFileAsync(target.FilePath).ConfigureAwait(false) : new JsoncFile(String.Empty, false);
+            string original = file.Content;
+            if (!String.IsNullOrWhiteSpace(original)) ValidateJsoncObject(original);
+            string updated = JsoncScopedEditor.UpsertArrayObject(original, "servers", "armada", target.ArmadaConfig.ToJsonString(JsonOptions), out bool changed);
+            if (changed)
+            {
+                ValidateJsoncObject(updated);
+                await WriteJsoncFileAsync(target.FilePath, updated, file.HasUtf8Bom).ConfigureAwait(false);
+            }
+
+            return new ApplyResult(
+                target.ClientName,
+                target.FilePath,
+                changed,
+                changed ? "Configured Armada MCP server (HTTP)." : "Armada MCP server already matched the expected configuration.",
+                target.IsProjectScoped);
+        }
+
+        /// <summary>
+        /// Remove the Armada server entry from Mux's mcp-servers.json "servers" array.
+        /// </summary>
+        private static async Task<ApplyResult> RemoveMuxServerAsync(ConfigTarget target)
+        {
+            if (!File.Exists(target.FilePath))
             {
                 return new ApplyResult(
                     target.ClientName,
                     target.FilePath,
                     false,
-                    "No Armada MCP entry was present.",
+                    "Configuration file does not exist; nothing to remove.",
                     target.IsProjectScoped);
             }
 
-            mcpServers.Remove("armada");
-            if (mcpServers.Count == 0)
+            JsoncFile file = await ReadJsoncFileAsync(target.FilePath).ConfigureAwait(false);
+            string original = file.Content;
+            if (!String.IsNullOrWhiteSpace(original)) ValidateJsoncObject(original);
+            string updated = JsoncScopedEditor.RemoveArrayObject(original, "servers", "armada", out bool changed);
+            if (changed)
             {
-                root.Remove("mcpServers");
+                ValidateJsoncObject(updated);
+                await WriteJsoncFileAsync(target.FilePath, updated, file.HasUtf8Bom).ConfigureAwait(false);
             }
-
-            await File.WriteAllTextAsync(target.FilePath, root.ToJsonString(JsonOptions)).ConfigureAwait(false);
 
             return new ApplyResult(
                 target.ClientName,
                 target.FilePath,
-                true,
-                "Removed Armada MCP entry.",
+                changed,
+                changed ? "Removed Armada MCP server." : "No Armada MCP server was present.",
                 target.IsProjectScoped);
         }
 
@@ -321,6 +496,15 @@ namespace Armada.Helm.Commands
             if (target.ArmadaConfig == null)
                 return "";
 
+            if (target.IsMuxServers)
+            {
+                JsonObject muxRoot = new JsonObject
+                {
+                    ["servers"] = new JsonArray(target.ArmadaConfig.DeepClone()),
+                };
+                return muxRoot.ToJsonString(JsonOptions);
+            }
+
             JsonObject root = new JsonObject
             {
                 ["mcpServers"] = new JsonObject
@@ -336,12 +520,15 @@ namespace Armada.Helm.Commands
             if (!String.IsNullOrEmpty(target.ManualRemoveCommand))
                 return target.ManualRemoveCommand;
 
+            if (target.IsMuxServers)
+                return "Remove the object with \"name\": \"armada\" from the \"servers\" array in mcp-servers.json (or run /mcp in Mux and remove the armada server).";
+
             return "Remove the `armada` object from the `mcpServers` section.";
         }
 
         internal static string BuildClaudeCliCommand(int mcpPort)
         {
-            return $"claude mcp add --transport http --scope user armada {GetMcpHttpUrl(mcpPort)}";
+            return $"claude mcp add --transport http --scope user armada {GetMcpUrl(mcpPort)}";
         }
 
         internal static string BuildClaudeStdioCommand()
@@ -352,60 +539,6 @@ namespace Armada.Helm.Commands
         internal static string BuildCodexManualInstallCommand(string codexCommand)
         {
             return String.Join(" ", BuildCliCommandParts(codexCommand, BuildCodexInstallArgs()));
-        }
-
-        internal static async Task<bool> EnsureTomlMcpServerStartupTimeoutAsync(string filePath, string serverName, int timeoutSeconds)
-        {
-            if (!File.Exists(filePath))
-                return false;
-
-            List<string> lines = (await File.ReadAllLinesAsync(filePath).ConfigureAwait(false)).ToList();
-            string tableHeader = "[mcp_servers." + serverName + "]";
-            int tableStart = -1;
-            for (int i = 0; i < lines.Count; i++)
-            {
-                if (String.Equals(lines[i].Trim(), tableHeader, StringComparison.Ordinal))
-                {
-                    tableStart = i;
-                    break;
-                }
-            }
-
-            if (tableStart < 0)
-                return false;
-
-            int tableEnd = lines.Count;
-            for (int i = tableStart + 1; i < lines.Count; i++)
-            {
-                string trimmed = lines[i].Trim();
-                if (trimmed.StartsWith("[", StringComparison.Ordinal) && trimmed.EndsWith("]", StringComparison.Ordinal))
-                {
-                    tableEnd = i;
-                    break;
-                }
-            }
-
-            string desiredLine = "startup_timeout_sec = " + timeoutSeconds;
-            for (int i = tableStart + 1; i < tableEnd; i++)
-            {
-                string trimmed = lines[i].TrimStart();
-                if (!trimmed.StartsWith("startup_timeout_sec", StringComparison.Ordinal))
-                    continue;
-
-                int keyIndex = lines[i].IndexOf("startup_timeout_sec", StringComparison.Ordinal);
-                string prefix = keyIndex > 0 ? lines[i][..keyIndex] : String.Empty;
-                string updatedLine = prefix + desiredLine;
-                if (String.Equals(lines[i], updatedLine, StringComparison.Ordinal))
-                    return false;
-
-                lines[i] = updatedLine;
-                await File.WriteAllLinesAsync(filePath, lines).ConfigureAwait(false);
-                return true;
-            }
-
-            lines.Insert(tableEnd, desiredLine);
-            await File.WriteAllLinesAsync(filePath, lines).ConfigureAwait(false);
-            return true;
         }
 
         private static string[] BuildCodexInstallArgs()
@@ -421,7 +554,7 @@ namespace Armada.Helm.Commands
             {
                 return new[]
                 {
-                    ResolveDotnetCommand(),
+                    "dotnet",
                     helmAssemblyPath!,
                     "mcp",
                     "stdio"
@@ -429,22 +562,6 @@ namespace Armada.Helm.Commands
             }
 
             return new[] { "armada", "mcp", "stdio" };
-        }
-
-        private static string ResolveDotnetCommand()
-        {
-            if (!OperatingSystem.IsWindows())
-                return "dotnet";
-
-            string programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
-            if (!String.IsNullOrWhiteSpace(programFiles))
-            {
-                string candidate = Path.Combine(programFiles, "dotnet", "dotnet.exe");
-                if (File.Exists(candidate))
-                    return candidate;
-            }
-
-            return "dotnet";
         }
 
         private static bool TryGetSourceHelmAssemblyPath(out string? helmAssemblyPath)
@@ -464,8 +581,9 @@ namespace Armada.Helm.Commands
                     return true;
                 }
             }
-            catch
+            catch (Exception)
             {
+                return false;
             }
 
             return false;
@@ -490,8 +608,9 @@ namespace Armada.Helm.Commands
                     current = current.Parent;
                 }
             }
-            catch
+            catch (Exception)
             {
+                return false;
             }
 
             return false;
@@ -561,21 +680,118 @@ namespace Armada.Helm.Commands
                 : String.Join($"{Environment.NewLine}{Environment.NewLine}", sections) + Environment.NewLine;
         }
 
-        private static async Task<JsonObject> ReadOrCreateRootAsync(string path)
+        private static async Task<bool> EnsureTomlMcpServerStartupTimeoutAsync(string filePath, string serverName, int timeoutSeconds)
         {
-            if (!File.Exists(path))
+            if (!File.Exists(filePath)) return false;
+            List<string> lines = (await File.ReadAllLinesAsync(filePath).ConfigureAwait(false)).ToList();
+            string tableHeader = "[mcp_servers." + serverName + "]";
+            int tableStart = -1;
+            for (int i = 0; i < lines.Count; i++)
             {
-                return new JsonObject();
+                if (String.Equals(lines[i].Trim(), tableHeader, StringComparison.Ordinal))
+                {
+                    tableStart = i;
+                    break;
+                }
+            }
+            if (tableStart < 0) return false;
+            int tableEnd = lines.Count;
+            for (int i = tableStart + 1; i < lines.Count; i++)
+            {
+                string trimmed = lines[i].Trim();
+                if (trimmed.StartsWith("[", StringComparison.Ordinal) && trimmed.EndsWith("]", StringComparison.Ordinal))
+                {
+                    tableEnd = i;
+                    break;
+                }
+            }
+            string desiredLine = "startup_timeout_sec = " + timeoutSeconds;
+            for (int i = tableStart + 1; i < tableEnd; i++)
+            {
+                string trimmed = lines[i].TrimStart();
+                if (!trimmed.StartsWith("startup_timeout_sec", StringComparison.Ordinal)) continue;
+                int keyIndex = lines[i].IndexOf("startup_timeout_sec", StringComparison.Ordinal);
+                string prefix = keyIndex > 0 ? lines[i][..keyIndex] : String.Empty;
+                string updated = prefix + desiredLine;
+                if (String.Equals(lines[i], updated, StringComparison.Ordinal)) return false;
+                lines[i] = updated;
+                await File.WriteAllLinesAsync(filePath, lines).ConfigureAwait(false);
+                return true;
+            }
+            lines.Insert(tableEnd, desiredLine);
+            await File.WriteAllLinesAsync(filePath, lines).ConfigureAwait(false);
+            return true;
+        }
+
+        private static async Task<ApplyResult> InstallOpenCodeAsync(ConfigTarget target)
+        {
+            JsoncFile file = File.Exists(target.FilePath) ? await ReadJsoncFileAsync(target.FilePath).ConfigureAwait(false) : new JsoncFile(String.Empty, false);
+            string original = file.Content;
+            if (!String.IsNullOrWhiteSpace(original)) ValidateJsoncObject(original);
+            Directory.CreateDirectory(Path.GetDirectoryName(target.FilePath)!);
+            string updated = JsoncScopedEditor.Upsert(original, "mcp", "armada", target.ArmadaConfig!.ToJsonString(JsonOptions), out bool changed);
+            if (changed)
+            {
+                ValidateJsoncObject(updated);
+                await WriteJsoncFileAsync(target.FilePath, updated, file.HasUtf8Bom).ConfigureAwait(false);
+            }
+            return new ApplyResult(target.ClientName, target.FilePath, changed, changed ? "Configured Armada MCP entry." : "Armada MCP entry already matched the expected configuration.");
+        }
+
+        private static async Task<ApplyResult> RemoveOpenCodeAsync(ConfigTarget target)
+        {
+            if (!File.Exists(target.FilePath)) return new ApplyResult(target.ClientName, target.FilePath, false, "Configuration file does not exist; nothing to remove.");
+            JsoncFile file = await ReadJsoncFileAsync(target.FilePath).ConfigureAwait(false);
+            string original = file.Content;
+            if (!String.IsNullOrWhiteSpace(original)) ValidateJsoncObject(original);
+            string updated = JsoncScopedEditor.Remove(original, "mcp", "armada", out bool changed);
+            if (changed)
+            {
+                ValidateJsoncObject(updated);
+                await WriteJsoncFileAsync(target.FilePath, updated, file.HasUtf8Bom).ConfigureAwait(false);
+            }
+            return new ApplyResult(target.ClientName, target.FilePath, changed, changed ? "Removed Armada MCP entry." : "No Armada MCP entry was present.");
+        }
+
+        private sealed class JsoncFile
+        {
+            internal JsoncFile(string content, bool hasUtf8Bom)
+            {
+                Content = content;
+                HasUtf8Bom = hasUtf8Bom;
             }
 
-            string text = await File.ReadAllTextAsync(path).ConfigureAwait(false);
-            if (string.IsNullOrWhiteSpace(text))
-            {
-                return new JsonObject();
-            }
+            internal string Content { get; }
+            internal bool HasUtf8Bom { get; }
+        }
 
-            JsonNode? node = JsonNode.Parse(text);
-            return node as JsonObject ?? new JsonObject();
+        private static async Task<JsoncFile> ReadJsoncFileAsync(string path)
+        {
+            byte[] bytes = await File.ReadAllBytesAsync(path).ConfigureAwait(false);
+            bool hasUtf8Bom = bytes.Length >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF;
+            int offset = hasUtf8Bom ? 3 : 0;
+            UTF8Encoding encoding = new UTF8Encoding(false, true);
+            return new JsoncFile(encoding.GetString(bytes, offset, bytes.Length - offset), hasUtf8Bom);
+        }
+
+        private static async Task WriteJsoncFileAsync(string path, string content, bool hasUtf8Bom)
+        {
+            UTF8Encoding encoding = new UTF8Encoding(false, true);
+            byte[] contentBytes = encoding.GetBytes(content);
+            byte[] output = hasUtf8Bom ? new byte[contentBytes.Length + 3] : contentBytes;
+            if (hasUtf8Bom)
+            {
+                output[0] = 0xEF;
+                output[1] = 0xBB;
+                output[2] = 0xBF;
+                Buffer.BlockCopy(contentBytes, 0, output, 3, contentBytes.Length);
+            }
+            await File.WriteAllBytesAsync(path, output).ConfigureAwait(false);
+        }
+
+        private static void ValidateJsoncObject(string text)
+        {
+            JsoncScopedEditor.Validate(text);
         }
 
         private static string ResolveCliCommand(string baseName)
@@ -607,12 +823,14 @@ namespace Armada.Helm.Commands
                 foreach (string arg in args)
                     startInfo.ArgumentList.Add(arg);
 
-                using Process? process = Process.Start(startInfo);
-                if (process == null)
-                    return false;
+                using (Process? process = Process.Start(startInfo))
+                {
+                    if (process == null)
+                        return false;
 
-                await process.WaitForExitAsync().ConfigureAwait(false);
-                return process.ExitCode == 0;
+                    await process.WaitForExitAsync().ConfigureAwait(false);
+                    return process.ExitCode == 0;
+                }
             }
             catch
             {

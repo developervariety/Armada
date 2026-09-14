@@ -14,6 +14,15 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Helm configuration and branch client
+
+- Add grouped help and help aliases, with detected OpenCode and Mux MCP setup.
+  Retain Board commands and the Codex startup timeout.
+- Preserve unrelated JSONC text and UTF-8 BOMs during managed entry changes.
+  Reject malformed original input and ambiguous managed entries before writes.
+- Add typed read-only vessel branch inspection and actual HTTP route tests for
+  health, vessel serialization, branch inspection and authentication errors.
+
 ### Model endpoint health persistence
 
 - Track remaining configuration, migration, heartbeat and manual-completion

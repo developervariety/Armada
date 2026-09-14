@@ -8,7 +8,7 @@ namespace Armada.Helm.Commands
     /// <summary>
     /// Remove MCP integration for supported clients.
     /// </summary>
-    [Description("Remove MCP integration for Claude Code, Codex, Gemini, and Cursor")]
+    [Description("Remove MCP integration for Claude Code, Codex, Gemini, Cursor, Mux, and OpenCode (when detected)")]
     public class McpRemoveCommand : BaseCommand<McpRemoveSettings>
     {
         /// <inheritdoc />
