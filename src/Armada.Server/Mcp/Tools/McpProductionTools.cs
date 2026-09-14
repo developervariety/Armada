@@ -48,7 +48,7 @@ namespace Armada.Server.Mcp.Tools
                         : JsonSerializer.Deserialize<ProductionSummaryQuery>(args.Value, _JsonOptions)
                             ?? new ProductionSummaryQuery();
                     ProductionSummaryResult result = await production.SummarizeAsync(
-                        McpToolHelpers.CreateDefaultTenantAdminContext(),
+                        McpCallerContext.Require(),
                         query).ConfigureAwait(false);
                     return (object)result;
                 });

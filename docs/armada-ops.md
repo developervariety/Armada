@@ -70,6 +70,27 @@ compatibility alias. An SSH stdio bridge can forward a local MCP client to a
 loopback-bound remote Admiral. The bridge must connect to the running Admiral.
 It must not start a second embedded Admiral process.
 
+Every MCP request must carry a credential. A request without one gets `401`;
+nothing falls back to a default administrative identity. Only a global
+administrator sees the operator catalog. `docs/MCP_API.md` lists the caller
+rules, the captain launch credential and the per-runtime headers.
+
+Operator migration when an Admiral with MCP authentication is deployed:
+
+1. On the server, write one header line to a protected file, for example
+   `printf 'X-Api-Key: %s\n' "<admiral API key>" > ~/.armada/mcp-auth-header`,
+   then `chmod 600` it. Never put the key in a board note, brief or shell history.
+2. Set `ARMADA_MCP_AUTH_HEADER_FILE` to that absolute path in the `env` of every
+   SSH stdio bridge entry. The bridge refuses requests until it is set.
+3. Set `ARMADA_API_KEY` in the environment of every direct HTTP client. Entries
+   written by `armada mcp install` reference it by name; re-run the install to
+   update an entry written before this change, and add the header by hand to any
+   entry you wrote yourself.
+4. Refresh the Helm CLI with the Admiral image, then prove a read-only tool call
+   through each client. Expect `401` from any client you did not update.
+5. Captains need no change on supported runtimes; they receive the launch
+   credential at launch. Mux captains cannot authenticate.
+
 Start each operator session with:
 
 1. Call `armada_status`.
@@ -1956,7 +1977,8 @@ otherwise have to guess whose mail to hand out.
 Configure it per client:
 
 - SSH stdio bridge: set `ARMADA_PARTICIPANT_KEY` in the MCP server's `env`.
-  `scripts/mcp-ssh-http-bridge.mjs` turns it into the header.
+  `scripts/mcp-ssh-http-bridge.mjs` turns it into the header. The same `env`
+  must also set `ARMADA_MCP_AUTH_HEADER_FILE`, or every request is refused.
 - Direct HTTP clients: add the header to the server entry's `headers` object.
 - Bounded helpers: `scripts/autonomy/spawn-helper.sh` writes the header into the
   generated per-helper config. An `AUTONOMY_CLAUDE_MCP_CONFIG` you supply

@@ -12,6 +12,16 @@ namespace Armada.Server.Mcp.Tools
     /// </summary>
     public static class McpTerminalVoyageMissionTools
     {
+        /// <summary>
+        /// Refusal reason returned when a caller other than a global administrator calls the repair.
+        /// </summary>
+        public const string GlobalAdministratorRequiredReason = "global_administrator_required";
+
+        /// <summary>
+        /// Refusal message returned when a caller other than a global administrator calls the repair.
+        /// </summary>
+        public const string GlobalAdministratorRequiredMessage = "Reconciling terminal voyage missions requires a global administrator.";
+
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -47,6 +57,13 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
+                    // The repair reads and rewrites missions in every tenant. Only a global administrator
+                    // may read across tenants, so any other caller is refused for a dry run as well as an
+                    // apply, before a job starts or any mission is read.
+                    AuthContext caller = McpCallerContext.Require();
+                    if (!caller.IsAdmin)
+                        return (object)new { Error = GlobalAdministratorRequiredMessage, Reason = GlobalAdministratorRequiredReason };
+
                     ReconcileArgs parsed = args.HasValue
                         ? JsonSerializer.Deserialize<ReconcileArgs>(args.Value, _JsonOptions) ?? new ReconcileArgs()
                         : new ReconcileArgs();

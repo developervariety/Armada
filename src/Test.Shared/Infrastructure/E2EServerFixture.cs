@@ -353,6 +353,9 @@ namespace Test.Shared.Infrastructure
             McpClient = new HttpClient();
             McpClient.BaseAddress = new Uri("http://127.0.0.1:" + McpPort);
             McpClient.Timeout = clientTimeout;
+            // The MCP endpoint refuses a request without a credential, the same as REST, so this client
+            // authenticates with the fixture API key the way a real MCP client must.
+            McpClient.DefaultRequestHeaders.Add("X-Api-Key", ApiKey);
 
             await WaitForReadyAsync().ConfigureAwait(false);
 

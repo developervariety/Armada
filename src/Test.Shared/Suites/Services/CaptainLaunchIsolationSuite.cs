@@ -76,9 +76,11 @@ namespace Test.Shared.Suites.Services
             {
                 CaptainLaunchIsolationPlan plan = CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.Codex, 7891, scoped);
                 AssertFalse(plan.IsEmpty, "expected a non-empty plan");
-                AssertEqual(2, plan.ExtraArguments.Count);
+                AssertEqual(4, plan.ExtraArguments.Count);
                 AssertEqual("-c", plan.ExtraArguments[0]);
                 AssertTrue(plan.ExtraArguments[1].Contains("http://localhost:7891/mcp"), "expected local MCP URL override");
+                AssertEqual("-c", plan.ExtraArguments[2]);
+                AssertEqual("mcp_servers.armada.bearer_token_env_var=\"" + McpLaunchCredential.EnvironmentVariable + "\"", plan.ExtraArguments[3], "Codex reads the launch credential from the environment");
                 AssertFalse(plan.EnvironmentOverrides.ContainsKey("CODEX_HOME"), "a captain with no account keeps the shared login");
                 AssertEqual(0, plan.FilesToWrite.Count);
 
@@ -92,7 +94,11 @@ namespace Test.Shared.Suites.Services
                     CaptainLaunchIsolationPlanner.ApplyAccount(plan, captain, account);
                     AssertEqual(home, plan.EnvironmentOverrides["CODEX_HOME"], "an account captain launches in the account home");
                     AssertFalse(String.Equals(scoped, plan.EnvironmentOverrides["CODEX_HOME"], StringComparison.Ordinal), "CODEX_HOME must never be the empty scoped directory");
-                    AssertEqual(2, plan.ExtraArguments.Count);
+                    // The MCP credential reaches Codex as a command-line override naming the variable, so it
+                    // holds whichever home the account selects, and the account switch leaves it in place.
+                    AssertEqual(4, plan.ExtraArguments.Count);
+                    AssertEqual("mcp_servers.armada.bearer_token_env_var=\"" + McpLaunchCredential.EnvironmentVariable + "\"", plan.ExtraArguments[3], "an account launch still references the MCP credential by name");
+                    AssertEqual(McpLaunchCredential.Token, plan.EnvironmentOverrides[McpLaunchCredential.EnvironmentVariable], "an account launch still carries the MCP launch credential");
                 }
                 finally
                 {
@@ -132,6 +138,62 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(plan.EnvironmentOverrides.ContainsKey("MUX_CONFIG_DIR"), "expected MUX_CONFIG_DIR override");
                 AssertEqual(scoped, plan.EnvironmentOverrides["MUX_CONFIG_DIR"]);
                 AssertEqual("mcp-servers.json", plan.FilesToWrite[0].RelativePath);
+            }));
+
+            // ---- Launch credential ----
+            cases.Add(Case("plan_carries_launch_credential_by_reference", "Every plan carries the launch credential in the environment and references it by name", TestTags.Positive, () =>
+            {
+                string token = McpLaunchCredential.Token;
+                foreach (AgentRuntimeEnum runtime in new[] { AgentRuntimeEnum.ClaudeCode, AgentRuntimeEnum.Codex, AgentRuntimeEnum.Gemini, AgentRuntimeEnum.Cursor, AgentRuntimeEnum.OpenCode, AgentRuntimeEnum.Mux })
+                {
+                    CaptainLaunchIsolationPlan plan = CaptainLaunchIsolationPlanner.Plan(runtime, 7891, scoped);
+                    AssertTrue(plan.EnvironmentOverrides.TryGetValue(McpLaunchCredential.EnvironmentVariable, out string? carried), runtime + " carries the launch credential");
+                    AssertEqual(token, carried, runtime + " carries this admiral's credential");
+                    foreach (IsolationConfigFile file in plan.FilesToWrite)
+                        AssertFalse(file.Contents.Contains(token, StringComparison.Ordinal), runtime + " never writes the credential value into " + file.RelativePath);
+                    foreach (string argument in plan.ExtraArguments)
+                        AssertFalse(argument.Contains(token, StringComparison.Ordinal), runtime + " never passes the credential value as an argument");
+                }
+
+                AssertTrue(CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.ClaudeCode, 7891, scoped).FilesToWrite[0].Contents.Contains("${" + McpLaunchCredential.EnvironmentVariable + "}", StringComparison.Ordinal), "Claude Code references the variable");
+                AssertTrue(CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.Gemini, 7891, scoped).FilesToWrite[0].Contents.Contains("${" + McpLaunchCredential.EnvironmentVariable + "}", StringComparison.Ordinal), "Gemini references the variable");
+                AssertTrue(CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.Cursor, 7891, scoped).FilesToWrite[0].Contents.Contains("${env:" + McpLaunchCredential.EnvironmentVariable + "}", StringComparison.Ordinal), "Cursor references the variable");
+                AssertTrue(CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.OpenCode, 7891, scoped).FilesToWrite[0].Contents.Contains("{env:" + McpLaunchCredential.EnvironmentVariable + "}", StringComparison.Ordinal), "OpenCode references the variable");
+            }));
+
+            cases.Add(Case("launch_plan_carries_credential_for_dock_config_runtimes", "With dock MCP delivery enabled every runtime launches with the credential its dock configuration references", TestTags.Positive, () =>
+            {
+                // Dock seeding writes Cursor, Gemini and OpenCode MCP configs that reference the credential
+                // variable, so those captains need it in their environment even without a scoped config.
+                foreach (AgentRuntimeEnum runtime in new[] { AgentRuntimeEnum.Cursor, AgentRuntimeEnum.Gemini, AgentRuntimeEnum.OpenCode })
+                {
+                    CaptainLaunchIsolationPlan seeded = CaptainLaunchIsolationPlanner.PlanForLaunch(runtime, true, 7891, scoped);
+                    AssertTrue(seeded.EnvironmentOverrides.TryGetValue(McpLaunchCredential.EnvironmentVariable, out string? value) && value == McpLaunchCredential.Token,
+                        runtime + " launches with the MCP credential its dock configuration references");
+                    AssertEqual(0, seeded.FilesToWrite.Count, runtime + " keeps its dock configuration instead of a scoped one");
+                    AssertEqual(0, seeded.ExtraArguments.Count, runtime + " gets no scoped arguments");
+                    AssertFalse(seeded.EnvironmentOverrides.ContainsKey("HOME"), runtime + " keeps its own home");
+
+                    CaptainLaunchIsolationPlan unseeded = CaptainLaunchIsolationPlanner.PlanForLaunch(runtime, false, 7891, scoped);
+                    AssertTrue(unseeded.IsEmpty, runtime + " gets no credential when MCP delivery is disabled");
+                }
+
+                foreach (AgentRuntimeEnum runtime in new[] { AgentRuntimeEnum.ClaudeCode, AgentRuntimeEnum.Codex })
+                {
+                    CaptainLaunchIsolationPlan seeded = CaptainLaunchIsolationPlanner.PlanForLaunch(runtime, true, 7891, scoped);
+                    AssertTrue(seeded.ExtraArguments.Count > 0, runtime + " keeps its scoped MCP arguments");
+                    AssertEqual(McpLaunchCredential.Token, seeded.EnvironmentOverrides[McpLaunchCredential.EnvironmentVariable], runtime + " carries the MCP credential");
+                    AssertTrue(CaptainLaunchIsolationPlanner.PlanForLaunch(runtime, false, 7891, scoped).IsEmpty, runtime + " gets an empty plan when MCP delivery is disabled");
+                }
+            }));
+
+            cases.Add(Case("launch_credential_matches_only_itself", "The launch credential matches only its own value", TestTags.Negative, () =>
+            {
+                AssertTrue(McpLaunchCredential.Matches(McpLaunchCredential.Token), "own token");
+                AssertFalse(McpLaunchCredential.Matches(null), "missing");
+                AssertFalse(McpLaunchCredential.Matches(""), "empty");
+                AssertFalse(McpLaunchCredential.Matches(McpLaunchCredential.Token + "x"), "longer");
+                AssertFalse(McpLaunchCredential.Matches("armada-launch-" + new string('0', 64)), "same shape, different value");
             }));
 
             // ---- Negative cases ----

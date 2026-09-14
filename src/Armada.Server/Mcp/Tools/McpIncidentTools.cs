@@ -61,7 +61,7 @@ namespace Armada.Server.Mcp.Tools
                         ? JsonSerializer.Deserialize<IncidentQuery>(args.Value, _JsonOptions) ?? new IncidentQuery()
                         : new IncidentQuery();
                     if (McpResultPreview.WantsDefaultPageSize(args)) query.PageSize = McpResultPreview.DefaultMcpPageSize;
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     object result = await incidentService.EnumerateAsync(auth, query).ConfigureAwait(false);
                     bool wantsFull = args.HasValue
                         && args.Value.TryGetProperty("includeFullContent", out JsonElement _full)
@@ -86,7 +86,7 @@ namespace Armada.Server.Mcp.Tools
                     IncidentIdArgs request = JsonSerializer.Deserialize<IncidentIdArgs>(args!.Value, _JsonOptions)
                         ?? throw new InvalidOperationException("Could not deserialize IncidentIdArgs.");
                     if (String.IsNullOrWhiteSpace(request.IncidentId)) return (object)new { Error = "incidentId is required" };
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     Incident? incident = await incidentService.ReadAsync(auth, request.IncidentId).ConfigureAwait(false);
                     if (incident == null) return (object)new { Error = "Incident not found" };
                     return (object)incident;
@@ -100,7 +100,7 @@ namespace Armada.Server.Mcp.Tools
                 {
                     IncidentUpsertRequest request = JsonSerializer.Deserialize<IncidentUpsertRequest>(args!.Value, _JsonOptions)
                         ?? throw new InvalidOperationException("Could not deserialize IncidentUpsertRequest.");
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     await ValidateObjectiveLinksAsync(auth, objectiveService, request.ObjectiveIds).ConfigureAwait(false);
                     Incident incident = await incidentService.CreateAsync(auth, request).ConfigureAwait(false);
                     await LinkObjectiveIdsAsync(auth, objectiveService, request.ObjectiveIds, incident.Id).ConfigureAwait(false);
@@ -116,7 +116,7 @@ namespace Armada.Server.Mcp.Tools
                     IncidentUpdateArgs request = JsonSerializer.Deserialize<IncidentUpdateArgs>(args!.Value, _JsonOptions)
                         ?? throw new InvalidOperationException("Could not deserialize IncidentUpdateArgs.");
                     if (String.IsNullOrWhiteSpace(request.IncidentId)) return (object)new { Error = "incidentId is required" };
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     IncidentUpsertRequest update = request.ToUpsertRequest();
                     await ValidateObjectiveLinksAsync(auth, objectiveService, update.ObjectiveIds).ConfigureAwait(false);
                     try
@@ -152,7 +152,7 @@ namespace Armada.Server.Mcp.Tools
                     IncidentCloseArgs request = JsonSerializer.Deserialize<IncidentCloseArgs>(args!.Value, _JsonOptions)
                         ?? throw new InvalidOperationException("Could not deserialize IncidentCloseArgs.");
                     if (String.IsNullOrWhiteSpace(request.IncidentId)) return (object)new { Error = "incidentId is required" };
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     try
                     {
                         Incident incident = await incidentService.UpdateAsync(auth, request.IncidentId, new IncidentUpsertRequest
@@ -188,7 +188,7 @@ namespace Armada.Server.Mcp.Tools
                     IncidentIdArgs request = JsonSerializer.Deserialize<IncidentIdArgs>(args!.Value, _JsonOptions)
                         ?? throw new InvalidOperationException("Could not deserialize IncidentIdArgs.");
                     if (String.IsNullOrWhiteSpace(request.IncidentId)) return (object)new { Error = "incidentId is required" };
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     try
                     {
                         await incidentService.DeleteAsync(auth, request.IncidentId).ConfigureAwait(false);

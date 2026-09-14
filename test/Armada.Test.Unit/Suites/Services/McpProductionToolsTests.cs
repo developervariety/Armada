@@ -47,7 +47,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             Dictionary<string, Func<JsonElement?, Task<object>>> handlers =
                 new Dictionary<string, Func<JsonElement?, Task<object>>>(StringComparer.Ordinal);
-            McpProductionTools.Register((name, description, schema, handler) => handlers[name] = handler, database);
+            McpProductionTools.Register((name, description, schema, handler) => handlers[name] = McpTestCaller.Wrap(handler), database);
             return handlers;
         }
     }

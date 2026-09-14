@@ -102,12 +102,13 @@ namespace Armada.Helm.Commands
             AnsiConsole.WriteLine();
             AnsiConsole.MarkupLine("[bold]Required[/]");
             AnsiConsole.MarkupLine("[green]1.[/] Start the Admiral server for the HTTP clients (Claude Code, Gemini CLI, Cursor, Mux): [green]armada server start[/]");
-            AnsiConsole.MarkupLine("[green]2.[/] Restart any MCP client you want to use so it reloads the new config.");
+            AnsiConsole.MarkupLine("[green]2.[/] Set [green]" + McpConfigHelper.ApiKeyEnvironmentVariable + "[/] to your Armada API key in the environment each HTTP client starts with. The endpoint refuses a request without a credential, and the installed entries read the key from that variable.");
+            AnsiConsole.MarkupLine("[green]3.[/] Restart any MCP client you want to use so it reloads the new config.");
             AnsiConsole.WriteLine();
             AnsiConsole.MarkupLine("[bold]Only If Needed[/]");
-            AnsiConsole.MarkupLine("[green]3.[/] Re-run [green]install-mcp[/] from each project where you want project-scoped files updated.");
+            AnsiConsole.MarkupLine("[green]4.[/] Re-run [green]install-mcp[/] from each project where you want project-scoped files updated.");
             AnsiConsole.MarkupLine($"[dim]Project-scoped files:[/] [green]{Markup.Escape(McpConfigHelper.GetProjectAgentsPath())}[/], [green]{Markup.Escape(McpConfigHelper.GetProjectGeminiInstructionsPath())}[/], [green]{Markup.Escape(McpConfigHelper.GetCursorConfigPath())}[/]");
-            AnsiConsole.MarkupLine("[green]4.[/] Use the manual snippets above only if automatic setup was skipped or failed.");
+            AnsiConsole.MarkupLine("[green]5.[/] Use the manual snippets above only if automatic setup was skipped or failed.");
             AnsiConsole.WriteLine();
             AnsiConsole.MarkupLine("[dim]Codex uses stdio MCP by default, so it does not need the HTTP server.[/]");
 

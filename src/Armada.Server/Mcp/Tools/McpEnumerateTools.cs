@@ -249,14 +249,14 @@ namespace Armada.Server.Mcp.Tools
                         case "personas":
                         case "persona":
                             EnumerationResult<Persona> personas = OwnedRecordScope.Page(
-                                await database.Personas.EnumerateAsync().ConfigureAwait(false), McpToolHelpers.CreateDefaultTenantAdminContext(), query);
+                                await database.Personas.EnumerateAsync().ConfigureAwait(false), McpCallerContext.Require(), query);
                             return (object)personas;
                         case "prompt_templates":
                         case "prompt_template":
                         case "templates":
                         case "template":
                             EnumerationResult<PromptTemplate> templates = OwnedRecordScope.Page(
-                                await database.PromptTemplates.EnumerateAsync().ConfigureAwait(false), McpToolHelpers.CreateDefaultTenantAdminContext(), query);
+                                await database.PromptTemplates.EnumerateAsync().ConfigureAwait(false), McpCallerContext.Require(), query);
                             if (request.IncludeDescription != true)
                             {
                                 object projectedTemplates = new
@@ -280,12 +280,12 @@ namespace Armada.Server.Mcp.Tools
                         case "memories":
                         case "memory":
                             EnumerationResult<Memory> memories = await new MemoryService(database)
-                                .EnumerateAsync(McpMemoryTools.CallerContext(), query).ConfigureAwait(false);
+                                .EnumerateAsync(McpCallerContext.Require(), query).ConfigureAwait(false);
                             return (object)memories;
                         case "pipelines":
                         case "pipeline":
                             EnumerationResult<Pipeline> pipelines = OwnedRecordScope.Page(
-                                await database.Pipelines.EnumerateAsync().ConfigureAwait(false), McpToolHelpers.CreateDefaultTenantAdminContext(), query);
+                                await database.Pipelines.EnumerateAsync().ConfigureAwait(false), McpCallerContext.Require(), query);
                             return (object)pipelines;
                         case "playbooks":
                         case "playbook":
@@ -316,13 +316,13 @@ namespace Armada.Server.Mcp.Tools
                         case "backlog_items":
                             ObjectiveService objectiveService = new ObjectiveService(database);
                             return (object)await objectiveService.EnumerateAsync(
-                                McpToolHelpers.CreateDefaultTenantAdminContext(),
+                                McpCallerContext.Require(),
                                 request.ToObjectiveQuery()).ConfigureAwait(false);
                         case "incidents":
                         case "incident":
                             IncidentService incidentService = new IncidentService(database);
                             return (object)await incidentService.EnumerateAsync(
-                                McpToolHelpers.CreateDefaultTenantAdminContext(),
+                                McpCallerContext.Require(),
                                 request.ToIncidentQuery()).ConfigureAwait(false);
                         case "checks":
                         case "check":

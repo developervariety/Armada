@@ -22,6 +22,12 @@ The HTTP server is stateless. A client does not need to preserve an MCP session
 ID between requests. A remote client can use an SSH stdio bridge that forwards
 each request to the running Admiral's loopback endpoint.
 
+Every request must carry a credential, the same as a REST request:
+`Authorization: Bearer <credential token>`, `X-Token: <session token>` or
+`X-Api-Key: <admiral API key>`. A request with no credential or an invalid
+credential gets HTTP `401` and never reaches a tool. See
+[Authentication And Scope](#authentication-and-scope).
+
 For parameterless discovery, clients can send `tools/list` with an empty
 `params` object or without a `params` member. Armada accepts both protocol
 forms.
@@ -47,11 +53,17 @@ To register Armada with Claude Code manually, add it as an HTTP MCP server:
 claude mcp add --transport http --scope user armada http://localhost:7891/mcp
 ```
 
-Drop `--scope user` to add it for the current project only. The MCP server is
-unauthenticated on localhost, so no token or header is required; if you
-changed `McpPort`, substitute your port. `armada mcp install` (or
-`scripts/*/install-mcp`) configures this automatically for Claude Code and the
-other supported runtimes.
+Drop `--scope user` to add it for the current project only. The endpoint
+refuses a request without a credential, so add a header that reads your
+credential from the environment, for example
+`--header "X-Api-Key: ${ARMADA_API_KEY}"`. If you changed `McpPort`,
+substitute your port. `armada mcp install` (or `scripts/*/install-mcp`)
+registers the endpoint for Claude Code and the other supported runtimes. Each
+HTTP entry carries an `X-Api-Key` header that references `ARMADA_API_KEY` in the
+client's own syntax (`${ARMADA_API_KEY}` for Claude Code and Gemini CLI,
+`${env:ARMADA_API_KEY}` for Cursor, `{env:ARMADA_API_KEY}` for OpenCode), so set
+that variable in the client's environment. Codex uses the stdio bridge. Mux has
+no header field, so a Mux entry cannot authenticate.
 
 **Enterprise-managed Claude Code.** If the add is rejected with
 `Cannot add MCP server 'armada': not allowed by enterprise policy`, your
@@ -249,16 +261,65 @@ Common protocol errors:
 
 ## Authentication And Scope
 
-The MCP surface does not currently provide per-request user authentication.
-It operates with the configured default administrative tenant context. Bind
-the service to a trusted interface and use a protected transport. Do not expose
-the MCP port to an untrusted network.
+Every MCP request authenticates through the same service as the REST API. There
+is no anonymous or default identity. A missing credential, an invalid
+credential or a server without an authenticator gets HTTP `401`, and no tool
+handler runs. Each tool reads the authenticated caller of its own request.
+Records it creates carry that caller's tenant and user.
 
-Supported captains receive a local MCP client configuration, but the URL is not
-a credential and the endpoint has no per-captain authorization. Keep the port
-on a trusted interface. Captain prompts must keep dispatch, administration,
-deployment, restore, purge, and server-control actions outside mission scope.
-The operator normally owns those actions.
+What a caller may use:
+
+| Caller | Tools listed and callable |
+| --- | --- |
+| Global administrator (admiral API key, or a global-admin user credential) | The whole catalog |
+| Any other authenticated user, including a tenant administrator | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory` |
+
+The rest of the catalog is operator control with no tenant or user scope, so a
+narrower role neither discovers nor calls it. An operator repair that reads or
+rewrites records in every tenant also checks its caller itself:
+`armada_reconcile_terminal_voyage_missions` refuses any caller other than a
+global administrator with reason `global_administrator_required`, for a dry run
+as well as an apply, before it starts a job or reads a mission. A refused call returns a JSON-RPC
+error before its arguments are read or its audit is written.
+
+**Captains.** The admiral creates a random launch credential when it starts. The
+credential exists only in the admiral's memory and in the environment of the
+captain processes it launches, as `ARMADA_MCP_TOKEN`, and it changes on every
+start. With dock MCP delivery enabled, every captain launch carries it, including
+Cursor, Gemini and OpenCode captains that read only their dock configuration, and a
+subscription-account login switch leaves it in place. Codex receives the reference
+as a command-line override, so it holds in whichever `CODEX_HOME` an account
+selects. Scoped and dock configuration files only reference the variable, in each
+client's own syntax:
+
+| Runtime | Reference |
+| --- | --- |
+| Claude Code | `"headers": { "Authorization": "Bearer ${ARMADA_MCP_TOKEN}" }` |
+| Gemini | `"headers": { "Authorization": "Bearer ${ARMADA_MCP_TOKEN}" }` |
+| Cursor | `"headers": { "Authorization": "Bearer ${env:ARMADA_MCP_TOKEN}" }` |
+| OpenCode | `"headers": { "Authorization": "Bearer {env:ARMADA_MCP_TOKEN}" }` |
+| Codex | `bearer_token_env_var = "ARMADA_MCP_TOKEN"` |
+| Mux | Not supported. Its server file has no headers field, so the endpoint refuses a Mux captain |
+
+The launch credential maps to a named captain identity with operator tool
+access, because captains use the operator catalog. Captain prompts must still
+keep dispatch, administration, deployment, restore, purge and server-control
+actions outside mission scope.
+
+**Local stdio.** `armada mcp stdio` runs the tools in-process with the local
+settings file and database credentials. It sets an explicit local operator
+identity; it does not fall back to a default context.
+
+**SSH stdio bridge.** `scripts/mcp-ssh-http-bridge.mjs` requires
+`ARMADA_MCP_AUTH_HEADER_FILE`, an absolute path on the server to a file that
+holds one credential header line, for example `X-Api-Key: <admiral API key>`.
+Protect it with mode `600`. curl reads the header from that file on the server,
+so the credential never appears on the workstation, in the SSH command line or
+in the remote process list. Without the variable the bridge refuses each
+request with a named error.
+
+Bind the service to a trusted interface and use a protected transport even with
+authentication. Do not expose the MCP port to an untrusted network.
 
 ### Retired lead integration
 

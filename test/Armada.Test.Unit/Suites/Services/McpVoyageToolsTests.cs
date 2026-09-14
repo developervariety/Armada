@@ -41,7 +41,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         LegacyContextSettings());
@@ -103,7 +103,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         LegacyContextSettings());
@@ -146,7 +146,7 @@ namespace Armada.Test.Unit.Suites.Services
                         }).ConfigureAwait(false);
 
                     ObjectiveService objectives = new ObjectiveService(testDb.Driver);
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, true, "Test");
                     Objective objective = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
                     {
                         Title = "Use structured delivery records",
@@ -157,7 +157,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         LegacyContextSettings(),
@@ -210,7 +210,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         LegacyContextSettings(),
@@ -275,7 +275,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         LegacyContextSettings(),
@@ -319,7 +319,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         LegacyContextSettings(),
@@ -360,7 +360,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         LegacyContextSettings(),
@@ -401,7 +401,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         LegacyContextSettings());
@@ -446,7 +446,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         legacySettings,
@@ -496,7 +496,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         legacySettings,
@@ -536,7 +536,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null);
@@ -574,7 +574,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         LegacyContextSettings(),
@@ -623,7 +623,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                         Func<JsonElement?, Task<object>>? dispatchHandler = null;
                         McpVoyageTools.Register(
-                            (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                            (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                             testDb.Driver,
                             admiralDouble,
                             LegacyContextSettings(),
@@ -669,7 +669,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         LegacyContextSettings(),
@@ -715,7 +715,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         LegacyContextSettings(),
@@ -758,7 +758,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         LegacyContextSettings(),
@@ -802,7 +802,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
                     McpToolRegistrar.RegisterAll(
-                        (name, _, _, handler) => { handlers[name] = handler; },
+                        (name, _, _, handler) => { handlers[name] = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         codeIndexService: codeIndex);
@@ -854,7 +854,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         LegacyContextSettings());
@@ -893,7 +893,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         LegacyContextSettings());
@@ -964,7 +964,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         LegacyContextSettings(),
@@ -1013,7 +1013,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         LegacyContextSettings(),
@@ -1073,7 +1073,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         LegacyContextSettings(),
@@ -1126,7 +1126,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         legacySettings,
@@ -1183,7 +1183,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         legacySettings,
@@ -1229,7 +1229,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         LegacyContextSettings(),
@@ -1286,7 +1286,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         LegacyContextSettings(),
@@ -1365,7 +1365,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         LegacyContextSettings(),
@@ -1427,7 +1427,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         LegacyContextSettings(),
@@ -1471,7 +1471,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null);
@@ -1509,7 +1509,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null);
@@ -1550,7 +1550,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null);
@@ -1591,7 +1591,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null);
@@ -1636,7 +1636,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null);
@@ -1682,7 +1682,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null);
@@ -1726,7 +1726,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null);
@@ -1771,7 +1771,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null);
@@ -1811,7 +1811,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null);

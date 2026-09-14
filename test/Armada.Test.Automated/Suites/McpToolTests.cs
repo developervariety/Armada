@@ -59,6 +59,39 @@ namespace Armada.Test.Automated.Suites
                 clientInfo = new { name = "test-client", version = "1.0" }
             }).ConfigureAwait(false);
 
+            // Authentication: the running admiral refuses a request without a valid credential and
+            // never falls back to a default administrative identity.
+            await RunTest("Mcp_AnonymousAndInvalidCredential_Return401BeforeAnyTool", async () =>
+            {
+                string body = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"armada_status\",\"arguments\":{}}}";
+
+                using (HttpClient anonymous = new HttpClient { BaseAddress = _McpClient.BaseAddress })
+                using (HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, "/mcp"))
+                {
+                    request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+                    request.Headers.Add("Accept", "application/json, text/event-stream");
+                    using (HttpResponseMessage response = await anonymous.SendAsync(request).ConfigureAwait(false))
+                        AssertEqual(HttpStatusCode.Unauthorized, response.StatusCode, "anonymous MCP request");
+                }
+
+                foreach (string header in new[] { "X-Api-Key", "Authorization" })
+                {
+                    using (HttpClient invalid = new HttpClient { BaseAddress = _McpClient.BaseAddress })
+                    using (HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, "/mcp"))
+                    {
+                        request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+                        request.Headers.Add("Accept", "application/json, text/event-stream");
+                        string value = header == "Authorization" ? "Bearer invalid-" + Guid.NewGuid().ToString("N") : "invalid-" + Guid.NewGuid().ToString("N");
+                        request.Headers.TryAddWithoutValidation(header, value);
+                        using (HttpResponseMessage response = await invalid.SendAsync(request).ConfigureAwait(false))
+                            AssertEqual(HttpStatusCode.Unauthorized, response.StatusCode, "invalid " + header + " MCP request");
+                    }
+                }
+
+                JsonElement status = await CallToolAsync("armada_status", new { }).ConfigureAwait(false);
+                AssertTrue(status.ValueKind != JsonValueKind.Undefined, "a valid credential still reaches the tool");
+            }).ConfigureAwait(false);
+
             // Tool Discovery
             await RunTest("ToolsList_ReturnsAtLeastExpectedArmadaTools", async () =>
             {
@@ -2095,10 +2128,14 @@ namespace Armada.Test.Automated.Suites
 
             // When mission stays Pending (no captain available), the response wraps
             // the mission in { "Mission": {...}, "Warning": "..." }.
-            if (createResponse.Mission != null)
+            if (createResponse.Mission != null && !String.IsNullOrEmpty(createResponse.Mission.Id))
                 return createResponse.Mission.Id;
 
+            // A create that failed returns an error document, which still deserializes into a
+            // mission with a generated id. Refuse it by name instead of passing a phantom id on.
+            AssertFalse(text.Contains("\"Error\"", StringComparison.Ordinal), "armada_create_mission failed: " + (text.Length > 600 ? text.Substring(0, 600) : text));
             Mission mission = JsonHelper.Deserialize<Mission>(text);
+            AssertEqual(title, mission.Title, "armada_create_mission returned something other than the created mission: " + (text.Length > 600 ? text.Substring(0, 600) : text));
             return mission.Id;
         }
 

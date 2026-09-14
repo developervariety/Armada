@@ -14,13 +14,14 @@ Connect the Gemini CLI to Armada's MCP server and use natural language to orches
 armada mcp install
 ```
 
-This now writes the MCP configuration for all supported tools automatically. For Gemini CLI specifically, it writes `~/.gemini/settings.json`. If you prefer to edit manually, use:
+This now writes the MCP configuration for all supported tools automatically. For Gemini CLI specifically, it writes `~/.gemini/settings.json`. The endpoint refuses a request without a credential, so the entry reads your API key from `ARMADA_API_KEY`; set that variable in the environment Gemini CLI starts with. If you prefer to edit manually, use:
 
 ```json
 {
   "mcpServers": {
     "armada": {
-      "httpUrl": "http://localhost:7891/mcp"
+      "httpUrl": "http://localhost:7891/mcp",
+      "headers": { "X-Api-Key": "${ARMADA_API_KEY}" }
     }
   }
 }
@@ -102,7 +103,8 @@ If you prefer to configure MCP manually instead of using `armada mcp install`, a
 {
   "mcpServers": {
     "armada": {
-      "httpUrl": "http://localhost:7891/mcp"
+      "httpUrl": "http://localhost:7891/mcp",
+      "headers": { "X-Api-Key": "${ARMADA_API_KEY}" }
     }
   }
 }

@@ -592,6 +592,11 @@ namespace Armada.Server
             _McpServer.ServerName = ArmadaConstants.ProductName;
             _McpServer.ServerVersion = ArmadaConstants.ProductVersion;
 
+            // Every MCP request authenticates like a REST request. Missing or invalid credentials are
+            // refused; nothing falls back to a default administrative identity.
+            _McpServer.Authenticator = AuthenticateMcpRequestAsync;
+            _McpServer.ToolAuthorizer = McpToolAccessPolicy.IsAllowed;
+
             // Deliver directed wakes on whatever tool the session calls next. Before this,
             // a wake reached a session only through the two coordination tools below, so a
             // session monitoring a voyage could hold unread mail for the whole run.
@@ -806,6 +811,33 @@ namespace Armada.Server
             _RequestAuthContexts.Remove(ctx);
             _RequestAuthContexts.Add(ctx, result);
             return result;
+        }
+
+        /// <summary>
+        /// Resolve the credentials of an MCP request. The launch credential this admiral gives its
+        /// captain processes maps to a named captain identity with operator tool access, because
+        /// captains use the operator catalog; every other credential goes through the REST
+        /// authentication service.
+        /// </summary>
+        private async Task<AuthContext> AuthenticateMcpRequestAsync(McpRequestCredentials credentials, CancellationToken token)
+        {
+            const string bearerPrefix = "Bearer ";
+            string? authorization = credentials.Authorization;
+            if (!String.IsNullOrEmpty(authorization)
+                && authorization.StartsWith(bearerPrefix, StringComparison.OrdinalIgnoreCase)
+                && McpLaunchCredential.Matches(authorization.Substring(bearerPrefix.Length)))
+            {
+                return AuthContext.Authenticated(
+                    ArmadaConstants.DefaultTenantId,
+                    ArmadaConstants.DefaultUserId,
+                    true,
+                    true,
+                    "CaptainLaunch",
+                    null,
+                    "Captain launch credential");
+            }
+
+            return await _AuthenticationService.AuthenticateAsync(credentials.Authorization, credentials.SessionToken, credentials.ApiKey, token).ConfigureAwait(false);
         }
 
         private async Task SeedSyntheticAdminAsync()

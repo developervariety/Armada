@@ -46,7 +46,7 @@ namespace Armada.Server.Mcp.Tools
                     DeploymentEnvironmentQuery query = Deserialize<DeploymentEnvironmentQuery>(args) ?? new DeploymentEnvironmentQuery();
                     query.PageNumber = Math.Max(1, query.PageNumber);
                     query.PageSize = Math.Clamp(query.PageSize, 1, 500);
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     return (object)await environments.EnumerateAsync(auth, query).ConfigureAwait(false);
                 });
 
@@ -57,7 +57,7 @@ namespace Armada.Server.Mcp.Tools
                 async args =>
                 {
                     string id = RequiredString(args, "environmentId");
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     return (object?)await environments.ReadAsync(auth, id).ConfigureAwait(false)
                         ?? new { Error = "Environment not found" };
                 });
@@ -69,7 +69,7 @@ namespace Armada.Server.Mcp.Tools
                 async args =>
                 {
                     DeploymentEnvironmentUpsertRequest request = ReadRequest(args);
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     return (object)await environments.CreateAsync(auth, request).ConfigureAwait(false);
                 });
 
@@ -81,7 +81,7 @@ namespace Armada.Server.Mcp.Tools
                 {
                     string id = RequiredString(args, "environmentId");
                     DeploymentEnvironmentUpsertRequest request = ReadRequest(args);
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     return (object)await environments.UpdateAsync(auth, id, request).ConfigureAwait(false);
                 });
 
@@ -92,7 +92,7 @@ namespace Armada.Server.Mcp.Tools
                 async args =>
                 {
                     string id = RequiredString(args, "environmentId");
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     await environments.DeleteAsync(auth, id).ConfigureAwait(false);
                     return (object)new { Status = "deleted", EnvironmentId = id };
                 });

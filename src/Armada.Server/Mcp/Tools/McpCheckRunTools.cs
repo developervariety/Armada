@@ -104,7 +104,7 @@ namespace Armada.Server.Mcp.Tools
                     try
                     {
                         CheckRunRequest request = DeserializeArgs<CheckRunRequest>(args, "run_check");
-                        AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                        AuthContext auth = McpCallerContext.Require();
                         CheckRun executed = await checkRunService.RunAsync(auth, request).ConfigureAwait(false);
                         return (object)CheckRunSummaryView.From(executed, _DefaultOutputTailLines);
                     }
@@ -139,7 +139,7 @@ namespace Armada.Server.Mcp.Tools
                     try
                     {
                         CheckRunIdArgs request = DeserializeArgs<CheckRunIdArgs>(args, "retry_check_run");
-                        AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                        AuthContext auth = McpCallerContext.Require();
                         CheckRun retried = await checkRunService.RetryAsync(auth, request.CheckRunId).ConfigureAwait(false);
                         return (object)CheckRunSummaryView.From(retried, _DefaultOutputTailLines);
                     }

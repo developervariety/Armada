@@ -24,16 +24,6 @@ namespace Armada.Server.Mcp.Tools
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
         };
 
-        /// <summary>
-        /// The context memory tools act in. The MCP surface carries no per-request identity, so it acts
-        /// as an administrator of the default tenant: it reaches every record of that tenant and no
-        /// record of another tenant.
-        /// </summary>
-        /// <returns>The caller context.</returns>
-        public static AuthContext CallerContext()
-        {
-            return AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, true, "mcp");
-        }
 
         /// <summary>
         /// Register the memory tools.
@@ -79,7 +69,7 @@ namespace Armada.Server.Mcp.Tools
 
                     return await GuardAsync(async () =>
                     {
-                        EnumerationResult<Memory> result = await service.EnumerateAsync(CallerContext(), query, request.Search, type, request.Topic).ConfigureAwait(false);
+                        EnumerationResult<Memory> result = await service.EnumerateAsync(McpCallerContext.Require(), query, request.Search, type, request.Topic).ConfigureAwait(false);
                         return (object)result;
                     }).ConfigureAwait(false);
                 });
@@ -103,7 +93,7 @@ namespace Armada.Server.Mcp.Tools
 
                     return await GuardAsync(async () =>
                     {
-                        Memory? memory = await service.ReadAsync(CallerContext(), request.MemoryId).ConfigureAwait(false);
+                        Memory? memory = await service.ReadAsync(McpCallerContext.Require(), request.MemoryId).ConfigureAwait(false);
                         if (memory == null) return Failure("not_found", "Memory not found: " + request.MemoryId);
                         return (object)memory;
                     }).ConfigureAwait(false);
@@ -161,7 +151,7 @@ namespace Armada.Server.Mcp.Tools
 
                     return await GuardAsync(async () =>
                     {
-                        Memory saved = await service.UpsertAsync(CallerContext(), memory, request.ExpectedVersion).ConfigureAwait(false);
+                        Memory saved = await service.UpsertAsync(McpCallerContext.Require(), memory, request.ExpectedVersion).ConfigureAwait(false);
                         return (object)saved;
                     }).ConfigureAwait(false);
                 });
@@ -209,7 +199,7 @@ namespace Armada.Server.Mcp.Tools
 
                     return await GuardAsync(async () =>
                     {
-                        Memory saved = await service.UpdateAsync(CallerContext(), request.MemoryId, update).ConfigureAwait(false);
+                        Memory saved = await service.UpdateAsync(McpCallerContext.Require(), request.MemoryId, update).ConfigureAwait(false);
                         return (object)saved;
                     }).ConfigureAwait(false);
                 });
@@ -233,7 +223,7 @@ namespace Armada.Server.Mcp.Tools
 
                     return await GuardAsync(async () =>
                     {
-                        await service.DeleteAsync(CallerContext(), request.MemoryId).ConfigureAwait(false);
+                        await service.DeleteAsync(McpCallerContext.Require(), request.MemoryId).ConfigureAwait(false);
                         return (object)new { Status = "deleted", MemoryId = request.MemoryId };
                     }).ConfigureAwait(false);
                 });

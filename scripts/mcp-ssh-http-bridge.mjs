@@ -382,6 +382,15 @@ async function sendRequestOverSsh(message, sessionId, requestObject, environment
   if (participantKey) {
     headers.push("--header", shellQuote("X-Armada-Participant: " + participantKey));
   }
+
+  // The Admiral refuses an MCP request without credentials. The credential stays on the server:
+  // curl reads the header line from a protected file there, so the secret never appears in this
+  // command line, in the remote process list or on the workstation.
+  const authHeaderFile = environment.ARMADA_MCP_AUTH_HEADER_FILE;
+  if (!authHeaderFile) {
+    throw new Error("ARMADA_MCP_AUTH_HEADER_FILE must name a protected file on the server that holds the MCP credential header.");
+  }
+  headers.push("--header", "@" + shellQuote(validateRemotePath(authHeaderFile)));
   const protocolVersion = requestObject?.params?._meta?.["io.modelcontextprotocol/protocolVersion"];
   if (typeof protocolVersion === "string" && protocolVersion.length > 0) {
     headers.push("--header", shellQuote("MCP-Protocol-Version: " + encodeHeaderValue(protocolVersion)));
@@ -469,6 +478,15 @@ function parseTimeoutSeconds(value) {
     throw new Error("ARMADA_MCP_TIMEOUT_SEC must be an integer from 1 through 3600.");
   }
   return parsed;
+}
+
+export function validateRemotePath(value) {
+  // The path is passed to curl on the server. Accept only an absolute path made of ordinary
+  // path characters, so nothing in it can change the remote command.
+  if (typeof value !== "string" || !/^\/[A-Za-z0-9._\/-]{1,1024}$/.test(value) || value.includes("..")) {
+    throw new Error("ARMADA_MCP_AUTH_HEADER_FILE must be an absolute server path of letters, digits and . _ / -.");
+  }
+  return value;
 }
 
 function shellQuote(value) {

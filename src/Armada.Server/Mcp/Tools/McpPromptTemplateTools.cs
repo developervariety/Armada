@@ -44,7 +44,7 @@ namespace Armada.Server.Mcp.Tools
                     PromptTemplateArgs request = args.HasValue
                         ? JsonSerializer.Deserialize<PromptTemplateArgs>(args.Value, _JsonOptions) ?? new PromptTemplateArgs()
                         : new PromptTemplateArgs();
-                    AuthContext caller = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext caller = McpCallerContext.Require();
                     List<PromptTemplate> templates = (await templateService.ListAsync(request.Category).ConfigureAwait(false))
                         .FindAll(template => Armada.Core.Authorization.OwnershipPolicy.CanView(caller, template));
                     bool wantsFull = args.HasValue
@@ -79,7 +79,7 @@ namespace Armada.Server.Mcp.Tools
                     PromptTemplate? existing = await database.PromptTemplates.ReadByNameAsync(request.Name).ConfigureAwait(false);
                     if (existing != null) return (object)new { Error = "Template already exists: " + request.Name };
 
-                    AuthContext caller = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext caller = McpCallerContext.Require();
                     PromptTemplate template = new PromptTemplate(request.Name, request.Content);
                     template.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
                     template.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
@@ -110,7 +110,7 @@ namespace Armada.Server.Mcp.Tools
                     if (String.IsNullOrEmpty(name)) return (object)new { Error = "name is required" };
                     // A stored record the caller may read wins; otherwise the shared resolution, which
                     // never returns another user's private template, supplies the embedded default.
-                    AuthContext caller = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext caller = McpCallerContext.Require();
                     PromptTemplate? template = await Armada.Core.Services.OwnedRecordScope.ReadByNameAsync(
                         caller,
                         name,

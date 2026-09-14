@@ -22,21 +22,6 @@ namespace Armada.Server.Mcp.Tools
     public static class McpToolHelpers
     {
         /// <summary>
-        /// Build the default tenant-admin context used by unauthenticated MCP tools.
-        /// </summary>
-        public static AuthContext CreateDefaultTenantAdminContext()
-        {
-            return AuthContext.Authenticated(
-                ArmadaConstants.DefaultTenantId,
-                ArmadaConstants.DefaultUserId,
-                false,
-                true,
-                "Mcp",
-                null,
-                "MCP Default Tenant");
-        }
-
-        /// <summary>
         /// Checks whether a mission status transition is valid.
         /// </summary>
         /// <param name="current">Current mission status.</param>

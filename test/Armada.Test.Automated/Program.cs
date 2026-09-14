@@ -101,8 +101,10 @@ namespace Armada.Test.Automated
             HttpClient unauthClient = new HttpClient();
             unauthClient.BaseAddress = new Uri(baseUrl);
 
+            // The MCP endpoint refuses a request without credentials, like the REST API.
             HttpClient mcpClient = new HttpClient();
             mcpClient.BaseAddress = new Uri("http://localhost:" + mcpPort);
+            mcpClient.DefaultRequestHeaders.Add("X-Api-Key", apiKey);
 
             int exitCode;
 

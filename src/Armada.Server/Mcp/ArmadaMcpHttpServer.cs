@@ -16,6 +16,7 @@ namespace Armada.Server.Mcp
     using ModelContextProtocol.AspNetCore;
     using ModelContextProtocol.Protocol;
     using ModelContextProtocol.Server;
+    using Armada.Core.Models;
 
     /// <summary>
     /// Hosts Armada's MCP tools over the official MCP C# SDK Streamable HTTP transport.
@@ -94,9 +95,17 @@ namespace Armada.Server.Mcp
         public Func<string, CancellationToken, Task<IReadOnlyList<string>>>? PendingWakeProvider { get; set; }
 
         /// <summary>
-        /// Optional bearer token required for every request. Leave null only for a private listener.
+        /// Resolves the credentials of every request to an identity. A request whose credentials do
+        /// not resolve to an authenticated identity is refused with 401, and so is every request
+        /// when no authenticator is set: there is no anonymous or default identity.
         /// </summary>
-        public string? BearerToken { get; set; } = null;
+        public Func<McpRequestCredentials, CancellationToken, Task<AuthContext>>? Authenticator { get; set; } = null;
+
+        /// <summary>
+        /// Decides which tools an authenticated caller may list and call. When null, only a global
+        /// administrator may use any tool.
+        /// </summary>
+        public Func<AuthContext, string, bool>? ToolAuthorizer { get; set; } = null;
 
         /// <summary>
         /// Optional server-assigned participant identity. When set, the server rejects a different
@@ -214,7 +223,8 @@ namespace Armada.Server.Mcp
             // tool handler can read it without depending on SDK transport internals.
             application.Use(async (context, next) =>
             {
-                if (!IsAuthorized(context))
+                AuthContext? caller = await AuthenticateAsync(context).ConfigureAwait(false);
+                if (caller == null)
                 {
                     context.Response.StatusCode = StatusCodes.Status401Unauthorized;
                     context.Response.Headers.WWWAuthenticate = "Bearer realm=\"Armada MCP\"";
@@ -235,7 +245,10 @@ namespace Armada.Server.Mcp
                 _RequestParticipantKey.Value = FixedParticipantKey ?? suppliedParticipant;
                 try
                 {
-                    await next(context).ConfigureAwait(false);
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        await next(context).ConfigureAwait(false);
+                    }
                 }
                 finally
                 {
@@ -278,11 +291,14 @@ namespace Armada.Server.Mcp
             // MCP permits tools/list to omit params. Some clients use that form for
             // initial discovery, so treat a missing parameter object as an empty one.
             int offset = ParseCursor(request.Params?.Cursor);
+            AuthContext caller = McpCallerContext.Require();
             List<Tool> tools;
             lock (_Sync)
             {
+                // A caller discovers only the tools it may call.
                 tools = _Tools.Values
                     .Select(registration => registration.Tool)
+                    .Where(tool => IsToolAllowed(caller, tool.Name))
                     .OrderBy(tool => tool.Name, StringComparer.Ordinal)
                     .ToList();
             }
@@ -319,6 +335,13 @@ namespace Armada.Server.Mcp
                 throw new McpProtocolException(
                     "Tool not found: " + request.Params.Name,
                     McpErrorCode.InvalidParams);
+
+            // A tool the caller may not use is refused before its arguments are read or its audit
+            // is written, so a narrower role cannot probe the operator catalog.
+            if (!IsToolAllowed(McpCallerContext.Require(), request.Params.Name))
+                throw new McpProtocolException(
+                    "The caller may not use tool: " + request.Params.Name,
+                    McpErrorCode.InvalidRequest);
 
             JsonElement? arguments = request.Params.Arguments == null
                 ? null
@@ -379,22 +402,35 @@ namespace Armada.Server.Mcp
             }
         }
 
-        private bool IsAuthorized(HttpContext context)
+        private async Task<AuthContext?> AuthenticateAsync(HttpContext context)
         {
-            if (String.IsNullOrEmpty(BearerToken)) return true;
-            string authorization = context.Request.Headers.Authorization.ToString();
-            const string prefix = "Bearer ";
-            if (!authorization.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return false;
-            string supplied = authorization.Substring(prefix.Length).Trim();
-            if (!String.IsNullOrEmpty(BearerToken))
+            Func<McpRequestCredentials, CancellationToken, Task<AuthContext>>? authenticator = Authenticator;
+            if (authenticator == null) return null;
+
+            McpRequestCredentials credentials = new McpRequestCredentials
             {
-                byte[] expectedBytes = Encoding.UTF8.GetBytes(BearerToken!);
-                byte[] suppliedBytes = Encoding.UTF8.GetBytes(supplied);
-                if (expectedBytes.Length == suppliedBytes.Length
-                    && CryptographicOperations.FixedTimeEquals(expectedBytes, suppliedBytes))
-                    return true;
-            }
-            return false;
+                Authorization = HeaderOrNull(context, "Authorization"),
+                SessionToken = HeaderOrNull(context, "X-Token"),
+                ApiKey = HeaderOrNull(context, "X-Api-Key")
+            };
+            if (credentials.IsEmpty) return null;
+
+            AuthContext resolved = await authenticator(credentials, context.RequestAborted).ConfigureAwait(false);
+            return resolved != null && resolved.IsAuthenticated ? resolved : null;
+        }
+
+        private bool IsToolAllowed(AuthContext caller, string toolName)
+        {
+            Func<AuthContext, string, bool>? authorizer = ToolAuthorizer;
+            if (authorizer == null) return caller.IsAdmin;
+            return authorizer(caller, toolName);
+        }
+
+        private static string? HeaderOrNull(HttpContext context, string name)
+        {
+            if (!context.Request.Headers.TryGetValue(name, out StringValues values) || values.Count == 0) return null;
+            string? value = values[0];
+            return String.IsNullOrWhiteSpace(value) ? null : value;
         }
 
         private async Task WriteToolAuditAsync(

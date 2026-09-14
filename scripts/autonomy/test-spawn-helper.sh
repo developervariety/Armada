@@ -132,12 +132,23 @@ cat > "${AUTONOMY_TEST_STDIN:?}"
 while :; do sleep 1; done
 EOF
 chmod +x "$TEST_ROOT/claude"
+# A Claude helper without a credential would be refused by the Admiral on every call,
+# so the launcher must refuse to start one.
+if env -u ARMADA_API_KEY PATH="$TEST_ROOT:$PATH" AUTONOMY_MAX_HELPERS=1 AUTONOMY_RUNTIME=claude \
+    AUTONOMY_WORKDIR="$STATE_ROOT" AUTONOMY_PARTICIPANT_PREFIX=probe \
+    "$SPAWN_HELPER" spawn claudenokey "$PROMPT_FILE" "$TEST_ROOT" >/dev/null 2>"$TEST_ROOT/nokey.err"; then
+    fail "a Claude helper started without ARMADA_API_KEY"
+fi
+grep -Fq "ARMADA_API_KEY must be set" "$TEST_ROOT/nokey.err" || fail "the missing credential was not named"
+
+TEST_API_KEY="test-key-value-$$"
 : > "$CAPTURE_FILE"
 PATH="$TEST_ROOT:$PATH" \
 AUTONOMY_MAX_HELPERS=1 \
 AUTONOMY_RUNTIME=claude \
 AUTONOMY_WORKDIR="$STATE_ROOT" \
 AUTONOMY_PARTICIPANT_PREFIX=probe \
+ARMADA_API_KEY="$TEST_API_KEY" \
 AUTONOMY_TEST_CAPTURE="$CAPTURE_FILE" \
 AUTONOMY_TEST_STDIN="$TEST_ROOT/claude-stdin.txt" \
 "$SPAWN_HELPER" spawn claudeprobe "$PROMPT_FILE" "$TEST_ROOT" >/dev/null
@@ -154,6 +165,13 @@ grep -Fq 'http://127.0.0.1:7891/mcp' "$CLAUDE_MCP_CONFIG" || fail "Claude Armada
 # return its directed wakes on an ordinary tool call.
 grep -Fq '"X-Armada-Participant": "probe-claudeprobe"' "$CLAUDE_MCP_CONFIG" \
     || fail "Claude Armada MCP config did not carry the participant header"
+# The Admiral refuses an unauthenticated MCP request. The config references the key by
+# name so Claude Code expands it at launch, and the value itself is never stored.
+grep -Fq '"X-Api-Key": "${ARMADA_API_KEY}"' "$CLAUDE_MCP_CONFIG" \
+    || fail "Claude Armada MCP config did not reference the credential"
+if grep -Fq "$TEST_API_KEY" "$CLAUDE_MCP_CONFIG"; then
+    fail "Claude Armada MCP config stored the credential value"
+fi
 python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$CLAUDE_MCP_CONFIG" \
     || fail "Claude Armada MCP config is not valid JSON"
 # The permission policy is what actually enforces the class; a headless helper has
@@ -186,6 +204,7 @@ AUTONOMY_RUNTIME=claude \
 AUTONOMY_HELPER_CLASS=delegate \
 AUTONOMY_WORKDIR="$STATE_ROOT" \
 AUTONOMY_PARTICIPANT_PREFIX=probe \
+ARMADA_API_KEY="$TEST_API_KEY" \
 AUTONOMY_TEST_CAPTURE="$CAPTURE_FILE" \
 AUTONOMY_TEST_STDIN="$TEST_ROOT/claude-stdin.txt" \
 "$SPAWN_HELPER" spawn delegateprobe "$PROMPT_FILE" "$TEST_ROOT" >/dev/null

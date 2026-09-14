@@ -78,6 +78,7 @@ namespace Armada.Test.Unit.Suites.Services
                         Title = "blocked by preview",
                         VesselId = vessel.Id,
                         ObjectiveId = objective.Id,
+                        ObjectiveAuthContext = McpTestCaller.Operator,
                         Pipeline = "Reviewed",
                         CaptainAssignments = new List<CaptainAssignmentOverride>
                         {
@@ -136,6 +137,7 @@ namespace Armada.Test.Unit.Suites.Services
                         Title = "Use objective pipeline",
                         VesselId = vessel.Id,
                         ObjectiveId = objective.Id,
+                        ObjectiveAuthContext = McpTestCaller.Operator,
                         Missions = new List<MissionDescription>
                         {
                             new MissionDescription("Implement", "Use the selected pipeline.")
@@ -390,7 +392,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiral);
 
@@ -486,7 +488,7 @@ namespace Armada.Test.Unit.Suites.Services
                     RecordingAdmiralService mcpAdmiral = new RecordingAdmiralService(mcpDb.Driver);
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         mcpDb.Driver,
                         mcpAdmiral);
                     AssertNotNull(dispatchHandler, "armada_dispatch handler must be registered");
@@ -558,7 +560,7 @@ namespace Armada.Test.Unit.Suites.Services
                     RecordingAdmiralService mcpAdmiral = new RecordingAdmiralService(testDb.Driver);
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         mcpAdmiral);
                     AssertNotNull(dispatchHandler, "armada_dispatch handler must be registered");
@@ -707,6 +709,7 @@ namespace Armada.Test.Unit.Suites.Services
                         VesselId = vessel.Id,
                         CodeContextMode = "off",
                         ObjectiveId = "obj_orphan",
+                        ObjectiveAuthContext = McpTestCaller.Operator,
                         Missions = new List<MissionDescription> { new MissionDescription("t", "d") }
                     };
                     // Service constructed without an ObjectiveService -> link cannot be honored.
@@ -892,6 +895,7 @@ namespace Armada.Test.Unit.Suites.Services
                             Title = "held alias voyage",
                             VesselId = vessel.Id,
                             ObjectiveId = objective.Id,
+                            ObjectiveAuthContext = McpTestCaller.Operator,
                             CodeContextMode = "off",
                             Missions = new List<MissionDescription>
                             {
@@ -921,6 +925,7 @@ namespace Armada.Test.Unit.Suites.Services
                         Title = "alias voyage after clear",
                         VesselId = vessel.Id,
                         ObjectiveId = objective.Id,
+                        ObjectiveAuthContext = McpTestCaller.Operator,
                         CodeContextMode = "off",
                         Missions = new List<MissionDescription>
                         {
@@ -1381,6 +1386,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Title = "Operator duplicate",
                     VesselId = vessel.Id,
                     ObjectiveId = objective.Id,
+                    ObjectiveAuthContext = McpTestCaller.Operator,
                     Missions = new List<MissionDescription>
                     {
                         new MissionDescription("Implement", "Duplicate work.")
@@ -1419,7 +1425,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Status = ObjectiveStatusEnum.Scoped,
                     VesselIds = new List<string> { vessel.Id }
                 }).ConfigureAwait(false);
-                AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                AuthContext auth = McpTestCaller.Operator;
                 RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
                 VoyageDispatchService service = new VoyageDispatchService(
                     testDb.Driver,
@@ -1441,6 +1447,7 @@ namespace Armada.Test.Unit.Suites.Services
                                 Title = "Busy dispatch",
                                 VesselId = vessel.Id,
                                 ObjectiveId = objective.Id,
+                                ObjectiveAuthContext = McpTestCaller.Operator,
                                 Missions = new List<MissionDescription> { new MissionDescription("Implement", "Busy work.") }
                             }, cancel.Token).ConfigureAwait(false);
                         }
@@ -1491,6 +1498,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Title = "Left planning dispatch",
                     VesselId = vessel.Id,
                     ObjectiveId = first.Id,
+                    ObjectiveAuthContext = McpTestCaller.Operator,
                     LinkedObjectiveIds = new List<string> { second.Id },
                     Missions = new List<MissionDescription> { new MissionDescription("Implement", "Left work.") }
                 });
@@ -1499,6 +1507,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Title = "Right planning dispatch",
                     VesselId = vessel.Id,
                     ObjectiveId = second.Id,
+                    ObjectiveAuthContext = McpTestCaller.Operator,
                     LinkedObjectiveIds = new List<string> { first.Id },
                     Missions = new List<MissionDescription> { new MissionDescription("Implement", "Right work.") }
                 });
@@ -1553,6 +1562,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Title = "Partial link failure",
                     VesselId = vessel.Id,
                     ObjectiveId = earlier.Id,
+                    ObjectiveAuthContext = McpTestCaller.Operator,
                     LinkedObjectiveIds = new List<string> { later.Id },
                     Missions = new List<MissionDescription> { new MissionDescription("Implement", "Must not survive a partial link.") }
                 }).ConfigureAwait(false);
@@ -1604,6 +1614,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Title = "Must be cleaned up",
                     VesselId = vessel.Id,
                     ObjectiveId = objective.Id,
+                    ObjectiveAuthContext = McpTestCaller.Operator,
                     Missions = new List<MissionDescription>
                     {
                         new MissionDescription("Implement", "This voyage must not survive a link failure.")
@@ -1679,6 +1690,7 @@ namespace Armada.Test.Unit.Suites.Services
                         Title = "Lose the lease",
                         VesselId = vessel.Id,
                         ObjectiveId = objective.Id,
+                        ObjectiveAuthContext = McpTestCaller.Operator,
                         Missions = new List<MissionDescription>
                         {
                             new MissionDescription("Implement", "Create, then lose admission.")

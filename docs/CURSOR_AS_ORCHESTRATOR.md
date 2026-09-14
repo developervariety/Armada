@@ -14,13 +14,14 @@ Connect Cursor to Armada's MCP server and use natural language to orchestrate pa
 armada mcp install
 ```
 
-This now writes the MCP configuration for all supported tools automatically. For Cursor specifically, it writes `.cursor/mcp.json` in the current project. If you prefer to edit manually, use:
+This now writes the MCP configuration for all supported tools automatically. For Cursor specifically, it writes `.cursor/mcp.json` in the current project. The endpoint refuses a request without a credential, so the entry reads your API key from `ARMADA_API_KEY`; set that variable in the environment Cursor starts with. If you prefer to edit manually, use:
 
 ```json
 {
   "mcpServers": {
     "armada": {
-      "url": "http://localhost:7891/mcp"
+      "url": "http://localhost:7891/mcp",
+      "headers": { "X-Api-Key": "${env:ARMADA_API_KEY}" }
     }
   }
 }
@@ -100,7 +101,8 @@ If you prefer to configure MCP manually instead of using `armada mcp install`, a
 {
   "mcpServers": {
     "armada": {
-      "url": "http://localhost:7891/mcp"
+      "url": "http://localhost:7891/mcp",
+      "headers": { "X-Api-Key": "${env:ARMADA_API_KEY}" }
     }
   }
 }

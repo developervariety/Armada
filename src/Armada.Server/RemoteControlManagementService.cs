@@ -263,6 +263,23 @@ namespace Armada.Server
             return Created(vessel, "Vessel created.");
         }
 
+        /// <summary>
+        /// The identity remote-control requests act as. The tunnel authenticates the operator's
+        /// connection as a whole and carries no per-request caller, so objective reads and linked
+        /// dispatches act as this named operator identity rather than an unnamed default.
+        /// </summary>
+        private static AuthContext RemoteControlOperator()
+        {
+            return AuthContext.Authenticated(
+                Armada.Core.Constants.DefaultTenantId,
+                Armada.Core.Constants.DefaultUserId,
+                true,
+                true,
+                "RemoteControl",
+                null,
+                "Remote control operator");
+        }
+
         private async Task<RemoteTunnelRequestResult> ListPipelinesAsync(RemoteTunnelQueryRequest request, CancellationToken token)
         {
             int limit = Clamp(request.Limit, 24, 1, 200);
@@ -529,7 +546,7 @@ namespace Armada.Server
                 ObjectiveDispatchAdmission? bareAdmission = null;
                 if (!String.IsNullOrWhiteSpace(request.ObjectiveId))
                 {
-                    objectiveAuth = Mcp.Tools.McpToolHelpers.CreateDefaultTenantAdminContext();
+                    objectiveAuth = RemoteControlOperator();
                     bareObjective = await _ObjectiveService.ReadAsync(objectiveAuth, request.ObjectiveId, token).ConfigureAwait(false);
                     if (bareObjective == null) return NotFound("Objective not found: " + request.ObjectiveId);
 
@@ -648,6 +665,7 @@ namespace Armada.Server
                     CodeContextMaxResults = request.CodeContextMaxResults,
                     PipelineId = pipelineId,
                     ObjectiveId = request.ObjectiveId,
+                    ObjectiveAuthContext = String.IsNullOrWhiteSpace(request.ObjectiveId) ? null : RemoteControlOperator(),
                     SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>(),
                     Settings = _Settings,
                     CaptainAssignments = request.CaptainAssignments

@@ -171,6 +171,12 @@ namespace Armada.Server
                 Enabled = true,
                 TransportType = "streamable_http",
                 Url = ArmadaMcpConfigBuilder.GetMcpUrl(_Settings?.McpPort ?? Armada.Core.Constants.DefaultMcpPort),
+                // The endpoint refuses a request without credentials, so the preflight presents the
+                // same launch credential an Ask captain process would carry.
+                Headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Authorization"] = "Bearer " + McpLaunchCredential.Token
+                },
                 StartupTimeout = TimeSpan.FromSeconds(15),
                 ToolTimeout = TimeSpan.FromSeconds(15)
             };
@@ -217,7 +223,11 @@ namespace Armada.Server
                 if (launchConfigIncludesArmada && !servers.Any(server => String.Equals(server.Name, "armada", StringComparison.OrdinalIgnoreCase)))
                 {
                     RuntimeMcpServerDefinition armada = new RuntimeMcpServerDefinition
-                    { Name = "armada", Enabled = true, TransportType = "streamable_http", Url = ArmadaMcpConfigBuilder.GetMcpUrl(_Settings!.McpPort), StartupTimeout = TimeSpan.FromSeconds(15), ToolTimeout = TimeSpan.FromSeconds(15) };
+                    {
+                        Name = "armada", Enabled = true, TransportType = "streamable_http", Url = ArmadaMcpConfigBuilder.GetMcpUrl(_Settings!.McpPort),
+                        Headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Authorization"] = "Bearer " + McpLaunchCredential.Token },
+                        StartupTimeout = TimeSpan.FromSeconds(15), ToolTimeout = TimeSpan.FromSeconds(15)
+                    };
                     armada.Target = BuildTarget(armada);
                     servers.Add(armada);
                 }

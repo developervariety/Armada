@@ -82,7 +82,13 @@ namespace Armada.Core.Services
                 {
                     ["armada"] = new OpenCodeMcpServer
                     {
-                        Url = ArmadaMcpConfigBuilder.GetMcpUrl(mcpPort.Value)
+                        Url = ArmadaMcpConfigBuilder.GetMcpUrl(mcpPort.Value),
+                        // The endpoint refuses a request without credentials. OpenCode expands the
+                        // launch credential from the captain's environment; the value is never written.
+                        Headers = new Dictionary<string, string>
+                        {
+                            ["Authorization"] = ArmadaMcpConfigBuilder.AuthorizationForOpenCodeExpansion
+                        }
                     }
                 };
             }
@@ -129,6 +135,10 @@ namespace Armada.Core.Services
 
             [JsonPropertyName("url")]
             public string Url { get; set; } = String.Empty;
+
+            [JsonPropertyName("headers")]
+            [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+            public Dictionary<string, string>? Headers { get; set; }
         }
 
         /// <summary>

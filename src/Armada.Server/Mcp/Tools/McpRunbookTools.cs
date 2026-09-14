@@ -44,7 +44,7 @@ namespace Armada.Server.Mcp.Tools
                 async args =>
                 {
                     RunbookQuery query = Deserialize<RunbookQuery>(args) ?? new RunbookQuery();
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     return (object)await runbookService.EnumerateAsync(auth, query).ConfigureAwait(false);
                 });
 
@@ -55,7 +55,7 @@ namespace Armada.Server.Mcp.Tools
                 async args =>
                 {
                     RunbookUpsertRequest request = ReadNested<RunbookUpsertRequest>(args, "runbook");
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     return (object)await runbookService.CreateAsync(auth, request).ConfigureAwait(false);
                 });
 
@@ -67,7 +67,7 @@ namespace Armada.Server.Mcp.Tools
                 {
                     string id = RequiredString(args, "runbookId");
                     RunbookUpsertRequest request = ReadNested<RunbookUpsertRequest>(args, "runbook");
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     return (object)await runbookService.UpdateAsync(auth, id, request).ConfigureAwait(false);
                 });
 
@@ -78,7 +78,7 @@ namespace Armada.Server.Mcp.Tools
                 async args =>
                 {
                     string id = RequiredString(args, "runbookId");
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     await runbookService.DeleteAsync(auth, id).ConfigureAwait(false);
                     return (object)new { Status = "deleted", RunbookId = id };
                 });
@@ -105,7 +105,7 @@ namespace Armada.Server.Mcp.Tools
                 {
                     RunbookExecutionQuery query = Deserialize<RunbookExecutionQuery>(args) ?? new RunbookExecutionQuery();
                     if (McpResultPreview.WantsDefaultPageSize(args)) query.PageSize = McpResultPreview.DefaultMcpPageSize;
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     object result = await runbookService.EnumerateExecutionsAsync(auth, query).ConfigureAwait(false);
                     bool wantsFull = args.HasValue
                         && args.Value.TryGetProperty("includeFullContent", out JsonElement _full)
@@ -130,7 +130,7 @@ namespace Armada.Server.Mcp.Tools
                 {
                     string id = RequiredString(args, "runbookExecutionId");
                     RunbookExecutionUpdateRequest request = ReadNested<RunbookExecutionUpdateRequest>(args, "update");
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     return (object)await runbookService.UpdateExecutionAsync(auth, id, request).ConfigureAwait(false);
                 });
 
@@ -141,7 +141,7 @@ namespace Armada.Server.Mcp.Tools
                 async args =>
                 {
                     string id = RequiredString(args, "runbookExecutionId");
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     await runbookService.DeleteExecutionAsync(auth, id).ConfigureAwait(false);
                     return (object)new { Status = "deleted", RunbookExecutionId = id };
                 });
@@ -162,7 +162,7 @@ namespace Armada.Server.Mcp.Tools
                 {
                     RunbookIdArgs request = JsonSerializer.Deserialize<RunbookIdArgs>(args!.Value, _JsonOptions)
                         ?? throw new InvalidOperationException("Could not deserialize RunbookIdArgs.");
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     Runbook? runbook = await runbookService.ReadAsync(auth, request.RunbookId).ConfigureAwait(false);
                     if (runbook == null) return (object)new { Error = "Runbook not found" };
                     return (object)runbook;
@@ -184,7 +184,7 @@ namespace Armada.Server.Mcp.Tools
                 {
                     RunbookExecutionIdArgs request = JsonSerializer.Deserialize<RunbookExecutionIdArgs>(args!.Value, _JsonOptions)
                         ?? throw new InvalidOperationException("Could not deserialize RunbookExecutionIdArgs.");
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     RunbookExecution? execution = await runbookService.ReadExecutionAsync(auth, request.RunbookExecutionId).ConfigureAwait(false);
                     if (execution == null) return (object)new { Error = "Runbook execution not found" };
                     return (object)execution;
@@ -222,7 +222,7 @@ namespace Armada.Server.Mcp.Tools
                     string runbookId = value.GetProperty("runbookId").GetString() ?? String.Empty;
                     RunbookExecutionStartRequest request = JsonSerializer.Deserialize<RunbookExecutionStartRequest>(value, _JsonOptions)
                         ?? new RunbookExecutionStartRequest();
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     return (object)await runbookService.StartExecutionAsync(auth, runbookId, request).ConfigureAwait(false);
                 });
         }

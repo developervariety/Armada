@@ -6,11 +6,14 @@ namespace Armada.Test.Unit.Suites.Services
     using System.IO;
     using System.Linq;
     using System.Threading;
+    using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Server.Mcp;
+    using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
@@ -135,6 +138,54 @@ namespace Armada.Test.Unit.Suites.Services
 
                     TerminalVoyageMissionReconciliationResult second = await reconciler.ReconcileAsync(Apply(), CancellationToken.None).ConfigureAwait(false);
                     AssertEqual(0, second.Examined, "a second pass finds nothing left to reconcile");
+                }).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
+            await RunTest("The MCP repair refuses every caller except a global administrator, for a dry run and an apply", async () =>
+            {
+                await WithFixtureAsync(async (fx, db, logging) =>
+                {
+                    Voyage voyage = await CreateVoyageAsync(db, VoyageStatusEnum.Failed, DateTime.UtcNow.AddHours(-2)).ConfigureAwait(false);
+                    Mission landed = await CreateMissionAsync(db, fx.Vessel, voyage, "Worker", fx.LandedSha).ConfigureAwait(false);
+                    Mission unlanded = await CreateMissionAsync(db, fx.Vessel, voyage, "TestEngineer", fx.UnlandedSha).ConfigureAwait(false);
+
+                    const string toolName = "armada_reconcile_terminal_voyage_missions";
+                    Func<JsonElement?, Task<object>>? handler = null;
+                    McpTerminalVoyageMissionTools.Register(
+                        (name, _, _, registered) => { if (name == toolName) handler = registered; },
+                        Reconciler(fx, db, logging),
+                        null);
+                    AssertNotNull(handler, toolName + " is registered");
+
+                    AuthContext user = AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, "usr_repair_user", false, false, "Test");
+                    AuthContext tenantAdmin = AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, "usr_repair_admin", false, true, "Test");
+                    foreach (AuthContext caller in new[] { user, tenantAdmin })
+                    {
+                        AssertFalse(McpToolAccessPolicy.IsAllowed(caller, toolName), "the endpoint neither lists nor calls the repair for a narrower role");
+                        foreach (bool dryRun in new[] { false, true })
+                        {
+                            string json;
+                            using (McpCallerContext.Begin(caller))
+                            {
+                                json = JsonSerializer.Serialize(await handler!(JsonSerializer.SerializeToElement(new { dryRun = dryRun })).ConfigureAwait(false));
+                            }
+                            AssertContains(McpTerminalVoyageMissionTools.GlobalAdministratorRequiredReason, json,
+                                "a " + (caller.IsTenantAdmin ? "tenant administrator" : "user") + " is refused with dryRun=" + dryRun);
+                            AssertFalse(json.Contains(landed.Id, StringComparison.Ordinal) || json.Contains(unlanded.Id, StringComparison.Ordinal),
+                                "a refused call discloses no mission");
+                        }
+                    }
+                    AssertEqual(MissionStatusEnum.WorkProduced, (await db.Missions.ReadAsync(landed.Id).ConfigureAwait(false))!.Status, "a refused apply leaves landed work unchanged");
+                    AssertEqual(MissionStatusEnum.WorkProduced, (await db.Missions.ReadAsync(unlanded.Id).ConfigureAwait(false))!.Status, "a refused apply leaves unlanded work unchanged");
+
+                    string operatorJson;
+                    using (McpCallerContext.Begin(McpTestCaller.Operator))
+                    {
+                        operatorJson = JsonSerializer.Serialize(await handler!(JsonSerializer.SerializeToElement(new { dryRun = true })).ConfigureAwait(false));
+                    }
+                    AssertFalse(operatorJson.Contains(McpTerminalVoyageMissionTools.GlobalAdministratorRequiredReason, StringComparison.Ordinal),
+                        "a global administrator runs the repair: " + operatorJson);
+                    AssertContains("\"DryRun\":true", operatorJson, "the global administrator's dry run returns its result");
                 }).ConfigureAwait(false);
             }).ConfigureAwait(false);
 

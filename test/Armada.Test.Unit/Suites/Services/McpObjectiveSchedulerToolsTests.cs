@@ -536,7 +536,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
 
                 McpToolRegistrar.RegisterAll(
-                    (name, _, _, handler) => { handlers[name] = handler; },
+                    (name, _, _, handler) => { handlers[name] = McpTestCaller.Wrap(handler); },
                     testDb.Driver,
                     new StubAdmiralService(),
                     objectiveService: objectives,
@@ -554,7 +554,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
 
                 McpToolRegistrar.RegisterAll(
-                    (name, _, _, handler) => { handlers[name] = handler; },
+                    (name, _, _, handler) => { handlers[name] = McpTestCaller.Wrap(handler); },
                     testDb.Driver,
                     new StubAdmiralService(),
                     objectiveService: objectives);
@@ -604,7 +604,7 @@ namespace Armada.Test.Unit.Suites.Services
             objectiveService = objectiveService ?? new ObjectiveService(database);
             Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
             McpObjectiveSchedulerTools.Register(
-                (name, _, _, handler) => { handlers[name] = handler; },
+                (name, _, _, handler) => { handlers[name] = McpTestCaller.Wrap(handler); },
                 scheduler,
                 database,
                 objectiveService,

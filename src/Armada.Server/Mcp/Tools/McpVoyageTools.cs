@@ -182,6 +182,7 @@ namespace Armada.Server.Mcp.Tools
                         PipelineId = request.PipelineId,
                         Pipeline = request.Pipeline,
                         ObjectiveId = request.ObjectiveId,
+                        ObjectiveAuthContext = McpCallerContext.Require(),
                         SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>(),
                         Settings = settings,
                         CaptainAssignments = request.CaptainAssignments

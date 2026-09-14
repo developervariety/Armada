@@ -367,7 +367,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
             McpIncidentTools.Register(
-                (name, description, schema, handler) => handlers[name] = handler,
+                (name, description, schema, handler) => handlers[name] = McpTestCaller.Wrap(handler),
                 incidents);
             return handlers;
         }

@@ -323,14 +323,17 @@ Default local endpoints:
 
 ### Configure MCP Clients
 
-The repository includes an MCP config that points at the default HTTP endpoint:
+The repository includes an MCP config that points at the default HTTP endpoint.
+The endpoint refuses a request without a credential, so each client entry must
+send one. Read it from the environment rather than writing the key into a file:
 
 ```json
 {
   "mcpServers": {
     "armada": {
       "type": "http",
-      "url": "http://localhost:7891/mcp"
+      "url": "http://localhost:7891/mcp",
+      "headers": { "X-Api-Key": "${ARMADA_API_KEY}" }
     }
   }
 }
@@ -445,8 +448,15 @@ To add Armada to Claude Code manually instead of using `armada mcp install`,
 register its default HTTP MCP endpoint (`http://localhost:7891/mcp`):
 
 ```bash
-claude mcp add --transport http --scope user armada http://localhost:7891/mcp
+claude mcp add --transport http --scope user armada http://localhost:7891/mcp \
+  --header "X-Api-Key: ${ARMADA_API_KEY}"
 ```
+
+Every MCP request must carry a credential; a request without one gets `401`.
+`armada mcp install` writes each HTTP client entry with an `X-Api-Key` header
+that reads `ARMADA_API_KEY` from the client's environment, so set that variable
+before starting the client. No key is written to a configuration file. `docs/MCP_API.md` covers caller rules, the
+captain launch credential and the SSH bridge.
 
 Drop `--scope user` to add it for the current project only; substitute your
 port if you changed `McpPort`. On enterprise-managed Claude Code this may fail

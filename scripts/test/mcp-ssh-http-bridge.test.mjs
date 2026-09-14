@@ -12,7 +12,10 @@ import {
   parseMcpResponseMessages,
   runBridge,
   validateParticipantKey,
+  validateRemotePath,
 } from "../mcp-ssh-http-bridge.mjs";
+
+const AUTH_HEADER_FILE = "/home/operator/.armada/mcp-auth-header";
 
 test("parses newline-delimited JSON-RPC messages", () => {
   const messages = [];
@@ -187,6 +190,7 @@ printf '%s' '{"jsonrpc":"2.0","id":7,"result":{"live":true}}'
         ARMADA_SSH_COMMAND: fakeSsh,
         ARMADA_SSH_HOST: "admiral-host",
         ARMADA_SSH_USER: "operator",
+        ARMADA_MCP_AUTH_HEADER_FILE: AUTH_HEADER_FILE,
         FAKE_SSH_ARGS_LOG: argsLog,
       },
     });
@@ -203,6 +207,8 @@ printf '%s' '{"jsonrpc":"2.0","id":7,"result":{"live":true}}'
     assert.match(args, /operator@admiral-host/);
     assert.match(args, /http:\/\/localhost:7891\/mcp/);
     assert.match(args, /Accept: application\/json, text\/event-stream/);
+    assert.ok(args.includes("--header @'" + AUTH_HEADER_FILE + "'"), "curl reads the credential header from the server-side file");
+    assert.doesNotMatch(args, /X-Api-Key|Authorization/, "no credential value appears in the remote command");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -232,6 +238,7 @@ printf '%s' '{"jsonrpc":"2.0","id":9,"result":{"resultType":"complete"}}'
         ARMADA_SSH_COMMAND: fakeSsh,
         ARMADA_SSH_HOST: "admiral-host",
         ARMADA_SSH_USER: "operator",
+        ARMADA_MCP_AUTH_HEADER_FILE: AUTH_HEADER_FILE,
         FAKE_SSH_ARGS_LOG: argsLog,
       },
     });
@@ -259,6 +266,32 @@ printf '%s' '{"jsonrpc":"2.0","id":9,"result":{"resultType":"complete"}}'
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("validateRemotePath accepts an absolute server path and refuses anything that could change the command", () => {
+  assert.equal(validateRemotePath("/home/operator/.armada/mcp-auth-header"), "/home/operator/.armada/mcp-auth-header");
+  assert.throws(() => validateRemotePath("relative/header"), /ARMADA_MCP_AUTH_HEADER_FILE/);
+  assert.throws(() => validateRemotePath("/tmp/../etc/passwd"), /ARMADA_MCP_AUTH_HEADER_FILE/);
+  assert.throws(() => validateRemotePath("/tmp/header'; rm -rf /"), /ARMADA_MCP_AUTH_HEADER_FILE/);
+  assert.throws(() => validateRemotePath("/tmp/header $(id)"), /ARMADA_MCP_AUTH_HEADER_FILE/);
+  assert.throws(() => validateRemotePath(undefined), /ARMADA_MCP_AUTH_HEADER_FILE/);
+});
+
+test("refuses to send a request when no server-side credential header file is configured", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const outputChunks = [];
+  output.on("data", (chunk) => outputChunks.push(chunk));
+  const environment = { ...process.env, ARMADA_SSH_COMMAND: "/nonexistent/ssh-must-not-run" };
+  delete environment.ARMADA_MCP_AUTH_HEADER_FILE;
+  const bridge = runBridge({ input, output, errorOutput: new PassThrough(), environment });
+
+  input.end('{"jsonrpc":"2.0","id":11,"method":"tools/list"}\n');
+  await bridge;
+
+  const response = JSON.parse(Buffer.concat(outputChunks).toString("utf8"));
+  assert.equal(response.id, 11);
+  assert.match(response.error.message, /ARMADA_MCP_AUTH_HEADER_FILE/);
 });
 
 test("validateParticipantKey accepts identifiers and refuses anything else", () => {
@@ -290,6 +323,7 @@ printf '%s' '{"jsonrpc":"2.0","id":4,"result":{"content":[]}}'
         ...process.env,
         ARMADA_SSH_COMMAND: fakeSsh,
         ARMADA_SSH_HOST: "admiral-host",
+        ARMADA_MCP_AUTH_HEADER_FILE: AUTH_HEADER_FILE,
         FAKE_SSH_ARGS_LOG: argsLog,
       };
       if (participantKey === undefined) {

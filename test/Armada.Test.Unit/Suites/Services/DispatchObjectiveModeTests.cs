@@ -79,6 +79,7 @@ namespace Armada.Test.Unit.Suites.Services
                         VesselId = harness.Vessel.Id,
                         CodeContextMode = "off",
                         ObjectiveId = research.Id,
+                        ObjectiveAuthContext = McpTestCaller.Operator,
                         Missions = missions
                     };
 
@@ -107,6 +108,7 @@ namespace Armada.Test.Unit.Suites.Services
                         VesselId = harness.Vessel.Id,
                         CodeContextMode = "off",
                         ObjectiveId = feature.Id,
+                        ObjectiveAuthContext = McpTestCaller.Operator,
                         Missions = new List<MissionDescription> { new MissionDescription("Build it", "Implement the feature.") }
                     };
 
@@ -156,6 +158,7 @@ namespace Armada.Test.Unit.Suites.Services
                         VesselId = harness.Vessel.Id,
                         CodeContextMode = "off",
                         ObjectiveId = objective.Id,
+                        ObjectiveAuthContext = McpTestCaller.Operator,
                         Missions = new List<MissionDescription>
                         {
                             new MissionDescription("Build prepared change", "Keep this operator instruction.")
@@ -196,6 +199,7 @@ namespace Armada.Test.Unit.Suites.Services
                         VesselId = harness.Vessel.Id,
                         CodeContextMode = "off",
                         ObjectiveId = research.Id,
+                        ObjectiveAuthContext = McpTestCaller.Operator,
                         Missions = new List<MissionDescription>
                         {
                             new MissionDescription("Implement anyway", "The operator set this mission to implement.")
@@ -231,6 +235,7 @@ namespace Armada.Test.Unit.Suites.Services
                         VesselId = harness.Vessel.Id,
                         CodeContextMode = "off",
                         ObjectiveId = objective.Id,
+                        ObjectiveAuthContext = McpTestCaller.Operator,
                         Missions = new List<MissionDescription>
                         {
                             new MissionDescription("Do not create", "This mission targets the wrong vessel.")

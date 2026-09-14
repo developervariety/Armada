@@ -59,7 +59,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MinimalAdmiralDouble admiralDouble = new MinimalAdmiralDouble();
                     Func<JsonElement?, Task<object>>? statusHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_voyage_status") statusHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_voyage_status") statusHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null);
@@ -111,7 +111,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MinimalAdmiralDouble admiralDouble = new MinimalAdmiralDouble();
                     Func<JsonElement?, Task<object>>? statusHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_voyage_status") statusHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_voyage_status") statusHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null);
@@ -148,7 +148,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MinimalAdmiralDouble admiralDouble = new MinimalAdmiralDouble();
                     Func<JsonElement?, Task<object>>? statusHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_voyage_status") statusHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_voyage_status") statusHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null);
@@ -192,7 +192,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MinimalAdmiralDouble admiralDouble = new MinimalAdmiralDouble();
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null);
@@ -227,7 +227,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MinimalAdmiralDouble admiralDouble = new MinimalAdmiralDouble();
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null);
@@ -300,7 +300,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MinimalAdmiralDouble admiralDouble = new MinimalAdmiralDouble();
                     Func<JsonElement?, Task<object>>? statusHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_voyage_status") statusHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_voyage_status") statusHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null);
@@ -358,7 +358,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MinimalAdmiralDouble admiralDouble = new MinimalAdmiralDouble();
                     Func<JsonElement?, Task<object>>? statusHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_voyage_status") statusHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_voyage_status") statusHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null);
@@ -394,7 +394,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MinimalAdmiralDouble admiralDouble = new MinimalAdmiralDouble();
                     Func<JsonElement?, Task<object>>? dispatchHandler = null;
                     McpVoyageTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null);

@@ -178,8 +178,14 @@ namespace Armada.Test.Unit.Suites.Services
         private static async Task<string> CallAsync(Dictionary<string, Func<JsonElement?, Task<object>>> handlers, string tool, object args)
         {
             JsonElement element = JsonSerializer.SerializeToElement(args, _JsonOptions);
-            object result = await handlers[tool](element).ConfigureAwait(false);
-            return JsonSerializer.Serialize(result, _JsonOptions);
+            // A handler reads the authenticated caller the transport sets; these calls act as a
+            // default-tenant administrator, set explicitly.
+            AuthContext caller = AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, false, true, "Test");
+            using (Armada.Server.Mcp.McpCallerContext.Begin(caller))
+            {
+                object result = await handlers[tool](element).ConfigureAwait(false);
+                return JsonSerializer.Serialize(result, _JsonOptions);
+            }
         }
 
         private static string Compact(string json)

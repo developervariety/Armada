@@ -425,7 +425,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ObjectiveService objectives = new ObjectiveService(testDb.Driver);
                 Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
                 McpObjectiveTools.Register(
-                    (name, _, _, handler) => handlers[name] = handler,
+                    (name, _, _, handler) => handlers[name] = McpTestCaller.Wrap(handler),
                     testDb.Driver,
                     objectives);
 
@@ -464,7 +464,7 @@ namespace Armada.Test.Unit.Suites.Services
                 McpObjectiveTools.Register(
                     (name, _, schema, handler) =>
                     {
-                        handlers[name] = handler;
+                        handlers[name] = McpTestCaller.Wrap(handler);
                         schemas[name] = schema;
                     },
                     testDb.Driver,
@@ -521,7 +521,7 @@ namespace Armada.Test.Unit.Suites.Services
                     new ArmadaSettings());
                 Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
                 McpObjectiveTools.Register(
-                    (name, _, _, handler) => handlers[name] = handler,
+                    (name, _, _, handler) => handlers[name] = McpTestCaller.Wrap(handler),
                     testDb.Driver,
                     objectives,
                     dispatchPreviewService: previews);

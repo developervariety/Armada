@@ -125,7 +125,7 @@ namespace Armada.Server
             string? objectiveId = NormalizeEmpty(request.ObjectiveId);
             if (objectiveId != null && _ObjectiveDispatchPreview != null && _ObjectiveService != null)
             {
-                AuthContext objectiveAuth = request.ObjectiveAuthContext ?? McpToolHelpers.CreateDefaultTenantAdminContext();
+                AuthContext objectiveAuth = RequireObjectiveCaller(request.ObjectiveAuthContext, objectiveId);
                 Objective? objective = await _ObjectiveService.ReadAsync(objectiveAuth, objectiveId, token).ConfigureAwait(false);
                 if (objective != null)
                 {
@@ -269,7 +269,7 @@ namespace Armada.Server
                 try
                 {
                     admission = await _ObjectiveService.AcquireDispatchAdmissionAsync(
-                        request.ObjectiveAuthContext ?? McpToolHelpers.CreateDefaultTenantAdminContext(),
+                        RequireObjectiveCaller(request.ObjectiveAuthContext, String.Join(", ", admissionObjectiveIds)),
                         admissionObjectiveIds,
                         new ObjectiveDispatchAttemptDescriptor { Title = title, VesselId = vesselId },
                         token).ConfigureAwait(false);
@@ -592,6 +592,18 @@ namespace Armada.Server
             return false;
         }
 
+        /// <summary>
+        /// Return the caller an objective-linked dispatch acts for. Reading or linking an objective
+        /// is scoped to that caller, so a dispatch that names an objective without a caller is
+        /// refused rather than read with a default administrative identity.
+        /// </summary>
+        private static AuthContext RequireObjectiveCaller(AuthContext? authContext, string? objectiveId)
+        {
+            if (authContext == null || !authContext.IsAuthenticated)
+                throw new UnauthorizedAccessException("A dispatch linked to objective " + objectiveId + " must carry the caller's identity.");
+            return authContext;
+        }
+
         private bool IsCodeIndexEnabled()
         {
             return _Settings?.CodeIndex?.Enabled ?? true;
@@ -603,7 +615,7 @@ namespace Armada.Server
             if (_ObjectiveService == null)
                 return VoyageDispatchResult.BadRequest(new { Error = "Objective service unavailable; cannot link objectiveId " + objectiveId });
 
-            AuthContext auth = authContext ?? McpToolHelpers.CreateDefaultTenantAdminContext();
+            AuthContext auth = RequireObjectiveCaller(authContext, objectiveId);
             Objective? objective = await _ObjectiveService.ReadAsync(auth, objectiveId).ConfigureAwait(false);
             if (objective == null)
                 return VoyageDispatchResult.NotFound(new { Error = "Objective not found: " + objectiveId });
@@ -647,7 +659,7 @@ namespace Armada.Server
             if (String.IsNullOrEmpty(objectiveId) || _ObjectiveService == null || missions == null || missions.Count == 0)
                 return null;
 
-            AuthContext auth = authContext ?? McpToolHelpers.CreateDefaultTenantAdminContext();
+            AuthContext auth = RequireObjectiveCaller(authContext, objectiveId);
             Objective? objective = await _ObjectiveService.ReadAsync(auth, objectiveId).ConfigureAwait(false);
             if (objective == null) return null;
 
@@ -1127,9 +1139,9 @@ namespace Armada.Server
             if (objectiveIds.Count == 0) return null;
             if (_ObjectiveService == null) return null;
 
-            AuthContext auth = authContext ?? McpToolHelpers.CreateDefaultTenantAdminContext();
-            List<string> linked = new List<string>();
             string objectiveId = objectiveIds[0];
+            AuthContext auth = RequireObjectiveCaller(authContext, String.Join(", ", objectiveIds));
+            List<string> linked = new List<string>();
             try
             {
                 foreach (string linkObjectiveId in objectiveIds)

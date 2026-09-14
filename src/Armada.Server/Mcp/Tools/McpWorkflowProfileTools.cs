@@ -85,7 +85,7 @@ namespace Armada.Server.Mcp.Tools
                     string? profileId = OptionalString(args, "workflowProfileId");
                     Vessel? vessel = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
                     if (vessel == null) return (object)new { Error = "Vessel not found" };
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     return (object?)await workflowProfiles.PreviewForVesselAsync(auth, vessel, profileId).ConfigureAwait(false)
                         ?? new { Error = "No workflow profile resolves for this vessel" };
                 });

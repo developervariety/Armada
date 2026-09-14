@@ -242,7 +242,7 @@ namespace Armada.Server.Mcp.Tools
 
                     try
                     {
-                        AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                        AuthContext auth = McpCallerContext.Require();
                         ObjectiveUpsertRequest upsert = new ObjectiveUpsertRequest
                         {
                             AutoDispatchEnabled = request.Enabled,

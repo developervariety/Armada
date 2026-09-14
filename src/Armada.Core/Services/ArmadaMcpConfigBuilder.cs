@@ -27,22 +27,43 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Authorization header value for Claude Code and Gemini, which expand ${NAME} from the
+        /// process environment. The launch credential itself is never written into a file.
+        /// </summary>
+        public static readonly string AuthorizationForDollarBraceExpansion = "Bearer ${" + McpLaunchCredential.EnvironmentVariable + "}";
+
+        /// <summary>
+        /// Authorization header value for Cursor, which expands ${env:NAME} from the process environment.
+        /// </summary>
+        public static readonly string AuthorizationForCursorExpansion = "Bearer ${env:" + McpLaunchCredential.EnvironmentVariable + "}";
+
+        /// <summary>
+        /// Authorization header value for OpenCode, which expands {env:NAME} from the process environment.
+        /// </summary>
+        public static readonly string AuthorizationForOpenCodeExpansion = "Bearer {env:" + McpLaunchCredential.EnvironmentVariable + "}";
+
+        /// <summary>
         /// Build the keyed "mcpServers" document used by Claude Code, Gemini, and Cursor. The Armada
         /// server is registered under the "armada" key with the modern HTTP transport.
         /// </summary>
         /// <param name="mcpPort">The Admiral MCP port.</param>
+        /// <param name="authorizationHeader">Authorization header value in the client's environment-reference syntax, or null to omit it.</param>
         /// <returns>An indented JSON document string.</returns>
-        public static string BuildKeyedMcpServersJson(int mcpPort)
+        public static string BuildKeyedMcpServersJson(int mcpPort, string? authorizationHeader = null)
         {
+            JsonObject server = new JsonObject
+            {
+                ["type"] = "http",
+                ["url"] = GetMcpUrl(mcpPort),
+            };
+            if (!String.IsNullOrEmpty(authorizationHeader))
+                server["headers"] = new JsonObject { ["Authorization"] = authorizationHeader };
+
             JsonObject root = new JsonObject
             {
                 ["mcpServers"] = new JsonObject
                 {
-                    ["armada"] = new JsonObject
-                    {
-                        ["type"] = "http",
-                        ["url"] = GetMcpUrl(mcpPort),
-                    },
+                    ["armada"] = server,
                 },
             };
             return root.ToJsonString(_IndentedOptions);
@@ -50,15 +71,19 @@ namespace Armada.Core.Services
 
         /// <summary>Build an OpenCode MCP-only overlay for an isolated launch.</summary>
         /// <param name="mcpPort">The Admiral MCP port.</param>
+        /// <param name="authorizationHeader">Authorization header value in OpenCode's environment-reference syntax, or null to omit it.</param>
         /// <returns>A JSON document containing only the Armada MCP server.</returns>
-        public static string BuildOpenCodeMcpJson(int mcpPort)
+        public static string BuildOpenCodeMcpJson(int mcpPort, string? authorizationHeader = null)
         {
+            JsonObject server = new JsonObject { ["type"] = "remote", ["url"] = GetMcpUrl(mcpPort) };
+            if (!String.IsNullOrEmpty(authorizationHeader))
+                server["headers"] = new JsonObject { ["Authorization"] = authorizationHeader };
+
             JsonObject root = new JsonObject
             {
                 ["mcp"] = new JsonObject
                 {
-                    ["armada"] = new JsonObject
-                    { ["type"] = "remote", ["url"] = GetMcpUrl(mcpPort) }
+                    ["armada"] = server
                 }
             };
             return root.ToJsonString(_IndentedOptions);

@@ -120,7 +120,21 @@ namespace Armada.Helm.Commands
                     cts.Cancel();
                 };
 
-                await mcpServer.RunAsync(cts.Token).ConfigureAwait(false);
+                // The stdio host runs in-process with this machine's settings file and database
+                // credentials, so its caller is the local operator. The identity is set explicitly
+                // here; no tool falls back to a default context when a caller is missing.
+                Armada.Core.Models.AuthContext localOperator = Armada.Core.Models.AuthContext.Authenticated(
+                    Constants.DefaultTenantId,
+                    Constants.DefaultUserId,
+                    true,
+                    true,
+                    "LocalStdio",
+                    null,
+                    "Local stdio operator");
+                using (McpCallerContext.Begin(localOperator))
+                {
+                    await mcpServer.RunAsync(cts.Token).ConfigureAwait(false);
+                }
             }
             finally
             {

@@ -837,6 +837,41 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   runtime starts. Before, a tenant administrator could chat with, and run the
   model of, a captain in another tenant.
 
+### MCP requests authenticate
+
+- Every MCP HTTP request now authenticates through the REST authentication
+  service. A missing or invalid credential gets `401` before any tool runs.
+  Before, the endpoint accepted every request and ran each tool with a fixed
+  default tenant-administrator context.
+- Tools read the authenticated caller of their own request, and creates record
+  that caller's tenant and user. The default context helper is removed; a tool
+  call without a caller fails instead of borrowing administrator authority.
+- A global administrator lists and calls the whole catalog. Any narrower role
+  lists and calls only the caller-scoped persona, pipeline, prompt template and
+  memory tools.
+- `armada_reconcile_terminal_voyage_missions` also refuses any caller other than
+  a global administrator itself, for a dry run as well as an apply, because the
+  repair reads and rewrites missions in every tenant.
+- Captain processes receive a per-start launch credential in their environment.
+  Claude Code, Gemini, Cursor, OpenCode and Codex configurations reference it by
+  variable name, so no credential is written to a dock or scoped config file.
+  Mux has no header support, so a Mux captain cannot reach the endpoint.
+- With dock MCP delivery enabled, every captain launch carries the credential,
+  including Cursor, Gemini and OpenCode captains that read only their dock
+  configuration. A subscription-account login switch leaves the credential and
+  its Codex reference in place.
+- `armada mcp install` writes Claude Code, Cursor, Gemini CLI and OpenCode
+  entries with an `X-Api-Key` header that references `ARMADA_API_KEY` by name in
+  each client's syntax, so an installed client authenticates once that variable
+  is set. Before, the entries carried no credential and every request got `401`.
+  Mux has no header field and still cannot authenticate.
+- The SSH stdio bridge requires `ARMADA_MCP_AUTH_HEADER_FILE`, a protected
+  server-side file holding the credential header, so the key never appears in a
+  command line. `armada mcp stdio` sets an explicit local operator identity.
+- An objective-linked voyage dispatch must carry its caller. REST, MCP,
+  planning and remote-control dispatch pass one; a dispatch without a caller is
+  refused instead of reading the objective as a default administrator.
+
 ### Persona, pipeline and prompt template reads respect ownership
 
 - Personas, pipelines and prompt templates now store an owning user and an

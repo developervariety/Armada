@@ -48,7 +48,7 @@ namespace Armada.Server.Mcp.Tools
                 PageNumber = 1,
                 PageSize = 1000
             }).ConfigureAwait(false);
-            AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+            AuthContext auth = McpCallerContext.Require();
             EnumerationResult<DeploymentEnvironment> environmentPage = await environments.EnumerateAsync(auth, new DeploymentEnvironmentQuery
             {
                 PageNumber = 1,

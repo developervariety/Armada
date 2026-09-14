@@ -358,10 +358,16 @@ namespace Armada.Server
             // Every objective linked to the session is admitted with the session objective before the
             // voyage exists and linked inside that admission; no caller links after creation.
             List<string> linkedObjectiveIds = new List<string>();
-            if (_ObjectiveService != null)
+            AuthContext? objectiveAuth = BuildObjectiveAuthContext(session);
+            if (_ObjectiveService != null && objectiveAuth == null)
             {
-                AuthContext objectiveAuth = BuildObjectiveAuthContext(session)
-                    ?? Mcp.Tools.McpToolHelpers.CreateDefaultTenantAdminContext();
+                // Objectives are read as the session owner. A session without an owner has no
+                // identity to read them with, so no default administrator reads them instead.
+                _Logging.Warn(_Header + "planning session " + session.Id
+                    + " has no owning tenant and user; its linked objectives are not read for dispatch");
+            }
+            if (_ObjectiveService != null && objectiveAuth != null)
+            {
                 List<Objective> sessionObjectives = await _ObjectiveService
                     .EnumerateByPlanningSessionAsync(objectiveAuth, session.Id, token).ConfigureAwait(false);
                 foreach (Objective sessionObjective in sessionObjectives)

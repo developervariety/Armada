@@ -5,6 +5,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Net.Sockets;
     using System.Text;
     using System.Text.Json;
+    using Armada.Core.Models;
     using Armada.Server.Mcp;
     using Armada.Test.Common;
 
@@ -359,12 +360,13 @@ namespace Armada.Test.Unit.Suites.Services
                     "a malformed participant key must not deliver a wake");
             }).ConfigureAwait(false);
 
-            await RunTest("BearerAuthenticationFailsClosed", async () =>
+            await RunTest("MissingOrInvalidCredentialsFailClosed", async () =>
             {
                 int port = GetAvailablePort();
                 await using ArmadaMcpHttpServer server = CreateServer(port);
-                server.BearerToken = "test-token";
-                RegisterStatusTool(server);
+                bool handlerRan = false;
+                server.RegisterTool("armada_status", "Report fleet status", new { type = "object" },
+                    args => { handlerRan = true; return Task.FromResult((object)new { Status = "ok" }); });
                 await server.StartAsync().ConfigureAwait(false);
 
                 using HttpClient client = new HttpClient
@@ -372,26 +374,88 @@ namespace Armada.Test.Unit.Suites.Services
                     BaseAddress = new Uri("http://127.0.0.1:" + port)
                 };
                 using HttpRequestMessage missingRequest = CreateRequest(
-                    "/mcp", 1, "tools/list", new { });
+                    "/mcp", 1, "tools/call", new { name = "armada_status", arguments = new { } }, apiKey: null);
                 using HttpResponseMessage missingResponse = await client.SendAsync(missingRequest).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Unauthorized, missingResponse.StatusCode);
+                AssertEqual(HttpStatusCode.Unauthorized, missingResponse.StatusCode, "no credential");
                 AssertEqual(
                     "Bearer realm=\"Armada MCP\"",
                     missingResponse.Headers.WwwAuthenticate.Single().ToString());
 
+                using HttpRequestMessage invalidRequest = CreateRequest(
+                    "/mcp", 2, "tools/call", new { name = "armada_status", arguments = new { } }, apiKey: "wrong-key");
+                using HttpResponseMessage invalidResponse = await client.SendAsync(invalidRequest).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Unauthorized, invalidResponse.StatusCode, "invalid credential");
+                AssertFalse(handlerRan, "a refused request must never reach a tool handler");
+
                 using HttpRequestMessage validRequest = CreateRequest(
-                    "/mcp", 2, "tools/list", new { });
-                validRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
-                    "Bearer", "test-token");
+                    "/mcp", 3, "tools/list", new { });
                 using HttpResponseMessage validResponse = await client.SendAsync(validRequest).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, validResponse.StatusCode);
+                AssertEqual(HttpStatusCode.OK, validResponse.StatusCode, "valid credential");
+            }).ConfigureAwait(false);
+
+            await RunTest("NoAuthenticatorRefusesEveryRequest", async () =>
+            {
+                int port = GetAvailablePort();
+                await using ArmadaMcpHttpServer server = new ArmadaMcpHttpServer("127.0.0.1", port);
+                RegisterStatusTool(server);
+                await server.StartAsync().ConfigureAwait(false);
+
+                using HttpClient client = new HttpClient
+                {
+                    BaseAddress = new Uri("http://127.0.0.1:" + port)
+                };
+                using HttpRequestMessage request = CreateRequest("/mcp", 1, "tools/list", new { });
+                using HttpResponseMessage response = await client.SendAsync(request).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Unauthorized, response.StatusCode, "a server without an authenticator has no anonymous or default identity");
+            }).ConfigureAwait(false);
+
+            await RunTest("NarrowerRolesListAndCallOnlyAllowedTools", async () =>
+            {
+                int port = GetAvailablePort();
+                await using ArmadaMcpHttpServer server = CreateServer(port);
+                server.ToolAuthorizer = (caller, tool) => caller.IsAdmin || tool == "get_persona";
+                AuthContext? observedCaller = null;
+                bool operatorToolRan = false;
+                server.RegisterTool("get_persona", "Scoped read", new { type = "object" },
+                    args => { observedCaller = McpCallerContext.Current; return Task.FromResult((object)new { Status = "scoped" }); });
+                server.RegisterTool("armada_stop_server", "Operator control", new { type = "object" },
+                    args => { operatorToolRan = true; return Task.FromResult((object)new { Status = "stopped" }); });
+                await server.StartAsync().ConfigureAwait(false);
+
+                using HttpClient client = new HttpClient
+                {
+                    BaseAddress = new Uri("http://127.0.0.1:" + port)
+                };
+
+                using HttpRequestMessage listRequest = CreateRequest("/mcp", 1, "tools/list", new { }, apiKey: UserApiKey);
+                JsonElement list = await ReadRpcAsync(await client.SendAsync(listRequest).ConfigureAwait(false)).ConfigureAwait(false);
+                List<string> names = list.GetProperty("result").GetProperty("tools").EnumerateArray()
+                    .Select(tool => tool.GetProperty("name").GetString()!).ToList();
+                AssertTrue(names.SequenceEqual(new[] { "get_persona" }), "a narrower role discovers only its allowed tools");
+
+                using HttpRequestMessage denied = CreateRequest(
+                    "/mcp", 2, "tools/call", new { name = "armada_stop_server", arguments = new { } }, apiKey: UserApiKey);
+                JsonElement deniedRpc = await ReadRpcAsync(await client.SendAsync(denied).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertTrue(deniedRpc.TryGetProperty("error", out _), "an operator tool call from a narrower role is refused");
+                AssertFalse(operatorToolRan, "the refused operator tool never runs");
+
+                using HttpRequestMessage allowed = CreateRequest(
+                    "/mcp", 3, "tools/call", new { name = "get_persona", arguments = new { } }, apiKey: UserApiKey);
+                using HttpResponseMessage allowedResponse = await client.SendAsync(allowed).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, allowedResponse.StatusCode);
+                AssertNotNull(observedCaller, "the tool reads the authenticated caller");
+                AssertEqual("usr_scoped", observedCaller!.UserId, "the caller is the request's own identity, not a default one");
+                AssertFalse(observedCaller.IsAdmin, "a narrower role is never raised to administrator");
+
+                using HttpRequestMessage adminList = CreateRequest("/mcp", 4, "tools/list", new { });
+                JsonElement adminTools = await ReadRpcAsync(await client.SendAsync(adminList).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertEqual(2, adminTools.GetProperty("result").GetProperty("tools").GetArrayLength(), "a global administrator discovers the whole catalog");
             }).ConfigureAwait(false);
 
             await RunTest("RetiredOAuthEndpointsAreNotExposed", async () =>
             {
                 int port = GetAvailablePort();
                 await using ArmadaMcpHttpServer server = CreateServer(port);
-                server.BearerToken = "test-token";
                 await server.StartAsync().ConfigureAwait(false);
 
                 using HttpClient client = new HttpClient
@@ -413,8 +477,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(HttpStatusCode.Unauthorized, denied.StatusCode);
 
                     using HttpRequestMessage authenticated = new HttpRequestMessage(HttpMethod.Get, path);
-                    authenticated.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
-                        "Bearer", "test-token");
+                    authenticated.Headers.TryAddWithoutValidation("X-Api-Key", TestApiKey);
                     using HttpResponseMessage absent = await client.SendAsync(authenticated).ConfigureAwait(false);
                     AssertEqual(HttpStatusCode.NotFound, absent.StatusCode);
                 }
@@ -424,7 +487,6 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 int port = GetAvailablePort();
                 await using ArmadaMcpHttpServer server = CreateServer(port);
-                server.BearerToken = "test-token";
                 server.FixedParticipantKey = "armada-lead";
                 McpToolCallAudit? observedAudit = null;
                 string? observedParticipant = null;
@@ -450,16 +512,12 @@ namespace Armada.Test.Unit.Suites.Services
                 };
                 using HttpRequestMessage spoofed = CreateRequest(
                     "/mcp", 1, "tools/call", new { name = "armada_identity", arguments = new { } });
-                spoofed.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
-                    "Bearer", "test-token");
                 spoofed.Headers.TryAddWithoutValidation(ArmadaMcpHttpServer.ParticipantHeaderName, "attacker");
                 using HttpResponseMessage spoofedResponse = await client.SendAsync(spoofed).ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.Forbidden, spoofedResponse.StatusCode);
 
                 using HttpRequestMessage valid = CreateRequest(
                     "/mcp", 2, "tools/call", new { name = "armada_identity", arguments = new { } });
-                valid.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
-                    "Bearer", "test-token");
                 using HttpResponseMessage validResponse = await client.SendAsync(valid).ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.OK, validResponse.StatusCode);
                 AssertEqual("armada-lead", observedParticipant);
@@ -549,13 +607,39 @@ namespace Armada.Test.Unit.Suites.Services
             return text.ToString();
         }
 
+        /// <summary>Credential that resolves to a global administrator.</summary>
+        private const string TestApiKey = "test-admin-key";
+
+        /// <summary>Credential that resolves to an ordinary user.</summary>
+        private const string UserApiKey = "test-user-key";
+
         private static ArmadaMcpHttpServer CreateServer(int port)
         {
             return new ArmadaMcpHttpServer("127.0.0.1", port)
             {
                 ServerName = "Armada Test",
-                ServerVersion = "9.9.9"
+                ServerVersion = "9.9.9",
+                Authenticator = (credentials, token) =>
+                {
+                    if (credentials.ApiKey == TestApiKey)
+                        return Task.FromResult(AuthContext.Authenticated("default", "default", true, true, "ApiKey"));
+                    if (credentials.ApiKey == UserApiKey)
+                        return Task.FromResult(AuthContext.Authenticated("ten_scoped", "usr_scoped", false, false, "Bearer"));
+                    return Task.FromResult(new AuthContext());
+                }
             };
+        }
+
+        private static async Task<JsonElement> ReadRpcAsync(HttpResponseMessage response)
+        {
+            using (response)
+            {
+                string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                if (!response.IsSuccessStatusCode)
+                    throw new Exception("MCP HTTP request failed with " + response.StatusCode + ": " + body);
+                string json = ExtractJsonRpc(body, response.Content.Headers.ContentType?.MediaType);
+                return JsonSerializer.Deserialize<JsonElement>(json);
+            }
         }
 
         private static async Task<JsonElement> PostModernAsync(
@@ -598,7 +682,8 @@ namespace Armada.Test.Unit.Suites.Services
             string path,
             int id,
             string method,
-            object parameters)
+            object parameters,
+            string? apiKey = TestApiKey)
         {
             string json = JsonSerializer.Serialize(new
             {
@@ -612,13 +697,15 @@ namespace Armada.Test.Unit.Suites.Services
                 Content = new StringContent(json, Encoding.UTF8, "application/json")
             };
             request.Headers.Add("Accept", "application/json, text/event-stream");
+            if (apiKey != null) request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
             return request;
         }
 
         private static HttpRequestMessage CreateRequestWithoutParams(
             string path,
             int id,
-            string method)
+            string method,
+            string? apiKey = TestApiKey)
         {
             string json = JsonSerializer.Serialize(new
             {
@@ -631,6 +718,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Content = new StringContent(json, Encoding.UTF8, "application/json")
             };
             request.Headers.Add("Accept", "application/json, text/event-stream");
+            if (apiKey != null) request.Headers.TryAddWithoutValidation("X-Api-Key", apiKey);
             return request;
         }
 

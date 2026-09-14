@@ -2604,6 +2604,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Title = "Operator dispatch",
                     VesselId = vessel.Id,
                     ObjectiveId = objective.Id,
+                    ObjectiveAuthContext = McpTestCaller.Operator,
                     Missions = new List<MissionDescription>
                     {
                         new MissionDescription("Implement", "Operator work for the raced objective.")

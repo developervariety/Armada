@@ -148,7 +148,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("RunbookService_ListsOnlyRunbookBackedPlaybooks", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
-                AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                AuthContext auth = AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, false, true, "Test");
                 Playbook ordinary = new Playbook
                 {
                     TenantId = auth.TenantId,

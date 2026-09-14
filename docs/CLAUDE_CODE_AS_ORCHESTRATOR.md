@@ -124,7 +124,8 @@ If you prefer to configure MCP manually instead of using `armada mcp install`:
 **Add MCP server** (user-scoped, works from any directory):
 
 ```bash
-claude mcp add --transport http --scope user armada http://localhost:7891/mcp
+claude mcp add --transport http --scope user armada http://localhost:7891/mcp \
+  --header 'X-Api-Key: ${ARMADA_API_KEY}'
 ```
 
 Or add directly to `~/.claude.json`:
@@ -134,11 +135,16 @@ Or add directly to `~/.claude.json`:
   "mcpServers": {
     "armada": {
       "type": "http",
-      "url": "http://localhost:7891/mcp"
+      "url": "http://localhost:7891/mcp",
+      "headers": { "X-Api-Key": "${ARMADA_API_KEY}" }
     }
   }
 }
 ```
+
+The endpoint refuses a request without a credential. Set `ARMADA_API_KEY` in
+the environment Claude Code starts with; the single quotes keep the shell from
+writing the key value into the configuration.
 
 **Stdio Transport** — no server required, Armada runs as a subprocess:
 

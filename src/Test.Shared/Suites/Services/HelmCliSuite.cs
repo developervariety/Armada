@@ -7,6 +7,7 @@ namespace Test.Shared.Suites.Services
     using System.Net.Http;
     using System.Text;
     using System.Text.Json;
+    using System.Text.Json.Nodes;
     using System.Threading.Tasks;
     using System.Xml.Linq;
     using Armada.Core.Enums;
@@ -152,7 +153,16 @@ namespace Test.Shared.Suites.Services
                         }
 
                         checkedClients.Add(target.ClientName);
-                        string failure = await InitializeMcpAsync(url);
+                        // A real client sends the credential its entry declares, expanding the variable
+                        // reference from its environment; the fixture API key stands in for that value.
+                        KeyValuePair<string, string>? credential = AdvertisedMcpCredential(target, fx.ApiKey, out string credentialProblem);
+                        if (credential == null)
+                        {
+                            failures.Add(target.ClientName + " (" + url + "): " + credentialProblem);
+                            continue;
+                        }
+
+                        string failure = await InitializeMcpAsync(url, credential.Value);
                         if (failure.Length > 0) failures.Add(target.ClientName + " (" + url + "): " + failure);
                     }
 
@@ -287,13 +297,50 @@ namespace Test.Shared.Suites.Services
             return target.InstallArgs.FirstOrDefault(argument => argument.StartsWith("http://", StringComparison.OrdinalIgnoreCase));
         }
 
-        private static async Task<string> InitializeMcpAsync(string url)
+        private static KeyValuePair<string, string>? AdvertisedMcpCredential(McpConfigHelper.ConfigTarget target, string apiKey, out string problem)
+        {
+            List<KeyValuePair<string, string>> headers = new List<KeyValuePair<string, string>>();
+            if (target.ArmadaConfig != null)
+            {
+                if (target.ArmadaConfig["headers"] is JsonObject declared)
+                {
+                    foreach (KeyValuePair<string, JsonNode?> header in declared)
+                        headers.Add(new KeyValuePair<string, string>(header.Key, header.Value?.GetValue<string>() ?? String.Empty));
+                }
+            }
+            else if (target.InstallArgs != null)
+            {
+                for (int index = 0; index + 1 < target.InstallArgs.Length; index++)
+                {
+                    if (target.InstallArgs[index] != "--header" && target.InstallArgs[index] != "-H") continue;
+                    string[] parts = target.InstallArgs[index + 1].Split(':', 2);
+                    if (parts.Length == 2) headers.Add(new KeyValuePair<string, string>(parts[0].Trim(), parts[1].Trim()));
+                }
+            }
+
+            string variable = McpConfigHelper.ApiKeyEnvironmentVariable;
+            string[] references = { "${" + variable + "}", "${env:" + variable + "}", "{env:" + variable + "}" };
+            foreach (KeyValuePair<string, string> header in headers)
+            {
+                if (!references.Contains(header.Value)) continue;
+                problem = String.Empty;
+                return new KeyValuePair<string, string>(header.Key, apiKey);
+            }
+
+            problem = headers.Count == 0
+                ? "the entry declares no credential header, so the client cannot authenticate"
+                : "the entry's credential headers do not reference " + variable + ": " + String.Join(", ", headers.Select(header => header.Key + "=" + header.Value));
+            return null;
+        }
+
+        private static async Task<string> InitializeMcpAsync(string url, KeyValuePair<string, string> credential)
         {
             string request = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"helm-contract\",\"version\":\"1.0\"}}}";
             using (HttpClient client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) })
             using (HttpRequestMessage message = new HttpRequestMessage(HttpMethod.Post, url))
             {
                 message.Headers.TryAddWithoutValidation("Accept", "application/json, text/event-stream");
+                message.Headers.TryAddWithoutValidation(credential.Key, credential.Value);
                 message.Content = new StringContent(request, Encoding.UTF8, "application/json");
                 HttpResponseMessage response = await client.SendAsync(message);
                 string body = await response.Content.ReadAsStringAsync();

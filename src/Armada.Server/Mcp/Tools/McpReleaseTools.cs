@@ -40,7 +40,7 @@ namespace Armada.Server.Mcp.Tools
                 {
                     ReleaseIdArgs request = JsonSerializer.Deserialize<ReleaseIdArgs>(args!.Value, _JsonOptions)
                         ?? throw new InvalidOperationException("Could not deserialize ReleaseIdArgs.");
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     Release? release = await releaseService.ReadAsync(auth, request.ReleaseId).ConfigureAwait(false);
                     if (release == null) return (object)new { Error = "Release not found" };
                     return (object)release;
@@ -71,7 +71,7 @@ namespace Armada.Server.Mcp.Tools
                 {
                     ReleaseUpsertRequest request = JsonSerializer.Deserialize<ReleaseUpsertRequest>(args!.Value, _JsonOptions)
                         ?? throw new InvalidOperationException("Could not deserialize ReleaseUpsertRequest.");
-                    AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext auth = McpCallerContext.Require();
                     return (object)await releaseService.CreateAsync(auth, request).ConfigureAwait(false);
                 });
 
@@ -100,7 +100,7 @@ namespace Armada.Server.Mcp.Tools
             {
                 ReleaseUpdateArgs request = JsonSerializer.Deserialize<ReleaseUpdateArgs>(args!.Value, _JsonOptions)
                     ?? throw new InvalidOperationException("Could not deserialize ReleaseUpdateArgs.");
-                AuthContext auth = McpToolHelpers.CreateDefaultTenantAdminContext();
+                AuthContext auth = McpCallerContext.Require();
                 try
                 {
                     return (object)await releaseService.UpdateAsync(auth, request.ReleaseId, request.ToUpsertRequest()).ConfigureAwait(false);

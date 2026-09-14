@@ -86,7 +86,7 @@ namespace Armada.Test.Unit.Suites.Services
             McpCheckRunTools.Register(
                 (name, _, _, handler) =>
                 {
-                    handlers[name] = handler;
+                    handlers[name] = McpTestCaller.Wrap(handler);
                 },
                 database,
                 checkRuns);

@@ -53,7 +53,7 @@ namespace Armada.Server.Mcp.Tools
                     if (String.IsNullOrEmpty(request.PromptTemplateName)) return (object)new { Error = "promptTemplateName is required" };
 
                     Persona persona = new Persona(request.Name, request.PromptTemplateName);
-                    AuthContext caller = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext caller = McpCallerContext.Require();
                     persona.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
                     persona.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
                     if (request.Description != null)
@@ -82,7 +82,7 @@ namespace Armada.Server.Mcp.Tools
                     PersonaArgs request = JsonSerializer.Deserialize<PersonaArgs>(args!.Value, _JsonOptions)!;
                     string name = request.Name;
                     if (String.IsNullOrEmpty(name)) return (object)new { Error = "name is required" };
-                    Persona? persona = await ReadVisibleAsync(database, McpToolHelpers.CreateDefaultTenantAdminContext(), name).ConfigureAwait(false);
+                    Persona? persona = await ReadVisibleAsync(database, McpCallerContext.Require(), name).ConfigureAwait(false);
                     if (persona == null) return (object)new { Error = "Persona not found: " + name };
                     return (object)persona;
                 });
@@ -108,7 +108,7 @@ namespace Armada.Server.Mcp.Tools
                     string name = request.Name;
                     if (String.IsNullOrEmpty(name)) return (object)new { Error = "name is required" };
 
-                    AuthContext caller = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext caller = McpCallerContext.Require();
                     Persona? persona = await ReadVisibleAsync(database, caller, name).ConfigureAwait(false);
                     if (persona == null || !Armada.Core.Authorization.OwnershipPolicy.CanEdit(caller, persona)) return (object)new { Error = "Persona not found: " + name };
 
@@ -141,7 +141,7 @@ namespace Armada.Server.Mcp.Tools
                     string name = request.Name;
                     if (String.IsNullOrEmpty(name)) return (object)new { Error = "name is required" };
 
-                    AuthContext caller = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    AuthContext caller = McpCallerContext.Require();
                     Persona? persona = await ReadVisibleAsync(database, caller, name).ConfigureAwait(false);
                     if (persona == null || !Armada.Core.Authorization.OwnershipPolicy.CanEdit(caller, persona)) return (object)new { Error = "Persona not found: " + name };
                     if (persona.IsBuiltIn) return (object)new { Error = "Cannot delete built-in persona: " + name };

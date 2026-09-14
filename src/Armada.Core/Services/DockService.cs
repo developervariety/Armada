@@ -1583,12 +1583,16 @@ namespace Armada.Core.Services
         {
             if (String.IsNullOrWhiteSpace(worktreePath) || !Directory.Exists(worktreePath)) return;
 
+            // The endpoint refuses a request without credentials. Each file references the launch
+            // credential the captain process carries in its environment, in that client's own
+            // expansion syntax, so no credential value is ever written into a dock.
             string mcpUrl = "http://localhost:" + _Settings.McpPort + "/mcp";
             string projectConfig = "{\n" +
                 "  \"mcpServers\": {\n" +
                 "    \"armada\": {\n" +
                 "      \"type\": \"http\",\n" +
-                "      \"url\": \"" + mcpUrl + "\"\n" +
+                "      \"url\": \"" + mcpUrl + "\",\n" +
+                "      \"headers\": { \"Authorization\": \"" + ArmadaMcpConfigBuilder.AuthorizationForDollarBraceExpansion + "\" }\n" +
                 "    }\n" +
                 "  }\n" +
                 "}\n";
@@ -1596,18 +1600,21 @@ namespace Armada.Core.Services
             string cursorConfig = "{\n" +
                 "  \"mcpServers\": {\n" +
                 "    \"armada\": {\n" +
-                "      \"url\": \"" + mcpUrl + "\"\n" +
+                "      \"url\": \"" + mcpUrl + "\",\n" +
+                "      \"headers\": { \"Authorization\": \"" + ArmadaMcpConfigBuilder.AuthorizationForCursorExpansion + "\" }\n" +
                 "    }\n" +
                 "  }\n" +
                 "}\n";
 
             string codexConfig = "[mcp_servers.armada]\n" +
-                "url = \"" + mcpUrl + "\"\n";
+                "url = \"" + mcpUrl + "\"\n" +
+                "bearer_token_env_var = \"" + McpLaunchCredential.EnvironmentVariable + "\"\n";
 
             string geminiConfig = "{\n" +
                 "  \"mcpServers\": {\n" +
                 "    \"armada\": {\n" +
-                "      \"httpUrl\": \"" + mcpUrl + "\"\n" +
+                "      \"httpUrl\": \"" + mcpUrl + "\",\n" +
+                "      \"headers\": { \"Authorization\": \"" + ArmadaMcpConfigBuilder.AuthorizationForDollarBraceExpansion + "\" }\n" +
                 "    }\n" +
                 "  }\n" +
                 "}\n";

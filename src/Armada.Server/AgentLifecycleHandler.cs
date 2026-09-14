@@ -757,19 +757,16 @@ namespace Armada.Server
             Captain captain,
             Mission mission)
         {
-            bool seedMcp = _Settings.SeedDockRuntimeMcpConfig &&
-                (captain.Runtime == AgentRuntimeEnum.ClaudeCode ||
-                 captain.Runtime == AgentRuntimeEnum.Codex ||
-                 captain.Runtime == AgentRuntimeEnum.Mux);
-
             string scopedDirectory = Path.Combine(
                 _Settings.LogDirectory,
                 "runtime-config",
                 mission.Id,
                 captain.Id);
-            CaptainLaunchIsolationPlan plan = seedMcp
-                ? CaptainLaunchIsolationPlanner.Plan(captain.Runtime, _Settings.McpPort, scopedDirectory)
-                : new CaptainLaunchIsolationPlan();
+            CaptainLaunchIsolationPlan plan = CaptainLaunchIsolationPlanner.PlanForLaunch(
+                captain.Runtime,
+                _Settings.SeedDockRuntimeMcpConfig,
+                _Settings.McpPort,
+                scopedDirectory);
 
             // The account login switch applies whether or not MCP isolation is seeded. A captain on an account whose
             // login is missing fails this launch with a named reason instead of running on the shared login.

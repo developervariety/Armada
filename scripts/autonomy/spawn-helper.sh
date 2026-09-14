@@ -23,8 +23,14 @@
 #                                 (default 240)
 #   AUTONOMY_ARMADA_MCP_URL        Armada MCP URL for Claude helpers
 #                                 (default http://127.0.0.1:7891/mcp)
+#   ARMADA_API_KEY                admiral API key a Claude helper authenticates
+#                                 with. Required for the generated config; the
+#                                 config references it by name and never stores
+#                                 the value.
 #   AUTONOMY_CLAUDE_MCP_CONFIG    optional existing Claude MCP config file;
-#                                 default is a generated local Armada config
+#                                 default is a generated local Armada config. A
+#                                 supplied file must carry its own credential
+#                                 and participant headers.
 #
 # Usage:
 #   spawn-helper.sh spawn <name> <prompt-file> [helper-cwd]
@@ -201,23 +207,28 @@ prepare_claude_mcp_config() {
         *\"*|*\\*|*[[:space:]]*) fail "AUTONOMY_ARMADA_MCP_URL contains unsupported characters" ;;
     esac
 
+    # The Admiral refuses an MCP request without a credential. Claude Code expands
+    # ${ARMADA_API_KEY} from the helper's environment, so the key is referenced by
+    # name here and never written into the config file.
+    [ -n "${ARMADA_API_KEY:-}" ] || fail "ARMADA_API_KEY must be set so the Claude helper can authenticate to Armada MCP"
+
     # The participant header identifies this helper to the board, so Armada can
     # return its directed wakes on whatever tool the helper calls next. Without
     # it the helper sees mail only when it reads the board by hand.
-    local config_path headers
+    local config_path participant_header
     if [ -n "$participant_key" ]; then
         case "$participant_key" in
             *[!A-Za-z0-9._:-]*) fail "participant key contains unsupported characters: $participant_key" ;;
         esac
         config_path="$WORKDIR/claude-armada-mcp-$participant_key.json"
-        headers=$(printf ',\n      "headers": {\n        "X-Armada-Participant": "%s"\n      }' "$participant_key")
+        participant_header=$(printf ',\n        "X-Armada-Participant": "%s"' "$participant_key")
     else
         config_path="$WORKDIR/claude-armada-mcp.json"
-        headers=""
+        participant_header=""
     fi
 
-    printf '{\n  "mcpServers": {\n    "armada": {\n      "type": "http",\n      "url": "%s"%s\n    }\n  }\n}\n' \
-        "$mcp_url" "$headers" > "$config_path"
+    printf '{\n  "mcpServers": {\n    "armada": {\n      "type": "http",\n      "url": "%s",\n      "headers": {\n        "X-Api-Key": "${ARMADA_API_KEY}"%s\n      }\n    }\n  }\n}\n' \
+        "$mcp_url" "$participant_header" > "$config_path"
     chmod 600 "$config_path"
     printf '%s\n' "$config_path"
 }

@@ -167,6 +167,33 @@ namespace Armada.Helm.Commands
             return ResolveMuxExecutable() != null;
         }
 
+        /// <summary>
+        /// Environment variable an installed MCP client reads its Armada API key from. The endpoint refuses a
+        /// request without a credential, so each client entry references this variable by name in that client's
+        /// own expansion syntax and no key value is written to a configuration file.
+        /// </summary>
+        internal const string ApiKeyEnvironmentVariable = "ARMADA_API_KEY";
+
+        /// <summary>
+        /// Request header that carries the Armada API key.
+        /// </summary>
+        internal const string ApiKeyHeaderName = "X-Api-Key";
+
+        /// <summary>
+        /// Header value for clients that expand <c>${VAR}</c> (Claude Code, Gemini CLI).
+        /// </summary>
+        internal static readonly string ApiKeyForDollarBraceExpansion = "${" + ApiKeyEnvironmentVariable + "}";
+
+        /// <summary>
+        /// Header value for Cursor, which expands <c>${env:VAR}</c>.
+        /// </summary>
+        internal static readonly string ApiKeyForCursorExpansion = "${env:" + ApiKeyEnvironmentVariable + "}";
+
+        /// <summary>
+        /// Header value for OpenCode, which expands <c>{env:VAR}</c>.
+        /// </summary>
+        internal static readonly string ApiKeyForOpenCodeExpansion = "{env:" + ApiKeyEnvironmentVariable + "}";
+
         internal static List<ConfigTarget> BuildTargets(int mcpPort)
         {
             string mcpUrl = GetMcpUrl(mcpPort);
@@ -182,6 +209,7 @@ namespace Armada.Helm.Commands
                     {
                         ["type"] = "http",
                         ["url"] = mcpUrl,
+                        ["headers"] = new JsonObject { [ApiKeyHeaderName] = ApiKeyForDollarBraceExpansion },
                     },
                     InstallAgent: true,
                     ManualInstallCommand: BuildClaudeCliCommand(mcpPort)),
@@ -199,9 +227,9 @@ namespace Armada.Helm.Commands
                     "Gemini CLI",
                     GetGeminiConfigPath(),
                     CliCommand: geminiCommand,
-                    InstallArgs: new[] { "mcp", "add", "--scope", "user", "--transport", "http", "armada", mcpUrl },
+                    InstallArgs: new[] { "mcp", "add", "--scope", "user", "--transport", "http", "--header", ApiKeyHeaderName + ": " + ApiKeyForDollarBraceExpansion, "armada", mcpUrl },
                     RemoveArgs: new[] { "mcp", "remove", "armada" },
-                    ManualInstallCommand: geminiCommand + " mcp add --scope user --transport http armada " + mcpUrl,
+                    ManualInstallCommand: geminiCommand + " mcp add --scope user --transport http --header '" + ApiKeyHeaderName + ": " + ApiKeyForDollarBraceExpansion + "' armada " + mcpUrl,
                     ManualRemoveCommand: geminiCommand + " mcp remove armada"),
                 new(
                     "Cursor",
@@ -210,6 +238,7 @@ namespace Armada.Helm.Commands
                     {
                         ["url"] = mcpUrl,
                         ["transport"] = "http",
+                        ["headers"] = new JsonObject { [ApiKeyHeaderName] = ApiKeyForCursorExpansion },
                     },
                     IsProjectScoped: true),
             };
@@ -237,7 +266,12 @@ namespace Armada.Helm.Commands
                 targets.Add(new(
                     "OpenCode",
                     GetOpenCodeConfigPath(),
-                    new JsonObject { ["type"] = "remote", ["url"] = mcpUrl },
+                    new JsonObject
+                    {
+                        ["type"] = "remote",
+                        ["url"] = mcpUrl,
+                        ["headers"] = new JsonObject { [ApiKeyHeaderName] = ApiKeyForOpenCodeExpansion },
+                    },
                     IsOpenCodeConfig: true));
             }
 
@@ -528,7 +562,8 @@ namespace Armada.Helm.Commands
 
         internal static string BuildClaudeCliCommand(int mcpPort)
         {
-            return $"claude mcp add --transport http --scope user armada {GetMcpUrl(mcpPort)}";
+            // Single quotes keep the shell from expanding the variable, so Claude Code stores the reference.
+            return $"claude mcp add --transport http --scope user armada {GetMcpUrl(mcpPort)} --header '{ApiKeyHeaderName}: {ApiKeyForDollarBraceExpansion}'";
         }
 
         internal static string BuildClaudeStdioCommand()
