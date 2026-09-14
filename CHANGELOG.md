@@ -494,6 +494,21 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Added a self-heal test proving that a missed handoff deferred by memory
   pressure still stamps the upstream branch, parks at WaitingForResourcePressure
   and leaves the captain idle.
+- Provider-routing tests no longer read the environment of the process that
+  runs them. A new process start copies that environment, so an exported
+  ANTHROPIC_BASE_URL looked like a routing write and nine "left alone" tests
+  failed. Decision tests now start from an empty environment. Tests that clear
+  the provider key restore it even when an assertion fails.
+- Added a test pinning the launch behavior against an exported operator
+  endpoint and key: a native captain inherits both unchanged, and a routed
+  captain replaces both with the provider's values.
+- Dispatch now tracks its queued background assignment work, and tests can
+  wait for that work to finish. Review-gate and dock-retry tests used to poll
+  until the first stage looked assigned and then continued while the background
+  work still visited later stages. Under load the review action or retry lost
+  the sibling-lane lease or the mission row to that work and left the mission
+  Pending. Those fixtures now wait for the queue to drain and assert the settled
+  state, including captain release.
 
 ### Helm configuration and branch client
 

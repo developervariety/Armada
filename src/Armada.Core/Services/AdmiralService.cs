@@ -105,6 +105,9 @@ namespace Armada.Core.Services
 
         private IGitService _Git;
         private bool _RetryDispatchNeeded = false;
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<long, Task> _QueuedAssignments =
+            new System.Collections.Concurrent.ConcurrentDictionary<long, Task>();
+        private long _QueuedAssignmentSequence = 0;
         private DateTime? _LastAuditNotifyUtc = null;
         private readonly object _AuditNotifyLock = new object();
         private const string _CreditAuthQuarantineReason =
@@ -828,7 +831,8 @@ namespace Armada.Core.Services
             _Logging.Info(_Header + "queued assignment for " + queuedMissionIds.Count +
                 " mission(s) on voyage " + voyageLabel + " vessel " + vesselId);
 
-            _ = Task.Run(async () =>
+            long queuedAssignmentId = Interlocked.Increment(ref _QueuedAssignmentSequence);
+            Task queuedAssignment = Task.Run(async () =>
             {
                 try
                 {
@@ -869,6 +873,32 @@ namespace Armada.Core.Services
                     _Logging.Warn(_Header + "queued assignment failed for voyage " + voyageLabel + ": " + ex.Message);
                 }
             });
+
+            _QueuedAssignments[queuedAssignmentId] = queuedAssignment;
+            // A continuation on an already-completed task runs at once, so the entry is removed
+            // even when the work finished before it was recorded.
+            _ = queuedAssignment.ContinueWith(
+                _ => _QueuedAssignments.TryRemove(queuedAssignmentId, out Task? _),
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+
+        /// <summary>
+        /// Completes when no queued background assignment work is running. Dispatch returns before
+        /// its queued assignments finish, and that work reads and writes mission rows and holds
+        /// sibling-lane leases, so a caller that must act on the settled result waits here instead
+        /// of polling for state that can change again. Work queued while waiting is awaited too.
+        /// </summary>
+        /// <returns>Task that completes when the queue is empty.</returns>
+        internal async Task WhenQueuedAssignmentsDrainedAsync()
+        {
+            while (true)
+            {
+                Task[] running = _QueuedAssignments.Values.ToArray();
+                if (running.Length == 0) return;
+                await Task.WhenAll(running).ConfigureAwait(false);
+            }
         }
 
         private List<SelectedPlaybook> ClonePlaybookSelections(List<SelectedPlaybook>? selections)

@@ -290,7 +290,7 @@ namespace Armada.Test.Unit.Suites.Services
                     captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
                     IMissionService missionService = new MissionService(logging, testDb.Driver, settings, faultyDock, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
-                    IAdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, faultyDock);
+                    AdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, faultyDock);
                     admiral.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
 
                     Vessel vessel = new Vessel("faulty-dock-vessel", "https://github.com/test/repo.git");
@@ -310,35 +310,17 @@ namespace Armada.Test.Unit.Suites.Services
                     List<Mission> voyageMissions = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false);
                     string missionId = voyageMissions[0].Id;
 
-                    // Poll until Failed state appears after first attempt
-                    bool sawFailed = false;
-                    Stopwatch poll = Stopwatch.StartNew();
-                    while (poll.ElapsedMilliseconds < 3000)
-                    {
-                        Mission? m = await testDb.Driver.Missions.ReadAsync(missionId).ConfigureAwait(false);
-                        if (m != null && m.AssignmentState == MissionAssignmentStateEnum.Failed)
-                        {
-                            sawFailed = true;
-                            break;
-                        }
-                        await Task.Delay(50).ConfigureAwait(false);
-                    }
+                    // The first attempt runs in dispatch's background work. Its failure path writes
+                    // AssignmentState=Failed before it releases the captain and its in-flight entry, so
+                    // a retry started on the Failed state alone can still collide with that attempt.
+                    await admiral.WhenQueuedAssignmentsDrainedAsync().ConfigureAwait(false);
 
-                    AssertTrue(sawFailed, "Mission must reach AssignmentState=Failed after dock provisioning exception");
-
-                    // Retry via TryAssignAsync -- faultyDock.ProvisionAsync now succeeds.
-                    // The catch handler in TryAssignAsync writes mission.AssignmentState=Failed
-                    // BEFORE awaiting _Captains.ReleaseAsync(captain), so there is a short
-                    // window where the mission shows Failed but the captain is still in Assigned
-                    // state. Wait for the captain to be released back to Idle so FindAvailableCaptainAsync
-                    // can pick it up on the retry.
-                    Stopwatch waitCaptain = Stopwatch.StartNew();
-                    while (waitCaptain.ElapsedMilliseconds < 2000)
-                    {
-                        Captain? c = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
-                        if (c != null && c.State == CaptainStateEnum.Idle) break;
-                        await Task.Delay(25).ConfigureAwait(false);
-                    }
+                    Mission? failed = await testDb.Driver.Missions.ReadAsync(missionId).ConfigureAwait(false);
+                    AssertEqual(MissionAssignmentStateEnum.Failed, failed!.AssignmentState,
+                        "Mission must reach AssignmentState=Failed after dock provisioning exception");
+                    Captain? released = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(CaptainStateEnum.Idle, released!.State,
+                        "The failed attempt must release the captain before the retry");
 
                     Mission? toRetry = await testDb.Driver.Missions.ReadAsync(missionId).ConfigureAwait(false);
                     AssertNotNull(toRetry, "Mission must still exist after failure");
@@ -350,6 +332,61 @@ namespace Armada.Test.Unit.Suites.Services
                     Mission? afterRetry = await testDb.Driver.Missions.ReadAsync(missionId).ConfigureAwait(false);
                     AssertNotNull(afterRetry, "Mission must still exist after recovery");
                     AssertEqual(MissionAssignmentStateEnum.Assigned.ToString(), afterRetry!.AssignmentState.ToString(), "Mission must reach AssignmentState=Assigned after successful retry");
+                }
+            });
+
+            await RunTest("Dispatch_QueuedAssignmentsDrain_WaitsForTheBackgroundAssignmentToSettle", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+
+                    IDockService realDock = new DockService(logging, testDb.Driver, settings, git);
+                    GatedDockService gatedDock = new GatedDockService(realDock);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, gatedDock);
+                    captainService.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, gatedDock, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    IVoyageService voyageService = new VoyageService(logging, testDb.Driver);
+                    AdmiralService admiral = new AdmiralService(logging, testDb.Driver, settings, captainService, missionService, voyageService, gatedDock);
+                    admiral.OnLaunchAgent = (_, _, _) => Task.FromResult(12345);
+
+                    Vessel vessel = new Vessel("drain-vessel", "https://github.com/test/repo.git");
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Captain captain = new Captain("drain-captain");
+                    captain.State = CaptainStateEnum.Idle;
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    List<MissionDescription> missions = new List<MissionDescription>
+                    {
+                        new MissionDescription { Title = "Drain probe", Description = "Held open in provisioning." }
+                    };
+
+                    Voyage voyage = await admiral.DispatchVoyageAsync("Drain voyage", "Test", vessel.Id, missions).ConfigureAwait(false);
+                    string missionId = (await testDb.Driver.Missions.EnumerateByVoyageAsync(voyage.Id).ConfigureAwait(false))[0].Id;
+
+                    Task entered = await Task.WhenAny(gatedDock.Entered, Task.Delay(30000)).ConfigureAwait(false);
+                    AssertTrue(entered == gatedDock.Entered, "Dock provisioning must start within 30s");
+
+                    // The gate holds the queued assignment inside provisioning, so the drain cannot
+                    // have completed yet; this is a property of the gate, not of timing.
+                    Task drained = admiral.WhenQueuedAssignmentsDrainedAsync();
+                    AssertFalse(drained.IsCompleted, "The drain must not complete while queued assignment work is still running");
+
+                    gatedDock.Release();
+
+                    Task settled = await Task.WhenAny(drained, Task.Delay(30000)).ConfigureAwait(false);
+                    AssertTrue(settled == drained, "The drain must complete within 30s once the queued assignment can finish");
+
+                    // No polling: once the drain completes, the assignment result is already durable.
+                    Mission? assigned = await testDb.Driver.Missions.ReadAsync(missionId).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.InProgress, assigned!.Status, "The drained assignment must have launched the mission");
+                    AssertEqual(MissionAssignmentStateEnum.Assigned, assigned.AssignmentState, "The drained assignment must be recorded as Assigned");
+                    Captain? working = await testDb.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    AssertEqual(missionId, working!.CurrentMissionId, "The captain must hold the drained mission");
                 }
             });
 

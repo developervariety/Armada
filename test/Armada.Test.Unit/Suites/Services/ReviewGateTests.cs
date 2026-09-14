@@ -291,19 +291,14 @@ namespace Armada.Test.Unit.Suites.Services
             Mission workerMission = voyageMissions.First(m => String.Equals(m.Persona ?? "Worker", "Worker", StringComparison.OrdinalIgnoreCase));
             Mission? downstreamMission = voyageMissions.FirstOrDefault(m => String.Equals(m.Persona, "Judge", StringComparison.OrdinalIgnoreCase));
 
-            Captain? assignedWorker = null;
-            DateTime assignmentDeadline = DateTime.UtcNow.AddSeconds(10);
-            while (DateTime.UtcNow < assignmentDeadline)
-            {
-                workerMission = await db.Missions.ReadAsync(workerMission.Id).ConfigureAwait(false)
-                    ?? throw new InvalidOperationException("Expected worker mission after dispatch.");
-                assignedWorker = await db.Captains.ReadAsync(workerCaptain.Id).ConfigureAwait(false);
-                if (workerMission.Status == MissionStatusEnum.InProgress && workerMission.DockId != null
-                    && workerMission.AssignmentState == MissionAssignmentStateEnum.Assigned && workerMission.ProcessId != null
-                    && assignedWorker?.CurrentMissionId == workerMission.Id
-                    && assignedWorker.ProcessId != null) break;
-                await Task.Delay(20).ConfigureAwait(false);
-            }
+            // Dispatch assigns in background work that also visits the downstream stage. A scenario
+            // that proceeds while that work runs races it for the sibling-lane lease and the mission
+            // row, so the review action under test can lose its own assignment. Wait for it to end.
+            await admiralService.WhenQueuedAssignmentsDrainedAsync().ConfigureAwait(false);
+
+            workerMission = await db.Missions.ReadAsync(workerMission.Id).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("Expected worker mission after dispatch.");
+            Captain? assignedWorker = await db.Captains.ReadAsync(workerCaptain.Id).ConfigureAwait(false);
 
             if (includeDownstreamStage)
             {
@@ -312,6 +307,10 @@ namespace Armada.Test.Unit.Suites.Services
 
             AssertEqual(MissionStatusEnum.InProgress, workerMission.Status, "Fixture assignment: " + workerMission.FailureReason);
             AssertNotNull(workerMission.DockId, "Fixture mission dock");
+            AssertEqual(MissionAssignmentStateEnum.Assigned, workerMission.AssignmentState, "Fixture assignment state");
+            AssertNotNull(workerMission.ProcessId, "Fixture mission process");
+            AssertEqual(workerMission.Id, assignedWorker?.CurrentMissionId, "Fixture captain holds the worker mission");
+            AssertNotNull(assignedWorker!.ProcessId, "Fixture captain process");
 
             return new ReviewScenario
             {
