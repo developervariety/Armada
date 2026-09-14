@@ -2,6 +2,7 @@ namespace Armada.Runtimes
 {
     using SyslogLogging;
     using Armada.Core.Enums;
+    using Armada.Core.Models;
     using Armada.Core.Settings;
     using Armada.Runtimes.Interfaces;
 
@@ -91,11 +92,42 @@ namespace Armada.Runtimes
                     return new OpenCodeRuntime(_Logging, _OpenCodeConnection, _ModelProviders);
                 case AgentRuntimeEnum.Mux:
                     return new MuxRuntime(_Logging);
+                case AgentRuntimeEnum.ApiEndpoint:
+                    throw new InvalidOperationException("An API-endpoint runtime requires its tenant-owned model endpoint.");
                 case AgentRuntimeEnum.Custom:
                     throw new InvalidOperationException("Use Create(string name) for custom runtimes");
                 default:
                     throw new ArgumentOutOfRangeException(nameof(runtimeType), "Unknown runtime type: " + runtimeType);
             }
+        }
+
+        /// <summary>
+        /// Create an API-endpoint runtime for an already authorized model endpoint.
+        /// The endpoint object is the only source of provider credentials and routing data.
+        /// </summary>
+        /// <param name="endpoint">Enabled inference endpoint authorized for the captain tenant.</param>
+        /// <returns>API-endpoint runtime instance.</returns>
+        public virtual IAgentRuntime Create(ModelEndpoint endpoint)
+        {
+            if (endpoint == null) throw new ArgumentNullException(nameof(endpoint));
+            return new ApiAgentRuntime(endpoint, _Logging);
+        }
+
+        /// <summary>
+        /// Create a runtime with an endpoint when the runtime type requires one.
+        /// </summary>
+        /// <param name="runtimeType">Runtime type.</param>
+        /// <param name="endpoint">Authorized endpoint for API-endpoint runtimes.</param>
+        /// <returns>Agent runtime instance.</returns>
+        public virtual IAgentRuntime Create(AgentRuntimeEnum runtimeType, ModelEndpoint? endpoint)
+        {
+            if (runtimeType == AgentRuntimeEnum.ApiEndpoint)
+                return Create(endpoint ?? throw new ArgumentNullException(nameof(endpoint)));
+
+            if (endpoint != null)
+                throw new ArgumentException("Only API-endpoint runtimes accept a model endpoint.", nameof(endpoint));
+
+            return Create(runtimeType);
         }
 
         /// <summary>

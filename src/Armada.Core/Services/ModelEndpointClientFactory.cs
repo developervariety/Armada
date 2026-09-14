@@ -55,8 +55,9 @@ namespace Armada.Core.Services
         /// Build an HTTP client for a single endpoint probe. The caller owns the returned client and must dispose it.
         /// </summary>
         /// <param name="endpoint">Model endpoint.</param>
+        /// <param name="includeCredentials">Whether to put the endpoint credential on transport headers.</param>
         /// <returns>A configured HTTP client.</returns>
-        public static HttpClient CreateHttpClient(ModelEndpoint endpoint)
+        public static HttpClient CreateHttpClient(ModelEndpoint endpoint, bool includeCredentials = true)
         {
             if (endpoint == null) throw new ArgumentNullException(nameof(endpoint));
             if (!Enum.IsDefined(endpoint.Provider)) throw new ArgumentException("Unknown model endpoint provider.");
@@ -73,7 +74,7 @@ namespace Armada.Core.Services
             HttpClientHandler handler = new HttpClientHandler { AllowAutoRedirect = false };
             HttpClient client = new HttpClient(new BoundedResponseHandler(handler));
             client.Timeout = TimeSpan.FromMilliseconds(endpoint.TimeoutMs);
-            if (!String.IsNullOrWhiteSpace(endpoint.ApiKey))
+            if (includeCredentials && !String.IsNullOrWhiteSpace(endpoint.ApiKey))
             {
                 switch (endpoint.Provider)
                 {
