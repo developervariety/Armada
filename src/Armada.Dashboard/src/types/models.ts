@@ -1595,6 +1595,56 @@ export interface LandingPreviewResult {
   issues: LandingPreviewIssue[];
 }
 
+export interface BranchInfo {
+  name: string;
+  isCurrent: boolean;
+  isDefault: boolean;
+  commitHash: string | null;
+  commitSubject: string | null;
+  commitDate: string | null;
+  ahead: number;
+  behind: number;
+  divergenceError: string | null;
+}
+
+export interface BranchWriteControls {
+  mergeAvailable: boolean;
+  mergeUnavailableReason: string | null;
+  pushAvailable: boolean;
+  pushUnavailableReason: string | null;
+  remote: string;
+}
+
+export interface BranchListResponse {
+  vesselId: string;
+  defaultBranch: string;
+  source: string;
+  headState: string;
+  headRef: string | null;
+  branches: BranchInfo[];
+  branchCount: number;
+  error: string | null;
+  writeControls: BranchWriteControls;
+}
+
+export type BranchMergeStrategy = 'FastForward' | 'MergeCommit';
+
+export interface BranchWriteResult {
+  succeeded: boolean;
+  operation: string;
+  reason: string | null;
+  message: string;
+  vesselId: string;
+  sourceRef: string | null;
+  targetRef: string | null;
+  remote: string | null;
+  strategy: string | null;
+  sourceCommit: string | null;
+  previousTargetCommit: string | null;
+  targetCommit: string | null;
+  workingCheckoutSync: string | null;
+}
+
 export interface ArmadaEvent {
   id: string;
   tenantId: string | null;

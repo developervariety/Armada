@@ -5,6 +5,7 @@ import { buildVesselUpdatePayload } from '../lib/vesselUpdatePayload';
 import { autoLandFormFromPredicate, describeAutoLand } from '../lib/vesselAutoLand';
 import { landingModeHelp } from '../lib/landingModes';
 import LandingPreviewCard from '../components/shared/LandingPreviewCard';
+import VesselBranchPanel from '../components/shared/VesselBranchPanel';
 import type { Fleet, Vessel, MissionSummary, Pipeline, VesselReadinessResult, LandingPreviewResult } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -408,6 +409,8 @@ export default function VesselDetail() {
         unavailableMessage={t('Landing preview is not available for this vessel yet.')}
         noIssuesMessage={t('This preview found no issues for this vessel.')}
       />
+
+      <VesselBranchPanel vesselId={vessel.id} />
 
       {/* Vessel Info */}
       <div className="detail-grid">

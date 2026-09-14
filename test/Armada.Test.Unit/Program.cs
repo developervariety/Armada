@@ -362,6 +362,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new DockBoundaryHookExecutionTests());
             runner.AddSuite(new DockBoundaryHookCoverageTests());
             runner.AddSuite(new UnlandedBranchServiceTests());
+            runner.AddSuite(new VesselBranchWriteServiceTests());
             runner.AddSuite(new CoordinationDatabaseTests());
             runner.AddSuite(new CoordinationServiceTests());
             runner.AddSuite(new CoordinationClaimTests());

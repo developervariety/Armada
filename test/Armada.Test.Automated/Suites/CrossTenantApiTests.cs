@@ -718,6 +718,79 @@ using System.IO;
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Vessel_BranchWrites_RequireTenantAdministratorAndPushOnlyToOrigin", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada-branch-write-api-" + Guid.NewGuid().ToString("N"));
+                string source = Path.Combine(root, "source");
+                string origin = Path.Combine(root, "origin.git");
+                string landing = Path.Combine(root, "landing.git");
+                try
+                {
+                    Directory.CreateDirectory(source);
+                    await RunGitAsync(source, "init", "-b", "main").ConfigureAwait(false);
+                    await RunGitAsync(source, "config", "user.name", "Armada API Tests").ConfigureAwait(false);
+                    await RunGitAsync(source, "config", "user.email", "armada-api-tests@example.test").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(source, "main.txt"), "main\n").ConfigureAwait(false);
+                    await RunGitAsync(source, "add", "main.txt").ConfigureAwait(false);
+                    await RunGitAsync(source, "commit", "-m", "Write base").ConfigureAwait(false);
+                    string baseCommit = (await RunGitAsync(source, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                    await RunGitAsync(source, "checkout", "-b", "feature/api-write").ConfigureAwait(false);
+                    await File.WriteAllTextAsync(Path.Combine(source, "feature.txt"), "feature\n").ConfigureAwait(false);
+                    await RunGitAsync(source, "add", "feature.txt").ConfigureAwait(false);
+                    await RunGitAsync(source, "commit", "-m", "Write feature").ConfigureAwait(false);
+                    string featureCommit = (await RunGitAsync(source, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                    await RunGitAsync(root, "init", "--bare", "-b", "main", origin).ConfigureAwait(false);
+                    await RunGitAsync(source, "push", origin, "main").ConfigureAwait(false);
+                    await RunGitAsync(root, "clone", "--bare", origin, landing).ConfigureAwait(false);
+                    await RunGitAsync(landing, "fetch", source, "feature/api-write:refs/heads/feature/api-write").ConfigureAwait(false);
+
+                    HttpResponseMessage create = await _ClientA!.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                    {
+                        Name = "xt-branch-write-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                        RepoUrl = origin,
+                        LocalPath = landing,
+                        DefaultBranch = "main"
+                    })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Created, create.StatusCode, "Tenant admin creates write vessel");
+                    string vesselId = (await JsonHelper.DeserializeAsync<Vessel>(create).ConfigureAwait(false)).Id;
+                    string branchesPath = "/api/v1/vessels/" + vesselId + "/branches";
+
+                    BranchListResponse listing = await JsonHelper.DeserializeAsync<BranchListResponse>(await _ClientA.GetAsync(branchesPath).ConfigureAwait(false)).ConfigureAwait(false);
+                    AssertTrue(listing.WriteControls.PushAvailable, "Tenant admin sees push (reason=" + (listing.WriteControls.PushUnavailableReason ?? "<null>") + ")");
+                    AssertTrue(listing.WriteControls.MergeAvailable, "Tenant admin sees merge");
+                    AssertEqual("origin", listing.WriteControls.Remote, "Push remote");
+
+                    object push = new { SourceRef = "feature/api-write", TargetRef = "main", Remote = "origin" };
+                    AssertEqual(HttpStatusCode.Unauthorized, (await _UnauthClient.PostAsync(branchesPath + "/push", JsonHelper.ToJsonContent(push)).ConfigureAwait(false)).StatusCode, "Anonymous push denied");
+                    AssertEqual(HttpStatusCode.Forbidden, (await _ClientA3!.PostAsync(branchesPath + "/push", JsonHelper.ToJsonContent(push)).ConfigureAwait(false)).StatusCode, "Same-tenant non-administrator push denied");
+                    AssertEqual(HttpStatusCode.Forbidden, (await _ClientA3.PostAsync(branchesPath + "/merge", JsonHelper.ToJsonContent(new { SourceRef = "feature/api-write", TargetRef = "main", Strategy = "FastForward" })).ConfigureAwait(false)).StatusCode, "Same-tenant non-administrator merge denied");
+                    AssertEqual(HttpStatusCode.NotFound, (await _ClientB!.PostAsync(branchesPath + "/push", JsonHelper.ToJsonContent(push)).ConfigureAwait(false)).StatusCode, "Other tenant administrator push denied");
+                    AssertEqual(baseCommit, (await RunGitAsync(origin, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim(), "Denied pushes leave origin unchanged");
+
+                    HttpResponseMessage upstream = await _ClientA.PostAsync(branchesPath + "/push", JsonHelper.ToJsonContent(new { SourceRef = "feature/api-write", TargetRef = "main", Remote = "upstream" })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.BadRequest, upstream.StatusCode, "Non-origin remote rejected");
+                    AssertEqual("remote_not_allowed", (await JsonHelper.DeserializeAsync<BranchWriteResult>(upstream).ConfigureAwait(false)).Reason, "Non-origin remote reason");
+
+                    HttpResponseMessage invalid = await _ClientA.PostAsync(branchesPath + "/merge", JsonHelper.ToJsonContent(new { SourceRef = "bad..ref", TargetRef = "main", Strategy = "FastForward" })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.BadRequest, invalid.StatusCode, "Invalid ref rejected");
+                    AssertEqual("invalid_ref", (await JsonHelper.DeserializeAsync<BranchWriteResult>(invalid).ConfigureAwait(false)).Reason, "Invalid ref reason");
+
+                    HttpResponseMessage pushed = await _ClientA.PostAsync(branchesPath + "/push", JsonHelper.ToJsonContent(push)).ConfigureAwait(false);
+                    BranchWriteResult pushResult = await JsonHelper.DeserializeAsync<BranchWriteResult>(pushed).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, pushed.StatusCode, "Tenant admin push succeeds (reason=" + (pushResult.Reason ?? "<null>") + ": " + pushResult.Message + ")");
+                    AssertEqual(featureCommit, pushResult.TargetCommit, "Verified pushed commit");
+                    AssertEqual(featureCommit, (await RunGitAsync(origin, "rev-parse", "refs/heads/main").ConfigureAwait(false)).Trim(), "Origin main advanced");
+
+                    HttpResponseMessage again = await _ClientA.PostAsync(branchesPath + "/push", JsonHelper.ToJsonContent(push)).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Conflict, again.StatusCode, "Repeated push refused");
+                    AssertEqual("nothing_to_write", (await JsonHelper.DeserializeAsync<BranchWriteResult>(again).ConfigureAwait(false)).Reason, "Repeated push reason");
+                }
+                finally
+                {
+                    if (Directory.Exists(root)) Directory.Delete(root, true);
+                }
+            }).ConfigureAwait(false);
+
             #endregion
 
             #region Mission-Isolation

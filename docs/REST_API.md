@@ -1141,6 +1141,103 @@ curl -X PATCH http://localhost:7890/api/v1/vessels/vsl_abc123/context \
 
 ---
 
+#### GET /api/v1/vessels/{id}/branches
+
+Lists local branches of the vessel repository (`LocalPath`, then
+`WorkingDirectory`) with tip metadata and ahead/behind counts against the
+default branch. It never fetches or changes refs. A missing repository or a git
+failure returns `200` with an `Error` field.
+
+`WriteControls` states which write actions the caller may request:
+`MergeAvailable`, `PushAvailable`, the `Remote` a push must name (`origin`), and
+a reason code for each unavailable action (`administrator_required`,
+`repository_missing`, `remote_missing`, `remote_mismatch`, `unavailable`).
+Clients must not offer an action the server reports as unavailable.
+
+**Response:** `200 OK` - branch listing
+**Error:** `404` - Vessel not found
+
+---
+
+#### POST /api/v1/vessels/{id}/branches/push
+
+Pushes one branch of the vessel landing repository (`LocalPath`) to the
+vessel's `origin`. Requires a global administrator or a tenant administrator of
+the vessel's tenant; other users receive `403`, and a vessel outside the
+caller's tenant is `404`.
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `SourceRef` | string | yes | Local branch name in the landing repository |
+| `TargetRef` | string | yes | Remote branch name |
+| `Remote` | string | yes | Must be `origin` |
+
+The server validates both names with `git check-ref-format` (short branch
+names only), requires the origin URL and any push URL to match the vessel
+`RepoUrl`, and refuses while the working checkout is dirty or detached. It
+checks that the current remote tip is an ancestor of the source, pushes without
+force (never a delete), and verifies the remote tip afterwards. A source that is
+the branch of a mission that is not `Complete`, or that has an active
+merge-queue entry, is refused unless the push publishes the branch under its
+own name. Targets matching protected-branch policy, and release branches when
+the vessel requires the merge queue for them, are refused.
+
+**Response:** `200 OK` - `BranchWriteResult` with `SourceCommit`,
+`PreviousTargetCommit` and the verified `TargetCommit`
+
+**Refusals** return a `BranchWriteResult` with `Succeeded: false`, a `Reason`
+code and a `Message`, and change no refs:
+
+| Status | Reasons |
+|---|---|
+| `400` | `invalid_request`, `invalid_ref`, `remote_not_allowed` |
+| `409` | `repository_missing`, `working_checkout_missing`, `working_checkout_dirty`, `working_checkout_detached`, `source_missing`, `protected_target`, `release_requires_merge_queue`, `mission_branch_not_landed`, `merge_queue_entry_active`, `vessel_busy`, `remote_missing`, `remote_mismatch`, `remote_unreadable`, `non_fast_forward`, `nothing_to_write`, `push_rejected` |
+| `500` | `verification_failed`, `git_failed` |
+| `503` | `unavailable` |
+
+```bash
+curl -X POST http://localhost:7890/api/v1/vessels/vsl_abc123/branches/push \
+  -H "Content-Type: application/json" \
+  -d '{"SourceRef": "feature/work", "TargetRef": "main", "Remote": "origin"}'
+```
+
+---
+
+#### POST /api/v1/vessels/{id}/branches/merge
+
+Merges one landing-repository branch into another. The merge never pushes and
+never rewrites the target: `FastForward` requires the target to be an ancestor
+of the source; `MergeCommit` creates an explicit two-parent merge commit and is
+refused on content conflicts. The target advances by compare-and-swap, and the
+server verifies that the new tip contains both the previous target and the
+source. Authorization, ref validation, working-checkout, mission, merge-queue
+and branch-policy gates match the push route. A target checked out in any
+worktree of the landing repository is refused (`target_checked_out`).
+
+**Request Body:**
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `SourceRef` | string | yes | Source branch |
+| `TargetRef` | string | yes | Target branch; must already exist |
+| `Strategy` | string | yes | `FastForward` or `MergeCommit` |
+
+After a verified merge, a working checkout that is on the target branch is
+fast-forwarded from the landing repository. `WorkingCheckoutSync` reports the
+outcome: `fast_forwarded`, `skipped_on_other_branch`, `failed_fetch`,
+`failed_not_fast_forward`, `not_configured`, `same_as_landing_repository` or
+`skipped_bare`. The merge itself is not undone when the checkout cannot follow.
+
+Additional refusal reasons: `invalid_strategy`, `same_ref` (`400`);
+`target_missing`, `target_checked_out`, `merge_conflict`, `target_moved`
+(`409`).
+
+**Response:** `200 OK` - `BranchWriteResult`
+
+---
+
 #### GET /api/v1/vessels/{id}/readiness
 
 Returns readiness warnings and blocking issues for a vessel. Optional query:
@@ -4657,6 +4754,9 @@ Response from `GET /api/v1/captains/{id}/log`.
 | 99 | GET | `/api/v1/missions/{id}/definition-of-done` | Mission definition-of-done configuration and latest evaluation | Yes |
 | 100 | GET | `/api/v1/missions/{id}/recovery` | Mission recovery counters, rescues, incidents and recovery events | Yes |
 | 101 | GET | `/api/v1/missions/{id}/auto-land` | Mission auto-land predicate, latest decision and merge entry audit | Yes |
+| 102 | GET | `/api/v1/vessels/{id}/branches` | List vessel branches and write-control availability | Yes |
+| 103 | POST | `/api/v1/vessels/{id}/branches/push` | Push a landing-repository branch to origin without force (tenant administrator) | Yes |
+| 104 | POST | `/api/v1/vessels/{id}/branches/merge` | Fast-forward or merge-commit landing-repository branches (tenant administrator) | Yes |
 
 This table is a quick route index, not the complete contract. Use `/openapi.json` or `/swagger` for the live REST surface.
 

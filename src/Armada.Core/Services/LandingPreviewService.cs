@@ -320,7 +320,16 @@ namespace Armada.Core.Services
             result.IsReadyToLand = !result.Issues.Any(issue => issue.Severity == ReadinessSeverityEnum.Error);
         }
 
-        private static string DetermineBranchCategory(string? sourceBranch, string targetBranch, string? releasePrefix, string? hotfixPrefix)
+        /// <summary>
+        /// Classify a source branch against a target as Unknown, Default, Release, Hotfix or Feature.
+        /// Shared by landing preview and operator branch writes so both apply one release rule.
+        /// </summary>
+        /// <param name="sourceBranch">Source branch.</param>
+        /// <param name="targetBranch">Target branch.</param>
+        /// <param name="releasePrefix">Vessel release prefix.</param>
+        /// <param name="hotfixPrefix">Vessel hotfix prefix.</param>
+        /// <returns>Branch category.</returns>
+        public static string DetermineBranchCategory(string? sourceBranch, string targetBranch, string? releasePrefix, string? hotfixPrefix)
         {
             if (String.IsNullOrWhiteSpace(sourceBranch))
                 return "Unknown";
@@ -335,7 +344,14 @@ namespace Armada.Core.Services
             return "Feature";
         }
 
-        private static string? DetermineProtectedBranchMatch(Vessel vessel, string targetBranch)
+        /// <summary>
+        /// Return the protected-branch policy a target matches, or null. Shared by landing preview
+        /// and operator branch writes so both apply one protection rule.
+        /// </summary>
+        /// <param name="vessel">Vessel with protected branch policy.</param>
+        /// <param name="targetBranch">Target branch.</param>
+        /// <returns>Matching pattern or default branch; null when unprotected.</returns>
+        public static string? DetermineProtectedBranchMatch(Vessel vessel, string targetBranch)
         {
             List<string> patterns = vessel.ProtectedBranchPatterns ?? new List<string>();
             foreach (string pattern in patterns.Where(item => !String.IsNullOrWhiteSpace(item)))

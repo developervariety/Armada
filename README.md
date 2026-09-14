@@ -126,7 +126,7 @@ store as an incidental update. Harbor and self-rebuild remain disabled during th
 Armada models work explicitly so a human or orchestrator can inspect every layer:
 
 - Fleets group related vessels and can carry default pipeline settings.
-- Vessels store repository URLs, local/bare paths, default branches, landing modes, protected paths, sibling repositories, default playbooks, and code-index settings.
+- Vessels store repository URLs, local/bare paths, default branches, landing modes, protected paths, sibling repositories, default playbooks, and code-index settings. Tenant administrators can push landing-repository branches to `origin` and merge them locally through guarded, confirmed controls that never force, delete, or bypass mission landing gates.
 - Captains represent runnable AI workers with runtime, model, persona eligibility, state, health, and current assignment.
 - Missions store the actual unit of work, status, persona, preferred model, dependencies, playbook snapshots, logs, diffs, landing state, and output.
 - Voyages group missions and preserve shared title, description, vessel, objective, planning-session, playbook, pipeline, and landing context.

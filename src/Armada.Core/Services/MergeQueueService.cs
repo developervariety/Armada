@@ -793,9 +793,18 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Core single-entry processing with a known repo path.
+        /// Core single-entry processing with a known repo path. The whole entry holds the vessel's
+        /// repository slot so a landing and an operator branch write never interleave on one target.
         /// </summary>
         private async Task ProcessEntryAsync(MergeEntry entry, string repoPath, CancellationToken token)
+        {
+            using (await VesselRepositoryLock.AcquireAsync(entry.VesselId, token).ConfigureAwait(false))
+            {
+                await ProcessEntryHoldingVesselAsync(entry, repoPath, token).ConfigureAwait(false);
+            }
+        }
+
+        private async Task ProcessEntryHoldingVesselAsync(MergeEntry entry, string repoPath, CancellationToken token)
         {
             LandingJob job = await EnsureLandingJobAsync(entry, token).ConfigureAwait(false);
             entry = await SyncEntryToLandingJobAsync(entry, job, token).ConfigureAwait(false);

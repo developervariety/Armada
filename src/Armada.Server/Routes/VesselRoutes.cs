@@ -36,6 +36,7 @@ namespace Armada.Server.Routes
         private readonly IDockService? _dockService;
         private readonly VesselContextService? _contextService;
         private readonly IBranchInventory? _branchInventory;
+        private readonly VesselBranchWriteService? _branchWrites;
 
         /// <summary>
         /// Instantiate.
@@ -48,6 +49,7 @@ namespace Armada.Server.Routes
         /// <param name="dockService">Optional dock service for worktree cleanup during vessel deletion.</param>
         /// <param name="contextService">Optional vessel context service.</param>
         /// <param name="branchInventory">Optional read-only branch inventory.</param>
+        /// <param name="branchWrites">Optional guarded branch push and merge service; when null the write routes report unavailable.</param>
         public VesselRoutes(
             DatabaseDriver database,
             VesselReadinessService readiness,
@@ -56,8 +58,10 @@ namespace Armada.Server.Routes
             JsonSerializerOptions jsonOptions,
             IDockService? dockService = null,
             VesselContextService? contextService = null,
-            IBranchInventory? branchInventory = null)
+            IBranchInventory? branchInventory = null,
+            VesselBranchWriteService? branchWrites = null)
         {
+            _branchWrites = branchWrites;
             _database = database;
             _readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
             _landingPreview = landingPreview ?? throw new ArgumentNullException(nameof(landingPreview));
@@ -66,6 +70,71 @@ namespace Armada.Server.Routes
             _dockService = dockService;
             _contextService = contextService;
             _branchInventory = branchInventory;
+        }
+
+        private async Task<object> HandleBranchWriteAsync(
+            ApiRequest req,
+            Func<WatsonWebserver.Core.HttpContextBase, Task<AuthContext>> authenticate,
+            IAuthorizationService authz,
+            string operation)
+        {
+            AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+            if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery)
+                || !(ctx.IsAdmin || ctx.IsTenantAdmin))
+            {
+                req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "Branch writes require an administrator for the vessel's tenant" : "Authentication required" };
+            }
+
+            string id = req.Parameters["id"];
+            Vessel? vessel = ctx.IsAdmin
+                ? await _database.Vessels.ReadAsync(id).ConfigureAwait(false)
+                : await _database.Vessels.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false);
+            if (vessel == null)
+            {
+                req.Http.Response.StatusCode = 404;
+                return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
+            }
+            if (_branchWrites == null)
+            {
+                req.Http.Response.StatusCode = 503;
+                return new BranchWriteResult { Operation = operation, VesselId = id, Reason = BranchWriteReasons.Unavailable, Message = "Branch write controls are not available on this server." };
+            }
+
+            BranchWriteResult result = operation == "push"
+                ? await _branchWrites.PushAsync(vessel, req.GetData<BranchPushRequest>()).ConfigureAwait(false)
+                : await _branchWrites.MergeAsync(vessel, req.GetData<BranchMergeRequest>()).ConfigureAwait(false);
+
+            if (result.Succeeded)
+            {
+                string eventType = operation == "push" ? "vessel.branch_pushed" : "vessel.branch_merged";
+                string message = operation == "push"
+                    ? "Pushed " + result.SourceRef + " to " + result.Remote + "/" + result.TargetRef + " at " + result.TargetCommit
+                    : "Merged " + result.SourceRef + " into " + result.TargetRef + " (" + result.Strategy + ") at " + result.TargetCommit;
+                await _emitEvent(eventType, message, "vessel", vessel.Id, null, null, vessel.Id, null).ConfigureAwait(false);
+                return result;
+            }
+
+            req.Http.Response.StatusCode = BranchWriteStatusCode(result.Reason);
+            return result;
+        }
+
+        private static int BranchWriteStatusCode(string? reason)
+        {
+            switch (reason)
+            {
+                case BranchWriteReasons.InvalidRequest:
+                case BranchWriteReasons.InvalidRef:
+                case BranchWriteReasons.SameRef:
+                case BranchWriteReasons.InvalidStrategy:
+                case BranchWriteReasons.RemoteNotAllowed:
+                    return 400;
+                case BranchWriteReasons.VerificationFailed:
+                case BranchWriteReasons.GitFailed:
+                    return 500;
+                default:
+                    return 409;
+            }
         }
 
         private RepositoryResolution? ResolveRepository(Vessel vessel)
@@ -362,10 +431,13 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = 503;
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Git branch inventory is not available" };
                 }
+                BranchWriteControls writeControls = _branchWrites == null
+                    ? new BranchWriteControls { MergeUnavailableReason = BranchWriteReasons.Unavailable, PushUnavailableReason = BranchWriteReasons.Unavailable }
+                    : await _branchWrites.DescribeControlsAsync(vessel, ctx.IsAdmin || ctx.IsTenantAdmin).ConfigureAwait(false);
                 RepositoryResolution? repository = ResolveRepository(vessel);
                 if (repository == null)
                 {
-                    return new BranchListResponse { VesselId = id, DefaultBranch = defaultBranch, Source = "unavailable", HeadState = "unknown", Error = "No repository found for this vessel" };
+                    return new BranchListResponse { VesselId = id, DefaultBranch = defaultBranch, Source = "unavailable", HeadState = "unknown", Error = "No repository found for this vessel", WriteControls = writeControls };
                 }
                 try
                 {
@@ -389,20 +461,49 @@ namespace Armada.Server.Routes
                         HeadState = headState,
                         HeadRef = headRef,
                         Branches = new List<BranchInfo>(branches),
-                        BranchCount = branches.Count
+                        BranchCount = branches.Count,
+                        WriteControls = writeControls
                     };
                 }
                 catch (InvalidOperationException)
                 {
-                    return new BranchListResponse { VesselId = id, DefaultBranch = defaultBranch, Source = repository.Source, HeadState = "unknown", Error = "Git branch inspection failed." };
+                    return new BranchListResponse { VesselId = id, DefaultBranch = defaultBranch, Source = repository.Source, HeadState = "unknown", Error = "Git branch inspection failed.", WriteControls = writeControls };
                 }
             },
             api => api
                 .WithTag("Vessels")
                 .WithSummary("List vessel branches")
-                .WithDescription("Returns local branches and their divergence from the configured default branch without changing repository refs.")
+                .WithDescription("Returns local branches and their divergence from the configured default branch without changing repository refs, plus the push and merge controls the caller may request.")
                 .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
                 .WithResponse(200, OpenApiJson.For<BranchListResponse>("Branch listing"))
+                .WithSecurity("ApiKey"));
+
+            app.Post<BranchPushRequest>("/api/v1/vessels/{id}/branches/push", async (ApiRequest req) =>
+            {
+                return await HandleBranchWriteAsync(req, authenticate, authz, "push").ConfigureAwait(false);
+            },
+            api => api
+                .WithTag("Vessels")
+                .WithSummary("Push a vessel branch to origin")
+                .WithDescription("Pushes one landing-repository branch to the vessel's configured origin without force. Requires an administrator for the vessel's tenant. Refusals name a reason code and change no refs.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
+                .WithRequestBody(OpenApiJson.BodyFor<BranchPushRequest>("SourceRef, TargetRef and Remote (origin)", true))
+                .WithResponse(200, OpenApiJson.For<BranchWriteResult>("Verified push"))
+                .WithResponse(409, OpenApiJson.For<BranchWriteResult>("Refused push"))
+                .WithSecurity("ApiKey"));
+
+            app.Post<BranchMergeRequest>("/api/v1/vessels/{id}/branches/merge", async (ApiRequest req) =>
+            {
+                return await HandleBranchWriteAsync(req, authenticate, authz, "merge").ConfigureAwait(false);
+            },
+            api => api
+                .WithTag("Vessels")
+                .WithSummary("Merge vessel branches in the landing repository")
+                .WithDescription("Merges one landing-repository branch into another by fast-forward or explicit merge commit. Never pushes, never rewrites the target. Requires an administrator for the vessel's tenant.")
+                .WithParameter(OpenApiParameterMetadata.Path("id", "Vessel ID (vsl_ prefix)"))
+                .WithRequestBody(OpenApiJson.BodyFor<BranchMergeRequest>("SourceRef, TargetRef and Strategy (FastForward or MergeCommit)", true))
+                .WithResponse(200, OpenApiJson.For<BranchWriteResult>("Verified merge"))
+                .WithResponse(409, OpenApiJson.For<BranchWriteResult>("Refused merge"))
                 .WithSecurity("ApiKey"));
 
             app.Get("/api/v1/vessels/{id}/readiness", async (ApiRequest req) =>

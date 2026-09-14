@@ -31,5 +31,8 @@ namespace Armada.Core.Models
 
         /// <summary>Read error, when the listing could not be produced.</summary>
         public string? Error { get; set; }
+
+        /// <summary>Push and merge controls the caller may request; unavailable controls carry a reason code.</summary>
+        public BranchWriteControls WriteControls { get; set; } = new BranchWriteControls { MergeUnavailableReason = BranchWriteReasons.Unavailable, PushUnavailableReason = BranchWriteReasons.Unavailable };
     }
 }

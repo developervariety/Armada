@@ -723,6 +723,31 @@ conflicted-file list (`git diff --name-only --diff-filter=U`) so the operator
 sees exactly which paths to fix without re-deriving the merge state. Read the
 mission's failure reason before deciding the recovery path.
 
+#### Operator branch push and merge
+
+A tenant administrator can push or merge vessel branches from the vessel page
+or through `POST /api/v1/vessels/{id}/branches/push` and `.../merge`. There is
+no MCP tool for these writes. They act on the landing repository (the vessel
+`LocalPath`), not on a dock:
+
+- A merge moves only a local ref. It never pushes. A push is a separate,
+  explicit request naming source, target and `origin`.
+- Both refuse, with a named reason and no ref change, when the working checkout
+  is dirty or detached. They also refuse when the source is the branch of a
+  mission that is not `Complete` or has an active merge-queue entry, and when
+  the target is protected or is a release branch that must use the merge queue.
+  Mission work still lands through its review and Check gates.
+- Pushes go only to `origin`, and only when its URL matches the vessel
+  `RepoUrl`. They never force or delete. A remote tip that is not an ancestor of
+  the source is refused as `non_fast_forward`.
+- Writes share the per-vessel slot with mission landing and merge-queue entry
+  processing. A write that finds the slot held returns `vessel_busy`. Retry it
+  after the landing finishes.
+- A successful write emits `vessel.branch_pushed` or `vessel.branch_merged`
+  with the verified commit. After a merge, read `WorkingCheckoutSync`. A value
+  other than `fast_forwarded` or `skipped_on_other_branch` means the working
+  checkout did not follow the landing repository.
+
 ### 4.8 Close The Record Chain
 
 Before the objective becomes complete:

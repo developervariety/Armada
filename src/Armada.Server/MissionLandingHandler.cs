@@ -40,11 +40,6 @@ namespace Armada.Server
         private IRemoteTriggerService _RemoteTriggerService;
         private ICodeIndexService? _CodeIndexService;
 
-        /// <summary>
-        /// Per-vessel semaphores to prevent concurrent merge operations on the same repository.
-        /// </summary>
-        private ConcurrentDictionary<string, SemaphoreSlim> _VesselMergeLocks = new ConcurrentDictionary<string, SemaphoreSlim>();
-
         #endregion
 
         #region Constructors-and-Factories
@@ -249,10 +244,9 @@ namespace Armada.Server
 
             // Acquire per-vessel merge lock to prevent concurrent git operations on the same repo
             string vesselLockKey = mission.VesselId ?? dock.VesselId ?? "unknown";
-            SemaphoreSlim vesselLock = _VesselMergeLocks.GetOrAdd(vesselLockKey, _ => new SemaphoreSlim(1, 1));
 
             _Logging.Info(_Header + "acquiring merge lock for vessel " + vesselLockKey + " (mission " + mission.Id + ")");
-            await vesselLock.WaitAsync().ConfigureAwait(false);
+            IDisposable vesselLock = await VesselRepositoryLock.AcquireAsync(vesselLockKey).ConfigureAwait(false);
 
             bool landingSucceeded = false;
             bool landingAttempted = false;
@@ -715,7 +709,7 @@ namespace Armada.Server
             }
             finally
             {
-                vesselLock.Release();
+                vesselLock.Dispose();
                 _Logging.Info(_Header + "merge lock released for vessel " + vesselLockKey + " (mission " + mission.Id + ")");
             }
 

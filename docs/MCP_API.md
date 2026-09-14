@@ -260,6 +260,10 @@ scheduling, backups, and unlanded-branch reporting.
 Use live discovery to decide what the connected Admiral supports. Do not infer
 availability from repository source or from this document.
 
+Vessel branch listing, push and merge are REST and dashboard operations only.
+No MCP tool writes vessel branches; see `docs/REST_API.md` for their
+authorization and refusal contract.
+
 ## Native Memory
 
 Durable native memory for captains, separate from the shared external memory

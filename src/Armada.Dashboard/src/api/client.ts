@@ -10,6 +10,9 @@ import type {
   EnumerationResult,
   Fleet,
   Vessel,
+  BranchListResponse,
+  BranchMergeStrategy,
+  BranchWriteResult,
   Captain,
   CaptainToolAccessResult,
   Mission,
@@ -612,6 +615,12 @@ export const getVesselReadiness = (
 };
 export const getVesselLandingPreview = (id: string, sourceBranch?: string | null) =>
   get<LandingPreviewResult>(`/api/v1/vessels/${encodeURIComponent(id)}/landing-preview${sourceBranch ? `?sourceBranch=${encodeURIComponent(sourceBranch)}` : ''}`);
+export const getVesselBranches = (id: string) =>
+  get<BranchListResponse>(`/api/v1/vessels/${encodeURIComponent(id)}/branches`);
+export const pushVesselBranch = (id: string, data: { sourceRef: string; targetRef: string; remote: string }) =>
+  post<BranchWriteResult>(`/api/v1/vessels/${encodeURIComponent(id)}/branches/push`, data);
+export const mergeVesselBranch = (id: string, data: { sourceRef: string; targetRef: string; strategy: BranchMergeStrategy }) =>
+  post<BranchWriteResult>(`/api/v1/vessels/${encodeURIComponent(id)}/branches/merge`, data);
 export const getVesselGitStatus = (id: string) => get<{ vesselId: string; commitsAhead: number | null; commitsBehind: number | null; error?: string }>(`/api/v1/vessels/${id}/git-status`);
 
 // ==================== Workspace ====================

@@ -40,6 +40,25 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Add typed read-only vessel branch inspection and actual HTTP route tests for
   health, vessel serialization, branch inspection and authentication errors.
 
+### Guarded vessel branch writes
+
+- Add tenant-administrator push and merge routes for a vessel's landing
+  repository. Each request names source, target and (for a push) the remote.
+  Refs are validated with git. Pushes go only to an `origin` that matches the
+  vessel repository URL, never force and never delete. Merges fast-forward or
+  create an explicit merge commit, advance the target by compare-and-swap,
+  verify ancestry and never push.
+- Refuse writes, with a named reason and no ref change, for a dirty or
+  detached working checkout, a missing ref, a checked-out target, a conflict,
+  a non-fast-forward update, a protected or release target, and a branch still
+  owned by an unlanded mission or an active merge-queue entry.
+- Mission landing, merge-queue entry processing and branch writes now share one
+  per-vessel repository slot. A write that finds it held is refused as busy.
+- The branch listing reports write-control availability. The vessel page shows
+  branches with Push and Merge controls only when available, a confirmation
+  dialog stating source, target, strategy or remote, and busy and refusal
+  states.
+
 ### Model endpoint health persistence
 
 - Track remaining configuration, migration, heartbeat and manual-completion

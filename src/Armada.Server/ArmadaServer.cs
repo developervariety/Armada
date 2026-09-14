@@ -845,7 +845,8 @@ namespace Armada.Server
                 _JsonOptions,
                 _Docks,
                 new VesselContextService(_Database, _RuntimeFactory, _Docks, _PromptTemplateService, _Logging),
-                _Git as IBranchInventory)
+                _Git as IBranchInventory,
+                new VesselBranchWriteService(_Database, _Logging))
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Workspace
