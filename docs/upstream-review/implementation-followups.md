@@ -582,6 +582,16 @@ preservation on failure, bounded cancellable reads, strict supported encoding,
 and efficient Unicode-safe truncation. These findings remain open until the
 corrected combined runtime passes its actual tool round trips.
 
+The next combined API runtime candidate passed 40 focused runtime, factory and
+lifecycle tests, but source review found missing acceptance cases. Synthetic
+processes must participate in lifecycle liveness and ownership checks. Provider
+usage must reach the existing token accounting events. Iteration exhaustion and
+unsuccessful responses without error text must be failures. Validate the exact
+endpoint snapshot used for execution. Bound HTTP bodies before parsing, tool
+arguments and conversation history, rather than only emitted text. Prove
+cancellation after a temporary write starts, and fail before replacement if
+existing file permissions cannot be preserved.
+
 ## FOLLOWUP-020 — Harbor revocation must reach connected sessions
 
 The durable enrollment candidate checks the credential when a runner registers.
@@ -617,3 +627,13 @@ handoff without a landing callback. Actual HTTP tests cover active ownership
 and unknown state with no mission mutation. Final Check and Judge gates remain
 in force. The combined acceptance counts are recorded in FOLLOWUP-016.
 Deployment remains pending.
+
+## FOLLOWUP-022 — Local image retention must match real Docker behavior
+
+The retention candidate passed its stub tests but failed a read-only real Docker
+contract check: the inspect format emitted a literal backslash-t, while the
+script split on a tab. Correct the format and fixture. An inspection failure
+must not be treated as proof that a tag does not exist. Verify each created
+retention tag resolves to the expected immutable image ID before any build.
+Accept valid local repository tags without requiring a slash. No image was
+built or deployment changed during this review.
