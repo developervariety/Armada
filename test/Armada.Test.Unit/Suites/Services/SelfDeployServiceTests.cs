@@ -100,8 +100,153 @@ namespace Armada.Test.Unit.Suites.Services
 
                     bool restarted = await context.Service.ExecuteAsync(context.Vessel.Id, "mrg_test", "test land");
                     AssertTrue(restarted, "restarted");
+                    AssertEqual(1, context.Preflight.Calls.Count, "preflight calls");
                     AssertEqual(1, context.Supervisor.Calls.Count, "supervisor calls");
                     AssertEqual(1, context.BuildRunner.Calls.Count, "build calls");
+                }
+            });
+
+            await RunTest("ExecuteAsync_BackupValidationFails_AbortsCutover", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SelfDeployTestContext context = await CreateContextAsync(testDb, enabled: true);
+                    context.Preflight.NextResult = new SelfDeployPreflightResult
+                    {
+                        RestoreVerified = true,
+                        CandidateValidated = true,
+                        FailureReason = "backup_failed"
+                    };
+
+                    bool restarted = await context.Service.ExecuteAsync(context.Vessel.Id, "mrg_test", "test land");
+                    AssertFalse(restarted, "restarted");
+                    AssertEqual(1, context.Preflight.Calls.Count, "preflight calls");
+                    AssertEqual(0, context.Supervisor.Calls.Count, "supervisor calls");
+                    AssertEqual(0, context.ProcessExit.Calls, "process exit calls");
+                }
+            });
+
+            await RunTest("ExecuteAsync_RestoreVerificationFails_AbortsCutover", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SelfDeployTestContext context = await CreateContextAsync(testDb, enabled: true);
+                    context.Preflight.NextResult = new SelfDeployPreflightResult
+                    {
+                        BackupValidated = true,
+                        CandidateValidated = true,
+                        FailureReason = "restore_verification_failed"
+                    };
+
+                    bool restarted = await context.Service.ExecuteAsync(context.Vessel.Id, "mrg_test", "test land");
+                    AssertFalse(restarted, "restarted");
+                    AssertEqual(1, context.Preflight.Calls.Count, "preflight calls");
+                    AssertEqual(0, context.Supervisor.Calls.Count, "supervisor calls");
+                    AssertEqual(0, context.ProcessExit.Calls, "process exit calls");
+                }
+            });
+
+            await RunTest("ExecuteAsync_CandidateValidationFails_AbortsCutover", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SelfDeployTestContext context = await CreateContextAsync(testDb, enabled: true);
+                    context.Preflight.NextResult = new SelfDeployPreflightResult
+                    {
+                        BackupValidated = true,
+                        RestoreVerified = true,
+                        FailureReason = "candidate_validation_failed"
+                    };
+
+                    bool restarted = await context.Service.ExecuteAsync(context.Vessel.Id, "mrg_test", "test land");
+                    AssertFalse(restarted, "restarted");
+                    AssertEqual(1, context.Preflight.Calls.Count, "preflight calls");
+                    AssertEqual(0, context.Supervisor.Calls.Count, "supervisor calls");
+                    AssertEqual(0, context.ProcessExit.Calls, "process exit calls");
+                }
+            });
+
+            await RunTest("ExecuteAsync_PreflightConflict_FailsClosed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SelfDeployTestContext context = await CreateContextAsync(testDb, enabled: true);
+                    context.Preflight.NextResult = new SelfDeployPreflightResult
+                    {
+                        BackupValidated = true,
+                        RestoreVerified = true,
+                        CandidateValidated = true,
+                        FailureReason = "provider_reported_conflict"
+                    };
+
+                    bool restarted = await context.Service.ExecuteAsync(context.Vessel.Id, "mrg_test", "test land");
+                    AssertFalse(restarted, "restarted");
+                    AssertEqual(0, context.Supervisor.Calls.Count, "supervisor calls");
+                    AssertEqual(0, context.ProcessExit.Calls, "process exit calls");
+                }
+            });
+
+            await RunTest("ExecuteAsync_NullPreflightResult_FailsClosed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SelfDeployTestContext context = await CreateContextAsync(testDb, enabled: true);
+                    context.Preflight.ReturnNull = true;
+
+                    bool restarted = await context.Service.ExecuteAsync(context.Vessel.Id, "mrg_test", "test land");
+                    AssertFalse(restarted, "restarted");
+                    AssertEqual(0, context.Supervisor.Calls.Count, "supervisor calls");
+                    AssertEqual(0, context.ProcessExit.Calls, "process exit calls");
+                }
+            });
+
+            await RunTest("ExecuteAsync_PreflightThrows_AbortsCutover", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SelfDeployTestContext context = await CreateContextAsync(testDb, enabled: true);
+                    context.Preflight.ThrowOnValidate = true;
+
+                    bool restarted = await context.Service.ExecuteAsync(context.Vessel.Id, "mrg_test", "test land");
+                    AssertFalse(restarted, "restarted");
+                    AssertEqual(1, context.Preflight.Calls.Count, "preflight calls");
+                    AssertEqual(0, context.Supervisor.Calls.Count, "supervisor calls");
+                    AssertEqual(0, context.ProcessExit.Calls, "process exit calls");
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("self_deploy.preflight_failed");
+                    AssertEqual(1, events.Count, "preflight failure events");
+                    AssertFalse((events[0].Payload ?? String.Empty).Contains("sentinel-secret", StringComparison.Ordinal), "event must not contain provider exception text");
+
+                    IncidentService incidents = new IncidentService(testDb.Driver);
+                    AuthContext auth = AuthContext.Authenticated(
+                        Constants.DefaultTenantId,
+                        Constants.DefaultUserId,
+                        true,
+                        true,
+                        "Test");
+                    EnumerationResult<Incident> page = await incidents.EnumerateAsync(auth, new IncidentQuery
+                    {
+                        VesselId = context.Vessel.Id,
+                        PageNumber = 1,
+                        PageSize = 10
+                    });
+                    AssertTrue(page.Objects.Count >= 1, "incident count");
+                    AssertFalse((page.Objects[0].Summary ?? String.Empty).Contains("sentinel-secret", StringComparison.Ordinal), "incident must not contain provider exception text");
+                }
+            });
+
+            await RunTest("ExecuteAsync_DefaultPreflight_FailsClosed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SelfDeployTestContext context = await CreateContextAsync(testDb, enabled: true, includePreflight: false);
+                    Directory.CreateDirectory(Path.GetDirectoryName(context.ServerDllPath)!);
+                    File.WriteAllText(context.SupervisorScriptPath, "stub");
+                    File.WriteAllText(context.ServerDllPath, "stub");
+
+                    bool restarted = await context.Service.ExecuteAsync(context.Vessel.Id, "mrg_test", "test land");
+                    AssertFalse(restarted, "restarted");
+                    AssertEqual(0, context.Supervisor.Calls.Count, "supervisor calls");
                 }
             });
 
@@ -128,7 +273,10 @@ namespace Armada.Test.Unit.Suites.Services
             return logging;
         }
 
-        private static async Task<SelfDeployTestContext> CreateContextAsync(TestDatabase testDb, bool enabled)
+        private static async Task<SelfDeployTestContext> CreateContextAsync(
+            TestDatabase testDb,
+            bool enabled,
+            bool includePreflight = true)
         {
             string tempRoot = Path.Combine(Path.GetTempPath(), "selfdeploy_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempRoot);
@@ -149,13 +297,32 @@ namespace Armada.Test.Unit.Suites.Services
             SelfDeployStubGitService git = new SelfDeployStubGitService();
             RecordingSelfDeployBuildRunner buildRunner = new RecordingSelfDeployBuildRunner();
             RecordingSelfDeploySupervisor supervisor = new RecordingSelfDeploySupervisor();
-            SelfDeployService service = new SelfDeployService(
-                CreateLogging(),
-                testDb.Driver,
-                settings,
-                git,
-                buildRunner,
-                supervisor);
+            RecordingSelfDeployPreflight preflight = new RecordingSelfDeployPreflight();
+            RecordingProcessExit processExit = new RecordingProcessExit();
+            SelfDeployService service;
+            if (includePreflight)
+            {
+                service = new SelfDeployService(
+                    CreateLogging(),
+                    testDb.Driver,
+                    settings,
+                    git,
+                    buildRunner,
+                    supervisor,
+                    preflight,
+                    processExit.Request);
+            }
+            else
+            {
+                service = new SelfDeployService(
+                    CreateLogging(),
+                    testDb.Driver,
+                    settings,
+                    git,
+                    buildRunner,
+                    supervisor,
+                    processExit.Request);
+            }
 
             return new SelfDeployTestContext
             {
@@ -164,6 +331,8 @@ namespace Armada.Test.Unit.Suites.Services
                 Git = git,
                 BuildRunner = buildRunner,
                 Supervisor = supervisor,
+                Preflight = preflight,
+                ProcessExit = processExit,
                 SupervisorScriptPath = Path.Combine(tempRoot, "watchdog.ps1"),
                 ServerDllPath = Path.Combine(tempRoot, "bin", "Armada.Server.dll")
             };
@@ -176,6 +345,8 @@ namespace Armada.Test.Unit.Suites.Services
             public SelfDeployStubGitService Git { get; set; } = null!;
             public RecordingSelfDeployBuildRunner BuildRunner { get; set; } = null!;
             public RecordingSelfDeploySupervisor Supervisor { get; set; } = null!;
+            public RecordingSelfDeployPreflight Preflight { get; set; } = null!;
+            public RecordingProcessExit ProcessExit { get; set; } = null!;
             public string SupervisorScriptPath { get; set; } = String.Empty;
             public string ServerDllPath { get; set; } = String.Empty;
         }
@@ -213,6 +384,39 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 Calls.Add(workingDirectory + "|" + admiralProcessId + "|" + serverDllPath);
                 return Task.FromResult(NextResult);
+            }
+        }
+
+        private sealed class RecordingSelfDeployPreflight : ISelfDeployPreflight
+        {
+            public List<SelfDeployPreflightRequest> Calls { get; } = new List<SelfDeployPreflightRequest>();
+            public bool ThrowOnValidate { get; set; }
+            public bool ReturnNull { get; set; }
+            public SelfDeployPreflightResult NextResult { get; set; } = new SelfDeployPreflightResult
+            {
+                BackupValidated = true,
+                RestoreVerified = true,
+                CandidateValidated = true
+            };
+
+            public Task<SelfDeployPreflightResult> ValidateAsync(
+                SelfDeployPreflightRequest request,
+                CancellationToken token = default)
+            {
+                Calls.Add(request);
+                if (ThrowOnValidate) throw new InvalidOperationException("preflight failure sentinel-secret");
+                if (ReturnNull) return Task.FromResult<SelfDeployPreflightResult>(null!);
+                return Task.FromResult(NextResult);
+            }
+        }
+
+        private sealed class RecordingProcessExit
+        {
+            public int Calls { get; private set; }
+
+            public void Request()
+            {
+                Calls++;
             }
         }
 

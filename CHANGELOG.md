@@ -14,6 +14,13 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Self-deploy safety gate
+
+- Require validated backup, isolated restore and candidate proof before a
+  supervised restart. Missing or conflicting proof fails closed and records
+  an incident. The default provider refuses cutover until implemented.
+- Exclude raw provider exception text from persisted failures.
+
 ### Ask MCP launch and discovery
 
 - Configure each temporary chat runtime with its Armada MCP connection. Preserve

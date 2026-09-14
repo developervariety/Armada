@@ -241,6 +241,7 @@ namespace Armada.Server
                 _Git,
                 new SelfDeployBuildRunner(_Logging),
                 new SelfDeploySupervisor(_Logging),
+                new FailClosedSelfDeployPreflight(),
                 () =>
                 {
                     Stop();

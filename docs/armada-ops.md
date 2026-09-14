@@ -1018,6 +1018,18 @@ rollout targets.
 
 See [DELIVERY_OPERATIONS.md](DELIVERY_OPERATIONS.md) for the detailed procedure.
 
+### Self-deploy preflight
+
+Self-deploy is opt-in (`selfDeploy.enabled` defaults to `false`). After a
+successful Release build, the service requires a validated backup, an isolated
+restore and candidate validation before it calls the restart supervisor. Missing
+or conflicting proof records a failure and opens an incident. A provider
+exception never permits restart or copies raw exception text into the record.
+
+The default preflight refuses cutover. Provider-native backup, candidate checks
+and rollback integration need separate acceptance before self-deploy can be used.
+Keep the current container deployment and rollback procedure until then.
+
 ## 7. Configuration And Administration
 
 Treat fleet, vessel, captain, persona, pipeline, playbook, runbook, workflow

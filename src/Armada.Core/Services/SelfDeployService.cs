@@ -21,6 +21,7 @@ namespace Armada.Core.Services
         private readonly IGitService _Git;
         private readonly ISelfDeployBuildRunner _BuildRunner;
         private readonly ISelfDeploySupervisor _Supervisor;
+        private readonly ISelfDeployPreflight _Preflight;
         private readonly Action? _RequestProcessExit;
         private readonly object _ScheduleGate = new object();
         private readonly SelfDeployScheduleState _ScheduleState = new SelfDeployScheduleState();
@@ -37,6 +38,38 @@ namespace Armada.Core.Services
             ISelfDeployBuildRunner buildRunner,
             ISelfDeploySupervisor supervisor,
             Action? requestProcessExit = null)
+            : this(
+                logging,
+                database,
+                settings,
+                git,
+                buildRunner,
+                supervisor,
+                new FailClosedSelfDeployPreflight(),
+                requestProcessExit)
+        {
+        }
+
+        /// <summary>
+        /// Instantiate with an explicit preflight provider.
+        /// </summary>
+        /// <param name="logging">Logging module.</param>
+        /// <param name="database">Armada database driver.</param>
+        /// <param name="settings">Armada settings.</param>
+        /// <param name="git">Git service.</param>
+        /// <param name="buildRunner">Release build runner.</param>
+        /// <param name="supervisor">External restart supervisor.</param>
+        /// <param name="preflight">Provider that proves backup, restore verification, and candidate validation.</param>
+        /// <param name="requestProcessExit">Optional process-exit callback.</param>
+        public SelfDeployService(
+            LoggingModule logging,
+            DatabaseDriver database,
+            ArmadaSettings settings,
+            IGitService git,
+            ISelfDeployBuildRunner buildRunner,
+            ISelfDeploySupervisor supervisor,
+            ISelfDeployPreflight preflight,
+            Action? requestProcessExit = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -44,6 +77,7 @@ namespace Armada.Core.Services
             _Git = git ?? throw new ArgumentNullException(nameof(git));
             _BuildRunner = buildRunner ?? throw new ArgumentNullException(nameof(buildRunner));
             _Supervisor = supervisor ?? throw new ArgumentNullException(nameof(supervisor));
+            _Preflight = preflight ?? throw new ArgumentNullException(nameof(preflight));
             _RequestProcessExit = requestProcessExit;
         }
 
@@ -143,12 +177,68 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            await EmitEventAsync("self_deploy.build_succeeded", selfVessel.Id, mergeEntryId,
-                "Release build succeeded; requesting supervised restart",
-                new { vesselId = selfVessel.Id, mergeEntryId }, token).ConfigureAwait(false);
-
             string serverDllPath = Path.GetFullPath(Path.Combine(workingDirectory, settings.ServerDllRelativePath));
             string supervisorScriptPath = ResolveSupervisorScriptPath(workingDirectory, settings);
+
+            await EmitEventAsync("self_deploy.preflight_started", selfVessel.Id, mergeEntryId,
+                "Self-deploy safety preflight started",
+                new { vesselId = selfVessel.Id, mergeEntryId, serverDllPath }, token).ConfigureAwait(false);
+
+            SelfDeployPreflightResult? preflightResult;
+            try
+            {
+                preflightResult = await _Preflight.ValidateAsync(new SelfDeployPreflightRequest
+                {
+                    VesselId = selfVessel.Id,
+                    WorkingDirectory = workingDirectory,
+                    CandidateServerDllPath = serverDllPath,
+                    Settings = settings,
+                    BuildResult = buildResult
+                }, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                preflightResult = new SelfDeployPreflightResult
+                {
+                    FailureReason = "preflight_provider_failed"
+                };
+            }
+
+            if (preflightResult == null || !preflightResult.IsSafeToCutover)
+            {
+                string preflightFailure = DescribePreflightFailure(preflightResult);
+                await EmitEventAsync("self_deploy.preflight_failed", selfVessel.Id, mergeEntryId,
+                    "Self-deploy preflight failed; admiral restart aborted",
+                    new
+                    {
+                        vesselId = selfVessel.Id,
+                        mergeEntryId,
+                        reason = preflightFailure,
+                        backupValidated = preflightResult?.BackupValidated ?? false,
+                        restoreVerified = preflightResult?.RestoreVerified ?? false,
+                        candidateValidated = preflightResult?.CandidateValidated ?? false,
+                        outputTail = preflightResult?.OutputTail ?? String.Empty
+                    }, token).ConfigureAwait(false);
+                await OpenBuildIncidentAsync(selfVessel, mergeEntryId,
+                    "Self-deploy preflight failed; admiral restart aborted",
+                    preflightFailure + (String.IsNullOrWhiteSpace(preflightResult?.OutputTail)
+                        ? String.Empty
+                        : ": " + preflightResult.OutputTail), token).ConfigureAwait(false);
+                return false;
+            }
+
+            await EmitEventAsync("self_deploy.preflight_succeeded", selfVessel.Id, mergeEntryId,
+                "Self-deploy preflight passed; requesting supervised restart",
+                new { vesselId = selfVessel.Id, mergeEntryId }, token).ConfigureAwait(false);
+
+            await EmitEventAsync("self_deploy.build_succeeded", selfVessel.Id, mergeEntryId,
+                "Release build and safety preflight succeeded; requesting supervised restart",
+                new { vesselId = selfVessel.Id, mergeEntryId }, token).ConfigureAwait(false);
+
             int admiralPid = Process.GetCurrentProcess().Id;
             bool spawned = await _Supervisor.RequestSupervisedRestartAsync(
                 workingDirectory,
@@ -484,6 +574,16 @@ namespace Armada.Core.Services
             }
 
             return Path.GetFullPath(Path.Combine(workingDirectory, relative));
+        }
+
+        private static string DescribePreflightFailure(SelfDeployPreflightResult? result)
+        {
+            if (result == null) return "preflight_provider_returned_no_result";
+            if (!String.IsNullOrWhiteSpace(result.FailureReason)) return result.FailureReason;
+            if (!result.BackupValidated) return "backup_not_validated";
+            if (!result.RestoreVerified) return "restore_verification_failed";
+            if (!result.CandidateValidated) return "candidate_validation_failed";
+            return "preflight_failed";
         }
 
         private sealed class SelfDeployScheduleState
