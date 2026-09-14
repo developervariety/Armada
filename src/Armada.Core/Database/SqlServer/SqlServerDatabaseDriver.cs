@@ -80,6 +80,7 @@ namespace Armada.Core.Database.SqlServer
             Users = new UserMethods(this, _Settings, _Logging);
             Credentials = new CredentialMethods(this, _Settings, _Logging);
             HarborRunnerEnrollments = new HarborRunnerEnrollmentMethods(this);
+            HarborJobs = new Armada.Core.Database.HarborJobMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             MissionAttemptFacts = new MissionAttemptFactMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             LaneStateTransitions = new LaneStateTransitionMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);

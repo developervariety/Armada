@@ -90,6 +90,7 @@ namespace Armada.Test.Database
             await RunTest("CoordinationLease_Reopen_Ownership_Expiry", "Operational", () => TestCoordinationLeaseAsync(token), token);
             await RunTest("Backup_Native_Verified_Archive_Provider_Manifest_And_Restore_Contract", "Operational", () => TestNativeBackupAsync(token), token);
             await RunTest("HarborRunnerEnrollment_Reopen_And_CAS_Race", "Operational", () => new HarborRunnerEnrollmentDatabaseTests(_Driver, _Settings).VerifyAsync(token), token);
+            await RunTest("HarborJob_RevisionGuard_RestartReconciliation_And_Reopen", "Operational", () => new HarborJobDatabaseTests(_Driver, _Settings).VerifyAsync(token), token);
             await RunTest("Objective_Terminal_Backlog_Migration_Repairs_Only_Terminal_Rows", "Operational", () => TestObjectiveTerminalBacklogMigrationAsync(token), token);
             await RunTest("MissionAttemptFacts_Window_Scope_Bound_Reopen", "Operational", () => new ProductionFactDatabaseTests(_Driver, _Settings).VerifyMissionAttemptFactsAsync(token), token);
             await RunTest("CheckRun_Regression_Links_Create_Update_Reopen", "Operational", () => new ProductionFactDatabaseTests(_Driver, _Settings).VerifyCheckRegressionLinksAsync(token), token);

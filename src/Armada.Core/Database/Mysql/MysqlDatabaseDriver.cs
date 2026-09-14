@@ -73,6 +73,7 @@ namespace Armada.Core.Database.Mysql
             Users = new UserMethods(_ConnectionString);
             Credentials = new CredentialMethods(_ConnectionString);
             HarborRunnerEnrollments = new HarborRunnerEnrollmentMethods(_ConnectionString);
+            HarborJobs = new Armada.Core.Database.HarborJobMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             MissionAttemptFacts = new MissionAttemptFactMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             LaneStateTransitions = new LaneStateTransitionMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
@@ -665,7 +666,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(87, "Persist Check regression links", TableQueries.MigrationV87Statements),
                 new SchemaMigration(88, "Persist preparation claim observations", TableQueries.MigrationV88Statements),
                 new SchemaMigration(89, "Persist lane state transitions and Check slot requests", TableQueries.MigrationV89Statements),
-                new SchemaMigration(90, "Persist configuration record ownership", TableQueries.MigrationV90Statements)
+                new SchemaMigration(90, "Persist configuration record ownership", TableQueries.MigrationV90Statements),
+                new SchemaMigration(91, "Persist Harbor job records", TableQueries.MigrationV91Statements)
             };
         }
 

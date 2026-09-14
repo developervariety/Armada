@@ -1628,6 +1628,12 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"ALTER TABLE pipelines ADD COLUMN ownership_scope TEXT NOT NULL DEFAULT 'TenantWide';",
                     @"ALTER TABLE prompt_templates ADD COLUMN user_id TEXT NULL;",
                     @"ALTER TABLE prompt_templates ADD COLUMN ownership_scope TEXT NOT NULL DEFAULT 'TenantWide';"
+                ),
+                new SchemaMigration(99, "Persist Harbor job records",
+                    @"CREATE TABLE IF NOT EXISTS harbor_jobs (job_id TEXT NOT NULL PRIMARY KEY, runner_id TEXT NOT NULL, launch_key TEXT NOT NULL, tenant_id TEXT NOT NULL, user_id TEXT NOT NULL, enrollment_generation INTEGER NOT NULL, session_generation INTEGER NOT NULL, state TEXT NOT NULL, process_id INTEGER NULL, exit_code INTEGER NULL, failure_reason TEXT NULL, next_output_sequence INTEGER NOT NULL DEFAULT 0, mission_id TEXT NULL, captain_id TEXT NULL, revision INTEGER NOT NULL, created_utc TEXT NOT NULL, last_update_utc TEXT NOT NULL, completed_utc TEXT NULL);",
+                    @"CREATE INDEX IF NOT EXISTS idx_harbor_jobs_runner ON harbor_jobs(runner_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_harbor_jobs_state ON harbor_jobs(state);",
+                    @"CREATE INDEX IF NOT EXISTS idx_harbor_jobs_tenant_user ON harbor_jobs(tenant_id, user_id);"
                 )
             };
         }

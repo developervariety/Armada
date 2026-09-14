@@ -293,6 +293,7 @@ namespace Armada.Core.Database.Postgresql
             Users = new UserMethods(this, _Settings, _Logging);
             Credentials = new CredentialMethods(this, _Settings, _Logging);
             HarborRunnerEnrollments = new HarborRunnerEnrollmentMethods(_DataSource);
+            HarborJobs = new Armada.Core.Database.HarborJobMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             MissionAttemptFacts = new MissionAttemptFactMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             LaneStateTransitions = new LaneStateTransitionMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);

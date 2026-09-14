@@ -78,6 +78,26 @@ namespace Armada.Runtimes
         /// <returns>Agent runtime instance.</returns>
         public virtual IAgentRuntime Create(AgentRuntimeEnum runtimeType)
         {
+            return CreateAdapter(runtimeType);
+        }
+
+        /// <summary>
+        /// Create the built-in adapter for a CLI runtime to build a launch plan that runs elsewhere, such as on a
+        /// Harbor runner. The plan uses the adapter's command, arguments and output parsing; the adapter never
+        /// starts a local process on that path, so a factory that replaces local launches (for example in a test
+        /// host) still yields the real plan.
+        /// </summary>
+        /// <param name="runtimeType">Runtime type.</param>
+        /// <returns>The built-in adapter.</returns>
+        /// <exception cref="InvalidOperationException">The runtime has no built-in CLI adapter.</exception>
+        public BaseAgentRuntime CreateLaunchPlanAdapter(AgentRuntimeEnum runtimeType)
+        {
+            if (CreateAdapter(runtimeType) is BaseAgentRuntime adapter) return adapter;
+            throw new InvalidOperationException("Runtime " + runtimeType + " has no CLI launch plan.");
+        }
+
+        private IAgentRuntime CreateAdapter(AgentRuntimeEnum runtimeType)
+        {
             switch (runtimeType)
             {
                 case AgentRuntimeEnum.ClaudeCode:

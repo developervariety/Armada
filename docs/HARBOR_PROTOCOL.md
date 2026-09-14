@@ -125,9 +125,12 @@ runner  -> exited  { jobId, exitCode }
 ## Heartbeats, revocation and reconnection
 
 Send `heartbeat` well inside `Harbor.IdleTimeoutSeconds`; a link with no frames for that long is closed. Every
-heartbeat revalidates the durable enrollment and credential outside the registry lock. A revoked enrollment, a
-changed enrollment generation, or an inactive credential, user or tenant closes the link; the runner's jobs from
-that enrollment become `Lost`.
+heartbeat, and every `started`, `output`, `exited` and job `error` frame, revalidates the durable enrollment and
+credential outside the registry lock before it changes a job. A revoked enrollment, a changed enrollment
+generation, or an inactive credential, user or tenant is answered with `error` naming the reason
+(`runner_enrollment_revoked`, `runner_enrollment_generation_stale`, `runner_principal_inactive`,
+`credential_revoked_or_mismatched`), the link closes, and the runner's jobs from that enrollment become `Lost`
+with that reason. The revocation may have happened on any Admiral instance.
 
 After a reconnect with the same enrollment generation, the runner lists its still-running jobs in `liveJobIds`.
 Listed jobs are rebound to the new connection and continue from their next output sequence. Jobs from an earlier
@@ -135,8 +138,15 @@ enrollment generation are refused with `harbor_job_not_rebindable` and become `L
 revives earlier work. Jobs a reconnected runner does not list become `Lost`. Unknown or foreign listed jobs are
 answered with `error`.
 
-Jobs are held in the Admiral's memory. An Admiral restart ends every link and forgets its jobs; a reconnecting
-runner's listed jobs are then refused as unknown.
+Job records are durable. Each state change and each heartbeat persists the job's state, connection generation,
+host process id, exit code, next output sequence and failure reason, guarded by a revision so a delayed write
+never overwrites a newer state. An Admiral restart ends every link; at start the Admiral marks every job that was
+not terminal `Lost` with `harbor_admiral_restarted`. A reconnecting runner that lists such a job is refused with
+`harbor_job_not_rebindable`; a job the store does not know is refused with `harbor_job_unknown`.
+
+A runner whose link stays closed longer than `Harbor.DisconnectedJobGraceSeconds` (default 180) loses its live
+jobs with `harbor_runner_disconnected`. A stop for a job whose runner is not connected releases it with
+`harbor_job_released_runner_unavailable`.
 
 ## Opt-in operation
 
@@ -155,5 +165,25 @@ runner's listed jobs are then refused as unknown.
    container already publishes. No additional port is needed.
 5. Revoke with `POST /api/v1/harbor-runners/enrollments/{runnerId}/revoke`.
 
-Mission launch does not route to Harbor in this version; the job coordinator is available to callers that
-select a runner explicitly. Local captain execution is unchanged.
+6. Opt a captain or a vessel into running missions on the runner. Nothing routes without a route:
+
+   ```json
+   "Harbor": { "Enabled": true, "MissionRoutes": [ { "RunnerId": "hbr_build_host", "CaptainId": "cpt_..." } ] }
+   ```
+
+   A `VesselId` route covers every captain of that vessel without a captain route. Set
+   `AdmiralWorkingDirectoryRoot` and `RunnerWorkingDirectoryRoot` together when the runner sees docks under a
+   different root; otherwise it receives the Admiral's dock path unchanged.
+
+## Mission execution
+
+A routed mission launch builds the runtime's command and arguments on the Admiral, exactly as for a local launch,
+and sends them in `launch` with the dock path as `workingDirectory`. The Admiral keeps the dock, branch and landing;
+the runner never lands or pushes, and the protocol has no git command. Only non-secret variables travel in
+`environment`: a launch that needs a provider key, an account login or any other variable is refused with
+`harbor_launch_environment_unsupported` before a job exists. The Admiral's MCP launch credential never travels.
+
+The mission owner must be the runner's enrolled tenant and user (`harbor_runner_owner_mismatch` otherwise). The
+durable job record is written before the runner receives the launch. The runner's `output` chunks become lines
+in the mission log, and `exited` or a lost job completes the mission process exactly like a local process exit.
+A captain stop becomes `kill` for the job. There is no fallback to a local process or another runner.

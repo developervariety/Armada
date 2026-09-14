@@ -56,6 +56,30 @@ namespace Armada.Core.Settings
             }
         }
 
+        /// <summary>
+        /// Routes that opt a captain or a vessel into running missions on a named runner. Empty by default, so every
+        /// mission runs locally until a route is added, and routes have no effect while Harbor is disabled.
+        /// </summary>
+        public System.Collections.Generic.List<HarborMissionRoute> MissionRoutes
+        {
+            get => _MissionRoutes;
+            set => _MissionRoutes = value ?? new System.Collections.Generic.List<HarborMissionRoute>();
+        }
+
+        /// <summary>
+        /// Seconds a runner may stay disconnected before its live jobs are lost, like a local process that died.
+        /// A runner that reconnects inside this window rebinds its jobs.
+        /// </summary>
+        public int DisconnectedJobGraceSeconds
+        {
+            get => _DisconnectedJobGraceSeconds;
+            set
+            {
+                if (value < 10 || value > 86400) throw new ArgumentOutOfRangeException(nameof(DisconnectedJobGraceSeconds), "Must be in range [10, 86400]");
+                _DisconnectedJobGraceSeconds = value;
+            }
+        }
+
         #endregion
 
         #region Private-Members
@@ -63,6 +87,8 @@ namespace Armada.Core.Settings
         private string _LinkPath = "/harbor/link";
         private int _HandshakeTimeoutSeconds = 15;
         private int _IdleTimeoutSeconds = 90;
+        private System.Collections.Generic.List<HarborMissionRoute> _MissionRoutes = new System.Collections.Generic.List<HarborMissionRoute>();
+        private int _DisconnectedJobGraceSeconds = 180;
 
         #endregion
     }

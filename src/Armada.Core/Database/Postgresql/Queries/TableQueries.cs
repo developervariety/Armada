@@ -1099,6 +1099,12 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"ALTER TABLE pipelines ADD COLUMN ownership_scope TEXT NOT NULL DEFAULT 'TenantWide';",
                     @"ALTER TABLE prompt_templates ADD COLUMN user_id TEXT;",
                     @"ALTER TABLE prompt_templates ADD COLUMN ownership_scope TEXT NOT NULL DEFAULT 'TenantWide';"
+                ),
+                new SchemaMigration(100, "Persist Harbor job records",
+                    @"CREATE TABLE IF NOT EXISTS harbor_jobs (job_id TEXT PRIMARY KEY, runner_id TEXT NOT NULL, launch_key TEXT NOT NULL, tenant_id TEXT NOT NULL, user_id TEXT NOT NULL, enrollment_generation BIGINT NOT NULL, session_generation BIGINT NOT NULL, state TEXT NOT NULL, process_id INTEGER NULL, exit_code INTEGER NULL, failure_reason TEXT NULL, next_output_sequence BIGINT NOT NULL DEFAULT 0, mission_id TEXT NULL, captain_id TEXT NULL, revision BIGINT NOT NULL, created_utc TIMESTAMPTZ NOT NULL, last_update_utc TIMESTAMPTZ NOT NULL, completed_utc TIMESTAMPTZ NULL);",
+                    @"CREATE INDEX IF NOT EXISTS idx_harbor_jobs_runner ON harbor_jobs(runner_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_harbor_jobs_state ON harbor_jobs(state);",
+                    @"CREATE INDEX IF NOT EXISTS idx_harbor_jobs_tenant_user ON harbor_jobs(tenant_id, user_id);"
                 )
             };
         }

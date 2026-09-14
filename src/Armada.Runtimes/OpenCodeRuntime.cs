@@ -75,15 +75,15 @@ namespace Armada.Runtimes
                 ? null
                 : new Dictionary<string, string>(environment, StringComparer.Ordinal);
 
-            if (OpenCodeProviderConfigBuilder.IsProviderModel(model, _ModelProviders) &&
-                (launchEnvironment == null || !launchEnvironment.ContainsKey("OPENCODE_CONFIG_CONTENT")))
+            if (launchEnvironment == null || !launchEnvironment.ContainsKey("OPENCODE_CONFIG_CONTENT"))
             {
-                launchEnvironment ??= new Dictionary<string, string>(StringComparer.Ordinal);
-                launchEnvironment["OPENCODE_CONFIG_CONTENT"] = OpenCodeProviderConfigBuilder.Build(
-                    model!,
-                    captain?.ApiKey,
-                    captain?.ApiBaseUrl,
-                    _ModelProviders);
+                Dictionary<string, string> providerVariables = new Dictionary<string, string>(StringComparer.Ordinal);
+                AddLaunchVariables(providerVariables, model, captain);
+                if (providerVariables.Count > 0)
+                {
+                    launchEnvironment ??= new Dictionary<string, string>(StringComparer.Ordinal);
+                    foreach (KeyValuePair<string, string> variable in providerVariables) launchEnvironment[variable.Key] = variable.Value;
+                }
             }
 
             IsolationConfigFile? mcpConfig = isolationPlan?.FilesToWrite.FirstOrDefault(file => String.Equals(file.RelativePath, "opencode.json", StringComparison.OrdinalIgnoreCase));
@@ -109,6 +109,23 @@ namespace Armada.Runtimes
         }
 
         #endregion
+
+        /// <summary>
+        /// A captain model served by a registered provider needs its provider configuration in
+        /// <c>OPENCODE_CONFIG_CONTENT</c>. Local and Harbor launches both read it from here.
+        /// </summary>
+        /// <param name="variables">Variables this launch sets.</param>
+        /// <param name="model">Model for the launch.</param>
+        /// <param name="captain">Captain for the launch.</param>
+        protected override void AddLaunchVariables(Dictionary<string, string> variables, string? model, Captain? captain)
+        {
+            if (!OpenCodeProviderConfigBuilder.IsProviderModel(model, _ModelProviders)) return;
+            variables["OPENCODE_CONFIG_CONTENT"] = OpenCodeProviderConfigBuilder.Build(
+                model!,
+                captain?.ApiKey,
+                captain?.ApiBaseUrl,
+                _ModelProviders);
+        }
 
         private static string MergeOpenCodeConfig(string? existingConfig, string overlayConfig)
         {

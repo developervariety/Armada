@@ -2,6 +2,8 @@ namespace Armada.Runtimes
 {
     using System.Diagnostics;
     using System.Text;
+    using Armada.Core;
+    using Armada.Core.Harbor;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using SyslogLogging;
@@ -184,74 +186,8 @@ namespace Armada.Runtimes
             ApplySharedCaptainEnvironment(startInfo);
             ApplyEnvironment(startInfo, captain, model);
 
-            // Set up optional log file writer. If a prior launch leaked a handle on the
-            // canonical log path (admiral crash mid-launch, orphan agent process holding
-            // the file), `new StreamWriter(...)` throws IOException due to the share
-            // violation and the entire launch fails in a tight retry loop. Recover by
-            // falling back to a unique-suffix path; the dashboard and admiral's log API
-            // continue to read the canonical path until log rotation merges them.
-            StreamWriter? logWriter = null;
-            string? actualLogFilePath = null;
-            if (!String.IsNullOrEmpty(logFilePath))
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(logFilePath)!);
-
-                // Best-effort cleanup: if the canonical log file is stale and not held by
-                // any live process, deleting it now lets us reopen it cleanly. Failures
-                // are silent; the open below will either succeed (we win the race) or
-                // throw (we fall through to the suffix path).
-                try { if (File.Exists(logFilePath)) File.Delete(logFilePath); }
-                catch { }
-
-                actualLogFilePath = logFilePath;
-                try
-                {
-                    logWriter = new StreamWriter(logFilePath, append: true) { AutoFlush = true };
-                }
-                catch (IOException)
-                {
-                    // Canonical path locked. Suffix with a unix timestamp so successive
-                    // retries within the same second still pick distinct paths.
-                    string baseName = Path.GetFileNameWithoutExtension(logFilePath);
-                    string ext = Path.GetExtension(logFilePath);
-                    string dir = Path.GetDirectoryName(logFilePath)!;
-                    string suffix = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
-                    actualLogFilePath = Path.Combine(dir, baseName + "." + suffix + ext);
-                    _Logging.Warn(_Header + "canonical log path locked (" + logFilePath +
-                        "); falling back to " + actualLogFilePath);
-                    logWriter = new StreamWriter(actualLogFilePath, append: true) { AutoFlush = true };
-                }
-
-                string timestamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
-                string argsJoined = String.Join(" ", args);
-                // Write command on first line, then prompt content preserving newlines.
-                // Runtimes that deliver the prompt via stdin (UsePromptStdin) do not include the
-                // prompt text in their CLI arguments, so the header would otherwise lose the
-                // role/persona preamble and mission instructions. Echo the prompt parameter for
-                // those runtimes so the mission log always shows which role the captain is
-                // running as, matching what Claude/Codex expose through their positional prompt
-                // argument.
-                string firstFlag = "";
-                string promptContent;
-                if (UsePromptStdin)
-                {
-                    firstFlag = argsJoined;
-                    promptContent = prompt;
-                }
-                else
-                {
-                    promptContent = argsJoined;
-                    int promptStart = argsJoined.IndexOf("Mission:");
-                    if (promptStart > 0)
-                    {
-                        firstFlag = argsJoined.Substring(0, promptStart).Trim();
-                        promptContent = argsJoined.Substring(promptStart);
-                    }
-                }
-                await logWriter.WriteLineAsync("[" + timestamp + "] Agent starting: " + command + " " + firstFlag).ConfigureAwait(false);
-                await logWriter.WriteLineAsync(promptContent).ConfigureAwait(false);
-                await logWriter.WriteLineAsync("").ConfigureAwait(false);
-            }
+            StreamWriter? logWriter = OpenLogWriter(logFilePath);
+            if (logWriter != null) await WriteLaunchHeaderAsync(logWriter, command, args, prompt).ConfigureAwait(false);
 
             // Captured for the Exited closure so the final-message parity echo can run
             // even when stderr is suppressed from the log file.
@@ -261,68 +197,12 @@ namespace Armada.Runtimes
 
             process.OutputDataReceived += (sender, e) =>
             {
-                if (!String.IsNullOrEmpty(e.Data))
-                {
-                    try { HandleRawOutputLine(process.Id, e.Data); }
-                    catch (Exception ex) { _Logging.Warn(_Header + "error parsing runtime telemetry: " + ex.Message); }
-
-                    foreach (string outputLine in TransformOutputRecords(e.Data))
-                    {
-                        // A runtime may transform a structured event to empty to SUPPRESS it from
-                        // the mission log (e.g. OpenCode tool_use / step events). Writing an empty
-                        // string would emit a blank log line, so skip suppressed lines entirely --
-                        // this keeps the log tight and has no markers to detect anyway.
-                        if (String.IsNullOrEmpty(outputLine)) continue;
-
-                        _Logging.Debug(_Header + "[stdout] " + outputLine);
-                        try { logWriter?.WriteLine(outputLine); }
-                        catch (ObjectDisposedException) { }
-
-                        try { OnOutputReceived?.Invoke(process.Id, outputLine); }
-                        catch { }
-
-                        // Raised only here, never from the stderr handler below. An interactive
-                        // consumer capturing a reply must not pick up CLI banners and prompt echoes.
-                        try { OnStdoutReceived?.Invoke(process.Id, outputLine); }
-                        catch { }
-                    }
-                }
+                if (!String.IsNullOrEmpty(e.Data)) EmitStdoutLine(process.Id, e.Data, logWriter);
             };
 
             process.ErrorDataReceived += (sender, e) =>
             {
-                if (!String.IsNullOrEmpty(e.Data))
-                {
-                    _Logging.Debug(_Header + "[stderr] " + e.Data);
-
-                    // Gate ONLY the log-file write. Runtimes that stream their full
-                    // working transcript on stderr (Codex exec) would otherwise bloat
-                    // the mission log 75-220x; WriteStderrToLogFile=false keeps the file
-                    // bounded while syslog and OnOutputReceived still see every line.
-                    // Provider usage/quota-limit signals are always preserved in the log
-                    // file so the admiral's failure-lifecycle detector can route them into
-                    // captain quarantine even when the full stderr transcript is suppressed.
-                    // Standalone reset-time lines ("try again at HH:MM") are also preserved so
-                    // the retry parser can compute an accurate quarantine deadline when a
-                    // provider splits its usage-limit message across multiple stderr lines.
-                    bool quotaSignal = ProviderQuotaLimitDetector.IsQuotaLimitSignal(e.Data);
-                    // Preserve standalone reset-time lines so the admiral's failure-lifecycle
-                    // code can later call TryParseRetryAfterUtc on the full stderr text and
-                    // compute an accurate quarantine deadline. The gate uses a lightweight
-                    // substring check rather than the full parser to avoid doing expensive
-                    // regex/DateTime work inside the process stderr event handler.
-                    bool resetTimeLine = e.Data.Contains("try again at", StringComparison.OrdinalIgnoreCase);
-                    if (WriteStderrToLogFile || quotaSignal || resetTimeLine)
-                    {
-                        try { logWriter?.WriteLine("[stderr] " + e.Data); }
-                        catch (ObjectDisposedException) { }
-                    }
-
-                    // Treat stderr as runtime output for heartbeat/progress/output capture.
-                    // Some agent CLIs emit useful diagnostics or status lines on stderr.
-                    try { OnOutputReceived?.Invoke(process.Id, e.Data); }
-                    catch { }
-                }
+                if (!String.IsNullOrEmpty(e.Data)) EmitStderrLine(process.Id, e.Data, logWriter);
             };
 
             // A fast-exiting agent (bad model, missing dependency) can exit before the launch path
@@ -341,56 +221,7 @@ namespace Armada.Runtimes
                 try { processId = process.Id; } catch { }
                 try { code = ((Process?)sender)?.ExitCode; } catch { }
 
-                // Give the runtime a chance to write records it was still holding. A runtime that
-                // correlates a tool call with a later result event has nothing to write when the
-                // process is killed mid-call -- and that unfinished call is the most useful line
-                // in the log when diagnosing a hang. Written here, while the writer is open.
-                try
-                {
-                    foreach (string exitRecord in BuildProcessExitRecords())
-                    {
-                        if (String.IsNullOrEmpty(exitRecord)) continue;
-
-                        try { logWriter?.WriteLine(exitRecord); }
-                        catch (ObjectDisposedException) { }
-
-                        try { OnOutputReceived?.Invoke(processId, exitRecord); }
-                        catch { }
-                    }
-                }
-                catch (Exception ex) { _Logging.Warn(_Header + "error building process-exit records: " + ex.Message); }
-
-                // Parity echo: when stderr is suppressed from the log file, the agent's
-                // final answer (captured via the runtime's final-message file) would
-                // otherwise never appear in the mission log. Echo it here while the
-                // writer is still open. Never let this throw out of the handler.
-                if (!WriteStderrToLogFile && !String.IsNullOrEmpty(capturedFinalMessageFilePath))
-                {
-                    try
-                    {
-                        if (File.Exists(capturedFinalMessageFilePath))
-                        {
-                            string finalMsg = File.ReadAllText(capturedFinalMessageFilePath);
-                            if (!String.IsNullOrWhiteSpace(finalMsg))
-                            {
-                                logWriter?.WriteLine();
-                                logWriter?.WriteLine("=== Final message ===");
-                                logWriter?.WriteLine(finalMsg);
-                            }
-                        }
-                    }
-                    catch (Exception) { }
-                }
-
-                try { logWriter?.WriteLine("[" + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + "] Agent exited with code " + (code?.ToString() ?? "unknown")); }
-                catch (ObjectDisposedException) { }
-                logWriter?.Dispose();
-
-                // Notify subscribers that the process has exited BEFORE disposing.
-                // Disposing first invalidates the PID, which can cause the health check
-                // to race with the exit handler and trigger spurious recovery.
-                try { OnProcessExited?.Invoke(processId, code); }
-                catch (Exception ex) { _Logging.Warn(_Header + "error in OnProcessExited handler for process " + processId + ": " + ex.Message); }
+                CompleteExit(processId, code, logWriter, capturedFinalMessageFilePath);
 
                 // Dispose the Process object to release the working directory handle.
                 // On Windows, undisposed Process objects hold handles on the WorkingDirectory
@@ -478,6 +309,78 @@ namespace Armada.Runtimes
         }
 
         /// <summary>
+        /// Run this runtime's launch plan on a Harbor runner instead of as a local process. The command,
+        /// arguments and forwardable environment are built exactly as for a local launch; the runner's output
+        /// and exit then pass through the same parsing, mission log and events as local process output, so
+        /// every subscriber treats the job like a local process. No isolation plan, account login, provider
+        /// credential or final-message file travels to the runner.
+        /// </summary>
+        /// <param name="host">Harbor process host.</param>
+        /// <param name="launch">Runner, ownership and runner-side working directory. Its request is filled here.</param>
+        /// <param name="prompt">Prompt for the agent.</param>
+        /// <param name="logFilePath">Optional mission log path on the Admiral.</param>
+        /// <param name="model">Optional model override.</param>
+        /// <param name="captain">Optional captain metadata.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Synthetic process identifier.</returns>
+        /// <exception cref="HarborLaunchException">The launch cannot run on a runner or the runner refused it.</exception>
+        public async Task<int> StartOnHarborAsync(
+            IHarborProcessHost host,
+            HarborProcessLaunch launch,
+            string prompt,
+            string? logFilePath = null,
+            string? model = null,
+            Captain? captain = null,
+            CancellationToken token = default)
+        {
+            if (host == null) throw new ArgumentNullException(nameof(host));
+            if (launch == null) throw new ArgumentNullException(nameof(launch));
+            if (String.IsNullOrEmpty(launch.WorkingDirectory)) throw new ArgumentException("A runner working directory is required.", nameof(launch));
+            if (String.IsNullOrEmpty(prompt)) throw new ArgumentNullException(nameof(prompt));
+
+            ShowThinking = false;
+            WorkingDirectory = launch.WorkingDirectory;
+
+            string command = GetCommand();
+            List<string> args = BuildArguments(launch.WorkingDirectory, prompt, model, null, captain);
+            Dictionary<string, string> environment = HarborLaunchEnvironment.Select(CollectLaunchVariables(model, captain));
+            launch.Request = new HarborLaunchRequest
+            {
+                Runtime = command,
+                WorkingDirectory = launch.WorkingDirectory,
+                Model = model,
+                Prompt = UsePromptStdin ? prompt : null,
+                PromptViaStdin = UsePromptStdin,
+                Arguments = args,
+                Environment = environment
+            };
+
+            StreamWriter? logWriter = OpenLogWriter(logFilePath);
+            if (logWriter != null)
+            {
+                await logWriter.WriteLineAsync("[" + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + "] Harbor runner " + launch.RunnerId + " runs this agent in " + launch.WorkingDirectory).ConfigureAwait(false);
+                await WriteLaunchHeaderAsync(logWriter, command, args, prompt).ConfigureAwait(false);
+            }
+
+            HarborRuntimeEvents events = new HarborRuntimeEvents(this, logWriter);
+            int processId;
+            try
+            {
+                processId = await host.LaunchAsync(launch, events, token).ConfigureAwait(false);
+            }
+            catch
+            {
+                events.CloseLog();
+                throw;
+            }
+
+            try { OnProcessStarted?.Invoke(processId); }
+            catch (Exception ex) { _Logging.Warn(_Header + "error in OnProcessStarted handler for process " + processId + ": " + ex.Message); }
+            _Logging.Info(_Header + "started Harbor job as process " + processId + " (" + command + ") on runner " + launch.RunnerId);
+            return processId;
+        }
+
+        /// <summary>
         /// Grace period, in milliseconds, to wait for a stopped agent to exit on its own
         /// before falling back to a hard kill. The previous 10s value was chosen against
         /// a hang-model that never materialised and made every captain stop -- and a
@@ -486,12 +389,31 @@ namespace Armada.Runtimes
         protected const int StopGracePeriodMs = 3000;
 
         /// <summary>
-        /// Stop an agent process gracefully.
+        /// Stop an agent process gracefully. A synthetic process registered with a stop operation, such as a
+        /// Harbor job, is stopped through that operation.
         /// </summary>
         /// <param name="processId">Process ID to stop.</param>
         /// <param name="token">Cancellation token.</param>
         public virtual async Task StopAsync(int processId, CancellationToken token = default)
         {
+            try
+            {
+                if (await ProcessSupervisor.TryStopSyntheticProcessAsync(processId, token).ConfigureAwait(false))
+                {
+                    _Logging.Info(_Header + "stop requested for synthetic process " + processId);
+                    return;
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "error stopping synthetic process " + processId + ": " + ex.Message);
+                return;
+            }
+
             try
             {
                 Process process = Process.GetProcessById(processId);
@@ -556,13 +478,16 @@ namespace Armada.Runtimes
             Captain? captain);
 
         /// <summary>
-        /// Check if a process is still running.
+        /// Check if a process is still running. A registered synthetic process, such as a Harbor job, is
+        /// running while its registration lasts.
         /// </summary>
         /// <param name="processId">Process ID to check.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>True if the process is running.</returns>
         public virtual Task<bool> IsRunningAsync(int processId, CancellationToken token = default)
         {
+            if (ProcessSupervisor.IsSyntheticProcessAlive(processId)) return Task.FromResult(true);
+
             // A non-positive id is never a live process. Process.GetProcessById rejects it with a
             // platform-dependent exception (ArgumentException on Windows, InvalidOperationException
             // on Unix), so screen it here instead of relying on the exception type.
@@ -616,6 +541,17 @@ namespace Armada.Runtimes
         /// per-captain settings (e.g. <c>Captain.RuntimeOptionsJson</c>).
         /// </summary>
         protected virtual void ApplyEnvironment(ProcessStartInfo startInfo, Captain? captain, string? model = null)
+        {
+        }
+
+        /// <summary>
+        /// Add launch variables a runtime supplies outside <see cref="ApplyEnvironment"/>, so a Harbor launch
+        /// judges them by the same forwarding rule. The default adds none.
+        /// </summary>
+        /// <param name="variables">Variables this launch sets.</param>
+        /// <param name="model">Model for the launch.</param>
+        /// <param name="captain">Captain for the launch.</param>
+        protected virtual void AddLaunchVariables(Dictionary<string, string> variables, string? model, Captain? captain)
         {
         }
 
@@ -681,6 +617,222 @@ namespace Armada.Runtimes
             startInfo.Environment["DOTNET_CLI_USE_MSBUILD_SERVER"] = "0";
         }
 
+        /// <summary>
+        /// Collect the variables a launch sets or changes, as a local launch would apply them. Variables the
+        /// launch only inherits are not included, and removals cannot be expressed to a runner.
+        /// </summary>
+        private Dictionary<string, string> CollectLaunchVariables(string? model, Captain? captain)
+        {
+            ProcessStartInfo probe = new ProcessStartInfo();
+            Dictionary<string, string?> inherited = new Dictionary<string, string?>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, string?> variable in probe.Environment) inherited[variable.Key] = variable.Value;
+
+            ApplySharedCaptainEnvironment(probe);
+            ApplyEnvironment(probe, captain, model);
+
+            Dictionary<string, string> variables = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, string?> variable in probe.Environment)
+            {
+                if (variable.Value == null) continue;
+                if (inherited.TryGetValue(variable.Key, out string? prior) && String.Equals(prior, variable.Value, StringComparison.Ordinal)) continue;
+                variables[variable.Key] = variable.Value;
+            }
+            AddLaunchVariables(variables, model, captain);
+            return variables;
+        }
+
+        private StreamWriter? OpenLogWriter(string? logFilePath)
+        {
+            // If a prior launch leaked a handle on the canonical log path (admiral crash mid-launch,
+            // orphan agent process holding the file), `new StreamWriter(...)` throws IOException due to
+            // the share violation and the entire launch fails in a tight retry loop. Recover by
+            // falling back to a unique-suffix path; the dashboard and admiral's log API continue to
+            // read the canonical path until log rotation merges them.
+            if (String.IsNullOrEmpty(logFilePath)) return null;
+            Directory.CreateDirectory(Path.GetDirectoryName(logFilePath)!);
+
+            // Best-effort cleanup: if the canonical log file is stale and not held by any live
+            // process, deleting it now lets us reopen it cleanly. Failures are silent; the open
+            // below will either succeed (we win the race) or throw (we fall through to the suffix path).
+            try { if (File.Exists(logFilePath)) File.Delete(logFilePath); }
+            catch { }
+
+            try
+            {
+                return new StreamWriter(logFilePath, append: true) { AutoFlush = true };
+            }
+            catch (IOException)
+            {
+                // Canonical path locked. Suffix with a unix timestamp so successive
+                // retries within the same second still pick distinct paths.
+                string baseName = Path.GetFileNameWithoutExtension(logFilePath);
+                string ext = Path.GetExtension(logFilePath);
+                string dir = Path.GetDirectoryName(logFilePath)!;
+                string suffix = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds().ToString();
+                string actualLogFilePath = Path.Combine(dir, baseName + "." + suffix + ext);
+                _Logging.Warn(_Header + "canonical log path locked (" + logFilePath +
+                    "); falling back to " + actualLogFilePath);
+                return new StreamWriter(actualLogFilePath, append: true) { AutoFlush = true };
+            }
+        }
+
+        private async Task WriteLaunchHeaderAsync(StreamWriter logWriter, string command, List<string> args, string prompt)
+        {
+            string timestamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss");
+            string argsJoined = String.Join(" ", args);
+            // Write command on first line, then prompt content preserving newlines.
+            // Runtimes that deliver the prompt via stdin (UsePromptStdin) do not include the
+            // prompt text in their CLI arguments, so the header would otherwise lose the
+            // role/persona preamble and mission instructions. Echo the prompt parameter for
+            // those runtimes so the mission log always shows which role the captain is
+            // running as, matching what Claude/Codex expose through their positional prompt
+            // argument.
+            string firstFlag = "";
+            string promptContent;
+            if (UsePromptStdin)
+            {
+                firstFlag = argsJoined;
+                promptContent = prompt;
+            }
+            else
+            {
+                promptContent = argsJoined;
+                int promptStart = argsJoined.IndexOf("Mission:");
+                if (promptStart > 0)
+                {
+                    firstFlag = argsJoined.Substring(0, promptStart).Trim();
+                    promptContent = argsJoined.Substring(promptStart);
+                }
+            }
+            await logWriter.WriteLineAsync("[" + timestamp + "] Agent starting: " + command + " " + firstFlag).ConfigureAwait(false);
+            await logWriter.WriteLineAsync(promptContent).ConfigureAwait(false);
+            await logWriter.WriteLineAsync("").ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Handle one stdout line from a local process or a Harbor job: telemetry, log records and events.
+        /// </summary>
+        private void EmitStdoutLine(int processId, string line, StreamWriter? logWriter)
+        {
+            try { HandleRawOutputLine(processId, line); }
+            catch (Exception ex) { _Logging.Warn(_Header + "error parsing runtime telemetry: " + ex.Message); }
+
+            foreach (string outputLine in TransformOutputRecords(line))
+            {
+                // A runtime may transform a structured event to empty to SUPPRESS it from
+                // the mission log (e.g. OpenCode tool_use / step events). Writing an empty
+                // string would emit a blank log line, so skip suppressed lines entirely --
+                // this keeps the log tight and has no markers to detect anyway.
+                if (String.IsNullOrEmpty(outputLine)) continue;
+
+                _Logging.Debug(_Header + "[stdout] " + outputLine);
+                try { logWriter?.WriteLine(outputLine); }
+                catch (ObjectDisposedException) { }
+
+                try { OnOutputReceived?.Invoke(processId, outputLine); }
+                catch { }
+
+                // Raised only here, never from the stderr handler below. An interactive
+                // consumer capturing a reply must not pick up CLI banners and prompt echoes.
+                try { OnStdoutReceived?.Invoke(processId, outputLine); }
+                catch { }
+            }
+        }
+
+        /// <summary>
+        /// Handle one stderr line from a local process or a Harbor job.
+        /// </summary>
+        private void EmitStderrLine(int processId, string line, StreamWriter? logWriter)
+        {
+            _Logging.Debug(_Header + "[stderr] " + line);
+
+            // Gate ONLY the log-file write. Runtimes that stream their full
+            // working transcript on stderr (Codex exec) would otherwise bloat
+            // the mission log 75-220x; WriteStderrToLogFile=false keeps the file
+            // bounded while syslog and OnOutputReceived still see every line.
+            // Provider usage/quota-limit signals are always preserved in the log
+            // file so the admiral's failure-lifecycle detector can route them into
+            // captain quarantine even when the full stderr transcript is suppressed.
+            // Standalone reset-time lines ("try again at HH:MM") are also preserved so
+            // the retry parser can compute an accurate quarantine deadline when a
+            // provider splits its usage-limit message across multiple stderr lines.
+            bool quotaSignal = ProviderQuotaLimitDetector.IsQuotaLimitSignal(line);
+            // Preserve standalone reset-time lines so the admiral's failure-lifecycle
+            // code can later call TryParseRetryAfterUtc on the full stderr text and
+            // compute an accurate quarantine deadline. The gate uses a lightweight
+            // substring check rather than the full parser to avoid doing expensive
+            // regex/DateTime work inside the process stderr event handler.
+            bool resetTimeLine = line.Contains("try again at", StringComparison.OrdinalIgnoreCase);
+            if (WriteStderrToLogFile || quotaSignal || resetTimeLine)
+            {
+                try { logWriter?.WriteLine("[stderr] " + line); }
+                catch (ObjectDisposedException) { }
+            }
+
+            // Treat stderr as runtime output for heartbeat/progress/output capture.
+            // Some agent CLIs emit useful diagnostics or status lines on stderr.
+            try { OnOutputReceived?.Invoke(processId, line); }
+            catch { }
+        }
+
+        /// <summary>
+        /// Finish a local process or a Harbor job: held records, the final-message echo, the exit line, and the
+        /// exit event. The log writer is closed here.
+        /// </summary>
+        private void CompleteExit(int processId, int? code, StreamWriter? logWriter, string? finalMessageFilePath)
+        {
+            // Give the runtime a chance to write records it was still holding. A runtime that
+            // correlates a tool call with a later result event has nothing to write when the
+            // process is killed mid-call -- and that unfinished call is the most useful line
+            // in the log when diagnosing a hang. Written here, while the writer is open.
+            try
+            {
+                foreach (string exitRecord in BuildProcessExitRecords())
+                {
+                    if (String.IsNullOrEmpty(exitRecord)) continue;
+
+                    try { logWriter?.WriteLine(exitRecord); }
+                    catch (ObjectDisposedException) { }
+
+                    try { OnOutputReceived?.Invoke(processId, exitRecord); }
+                    catch { }
+                }
+            }
+            catch (Exception ex) { _Logging.Warn(_Header + "error building process-exit records: " + ex.Message); }
+
+            // Parity echo: when stderr is suppressed from the log file, the agent's
+            // final answer (captured via the runtime's final-message file) would
+            // otherwise never appear in the mission log. Echo it here while the
+            // writer is still open. Never let this throw out of the handler.
+            if (!WriteStderrToLogFile && !String.IsNullOrEmpty(finalMessageFilePath))
+            {
+                try
+                {
+                    if (File.Exists(finalMessageFilePath))
+                    {
+                        string finalMsg = File.ReadAllText(finalMessageFilePath);
+                        if (!String.IsNullOrWhiteSpace(finalMsg))
+                        {
+                            logWriter?.WriteLine();
+                            logWriter?.WriteLine("=== Final message ===");
+                            logWriter?.WriteLine(finalMsg);
+                        }
+                    }
+                }
+                catch (Exception) { }
+            }
+
+            try { logWriter?.WriteLine("[" + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + "] Agent exited with code " + (code?.ToString() ?? "unknown")); }
+            catch (ObjectDisposedException) { }
+            logWriter?.Dispose();
+
+            // Notify subscribers that the process has exited BEFORE disposing.
+            // Disposing first invalidates the PID, which can cause the health check
+            // to race with the exit handler and trigger spurious recovery.
+            try { OnProcessExited?.Invoke(processId, code); }
+            catch (Exception ex) { _Logging.Warn(_Header + "error in OnProcessExited handler for process " + processId + ": " + ex.Message); }
+        }
+
         private static void AppendIsolationArguments(List<string> arguments, CaptainLaunchIsolationPlan? plan)
         {
             if (plan == null) return;
@@ -729,6 +881,86 @@ namespace Armada.Runtimes
                 return appDataNpm;
 
             return command;
+        }
+
+        #endregion
+
+        #region Private-Types
+
+        /// <summary>
+        /// Feeds a Harbor job's output chunks into the runtime's line handling. Chunks are split into lines per
+        /// stream; a partial final line is delivered when the job ends.
+        /// </summary>
+        private sealed class HarborRuntimeEvents : IHarborProcessEvents
+        {
+            private readonly BaseAgentRuntime _Runtime;
+            private readonly object _Lock = new object();
+            private readonly StringBuilder _Stdout = new StringBuilder();
+            private readonly StringBuilder _Stderr = new StringBuilder();
+            private StreamWriter? _Writer;
+            private bool _Ended;
+
+            public HarborRuntimeEvents(BaseAgentRuntime runtime, StreamWriter? writer)
+            {
+                _Runtime = runtime;
+                _Writer = writer;
+            }
+
+            public void OnOutput(int processId, HarborOutputStreamEnum stream, string data)
+            {
+                lock (_Lock)
+                {
+                    if (_Ended) return;
+                    bool isStderr = stream == HarborOutputStreamEnum.Stderr;
+                    StringBuilder buffer = isStderr ? _Stderr : _Stdout;
+                    buffer.Append(data);
+                    string text = buffer.ToString();
+                    int lastBreak = text.LastIndexOf('\n');
+                    if (lastBreak < 0) return;
+                    buffer.Clear();
+                    buffer.Append(text.Substring(lastBreak + 1));
+                    foreach (string line in text.Substring(0, lastBreak).Split('\n')) Emit(processId, isStderr, line);
+                }
+            }
+
+            public void OnExited(int processId, int? exitCode, string? failureReason)
+            {
+                lock (_Lock)
+                {
+                    if (_Ended) return;
+                    _Ended = true;
+                    Emit(processId, false, _Stdout.ToString());
+                    Emit(processId, true, _Stderr.ToString());
+                    _Stdout.Clear();
+                    _Stderr.Clear();
+                    if (!String.IsNullOrEmpty(failureReason))
+                    {
+                        try { _Writer?.WriteLine("[" + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + "] Harbor job ended without an exit: " + failureReason); }
+                        catch (ObjectDisposedException) { }
+                    }
+                    StreamWriter? writer = _Writer;
+                    _Writer = null;
+                    _Runtime.CompleteExit(processId, exitCode, writer, null);
+                }
+            }
+
+            public void CloseLog()
+            {
+                lock (_Lock)
+                {
+                    _Ended = true;
+                    try { _Writer?.Dispose(); } catch (ObjectDisposedException) { }
+                    _Writer = null;
+                }
+            }
+
+            private void Emit(int processId, bool isStderr, string line)
+            {
+                string trimmed = line.EndsWith("\r", StringComparison.Ordinal) ? line.Substring(0, line.Length - 1) : line;
+                if (String.IsNullOrEmpty(trimmed)) return;
+                if (isStderr) _Runtime.EmitStderrLine(processId, trimmed, _Writer);
+                else _Runtime.EmitStdoutLine(processId, trimmed, _Writer);
+            }
         }
 
         #endregion

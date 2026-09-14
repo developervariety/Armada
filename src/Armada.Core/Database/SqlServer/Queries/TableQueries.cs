@@ -966,6 +966,12 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"ALTER TABLE pipelines ADD ownership_scope NVARCHAR(32) NOT NULL CONSTRAINT df_pipelines_ownership_scope DEFAULT 'TenantWide';",
                     @"ALTER TABLE prompt_templates ADD user_id NVARCHAR(450) NULL;",
                     @"ALTER TABLE prompt_templates ADD ownership_scope NVARCHAR(32) NOT NULL CONSTRAINT df_prompt_templates_ownership_scope DEFAULT 'TenantWide';"
+                ),
+                new SchemaMigration(94, "Persist Harbor job records",
+                    @"IF OBJECT_ID('harbor_jobs','U') IS NULL CREATE TABLE harbor_jobs (job_id NVARCHAR(450) NOT NULL PRIMARY KEY, runner_id NVARCHAR(450) NOT NULL, launch_key NVARCHAR(450) NOT NULL, tenant_id NVARCHAR(450) NOT NULL, user_id NVARCHAR(450) NOT NULL, enrollment_generation BIGINT NOT NULL, session_generation BIGINT NOT NULL, state NVARCHAR(32) NOT NULL, process_id INT NULL, exit_code INT NULL, failure_reason NVARCHAR(MAX) NULL, next_output_sequence BIGINT NOT NULL CONSTRAINT df_harbor_jobs_next_output_sequence DEFAULT 0, mission_id NVARCHAR(450) NULL, captain_id NVARCHAR(450) NULL, revision BIGINT NOT NULL, created_utc DATETIME2 NOT NULL, last_update_utc DATETIME2 NOT NULL, completed_utc DATETIME2 NULL);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_harbor_jobs_runner' AND object_id=OBJECT_ID('harbor_jobs')) CREATE INDEX idx_harbor_jobs_runner ON harbor_jobs(runner_id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_harbor_jobs_state' AND object_id=OBJECT_ID('harbor_jobs')) CREATE INDEX idx_harbor_jobs_state ON harbor_jobs(state);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_harbor_jobs_tenant_user' AND object_id=OBJECT_ID('harbor_jobs')) CREATE INDEX idx_harbor_jobs_tenant_user ON harbor_jobs(tenant_id, user_id);"
                 )
             };
         }

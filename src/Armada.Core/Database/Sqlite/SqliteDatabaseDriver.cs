@@ -82,6 +82,7 @@ namespace Armada.Core.Database.Sqlite
             Users = new UserMethods(this, _Settings, _Logging);
             Credentials = new CredentialMethods(this, _Settings, _Logging);
             HarborRunnerEnrollments = new HarborRunnerEnrollmentMethods(this);
+            HarborJobs = new Armada.Core.Database.HarborJobMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             MissionAttemptFacts = new MissionAttemptFactMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             LaneStateTransitions = new LaneStateTransitionMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
@@ -137,6 +138,7 @@ namespace Armada.Core.Database.Sqlite
             Users = new UserMethods(this, _Settings, _Logging);
             Credentials = new CredentialMethods(this, _Settings, _Logging);
             HarborRunnerEnrollments = new HarborRunnerEnrollmentMethods(this);
+            HarborJobs = new Armada.Core.Database.HarborJobMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             MissionAttemptFacts = new MissionAttemptFactMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             LaneStateTransitions = new LaneStateTransitionMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);

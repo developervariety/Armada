@@ -65,9 +65,6 @@ namespace Armada.Runtimes
 
         #region Private-Members
 
-        // Synthetic process ids start well above any real OS process id so a stray Process.GetProcessById does
-        // not collide with an unrelated live process.
-        private static int _PidCounter = 2_000_000_000;
         private static readonly ConcurrentDictionary<int, CancellationTokenSource> _Running = new ConcurrentDictionary<int, CancellationTokenSource>();
 
         private readonly ModelEndpoint _Endpoint;
@@ -156,7 +153,7 @@ namespace Armada.Runtimes
             if (String.IsNullOrWhiteSpace(workingDirectory)) throw new ArgumentNullException(nameof(workingDirectory));
             token.ThrowIfCancellationRequested();
 
-            int processId = Interlocked.Increment(ref _PidCounter);
+            int processId = ProcessSupervisor.AllocateSyntheticProcessId();
             CancellationTokenSource cts = CancellationTokenSource.CreateLinkedTokenSource(token);
             _Running[processId] = cts;
 

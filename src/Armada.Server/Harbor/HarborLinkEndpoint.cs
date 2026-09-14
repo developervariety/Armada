@@ -104,7 +104,7 @@ namespace Armada.Server.Harbor
                     catch (OperationCanceledException) when (!ctx.Token.IsCancellationRequested)
                     {
                         string reason = connection.IsHandshaken ? "harbor_link_idle" : "harbor_handshake_timeout";
-                        if (connection.Session != null) _Coordinator.MarkSessionEnded(connection.Session, reason);
+                        if (connection.Session != null) await _Coordinator.MarkSessionEndedAsync(connection.Session, reason).ConfigureAwait(false);
                         await RejectAsync(session, send, null, reason, connection.IsHandshaken).ConfigureAwait(false);
                     }
                 }
@@ -187,19 +187,19 @@ namespace Armada.Server.Harbor
             {
                 if (!connection.TryAcceptHeartbeat(heartbeat, out string heartbeatReason))
                 {
-                    _Coordinator.MarkSessionEnded(current, heartbeatReason);
+                    await _Coordinator.MarkSessionEndedAsync(current, heartbeatReason).ConfigureAwait(false);
                     await RejectAsync(session, send, heartbeat.CorrelationId, heartbeatReason, true).ConfigureAwait(false);
                     return false;
                 }
-                HarborHeartbeatResult applied = _Coordinator.ApplyHeartbeat(current, heartbeat.LiveJobIds);
+                HarborHeartbeatResult applied = await _Coordinator.ApplyHeartbeatAsync(current, heartbeat.LiveJobIds).ConfigureAwait(false);
                 foreach (System.Collections.Generic.KeyValuePair<string, string> refused in applied.Rejected)
                     await send(new HarborError { CorrelationId = heartbeat.CorrelationId, JobId = refused.Key, Message = refused.Value }, token).ConfigureAwait(false);
                 return true;
             }
 
-            HarborCommandResult result = _Coordinator.HandleRunnerEvent(current, parsed);
+            HarborCommandResult result = await _Coordinator.HandleRunnerEventAsync(current, parsed).ConfigureAwait(false);
             if (result.Accepted) return true;
-            if (String.Equals(result.Reason, "harbor_session_stale", StringComparison.Ordinal))
+            if (result.EndsSession)
             {
                 await RejectAsync(session, send, parsed.CorrelationId, result.Reason, true).ConfigureAwait(false);
                 return false;

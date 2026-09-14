@@ -7,6 +7,7 @@ namespace Armada.Server
     using Armada.Core;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Harbor;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
@@ -37,6 +38,7 @@ namespace Armada.Server
         private readonly TimeSpan _MissionHeartbeatPersistInterval = TimeSpan.FromSeconds(15);
         private ProviderProgressTracker? _ProviderProgress;
         private TerminalMarkerTracker? _TerminalMarkers;
+        private IHarborProcessHost? _HarborHost;
 
         // Processes this handler stopped because they outlived their terminal marker. Their exit
         // is a completion, not a crash, whatever exit code the stop produced.
@@ -196,6 +198,16 @@ namespace Armada.Server
         public void SetTerminalMarkers(TerminalMarkerTracker tracker)
         {
             _TerminalMarkers = tracker ?? throw new ArgumentNullException(nameof(tracker));
+        }
+
+        /// <summary>
+        /// Wire the Harbor process host. It is set only when Harbor is enabled and its link is registered; a
+        /// mission routed to a runner while no host is set is refused, never launched locally.
+        /// </summary>
+        /// <param name="host">Harbor process host, or null.</param>
+        public void SetHarborHost(IHarborProcessHost? host)
+        {
+            _HarborHost = host;
         }
 
         /// <summary>
@@ -647,7 +659,9 @@ namespace Armada.Server
         public async Task<int> HandleLaunchAgentAsync(Captain captain, Mission mission, Dock dock)
         {
             _Logging.Info(_Header + "launching " + captain.Runtime + " agent for captain " + captain.Id);
-            Armada.Runtimes.Interfaces.IAgentRuntime runtime = await CreateRuntimeAsync(captain).ConfigureAwait(false);
+            Armada.Core.Settings.HarborMissionRoute? harborRoute = HarborMissionRouting.Resolve(_Settings.Harbor, captain, mission);
+            BaseAgentRuntime? harborAdapter = harborRoute != null ? CreateHarborAdapter(captain) : null;
+            Armada.Runtimes.Interfaces.IAgentRuntime runtime = harborAdapter ?? await CreateRuntimeAsync(captain).ConfigureAwait(false);
             string launchKey = captain.Id + ":" + mission.Id;
             _PendingLaunches[launchKey] = (captain.Id, mission.Id);
             runtime.OnProcessStarted += processId => HandleProcessStarted(processId, launchKey);
@@ -709,17 +723,24 @@ namespace Armada.Server
             int processId;
             try
             {
-                CaptainLaunchIsolationPlan? launchIsolation = await PrepareCaptainLaunchIsolationAsync(
-                    captain,
-                    mission).ConfigureAwait(false);
-                processId = await runtime.StartAsync(
-                    dock.WorktreePath ?? throw new InvalidOperationException("Dock worktree path is null"),
-                    prompt,
-                    logFilePath: logFilePath,
-                    finalMessageFilePath: finalMessageFilePath,
-                    model: captain.Model,
-                    captain: captain,
-                    isolationPlan: launchIsolation).ConfigureAwait(false);
+                if (harborRoute != null && harborAdapter != null)
+                {
+                    processId = await StartOnHarborAsync(harborAdapter, harborRoute, captain, mission, dock, prompt, logFilePath, launchKey).ConfigureAwait(false);
+                }
+                else
+                {
+                    CaptainLaunchIsolationPlan? launchIsolation = await PrepareCaptainLaunchIsolationAsync(
+                        captain,
+                        mission).ConfigureAwait(false);
+                    processId = await runtime.StartAsync(
+                        dock.WorktreePath ?? throw new InvalidOperationException("Dock worktree path is null"),
+                        prompt,
+                        logFilePath: logFilePath,
+                        finalMessageFilePath: finalMessageFilePath,
+                        model: captain.Model,
+                        captain: captain,
+                        isolationPlan: launchIsolation).ConfigureAwait(false);
+                }
             }
             catch
             {
@@ -751,6 +772,74 @@ namespace Armada.Server
             }
 
             return processId;
+        }
+
+        /// <summary>
+        /// Run a routed mission on its Harbor runner. A routed launch runs on that runner or not at all: every
+        /// refusal names its reason and nothing falls back to a local process. The dock, branch and landing stay
+        /// on the Admiral; the runner receives only the launch plan.
+        /// </summary>
+        private async Task<int> StartOnHarborAsync(
+            BaseAgentRuntime processRuntime,
+            Armada.Core.Settings.HarborMissionRoute route,
+            Captain captain,
+            Mission mission,
+            Dock dock,
+            string prompt,
+            string logFilePath,
+            string launchKey)
+        {
+            if (_HarborHost == null) throw new HarborLaunchException("harbor_mission_execution_unavailable");
+            if (String.IsNullOrWhiteSpace(mission.TenantId) || String.IsNullOrWhiteSpace(mission.UserId))
+                throw new HarborLaunchException("harbor_mission_owner_missing");
+
+            // A mission is worked only by a captain of its own tenant; routing to a runner does not widen that rule.
+            if (!String.Equals(
+                    Armada.Core.Authorization.OwnershipPolicy.TenantOfRecord(captain.TenantId),
+                    Armada.Core.Authorization.OwnershipPolicy.TenantOfRecord(mission.TenantId),
+                    StringComparison.Ordinal))
+                throw new HarborLaunchException("harbor_captain_tenant_mismatch");
+
+            // An account login is a local home directory or key on the Admiral; it cannot travel to a runner.
+            UsageAccountSettings? account = CaptainAccountLaunch.FindAccount(_Settings.ModelTier.UsageRouting, captain.Id);
+            if (CaptainAccountLaunch.HasLaunchIdentity(account))
+                throw new HarborLaunchException("harbor_account_login_unsupported", account!.Id);
+
+            if (!HarborMissionRouting.TryMapWorkingDirectory(route, dock.WorktreePath, out string runnerDirectory, out string mappingReason))
+                throw new HarborLaunchException(mappingReason);
+
+            HarborProcessLaunch launch = new HarborProcessLaunch
+            {
+                RunnerId = route.RunnerId.Trim(),
+                LaunchKey = launchKey,
+                MissionId = mission.Id,
+                CaptainId = captain.Id,
+                OwnerTenantId = mission.TenantId!,
+                OwnerUserId = mission.UserId!,
+                WorkingDirectory = runnerDirectory
+            };
+            _Logging.Info(_Header + "mission " + mission.Id + " is routed to Harbor runner " + launch.RunnerId);
+            int processId = await processRuntime.StartOnHarborAsync(_HarborHost, launch, prompt, logFilePath, captain.Model, captain).ConfigureAwait(false);
+            await _EmitEventAsync("captain.harbor_launched", "Mission " + mission.Id + " runs on Harbor runner " + launch.RunnerId,
+                "captain", captain.Id, captain.Id, mission.Id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
+            return processId;
+        }
+
+        /// <summary>
+        /// The built-in adapter a routed launch builds its plan with. A factory that replaces local launches, such as
+        /// a test host's non-launching factory, still yields the real plan, because this path never starts a local
+        /// process. A runtime with no CLI launch plan is refused by name.
+        /// </summary>
+        private BaseAgentRuntime CreateHarborAdapter(Captain captain)
+        {
+            try
+            {
+                return _RuntimeFactory.CreateLaunchPlanAdapter(captain.Runtime);
+            }
+            catch (Exception exception) when (exception is InvalidOperationException || exception is ArgumentOutOfRangeException)
+            {
+                throw new HarborLaunchException("harbor_runtime_unsupported", captain.Runtime.ToString());
+            }
         }
 
         private async Task<CaptainLaunchIsolationPlan?> PrepareCaptainLaunchIsolationAsync(

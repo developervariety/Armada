@@ -206,9 +206,21 @@ namespace Armada.Core.Services
         /// <returns>True only when the runner and its binding are active.</returns>
         public bool TryGetOwner(string runnerId, out AuthContext? owner, out long generation)
         {
+            return TryGetOwner(runnerId, out owner, out generation, out _);
+        }
+
+        /// <summary>Resolve an owner and its durable enrollment generation, naming the reason when resolution fails.</summary>
+        /// <param name="runnerId">Runner identifier.</param>
+        /// <param name="owner">Current owner context when valid.</param>
+        /// <param name="generation">Durable enrollment generation when valid.</param>
+        /// <param name="failureReason">Stable reason when resolution fails, for example <c>runner_enrollment_revoked</c>.</param>
+        /// <returns>True only when the runner and its binding are active.</returns>
+        public bool TryGetOwner(string runnerId, out AuthContext? owner, out long generation, out string failureReason)
+        {
             owner = null;
             generation = 0;
-            if (String.IsNullOrWhiteSpace(runnerId)) return Fail("runner_id_invalid");
+            failureReason = String.Empty;
+            if (String.IsNullOrWhiteSpace(runnerId)) return Fail("runner_id_invalid", out failureReason);
 
             HarborRunnerEnrollment? enrollment;
             using (CancellationTokenSource timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2)))
@@ -216,12 +228,12 @@ namespace Armada.Core.Services
             {
                 enrollment = _Enrollments.ReadAsync(runnerId.Trim(), timeout.Token)
                     .ConfigureAwait(false).GetAwaiter().GetResult();
-                if (enrollment == null) return Fail("runner_owner_unknown");
-                if (!enrollment.Active) return Fail("runner_enrollment_revoked");
-                if (enrollment.Generation <= 0) return Fail("runner_enrollment_generation_invalid");
+                if (enrollment == null) return Fail("runner_owner_unknown", out failureReason);
+                if (!enrollment.Active) return Fail("runner_enrollment_revoked", out failureReason);
+                if (enrollment.Generation <= 0) return Fail("runner_enrollment_generation_invalid", out failureReason);
                 TenantMetadata? tenant = _Tenants.ReadAsync(enrollment.TenantId, timeout.Token).ConfigureAwait(false).GetAwaiter().GetResult();
                 UserMaster? user = _Users.ReadAsync(enrollment.TenantId, enrollment.UserId, timeout.Token).ConfigureAwait(false).GetAwaiter().GetResult();
-                if (tenant == null || !tenant.Active || user == null || !user.Active) return Fail("runner_principal_inactive");
+                if (tenant == null || !tenant.Active || user == null || !user.Active) return Fail("runner_principal_inactive", out failureReason);
                 if (!String.IsNullOrWhiteSpace(enrollment.CredentialId))
                 {
                     Credential? credential = _Credentials.ReadByIdAsync(
@@ -229,9 +241,9 @@ namespace Armada.Core.Services
                         timeout.Token).ConfigureAwait(false).GetAwaiter().GetResult();
                     if (credential == null || !credential.Active
                         || !String.Equals(credential.TenantId, enrollment.TenantId, StringComparison.Ordinal)
-                        || !String.Equals(credential.UserId, enrollment.UserId, StringComparison.Ordinal)) return Fail("credential_revoked_or_mismatched");
+                        || !String.Equals(credential.UserId, enrollment.UserId, StringComparison.Ordinal)) return Fail("credential_revoked_or_mismatched", out failureReason);
                 }
-                else if (RequiresCredential(enrollment.AuthMethod)) return Fail("credential_binding_missing");
+                else if (RequiresCredential(enrollment.AuthMethod)) return Fail("credential_binding_missing", out failureReason);
 
                 owner = AuthContext.Authenticated(
                     enrollment.TenantId,
@@ -244,10 +256,10 @@ namespace Armada.Core.Services
                 SetResolutionFailure(String.Empty);
                 return true;
             }
-            catch
+            catch (Exception)
             {
                 owner = null;
-                return Fail("runner_owner_unavailable");
+                return Fail("runner_owner_unavailable", out failureReason);
             }
         }
 
@@ -322,8 +334,9 @@ namespace Armada.Core.Services
                 throw new UnauthorizedAccessException("principal_inactive");
         }
 
-        private bool Fail(string reason)
+        private bool Fail(string reason, out string failureReason)
         {
+            failureReason = reason;
             SetResolutionFailure(reason);
             return false;
         }

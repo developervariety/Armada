@@ -35,7 +35,13 @@ namespace Armada.Server.Mcp
             "get_memory",
             "search_memory",
             "update_memory",
-            "delete_memory"
+            "delete_memory",
+
+            // Harbor job tools apply the shared runner authorization rule to every job, and stopping also needs
+            // the tenant administrator level the REST route requires.
+            "armada_harbor_jobs",
+            "armada_harbor_job",
+            "armada_harbor_job_stop"
         };
 
         #endregion

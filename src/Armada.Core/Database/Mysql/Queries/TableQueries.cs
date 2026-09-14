@@ -1276,6 +1276,15 @@ namespace Armada.Core.Database.Mysql.Queries
             @"ALTER TABLE prompt_templates ADD COLUMN ownership_scope VARCHAR(32) NOT NULL DEFAULT 'TenantWide';"
         };
 
+        /// <summary>Migration 91: durable records of jobs launched on Harbor runners.</summary>
+        public static readonly string[] MigrationV91Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS harbor_jobs (job_id VARCHAR(450) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, runner_id VARCHAR(450) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, launch_key VARCHAR(450) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, tenant_id VARCHAR(450) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, user_id VARCHAR(450) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, enrollment_generation BIGINT NOT NULL, session_generation BIGINT NOT NULL, state VARCHAR(32) NOT NULL, process_id INT NULL, exit_code INT NULL, failure_reason TEXT NULL, next_output_sequence BIGINT NOT NULL DEFAULT 0, mission_id VARCHAR(450) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL, captain_id VARCHAR(450) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL, revision BIGINT NOT NULL, created_utc DATETIME(6) NOT NULL, last_update_utc DATETIME(6) NOT NULL, completed_utc DATETIME(6) NULL, PRIMARY KEY (job_id));",
+            @"CREATE INDEX idx_harbor_jobs_runner ON harbor_jobs(runner_id);",
+            @"CREATE INDEX idx_harbor_jobs_state ON harbor_jobs(state);",
+            @"CREATE INDEX idx_harbor_jobs_tenant_user ON harbor_jobs(tenant_id(191), user_id(191));"
+        };
+
         /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>

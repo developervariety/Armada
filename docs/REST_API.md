@@ -22,6 +22,7 @@
   - [User Management](#user-management)
   - [Credential Management](#credential-management)
   - [Harbor Runner Enrollment](#harbor-runner-enrollment)
+  - [Harbor Jobs](#harbor-jobs)
   - [Status](#status)
   - [Lead Control](#lead-control)
   - [Fleets](#fleets)
@@ -714,6 +715,43 @@ earlier sessions or jobs.
 
 **Response:** `200 OK` - `{ "Revoked": true }`; `404` when no active enrollment exists; `403` when the caller
 lacks authority over the owner.
+
+---
+
+### Harbor Jobs
+
+> **Registered only when `Harbor.Enabled` is true.** Every route applies the runner authority rule that
+> enrollment uses: a caller sees a job when it is the runner owner or has authority over the owner. A job the
+> caller may not see reads as `404`. Stopping needs a tenant administrator, as enrollment does.
+
+A job record carries `JobId`, `RunnerId`, `LaunchKey`, `TenantId` and `UserId` (the runner's enrolled owner),
+`EnrollmentGeneration`, `SessionGeneration`, `State` (`Pending`, `Running`, `Stopping`, `Exited`, `Failed`,
+`Lost`), `ProcessId` (host process on the runner), `ExitCode`, `FailureReason`, `NextOutputSequence`,
+`MissionId`, `CaptainId`, `Revision`, `CreatedUtc`, `LastUpdateUtc` and `CompletedUtc`. Records are durable;
+a job that was not terminal when the Admiral started is `Lost` with `harbor_admiral_restarted`.
+
+#### GET /api/v1/harbor-runners/jobs
+
+List visible jobs, newest first. Query: `runnerId`, `activeOnly` (`true` for jobs that are not terminal),
+`limit` (1-1000, default 100).
+
+**Response:** `200 OK` - `{ "Jobs": [ ... ] }`. **Errors:** `401` unauthenticated.
+
+#### GET /api/v1/harbor-runners/jobs/{jobId}
+
+Read one visible job. A job held by this Admiral process includes output progress not yet persisted.
+
+**Response:** `200 OK` - job record; `404` `harbor_job_unknown` when unknown or not visible.
+
+#### POST /api/v1/harbor-runners/jobs/{jobId}/stop
+
+Send a stop to the job's runner and connection. When the runner is disconnected the Admiral releases the job:
+it becomes `Lost` with `harbor_job_released_runner_unavailable` and the response carries that reason.
+
+**Response:** `200 OK` - `{ "Stopped": true, "Reason": "" }`. **Errors:** `401` unauthenticated; `403` below
+tenant administrator or `harbor_command_unauthorized`; `404` `harbor_job_unknown`; `409` with the stable reason
+(`harbor_job_not_running`, `harbor_job_not_held`, `harbor_job_not_bound`, a revalidation refusal, or
+`harbor_stop_send_failed`).
 
 ---
 

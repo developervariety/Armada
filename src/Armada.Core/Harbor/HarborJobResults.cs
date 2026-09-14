@@ -40,8 +40,23 @@ namespace Armada.Core.Harbor
         /// <summary>Stable reason for a failed or lost job.</summary>
         public string? FailureReason { get; }
 
-        /// <summary>Accepted output chunks in sequence order.</summary>
+        /// <summary>Accepted output chunks in sequence order. Empty for a mission-bound job, whose observer receives the output.</summary>
         public IReadOnlyList<HarborOutput> Output { get; }
+
+        /// <summary>Tenant the runner is enrolled to; the job runs for this tenant.</summary>
+        public string OwnerTenantId { get; }
+
+        /// <summary>User the runner is enrolled to; the job runs for this user.</summary>
+        public string OwnerUserId { get; }
+
+        /// <summary>Mission the job runs, when it is mission-bound.</summary>
+        public string? MissionId { get; }
+
+        /// <summary>Captain the job runs for, when it is mission-bound.</summary>
+        public string? CaptainId { get; }
+
+        /// <summary>Next output sequence the Admiral expects.</summary>
+        public long NextOutputSequence { get; }
 
         internal HarborJobSnapshot(
             string jobId,
@@ -55,8 +70,18 @@ namespace Armada.Core.Harbor
             int? processId,
             int? exitCode,
             string? failureReason,
-            IReadOnlyList<HarborOutput> output)
+            IReadOnlyList<HarborOutput> output,
+            string ownerTenantId,
+            string ownerUserId,
+            string? missionId,
+            string? captainId,
+            long nextOutputSequence)
         {
+            OwnerTenantId = ownerTenantId;
+            OwnerUserId = ownerUserId;
+            MissionId = missionId;
+            CaptainId = captainId;
+            NextOutputSequence = nextOutputSequence;
             JobId = jobId;
             RunnerId = runnerId;
             LaunchKey = launchKey;
@@ -78,21 +103,33 @@ namespace Armada.Core.Harbor
         /// <summary>Whether the command or event was accepted.</summary>
         public bool Accepted { get; }
 
-        /// <summary>Stable rejection reason, or empty when accepted.</summary>
+        /// <summary>Stable rejection reason; empty when accepted, or the release reason for an accepted release.</summary>
         public string Reason { get; }
 
-        private HarborCommandResult(bool accepted, string reason)
+        /// <summary>Whether the refusal ends the runner's session, so the link must be closed.</summary>
+        public bool EndsSession { get; }
+
+        private HarborCommandResult(bool accepted, string reason, bool endsSession)
         {
             Accepted = accepted;
             Reason = reason;
+            EndsSession = endsSession;
         }
 
         /// <summary>Accepted result.</summary>
-        public static HarborCommandResult Accept() => new HarborCommandResult(true, String.Empty);
+        public static HarborCommandResult Accept() => new HarborCommandResult(true, String.Empty, false);
+
+        /// <summary>Accepted stop that released a job whose runner was not connected.</summary>
+        /// <param name="reason">Release reason recorded on the job.</param>
+        public static HarborCommandResult AcceptReleased(string reason) => new HarborCommandResult(true, reason, false);
 
         /// <summary>Rejected result with a stable reason.</summary>
         /// <param name="reason">Stable reason.</param>
-        public static HarborCommandResult Reject(string reason) => new HarborCommandResult(false, reason);
+        public static HarborCommandResult Reject(string reason) => new HarborCommandResult(false, reason, false);
+
+        /// <summary>Rejected result whose reason ends the runner's session.</summary>
+        /// <param name="reason">Stable reason.</param>
+        public static HarborCommandResult EndSession(string reason) => new HarborCommandResult(false, reason, true);
     }
 
     /// <summary>Outcome of a Harbor launch.</summary>

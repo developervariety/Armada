@@ -93,9 +93,9 @@ namespace Armada.Core.Services
             long enrollmentGeneration;
             try
             {
-                if (!TryResolveOwner(identity.RunnerId, out ownerAuth, out enrollmentGeneration) || ownerAuth == null)
+                if (!TryResolveOwner(identity.RunnerId, out ownerAuth, out enrollmentGeneration, out string resolution) || ownerAuth == null)
                 {
-                    failureReason = "runner_owner_unknown";
+                    failureReason = String.IsNullOrWhiteSpace(resolution) ? "runner_owner_unknown" : resolution;
                     return false;
                 }
             }
@@ -367,11 +367,12 @@ namespace Armada.Core.Services
             }
         }
 
-        private bool TryResolveOwner(string runnerId, out AuthContext? owner, out long enrollmentGeneration)
+        private bool TryResolveOwner(string runnerId, out AuthContext? owner, out long enrollmentGeneration, out string failureReason)
         {
             enrollmentGeneration = 0;
+            failureReason = String.Empty;
             if (_OwnerResolver is IHarborRunnerOwnerGenerationResolver versioned)
-                return versioned.TryGetOwner(runnerId, out owner, out enrollmentGeneration);
+                return versioned.TryGetOwner(runnerId, out owner, out enrollmentGeneration, out failureReason);
             return _OwnerResolver!.TryGetOwner(runnerId, out owner);
         }
 
@@ -382,9 +383,10 @@ namespace Armada.Core.Services
             long enrollmentGeneration;
             try
             {
-                if (!TryResolveOwner(session.Identity.RunnerId, out owner, out enrollmentGeneration) || owner == null)
+                if (!TryResolveOwner(session.Identity.RunnerId, out owner, out enrollmentGeneration, out string resolution) || owner == null)
                 {
-                    failureReason = "runner_owner_unavailable";
+                    // The durable enrollment names why the owner no longer resolves, for example a revocation.
+                    failureReason = String.IsNullOrWhiteSpace(resolution) ? "runner_owner_unavailable" : resolution;
                     return false;
                 }
             }

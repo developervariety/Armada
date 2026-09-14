@@ -280,6 +280,12 @@
                          "value":  "",
                          "type":  "string",
                          "description":  "Harbor runner ID for enrollment create and revoke requests."
+                     },
+                     {
+                         "key":  "harborJobId",
+                         "value":  "",
+                         "type":  "string",
+                         "description":  "Harbor job ID (hjob_ prefix) for job detail and stop requests."
                      }
                  ],
     "item":  [
@@ -12257,6 +12263,85 @@
                                                                            ]
                                                               },
                                                       "description":  "Requires Harbor: served only when Harbor.Enabled and WebSocketEnabled are set. Revokes a runner enrollment; the runner can no longer link. Requires a tenant administrator."
+                                                  }
+                                  },
+                                  {
+                                      "name":  "List Harbor Jobs",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{baseUrl}}/api/v1/harbor-runners/jobs?activeOnly=true&limit=100",
+                                                                  "host":  [
+                                                                               "{{baseUrl}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "api",
+                                                                               "v1",
+                                                                               "harbor-runners",
+                                                                               "jobs"
+                                                                           ],
+                                                                  "query":  [
+                                                                                {
+                                                                                    "key":  "activeOnly",
+                                                                                    "value":  "true"
+                                                                                },
+                                                                                {
+                                                                                    "key":  "limit",
+                                                                                    "value":  "100"
+                                                                                }
+                                                                            ]
+                                                              },
+                                                      "description":  "Requires Harbor: served only when Harbor.Enabled and WebSocketEnabled are set. Lists Harbor jobs the caller may see under the runner authority rule, newest first."
+                                                  }
+                                  },
+                                  {
+                                      "name":  "Get Harbor Job",
+                                      "request":  {
+                                                      "method":  "GET",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{baseUrl}}/api/v1/harbor-runners/jobs/{{harborJobId}}",
+                                                                  "host":  [
+                                                                               "{{baseUrl}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "api",
+                                                                               "v1",
+                                                                               "harbor-runners",
+                                                                               "jobs",
+                                                                               "{{harborJobId}}"
+                                                                           ]
+                                                              },
+                                                      "description":  "Requires Harbor: served only when Harbor.Enabled and WebSocketEnabled are set. Reads one Harbor job; a job the caller may not see returns 404."
+                                                  }
+                                  },
+                                  {
+                                      "name":  "Stop Harbor Job",
+                                      "request":  {
+                                                      "method":  "POST",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{baseUrl}}/api/v1/harbor-runners/jobs/{{harborJobId}}/stop",
+                                                                  "host":  [
+                                                                               "{{baseUrl}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "api",
+                                                                               "v1",
+                                                                               "harbor-runners",
+                                                                               "jobs",
+                                                                               "{{harborJobId}}",
+                                                                               "stop"
+                                                                           ]
+                                                              },
+                                                      "description":  "Requires Harbor: served only when Harbor.Enabled and WebSocketEnabled are set. Stops a Harbor job on its runner, or releases it when the runner is disconnected. Requires a tenant administrator."
                                                   }
                                   }
                               ]

@@ -100,7 +100,8 @@ namespace Armada.Server.Mcp
             Armada.Core.Services.DispatchHold? dispatchHold = null,
             Armada.Core.Services.TerminalVoyageMissionReconciler? terminalVoyageMissions = null,
             ObjectiveDispatchPreviewService? objectiveDispatchPreviewService = null,
-            MissionStatusTransitionService? statusTransitions = null)
+            MissionStatusTransitionService? statusTransitions = null,
+            Armada.Core.Services.HarborJobService? harborJobs = null)
         {
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
             longRunningJobs = longRunningJobs ?? new LongRunningJobService();
@@ -153,6 +154,7 @@ namespace Armada.Server.Mcp
             if (codeIndexService != null) McpCodeIndexTools.Register(register, codeIndexService, longRunningJobs);
             if (diskLifecycle != null) McpDiskLifecycleTools.Register(register, diskLifecycle, longRunningJobs);
             if (terminalVoyageMissions != null) McpTerminalVoyageMissionTools.Register(register, terminalVoyageMissions, longRunningJobs);
+            if (harborJobs != null) McpHarborJobTools.Register(register, harborJobs);
         }
 
         /// <summary>

@@ -132,6 +132,59 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   `CreateCaptainAsync` and `UpdateCaptainAsync` still take a whole `Captain`
   but send only its configuration fields, so a captain read back from the
   server can be sent again without a refusal.
+### Harbor mission execution
+
+- A captain or a vessel can opt into running its missions on one enrolled Harbor
+  runner through `Harbor.MissionRoutes`. Routes do nothing while Harbor is
+  disabled, and a mission without a route launches locally as before. A captain
+  route takes precedence over a vessel route. Harbor stays disabled by default.
+- A routed launch runs on its runner or not at all. It is refused by name, with
+  no local fallback, when Harbor execution is not registered, the runner is
+  enrolled to another tenant or user (`harbor_runner_owner_mismatch`), the
+  runtime cannot run as a runner process, the captain uses an account login, the
+  dock is outside the route's directory map, or the launch needs an environment
+  variable that may not leave the Admiral
+  (`harbor_launch_environment_unsupported`, naming the variables). Provider keys
+  and the Admiral's MCP launch credential never travel to a runner.
+- The runtime builds the launch plan exactly as for a local launch, and the
+  runner's output and exit pass through the same parsing, mission log and
+  lifecycle events. Each job runs under a synthetic process identifier that the
+  process supervisor holds together with its stop, so process ownership,
+  liveness, stall detection, the health check, stop and recovery treat a Harbor
+  job like a local process. The dock, branch and landing stay on the Admiral.
+- Harbor jobs are durable on SQLite, PostgreSQL, MySQL and SQL Server: job
+  identity, runner, owner, enrollment and connection generation, state, host
+  process id, exit code, last output sequence, mission and named failure reason.
+  Writes are revision-guarded, so a delayed write never overwrites a newer
+  state. At start the Admiral fails every job an earlier process left unfinished
+  with `harbor_admiral_restarted`, and a runner that later reports one is
+  refused as not rebindable.
+- Every claim, output, exit and job error from a runner is revalidated against
+  its durable enrollment before it changes a job. A runner revoked or
+  re-enrolled on any Admiral instance is refused by name on its next frame
+  (`runner_enrollment_revoked`, `runner_enrollment_generation_stale`), its link
+  closes and its jobs are lost. Heartbeat refusals name the same reasons instead
+  of `runner_owner_unavailable`.
+- A runner disconnected longer than `Harbor.DisconnectedJobGraceSeconds`
+  (default 180) loses its live jobs with `harbor_runner_disconnected`. A stop
+  for a job whose runner is disconnected releases it with
+  `harbor_job_released_runner_unavailable`.
+- Operators list, inspect and stop Harbor jobs through
+  `GET /api/v1/harbor-runners/jobs`, `GET /api/v1/harbor-runners/jobs/{jobId}`,
+  `POST /api/v1/harbor-runners/jobs/{jobId}/stop` and the MCP tools
+  `armada_harbor_jobs`, `armada_harbor_job` and `armada_harbor_job_stop`. They
+  apply the same runner authority rule as enrollment; a job the caller may not
+  see reads as not found, and a stop needs a tenant or global administrator.
+- The in-process API runtime and Harbor jobs take synthetic process identifiers
+  from one allocator, so the two can never share an identifier.
+- A routed launch re-checks the mission tenant rule: a captain of another tenant
+  is refused with `harbor_captain_tenant_mismatch` before anything reaches the
+  runner. A mission or captain with no tenant belongs to the default tenant.
+- A routed launch builds its plan with the runtime factory's built-in adapter,
+  which never starts a local process, so a factory that replaces local launches
+  (such as a test host's non-launching factory) still runs the real plan on the
+  runner. A runtime with no CLI launch plan is refused with
+  `harbor_runtime_unsupported`.
 
 ### Data expiry on every provider
 

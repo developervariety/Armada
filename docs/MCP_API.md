@@ -284,7 +284,14 @@ What a caller may use:
 | Caller | Tools listed and callable |
 | --- | --- |
 | Global administrator (admiral API key, or a global-admin user credential) | The whole catalog |
-| Any other authenticated user, including a tenant administrator | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory` |
+| Any other authenticated user, including a tenant administrator | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
+
+The Harbor job tools apply the runner authority rule that Harbor enrollment
+uses: a caller sees a job when it is the runner owner or has authority over the
+owner, and a job it may not see reads as unknown (`harbor_job_unknown`).
+`armada_harbor_job_stop` also needs a tenant or global administrator, the level
+the REST stop route requires, and otherwise returns reason
+`tenant_administrator_required`.
 
 The rest of the catalog is operator control with no tenant or user scope, so a
 narrower role neither discovers nor calls it. An operator repair that reads or

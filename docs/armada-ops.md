@@ -1661,9 +1661,26 @@ port and TLS termination apply unchanged. Enroll each runner against a bearer cr
 
 The link authenticates only through the standard credential headers; tenant, user and access-key headers are
 ignored. Each job is bound to one runner, its enrollment generation and its connection generation, so a stale or
-foreign link cannot report for it, and a revoked runner's link is closed at its next heartbeat. Mission launch
-does not route to Harbor in this version. The wire contract is `docs/HARBOR_PROTOCOL.md`; ownership and
-revocation are `docs/HARBOR_IDENTITY.md`.
+foreign link cannot report for it. Every job frame and heartbeat is revalidated against durable enrollment, so a
+runner revoked or re-enrolled on any Admiral is refused by name on its next frame and its link closes. The wire
+contract is `docs/HARBOR_PROTOCOL.md`; ownership and revocation are `docs/HARBOR_IDENTITY.md`.
+
+Mission launch stays local unless a route opts a captain or a vessel in. `Harbor.MissionRoutes` entries name a
+`RunnerId` and either a `CaptainId` or a `VesselId`; a captain route wins over a vessel route. The mission owner
+must be the runner's enrolled tenant and user. The runner works in the Admiral's dock path unchanged (a shared
+mount), or under `RunnerWorkingDirectoryRoot` when `AdmiralWorkingDirectoryRoot` is also set. A routed launch is
+refused by name and never falls back to a local process: owner mismatch, a captain of another tenant
+(`harbor_captain_tenant_mismatch`), an account-login captain, a provider-key
+captain (its variables may not leave the Admiral), a dock outside the directory map, or Harbor execution not
+registered. The dock, branch and landing stay on the Admiral. A Harbor job appears to process liveness, stall
+detection, stop and recovery as a synthetic process id, so a runner job that is lost reads as a dead process.
+
+Jobs are durable. At start the Admiral fails every job an earlier process left unfinished
+(`harbor_admiral_restarted`). A runner disconnected longer than `Harbor.DisconnectedJobGraceSeconds` loses its jobs
+(`harbor_runner_disconnected`). List, inspect and stop jobs with `GET /api/v1/harbor-runners/jobs`,
+`GET .../jobs/{jobId}` and `POST .../jobs/{jobId}/stop`, or the MCP tools `armada_harbor_jobs`,
+`armada_harbor_job` and `armada_harbor_job_stop`. Enabling mission routes in production needs a separate,
+owner-approved rollout.
 
 ### Runtime MCP startup
 
