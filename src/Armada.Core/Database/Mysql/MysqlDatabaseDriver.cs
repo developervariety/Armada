@@ -121,17 +121,9 @@ namespace Armada.Core.Database.Mysql
                         await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     }
 
-                    // Get current schema version
-                    int currentVersion = 0;
-                    using (MySqlCommand cmd = conn.CreateCommand())
-                    {
-                        cmd.CommandText = "SELECT COALESCE(MAX(version), 0) FROM schema_migrations;";
-                        object? result = await cmd.ExecuteScalarAsync(token).ConfigureAwait(false);
-                        if (result != null && result != DBNull.Value) currentVersion = Convert.ToInt32(result);
-                    }
-
-                    // Apply pending migrations
+                    // Apply pending migrations. The ledger read refuses a skipped lower version.
                     List<SchemaMigration> migrations = GetMigrations();
+                    int currentVersion = await AppliedMigrationLedger.ReadCurrentVersionAsync(conn, migrations, DatabaseTypeEnum.Mysql, token).ConfigureAwait(false);
                     int applied = 0;
 
                     MysqlMigrationRunner runner = new MysqlMigrationRunner(conn, MigrationCheckpoint);

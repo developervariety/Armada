@@ -97,16 +97,24 @@ namespace Armada.Test.Unit.Suites.Database
                     LoggingModule logging = new LoggingModule();
                     logging.Settings.EnableConsole = false;
 
+                    // Stop before v42 so the ledger ends at v41, then drop the index v42 rebuilds.
+                    bool stopped = false;
                     SqliteDatabaseDriver driver1 = new SqliteDatabaseDriver(connectionString, logging);
-                    await driver1.InitializeAsync().ConfigureAwait(false);
+                    driver1.MigrationCheckpoint = (migrationVersion, ordinal) =>
+                    {
+                        if (migrationVersion == 42 && ordinal == -1) throw new OperationCanceledException("stop before v42");
+                    };
+                    try { await driver1.InitializeAsync().ConfigureAwait(false); }
+                    catch (OperationCanceledException) { stopped = true; }
                     driver1.Dispose();
+                    AssertTrue(stopped, "fixture stopped before v42");
 
                     using (SqliteConnection conn = new SqliteConnection(connectionString))
                     {
                         await conn.OpenAsync().ConfigureAwait(false);
                         using (SqliteCommand cmd = conn.CreateCommand())
                         {
-                            cmd.CommandText = "DELETE FROM schema_migrations WHERE version = 42;";
+                            cmd.CommandText = "DROP INDEX IF EXISTS idx_pipeline_stages_order;";
                             await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
                         }
                     }
@@ -116,8 +124,18 @@ namespace Armada.Test.Unit.Suites.Database
                     int version = await driver2.GetSchemaVersionAsync().ConfigureAwait(false);
                     driver2.Dispose();
 
+                    using (SqliteConnection conn = new SqliteConnection(connectionString))
+                    {
+                        await conn.OpenAsync().ConfigureAwait(false);
+                        using (SqliteCommand cmd = conn.CreateCommand())
+                        {
+                            cmd.CommandText = "SELECT (SELECT COUNT(*) FROM schema_migrations WHERE version = 42) + (SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_pipeline_stages_order');";
+                            AssertEqual(2L, Convert.ToInt64(await cmd.ExecuteScalarAsync().ConfigureAwait(false)), "v42 recorded and its index rebuilt after the index was dropped");
+                        }
+                    }
+
                     int expectedVersion = SqliteTableQueries.GetMigrations().Max(m => m.Version);
-                    AssertEqual(expectedVersion, version, "schema version should return to current head after idempotent rerun of v42");
+                    AssertEqual(expectedVersion, version, "schema version should reach current head after v42 runs against a dropped index");
                 }
                 finally
                 {

@@ -200,17 +200,9 @@ namespace Armada.Core.Database.Sqlite
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
 
-                // Get current schema version
-                int currentVersion = 0;
-                using (SqliteCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = "SELECT COALESCE(MAX(version), 0) FROM schema_migrations;";
-                    object? result = await cmd.ExecuteScalarAsync(token).ConfigureAwait(false);
-                    if (result != null && result != DBNull.Value) currentVersion = Convert.ToInt32(result);
-                }
-
-                // Apply pending migrations
+                // Apply pending migrations. The ledger read refuses a skipped lower version.
                 List<SchemaMigration> migrations = TableQueries.GetMigrations();
+                int currentVersion = await AppliedMigrationLedger.ReadCurrentVersionAsync(conn, migrations, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
                 int applied = 0;
 
                 foreach (SchemaMigration migration in migrations)

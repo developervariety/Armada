@@ -69,6 +69,12 @@ namespace Armada.Test.Database
                 return;
             }
 
+            if (scenario == "skipped-version")
+            {
+                await new SkippedMigrationVersionTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
+                return;
+            }
+
             if (scenario == "harbor-enrollment-guards")
             {
                 await new HarborRunnerEnrollmentSchemaGuardTests(_Settings).VerifyAsync(token).ConfigureAwait(false);

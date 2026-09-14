@@ -1596,6 +1596,50 @@ surfaces. Read the existing record first. Use
 `armada_audit_operational_assets` before and after asset changes. Validate
 provider models with a live provider call before putting them in a tier.
 
+### Schema migration ledger
+
+Each provider driver applies only migrations above the highest version in
+`schema_migrations`. A migration numbered below an applied version would
+never run. This happens when parallel branches land out of numeric order.
+Every driver therefore reads the ledger through one shared rule before any
+migration, schema guard or prerequisite step. If a known migration below the
+applied maximum has no row, startup fails with
+`SkippedMigrationVersionsException`. The message starts with
+`skipped_migration_versions:` and names the provider, the applied maximum and
+each missing version. Nothing is written, so every restart refuses the same
+way. Version numbers retired from the code's list are not gaps, and neither
+are ledger versions the code does not know.
+
+The runner refuses; it does not apply the missing migration late. Reasons:
+
+- A late migration runs against a schema its author never saw. The higher
+  versions may have dropped, renamed or backfilled objects it touches, and a
+  data statement can then succeed with the wrong result. Nothing reports that.
+- A fresh install applies the same versions in the other order, so fresh-
+  install schema checks no longer describe the upgraded database.
+- MySQL DDL commits statement by statement, so a late migration that fails
+  partway leaves partial schema outside a transaction.
+- Per-version schema guards (model endpoints, captain endpoint links, Harbor
+  enrollment) and the migration checkpoints assume ascending application.
+
+Interrupted migrations do not trip the rule. Each migration records its row
+only after its last statement, so an interrupted run leaves the maximum below
+it, and the restart resumes normally.
+
+The fix belongs in source, before the migration ships: renumber the unapplied
+migration above the highest version any deployed database has applied, on
+every provider. A self-deploy candidate check or an isolated-restore boot runs
+the same startup, so it reports this refusal and leaves the running admiral in
+place. If a build with the lower number already ran against a database, the
+owner decides the recovery. Restore from a backup taken before the higher
+version, or apply and record the migration by hand after review. Never insert
+a ledger row without its schema change.
+
+`scripts/common/verify-fork-migrations.py` is the source-side check. It
+refuses a new declaration at or below the fixed manifest baseline. It cannot
+see two unlanded branches that both number above that baseline; the startup
+rule covers that case.
+
 ### Harbor runners (disabled by default)
 
 `Harbor.Enabled` defaults to false. While false the Admiral registers no Harbor link route and no Harbor

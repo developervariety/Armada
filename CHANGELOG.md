@@ -817,6 +817,23 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Added route contract coverage for every new wrapper, including request JSON,
   typed responses, encoded IDs, server error details, and cancellation.
 
+### Skipped migration versions refuse startup
+
+- Every provider driver reads its applied schema version through one shared
+  ledger rule. If `schema_migrations` records a version above a known
+  migration that has no row, startup stops with
+  `SkippedMigrationVersionsException` (`skipped_migration_versions:`), naming
+  the provider, the applied maximum and every missing version. Before this,
+  a migration numbered below an applied version never ran and nothing was
+  logged. Retired version numbers absent from the code's list, and ledger
+  versions the code does not know, are not gaps.
+- The refusal happens before any migration, schema guard or prerequisite step,
+  and records nothing, so a restart refuses the same way. Existing migration
+  bodies and history are unchanged.
+- The database runner adds the `skipped-version` scenario for all four
+  providers. Two unit tests that deleted a ledger row to fake an upgrade now
+  stop the real upgrade before that version instead.
+
 ### Database test invocation documentation
 
 - The testing guide now states that the database runner requires `--type`.

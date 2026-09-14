@@ -110,47 +110,40 @@ namespace Armada.Test.Unit
                     LoggingModule logging = new LoggingModule();
                     logging.Settings.EnableConsole = false;
 
-                    Mission mission;
+                    // Stop before v56 so the mission row is written by a schema without the column.
+                    bool stopped = false;
                     SqliteDatabaseDriver setupDriver = new SqliteDatabaseDriver(connectionString, logging);
-                    await setupDriver.InitializeAsync().ConfigureAwait(false);
-
-                    Fleet fleet = new Fleet("CapabilityHint Upgrade Fleet");
-                    await setupDriver.Fleets.CreateAsync(fleet).ConfigureAwait(false);
-
-                    Vessel vessel = new Vessel("CapabilityHint Upgrade Vessel", "https://github.com/test/capability-hint-upgrade");
-                    vessel.FleetId = fleet.Id;
-                    await setupDriver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
-
-                    Voyage voyage = new Voyage("CapabilityHint Upgrade Voyage", "pre-column mission");
-                    await setupDriver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
-
-                    mission = new Mission("CapabilityHint Upgrade Mission", "existed before v56");
-                    mission.VoyageId = voyage.Id;
-                    mission.VesselId = vessel.Id;
-                    mission.CapabilityHint = "audit";
-                    await setupDriver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                    setupDriver.MigrationCheckpoint = (migrationVersion, ordinal) =>
+                    {
+                        if (migrationVersion == 56 && ordinal == -1) throw new OperationCanceledException("stop before v56");
+                    };
+                    try { await setupDriver.InitializeAsync().ConfigureAwait(false); }
+                    catch (OperationCanceledException) { stopped = true; }
                     setupDriver.Dispose();
+                    AssertTrue(stopped, "fixture stopped before v56");
 
+                    string missionId = "msn_capability_hint_v55_" + Guid.NewGuid().ToString("N");
                     using (SqliteConnection conn = new SqliteConnection(connectionString))
                     {
                         await conn.OpenAsync().ConfigureAwait(false);
-                        using (SqliteCommand deleteMigration = conn.CreateCommand())
+                        using (SqliteCommand column = conn.CreateCommand())
                         {
-                            deleteMigration.CommandText = "DELETE FROM schema_migrations WHERE version = 56;";
-                            await deleteMigration.ExecuteNonQueryAsync().ConfigureAwait(false);
+                            column.CommandText = "SELECT COUNT(*) FROM pragma_table_info('missions') WHERE name = 'capabilityhint';";
+                            AssertEqual(0L, Convert.ToInt64(await column.ExecuteScalarAsync().ConfigureAwait(false)), "missions has no capabilityhint column before v56");
                         }
 
-                        using (SqliteCommand dropColumn = conn.CreateCommand())
+                        using (SqliteCommand insert = conn.CreateCommand())
                         {
-                            dropColumn.CommandText = "ALTER TABLE missions DROP COLUMN capabilityhint;";
-                            await dropColumn.ExecuteNonQueryAsync().ConfigureAwait(false);
+                            insert.CommandText = "INSERT INTO missions (id, title, description, status, created_utc, last_update_utc) VALUES (@id, 'CapabilityHint Upgrade Mission', 'existed before v56', 'Pending', '2020-01-02T03:04:05.0000000Z', '2020-01-02T03:04:05.0000000Z');";
+                            insert.Parameters.AddWithValue("@id", missionId);
+                            await insert.ExecuteNonQueryAsync().ConfigureAwait(false);
                         }
                     }
 
                     SqliteDatabaseDriver driver = new SqliteDatabaseDriver(connectionString, logging);
                     await driver.InitializeAsync().ConfigureAwait(false);
 
-                    Mission? readBack = await driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    Mission? readBack = await driver.Missions.ReadAsync(missionId).ConfigureAwait(false);
                     driver.Dispose();
 
                     AssertNotNull(readBack, "pre-existing mission should remain readable after v56 upgrade");
