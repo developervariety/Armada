@@ -929,6 +929,9 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF OBJECT_ID('harbor_runner_enrollments','U') IS NULL CREATE TABLE harbor_runner_enrollments (runner_id NVARCHAR(450) NOT NULL PRIMARY KEY, tenant_id NVARCHAR(450) NOT NULL, user_id NVARCHAR(450) NOT NULL, auth_method NVARCHAR(64) NOT NULL, credential_id NVARCHAR(450) NULL, generation BIGINT NOT NULL, active BIT NOT NULL DEFAULT 1, created_utc DATETIME2 NOT NULL, last_update_utc DATETIME2 NOT NULL, revoked_utc DATETIME2 NULL, revoked_by_user_id NVARCHAR(450) NULL);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_harbor_runner_enrollments_tenant' AND object_id=OBJECT_ID('harbor_runner_enrollments')) CREATE INDEX idx_harbor_runner_enrollments_tenant ON harbor_runner_enrollments(tenant_id);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_harbor_runner_enrollments_active' AND object_id=OBJECT_ID('harbor_runner_enrollments')) CREATE INDEX idx_harbor_runner_enrollments_active ON harbor_runner_enrollments(active);"
+                ),
+                new SchemaMigration(86, "Persist project authorization policy",
+                    @"ALTER TABLE project_profiles ADD authorization_policy NVARCHAR(MAX) NULL;"
                 )
             };
         }

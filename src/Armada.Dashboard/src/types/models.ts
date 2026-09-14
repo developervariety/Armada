@@ -2423,6 +2423,8 @@ export interface ProjectProfile {
   workflowProfileId: string | null;
   personaOverrides: PersonaOverride[];
   skills: string[];
+  /** Owner authorization and scope text delivered verbatim to every captain brief for this project. */
+  authorizationPolicy: string | null;
   createdUtc: string;
   lastUpdateUtc: string;
 }

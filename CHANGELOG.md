@@ -92,6 +92,17 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - A rescue brief bounds the failed mission's failure reason, so a failure reason
   that holds a whole gate log no longer multiplies the rescue description.
 
+### Authorization policy in every captain brief
+
+- Project profiles carry an optional authorization policy. Every brief path
+  (operator dispatch, the objective scheduler, retries and autonomous rescues)
+  renders it through one shared module, verbatim, together with fixed hard
+  limits on secrets, tenant isolation, protected paths and destructive
+  operations that no policy can relax. The module is never elided by the
+  brief budget backstop. Schema migration adds the column on all four providers.
+- Persona overrides, skills and the authorization policy resolve the project
+  profile through one shared lookup.
+
 ### Native self-deploy preflight
 
 - Added provider-native backup, owned isolated restore and candidate database

@@ -42,11 +42,11 @@ namespace Armada.Core.Database.Mysql.Implementations
                 {
                     cmd.CommandText = @"INSERT INTO project_profiles
                         (id, tenant_id, user_id, name, description, scope, fleet_id, vessel_id, is_default, active,
-                         default_pipeline_id, workflow_profile_id, persona_overrides_json, skills_json,
+                         default_pipeline_id, workflow_profile_id, persona_overrides_json, skills_json, authorization_policy,
                          created_utc, last_update_utc)
                         VALUES
                         (@id, @tenant_id, @user_id, @name, @description, @scope, @fleet_id, @vessel_id, @is_default, @active,
-                         @default_pipeline_id, @workflow_profile_id, @persona_overrides_json, @skills_json,
+                         @default_pipeline_id, @workflow_profile_id, @persona_overrides_json, @skills_json, @authorization_policy,
                          @created_utc, @last_update_utc);";
                     AddParameters(cmd, profile);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
@@ -107,6 +107,7 @@ namespace Armada.Core.Database.Mysql.Implementations
                         workflow_profile_id = @workflow_profile_id,
                         persona_overrides_json = @persona_overrides_json,
                         skills_json = @skills_json,
+                        authorization_policy = @authorization_policy,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
                     AddParameters(cmd, profile);
@@ -281,6 +282,7 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@workflow_profile_id", (object?)profile.WorkflowProfileId ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@persona_overrides_json", Serialize(profile.PersonaOverrides));
             cmd.Parameters.AddWithValue("@skills_json", Serialize(profile.Skills));
+            cmd.Parameters.AddWithValue("@authorization_policy", (object?)profile.AuthorizationPolicy ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@created_utc", profile.CreatedUtc);
             cmd.Parameters.AddWithValue("@last_update_utc", profile.LastUpdateUtc);
         }
@@ -309,6 +311,7 @@ namespace Armada.Core.Database.Mysql.Implementations
 
             profile.PersonaOverrides = Deserialize<List<PersonaOverride>>(MysqlDatabaseDriver.NullableString(reader["persona_overrides_json"])) ?? new List<PersonaOverride>();
             profile.Skills = Deserialize<List<string>>(MysqlDatabaseDriver.NullableString(reader["skills_json"])) ?? new List<string>();
+            profile.AuthorizationPolicy = MysqlDatabaseDriver.NullableString(reader["authorization_policy"]);
             return profile;
         }
 

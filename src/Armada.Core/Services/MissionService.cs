@@ -2216,6 +2216,13 @@ namespace Armada.Core.Services
                 content += "\n";
             }
 
+            // Owner authorization and hard limits, from the one shared renderer. Every brief path reaches
+            // this method, so an operator dispatch, a scheduled objective, a retry and a rescue all carry
+            // the project's policy in the same words. Never elided by the budget backstop.
+            string? authorizationPolicy = await ResolveAuthorizationPolicyAsync(vessel, token).ConfigureAwait(false);
+            content += ledger.Track(MissionBriefPolicyRenderer.ModuleName, MissionBriefPolicyRenderer.Render(authorizationPolicy));
+            content += "\n";
+
             // Vessel context sections
             if (!String.IsNullOrEmpty(vessel.ProjectContext))
             {
@@ -3956,19 +3963,7 @@ namespace Armada.Core.Services
 
             try
             {
-                List<ProjectProfile> profiles = await _Database.ProjectProfiles.EnumerateAllAsync(
-                    new ProjectProfileQuery
-                    {
-                        TenantId = vessel.TenantId,
-                        Active = true,
-                        PageNumber = 1,
-                        PageSize = 1000
-                    },
-                    token).ConfigureAwait(false);
-
-                if (profiles.Count == 0) return null;
-
-                ProjectProfile? profile = ProjectProfileService.SelectForVessel(profiles, vessel);
+                ProjectProfile? profile = await ResolveActiveProjectProfileAsync(vessel, token).ConfigureAwait(false);
                 return ProjectProfileService.ResolvePersonaOverride(profile, persona);
             }
             catch (Exception ex)
@@ -3976,6 +3971,36 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "error resolving persona override for vessel " + vessel.Id + ": " + ex.Message);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// The one lookup from a vessel to the project profile that applies to it (vessel, then fleet, then
+        /// global). Persona overrides, skills and the authorization policy all read the same profile, so
+        /// they can never disagree about which profile a brief was built from.
+        /// </summary>
+        /// <param name="vessel">Vessel the mission runs against.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The applicable active profile, or null when none applies.</returns>
+        private async Task<ProjectProfile?> ResolveActiveProjectProfileAsync(Vessel vessel, CancellationToken token)
+        {
+            List<ProjectProfile> profiles = await _Database.ProjectProfiles.EnumerateAllAsync(
+                new ProjectProfileQuery { TenantId = vessel.TenantId, Active = true, PageNumber = 1, PageSize = 1000 },
+                token).ConfigureAwait(false);
+            if (profiles.Count == 0) return null;
+            return ProjectProfileService.SelectForVessel(profiles, vessel);
+        }
+
+        /// <summary>
+        /// Resolve the owner authorization policy recorded on the vessel's project profile.
+        /// </summary>
+        /// <param name="vessel">Vessel the mission runs against.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The policy text, or null when no profile records one.</returns>
+        internal async Task<string?> ResolveAuthorizationPolicyAsync(Vessel vessel, CancellationToken token)
+        {
+            if (vessel == null) return null;
+            ProjectProfile? profile = await ResolveActiveProjectProfileAsync(vessel, token).ConfigureAwait(false);
+            return String.IsNullOrWhiteSpace(profile?.AuthorizationPolicy) ? null : profile!.AuthorizationPolicy;
         }
 
         /// <summary>
@@ -3992,12 +4017,7 @@ namespace Armada.Core.Services
 
             try
             {
-                List<ProjectProfile> profiles = await _Database.ProjectProfiles.EnumerateAllAsync(
-                    new ProjectProfileQuery { TenantId = vessel.TenantId, Active = true, PageNumber = 1, PageSize = 1000 },
-                    token).ConfigureAwait(false);
-                if (profiles.Count == 0) return String.Empty;
-
-                ProjectProfile? profile = ProjectProfileService.SelectForVessel(profiles, vessel);
+                ProjectProfile? profile = await ResolveActiveProjectProfileAsync(vessel, token).ConfigureAwait(false);
                 if (profile == null || profile.Skills == null || profile.Skills.Count == 0) return String.Empty;
 
                 List<Skill> skills = await _Database.Skills.EnumerateAllAsync(

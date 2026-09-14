@@ -281,6 +281,7 @@ namespace Armada.Server.Routes
                 existing.WorkflowProfileId = NormalizeEmpty(incoming.WorkflowProfileId);
                 existing.PersonaOverrides = incoming.PersonaOverrides ?? new List<PersonaOverride>();
                 existing.Skills = incoming.Skills ?? new List<string>();
+                existing.AuthorizationPolicy = String.IsNullOrWhiteSpace(incoming.AuthorizationPolicy) ? null : incoming.AuthorizationPolicy;
                 existing.LastUpdateUtc = DateTime.UtcNow;
 
                 ProjectProfileValidationResult validation = await _projectProfiles.ValidateAsync(existing).ConfigureAwait(false);

@@ -1210,6 +1210,12 @@ namespace Armada.Core.Database.Mysql.Queries
             @"CREATE INDEX idx_harbor_runner_enrollments_active ON harbor_runner_enrollments(active);"
         };
 
+        /// <summary>Migration v83 statements for the project authorization policy.</summary>
+        public static readonly string[] MigrationV83Statements = new string[]
+        {
+            @"ALTER TABLE project_profiles ADD COLUMN authorization_policy LONGTEXT CHARACTER SET utf8mb4 NULL;"
+        };
+
         /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>

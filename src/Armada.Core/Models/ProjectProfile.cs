@@ -102,6 +102,13 @@ namespace Armada.Core.Models
         public List<string> Skills { get; set; } = new List<string>();
 
         /// <summary>
+        /// Owner authorization and scope for this project, delivered verbatim to every captain brief for a
+        /// vessel this profile applies to. States what engineering the owner permits. It never relaxes
+        /// Armada's hard limits, and it must never hold credentials, keys or other secret material.
+        /// </summary>
+        public string? AuthorizationPolicy { get; set; } = null;
+
+        /// <summary>
         /// Creation timestamp.
         /// </summary>
         public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;

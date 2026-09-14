@@ -401,6 +401,18 @@ The `mission.prompt_budget` event records the bytes actually written. A brief
 reporting `OverBudget=true` after this backstop means the protected skeleton
 alone exceeds the budget; read its module sizes before raising the budget.
 
+### Authorization reaches every captain the same way
+
+Record the owner's authorization for a project in the project profile's
+`authorizationPolicy` field (dashboard: Project Profiles, Authorization Policy;
+REST: `PUT /api/v1/project-profiles/{id}`). The profile that applies to a
+vessel is chosen vessel, then fleet, then global. Every brief path renders
+the section `## Authorization and Hard Limits` from that one field: the policy
+verbatim, then fixed hard limits (secrets, tenant isolation, protected paths,
+destructive operations) that the policy cannot relax. The section is
+never elided by the budget backstop. Never put credentials or license
+material in the policy; it is copied into every brief.
+
 ### A quiet-host gate must enumerate TERMINAL states, not guess at active ones
 
 Before any action that interrupts running work - restarting the Admiral,

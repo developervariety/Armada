@@ -1062,6 +1062,9 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"CREATE TABLE IF NOT EXISTS harbor_runner_enrollments (runner_id TEXT PRIMARY KEY, tenant_id TEXT NOT NULL, user_id TEXT NOT NULL, auth_method TEXT NOT NULL, credential_id TEXT, generation BIGINT NOT NULL, active BOOLEAN NOT NULL DEFAULT TRUE, created_utc TIMESTAMPTZ NOT NULL, last_update_utc TIMESTAMPTZ NOT NULL, revoked_utc TIMESTAMPTZ NULL, revoked_by_user_id TEXT);",
                     @"CREATE INDEX IF NOT EXISTS idx_harbor_runner_enrollments_tenant ON harbor_runner_enrollments(tenant_id);",
                     @"CREATE INDEX IF NOT EXISTS idx_harbor_runner_enrollments_active ON harbor_runner_enrollments(active);"
+                ),
+                new SchemaMigration(92, "Persist project authorization policy",
+                    @"ALTER TABLE project_profiles ADD COLUMN IF NOT EXISTS authorization_policy TEXT NULL;"
                 )
             };
         }

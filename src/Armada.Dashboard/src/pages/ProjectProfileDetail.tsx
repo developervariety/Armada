@@ -54,6 +54,7 @@ export default function ProjectProfileDetail() {
   const [workflowProfileId, setWorkflowProfileId] = useState('');
   const [overrides, setOverrides] = useState<PersonaOverride[]>([]);
   const [skills, setSkills] = useState('');
+  const [authorizationPolicy, setAuthorizationPolicy] = useState('');
   const [loading, setLoading] = useState(!createMode);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -83,6 +84,7 @@ export default function ProjectProfileDetail() {
         setWorkflowProfileId(p.workflowProfileId || '');
         setOverrides(p.personaOverrides || []);
         setSkills((p.skills || []).join('\n'));
+        setAuthorizationPolicy(p.authorizationPolicy || '');
         setError('');
       })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : t('Failed to load project profile.')))
@@ -107,6 +109,7 @@ export default function ProjectProfileDetail() {
         enabled: o.enabled,
       })),
       skills: splitList(skills),
+      authorizationPolicy: authorizationPolicy.trim() || null,
     };
   }
 
@@ -326,6 +329,12 @@ export default function ProjectProfileDetail() {
         <h3>{t('Skills')}</h3>
         <p className="text-dim" style={{ marginTop: 0 }}>{t('One skill per line. Attached to this project.')}</p>
         <textarea rows={4} value={skills} onChange={(e) => setSkills(e.target.value)} disabled={!canManage} placeholder={'dotnet\ntdd'} />
+      </div>
+
+      <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
+        <h3>{t('Authorization Policy')}</h3>
+        <p className="text-dim" style={{ marginTop: 0 }}>{t('Owner authorization and scope for this project. Delivered verbatim to every captain brief; never put secrets here.')}</p>
+        <textarea rows={6} value={authorizationPolicy} onChange={(e) => setAuthorizationPolicy(e.target.value)} disabled={!canManage} />
       </div>
 
       {!createMode && (
