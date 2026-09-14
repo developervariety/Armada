@@ -885,6 +885,48 @@ namespace Armada.Test.Unit.Suites.Services
                     RegisterTrackedProcess(handler, Environment.ProcessId, captain.Id, mission.Id);
                     AssertTrue(await handler.IsMissionProcessActiveAsync(mission).ConfigureAwait(false),
                         "A live process must be active only with matching captain and mission ownership");
+
+                    captain.State = CaptainStateEnum.Quarantined;
+                    await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                    AssertTrue(await handler.IsMissionProcessActiveAsync(mission).ConfigureAwait(false),
+                        "A live owned process remains active while its captain is quarantined");
+                }
+            });
+
+            await RunTest("MissionProcessOwnership_UnknownRuntimeLivenessFailsClosed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    Captain captain = new Captain("manual-unknown-runtime", AgentRuntimeEnum.Custom)
+                    {
+                        State = CaptainStateEnum.Working,
+                        ProcessId = Environment.ProcessId
+                    };
+                    Mission mission = new Mission("manual-unknown-runtime-process")
+                    {
+                        CaptainId = captain.Id,
+                        Status = MissionStatusEnum.InProgress,
+                        ProcessId = Environment.ProcessId,
+                        StartedUtc = DateTime.UtcNow
+                    };
+                    captain.CurrentMissionId = mission.Id;
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                    RegisterTrackedProcess(handler, Environment.ProcessId, captain.Id, mission.Id);
+
+                    InvalidOperationException? captured = null;
+                    try
+                    {
+                        await handler.IsMissionProcessActiveAsync(mission).ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        captured = ex;
+                    }
+                    AssertNotNull(captured, "unsupported runtime liveness must be observable");
+                    AssertEqual("manual_completion_process_liveness_unknown", captured!.Message,
+                        "unsupported runtime has a stable fail-closed reason");
                 }
             });
         }
