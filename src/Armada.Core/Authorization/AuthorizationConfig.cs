@@ -104,6 +104,7 @@ namespace Armada.Core.Authorization
             if (path.StartsWith("/api/v1/events") && method != "GET") return PermissionLevel.TenantAdmin;
             if (path.StartsWith("/api/v1/merge-queue") && method != "GET") return PermissionLevel.TenantAdmin;
             if (path.StartsWith("/api/v1/request-history") && method != "GET") return PermissionLevel.TenantAdmin;
+            if (path.StartsWith("/api/v1/harbor-runners") && method != "GET") return PermissionLevel.TenantAdmin;
 
             // Personas and pipelines belong to a tenant. Their handlers find the record inside the
             // caller's tenant; enumerate reads through a POST body and keeps the read level.

@@ -21,6 +21,7 @@
   - [Tenant Management](#tenant-management)
   - [User Management](#user-management)
   - [Credential Management](#credential-management)
+  - [Harbor Runner Enrollment](#harbor-runner-enrollment)
   - [Status](#status)
   - [Lead Control](#lead-control)
   - [Fleets](#fleets)
@@ -671,6 +672,47 @@ Delete a credential. Global admin: any. Tenant admin: credentials in own tenant.
 If the credential is protected, the server returns `403 Forbidden`.
 
 **Response:** `200 OK`
+
+---
+
+### Harbor Runner Enrollment
+
+> **Registered only when `Harbor.Enabled` is true.** Harbor is disabled by default; while disabled these routes
+> do not exist. **Permission:** Tenant admin. A global administrator may change any runner. A tenant
+> administrator may change only a runner whose owner, and previous owner for a revoked runner, is in the same
+> tenant and is not a global administrator. The runner link protocol is described in `docs/HARBOR_PROTOCOL.md`.
+
+#### POST /api/v1/harbor-runners/enrollments
+
+Bind a runner identifier to the principal behind an existing active credential. Tenant, user and
+authentication method are read from the durable credential, user and tenant records; the request cannot supply
+them. An active runner cannot be rebound; revoke it first.
+
+**Request Body:**
+
+```json
+{
+  "runnerId": "hbr_build_host",
+  "credentialId": "crd_..."
+}
+```
+
+**Response:** `200 OK` - enrollment with `RunnerId`, `TenantId`, `UserId`, `AuthMethod`, `CredentialId`,
+`Generation`, `Active`, `CreatedUtc`, `LastUpdateUtc`. No token value is returned or stored.
+
+**Errors:** `400` missing fields or malformed body; `401` unauthenticated; `403` not authorized for the owner
+or credential inactive; `409` runner already enrolled or a concurrent change won.
+
+---
+
+#### POST /api/v1/harbor-runners/enrollments/{runnerId}/revoke
+
+Revoke an active enrollment with a generation compare-and-set. Connected links for the runner fail their next
+revalidation and are closed; their jobs become `Lost`. Re-enrollment creates a new generation and cannot revive
+earlier sessions or jobs.
+
+**Response:** `200 OK` - `{ "Revoked": true }`; `404` when no active enrollment exists; `403` when the caller
+lacks authority over the owner.
 
 ---
 

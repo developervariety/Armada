@@ -355,6 +355,8 @@ namespace Armada.Test.Unit
             runner.AddSuite(new SelfDeployHttpHealthProbeTests());
             runner.AddSuite(new HarborRunnerSessionRegistryTests());
             runner.AddSuite(new HarborRunnerEnrollmentServiceTests());
+            runner.AddSuite(new HarborProtocolTests());
+            runner.AddSuite(new HarborTransportTests());
             runner.AddSuite(new AutonomousObjectiveSchedulerSettingsTests());
             runner.AddSuite(new ArchitectSettingsTests());
             runner.AddSuite(new VesselLocalPathAndLagunaTierTests());

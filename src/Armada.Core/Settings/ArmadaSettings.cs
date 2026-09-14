@@ -627,6 +627,15 @@ namespace Armada.Core.Settings
         public MessageTemplateSettings MessageTemplates { get; set; } = new MessageTemplateSettings();
 
         /// <summary>
+        /// Detached Harbor runner link settings. Harbor is disabled by default.
+        /// </summary>
+        public HarborSettings Harbor
+        {
+            get => _Harbor;
+            set => _Harbor = value ?? new HarborSettings();
+        }
+
+        /// <summary>
         /// Remote-control tunnel settings.
         /// </summary>
         public RemoteControlSettings RemoteControl
@@ -891,6 +900,7 @@ namespace Armada.Core.Settings
         private string? _AiMemoryRoot = null;
         private int _IdleCaptainTimeoutSeconds = Constants.DefaultIdleCaptainTimeoutSeconds;
         private RemoteControlSettings _RemoteControl = new RemoteControlSettings();
+        private HarborSettings _Harbor = new HarborSettings();
         private DatabaseSettings _Database = new DatabaseSettings();
         private CodeIndexSettings _CodeIndex = new CodeIndexSettings();
         private SelfDeploySettings _SelfDeploy = new SelfDeploySettings();

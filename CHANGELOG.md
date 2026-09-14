@@ -305,6 +305,23 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   and Harbor enrollment migrations in order, rejects an incompatible partial
   table and checks restart, history, persistence and conditional writes.
 
+### Harbor runner link
+
+- Add a Harbor WebSocket link that stays disabled by default (`Harbor.Enabled`). When disabled no link or
+  enrollment route is registered. When enabled it requires the WebSocket server and is served on the existing
+  REST port.
+- Authenticate the link only through the standard credential headers. Tenant, user and access-key headers are
+  ignored, invalid credentials are refused before any frame is read, and the handshake must name a runner
+  enrolled to the verified principal.
+- Authorize each launch and stop against the runner owner. Server-issued job identifiers are bound to the runner,
+  enrollment generation and connection generation. Foreign, stale, replayed, out-of-order and duplicate runner
+  reports are refused with stable reasons.
+- Reject duplicate launches and enforce advertised capacity; never fall back to another runner. Rebind live jobs
+  after a reconnect with the same enrollment; jobs from a revoked or earlier enrollment become lost.
+- Add administrator enrollment and revocation routes that read owner identity from the credential record.
+- Remove the unimplemented git and standard-input message types, and add an output sequence number. Isolated
+  tests drive two fake runners over the real transport with SQLite enrollment and real credentials.
+
 ### OpenCode provider failures
 
 - Parse captured top-level provider errors into bounded, redacted activity.

@@ -554,6 +554,8 @@ namespace Armada.Server
             _App.WebSocket("/ws", _WebSocketHub.HandleWebSocketAsync);
             _Logging.Info(_Header + "WebSocket route registered at /ws");
 
+            RegisterHarbor();
+
             // Watson 7 StartAsync is long-running; Start() binds and returns after
             // scheduling the accept loop.
             _App.Start(_TokenSource.Token);
@@ -817,6 +819,32 @@ namespace Armada.Server
             }
 
             _Logging.Info(_Header + "synthetic admin identity ready");
+        }
+
+        /// <summary>
+        /// Register the Harbor runner link and Harbor enrollment routes only when Harbor is explicitly enabled.
+        /// The link authenticates through the application's authentication service and requires the WebSocket
+        /// server; without it Harbor is refused and the refusal is logged.
+        /// </summary>
+        private void RegisterHarbor()
+        {
+            if (!_Settings.Harbor.Enabled)
+            {
+                _Logging.Info(_Header + "Harbor runner link disabled");
+                return;
+            }
+            if (!_Settings.WebSocketEnabled)
+            {
+                _Logging.Warn(_Header + "Harbor runner link not registered: Harbor requires WebSocketEnabled");
+                return;
+            }
+            Armada.Core.Services.HarborRunnerEnrollmentService enrollments = new Armada.Core.Services.HarborRunnerEnrollmentService(_Database);
+            Armada.Core.Services.HarborRunnerSessionRegistry registry = new Armada.Core.Services.HarborRunnerSessionRegistry(true, enrollments);
+            Armada.Core.Harbor.HarborJobCoordinator coordinator = new Armada.Core.Harbor.HarborJobCoordinator(registry);
+            Armada.Server.Harbor.HarborLinkEndpoint endpoint = new Armada.Server.Harbor.HarborLinkEndpoint(_Settings.Harbor, _AuthenticationService, registry, coordinator, _Logging);
+            _App.WebSocket(_Settings.Harbor.LinkPath, endpoint.HandleWebSocketAsync);
+            new HarborRunnerEnrollmentRoutes(enrollments, _JsonOptions).Register(_App, AuthenticateRequestAsync, _AuthorizationService);
+            _Logging.Info(_Header + "Harbor runner link registered at " + _Settings.Harbor.LinkPath);
         }
 
         private void RegisterRoutes()

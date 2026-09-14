@@ -125,6 +125,41 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Enroll a runner for the principal behind an existing active credential. Owner identity fields
+        /// are read from durable credential, user and tenant records; callers cannot supply them.
+        /// </summary>
+        /// <param name="runnerId">Runner identifier.</param>
+        /// <param name="credentialId">Durable credential identifier.</param>
+        /// <param name="administrator">Authenticated administrator performing the change.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The durable enrollment.</returns>
+        public async Task<HarborRunnerEnrollment> CreateForCredentialAsync(
+            string runnerId,
+            string credentialId,
+            AuthContext administrator,
+            CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(credentialId)) throw new ArgumentException("Credential identifier is required.", nameof(credentialId));
+            Credential? credential = await _Credentials.ReadByIdAsync(credentialId.Trim(), token).ConfigureAwait(false);
+            if (credential == null || !credential.Active)
+                throw new UnauthorizedAccessException("credential_revoked_or_mismatched");
+            UserMaster? user = await _Users.ReadByIdAsync(credential.UserId, token).ConfigureAwait(false);
+            TenantMetadata? tenant = await _Tenants.ReadAsync(credential.TenantId, token).ConfigureAwait(false);
+            if (user == null || !user.Active || tenant == null || !tenant.Active
+                || !String.Equals(user.TenantId, credential.TenantId, StringComparison.Ordinal))
+                throw new UnauthorizedAccessException("credential_principal_inactive");
+            AuthContext owner = AuthContext.Authenticated(
+                credential.TenantId,
+                credential.UserId,
+                user.IsAdmin,
+                user.IsAdmin || user.IsTenantAdmin,
+                "Bearer",
+                credential.Id,
+                user.Email);
+            return await CreateAsync(runnerId, owner, administrator, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
         /// Revoke a runner enrollment. Revocation is atomic and invalidates the current generation.
         /// </summary>
         /// <param name="runnerId">Runner identifier.</param>

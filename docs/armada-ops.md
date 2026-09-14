@@ -1413,6 +1413,24 @@ surfaces. Read the existing record first. Use
 `armada_audit_operational_assets` before and after asset changes. Validate
 provider models with a live provider call before putting them in a tier.
 
+### Harbor runners (disabled by default)
+
+`Harbor.Enabled` defaults to false. While false the Admiral registers no Harbor link route and no Harbor
+enrollment routes, and local captain execution is the only execution path. Keep it false on the production
+Admiral until the Harbor acceptance is recorded; the current container deployment needs no change.
+
+To evaluate Harbor on an isolated Admiral, set `Harbor.Enabled` to true in `settings.json` and restart.
+`WebSocketEnabled` must stay true, or the Admiral logs that Harbor was not registered. The link path
+(`Harbor.LinkPath`, default `/harbor/link`) is served on the existing REST port, so the container's published
+port and TLS termination apply unchanged. Enroll each runner against a bearer credential with
+`POST /api/v1/harbor-runners/enrollments` and revoke with `.../{runnerId}/revoke`.
+
+The link authenticates only through the standard credential headers; tenant, user and access-key headers are
+ignored. Each job is bound to one runner, its enrollment generation and its connection generation, so a stale or
+foreign link cannot report for it, and a revoked runner's link is closed at its next heartbeat. Mission launch
+does not route to Harbor in this version. The wire contract is `docs/HARBOR_PROTOCOL.md`; ownership and
+revocation are `docs/HARBOR_IDENTITY.md`.
+
 ### Runtime MCP startup
 
 Ask starts a separate temporary runtime with its own MCP launch configuration.

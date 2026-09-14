@@ -1,8 +1,10 @@
 # Harbor identity and session core
 
-The Harbor session core is a disabled-by-default building block for a future
-transport. It does not inspect HTTP headers, trust a tenant header, open a
-socket, or launch a process.
+The Harbor session core is the identity layer of the disabled-by-default
+Harbor link (`docs/HARBOR_PROTOCOL.md`). The core itself does not inspect HTTP
+headers, trust a tenant header, open a socket, or launch a process; the link
+endpoint authenticates the upgrade with the application's authentication
+service and then presents the verified principal to this core.
 
 The normal authentication service must first produce a verified `AuthContext`.
 Enabled use also requires an injected `IHarborRunnerOwnerResolver` backed by
@@ -27,7 +29,7 @@ generation are rejected. Reconnecting cancels old pending tasks. The bounded
 replay cache is only an additional duplicate filter; identifier non-reuse does
 not depend on retaining an unbounded history.
 
-Enable the registry only from an explicit future Harbor transport configuration:
+The Admiral enables the registry only when `Harbor.Enabled` is set:
 
 ```csharp
 HarborRunnerSessionRegistry registry = new HarborRunnerSessionRegistry(
@@ -77,5 +79,5 @@ by another instance reaches the connected runner. When a registration presents
 a newer durable generation than a connected session, the registry removes the
 stale session and accepts the current owner instead of reporting an identity
 conflict. The stale session cannot disconnect its replacement. Harbor stays disabled
-until a future transport explicitly enables the registry and injects this
-service.
+until `Harbor.Enabled` is set; the Admiral then creates the enabled registry
+with this service as its owner resolver.
