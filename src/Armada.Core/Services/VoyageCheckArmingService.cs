@@ -87,12 +87,21 @@ namespace Armada.Core.Services
                 List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(voyage.Id, token).ConfigureAwait(false);
                 bool isFullyReportOnly = VoyageReportOnlyClassifier.IsFullyReportOnly(voyageMissions);
 
-                IReadOnlyList<CheckRunTypeEnum> planned = VoyageCheckArmingPlan.Resolve(arming, profile, null, isFullyReportOnly);
+                string dotNetEvidence = "slop arming disabled";
+                bool isDotNet = arming.ArmSlop && DotNetVesselDetector.IsDotNetVessel(vessel, profile, out dotNetEvidence);
+
+                IReadOnlyList<CheckRunTypeEnum> planned = VoyageCheckArmingPlan.Resolve(arming, profile, null, isFullyReportOnly, isDotNet);
                 if (planned.Count == 0)
                 {
                     _Logging?.Info(_Header + "checks_armed voyage " + voyage.Id + " armed=0 source=" + source
                         + (profile == null ? " reason=no_workflow_profile" : " reason=no_matching_commands"));
                     return 0;
+                }
+
+                if (!planned.Contains(CheckRunTypeEnum.Slop))
+                {
+                    _Logging?.Info(_Header + "slop_not_armed voyage " + voyage.Id + " source=" + source + " dotnet=" + isDotNet
+                        + " reason=" + dotNetEvidence);
                 }
 
                 foreach (CheckRunTypeEnum type in planned)

@@ -308,6 +308,8 @@ namespace Armada.Test.Unit
             runner.AddSuite(new SiblingLeaseRegistryTests());
             runner.AddSuite(new ConsumerVesselResolverTests());
             runner.AddSuite(new VoyageCheckArmingPlanTests());
+            runner.AddSuite(new SlopDiffClassifierTests());
+            runner.AddSuite(new SlopCheckExecutionTests());
             runner.AddSuite(new CheckRunSummaryViewTests());
             runner.AddSuite(new RescueEffectivenessTests());
             runner.AddSuite(new StalePauseRuleTests());

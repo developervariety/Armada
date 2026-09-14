@@ -1749,9 +1749,10 @@ namespace Armada.Test.Unit.Suites.Services
                     PageSize = 100
                 }).ConfigureAwait(false);
 
-                AssertEqual(2, armed.Objects.Count, "A scheduler voyage must arm the same Checks an operator dispatch arms.");
+                AssertEqual(3, armed.Objects.Count, "A scheduler voyage must arm the same Checks an operator dispatch arms.");
                 AssertTrue(armed.Objects.Exists(c => c.Type == CheckRunTypeEnum.Build), "Build must be armed.");
                 AssertTrue(armed.Objects.Exists(c => c.Type == CheckRunTypeEnum.UnitTest), "UnitTest must be armed.");
+                AssertTrue(armed.Objects.Exists(c => c.Type == CheckRunTypeEnum.Slop), "The profile invokes dotnet, so Slop must be armed.");
 
                 foreach (CheckRun run in armed.Objects)
                 {

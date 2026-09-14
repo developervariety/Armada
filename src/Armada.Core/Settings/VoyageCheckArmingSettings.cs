@@ -31,6 +31,12 @@ namespace Armada.Core.Settings
         /// </summary>
         public bool ArmUnitTest { get; set; } = true;
 
+        /// <summary>
+        /// Whether a Slop check is armed on a .NET vessel beside its command Checks. Defaults to
+        /// true. The Slop check classifies the reviewed diff natively and needs no profile command.
+        /// </summary>
+        public bool ArmSlop { get; set; } = true;
+
         #endregion
     }
 }

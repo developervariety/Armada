@@ -61,6 +61,9 @@ namespace Armada.Core.Services
             Vessel vessel = await ReadAccessibleVesselAsync(auth, request.VesselId, token).ConfigureAwait(false)
                 ?? throw new InvalidOperationException("Vessel not found or not accessible.");
 
+            if (request.Type == CheckRunTypeEnum.Slop && String.IsNullOrWhiteSpace(request.CommandOverride))
+                return await RunNewSlopAsync(auth, vessel, request, token).ConfigureAwait(false);
+
             VesselReadinessResult readiness = await _Readiness.EvaluateAsync(
                 auth,
                 vessel,
@@ -263,6 +266,9 @@ namespace Armada.Core.Services
             Vessel? vessel = await ReadAccessibleVesselAsync(auth, run.VesselId!, token).ConfigureAwait(false);
             if (vessel == null)
                 return await CompleteExistingRunAsFailureAsync(run, "Vessel not found or not accessible.", token).ConfigureAwait(false);
+
+            if (IsNativeSlopRun(run))
+                return await ExecuteSlopRunAsync(run, vessel, token).ConfigureAwait(false);
 
             bool needsProfileCommand = ShouldResolvePendingCommand(run);
             VesselReadinessResult readiness = await _Readiness.EvaluateAsync(
@@ -500,6 +506,128 @@ namespace Armada.Core.Services
         private static bool ShouldResolvePendingCommand(CheckRun run)
         {
             return CheckRunGateRules.HasUnresolvedCommand(run);
+        }
+
+        /// <summary>
+        /// True when a record is executed by the native Slop classifier rather than a shell command.
+        /// A Slop record carrying an operator-supplied command runs that command instead.
+        /// </summary>
+        private static bool IsNativeSlopRun(CheckRun run)
+        {
+            if (run.Type != CheckRunTypeEnum.Slop) return false;
+            return CheckRunGateRules.HasUnresolvedCommand(run)
+                || String.Equals(run.Command, SlopCheckRunner.CommandLabel, StringComparison.Ordinal);
+        }
+
+        private async Task<CheckRun> RunNewSlopAsync(AuthContext auth, Vessel vessel, CheckRunRequest request, CancellationToken token)
+        {
+            WorkflowProfile? profile = await _WorkflowProfiles.ResolveForVesselAsync(auth, vessel, request.WorkflowProfileId, token).ConfigureAwait(false);
+
+            CheckRun run = new CheckRun
+            {
+                TenantId = vessel.TenantId,
+                UserId = auth.UserId,
+                WorkflowProfileId = profile?.Id,
+                VesselId = vessel.Id,
+                MissionId = request.MissionId,
+                VoyageId = request.VoyageId,
+                DeploymentId = request.DeploymentId,
+                Label = request.Label,
+                Type = CheckRunTypeEnum.Slop,
+                Source = CheckRunSourceEnum.Armada,
+                Status = CheckRunStatusEnum.Pending,
+                EnvironmentName = request.EnvironmentName,
+                Command = SlopCheckRunner.CommandLabel,
+                WorkingDirectory = vessel.LocalPath ?? vessel.WorkingDirectory,
+                BranchName = request.BranchName,
+                CommitHash = request.CommitHash,
+                CreatedUtc = DateTime.UtcNow,
+                LastUpdateUtc = DateTime.UtcNow
+            };
+
+            SemaphoreSlim runLock = _PendingRunLocks.GetOrAdd(run.Id, _ => new SemaphoreSlim(1, 1));
+            await runLock.WaitAsync(token).ConfigureAwait(false);
+            try
+            {
+                run = await _Database.CheckRuns.CreateAsync(run, token).ConfigureAwait(false);
+                OnCheckRunChanged?.Invoke(run);
+                return await ExecuteSlopRunAsync(run, vessel, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                runLock.Release();
+            }
+        }
+
+        /// <summary>
+        /// Execute a Slop check against the reviewed diff. A voyage-armed record that was never
+        /// stamped is pointed at the voyage's work under review first. Every condition that prevents
+        /// classification fails the record with its reason; none of them passes it.
+        /// </summary>
+        private async Task<CheckRun> ExecuteSlopRunAsync(CheckRun run, Vessel vessel, CancellationToken token)
+        {
+            run.Command = SlopCheckRunner.CommandLabel;
+
+            if (String.IsNullOrWhiteSpace(run.CommitHash)
+                && String.IsNullOrWhiteSpace(run.BranchName)
+                && !String.IsNullOrWhiteSpace(run.VoyageId))
+            {
+                List<Mission> missions = await _Database.Missions.EnumerateByVoyageAsync(run.VoyageId!, token).ConfigureAwait(false);
+                Mission? work = StaleCheckSupersessionService.SelectWorkUnderReview(missions);
+                if (work != null)
+                {
+                    run.BranchName = work.BranchName;
+                    run.CommitHash = work.CommitHash;
+                }
+            }
+
+            string? repoPath = !String.IsNullOrWhiteSpace(vessel.LocalPath) && Directory.Exists(vessel.LocalPath)
+                ? vessel.LocalPath
+                : vessel.WorkingDirectory;
+            run.WorkingDirectory = repoPath;
+
+            run.Status = CheckRunStatusEnum.Running;
+            run.StartedUtc = DateTime.UtcNow;
+            run.LastUpdateUtc = run.StartedUtc.Value;
+            run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+            OnCheckRunChanged?.Invoke(run);
+
+            Stopwatch sw = Stopwatch.StartNew();
+            SlopCheckOutcome outcome;
+            try
+            {
+                outcome = await new SlopCheckRunner(_Logging)
+                    .RunAsync(repoPath, run.CommitHash, run.BranchName, vessel.DefaultBranch, token)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                run.Status = CheckRunStatusEnum.Pending;
+                run.StartedUtc = null;
+                run.LastUpdateUtc = DateTime.UtcNow;
+                run = await _Database.CheckRuns.UpdateAsync(run, CancellationToken.None).ConfigureAwait(false);
+                OnCheckRunChanged?.Invoke(run);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                outcome = SlopCheckOutcome.Failure("The Slop classifier stopped with an error: " + ex.Message);
+            }
+            sw.Stop();
+
+            DateTime now = DateTime.UtcNow;
+            run.ExitCode = outcome.Passed ? 0 : (outcome.Completed ? 1 : -1);
+            run.Status = outcome.Passed ? CheckRunStatusEnum.Passed : CheckRunStatusEnum.Failed;
+            run.Output = outcome.Report;
+            run.Summary = outcome.Summary;
+            run.DurationMs = Convert.ToInt64(Math.Round(sw.Elapsed.TotalMilliseconds));
+            run.CompletedUtc = now;
+            run.LastUpdateUtc = now;
+            if (!String.IsNullOrWhiteSpace(outcome.HeadCommit)) run.CommitHash = outcome.HeadCommit;
+
+            run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+            OnCheckRunChanged?.Invoke(run);
+            return run;
         }
 
         private static bool IsDeploymentExecutionType(CheckRunTypeEnum type)

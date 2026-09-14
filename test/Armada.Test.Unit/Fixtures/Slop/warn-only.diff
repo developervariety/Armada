@@ -1,0 +1,19 @@
+diff --git a/src/Port/Decoder.cs b/src/Port/Decoder.cs
+index 1111111..2222222 100644
+--- a/src/Port/Decoder.cs
++++ b/src/Port/Decoder.cs
+@@ -30,4 +30,14 @@ namespace Port
+         public async Task DecodeAsync(byte[] frame)
+         {
++            try
++            {
++                Parse(frame);
++            }
++            catch (FormatException)
++            {
++            }
++            await Task.Delay(250);
++#pragma warning disable CS0168
++            await Task.Delay(PollInterval);
+         }
+     }

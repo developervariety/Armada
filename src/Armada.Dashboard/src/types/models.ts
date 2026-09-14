@@ -914,7 +914,8 @@ export type CheckRunType =
   | 'Rollback'
   | 'SmokeTest'
   | 'HealthCheck'
-  | 'Custom';
+  | 'Custom'
+  | 'Slop';
 
 export type CheckRunStatus = 'Pending' | 'Running' | 'Passed' | 'Failed' | 'Canceled';
 export type CheckRunSource = 'Armada' | 'External';

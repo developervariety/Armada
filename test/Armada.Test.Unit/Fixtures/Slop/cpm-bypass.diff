@@ -1,0 +1,19 @@
+diff --git a/src/App/App.csproj b/src/App/App.csproj
+index 1111111..2222222 100644
+--- a/src/App/App.csproj
++++ b/src/App/App.csproj
+@@ -8,4 +8,6 @@
+   <ItemGroup>
++    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
++    <PackageReference Include="Serilog" VersionOverride="4.0.0" />
+   </ItemGroup>
+ </Project>
+diff --git a/Directory.Packages.props b/Directory.Packages.props
+index 3333333..4444444 100644
+--- a/Directory.Packages.props
++++ b/Directory.Packages.props
+@@ -4,4 +4,5 @@
+   <ItemGroup>
++    <PackageVersion Include="Serilog" Version="3.1.1" />
+   </ItemGroup>
+ </Project>

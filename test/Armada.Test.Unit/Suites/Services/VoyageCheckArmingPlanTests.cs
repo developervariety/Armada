@@ -140,6 +140,128 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
+            await RunTest("Slop is armed beside Build and UnitTest on a .NET vessel", () =>
+            {
+                IReadOnlyList<CheckRunTypeEnum> planned = VoyageCheckArmingPlan.Resolve(
+                    new VoyageCheckArmingSettings(),
+                    MakeProfile("dotnet build", "dotnet test"),
+                    null,
+                    isFullyReportOnlyVoyage: false,
+                    isDotNetVessel: true);
+
+                AssertEqual(3, planned.Count);
+                AssertEqual(CheckRunTypeEnum.Slop, planned[2]);
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("Slop is not armed on a vessel that is not .NET", () =>
+            {
+                IReadOnlyList<CheckRunTypeEnum> planned = VoyageCheckArmingPlan.Resolve(
+                    new VoyageCheckArmingSettings(),
+                    MakeProfile("npm run build", "npm test"),
+                    null,
+                    isFullyReportOnlyVoyage: false,
+                    isDotNetVessel: false);
+
+                AssertFalse(planned.Contains(CheckRunTypeEnum.Slop));
+                AssertEqual(2, planned.Count);
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("Slop is never armed as the only Check", () =>
+            {
+                // A voyage whose only green is the Slop classification would pass the Judge gate
+                // with no evidence that the code builds or its tests run.
+                IReadOnlyList<CheckRunTypeEnum> bare = VoyageCheckArmingPlan.Resolve(
+                    new VoyageCheckArmingSettings(),
+                    MakeProfile(null, null),
+                    null,
+                    isFullyReportOnlyVoyage: false,
+                    isDotNetVessel: true);
+                AssertEqual(0, bare.Count);
+
+                IReadOnlyList<CheckRunTypeEnum> besideAttached = VoyageCheckArmingPlan.Resolve(
+                    new VoyageCheckArmingSettings(),
+                    MakeProfile("dotnet build", "dotnet test"),
+                    new List<CheckRun>
+                    {
+                        new CheckRun { Type = CheckRunTypeEnum.Build },
+                        new CheckRun { Type = CheckRunTypeEnum.UnitTest }
+                    },
+                    isFullyReportOnlyVoyage: false,
+                    isDotNetVessel: true);
+                AssertEqual(1, besideAttached.Count, "attached command Checks still qualify the voyage for Slop");
+                AssertEqual(CheckRunTypeEnum.Slop, besideAttached[0]);
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("An attached Slop check is never armed again and ArmSlop disables only Slop", () =>
+            {
+                IReadOnlyList<CheckRunTypeEnum> attached = VoyageCheckArmingPlan.Resolve(
+                    new VoyageCheckArmingSettings(),
+                    MakeProfile("dotnet build", "dotnet test"),
+                    new List<CheckRun> { new CheckRun { Type = CheckRunTypeEnum.Slop, Status = CheckRunStatusEnum.Failed } },
+                    isFullyReportOnlyVoyage: false,
+                    isDotNetVessel: true);
+                AssertFalse(attached.Contains(CheckRunTypeEnum.Slop));
+                AssertEqual(2, attached.Count);
+
+                IReadOnlyList<CheckRunTypeEnum> disabled = VoyageCheckArmingPlan.Resolve(
+                    new VoyageCheckArmingSettings { ArmSlop = false },
+                    MakeProfile("dotnet build", "dotnet test"),
+                    null,
+                    isFullyReportOnlyVoyage: false,
+                    isDotNetVessel: true);
+                AssertFalse(disabled.Contains(CheckRunTypeEnum.Slop));
+                AssertEqual(2, disabled.Count);
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("A fully report-only voyage is not armed with Slop", () =>
+            {
+                IReadOnlyList<CheckRunTypeEnum> planned = VoyageCheckArmingPlan.Resolve(
+                    new VoyageCheckArmingSettings(),
+                    MakeProfile("dotnet build", "dotnet test"),
+                    null,
+                    isFullyReportOnlyVoyage: true,
+                    isDotNetVessel: true);
+
+                AssertEqual(0, planned.Count);
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("A profile command invoking dotnet marks the vessel as .NET", () =>
+            {
+                Vessel vessel = new Vessel { WorkingDirectory = null };
+                AssertTrue(DotNetVesselDetector.IsDotNetVessel(vessel, MakeProfile("dotnet build src/App.sln", null), out string evidence));
+                AssertContains("BuildCommand", evidence);
+                AssertTrue(DotNetVesselDetector.IsDotNetVessel(vessel, MakeProfile("cd src && dotnet test", null), out string _));
+                AssertFalse(DotNetVesselDetector.IsDotNetVessel(vessel, MakeProfile("./dotnetty-build.sh", null), out string _),
+                    "a word that merely contains dotnet is not a dotnet invocation");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("A solution file one level below the working directory marks the vessel as .NET", () =>
+            {
+                string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada-dotnet-detect-" + System.Guid.NewGuid().ToString("N"));
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(root, "src"));
+                try
+                {
+                    Vessel vessel = new Vessel { WorkingDirectory = root };
+                    AssertFalse(DotNetVesselDetector.IsDotNetVessel(vessel, MakeProfile("npm run build", "npm test"), out string none));
+                    AssertContains("no .NET profile command", none);
+
+                    System.IO.File.WriteAllText(System.IO.Path.Combine(root, "src", "App.sln"), String.Empty);
+                    AssertTrue(DotNetVesselDetector.IsDotNetVessel(vessel, MakeProfile("npm run build", "npm test"), out string found));
+                    AssertContains("App.sln", found);
+                }
+                finally
+                {
+                    System.IO.Directory.Delete(root, true);
+                }
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await RunTest("Arming service persists no Checks for an all-Audit voyage", async () =>
             {
                 await AssertServiceArmsExpectedCountAsync(
@@ -156,9 +278,10 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("Arming service preserves code Checks for mixed report-only modes", async () =>
             {
+                // The profile invokes dotnet, so Build, UnitTest and Slop are all armed.
                 await AssertServiceArmsExpectedCountAsync(
                     new List<MissionModeEnum> { MissionModeEnum.Audit, MissionModeEnum.Research },
-                    2).ConfigureAwait(false);
+                    3).ConfigureAwait(false);
             }).ConfigureAwait(false);
         }
 

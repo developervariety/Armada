@@ -1,0 +1,22 @@
+namespace Port
+{
+    using System;
+
+    public class Decoder
+    {
+        public void Decode(byte[] frame)
+        {
+            try
+            {
+                Parse(frame);
+            }
+            catch (FormatException)
+            {
+            }
+        }
+
+        private void Parse(byte[] frame)
+        {
+        }
+    }
+}

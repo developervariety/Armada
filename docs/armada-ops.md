@@ -699,7 +699,67 @@ that the incomplete search scanned.
 Arming never fails a dispatch. A voyage that exists without its Checks can
 still be armed by hand, whereas refusing to dispatch over a Check record would
 turn a convenience into an outage. Set `VoyageCheckArming.Enabled` to `false`
-to switch it off, or `ArmBuild` / `ArmUnitTest` to control the types.
+to switch it off, or `ArmBuild` / `ArmUnitTest` / `ArmSlop` to control the
+types.
+
+#### The Slop Check
+
+On a .NET vessel, dispatch also arms a `Slop` Check beside Build and UnitTest,
+on every dispatch path (operator dispatch, the objective scheduler, and
+recovery). It catches reward hacking: a change that makes a build or suite go
+green without fixing the problem. The captain runtime does not matter, because
+the Check runs in the admiral, not in the captain.
+
+A vessel is .NET when a Build, UnitTest, Lint or IntegrationTest profile
+command invokes `dotnet` or `msbuild`, or when the working directory (or one
+directory below it) holds a `.sln`, `.slnx`, project file,
+`Directory.Build.props`, `Directory.Packages.props` or `global.json`. The
+arming log line `slop_not_armed` names why a voyage got no Slop Check. Slop is
+never armed alone: a voyage with no Build or UnitTest Check gets no Slop Check
+either, because a Slop green says nothing about whether the code compiles.
+
+The Check needs no profile command and no external tool. Armada's own
+classifier reads the reviewed diff from the vessel repository: the merge base
+of the default branch and the stamped commit, compared with that commit. It
+classifies only ADDED lines in C# and MSBuild files outside `bin` and `obj`.
+The armed record is stamped, superseded and gated exactly like Build and
+UnitTest. Once it runs, its command reads
+`armada slop-classifier (native, reviewed diff)`.
+
+| Rule | Severity | Added line that matches |
+| --- | --- | --- |
+| `SkippedTest` | FAIL | A `Skip =` argument on a test attribute, an `Ignore` attribute, `Assert.Skip` / `Assert.Ignore` / `Assert.Inconclusive` / `Skip.If`, or `#if false` in a file under a test path |
+| `ProjectWideNoWarn` | FAIL | A `<NoWarn>` element in a project, props or targets file (a per-package `NoWarn` attribute is not flagged) |
+| `CentralPackageVersionBypass` | FAIL | An inline `Version`, a `VersionOverride`, or `ManagePackageVersionsCentrally` set to false, when `Directory.Packages.props` at the reviewed commit enables central package management |
+| `EmptyCatch` | WARN | A catch block whose body is empty or holds only a comment |
+| `ArbitraryDelay` | WARN | `Task.Delay` or `Thread.Sleep` with a literal duration |
+| `WarningSuppression` | WARN | `#pragma warning disable` or a `SuppressMessage` attribute |
+
+An unsuppressed FAIL finding fails the Check, which rejects a Judge PASS like
+any failed Check. WARN findings never fail it. They appear in the Check output
+(`WARN <Rule> <path>:<line>`) and in the summary, which the
+`check.auto_passed` event carries onto the voyage. The WARN patterns are the
+ones a byte-exact source reproduction can legitimately contain, so a reviewer
+reads them rather than a gate refusing them.
+
+A finding is suppressed per site by a marker in a comment on the flagged line
+or on the line directly above it:
+
+```csharp
+// slop-allow EmptyCatch: byte-exact reproduction of Decoder.cs:40-44
+```
+
+The marker must name the rule and record a reason of at least eight
+characters. A marker with no reason, or one naming another rule, is not
+honored, and the output says why. Suppressed findings stay in the output with
+their recorded reason. Use a marker for an intentional source reproduction or a
+pinned source defect, and record the owner decision on the objective as well.
+
+Every condition that prevents classification fails the Check with a reason
+that ends `Nothing was examined`: no commit or branch, no repository, git that
+cannot start, an unresolvable commit or default branch, or no merge base. None
+of them passes. An empty reviewed diff (the commit is already on the default
+branch) passes, and the output says that no lines were classified.
 
 Operators may still attach further Checks, and must do so for any gate beyond
 build and unit test. What changed is the floor: a voyage no longer reaches its

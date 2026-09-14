@@ -47,12 +47,18 @@ namespace Armada.Core.Services
         /// When true, the voyage is fully Audit or fully Research and must not be armed with code
         /// Checks. Report-only work is judged on report evidence, not Build or UnitTest output.
         /// </param>
+        /// <param name="isDotNetVessel">
+        /// When true, the vessel is a .NET repository (see <see cref="DotNetVesselDetector"/>) and a
+        /// Slop check is armed beside its command Checks. Slop is never armed alone: a voyage whose
+        /// only green is the Slop classification has proven nothing about whether the code builds.
+        /// </param>
         /// <returns>The types to create, in a stable order. Empty when nothing should be armed.</returns>
         public static IReadOnlyList<CheckRunTypeEnum> Resolve(
             VoyageCheckArmingSettings? settings,
             WorkflowProfile? profile,
             IEnumerable<CheckRun>? existingVoyageChecks,
-            bool isFullyReportOnlyVoyage = false)
+            bool isFullyReportOnlyVoyage = false,
+            bool isDotNetVessel = false)
         {
             List<CheckRunTypeEnum> planned = new List<CheckRunTypeEnum>();
 
@@ -82,6 +88,18 @@ namespace Armada.Core.Services
                 && !alreadyAttached.Contains(CheckRunTypeEnum.UnitTest))
             {
                 planned.Add(CheckRunTypeEnum.UnitTest);
+            }
+
+            bool hasCommandCheck = planned.Count > 0
+                || alreadyAttached.Contains(CheckRunTypeEnum.Build)
+                || alreadyAttached.Contains(CheckRunTypeEnum.UnitTest);
+
+            if (settings.ArmSlop
+                && isDotNetVessel
+                && hasCommandCheck
+                && !alreadyAttached.Contains(CheckRunTypeEnum.Slop))
+            {
+                planned.Add(CheckRunTypeEnum.Slop);
             }
 
             return planned;

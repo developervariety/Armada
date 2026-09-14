@@ -98,6 +98,12 @@ namespace Armada.Core.Enums
         /// <summary>
         /// Caller-specified custom command.
         /// </summary>
-        Custom = 18
+        Custom = 18,
+
+        /// <summary>
+        /// Anti-reward-hacking classification of the reviewed diff on a .NET vessel. Executed by
+        /// Armada's native classifier rather than a workflow-profile command.
+        /// </summary>
+        Slop = 19
     }
 }

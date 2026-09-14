@@ -1,0 +1,20 @@
+diff --git a/Directory.Build.props b/Directory.Build.props
+index 1111111..2222222 100644
+--- a/Directory.Build.props
++++ b/Directory.Build.props
+@@ -1,5 +1,6 @@
+ <Project>
+   <PropertyGroup>
+     <Nullable>enable</Nullable>
++    <NoWarn>$(NoWarn);CS1591</NoWarn>
+   </PropertyGroup>
+ </Project>
+diff --git a/src/App/App.csproj b/src/App/App.csproj
+index 3333333..4444444 100644
+--- a/src/App/App.csproj
++++ b/src/App/App.csproj
+@@ -8,4 +8,5 @@
+   <ItemGroup>
++    <PackageReference Include="Legacy.Package" NoWarn="NU1701" />
+   </ItemGroup>
+ </Project>

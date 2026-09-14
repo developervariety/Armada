@@ -1,0 +1,16 @@
+diff --git a/tests/Port.Tests/DecoderTests.cs b/tests/Port.Tests/DecoderTests.cs
+index 1111111..2222222 100644
+--- a/tests/Port.Tests/DecoderTests.cs
++++ b/tests/Port.Tests/DecoderTests.cs
+@@ -1,3 +1,11 @@
+     public class DecoderTests
+     {
++        // slop-allow SkippedTest: reproduces the pinned source defect in the high-bit mask
++        [Fact(Skip = "pinned source defect")]
++        public void PinnedDefect() { }
++        [Theory(Skip = "x")] // slop-allow SkippedTest:
++        public void NoReason(int value) { }
++        // slop-allow EmptyCatch: marker names the wrong rule for the line below
++        [Fact(Skip = "wrong rule marker")]
++            catch (IOException) { } // slop-allow EmptyCatch: the source swallows the read error by design
+     }

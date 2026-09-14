@@ -136,7 +136,11 @@ Armada models work explicitly so a human or orchestrator can inspect every layer
 
 The objective scheduler selects eligible objectives and dispatches captains.
 Its settings persist across Admiral restarts, and its voyages use the normal
-Build and UnitTest Check-arming path. Once a voyage has a commit under review,
+Build and UnitTest Check-arming path. On .NET vessels that path also arms a Slop
+Check, which classifies the reviewed diff natively: skipped tests, project-wide
+`NoWarn` and central package version bypasses fail it, and empty catch blocks,
+literal delays and warning suppressions are reported without failing it. Once a
+voyage has a commit under review,
 an armed Check that has not run yet is queued work: the Judge gate stamps it at
 the reviewed commit and holds the PASS until it runs, rather than rejecting the
 PASS for missing Checks. Operators handle landing, incidents,

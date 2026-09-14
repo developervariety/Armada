@@ -166,6 +166,21 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   says, so an unclosed attempt cannot be purged before it is reconciled. Manual
   event deletion remains an explicit operator action and is documented as a
   risk.
+### Slop Check for .NET vessels
+
+- Added a `Slop` Check type. Dispatch arms it beside Build and UnitTest on
+  .NET vessels, on the operator, scheduler and recovery paths, and never arms
+  it alone. `VoyageCheckArming.ArmSlop` switches it off.
+- The Check runs Armada's own classifier on the added lines of the reviewed
+  diff, so it works for every captain runtime and needs no installed tool.
+  Skipped or ignored tests, project-wide `NoWarn`, and central package version
+  bypasses fail it. Empty catch blocks, literal delays and warning suppressions
+  are reported as WARN findings in the output and do not fail it.
+- A `slop-allow <Rule>: <reason>` comment suppresses one finding when it names
+  the rule and records a reason. Every condition that prevents classification
+  fails the Check with its reason; none passes it.
+- The dispatch preview lists the Slop Check when dispatch would arm it, and the
+  dashboard offers the type for .NET workflow profiles.
 
 ### Native self-deploy preflight
 

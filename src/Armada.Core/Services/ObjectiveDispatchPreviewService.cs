@@ -720,6 +720,12 @@ namespace Armada.Core.Services
 
             await EvaluateRequiredCheckAsync(auth, vessel, profile, CheckRunTypeEnum.Build, arming.ArmBuild, result, token).ConfigureAwait(false);
             await EvaluateRequiredCheckAsync(auth, vessel, profile, CheckRunTypeEnum.UnitTest, arming.ArmUnitTest, result, token).ConfigureAwait(false);
+
+            // The preview asks the same plan dispatch uses, so it cannot promise a Slop check the
+            // arming service would not create.
+            bool isDotNet = DotNetVesselDetector.IsDotNetVessel(vessel, profile, out string _);
+            if (VoyageCheckArmingPlan.Resolve(arming, profile, null, false, isDotNet).Contains(CheckRunTypeEnum.Slop))
+                AddRequiredCheck(result, CheckRunTypeEnum.Slop, SlopCheckRunner.CommandLabel, true, true);
         }
 
         private async Task EvaluateRequiredCheckAsync(

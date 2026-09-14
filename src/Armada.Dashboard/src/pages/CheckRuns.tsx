@@ -48,6 +48,7 @@ const ALL_CHECK_TYPES: CheckRunType[] = [
   'SmokeTest',
   'HealthCheck',
   'Custom',
+  'Slop',
 ];
 
 interface CheckRunPrefillState {
@@ -78,6 +79,8 @@ function getAvailableCheckTypes(profile: WorkflowProfile | null): CheckRunType[]
   if (profile.environments.some((environment) => environment.healthCheckCommand)) types.push('HealthCheck');
   if (profile.environments.some((environment) => environment.deploymentVerificationCommand)) types.push('DeploymentVerification');
   if (profile.environments.some((environment) => environment.rollbackVerificationCommand)) types.push('RollbackVerification');
+  // Slop needs no profile command: Armada classifies the reviewed diff natively on .NET vessels.
+  if ([profile.buildCommand, profile.unitTestCommand].some((command) => /(^|[\s;&|(/\\"'])(dotnet|msbuild)(\.exe)?(?=\s|$|[;&|)"'])/i.test(command || ''))) types.push('Slop');
   return types.length > 0 ? types : ALL_CHECK_TYPES;
 }
 
