@@ -99,9 +99,12 @@ namespace Armada.Core.Services
                 }
             }
 
-            if (activeLandingPipeline)
+            bool hasDependentPipelineStageForHandoff = voyageMissions != null && voyageMissions.Any(candidate =>
+                String.Equals(candidate.DependsOnMissionId, mission.Id, StringComparison.Ordinal));
+            if (activeLandingPipeline || hasDependentPipelineStageForHandoff)
             {
-                return ManualCompletionProofResult.Pass("landing_pipeline");
+                return ManualCompletionProofResult.Pass(
+                    hasDependentPipelineStageForHandoff ? "pipeline_handoff" : "landing_pipeline");
             }
 
             Vessel? vessel = String.IsNullOrWhiteSpace(mission.VesselId)

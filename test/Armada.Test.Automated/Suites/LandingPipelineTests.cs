@@ -196,6 +196,81 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual("WorkProduced", persisted.Status.ToString());
             });
 
+            await RunTest("ManualComplete_IntermediateStageUsesSharedHandoffAtRest", async () =>
+            {
+                string suffix = Guid.NewGuid().ToString("N");
+                string captainId = "cpt_manual_" + suffix;
+                string workerId = "msn_manual_worker_" + suffix;
+                string judgeId = "msn_manual_judge_" + suffix;
+                string voyageId = "voy_manual_" + suffix;
+
+                HttpResponseMessage voyageResponse = await _AuthClient.PostAsync("/api/v1/voyages",
+                    JsonHelper.ToJsonContent(new
+                    {
+                        Id = voyageId,
+                        Title = "manual handoff voyage " + suffix,
+                        Missions = Array.Empty<object>()
+                    })).ConfigureAwait(false);
+                AssertStatusCode(HttpStatusCode.Created, voyageResponse);
+                Voyage voyage = await JsonHelper.DeserializeAsync<Voyage>(voyageResponse).ConfigureAwait(false);
+                voyageId = voyage.Id!;
+
+                HttpResponseMessage captainResponse = await _AuthClient.PostAsync("/api/v1/captains",
+                    JsonHelper.ToJsonContent(new
+                    {
+                        Id = captainId,
+                        Name = "manual handoff captain " + suffix,
+                        Runtime = "ClaudeCode",
+                        State = "Working",
+                        CurrentMissionId = workerId
+                    })).ConfigureAwait(false);
+                AssertStatusCode(HttpStatusCode.Created, captainResponse);
+
+                HttpResponseMessage workerResponse = await _AuthClient.PostAsync("/api/v1/missions",
+                    JsonHelper.ToJsonContent(new
+                    {
+                        Id = workerId,
+                        Title = "manual intermediate worker " + suffix,
+                        VoyageId = voyageId,
+                        CaptainId = captainId,
+                        Mode = "Implementation"
+                    })).ConfigureAwait(false);
+                string workerBody = await workerResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+                AssertTrue(workerResponse.IsSuccessStatusCode,
+                    "worker creation response " + (int)workerResponse.StatusCode + ": " + workerBody);
+                HttpResponseMessage judgeResponse = await _AuthClient.PostAsync("/api/v1/missions",
+                    JsonHelper.ToJsonContent(new
+                    {
+                        Id = judgeId,
+                        Title = "manual downstream judge " + suffix,
+                        VoyageId = voyageId,
+                        DependsOnMissionId = workerId,
+                        Persona = "Judge",
+                        Mode = "Implementation"
+                    })).ConfigureAwait(false);
+                string judgeBody = await judgeResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+                AssertTrue(judgeResponse.IsSuccessStatusCode,
+                    "downstream creation response " + (int)judgeResponse.StatusCode + ": " + judgeBody);
+
+                await TransitionAsync(workerId, "Assigned");
+                await TransitionAsync(workerId, "InProgress");
+                HttpResponseMessage complete = await TransitionAsync(workerId, "Complete");
+                AssertStatusCode(HttpStatusCode.OK, complete);
+                Mission persisted = await GetMissionAsync(workerId);
+                AssertEqual("WorkProduced", persisted.Status.ToString(), "intermediate handoff remains nonterminal");
+                AssertTrue(String.IsNullOrEmpty(persisted.DockId), "intermediate handoff has no landing dock");
+                Mission downstream = await GetMissionAsync(judgeId);
+                AssertTrue(downstream.Status == MissionStatusEnum.Pending || downstream.Status == MissionStatusEnum.Assigned,
+                    "shared handoff leaves downstream Judge pending or assigned");
+
+                EnumerationResult<ArmadaEvent> events = await GetTypedAsync<EnumerationResult<ArmadaEvent>>(
+                    "/api/v1/events?type=mission.status_changed&missionId=" + workerId);
+                AssertTrue(events.Objects.Any(evt => (evt.Message ?? String.Empty).Contains("WorkProduced", StringComparison.Ordinal)),
+                    "REST status event reports the persisted handoff status");
+                AssertFalse(events.Objects.Any(evt => (evt.Message ?? String.Empty).Contains("transitioned to Complete", StringComparison.Ordinal)),
+                    "REST status event does not report requested Complete for an intermediate stage");
+            });
+
             // === MergeQueue Auto-Enqueue ===
 
             await RunTest("MergeQueue_VesselLandingMode_CreatesEntry", async () =>

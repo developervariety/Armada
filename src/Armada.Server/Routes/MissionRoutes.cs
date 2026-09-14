@@ -875,13 +875,7 @@ namespace Armada.Server.Routes
                             String.Equals(candidate.DependsOnMissionId, mission.Id, StringComparison.Ordinal));
                         if (hasDependentPipelineStage)
                         {
-                            Captain? completionCaptain = String.IsNullOrWhiteSpace(mission.CaptainId)
-                                ? null
-                                : ctx.IsAdmin
-                                    ? await _database.Captains.ReadAsync(mission.CaptainId).ConfigureAwait(false)
-                                    : ctx.IsTenantAdmin
-                                        ? await _database.Captains.ReadAsync(ctx.TenantId!, mission.CaptainId).ConfigureAwait(false)
-                                        : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, mission.CaptainId).ConfigureAwait(false);
+                            Captain? completionCaptain = await ReadMissionCaptainAsync(ctx, mission).ConfigureAwait(false);
                             if (completionCaptain == null
                                 || !String.Equals(completionCaptain.CurrentMissionId, mission.Id, StringComparison.Ordinal))
                             {
@@ -905,36 +899,35 @@ namespace Armada.Server.Routes
                         }
                         else
                         {
-
-                        // Capture diff before landing
-                        if (_admiral.OnCaptureDiff != null)
-                        {
-                            try
+                            // Capture diff before landing
+                            if (_admiral.OnCaptureDiff != null)
                             {
-                                await _admiral.OnCaptureDiff.Invoke(mission, landingDock).ConfigureAwait(false);
+                                try
+                                {
+                                    await _admiral.OnCaptureDiff.Invoke(mission, landingDock).ConfigureAwait(false);
+                                }
+                                catch (Exception diffEx)
+                                {
+                                    _logging.Warn(_Header + "error capturing diff during manual completion of " + id + ": " + diffEx.Message);
+                                }
                             }
-                            catch (Exception diffEx)
-                            {
-                                _logging.Warn(_Header + "error capturing diff during manual completion of " + id + ": " + diffEx.Message);
-                            }
-                        }
 
-                        // Set to WorkProduced first so the landing handler can process it
-                        mission.Status = MissionStatusEnum.WorkProduced;
-                        mission.LastUpdateUtc = DateTime.UtcNow;
-                        await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                            // Set to WorkProduced first so the landing handler can process it
+                            mission.Status = MissionStatusEnum.WorkProduced;
+                            mission.LastUpdateUtc = DateTime.UtcNow;
+                            await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
 
-                        _logging.Info(_Header + "manual Complete transition for " + id + " — routing through landing pipeline");
+                            _logging.Info(_Header + "manual Complete transition for " + id + " — routing through landing pipeline");
 
-                        // Invoke the full landing pipeline (same as agent-driven completion)
-                        await _handleMissionComplete(mission, landingDock).ConfigureAwait(false);
+                            // Invoke the full landing pipeline (same as agent-driven completion)
+                            await _handleMissionComplete(mission, landingDock).ConfigureAwait(false);
 
-                        // Re-read the mission to get the final state after landing. The immutable
-                        // proof ran before capture and landing; a post-landing downgrade cannot
-                        // undo a merge that was allowed without that proof.
-                        mission = await _database.Missions.ReadAsync(id).ConfigureAwait(false);
-                        if (mission == null)
-                            return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found after landing" };
+                            // Re-read the mission to get the final state after landing. The immutable
+                            // proof ran before capture and landing; a post-landing downgrade cannot
+                            // undo a merge that was allowed without that proof.
+                            mission = await _database.Missions.ReadAsync(id).ConfigureAwait(false);
+                            if (mission == null)
+                                return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found after landing" };
                         }
 
                         Signal landingSignal = new Signal(SignalTypeEnum.Progress, hasDependentPipelineStage
@@ -997,6 +990,10 @@ namespace Armada.Server.Routes
                         mission = await _database.Missions.ReadAsync(id).ConfigureAwait(false)
                             ?? throw new InvalidOperationException("Mission disappeared during manual pipeline handoff.");
                         intermediateCompletionHandled = true;
+                        // Report the durable handoff result in the REST signal and event. The
+                        // requested Complete status was only the operator trigger; it was not the
+                        // persisted outcome for an intermediate stage.
+                        newStatus = mission.Status;
                     }
                 }
 
