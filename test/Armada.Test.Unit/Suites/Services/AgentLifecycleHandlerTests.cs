@@ -858,6 +858,35 @@ namespace Armada.Test.Unit.Suites.Services
                         "A tool-activity signal must refresh provider progress, or an actively-working captain is nudged mid-work");
                 }
             });
+
+            await RunTest("MissionProcessOwnership_RequiresRegisteredCaptainGeneration", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    Captain captain = new Captain("manual-proof-captain", AgentRuntimeEnum.ClaudeCode)
+                    {
+                        State = CaptainStateEnum.Working,
+                        ProcessId = Environment.ProcessId
+                    };
+                    Mission mission = new Mission("manual-proof-process")
+                    {
+                        CaptainId = captain.Id,
+                        Status = MissionStatusEnum.InProgress,
+                        ProcessId = Environment.ProcessId,
+                        StartedUtc = DateTime.UtcNow
+                    };
+                    captain.CurrentMissionId = mission.Id;
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    AssertFalse(await handler.IsMissionProcessActiveAsync(mission).ConfigureAwait(false),
+                        "An unregistered process generation must fail closed");
+                    RegisterTrackedProcess(handler, Environment.ProcessId, captain.Id, mission.Id);
+                    AssertTrue(await handler.IsMissionProcessActiveAsync(mission).ConfigureAwait(false),
+                        "A live process must be active only with matching captain and mission ownership");
+                }
+            });
         }
 
         private AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings, TimeSpan? modelValidationTimeout = null, IAdmiralService? admiralOverride = null)

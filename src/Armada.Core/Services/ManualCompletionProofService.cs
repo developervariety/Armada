@@ -144,41 +144,16 @@ namespace Armada.Core.Services
 
         private async Task<List<CheckRun>> ReadChecksAsync(Mission mission, CancellationToken token)
         {
-            Dictionary<string, CheckRun> checks = new Dictionary<string, CheckRun>(StringComparer.Ordinal);
+            List<CheckRunQuery> queries = new List<CheckRunQuery>();
             if (!String.IsNullOrWhiteSpace(mission.VoyageId))
             {
-                await ReadCheckScopeAsync(
-                    new CheckRunQuery { VoyageId = mission.VoyageId }, checks, token).ConfigureAwait(false);
+                queries.Add(new CheckRunQuery { VoyageId = mission.VoyageId });
             }
 
-            await ReadCheckScopeAsync(new CheckRunQuery { MissionId = mission.Id }, checks, token)
-                .ConfigureAwait(false);
+            queries.Add(new CheckRunQuery { MissionId = mission.Id });
+            Dictionary<string, CheckRun> checks = await CheckRunEnumeration
+                .ReadAllAsync(_Database, queries, token).ConfigureAwait(false);
             return checks.Values.ToList();
-        }
-
-        private async Task ReadCheckScopeAsync(
-            CheckRunQuery query,
-            Dictionary<string, CheckRun> checks,
-            CancellationToken token)
-        {
-            const int pageSize = 100;
-            int pageNumber = 1;
-            while (true)
-            {
-                query.PageNumber = pageNumber;
-                query.PageSize = pageSize;
-                EnumerationResult<CheckRun> page = await _Database.CheckRuns
-                    .EnumerateAsync(query, token).ConfigureAwait(false);
-                foreach (CheckRun check in page.Objects) checks[check.Id] = check;
-
-                if (page.Objects.Count == 0
-                    || (page.TotalPages > 0 && pageNumber >= page.TotalPages)
-                    || (page.TotalPages <= 0 && page.Objects.Count < pageSize))
-                {
-                    return;
-                }
-                pageNumber++;
-            }
         }
     }
 

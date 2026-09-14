@@ -123,6 +123,16 @@ namespace Armada.Server.Routes
                 .EvaluateAsync(mission, activeLandingPipeline, token).ConfigureAwait(false);
         }
 
+        private async Task<Captain?> ReadMissionCaptainAsync(AuthContext ctx, Mission mission)
+        {
+            if (String.IsNullOrWhiteSpace(mission.CaptainId)) return null;
+            return ctx.IsAdmin
+                ? await _database.Captains.ReadAsync(mission.CaptainId).ConfigureAwait(false)
+                : ctx.IsTenantAdmin
+                    ? await _database.Captains.ReadAsync(ctx.TenantId!, mission.CaptainId).ConfigureAwait(false)
+                    : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, mission.CaptainId).ConfigureAwait(false);
+        }
+
         private async Task<string> ReadFileSharedAsync(string path)
         {
             using FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
@@ -858,6 +868,44 @@ namespace Armada.Server.Routes
                             };
                         }
 
+                        List<Mission> voyageMissions = String.IsNullOrWhiteSpace(mission.VoyageId)
+                            ? new List<Mission>()
+                            : await _database.Missions.EnumerateByVoyageAsync(mission.VoyageId).ConfigureAwait(false);
+                        bool hasDependentPipelineStage = voyageMissions.Any(candidate =>
+                            String.Equals(candidate.DependsOnMissionId, mission.Id, StringComparison.Ordinal));
+                        if (hasDependentPipelineStage)
+                        {
+                            Captain? completionCaptain = String.IsNullOrWhiteSpace(mission.CaptainId)
+                                ? null
+                                : ctx.IsAdmin
+                                    ? await _database.Captains.ReadAsync(mission.CaptainId).ConfigureAwait(false)
+                                    : ctx.IsTenantAdmin
+                                        ? await _database.Captains.ReadAsync(ctx.TenantId!, mission.CaptainId).ConfigureAwait(false)
+                                        : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, mission.CaptainId).ConfigureAwait(false);
+                            if (completionCaptain == null
+                                || !String.Equals(completionCaptain.CurrentMissionId, mission.Id, StringComparison.Ordinal))
+                            {
+                                req.Http.Response.StatusCode = 409;
+                                return new ApiErrorResponse
+                                {
+                                    Error = ApiResultEnum.Conflict,
+                                    Message = "Manual completion blocked: manual_completion_captain_unavailable"
+                                };
+                            }
+
+                            // Intermediate stages use the same shared completion service as an agent
+                            // exit. It captures the diff, prepares the downstream stage, and does
+                            // not call the landing handler while a dependent stage remains.
+                            mission.Status = MissionStatusEnum.WorkProduced;
+                            mission.LastUpdateUtc = DateTime.UtcNow;
+                            await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                            await _missionService.HandleCompletionAsync(completionCaptain, mission.Id).ConfigureAwait(false);
+                            mission = await _database.Missions.ReadAsync(id).ConfigureAwait(false)
+                                ?? throw new InvalidOperationException("Mission disappeared during manual pipeline handoff.");
+                        }
+                        else
+                        {
+
                         // Capture diff before landing
                         if (_admiral.OnCaptureDiff != null)
                         {
@@ -887,12 +935,17 @@ namespace Armada.Server.Routes
                         mission = await _database.Missions.ReadAsync(id).ConfigureAwait(false);
                         if (mission == null)
                             return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found after landing" };
+                        }
 
-                        Signal landingSignal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " manual completion — landed as " + mission.Status);
+                        Signal landingSignal = new Signal(SignalTypeEnum.Progress, hasDependentPipelineStage
+                            ? "Mission " + id + " manual completion — handed off as " + mission.Status
+                            : "Mission " + id + " manual completion — landed as " + mission.Status);
                         if (!String.IsNullOrEmpty(mission.CaptainId)) landingSignal.FromCaptainId = mission.CaptainId;
                         await _database.Signals.CreateAsync(landingSignal).ConfigureAwait(false);
 
-                        await _emitEvent("mission.status_changed", "Mission " + id + " manually completed — landed as " + mission.Status,
+                        await _emitEvent("mission.status_changed", hasDependentPipelineStage
+                            ? "Mission " + id + " manually completed — handed off as " + mission.Status
+                            : "Mission " + id + " manually completed — landed as " + mission.Status,
                             "mission", id, mission.CaptainId, id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
 
                         if (_webSocketHub != null)
@@ -903,6 +956,7 @@ namespace Armada.Server.Routes
                 }
 
                 // Standard transition: no dock available or not transitioning to Complete
+                bool intermediateCompletionHandled = false;
                 if (newStatus == MissionStatusEnum.Complete)
                 {
                     ManualCompletionProofResult proof = await EvaluateManualCompletionAsync(
@@ -916,23 +970,54 @@ namespace Armada.Server.Routes
                             Message = "Manual completion blocked: " + proof.Reason
                         };
                     }
+
+                    List<Mission> voyageMissions = String.IsNullOrWhiteSpace(mission.VoyageId)
+                        ? new List<Mission>()
+                        : await _database.Missions.EnumerateByVoyageAsync(mission.VoyageId).ConfigureAwait(false);
+                    bool hasDependentPipelineStage = voyageMissions.Any(candidate =>
+                        String.Equals(candidate.DependsOnMissionId, mission.Id, StringComparison.Ordinal));
+                    if (hasDependentPipelineStage)
+                    {
+                        Captain? completionCaptain = await ReadMissionCaptainAsync(ctx, mission).ConfigureAwait(false);
+                        if (completionCaptain == null
+                            || !String.Equals(completionCaptain.CurrentMissionId, mission.Id, StringComparison.Ordinal))
+                        {
+                            req.Http.Response.StatusCode = 409;
+                            return new ApiErrorResponse
+                            {
+                                Error = ApiResultEnum.Conflict,
+                                Message = "Manual completion blocked: manual_completion_captain_unavailable"
+                            };
+                        }
+
+                        mission.Status = MissionStatusEnum.WorkProduced;
+                        mission.LastUpdateUtc = DateTime.UtcNow;
+                        await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                        await _missionService.HandleCompletionAsync(completionCaptain, mission.Id).ConfigureAwait(false);
+                        mission = await _database.Missions.ReadAsync(id).ConfigureAwait(false)
+                            ?? throw new InvalidOperationException("Mission disappeared during manual pipeline handoff.");
+                        intermediateCompletionHandled = true;
+                    }
                 }
 
-                mission.Status = newStatus;
-                mission.LastUpdateUtc = DateTime.UtcNow;
-
-                if (newStatus == MissionStatusEnum.InProgress && mission.StartedUtc == null)
+                if (!intermediateCompletionHandled)
                 {
-                    mission.StartedUtc = DateTime.UtcNow;
-                }
+                    mission.Status = newStatus;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
 
-                if (newStatus == MissionStatusEnum.Complete || newStatus == MissionStatusEnum.Failed ||
-                    newStatus == MissionStatusEnum.LandingFailed || newStatus == MissionStatusEnum.Cancelled)
-                {
-                    mission.CompletedUtc = DateTime.UtcNow;
-                }
+                    if (newStatus == MissionStatusEnum.InProgress && mission.StartedUtc == null)
+                    {
+                        mission.StartedUtc = DateTime.UtcNow;
+                    }
 
-                await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    if (newStatus == MissionStatusEnum.Complete || newStatus == MissionStatusEnum.Failed ||
+                        newStatus == MissionStatusEnum.LandingFailed || newStatus == MissionStatusEnum.Cancelled)
+                    {
+                        mission.CompletedUtc = DateTime.UtcNow;
+                    }
+
+                    await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                }
 
                 Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " transitioned to " + newStatus);
                 if (!String.IsNullOrEmpty(mission.CaptainId)) signal.FromCaptainId = mission.CaptainId;
