@@ -182,10 +182,50 @@ coverage.
 
 ### Consumer or ledger regressions after landing
 
-This measure needs a durable regression classification and a link to the
-landed slice. A failed Check name or an incident title is not sufficient.
-Until those fields exist, return `unavailable` with reason
-`regression_classification_not_recorded`.
+This measure uses typed regression links. A failed Check name or an incident
+title is never a classification.
+
+- An incident carries `RegressionPurpose` (`None`, `Consumer`, or `Ledger`),
+  `RegressionCause` (`Unclassified`, `LandedChange`, `PreExisting`,
+  `Environment`, or `NotRegression`), `RegressionObjectiveId`, and
+  `RegressionLandedCommit`. Set them with `armada_create_incident`,
+  `armada_update_incident`, `POST /api/v1/incidents`, or
+  `PUT /api/v1/incidents/{id}`.
+- A Check carries `RegressionPurpose`, `RegressionObjectiveId`, and
+  `RegressionLandedCommit`. Set them with `run_check`,
+  `POST /api/v1/check-runs`, or `POST /api/v1/check-runs/import`. A retry
+  keeps them.
+- A link or cause without a purpose is rejected. An objective link must use
+  the `obj_` prefix. A landed commit must be 7 to 64 hexadecimal characters.
+
+A regression record is an incident with a purpose, or a failed Check with a
+purpose. An incident that names a Check classifies that Check, so the Check is
+not counted again. A failed Check that no incident classifies has cause
+`Unclassified`.
+
+Each record is attributed as follows:
+
+1. `PreExisting`, `Environment`, and `NotRegression` causes are counted in
+   `regressionCoverage.notRegression`.
+2. A record without an objective link is counted in
+   `regressionCoverage.unlinked`.
+3. A record linked to an objective outside the report cohort is counted in
+   `regressionCoverage.outsideCohort`.
+4. A record for a cohort slice is unknown when its cause is `Unclassified`
+   (`cause_unclassified`), when the slice is not verified
+   (`slice_not_verified`), or when its landed commit is not a delivered tip
+   of the slice (`landed_commit_mismatch`).
+5. Otherwise the slice is a consumer or ledger regression.
+
+Records linked to a cohort slice count whenever they were detected. Unlinked
+and outside-cohort records count only when detected inside the window.
+
+Per group, `consumerRate` and `ledgerRate` are distinct regressed slices
+divided by `verifiedSlices`, and they are reported separately. `unknown` and
+`unknownByReason` state the records that could not be attributed. The metric
+is `partial` when any record is unknown. The report-wide
+`regressionCoverage` also states `recordsRead`, `attributed`, and unreadable
+incident snapshots. The rates count recorded typed regressions only.
 
 ### Repeated research per slice
 

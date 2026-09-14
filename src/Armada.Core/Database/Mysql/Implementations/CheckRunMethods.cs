@@ -43,11 +43,11 @@ namespace Armada.Core.Database.Mysql.Implementations
                     cmd.CommandText = @"INSERT INTO check_runs
                         (id, tenant_id, user_id, workflow_profile_id, vessel_id, mission_id, voyage_id, deployment_id, label, check_type, status,
                          source, provider_name, external_id, external_url, environment_name, command, working_directory, branch_name, commit_hash, exit_code, output, summary,
-                         test_summary_json, coverage_summary_json, artifacts_json, duration_ms, started_utc, completed_utc, created_utc, last_update_utc)
+                         test_summary_json, coverage_summary_json, artifacts_json, duration_ms, started_utc, completed_utc, created_utc, last_update_utc, regression_purpose, regression_objective_id, regression_landed_commit)
                         VALUES
                         (@id, @tenant_id, @user_id, @workflow_profile_id, @vessel_id, @mission_id, @voyage_id, @deployment_id, @label, @check_type, @status,
                          @source, @provider_name, @external_id, @external_url, @environment_name, @command, @working_directory, @branch_name, @commit_hash, @exit_code, @output, @summary,
-                         @test_summary_json, @coverage_summary_json, @artifacts_json, @duration_ms, @started_utc, @completed_utc, @created_utc, @last_update_utc);";
+                         @test_summary_json, @coverage_summary_json, @artifacts_json, @duration_ms, @started_utc, @completed_utc, @created_utc, @last_update_utc, @regression_purpose, @regression_objective_id, @regression_landed_commit);";
                     AddParameters(cmd, checkRun);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -122,6 +122,9 @@ namespace Armada.Core.Database.Mysql.Implementations
                         duration_ms = @duration_ms,
                         started_utc = @started_utc,
                         completed_utc = @completed_utc,
+                        regression_purpose = @regression_purpose,
+                        regression_objective_id = @regression_objective_id,
+                        regression_landed_commit = @regression_landed_commit,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
                     AddParameters(cmd, checkRun);
@@ -314,6 +317,9 @@ namespace Armada.Core.Database.Mysql.Implementations
             cmd.Parameters.AddWithValue("@completed_utc", (object?)checkRun.CompletedUtc ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@created_utc", checkRun.CreatedUtc);
             cmd.Parameters.AddWithValue("@last_update_utc", checkRun.LastUpdateUtc);
+            cmd.Parameters.AddWithValue("@regression_purpose", checkRun.RegressionPurpose == RegressionPurposeEnum.None ? (object)DBNull.Value : checkRun.RegressionPurpose.ToString());
+            cmd.Parameters.AddWithValue("@regression_objective_id", (object?)checkRun.RegressionObjectiveId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@regression_landed_commit", (object?)checkRun.RegressionLandedCommit ?? DBNull.Value);
         }
 
         private static CheckRun FromReader(MySqlDataReader reader)
@@ -344,6 +350,9 @@ namespace Armada.Core.Database.Mysql.Implementations
                 StartedUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["started_utc"]),
                 CompletedUtc = MysqlDatabaseDriver.ReadUtcNullable(reader["completed_utc"]),
                 CreatedUtc = MysqlDatabaseDriver.ReadUtc(reader["created_utc"]),
+                RegressionPurpose = CheckRunRegressionColumns.ReadPurpose(reader["regression_purpose"]),
+                RegressionObjectiveId = ProductionFactSql.ReadText(reader["regression_objective_id"]),
+                RegressionLandedCommit = ProductionFactSql.ReadText(reader["regression_landed_commit"]),
                 LastUpdateUtc = MysqlDatabaseDriver.ReadUtc(reader["last_update_utc"])
             };
 

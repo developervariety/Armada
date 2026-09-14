@@ -113,6 +113,9 @@ namespace Armada.Core.Services
                 WorkingDirectory = vessel.WorkingDirectory,
                 BranchName = request.BranchName,
                 CommitHash = request.CommitHash,
+                RegressionPurpose = RegressionLinkRules.ValidatedCheckPurpose(request.RegressionPurpose, request.RegressionObjectiveId, request.RegressionLandedCommit),
+                RegressionObjectiveId = RegressionLinkRules.NormalizeObjectiveId(request.RegressionObjectiveId),
+                RegressionLandedCommit = RegressionLinkRules.NormalizeCommit(request.RegressionLandedCommit),
                 CreatedUtc = DateTime.UtcNow,
                 LastUpdateUtc = DateTime.UtcNow
             };
@@ -450,6 +453,9 @@ namespace Armada.Core.Services
                 Label = prior.Label,
                 BranchName = prior.BranchName,
                 CommitHash = prior.CommitHash,
+                RegressionPurpose = prior.RegressionPurpose,
+                RegressionObjectiveId = prior.RegressionObjectiveId,
+                RegressionLandedCommit = prior.RegressionLandedCommit,
                 CommandOverride = prior.Command
             }, token).ConfigureAwait(false);
         }
@@ -830,6 +836,9 @@ namespace Armada.Core.Services
                 WorkingDirectory = vessel.WorkingDirectory,
                 BranchName = NormalizeValue(request.BranchName),
                 CommitHash = NormalizeValue(request.CommitHash),
+                RegressionPurpose = RegressionLinkRules.ValidatedCheckPurpose(request.RegressionPurpose, request.RegressionObjectiveId, request.RegressionLandedCommit),
+                RegressionObjectiveId = RegressionLinkRules.NormalizeObjectiveId(request.RegressionObjectiveId),
+                RegressionLandedCommit = RegressionLinkRules.NormalizeCommit(request.RegressionLandedCommit),
                 ExitCode = request.ExitCode,
                 Output = request.Output,
                 Summary = NormalizeValue(request.Summary),

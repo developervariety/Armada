@@ -55,6 +55,9 @@ namespace Armada.Core.Models
         /// <summary>Raw completed leaf counts for every UTC day in the window.</summary>
         public List<ProductionDailyCount> RawByDay { get; set; } = new List<ProductionDailyCount>();
 
+        /// <summary>Coverage of typed post-land regression records.</summary>
+        public ProductionRegressionCoverage RegressionCoverage { get; set; } = new ProductionRegressionCoverage();
+
         /// <summary>Counts excluded by stable reason code.</summary>
         public Dictionary<string, int> ExclusionsByReason { get; set; } = new Dictionary<string, int>(StringComparer.Ordinal);
     }
@@ -262,23 +265,60 @@ namespace Armada.Core.Models
         public double? RescuedSliceRate { get; set; }
     }
 
-    /// <summary>Unavailable post-land regression metric.</summary>
+    /// <summary>Post-land consumer and ledger regressions attributed to verified slices.</summary>
     public sealed class ProductionRegressionMetric
     {
         /// <summary>Availability.</summary>
         public string Availability { get; set; } = "unavailable";
 
-        /// <summary>Distinct affected slices, when instrumented.</summary>
+        /// <summary>Verified slices in the group; the denominator of both rates.</summary>
+        public int VerifiedSlices { get; set; }
+
+        /// <summary>Distinct verified slices with at least one attributed regression.</summary>
         public int? AffectedSlices { get; set; }
 
-        /// <summary>Consumer regressions, when instrumented.</summary>
+        /// <summary>Distinct verified slices with an attributed consumer regression.</summary>
         public int? Consumer { get; set; }
 
-        /// <summary>Ledger regressions, when instrumented.</summary>
+        /// <summary>Distinct verified slices with an attributed ledger regression.</summary>
         public int? Ledger { get; set; }
 
-        /// <summary>Uninstrumented verified slices.</summary>
+        /// <summary>Consumer regression slices divided by verified slices.</summary>
+        public double? ConsumerRate { get; set; }
+
+        /// <summary>Ledger regression slices divided by verified slices.</summary>
+        public double? LedgerRate { get; set; }
+
+        /// <summary>Regression records linked to a slice in this group that could not be attributed.</summary>
         public int Unknown { get; set; }
+
+        /// <summary>Unattributed records by stable reason code.</summary>
+        public Dictionary<string, int> UnknownByReason { get; set; } = new Dictionary<string, int>(StringComparer.Ordinal);
+    }
+
+    /// <summary>Report-wide coverage for typed regression records.</summary>
+    public sealed class ProductionRegressionCoverage
+    {
+        /// <summary>Regression records read: incidents with a purpose and failed Checks with a purpose.</summary>
+        public int RecordsRead { get; set; }
+
+        /// <summary>Records attributed to a verified slice in the report.</summary>
+        public int Attributed { get; set; }
+
+        /// <summary>Landed-change records with no objective link.</summary>
+        public int Unlinked { get; set; }
+
+        /// <summary>Records linked to an objective outside the report cohort.</summary>
+        public int OutsideCohort { get; set; }
+
+        /// <summary>Records whose cause is pre-existing, environment, or not a regression.</summary>
+        public int NotRegression { get; set; }
+
+        /// <summary>Records linked to a slice in the cohort that could not be attributed.</summary>
+        public int Unknown { get; set; }
+
+        /// <summary>Incident snapshots whose payload could not be read.</summary>
+        public int UnreadableRecords { get; set; }
     }
 
     /// <summary>Unavailable repeated-research metric.</summary>

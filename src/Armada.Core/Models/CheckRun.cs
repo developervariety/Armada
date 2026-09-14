@@ -126,6 +126,21 @@ namespace Armada.Core.Models
         public string? CommitHash { get; set; } = null;
 
         /// <summary>
+        /// Post-land regression class this Check guards, or None.
+        /// </summary>
+        public RegressionPurposeEnum RegressionPurpose { get; set; } = RegressionPurposeEnum.None;
+
+        /// <summary>
+        /// Objective whose landed change this Check guards.
+        /// </summary>
+        public string? RegressionObjectiveId { get; set; } = null;
+
+        /// <summary>
+        /// Landed commit this Check guards.
+        /// </summary>
+        public string? RegressionLandedCommit { get; set; } = null;
+
+        /// <summary>
         /// Exit code when available.
         /// </summary>
         public int? ExitCode { get; set; } = null;

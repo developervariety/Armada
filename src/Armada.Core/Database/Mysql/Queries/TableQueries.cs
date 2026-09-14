@@ -1234,6 +1234,15 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration 87: typed Check regression links.
+        /// </summary>
+        public static readonly string[] MigrationV87Statements = new string[]
+        {
+            @"ALTER TABLE check_runs ADD COLUMN regression_purpose VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL, ADD COLUMN regression_objective_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL, ADD COLUMN regression_landed_commit VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL;",
+            @"CREATE INDEX idx_check_runs_regression_objective ON check_runs(regression_objective_id);"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

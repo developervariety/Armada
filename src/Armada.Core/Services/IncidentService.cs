@@ -137,6 +137,10 @@ namespace Armada.Core.Services
                 VesselId = Normalize(request.VesselId),
                 MissionId = Normalize(request.MissionId),
                 VoyageId = Normalize(request.VoyageId),
+                RegressionPurpose = request.RegressionPurpose ?? RegressionPurposeEnum.None,
+                RegressionCause = request.RegressionCause ?? RegressionCauseEnum.Unclassified,
+                RegressionObjectiveId = RegressionLinkRules.NormalizeObjectiveId(request.RegressionObjectiveId),
+                RegressionLandedCommit = RegressionLinkRules.NormalizeCommit(request.RegressionLandedCommit),
                 RollbackDeploymentId = Normalize(request.RollbackDeploymentId),
                 Impact = Normalize(request.Impact),
                 RootCause = Normalize(request.RootCause),
@@ -148,6 +152,7 @@ namespace Armada.Core.Services
                 LastUpdateUtc = DateTime.UtcNow
             };
 
+            RegressionLinkRules.RequirePurposeForLinks(incident.RegressionPurpose, incident.RegressionCause, incident.RegressionObjectiveId, incident.RegressionLandedCommit);
             ApplyLifecycleTimestamps(incident);
             await WriteSnapshotAsync(auth, incident, token).ConfigureAwait(false);
             OnIncidentChanged?.Invoke(incident);
@@ -178,6 +183,10 @@ namespace Armada.Core.Services
             incident.VesselId = request.VesselId != null ? Normalize(request.VesselId) : incident.VesselId;
             incident.MissionId = request.MissionId != null ? Normalize(request.MissionId) : incident.MissionId;
             incident.VoyageId = request.VoyageId != null ? Normalize(request.VoyageId) : incident.VoyageId;
+            incident.RegressionPurpose = request.RegressionPurpose ?? incident.RegressionPurpose;
+            incident.RegressionCause = request.RegressionCause ?? incident.RegressionCause;
+            incident.RegressionObjectiveId = request.RegressionObjectiveId != null ? RegressionLinkRules.NormalizeObjectiveId(request.RegressionObjectiveId) : incident.RegressionObjectiveId;
+            incident.RegressionLandedCommit = request.RegressionLandedCommit != null ? RegressionLinkRules.NormalizeCommit(request.RegressionLandedCommit) : incident.RegressionLandedCommit;
             incident.RollbackDeploymentId = request.RollbackDeploymentId != null ? Normalize(request.RollbackDeploymentId) : incident.RollbackDeploymentId;
             incident.Impact = request.Impact != null ? Normalize(request.Impact) : incident.Impact;
             incident.RootCause = request.RootCause != null ? Normalize(request.RootCause) : incident.RootCause;
@@ -187,6 +196,7 @@ namespace Armada.Core.Services
             incident.ClosedUtc = request.ClosedUtc.HasValue ? request.ClosedUtc.Value.ToUniversalTime() : incident.ClosedUtc;
             incident.LastUpdateUtc = DateTime.UtcNow;
 
+            RegressionLinkRules.RequirePurposeForLinks(incident.RegressionPurpose, incident.RegressionCause, incident.RegressionObjectiveId, incident.RegressionLandedCommit);
             ApplyLifecycleTimestamps(incident);
             await WriteSnapshotAsync(auth, incident, token).ConfigureAwait(false);
             OnIncidentChanged?.Invoke(incident);

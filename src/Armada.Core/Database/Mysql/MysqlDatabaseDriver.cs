@@ -666,7 +666,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(83, "Persist project authorization policy", TableQueries.MigrationV83Statements),
                 new SchemaMigration(84, "Move terminal objectives out of dispatchable backlog states", TableQueries.MigrationV84Statements),
                 new SchemaMigration(85, "Remove learned-facts data, pack hints and reflection columns", LearnedFactsRemovalSchema.MysqlStatements),
-                new SchemaMigration(86, "Persist mission attempt facts", TableQueries.MigrationV86Statements)
+                new SchemaMigration(86, "Persist mission attempt facts", TableQueries.MigrationV86Statements),
+                new SchemaMigration(87, "Persist Check regression links", TableQueries.MigrationV87Statements)
             };
         }
 

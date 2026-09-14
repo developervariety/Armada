@@ -1604,6 +1604,12 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_mission_attempt_facts_mission ON mission_attempt_facts(mission_id);",
                     @"CREATE INDEX IF NOT EXISTS idx_mission_attempt_facts_root ON mission_attempt_facts(root_mission_id);",
                     @"CREATE INDEX IF NOT EXISTS idx_mission_attempt_facts_created ON mission_attempt_facts(created_utc);"
+                ),
+                new SchemaMigration(95, "Persist Check regression links",
+                    @"ALTER TABLE check_runs ADD COLUMN regression_purpose TEXT NULL;",
+                    @"ALTER TABLE check_runs ADD COLUMN regression_objective_id TEXT NULL;",
+                    @"ALTER TABLE check_runs ADD COLUMN regression_landed_commit TEXT NULL;",
+                    @"CREATE INDEX IF NOT EXISTS idx_check_runs_regression_objective ON check_runs(regression_objective_id);"
                 )
             };
         }

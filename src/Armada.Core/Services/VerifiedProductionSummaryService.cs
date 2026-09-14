@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System.Text.Json;
+    using System.Text.Json.Serialization;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -14,6 +15,11 @@ namespace Armada.Core.Services
         private const int _RecordLimit = 100000;
         private static readonly TimeSpan _DefaultWindow = TimeSpan.FromDays(7);
         private static readonly TimeSpan _MaximumWindow = TimeSpan.FromDays(90);
+        private static readonly JsonSerializerOptions _IncidentJson = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            Converters = { new JsonStringEnumConverter() }
+        };
         private readonly DatabaseDriver _Database;
 
         /// <summary>Instantiate.</summary>
@@ -82,6 +88,8 @@ namespace Armada.Core.Services
             List<MergeEntry> merges = await ReadMergeEntriesAsync(auth, result, token).ConfigureAwait(false);
             List<CheckRun> checks = await ReadChecksAsync(auth, result, token).ConfigureAwait(false);
             List<ArmadaEvent> events = await ReadEventsAsync(auth, fromUtc.Subtract(_MaximumWindow), toUtc, result, token).ConfigureAwait(false);
+            List<Incident> incidents = await ReadIncidentsAsync(auth, result, token).ConfigureAwait(false);
+            Dictionary<string, RegressionSliceTarget> regressionTargets = new Dictionary<string, RegressionSliceTarget>(StringComparer.OrdinalIgnoreCase);
             AttemptFactIndex attemptFacts = new AttemptFactIndex(await ReadAttemptFactsAsync(auth, fromUtc.Subtract(_MaximumWindow), toUtc, result, token).ConfigureAwait(false));
             bool verificationSourcesComplete = !result.Scan.Truncated;
 
@@ -124,6 +132,7 @@ namespace Armada.Core.Services
                     SliceEvidence evidence = verificationSourcesComplete
                         ? EvaluateSlice(objective, missionById, voyageById, mergesByMission, checksByMission, checksByVoyage)
                         : SliceEvidence.Failed("incomplete_source_scan");
+                    regressionTargets[objective.Id] = new RegressionSliceTarget(group, evidence);
                     if (!evidence.Verified)
                     {
                         group.VerifiedLandedSlices.Unknown++;
@@ -221,17 +230,21 @@ namespace Armada.Core.Services
                     : null;
                 FinishRescueRuntime(group.RescueRuntime);
                 FinishRate(group.FirstPassAcceptance);
-                group.PostLandRegressions.Unknown = group.VerifiedLandedSlices.Count;
                 group.RepeatedResearch.Unknown = group.VerifiedLandedSlices.Count;
                 result.Groups.Add(group);
             }
 
+            AttributeRegressions(result, regressionTargets, incidents, checks, fromUtc, toUtc);
             int verified = result.Groups.Sum(group => group.VerifiedLandedSlices.Count);
             result.VerifiedLandedSlicesPerDay = result.CompleteDayCount > 0
                 ? (double)verified / result.CompleteDayCount
                 : null;
 
             AddAvailabilityWarnings(result);
+            ProductionRegressionCoverage regressionCoverage = result.RegressionCoverage;
+            if (regressionCoverage.Unknown + regressionCoverage.Unlinked + regressionCoverage.UnreadableRecords > 0)
+                result.Warnings.Add("post_land_regressions_partial: " + regressionCoverage.Unknown + " unattributed, "
+                    + regressionCoverage.Unlinked + " unlinked, and " + regressionCoverage.UnreadableRecords + " unreadable regression record(s)");
             int firstPassUnknown = result.Groups.Sum(item => item.FirstPassAcceptance.Unknown);
             if (firstPassUnknown > 0)
                 result.Warnings.Add("first_pass_acceptance_partial: " + firstPassUnknown + " verified slice(s) ran before attempt facts were recorded");
@@ -302,7 +315,7 @@ namespace Armada.Core.Services
                     return SliceEvidence.Failed("check_not_passed");
             }
 
-            return new SliceEvidence(true, String.Empty, landingTimes.Max());
+            return new SliceEvidence(true, String.Empty, landingTimes.Max(), deliveryTips.Select(item => item.CommitHash!).ToList());
         }
 
         private static List<MissionSummary> ResolveMissions(Objective objective, List<MissionSummary> missions)
@@ -377,6 +390,81 @@ namespace Armada.Core.Services
             return values[Math.Clamp(index, 0, values.Count - 1)];
         }
 
+        /// <summary>
+        /// Attribute typed regression records to verified slices. An incident that names a failed
+        /// Check classifies that Check, so the Check is not counted a second time. Records linked to a
+        /// cohort slice count whenever they were detected; unlinked records count only when detected
+        /// inside the window.
+        /// </summary>
+        private static void AttributeRegressions(
+            ProductionSummaryResult result,
+            Dictionary<string, RegressionSliceTarget> targets,
+            List<Incident> incidents,
+            List<CheckRun> checks,
+            DateTime fromUtc,
+            DateTime toUtc)
+        {
+            HashSet<string> classifiedCheckIds = incidents
+                .Where(item => item.RegressionPurpose != RegressionPurposeEnum.None && !String.IsNullOrWhiteSpace(item.CheckRunId))
+                .Select(item => item.CheckRunId!)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            List<RegressionRecord> records = incidents
+                .Where(item => item.RegressionPurpose != RegressionPurposeEnum.None)
+                .Select(item => new RegressionRecord(item.RegressionPurpose, item.RegressionCause, item.RegressionObjectiveId, item.RegressionLandedCommit, item.DetectedUtc))
+                .ToList();
+            records.AddRange(checks
+                .Where(item => item.RegressionPurpose != RegressionPurposeEnum.None
+                    && item.Status == CheckRunStatusEnum.Failed
+                    && !classifiedCheckIds.Contains(item.Id))
+                .Select(item => new RegressionRecord(item.RegressionPurpose, RegressionCauseEnum.Unclassified, item.RegressionObjectiveId, item.RegressionLandedCommit, item.CreatedUtc)));
+
+            Dictionary<ProductionSummaryGroup, RegressionTally> tallies = result.Groups.ToDictionary(group => group, group => new RegressionTally());
+            ProductionRegressionCoverage coverage = result.RegressionCoverage;
+            foreach (RegressionRecord record in records)
+            {
+                bool detectedInWindow = record.DetectedUtc >= fromUtc && record.DetectedUtc < toUtc;
+                RegressionSliceTarget? target = record.ObjectiveId != null ? targets.GetValueOrDefault(record.ObjectiveId) : null;
+                if (target == null && !detectedInWindow) continue;
+                coverage.RecordsRead++;
+                if (record.Cause == RegressionCauseEnum.PreExisting || record.Cause == RegressionCauseEnum.Environment || record.Cause == RegressionCauseEnum.NotRegression)
+                {
+                    coverage.NotRegression++;
+                    continue;
+                }
+                if (record.ObjectiveId == null) { coverage.Unlinked++; continue; }
+                if (target == null) { coverage.OutsideCohort++; continue; }
+
+                string? reason = record.Cause == RegressionCauseEnum.Unclassified ? "cause_unclassified"
+                    : !target.Evidence.Verified ? "slice_not_verified"
+                    : record.LandedCommit != null && !(target.Evidence.DeliveryCommits ?? new List<string>()).Any(commit => CheckRunGateRules.SameCommit(commit, record.LandedCommit)) ? "landed_commit_mismatch"
+                    : null;
+                if (reason != null)
+                {
+                    target.Group.PostLandRegressions.Unknown++;
+                    Increment(target.Group.PostLandRegressions.UnknownByReason, reason);
+                    coverage.Unknown++;
+                    continue;
+                }
+                coverage.Attributed++;
+                RegressionTally tally = tallies[target.Group];
+                if (record.Purpose == RegressionPurposeEnum.Consumer) tally.Consumer.Add(record.ObjectiveId);
+                else tally.Ledger.Add(record.ObjectiveId);
+            }
+
+            foreach (ProductionSummaryGroup group in result.Groups)
+            {
+                RegressionTally tally = tallies[group];
+                ProductionRegressionMetric metric = group.PostLandRegressions;
+                metric.VerifiedSlices = group.VerifiedLandedSlices.Count;
+                metric.Consumer = tally.Consumer.Count;
+                metric.Ledger = tally.Ledger.Count;
+                metric.AffectedSlices = tally.Consumer.Union(tally.Ledger, StringComparer.OrdinalIgnoreCase).Count();
+                metric.ConsumerRate = metric.VerifiedSlices > 0 ? (double)tally.Consumer.Count / metric.VerifiedSlices : null;
+                metric.LedgerRate = metric.VerifiedSlices > 0 ? (double)tally.Ledger.Count / metric.VerifiedSlices : null;
+                metric.Availability = metric.VerifiedSlices == 0 ? "unavailable" : metric.Unknown > 0 ? "partial" : "available";
+            }
+        }
+
         private static void FinishRate(ProductionRateMetric metric)
         {
             metric.Rate = metric.Eligible > 0 ? (double)metric.Accepted / metric.Eligible : null;
@@ -423,7 +511,6 @@ namespace Armada.Core.Services
         {
             result.Warnings.Add("ready_to_dispatch_delay_partial: historical snapshots do not prove full dispatch-preflight readiness");
             result.Warnings.Add("host_slot_queue_unavailable: command-slot request time is not recorded");
-            result.Warnings.Add("post_land_regressions_unavailable: regression purpose and originating slice are not recorded");
             result.Warnings.Add("repeated_research_unavailable: research activity is not linked to preparation claims");
             result.Warnings.Add("eligible_idle_lane_minutes_unavailable: historical lane eligibility intervals are not recorded");
         }
@@ -436,6 +523,36 @@ namespace Armada.Core.Services
                     ? await _Database.Objectives.EnumerateAsync(auth.TenantId!, token).ConfigureAwait(false)
                     : await _Database.Objectives.EnumerateAsync(auth.TenantId!, auth.UserId!, token).ConfigureAwait(false);
             return Bound(values, "objectives", report);
+        }
+
+        private async Task<List<Incident>> ReadIncidentsAsync(AuthContext auth, ProductionSummaryResult report, CancellationToken token)
+        {
+            List<ArmadaEvent> snapshots = await ReadPagesAsync<ArmadaEvent>(async query =>
+            {
+                query.EventType = "incident.snapshot";
+                return auth.IsAdmin
+                    ? await _Database.Events.EnumerateAsync(query, token).ConfigureAwait(false)
+                    : auth.IsTenantAdmin
+                        ? await _Database.Events.EnumerateAsync(auth.TenantId!, query, token).ConfigureAwait(false)
+                        : await _Database.Events.EnumerateAsync(auth.TenantId!, auth.UserId!, query, token).ConfigureAwait(false);
+            }, "incident_snapshots", report, token).ConfigureAwait(false);
+
+            List<Incident> incidents = new List<Incident>();
+            foreach (IGrouping<string, ArmadaEvent> history in snapshots
+                .Where(item => String.Equals(item.EntityType, "incident", StringComparison.OrdinalIgnoreCase) && !String.IsNullOrWhiteSpace(item.EntityId))
+                .GroupBy(item => item.EntityId!, StringComparer.OrdinalIgnoreCase))
+            {
+                ArmadaEvent latest = history.OrderByDescending(item => item.CreatedUtc).ThenByDescending(item => item.Id, StringComparer.Ordinal).First();
+                Incident? incident = null;
+                if (!String.IsNullOrWhiteSpace(latest.Payload))
+                {
+                    try { incident = JsonSerializer.Deserialize<Incident>(latest.Payload, _IncidentJson); }
+                    catch (JsonException) { incident = null; }
+                }
+                if (incident == null) report.RegressionCoverage.UnreadableRecords++;
+                else incidents.Add(incident);
+            }
+            return incidents;
         }
 
         private async Task<List<MissionAttemptFact>> ReadAttemptFactsAsync(AuthContext auth, DateTime fromUtc, DateTime toUtc, ProductionSummaryResult report, CancellationToken token)
@@ -570,6 +687,48 @@ namespace Armada.Core.Services
             report.Warnings.Add(source + "_scan_truncated");
         }
 
+        private sealed class RegressionSliceTarget
+        {
+            internal RegressionSliceTarget(ProductionSummaryGroup group, SliceEvidence evidence)
+            {
+                Group = group;
+                Evidence = evidence;
+            }
+
+            internal ProductionSummaryGroup Group { get; }
+
+            internal SliceEvidence Evidence { get; }
+        }
+
+        private sealed class RegressionTally
+        {
+            internal HashSet<string> Consumer { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            internal HashSet<string> Ledger { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        private sealed class RegressionRecord
+        {
+            internal RegressionRecord(RegressionPurposeEnum purpose, RegressionCauseEnum cause, string? objectiveId, string? landedCommit, DateTime detectedUtc)
+            {
+                Purpose = purpose;
+                Cause = cause;
+                ObjectiveId = String.IsNullOrWhiteSpace(objectiveId) ? null : objectiveId;
+                LandedCommit = String.IsNullOrWhiteSpace(landedCommit) ? null : landedCommit;
+                DetectedUtc = detectedUtc;
+            }
+
+            internal RegressionPurposeEnum Purpose { get; }
+
+            internal RegressionCauseEnum Cause { get; }
+
+            internal string? ObjectiveId { get; }
+
+            internal string? LandedCommit { get; }
+
+            internal DateTime DetectedUtc { get; }
+        }
+
         private sealed class AttemptChainClassification
         {
             internal int HistoricalRuns { get; set; }
@@ -658,7 +817,7 @@ namespace Armada.Core.Services
             }
         }
 
-        private sealed record SliceEvidence(bool Verified, string Reason, DateTime? LastLandingUtc)
+        private sealed record SliceEvidence(bool Verified, string Reason, DateTime? LastLandingUtc, List<string>? DeliveryCommits = null)
         {
             public static SliceEvidence Failed(string reason) => new SliceEvidence(false, reason, null);
         }

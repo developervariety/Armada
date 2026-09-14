@@ -942,6 +942,12 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_mission_attempt_facts_mission' AND object_id=OBJECT_ID('mission_attempt_facts')) CREATE INDEX idx_mission_attempt_facts_mission ON mission_attempt_facts(mission_id);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_mission_attempt_facts_root' AND object_id=OBJECT_ID('mission_attempt_facts')) CREATE INDEX idx_mission_attempt_facts_root ON mission_attempt_facts(root_mission_id);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_mission_attempt_facts_created' AND object_id=OBJECT_ID('mission_attempt_facts')) CREATE INDEX idx_mission_attempt_facts_created ON mission_attempt_facts(created_utc);"
+                ),
+                new SchemaMigration(90, "Persist Check regression links",
+                    @"IF COL_LENGTH('check_runs','regression_purpose') IS NULL ALTER TABLE check_runs ADD regression_purpose NVARCHAR(16) NULL;",
+                    @"IF COL_LENGTH('check_runs','regression_objective_id') IS NULL ALTER TABLE check_runs ADD regression_objective_id NVARCHAR(128) NULL;",
+                    @"IF COL_LENGTH('check_runs','regression_landed_commit') IS NULL ALTER TABLE check_runs ADD regression_landed_commit NVARCHAR(64) NULL;",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_check_runs_regression_objective' AND object_id=OBJECT_ID('check_runs')) CREATE INDEX idx_check_runs_regression_objective ON check_runs(regression_objective_id);"
                 )
             };
         }

@@ -22,6 +22,38 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Regression links round-trip through incident tools and require a purpose", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterIncidentHandlers(incidents);
+
+                using JsonDocument createDoc = JsonDocument.Parse("{\"title\":\"Consumer broke\",\"regressionPurpose\":\"Consumer\",\"regressionObjectiveId\":\"obj_origin\",\"regressionLandedCommit\":\"ABCDEF1234\"}");
+                Incident created = (Incident)await handlers["armada_create_incident"](createDoc.RootElement).ConfigureAwait(false);
+                AssertEqual(RegressionPurposeEnum.Consumer, created.RegressionPurpose);
+                AssertEqual(RegressionCauseEnum.Unclassified, created.RegressionCause);
+                AssertEqual("abcdef1234", created.RegressionLandedCommit, "commit is normalized");
+
+                using JsonDocument updateDoc = JsonDocument.Parse("{\"incidentId\":\"" + created.Id + "\",\"regressionCause\":\"LandedChange\",\"regressionLandedCommit\":\"\"}");
+                Incident updated = (Incident)await handlers["armada_update_incident"](updateDoc.RootElement).ConfigureAwait(false);
+                AssertEqual(RegressionCauseEnum.LandedChange, updated.RegressionCause);
+                AssertEqual("obj_origin", updated.RegressionObjectiveId, "an omitted link is preserved");
+                AssertNull(updated.RegressionLandedCommit, "a blank link is cleared");
+
+                using JsonDocument getDoc = JsonDocument.Parse("{\"incidentId\":\"" + created.Id + "\"}");
+                Incident read = (Incident)await handlers["armada_get_incident"](getDoc.RootElement).ConfigureAwait(false);
+                AssertEqual(RegressionCauseEnum.LandedChange, read.RegressionCause, "the snapshot persists the cause");
+
+                using JsonDocument badCommitDoc = JsonDocument.Parse("{\"incidentId\":\"" + created.Id + "\",\"regressionLandedCommit\":\"not-a-commit\"}");
+                object badCommit = await handlers["armada_update_incident"](badCommitDoc.RootElement).ConfigureAwait(false);
+                AssertContains("regressionLandedCommit", JsonSerializer.Serialize(badCommit), "an invalid commit is rejected with a reason");
+
+                using JsonDocument noPurposeDoc = JsonDocument.Parse("{\"title\":\"Link without purpose\",\"regressionObjectiveId\":\"obj_origin\"}");
+                await AssertThrowsAsync<InvalidOperationException>(async () =>
+                    await handlers["armada_create_incident"](noPurposeDoc.RootElement).ConfigureAwait(false),
+                    "a regression link without a purpose is rejected").ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
             await RunTest("MCP incident tools expose list get create update close and delete", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

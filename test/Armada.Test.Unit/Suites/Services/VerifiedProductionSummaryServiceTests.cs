@@ -140,7 +140,9 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, group.FirstPassAcceptance.Unknown);
                 AssertEqual(1, group.FirstPassAcceptance.UnknownByReason["attempt_facts_not_recorded"]);
                 AssertEqual(3600000L, group.LandedToVerifiedCloseoutMs.P50!.Value);
-                AssertEqual("unavailable", group.PostLandRegressions.Availability);
+                AssertEqual("available", group.PostLandRegressions.Availability, "No typed regression record is linked to the verified slice");
+                AssertEqual(0, group.PostLandRegressions.Consumer!.Value);
+                AssertEqual(1, group.PostLandRegressions.VerifiedSlices);
 
                 check.Status = CheckRunStatusEnum.Canceled;
                 await testDb.Driver.CheckRuns.UpdateAsync(check).ConfigureAwait(false);
@@ -346,6 +348,55 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0.0 + (40.0 / 120.0), rescueRuntime.Share!.Value);
             }).ConfigureAwait(false);
 
+            await RunTest("PostLandRegressionRatesAreSeparatedWithCoverage", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DateTime start = new DateTime(2026, 5, 1, 0, 0, 0, DateTimeKind.Utc);
+                await CreateVerifiedSliceAsync(testDb, start, "alpha").ConfigureAwait(false);
+                await CreateVerifiedSliceAsync(testDb, start, "bravo").ConfigureAwait(false);
+                await CreateVerifiedSliceAsync(testDb, start, "charlie").ConfigureAwait(false);
+                Objective alpha = await ObjectiveTitledAsync(testDb, "alpha").ConfigureAwait(false);
+                Objective bravo = await ObjectiveTitledAsync(testDb, "bravo").ConfigureAwait(false);
+                Objective charlie = await ObjectiveTitledAsync(testDb, "charlie").ConfigureAwait(false);
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AuthContext auth = AuthContext.Authenticated("default", "default", true, true, "UnitTest");
+
+                CheckRun consumerCheck = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    Status = CheckRunStatusEnum.Failed, Command = "dotnet build consumer", CreatedUtc = start.AddHours(2),
+                    RegressionPurpose = RegressionPurposeEnum.Consumer, RegressionObjectiveId = alpha.Id
+                }).ConfigureAwait(false);
+                await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    Status = CheckRunStatusEnum.Failed, Command = "dotnet test consumer", CreatedUtc = start.AddHours(2),
+                    RegressionPurpose = RegressionPurposeEnum.Consumer, RegressionObjectiveId = bravo.Id
+                }).ConfigureAwait(false);
+                await CreateRegressionIncidentAsync(incidents, auth, start, "consumer caused", RegressionPurposeEnum.Consumer, RegressionCauseEnum.LandedChange, alpha.Id, CommitFor("alpha"), consumerCheck.Id).ConfigureAwait(false);
+                await CreateRegressionIncidentAsync(incidents, auth, start, "ledger caused", RegressionPurposeEnum.Ledger, RegressionCauseEnum.LandedChange, bravo.Id, CommitFor("bravo"), null).ConfigureAwait(false);
+                await CreateRegressionIncidentAsync(incidents, auth, start, "unclassified", RegressionPurposeEnum.Consumer, RegressionCauseEnum.Unclassified, charlie.Id, null, null).ConfigureAwait(false);
+                await CreateRegressionIncidentAsync(incidents, auth, start, "unlinked ledger", RegressionPurposeEnum.Ledger, RegressionCauseEnum.LandedChange, null, null, null).ConfigureAwait(false);
+                await CreateRegressionIncidentAsync(incidents, auth, start, "environment", RegressionPurposeEnum.Consumer, RegressionCauseEnum.Environment, charlie.Id, null, null).ConfigureAwait(false);
+                await CreateRegressionIncidentAsync(incidents, auth, start, "wrong commit", RegressionPurposeEnum.Consumer, RegressionCauseEnum.LandedChange, charlie.Id, "deadbeef00", null).ConfigureAwait(false);
+
+                ProductionSummaryResult result = await new VerifiedProductionSummaryService(testDb.Driver).SummarizeAsync(
+                    auth, new ProductionSummaryQuery { FromUtc = start, ToUtc = start.AddDays(7) }).ConfigureAwait(false);
+
+                ProductionRegressionMetric regressions = result.Groups.Single().PostLandRegressions;
+                AssertEqual(3, regressions.VerifiedSlices);
+                AssertEqual(1, regressions.Consumer, "A classified consumer incident supersedes its linked failed Check");
+                AssertEqual(1, regressions.Ledger);
+                AssertEqual(2, regressions.AffectedSlices);
+                AssertTrue(regressions.ConsumerRate.HasValue && Math.Abs(regressions.ConsumerRate.Value - (1.0 / 3.0)) < 0.0001);
+                AssertTrue(regressions.LedgerRate.HasValue && Math.Abs(regressions.LedgerRate.Value - (1.0 / 3.0)) < 0.0001);
+                AssertEqual(2, regressions.UnknownByReason["cause_unclassified"], "An unclassified incident and an unexplained failed Check are unknown");
+                AssertEqual(1, regressions.UnknownByReason["landed_commit_mismatch"], "A commit that is not a delivered tip of the slice is not attributed");
+                AssertEqual(3, regressions.Unknown);
+                AssertEqual("partial", regressions.Availability);
+                AssertEqual(1, result.RegressionCoverage.Unlinked, "A landed-change regression without an objective link is unlinked");
+                AssertEqual(1, result.RegressionCoverage.NotRegression, "An environment cause is excluded");
+                AssertEqual(7, result.RegressionCoverage.RecordsRead, "The Check classified by an incident is one record, not two");
+            }).ConfigureAwait(false);
+
             await RunTest("WindowOverNinetyDaysIsRejected", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -364,7 +415,7 @@ namespace Armada.Test.Unit.Suites.Services
 
         private static async Task<Mission> CreateVerifiedSliceAsync(TestDatabase testDb, DateTime start, string label)
         {
-            string commit = (label + "0000000").Substring(0, 7);
+            string commit = CommitFor(label);
             Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage
             {
                 Title = label,
@@ -410,6 +461,34 @@ namespace Armada.Test.Unit.Suites.Services
                 LastUpdateUtc = start.AddHours(1)
             }).ConfigureAwait(false);
             return mission;
+        }
+
+        private static async Task CreateRegressionIncidentAsync(
+            IncidentService incidents, AuthContext auth, DateTime start, string title,
+            RegressionPurposeEnum purpose, RegressionCauseEnum cause, string? objectiveId, string? commit, string? checkRunId)
+        {
+            await incidents.CreateAsync(auth, new IncidentUpsertRequest
+            {
+                Title = title,
+                DetectedUtc = start.AddHours(3),
+                CheckRunId = checkRunId,
+                RegressionPurpose = purpose,
+                RegressionCause = cause,
+                RegressionObjectiveId = objectiveId,
+                RegressionLandedCommit = commit
+            }).ConfigureAwait(false);
+        }
+
+        private static string CommitFor(string label)
+        {
+            using (System.Security.Cryptography.SHA1 sha = System.Security.Cryptography.SHA1.Create())
+                return Convert.ToHexString(sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(label))).Substring(0, 12).ToLowerInvariant();
+        }
+
+        private static async Task<Objective> ObjectiveTitledAsync(TestDatabase testDb, string title)
+        {
+            List<Objective> objectives = await testDb.Driver.Objectives.EnumerateAsync().ConfigureAwait(false);
+            return objectives.Single(item => item.Title == title);
         }
 
         private static async Task AddFactAsync(TestDatabase testDb, Mission mission, MissionAttemptFactTypeEnum type, string? reason, DateTime createdUtc)

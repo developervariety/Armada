@@ -246,6 +246,17 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   existed are reported as historical with explicit coverage instead of being
   classified from parent links or titles.
 
+### Post-land regression links
+
+- Incidents carry a typed regression purpose (consumer or ledger), cause, and
+  links to the originating objective and landed commit. Checks carry the
+  purpose and the same links, stored on all four database providers, and a
+  Check retry keeps them. REST and MCP incident and Check writes accept and
+  validate the fields.
+- The production summary reports consumer and ledger regression rates per
+  group separately, with unattributed, unlinked, outside-cohort and
+  not-a-regression records counted explicitly.
+
 ### Native self-deploy preflight
 
 - Added provider-native backup, owned isolated restore and candidate database

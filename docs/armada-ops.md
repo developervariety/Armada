@@ -2110,7 +2110,11 @@ window. It also reports raw completed leaf objectives, evidence exclusions,
 Check timing, rescue share, and the measures that current records cannot
 calculate. First-pass acceptance and rescue share come from durable mission
 attempt facts; runs that happened before those facts existed are reported as
-historical in each metric's `unknown`, `coverage`, and historical fields. Use
+historical in each metric's `unknown`, `coverage`, and historical fields.
+Post-land consumer and ledger regression rates come only from incidents and
+Checks that carry a typed regression purpose; set the purpose, cause,
+objective and landed commit on the incident or Check, and read
+`regressionCoverage` for unlinked and unattributed records. Use
 `sourceFamily` and `workType` to select one cohort. Read
 `scan.truncated`, `isComplete`, and each metric's availability before you use a
 rate. The equivalent REST route is `GET /api/v1/production/summary`.

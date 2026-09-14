@@ -70,6 +70,26 @@ namespace Armada.Core.Models
         public string? VoyageId { get; set; } = null;
 
         /// <summary>
+        /// Optional post-land regression class. Null keeps the current value on update.
+        /// </summary>
+        public RegressionPurposeEnum? RegressionPurpose { get; set; } = null;
+
+        /// <summary>
+        /// Optional regression cause. Null keeps the current value on update.
+        /// </summary>
+        public RegressionCauseEnum? RegressionCause { get; set; } = null;
+
+        /// <summary>
+        /// Optional originating objective. Null keeps the current value; blank clears it.
+        /// </summary>
+        public string? RegressionObjectiveId { get; set; } = null;
+
+        /// <summary>
+        /// Optional landed commit. Null keeps the current value; blank clears it.
+        /// </summary>
+        public string? RegressionLandedCommit { get; set; } = null;
+
+        /// <summary>
         /// Optional rollback deployment identifier.
         /// </summary>
         public string? RollbackDeploymentId { get; set; } = null;

@@ -66,6 +66,38 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyCheckRegressionLinksAsync(CancellationToken token)
+        {
+            CheckRun created = await _Driver.CheckRuns.CreateAsync(new CheckRun
+            {
+                Command = "dotnet build consumer",
+                Status = CheckRunStatusEnum.Failed,
+                RegressionPurpose = RegressionPurposeEnum.Consumer,
+                RegressionObjectiveId = "obj_regression_db",
+                RegressionLandedCommit = "0123456789abcdef"
+            }, token).ConfigureAwait(false);
+            CheckRun plain = await _Driver.CheckRuns.CreateAsync(new CheckRun { Command = "dotnet build" }, token).ConfigureAwait(false);
+
+            using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+            {
+                CheckRun? stored = await reopened.CheckRuns.ReadAsync(created.Id, null, token).ConfigureAwait(false);
+                DatabaseAssert.NotNull(stored, "Check with regression links survives reopen");
+                DatabaseAssert.Equal(RegressionPurposeEnum.Consumer, stored!.RegressionPurpose, "Regression purpose round-trips");
+                DatabaseAssert.Equal("obj_regression_db", stored.RegressionObjectiveId, "Regression objective round-trips");
+                DatabaseAssert.Equal("0123456789abcdef", stored.RegressionLandedCommit, "Landed commit round-trips");
+
+                stored.RegressionPurpose = RegressionPurposeEnum.Ledger;
+                stored.RegressionObjectiveId = null;
+                await reopened.CheckRuns.UpdateAsync(stored, token).ConfigureAwait(false);
+                CheckRun? updated = await reopened.CheckRuns.ReadAsync(created.Id, null, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(RegressionPurposeEnum.Ledger, updated!.RegressionPurpose, "Update changes the purpose");
+                DatabaseAssert.True(updated.RegressionObjectiveId == null, "Update clears the objective link");
+
+                CheckRun? unlinked = await reopened.CheckRuns.ReadAsync(plain.Id, null, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(RegressionPurposeEnum.None, unlinked!.RegressionPurpose, "A Check without links reads as None");
+            }
+        }
+
         private static MissionAttemptFact NewFact(string tenant, string missionId, MissionAttemptFactTypeEnum type, bool rescue, string? reason, DateTime createdUtc)
         {
             return new MissionAttemptFact

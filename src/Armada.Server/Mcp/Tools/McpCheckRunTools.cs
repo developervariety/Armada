@@ -92,6 +92,9 @@ namespace Armada.Server.Mcp.Tools
                         label = new { type = "string", description = "Optional display label override" },
                         branchName = new { type = "string", description = "Optional branch association" },
                         commitHash = new { type = "string", description = "Optional commit-hash association" },
+                        regressionPurpose = new { type = "string", description = "Optional post-land regression class this Check guards: None, Consumer, or Ledger" },
+                        regressionObjectiveId = new { type = "string", description = "Optional objective (obj_ prefix) whose landed change this Check guards" },
+                        regressionLandedCommit = new { type = "string", description = "Optional landed commit hash this Check guards" },
                         commandOverride = new { type = "string", description = "Optional raw shell command to execute instead of the workflow-profile command" }
                     },
                     required = new[] { "vesselId", "type" }

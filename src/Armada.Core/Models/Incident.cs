@@ -100,6 +100,26 @@ namespace Armada.Core.Models
         public string? VoyageId { get; set; } = null;
 
         /// <summary>
+        /// Post-land regression class this incident reports, or None.
+        /// </summary>
+        public RegressionPurposeEnum RegressionPurpose { get; set; } = RegressionPurposeEnum.None;
+
+        /// <summary>
+        /// Classified regression cause.
+        /// </summary>
+        public RegressionCauseEnum RegressionCause { get; set; } = RegressionCauseEnum.Unclassified;
+
+        /// <summary>
+        /// Objective whose landed change the regression is attributed to.
+        /// </summary>
+        public string? RegressionObjectiveId { get; set; } = null;
+
+        /// <summary>
+        /// Landed commit the regression is attributed to.
+        /// </summary>
+        public string? RegressionLandedCommit { get; set; } = null;
+
+        /// <summary>
         /// Rollback deployment identifier when applicable.
         /// </summary>
         public string? RollbackDeploymentId { get; set; } = null;
