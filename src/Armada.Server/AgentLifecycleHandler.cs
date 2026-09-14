@@ -249,7 +249,7 @@ namespace Armada.Server
 
         /// <summary>
         /// Prove whether a mission still owns a live captain process. The persisted mission and
-        /// captain bindings, the in-memory launch generation, and the runtime liveness probe must
+        /// captain bindings, the registered process mapping, and the runtime liveness probe must
         /// all agree. A PID by itself is not sufficient because the operating system can reuse it.
         /// </summary>
         /// <param name="mission">Mission whose process ownership is checked.</param>
@@ -263,9 +263,8 @@ namespace Armada.Server
                 return false;
             }
 
-            Captain? captain = await _Database.Captains.ReadAsync(mission.CaptainId).ConfigureAwait(false);
+            Captain? captain = await _Database.Captains.ReadAsync(mission.CaptainId, token).ConfigureAwait(false);
             if (captain == null
-                || captain.State != CaptainStateEnum.Working
                 || !String.Equals(captain.CurrentMissionId, mission.Id, StringComparison.Ordinal)
                 || captain.ProcessId != mission.ProcessId)
             {
@@ -286,20 +285,22 @@ namespace Armada.Server
 
             if (IsProcessExitHandled(processId)) return false;
 
+            if (captain.Runtime == AgentRuntimeEnum.Custom)
+                throw new InvalidOperationException("manual_completion_process_liveness_unknown");
+
+            IAgentRuntime runtime;
             try
             {
-                IAgentRuntime runtime = captain.Runtime == AgentRuntimeEnum.Custom
-                    ? throw new InvalidOperationException("Custom runtime liveness requires a registered runtime name")
-                    : _RuntimeFactory.Create(captain.Runtime);
+                runtime = _RuntimeFactory.Create(captain.Runtime);
                 return await runtime.IsRunningAsync(processId, token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
                 throw;
             }
-            catch
+            catch (Exception ex)
             {
-                return false;
+                throw new InvalidOperationException("manual_completion_process_liveness_unknown", ex);
             }
         }
 

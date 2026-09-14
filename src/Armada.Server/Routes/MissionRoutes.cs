@@ -114,7 +114,20 @@ namespace Armada.Server.Routes
             bool activeLandingPipeline,
             CancellationToken token)
         {
-            if (await _isMissionProcessActive(mission, token).ConfigureAwait(false))
+            bool processActive;
+            try
+            {
+                processActive = await _isMissionProcessActive(mission, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                return ManualCompletionProofResult.Fail("manual_completion_process_liveness_unknown");
+            }
+            if (processActive)
             {
                 return ManualCompletionProofResult.Fail("manual_completion_process_active");
             }
@@ -890,9 +903,6 @@ namespace Armada.Server.Routes
                             // Intermediate stages use the same shared completion service as an agent
                             // exit. It captures the diff, prepares the downstream stage, and does
                             // not call the landing handler while a dependent stage remains.
-                            mission.Status = MissionStatusEnum.WorkProduced;
-                            mission.LastUpdateUtc = DateTime.UtcNow;
-                            await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                             await _missionService.HandleCompletionAsync(completionCaptain, mission.Id).ConfigureAwait(false);
                             mission = await _database.Missions.ReadAsync(id).ConfigureAwait(false)
                                 ?? throw new InvalidOperationException("Mission disappeared during manual pipeline handoff.");
@@ -920,7 +930,12 @@ namespace Armada.Server.Routes
                             _logging.Info(_Header + "manual Complete transition for " + id + " — routing through landing pipeline");
 
                             // Invoke the full landing pipeline (same as agent-driven completion)
-                            await _handleMissionComplete(mission, landingDock).ConfigureAwait(false);
+                            // Use the Admiral callback seam so the route and agent completion share
+                            // one landing handler, while isolated tests can prove this callback is
+                            // not reached for an intermediate handoff.
+                            Func<Mission, Dock, Task> completionHandler =
+                                _admiral.OnMissionComplete ?? _handleMissionComplete;
+                            await completionHandler(mission, landingDock).ConfigureAwait(false);
 
                             // Re-read the mission to get the final state after landing. The immutable
                             // proof ran before capture and landing; a post-landing downgrade cannot
@@ -983,9 +998,6 @@ namespace Armada.Server.Routes
                             };
                         }
 
-                        mission.Status = MissionStatusEnum.WorkProduced;
-                        mission.LastUpdateUtc = DateTime.UtcNow;
-                        await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                         await _missionService.HandleCompletionAsync(completionCaptain, mission.Id).ConfigureAwait(false);
                         mission = await _database.Missions.ReadAsync(id).ConfigureAwait(false)
                             ?? throw new InvalidOperationException("Mission disappeared during manual pipeline handoff.");

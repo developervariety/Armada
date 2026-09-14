@@ -8,8 +8,10 @@ namespace Armada.Test.Automated.Suites
     using System.Net.Http;
     using System.Reflection;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services.Interfaces;
     using Armada.Server;
     using Armada.Test.Common;
 
@@ -156,18 +158,11 @@ namespace Armada.Test.Automated.Suites
                 await TransitionAsync(missionId, "InProgress");
                 await TransitionAsync(missionId, "WorkProduced");
                 Vessel checkVessel = await CreateVesselWithLandingModeAsync("Manual-check-vessel", "MergeQueue");
-                HttpResponseMessage import = await _AuthClient.PostAsync("/api/v1/check-runs/import", JsonHelper.ToJsonContent(new
+                for (int index = 0; index < 101; index++)
                 {
-                    VesselId = checkVessel.Id,
-                    MissionId = missionId,
-                    Type = "Build",
-                    Status = "Failed",
-                    ProviderName = "manual-test",
-                    ExternalId = Guid.NewGuid().ToString("N"),
-                    Command = "isolated-check",
-                    Summary = "failed test fixture"
-                })).ConfigureAwait(false);
-                AssertStatusCode(HttpStatusCode.Created, import);
+                    await ImportCheckAsync(checkVessel.Id!, missionId, "Passed", "isolated-check-" + index);
+                }
+                await ImportCheckAsync(checkVessel.Id!, missionId, "Failed", "isolated-failed-check");
 
                 HttpResponseMessage complete = await TransitionAsync(missionId, "Complete");
                 AssertStatusCode(HttpStatusCode.Conflict, complete);
@@ -183,17 +178,11 @@ namespace Armada.Test.Automated.Suites
                 await TransitionAsync(missionId, "InProgress");
                 await TransitionAsync(missionId, "WorkProduced");
                 Vessel checkVessel = await CreateVesselWithLandingModeAsync("Manual-pending-vessel", "MergeQueue");
-                HttpResponseMessage import = await _AuthClient.PostAsync("/api/v1/check-runs/import", JsonHelper.ToJsonContent(new
+                for (int index = 0; index < 101; index++)
                 {
-                    VesselId = checkVessel.Id,
-                    MissionId = missionId,
-                    Type = "Build",
-                    Status = "Pending",
-                    ProviderName = "manual-test",
-                    ExternalId = Guid.NewGuid().ToString("N"),
-                    Command = "pending-check"
-                })).ConfigureAwait(false);
-                AssertStatusCode(HttpStatusCode.Created, import);
+                    await ImportCheckAsync(checkVessel.Id!, missionId, "Passed", "isolated-check-" + index);
+                }
+                await ImportCheckAsync(checkVessel.Id!, missionId, "Pending", "isolated-pending-check");
 
                 HttpResponseMessage complete = await TransitionAsync(missionId, "Complete");
                 AssertStatusCode(HttpStatusCode.Conflict, complete);
@@ -248,6 +237,55 @@ namespace Armada.Test.Automated.Suites
                 }
             });
 
+            await RunTest("ManualComplete_UnverifiableProcessReturnsConflictWithoutMutationAtRest", async () =>
+            {
+                string suffix = Guid.NewGuid().ToString("N");
+                string captainId = "cpt_manual_unknown_" + suffix;
+                string missionId = "msn_manual_unknown_" + suffix;
+                int processId = Process.GetCurrentProcess().Id;
+
+                HttpResponseMessage captainResponse = await _AuthClient.PostAsync("/api/v1/captains",
+                    JsonHelper.ToJsonContent(new
+                    {
+                        Id = captainId,
+                        Name = "manual unverifiable captain " + suffix,
+                        Runtime = "Custom",
+                        State = "Working",
+                        CurrentMissionId = missionId,
+                        ProcessId = processId
+                    })).ConfigureAwait(false);
+                AssertStatusCode(HttpStatusCode.Created, captainResponse);
+                HttpResponseMessage missionResponse = await _AuthClient.PostAsync("/api/v1/missions",
+                    JsonHelper.ToJsonContent(new
+                    {
+                        Id = missionId,
+                        Title = "manual unverifiable process mission " + suffix,
+                        CaptainId = captainId,
+                        ProcessId = processId,
+                        Mode = "Implementation"
+                    })).ConfigureAwait(false);
+                AssertStatusCode(HttpStatusCode.Created, missionResponse);
+                RegisterActiveProcessForRestProof(processId, captainId, missionId);
+                try
+                {
+                    await TransitionAsync(missionId, "Assigned");
+                    await TransitionAsync(missionId, "InProgress");
+                    await TransitionAsync(missionId, "WorkProduced");
+                    HttpResponseMessage complete = await TransitionAsync(missionId, "Complete");
+                    AssertStatusCode(HttpStatusCode.Conflict, complete);
+                    string body = await complete.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    AssertContains("manual_completion_process_liveness_unknown", body,
+                        "unverifiable liveness has a stable fail-closed reason");
+                    Mission persisted = await GetMissionAsync(missionId);
+                    AssertEqual("WorkProduced", persisted.Status.ToString(),
+                        "an unverifiable process must prevent status mutation");
+                }
+                finally
+                {
+                    UnregisterActiveProcessForRestProof(processId);
+                }
+            });
+
             await RunTest("ManualComplete_IntermediateStageUsesSharedHandoffAtRest", async () =>
             {
                 string suffix = Guid.NewGuid().ToString("N");
@@ -255,6 +293,7 @@ namespace Armada.Test.Automated.Suites
                 string workerId = "msn_manual_worker_" + suffix;
                 string judgeId = "msn_manual_judge_" + suffix;
                 string voyageId = "voy_manual_" + suffix;
+                string workerCommitHash = TestRepoHelper.GetLocalBareRepoHeadCommit();
 
                 HttpResponseMessage voyageResponse = await _AuthClient.PostAsync("/api/v1/voyages",
                     JsonHelper.ToJsonContent(new
@@ -285,6 +324,8 @@ namespace Armada.Test.Automated.Suites
                         Title = "manual intermediate worker " + suffix,
                         VoyageId = voyageId,
                         CaptainId = captainId,
+                        BranchName = "main",
+                        CommitHash = workerCommitHash,
                         Mode = "Implementation"
                     })).ConfigureAwait(false);
                 string workerBody = await workerResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
@@ -304,6 +345,17 @@ namespace Armada.Test.Automated.Suites
                 AssertTrue(judgeResponse.IsSuccessStatusCode,
                     "downstream creation response " + (int)judgeResponse.StatusCode + ": " + judgeBody);
 
+                Vessel activeDockVessel = await CreateVesselWithLandingModeAsync("Manual-active-dock", "MergeQueue");
+                await AttachActiveDockAsync(workerId, captainId, activeDockVessel);
+                IAdmiralService admiral = ReadServerAdmiral();
+                Func<Mission, Dock, Task>? originalCompletion = admiral.OnMissionComplete;
+                int landingCallbackCalls = 0;
+                admiral.OnMissionComplete = (_, _) =>
+                {
+                    landingCallbackCalls++;
+                    return Task.CompletedTask;
+                };
+
                 Vessel armedVessel = await CreateVesselWithLandingModeAsync("Manual-armed-voyage-check", "MergeQueue");
                 HttpResponseMessage armedCheckResponse = await _AuthClient.PostAsync(
                     "/api/v1/check-runs/import",
@@ -315,20 +367,33 @@ namespace Armada.Test.Automated.Suites
                         Status = "Pending",
                         ProviderName = "manual-test",
                         ExternalId = Guid.NewGuid().ToString("N"),
+                        Command = "echo",
+                        CommitHash = workerCommitHash,
                         Label = "Build (armed at dispatch)"
                     })).ConfigureAwait(false);
                 AssertStatusCode(HttpStatusCode.Created, armedCheckResponse);
 
-                await TransitionAsync(workerId, "Assigned");
-                await TransitionAsync(workerId, "InProgress");
-                HttpResponseMessage complete = await TransitionAsync(workerId, "Complete");
-                AssertStatusCode(HttpStatusCode.OK, complete);
-                Mission persisted = await GetMissionAsync(workerId);
-                AssertEqual("WorkProduced", persisted.Status.ToString(), "intermediate handoff remains nonterminal");
-                AssertTrue(String.IsNullOrEmpty(persisted.DockId), "intermediate handoff has no landing dock");
-                Mission downstream = await GetMissionAsync(judgeId);
-                AssertTrue(downstream.Status == MissionStatusEnum.Pending || downstream.Status == MissionStatusEnum.Assigned,
-                    "shared handoff leaves downstream Judge pending or assigned");
+                try
+                {
+                    await TransitionAsync(workerId, "Assigned");
+                    await TransitionAsync(workerId, "InProgress");
+                    HttpResponseMessage complete = await TransitionAsync(workerId, "Complete");
+                    AssertStatusCode(HttpStatusCode.OK, complete);
+                    Mission persisted = await GetMissionAsync(workerId);
+                    AssertEqual("WorkProduced", persisted.Status.ToString(), "intermediate handoff remains nonterminal");
+                    AssertFalse(String.IsNullOrEmpty(persisted.DockId), "active dock is retained on the handoff record");
+                    Mission downstream = await GetMissionAsync(judgeId);
+                    AssertContains("<!-- ARMADA:HANDOFF:" + workerId + " -->", downstream.Description,
+                        "shared handoff writes downstream evidence; status=" + downstream.Status
+                        + ", assignment=" + downstream.AssignmentState + ", description=" + downstream.Description);
+                    AssertEqual("main", downstream.BranchName,
+                        "shared handoff propagates the produced branch");
+                }
+                finally
+                {
+                    admiral.OnMissionComplete = originalCompletion;
+                }
+                AssertEqual(0, landingCallbackCalls, "intermediate handoff must not invoke landing callback");
 
                 EnumerationResult<ArmadaEvent> events = await GetTypedAsync<EnumerationResult<ArmadaEvent>>(
                     "/api/v1/events?type=mission.status_changed&missionId=" + workerId);
@@ -453,6 +518,22 @@ namespace Armada.Test.Automated.Suites
             return mission;
         }
 
+        private async Task ImportCheckAsync(string vesselId, string missionId, string status, string command)
+        {
+            HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/check-runs/import",
+                JsonHelper.ToJsonContent(new
+                {
+                    VesselId = vesselId,
+                    MissionId = missionId,
+                    Type = "Build",
+                    Status = status,
+                    ProviderName = "manual-test",
+                    ExternalId = Guid.NewGuid().ToString("N"),
+                    Command = command
+                })).ConfigureAwait(false);
+            AssertStatusCode(HttpStatusCode.Created, response);
+        }
+
         private async Task<Vessel> CreateVesselWithLandingModeAsync(string name, string landingMode)
         {
             string uniqueName = name + "-" + Guid.NewGuid().ToString("N").Substring(0, 8);
@@ -472,6 +553,37 @@ namespace Armada.Test.Automated.Suites
         private async Task<Mission> GetMissionAsync(string missionId)
         {
             return await GetTypedAsync<Mission>("/api/v1/missions/" + missionId).ConfigureAwait(false);
+        }
+
+        private async Task AttachActiveDockAsync(string missionId, string captainId, Vessel vessel)
+        {
+            DatabaseDriver database = ReadServerDatabase();
+            Captain captain = await GetTypedAsync<Captain>("/api/v1/captains/" + captainId).ConfigureAwait(false);
+            Dock dock = await database.Docks.CreateAsync(new Dock(vessel.Id!)
+            {
+                TenantId = captain.TenantId,
+                UserId = captain.UserId,
+                CaptainId = captainId,
+                Active = true
+            }).ConfigureAwait(false);
+            Mission mission = await database.Missions.ReadAsync(missionId).ConfigureAwait(false)
+                ?? throw new InvalidOperationException("Active dock fixture mission was not found.");
+            mission.DockId = dock.Id;
+            await database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+        }
+
+        private DatabaseDriver ReadServerDatabase()
+        {
+            return (DatabaseDriver)typeof(ArmadaServer)
+                .GetField("_Database", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(_Server)!;
+        }
+
+        private IAdmiralService ReadServerAdmiral()
+        {
+            return (IAdmiralService)typeof(ArmadaServer)
+                .GetField("_Admiral", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(_Server)!;
         }
 
         private void RegisterActiveProcessForRestProof(int processId, string captainId, string missionId)

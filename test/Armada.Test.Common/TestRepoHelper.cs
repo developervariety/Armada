@@ -50,6 +50,19 @@ namespace Armada.Test.Common
             }
         }
 
+        /// <summary>
+        /// Returns the real commit at the fixture repository main branch.
+        /// </summary>
+        /// <returns>The full commit identifier.</returns>
+        public static string GetLocalBareRepoHeadCommit()
+        {
+            lock (_Lock)
+            {
+                if (_BareRepoPath == null) _ = GetLocalBareRepoUrl();
+                return RunGitOutput(_BareRepoPath!, "rev-parse", "refs/heads/main");
+            }
+        }
+
         #endregion
 
         #region Private-Methods
@@ -65,6 +78,23 @@ namespace Armada.Test.Common
             process.StartInfo.UseShellExecute = false;
             process.Start();
             process.WaitForExit(10000);
+        }
+
+        private static string RunGitOutput(string workingDirectory, params string[] arguments)
+        {
+            Process process = new Process();
+            process.StartInfo.FileName = "git";
+            process.StartInfo.WorkingDirectory = workingDirectory;
+            process.StartInfo.UseShellExecute = false;
+            process.StartInfo.RedirectStandardOutput = true;
+            process.StartInfo.RedirectStandardError = true;
+            foreach (string argument in arguments) process.StartInfo.ArgumentList.Add(argument);
+            process.Start();
+            string output = process.StandardOutput.ReadToEnd().Trim();
+            process.WaitForExit(10000);
+            if (process.ExitCode != 0 || output.Length == 0)
+                throw new InvalidOperationException("Fixture repository did not expose its main commit.");
+            return output;
         }
 
         #endregion
