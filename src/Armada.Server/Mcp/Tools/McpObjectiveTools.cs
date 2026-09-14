@@ -1185,6 +1185,20 @@ namespace Armada.Server.Mcp.Tools
                             required = new[] { "vesselRef", "relativePath" }
                         }
                     },
+                    executionRequirements = new
+                    {
+                        type = "object",
+                        description = "What the captain execution environment must provide. Names and paths only; never credentials or license material.",
+                        properties = new
+                        {
+                            operatingSystem = new { type = "string", @enum = new[] { "Linux", "Windows", "MacOS" } },
+                            architecture = new { type = "string", description = "Required process architecture, for example X64 or Arm64" },
+                            executables = new { type = "array", maxItems = 20, items = new { type = "string" }, description = "Executables that must resolve on the captain PATH" },
+                            dependencyPaths = new { type = "array", maxItems = 20, items = new { type = "string" }, description = "Files or directories the captain environment must read" },
+                            isolationBoundary = new { type = "string", @enum = new[] { "Container", "Host" } },
+                            licensedContext = new { type = "string", maxLength = 64, description = "Name of a licensed context captains must have available" }
+                        }
+                    },
                     source = anchor,
                     target = anchor,
                     claims = new

@@ -71,6 +71,7 @@ namespace Armada.Core.Services
             bool hasContent = hasAnchors
                 || preparationModel.RequiredForDispatch
                 || (preparationModel.RequiredSiblingInputs?.Count ?? 0) > 0
+                || preparationModel.ExecutionRequirements?.HasAny == true
                 || claims.Any(claim => claim != null && !String.IsNullOrWhiteSpace(claim.Text))
                 || !String.IsNullOrWhiteSpace(objective.RefinementSummary)
                 || objective.RolloutConstraints.Any(item => !String.IsNullOrWhiteSpace(item))
@@ -103,6 +104,12 @@ namespace Armada.Core.Services
                     contentLimit);
             }
 
+            if (preparationModel.ExecutionRequirements?.HasAny == true)
+            {
+                complete &= AppendListSection(result, "### Execution Environment Requirements",
+                    RenderExecutionRequirements(preparationModel.ExecutionRequirements), contentLimit);
+            }
+
             foreach (IGrouping<ObjectivePreparationClaimKindEnum, ObjectivePreparationClaim> group in claims
                 .Where(claim => claim != null && !String.IsNullOrWhiteSpace(claim.Text))
                 .GroupBy(claim => claim.Kind)
@@ -117,6 +124,18 @@ namespace Armada.Core.Services
             complete &= AppendListSection(result, "### Evidence", objective.EvidenceLinks, contentLimit);
             if (!complete) AppendAtomic(result, omittedMarker, maxChars, true);
             return result.ToString().TrimEnd();
+        }
+
+        private static IEnumerable<string> RenderExecutionRequirements(ObjectiveExecutionRequirements requirements)
+        {
+            List<string> lines = new List<string>();
+            if (!String.IsNullOrWhiteSpace(requirements.OperatingSystem)) lines.Add("Operating system: " + BoundItem(requirements.OperatingSystem));
+            if (!String.IsNullOrWhiteSpace(requirements.Architecture)) lines.Add("Architecture: " + BoundItem(requirements.Architecture));
+            if (requirements.Executables?.Count > 0) lines.Add("Executables: " + String.Join(", ", requirements.Executables.Select(BoundItem)));
+            if (requirements.DependencyPaths?.Count > 0) lines.Add("Dependency paths: " + String.Join(", ", requirements.DependencyPaths.Select(BoundItem)));
+            if (!String.IsNullOrWhiteSpace(requirements.IsolationBoundary)) lines.Add("Isolation boundary: " + BoundItem(requirements.IsolationBoundary));
+            if (!String.IsNullOrWhiteSpace(requirements.LicensedContext)) lines.Add("Licensed context: " + BoundItem(requirements.LicensedContext));
+            return lines;
         }
 
         private static string RenderClaim(ObjectivePreparationClaim claim)

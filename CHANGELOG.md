@@ -111,6 +111,19 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   refusal, or no approved alternate, fails the mission with the reason instead
   of retrying the blocked path.
 
+### Execution environment requirements in dispatch preflight
+
+- Prepared research can declare what the captain execution environment must
+  provide: operating system, architecture, executables, dependency paths,
+  isolation boundary and a licensed context by name. Values that are not short
+  names are refused for the licensed context, so no license material or
+  credential is stored.
+- Dispatch preview checks each requirement against the environment captains
+  launch in (executables by PATH lookup, never run) and reports every
+  unavailable one as a blocking `execution` finding. The objective scheduler and
+  manual dispatch share this preview. `AvailableLicensedContexts` in settings
+  lists the licensed context names captains can use.
+
 ### Native self-deploy preflight
 
 - Added provider-native backup, owned isolated restore and candidate database

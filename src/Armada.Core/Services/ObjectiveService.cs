@@ -1668,6 +1668,8 @@ namespace Armada.Core.Services
                     EnsureMaximumLength(artifactPath, _MaxPreparationValueChars, "Objective preparation sibling artifact path");
             }
 
+            SanitizeExecutionRequirements(objective.Preparation);
+
             if (objective.Preparation.Claims.Count > _MaxPreparationClaims)
                 throw new InvalidOperationException("Objective preparation cannot contain more than " + _MaxPreparationClaims + " claims.");
 
@@ -1744,6 +1746,53 @@ namespace Armada.Core.Services
 
             return anchor.VesselId == null && anchor.Ref == null && anchor.ResolvedCommit == null ? null : anchor;
         }
+
+        private static void SanitizeExecutionRequirements(ObjectivePreparation preparation)
+        {
+            ObjectiveExecutionRequirements? requirements = preparation.ExecutionRequirements;
+            if (requirements == null) return;
+
+            requirements.OperatingSystem = NormalizeChoice(requirements.OperatingSystem, _ExecutionOperatingSystems, "operating system");
+            requirements.IsolationBoundary = NormalizeChoice(requirements.IsolationBoundary, _ExecutionIsolationBoundaries, "isolation boundary");
+
+            requirements.Architecture = Normalize(requirements.Architecture);
+            if (requirements.Architecture != null)
+                EnsureMaximumLength(requirements.Architecture, _MaxExecutionNameChars, "Objective execution architecture");
+
+            requirements.Executables = DistinctNormalized(requirements.Executables);
+            requirements.DependencyPaths = DistinctNormalized(requirements.DependencyPaths);
+            if (requirements.Executables.Count > _MaxPreparationSiblingInputs)
+                throw new InvalidOperationException("Objective execution requirements cannot list more than " + _MaxPreparationSiblingInputs + " executables.");
+            if (requirements.DependencyPaths.Count > _MaxPreparationSiblingInputs)
+                throw new InvalidOperationException("Objective execution requirements cannot list more than " + _MaxPreparationSiblingInputs + " dependency paths.");
+            foreach (string executable in requirements.Executables)
+                EnsureMaximumLength(executable, _MaxPreparationAnchorChars, "Objective execution executable");
+            foreach (string dependency in requirements.DependencyPaths)
+                EnsureMaximumLength(dependency, _MaxPreparationValueChars, "Objective execution dependency path");
+
+            // A licensed context is recorded by name so preview can check availability. A value that is not
+            // a short identifier is refused outright: it is how a license key or credential would arrive.
+            requirements.LicensedContext = Normalize(requirements.LicensedContext);
+            if (requirements.LicensedContext != null
+                && !System.Text.RegularExpressions.Regex.IsMatch(requirements.LicensedContext, "^[A-Za-z0-9._-]{1," + _MaxExecutionNameChars + "}$"))
+            {
+                throw new InvalidOperationException("Objective execution licensed context must be a short name (letters, digits, dot, dash, underscore); never record license material or credentials.");
+            }
+
+            if (!requirements.HasAny) preparation.ExecutionRequirements = null;
+        }
+
+        private static string? NormalizeChoice(string? value, string[] choices, string label)
+        {
+            string? normalized = Normalize(value);
+            if (normalized == null) return null;
+            string? match = choices.FirstOrDefault(choice => String.Equals(choice, normalized, StringComparison.OrdinalIgnoreCase));
+            return match ?? throw new InvalidOperationException("Objective execution " + label + " must be one of " + String.Join(", ", choices) + ".");
+        }
+
+        private static readonly string[] _ExecutionOperatingSystems = { "Linux", "Windows", "MacOS" };
+        private static readonly string[] _ExecutionIsolationBoundaries = { "Container", "Host" };
+        private const int _MaxExecutionNameChars = 64;
 
         private static void EnsureMaximumLength(string value, int maximum, string fieldName)
         {

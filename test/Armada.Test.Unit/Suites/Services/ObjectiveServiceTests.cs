@@ -1300,6 +1300,63 @@ namespace Armada.Test.Unit.Suites.Services
                 }
                 AssertContains("cannot exceed 2000 characters", longTextError);
 
+                string licenseMaterialError = String.Empty;
+                try
+                {
+                    await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "License material in execution requirements",
+                        Preparation = new ObjectivePreparation
+                        {
+                            ExecutionRequirements = new ObjectiveExecutionRequirements
+                            {
+                                LicensedContext = "EXAMPLE KEY: 1234-5678-ABCD-EF00 issued to example"
+                            }
+                        }
+                    }).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    licenseMaterialError = ex.Message;
+                }
+                AssertContains("never record license material or credentials", licenseMaterialError);
+
+                string unknownOperatingSystemError = String.Empty;
+                try
+                {
+                    await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Unknown execution operating system",
+                        Preparation = new ObjectivePreparation
+                        {
+                            ExecutionRequirements = new ObjectiveExecutionRequirements { OperatingSystem = "Plan9" }
+                        }
+                    }).ConfigureAwait(false);
+                }
+                catch (InvalidOperationException ex)
+                {
+                    unknownOperatingSystemError = ex.Message;
+                }
+                AssertContains("must be one of Linux, Windows, MacOS", unknownOperatingSystemError);
+
+                Objective declared = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                {
+                    Title = "Declared execution requirements",
+                    Preparation = new ObjectivePreparation
+                    {
+                        ExecutionRequirements = new ObjectiveExecutionRequirements
+                        {
+                            OperatingSystem = "windows",
+                            Executables = new List<string> { " example-format-loader ", "example-format-loader" },
+                            LicensedContext = "example-license"
+                        }
+                    }
+                }).ConfigureAwait(false);
+                Objective? reread = await testDb.Driver.Objectives.ReadAsync(declared.Id).ConfigureAwait(false);
+                AssertEqual("Windows", reread!.Preparation.ExecutionRequirements!.OperatingSystem, "the operating system is normalized to its canonical name");
+                AssertEqual(1, reread.Preparation.ExecutionRequirements.Executables.Count, "executables are trimmed and de-duplicated");
+                AssertEqual("example-license", reread.Preparation.ExecutionRequirements.LicensedContext, "a licensed context name persists");
+
                 string invalidStateError = String.Empty;
                 try
                 {

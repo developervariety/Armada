@@ -18,6 +18,12 @@ namespace Armada.Core.Models
         public List<ObjectivePreparationSiblingInput> RequiredSiblingInputs { get; set; } = new List<ObjectivePreparationSiblingInput>();
 
         /// <summary>
+        /// What the captain execution environment must provide. Dispatch preview checks each requirement
+        /// against the environment captains launch in and blocks on every one that is unavailable.
+        /// </summary>
+        public ObjectiveExecutionRequirements? ExecutionRequirements { get; set; } = null;
+
+        /// <summary>
         /// Source repository revision inspected during preparation.
         /// </summary>
         public ObjectivePreparationAnchor? Source { get; set; } = null;

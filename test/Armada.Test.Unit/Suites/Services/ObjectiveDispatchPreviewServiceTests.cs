@@ -10,6 +10,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
@@ -52,6 +53,108 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(0, result.ErrorCount, "Busy capacity does not add a blocking finding.");
                     AssertEqual(1, result.WarningCount, "Busy capacity is summarized as one warning.");
                     AssertEqual(2, result.RequiredChecks.Count, "Build and UnitTest are both required by arming settings.");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A readable native library does not make prepared research ready when the captain cannot load it", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    // The dependency file is readable, which is all a host-path check proves. The captain
+                    // environment runs a different operating system and has no loader for the format, so the
+                    // work cannot run there and dispatch preview must say so for each missing requirement.
+                    const string libraryPath = "/opt/example/example-native-library.bin";
+                    FakeCaptainExecutionEnvironmentProbe environment = new FakeCaptainExecutionEnvironmentProbe
+                    {
+                        OperatingSystem = "Linux",
+                        Architecture = "X64"
+                    };
+                    environment.Paths.Add(libraryPath);
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true, executionEnvironment: environment).ConfigureAwait(false);
+
+                    Objective objective = harness.CreateReadyObjective("native-library-preview");
+                    objective.Preparation.ExecutionRequirements = new ObjectiveExecutionRequirements
+                    {
+                        OperatingSystem = "Windows",
+                        Architecture = "X64",
+                        Executables = new List<string> { "example-format-loader" },
+                        DependencyPaths = new List<string> { libraryPath },
+                        LicensedContext = "example-license"
+                    };
+                    await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    List<ObjectiveDispatchPreviewIssue> execution = result.Issues.Where(issue => issue.Area == "execution").ToList();
+
+                    AssertFalse(result.IsReady, "a readable dependency alone must not make the objective ready");
+                    AssertTrue(execution.Any(issue => issue.Code == "execution_operating_system_unavailable"), "the operating system mismatch is named");
+                    AssertTrue(execution.Any(issue => issue.Code == "execution_executable_unavailable" && issue.RelatedValue == "example-format-loader"), "the missing loader is named");
+                    AssertTrue(execution.Any(issue => issue.Code == "execution_licensed_context_unavailable"), "the unavailable licensed context is named");
+                    AssertFalse(execution.Any(issue => issue.Code == "execution_architecture_unavailable"), "a matching architecture is not reported");
+                    AssertFalse(execution.Any(issue => issue.Code == "execution_dependency_unavailable"), "the readable dependency is not reported");
+                    AssertTrue(execution.All(issue => issue.Severity == ReadinessSeverityEnum.Error), "every unavailable requirement is blocking");
+                    AssertContains("### Execution Environment Requirements", result.RenderedBrief, "the declared requirements reach the brief");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Satisfied execution requirements add no finding", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FakeCaptainExecutionEnvironmentProbe environment = new FakeCaptainExecutionEnvironmentProbe
+                    {
+                        OperatingSystem = "Windows",
+                        Architecture = "Arm64",
+                        IsContainer = true
+                    };
+                    environment.Executables.Add("example-format-loader");
+                    environment.Paths.Add("/opt/example/data");
+                    environment.AvailableLicensedContexts.Add("example-license");
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true, executionEnvironment: environment).ConfigureAwait(false);
+
+                    Objective objective = harness.CreateReadyObjective("satisfied-execution-preview");
+                    objective.Preparation.ExecutionRequirements = new ObjectiveExecutionRequirements
+                    {
+                        OperatingSystem = "windows",
+                        Architecture = "arm64",
+                        Executables = new List<string> { "example-format-loader" },
+                        DependencyPaths = new List<string> { "/opt/example/data" },
+                        IsolationBoundary = "Container",
+                        LicensedContext = "EXAMPLE-LICENSE"
+                    };
+                    await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+
+                    AssertFalse(result.Issues.Any(issue => issue.Area == "execution"), "a satisfied environment adds no execution finding");
+                    AssertTrue(result.IsReady, "the objective stays ready");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("The captain environment probe resolves executables without running them", () =>
+            {
+                string directory = Path.Combine(Path.GetTempPath(), "armada-probe-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(directory);
+                try
+                {
+                    string marker = Path.Combine(directory, "ran.marker");
+                    string executable = Path.Combine(directory, "example-format-loader");
+                    File.WriteAllText(executable, "#!/bin/sh\ntouch '" + marker + "'\n");
+
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.AvailableLicensedContexts.Add("example-license");
+                    LocalCaptainExecutionEnvironmentProbe probe = new LocalCaptainExecutionEnvironmentProbe(settings, directory);
+
+                    AssertEqual(executable, probe.ResolveExecutable("example-format-loader"), "an executable on the captain PATH resolves");
+                    AssertNull(probe.ResolveExecutable("missing-loader"), "a missing executable does not resolve");
+                    AssertFalse(File.Exists(marker), "resolving an executable never runs it");
+                    AssertTrue(probe.PathExists(executable), "an existing path is reported");
+                    AssertFalse(probe.PathExists(Path.Combine(directory, "absent")), "an absent path is not reported");
+                    AssertTrue(probe.LicensedContexts.Contains("example-license"), "licensed contexts come from settings by name");
+                }
+                finally
+                {
+                    try { Directory.Delete(directory, true); } catch { }
                 }
             }).ConfigureAwait(false);
 
@@ -729,7 +832,8 @@ namespace Armada.Test.Unit.Suites.Services
             public static async Task<PreviewHarness> CreateAsync(
                 TestDatabase testDb,
                 bool includeUnitTestCommand,
-                ArmadaSettings? settings = null)
+                ArmadaSettings? settings = null,
+                ICaptainExecutionEnvironmentProbe? executionEnvironment = null)
             {
                 PreviewHarness result = new PreviewHarness();
                 result.RepositoryDirectory = Path.Combine(Path.GetTempPath(), "armada-preview-" + Guid.NewGuid().ToString("N"));
@@ -760,7 +864,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
                 WorkflowProfileService profiles = new WorkflowProfileService(testDb.Driver, logging);
                 VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, profiles, logging);
-                result.Service = new ObjectiveDispatchPreviewService(testDb.Driver, profiles, readiness, result.Git, effectiveSettings);
+                result.Service = new ObjectiveDispatchPreviewService(testDb.Driver, profiles, readiness, result.Git, effectiveSettings, executionEnvironment);
                 return result;
             }
 

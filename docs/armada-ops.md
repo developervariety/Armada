@@ -428,7 +428,19 @@ and decision.
 | No approved captain on another runtime | Mission fails with `policy_refusal:` and the reason |
 
 The continuation never weakens provider safety policy and never repeats the
-blocked path. A provider safeguard block that ends the captain process is
+blocked path.
+
+### A readable file is not a runnable one
+
+Prepared research that needs a runtime declares it in
+`preparation.executionRequirements`: `operatingSystem`, `architecture`,
+`executables`, `dependencyPaths`, `isolationBoundary` (`Container` or `Host`)
+and `licensedContext` (a name listed in the settings
+`AvailableLicensedContexts`; never license material). Dispatch preview checks
+them against the environment captains launch in, not only against a path the
+Admiral can read, and blocks with one `execution_*` finding per missing
+requirement. Preview never runs a declared executable; it only resolves it on
+the captain PATH. The scheduler and manual dispatch read the same preview. A provider safeguard block that ends the captain process is
 still re-routed by the existing safeguard path.
 
 ### A quiet-host gate must enumerate TERMINAL states, not guess at active ones

@@ -26,6 +26,7 @@ namespace Armada.Core.Services
         private readonly VesselReadinessService _VesselReadiness;
         private readonly IGitService _Git;
         private readonly ArmadaSettings _Settings;
+        private readonly ICaptainExecutionEnvironmentProbe _ExecutionEnvironment;
 
         #endregion
 
@@ -39,18 +40,21 @@ namespace Armada.Core.Services
         /// <param name="vesselReadiness">Vessel and workflow readiness service.</param>
         /// <param name="git">Git service used only for revision resolution.</param>
         /// <param name="settings">Armada settings.</param>
+        /// <param name="executionEnvironment">Read-only probe of the captain execution environment; null probes the local environment captains launch in.</param>
         public ObjectiveDispatchPreviewService(
             DatabaseDriver database,
             WorkflowProfileService workflowProfiles,
             VesselReadinessService vesselReadiness,
             IGitService git,
-            ArmadaSettings settings)
+            ArmadaSettings settings,
+            ICaptainExecutionEnvironmentProbe? executionEnvironment = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _WorkflowProfiles = workflowProfiles ?? throw new ArgumentNullException(nameof(workflowProfiles));
             _VesselReadiness = vesselReadiness ?? throw new ArgumentNullException(nameof(vesselReadiness));
             _Git = git ?? throw new ArgumentNullException(nameof(git));
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            _ExecutionEnvironment = executionEnvironment ?? new LocalCaptainExecutionEnvironmentProbe(settings);
         }
 
         #endregion
@@ -137,6 +141,7 @@ namespace Armada.Core.Services
                 vessel, objective, missionDescriptions, result, token).ConfigureAwait(false);
             await EvaluatePreparationAnchorsAsync(auth, objective, result, token).ConfigureAwait(false);
             await EvaluateSiblingProvisioningAsync(auth, objective, vessel, result, token).ConfigureAwait(false);
+            EvaluateExecutionRequirements(objective, _ExecutionEnvironment, result);
 
             string? effectivePipelineRequest = NormalizeEmpty(requestedPipelineId)
                 ?? NormalizeEmpty(objective.SuggestedPipelineId);
@@ -837,6 +842,76 @@ namespace Armada.Core.Services
         private static string? NormalizeEmpty(string? value)
         {
             return String.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+
+        /// <summary>
+        /// Checks declared execution requirements against the environment captains launch in. A dependency
+        /// that is readable on the Admiral host does not prove a captain can load or run it, so each
+        /// requirement is checked on its own and every unavailable one is a blocking finding. Read-only:
+        /// executables are resolved by lookup and never run.
+        /// </summary>
+        private static void EvaluateExecutionRequirements(
+            Objective objective,
+            ICaptainExecutionEnvironmentProbe environment,
+            ObjectiveDispatchPreview result)
+        {
+            ObjectiveExecutionRequirements? requirements = objective.Preparation?.ExecutionRequirements;
+            if (requirements == null || !requirements.HasAny) return;
+
+            const string area = "execution";
+
+            if (!String.IsNullOrWhiteSpace(requirements.OperatingSystem)
+                && !String.Equals(requirements.OperatingSystem, environment.OperatingSystem, StringComparison.OrdinalIgnoreCase))
+            {
+                AddIssue(result, "execution_operating_system_unavailable", area, ReadinessSeverityEnum.Error,
+                    "Captains execute on " + environment.OperatingSystem + ", not the required " + requirements.OperatingSystem + ".",
+                    requirements.OperatingSystem);
+            }
+
+            if (!String.IsNullOrWhiteSpace(requirements.Architecture)
+                && !String.Equals(requirements.Architecture, environment.Architecture, StringComparison.OrdinalIgnoreCase))
+            {
+                AddIssue(result, "execution_architecture_unavailable", area, ReadinessSeverityEnum.Error,
+                    "Captains execute on " + environment.Architecture + ", not the required " + requirements.Architecture + " architecture.",
+                    requirements.Architecture);
+            }
+
+            foreach (string executable in requirements.Executables ?? new List<string>())
+            {
+                if (String.IsNullOrWhiteSpace(executable)) continue;
+                if (environment.ResolveExecutable(executable) != null) continue;
+                AddIssue(result, "execution_executable_unavailable", area, ReadinessSeverityEnum.Error,
+                    "Required executable " + executable + " is not available to captains. A readable file is not a runnable one without it.",
+                    executable);
+            }
+
+            foreach (string dependency in requirements.DependencyPaths ?? new List<string>())
+            {
+                if (String.IsNullOrWhiteSpace(dependency)) continue;
+                if (environment.PathExists(dependency)) continue;
+                AddIssue(result, "execution_dependency_unavailable", area, ReadinessSeverityEnum.Error,
+                    "Required dependency path is not present in the captain execution environment.", dependency);
+            }
+
+            if (!String.IsNullOrWhiteSpace(requirements.IsolationBoundary))
+            {
+                bool wantsContainer = String.Equals(requirements.IsolationBoundary, "Container", StringComparison.OrdinalIgnoreCase);
+                if (wantsContainer != environment.IsContainer)
+                {
+                    AddIssue(result, "execution_isolation_unavailable", area, ReadinessSeverityEnum.Error,
+                        "Captains execute " + (environment.IsContainer ? "inside a container" : "directly on the host") +
+                        ", not behind the required " + requirements.IsolationBoundary + " boundary.",
+                        requirements.IsolationBoundary);
+                }
+            }
+
+            if (!String.IsNullOrWhiteSpace(requirements.LicensedContext)
+                && !(environment.LicensedContexts ?? new List<string>()).Any(name => String.Equals(name, requirements.LicensedContext, StringComparison.OrdinalIgnoreCase)))
+            {
+                AddIssue(result, "execution_licensed_context_unavailable", area, ReadinessSeverityEnum.Error,
+                    "Licensed context " + requirements.LicensedContext + " is not available to captains.",
+                    requirements.LicensedContext);
+            }
         }
 
         private static void AddIssue(

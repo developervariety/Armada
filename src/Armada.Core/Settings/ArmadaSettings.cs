@@ -450,6 +450,18 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Names of licensed contexts available to captains, checked by dispatch preview against an
+        /// objective's declared execution requirements. Names only; never license values or credentials.
+        /// </summary>
+        public List<string> AvailableLicensedContexts
+        {
+            get => _AvailableLicensedContexts;
+            set => _AvailableLicensedContexts = value ?? new List<string>();
+        }
+
+        private List<string> _AvailableLicensedContexts = new List<string>();
+
+        /// <summary>
         /// Absolute path to the shared AI-Memory root on the host where captains run, or null to omit
         /// the AI-Memory module from captain instructions.
         ///
@@ -1006,6 +1018,7 @@ namespace Armada.Core.Settings
             MaxLandingRetries = source.MaxLandingRetries;
             MaxMissionInputBlocks = source.MaxMissionInputBlocks;
             CaptainInstructionByteBudget = source.CaptainInstructionByteBudget;
+            AvailableLicensedContexts = new List<string>(source.AvailableLicensedContexts);
 
             // Landing behaviour.
             AutoPush = source.AutoPush;
