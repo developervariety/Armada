@@ -518,9 +518,26 @@ These findings apply to unaccepted candidates, not the deployed image:
   A second four-provider run also passed with a SQL Server path that contains
   an apostrophe and a literal template token. Private storage and bounded
   process cleanup still need final combined proof. The latest cleanup candidate
-  accesses standard input even when no input pipe was configured; add a test
-  that asserts the exact inherited-pipe timeout reason and correct that access.
+  accesses standard input even when no input pipe was configured. Independent
+  execution of the latest candidate produced 19 passes and one failure: the
+  inherited-pipe case returned `native_command_io_close_failed` instead of
+  `native_command_io_drain_timeout`. Correct the access and rerun this case.
   Process cutover, health verification and rollback still need acceptance.
   Self-rebuild remains disabled.
 
 Keep these entries open until the corrected combined tree has independent proof.
+
+## FOLLOWUP-018 — Self-rebuild cutover and build process safety
+
+The native backup candidate does not complete the self-rebuild objective. The
+current build runner captures unbounded output before truncating it and does
+not terminate the child when the caller cancels. Its timeout path does not
+prove process exit or drain the output tasks. Use the bounded native process
+runner and add real cancellation and output-limit tests.
+
+The current watchdog waits for a numeric PID, can kill it after a timeout, and
+starts the candidate without checking health or retaining a rollback target.
+Replace this path with verified process ownership, immutable candidate and
+rollback artifacts, bounded health validation, and a durable restart record.
+Prove failure and interrupted-restart recovery on isolated processes before
+enabling it. A successful restore rehearsal does not prove safe cutover.
