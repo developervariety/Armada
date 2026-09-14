@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System.Collections.Concurrent;
     using System.Diagnostics;
     using System.IO;
     using System.Reflection;
@@ -890,6 +891,26 @@ namespace Armada.Test.Unit.Suites.Services
                     await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
                     AssertTrue(await handler.IsMissionProcessActiveAsync(mission).ConfigureAwait(false),
                         "A live owned process remains active while its captain is quarantined");
+
+                    mission.ProcessId = null;
+                    captain.ProcessId = null;
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                    AssertTrue(await handler.IsMissionProcessActiveAsync(mission).ConfigureAwait(false),
+                        "A registered live process remains active when persistence has not recorded its PID");
+
+                    mission.ProcessId = Environment.ProcessId + 1;
+                    captain.ProcessId = Environment.ProcessId + 1;
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                    AssertTrue(await handler.IsMissionProcessActiveAsync(mission).ConfigureAwait(false),
+                        "A registered live process remains active when persisted PIDs are stale");
+
+                    int handledProcessId = Environment.ProcessId + 100000;
+                    RegisterTrackedProcess(handler, handledProcessId, captain.Id, mission.Id);
+                    MarkProcessExitHandled(handler, handledProcessId);
+                    AssertTrue(await handler.IsMissionProcessActiveAsync(mission).ConfigureAwait(false),
+                        "A handled stale mapping must not hide a second live mapping for the mission");
                 }
             });
 
@@ -1055,6 +1076,15 @@ namespace Armada.Test.Unit.Suites.Services
                 captainMap[processId] = captainId;
                 missionMap[processId] = missionId;
             }
+        }
+
+        private static void MarkProcessExitHandled(AgentLifecycleHandler handler, int processId)
+        {
+            FieldInfo handledField = typeof(AgentLifecycleHandler).GetField("_HandledProcessExits", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Could not find handled process map");
+            ConcurrentDictionary<int, DateTime> handled = (ConcurrentDictionary<int, DateTime>)(handledField.GetValue(handler)
+                ?? throw new InvalidOperationException("Handled process map was null"));
+            handled[processId] = DateTime.UtcNow;
         }
 
         private static void RegisterPendingLaunch(AgentLifecycleHandler handler, string launchKey, string captainId, string missionId)
