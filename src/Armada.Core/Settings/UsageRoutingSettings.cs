@@ -13,6 +13,12 @@ namespace Armada.Core.Settings
         public int RefreshIntervalMinutes { get; set; } = 5;
 
 
+        /// <summary>Minutes a runtime login status result is reused per account, from 1 through 1440.</summary>
+        public int LoginProbeIntervalMinutes { get; set; } = 10;
+
+        /// <summary>Seconds a runtime login status command may run before it counts as timed out, from 1 through 60.</summary>
+        public int LoginProbeTimeoutSeconds { get; set; } = 10;
+
         /// <summary>Enable usage admission and persona route order.</summary>
         public bool Enabled { get; set; } = false;
 

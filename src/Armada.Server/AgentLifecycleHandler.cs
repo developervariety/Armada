@@ -775,6 +775,12 @@ namespace Armada.Server
             // login is missing fails this launch with a named reason instead of running on the shared login.
             UsageAccountSettings? account = CaptainAccountLaunch.FindAccount(_Settings.ModelTier.UsageRouting, captain.Id);
             CaptainLaunchIsolationPlanner.ApplyAccount(plan, captain, account);
+            if (account != null)
+            {
+                // A login the runtime last reported as rejected refuses the launch too; this reads the cached probe only.
+                string? loginProblem = UsageRoutingService.For(_Settings).GetLoginProblem(account, DateTime.UtcNow);
+                if (loginProblem != null) throw new CaptainAccountLaunchException(loginProblem, account.Id);
+            }
             if (plan.IsEmpty) return null;
 
             Directory.CreateDirectory(scopedDirectory);

@@ -1626,7 +1626,9 @@ Set `runtime` plus `homeDirectory` (ClaudeCode `CLAUDE_CONFIG_DIR`, Codex
 `CODEX_HOME`, OpenCode `XDG_DATA_HOME`), or `launchCredentialEnv` for Cursor
 (`CURSOR_API_KEY`). An account without those fields launches its captains on
 the shared login, as before. A missing login blocks the account with a named
-reason. A quota, billing, or authentication failure on one captain holds the
+reason. Claude Code and Codex accounts also run the runtime's login status
+command in the background, so an expired or revoked login reads
+`account_login_expired`. A quota, billing, or authentication failure on one captain holds the
 whole account Exhausted and quarantines its idle captains until the retry time.
 Rollout of any second subscription account needs an owner decision under the
 provider's terms. See [Account logins](USAGE_ROUTING.md#account-logins).

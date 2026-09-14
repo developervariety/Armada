@@ -30,6 +30,9 @@ namespace Armada.Core.Models
         /// <summary>Captain runtime whose login the account owns, or null for a usage-only account.</summary>
         public string? Runtime { get; set; }
 
+        /// <summary>When the runtime's login status command last reported on this account's home, or null before any probe.</summary>
+        public DateTime? LoginCheckedUtc { get; set; }
+
         /// <summary>When a quota, billing, or authentication failure on one captain holds the whole account Exhausted.</summary>
         public DateTime? ExhaustedUntilUtc { get; set; }
 

@@ -47,6 +47,12 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - A missing home, login file, or Cursor key makes the account Exhausted with a
   named reason in settings status and the usage preview. A launch on such an
   account fails with that reason instead of using the shared login.
+- Claude Code and Codex accounts also run the runtime's own login status
+  command in the account home, in the background with a timeout and a cached
+  result. An expired or revoked login reads `account_login_expired`; a hang,
+  missing CLI, or unreadable output has its own named reason. OpenCode and
+  Cursor keep the file or variable check, because their status commands cannot
+  verify one account's credential.
 - Codex external-provider profiles are written into the account `CODEX_HOME`.
   The Codex usage collector measures each account through its own home, so two
   Codex accounts report separate windows. Claude and OpenCode Go collectors

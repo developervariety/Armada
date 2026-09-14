@@ -150,8 +150,36 @@ accept billing terms.
   `account_login_missing`, or `account_launch_credential_unavailable`. This is
   visible in settings status and the usage preview, and blocks assignment when
   routing is enabled. A launch that still reaches such an account fails with
-  the same reason; it never falls back to the shared login. The check tests
-  that the login is present, not that the provider accepts it.
+  the same reason; it never falls back to the shared login.
+
+### Login status probe
+
+The file check is a fast pre-filter. When it passes, Armada also runs the
+runtime's own status command in the account home to catch an expired or revoked
+login:
+
+| `runtime` | Status command | Result |
+| --- | --- | --- |
+| `ClaudeCode` | `claude auth status --json` with `CLAUDE_CONFIG_DIR` | `loggedIn: true` is ready; `loggedIn: false` is `account_login_expired` |
+| `Codex` | `codex login status` with `CODEX_HOME` | Exit 0 is ready; `Not logged in` is `account_login_expired` |
+| `OpenCode` | None used | `opencode auth list` exits 0 with human-readable text even with no credential, so only the file check applies |
+| `Cursor` | None used | `cursor-agent status` reports the stored login and ignores `CURSOR_API_KEY`, so only the variable check applies |
+
+A probe that runs longer than `loginProbeTimeoutSeconds` (default 10, range
+1–60) is stopped and reports `account_login_probe_timeout`. A CLI that cannot
+start reports `account_login_probe_unavailable`, and an output the probe cannot
+read reports `account_login_probe_failed`. Each of these makes the account
+`Exhausted` with that reason. A result is reused for
+`loginProbeIntervalMinutes` (default 10, range 1–1440); settings status shows
+`loginCheckedUtc`.
+
+Probes run in the background. Dispatch, status, and preview read the last
+result and never wait for a probe, so a hanging CLI cannot stall the scheduler.
+Until an account's first probe finishes, only the file check applies. Command
+output is read only to decide the result; it is never logged or returned. The
+probe cannot detect a revoked OpenCode credential or an invalid Cursor key; the
+first launch that fails on authentication then holds the account, as described
+below.
 
 When a captain fails on a quota, billing, or authentication signal, Armada holds
 its **whole account** Exhausted until the provider's retry time (reason

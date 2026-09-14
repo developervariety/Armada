@@ -264,6 +264,116 @@ namespace Armada.Test.Unit.Suites.Services
                 });
             }
 
+            string? probeSkip = PosixShellSkipReason(OperatingSystem.IsWindows());
+            if (probeSkip != null)
+            {
+                SkipTest("login_probe_tests_require_posix_shell", probeSkip);
+            }
+            else
+            {
+                await RunTest("Claude login probe runs auth status in the account home: logged in, logged out, hang and missing CLI", async () =>
+                {
+                    string scratch = TempDirectory("probe-claude");
+                    string home = LoggedInHome(AgentRuntimeEnum.ClaudeCode);
+                    try
+                    {
+                        UsageAccountSettings account = new UsageAccountSettings { Id = "claude-probe", Runtime = AgentRuntimeEnum.ClaudeCode, HomeDirectory = home };
+                        string loggedIn = WriteScript(scratch, "claude-in", "echo \"$CLAUDE_CONFIG_DIR $*\" > \"$CLAUDE_CONFIG_DIR/probe-args\"\necho '{\"loggedIn\":true,\"authMethod\":\"claude.ai\"}'\nexit 0\n");
+                        string loggedOut = WriteScript(scratch, "claude-out", "echo '{\"loggedIn\":false,\"authMethod\":\"none\",\"token\":\"probe-secret-token\"}'\nexit 1\n");
+                        string hang = WriteScript(scratch, "claude-hang", "sleep 30\n");
+                        AssertNull(await AccountLoginProbe.RunAsync(account, loggedIn, TimeSpan.FromSeconds(10)).ConfigureAwait(false), "logged in");
+                        AssertEqual(home + " auth status --json", File.ReadAllText(Path.Combine(home, "probe-args")).Trim(), "the probe runs auth status --json with CLAUDE_CONFIG_DIR set to the account home");
+                        string? outReason = await AccountLoginProbe.RunAsync(account, loggedOut, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+                        AssertEqual(AccountLoginProbe.ReasonLoginExpired, outReason);
+                        AssertFalse(outReason!.Contains("probe-secret-token"), "command output never reaches the result");
+                        Stopwatch watch = Stopwatch.StartNew();
+                        AssertEqual(AccountLoginProbe.ReasonProbeTimeout, await AccountLoginProbe.RunAsync(account, hang, TimeSpan.FromSeconds(1)).ConfigureAwait(false));
+                        AssertTrue(watch.Elapsed < TimeSpan.FromSeconds(10), "a hanging CLI is bounded by the timeout, took " + watch.Elapsed);
+                        AssertEqual(AccountLoginProbe.ReasonProbeUnavailable, await AccountLoginProbe.RunAsync(account, Path.Combine(scratch, "absent-claude"), TimeSpan.FromSeconds(10)).ConfigureAwait(false));
+                    }
+                    finally { Directory.Delete(scratch, true); Directory.Delete(home, true); }
+                });
+
+                await RunTest("Codex login probe runs login status in the account CODEX_HOME: logged in, logged out, hang and missing CLI", async () =>
+                {
+                    string scratch = TempDirectory("probe-codex");
+                    string home = LoggedInHome(AgentRuntimeEnum.Codex);
+                    try
+                    {
+                        UsageAccountSettings account = new UsageAccountSettings { Id = "codex-probe", Runtime = AgentRuntimeEnum.Codex, HomeDirectory = home };
+                        string loggedIn = WriteScript(scratch, "codex-in", "echo \"$CODEX_HOME $*\" > \"$CODEX_HOME/probe-args\"\necho 'Logged in using ChatGPT'\nexit 0\n");
+                        string loggedOut = WriteScript(scratch, "codex-out", "echo 'Not logged in' >&2\nexit 1\n");
+                        string broken = WriteScript(scratch, "codex-broken", "echo 'unexpected failure'\nexit 2\n");
+                        string hang = WriteScript(scratch, "codex-hang", "sleep 30\n");
+                        AssertNull(await AccountLoginProbe.RunAsync(account, loggedIn, TimeSpan.FromSeconds(10)).ConfigureAwait(false), "logged in");
+                        AssertEqual(home + " login status", File.ReadAllText(Path.Combine(home, "probe-args")).Trim());
+                        AssertEqual(AccountLoginProbe.ReasonLoginExpired, await AccountLoginProbe.RunAsync(account, loggedOut, TimeSpan.FromSeconds(10)).ConfigureAwait(false));
+                        AssertEqual(AccountLoginProbe.ReasonProbeFailed, await AccountLoginProbe.RunAsync(account, broken, TimeSpan.FromSeconds(10)).ConfigureAwait(false));
+                        AssertEqual(AccountLoginProbe.ReasonProbeTimeout, await AccountLoginProbe.RunAsync(account, hang, TimeSpan.FromSeconds(1)).ConfigureAwait(false));
+                        AssertEqual(AccountLoginProbe.ReasonProbeUnavailable, await AccountLoginProbe.RunAsync(account, Path.Combine(scratch, "absent-codex"), TimeSpan.FromSeconds(10)).ConfigureAwait(false));
+                    }
+                    finally { Directory.Delete(scratch, true); Directory.Delete(home, true); }
+                });
+
+                await RunTest("Routing status never waits for a hanging login probe and caches each result for the interval", async () =>
+                {
+                    string scratch = TempDirectory("probe-cache");
+                    string home = LoggedInHome(AgentRuntimeEnum.Codex);
+                    try
+                    {
+                        string counter = Path.Combine(scratch, "calls");
+                        string hang = WriteScript(scratch, "codex-hang", "echo x >> \"" + counter + "\"\nsleep 30\n");
+                        string loggedOut = WriteScript(scratch, "codex-out", "echo x >> \"" + counter + "\"\necho 'Not logged in'\nexit 1\n");
+                        UsageAccountSettings account = new UsageAccountSettings { Id = "cached", Runtime = AgentRuntimeEnum.Codex, HomeDirectory = home, CaptainIds = new List<string> { "a" } };
+                        UsageRoutingSettings policy = new UsageRoutingSettings { LoginProbeTimeoutSeconds = 1, LoginProbeIntervalMinutes = 10, Accounts = new List<UsageAccountSettings> { account } };
+                        UsageRoutingService service = new UsageRoutingService();
+                        await service.RefreshAsync(policy).ConfigureAwait(false);
+
+                        service.LoginProbeExecutable = _ => hang;
+                        Stopwatch watch = Stopwatch.StartNew();
+                        ProviderUsageStatus pending = service.GetStatus(account, null, DateTime.UtcNow);
+                        AssertTrue(watch.Elapsed < TimeSpan.FromMilliseconds(500), "status must not wait for the probe, took " + watch.Elapsed);
+                        AssertFalse(pending.Reason == AccountLoginProbe.ReasonProbeTimeout, "the probe has not finished yet");
+                        AssertEqual(AccountLoginProbe.ReasonProbeTimeout, await WaitForReasonAsync(service, account, AccountLoginProbe.ReasonProbeTimeout).ConfigureAwait(false));
+                        ProviderUsageStatus timedOut = service.GetStatus(account, null, DateTime.UtcNow);
+                        AssertEqual("Exhausted", timedOut.State);
+                        AssertNotNull(timedOut.LoginCheckedUtc);
+
+                        service.LoginProbeExecutable = _ => loggedOut;
+                        int callsBefore = File.ReadAllLines(counter).Length;
+                        service.GetStatus(account, null, DateTime.UtcNow);
+                        await Task.Delay(500).ConfigureAwait(false);
+                        AssertEqual(callsBefore, File.ReadAllLines(counter).Length, "a fresh result is reused within the interval");
+                        AssertEqual(AccountLoginProbe.ReasonLoginExpired, await WaitForReasonAsync(service, account, AccountLoginProbe.ReasonLoginExpired, DateTime.UtcNow.AddMinutes(11)).ConfigureAwait(false), "after the interval the probe runs again");
+                        AssertEqual(callsBefore + 1, File.ReadAllLines(counter).Length);
+                        AssertFalse(System.Text.Json.JsonSerializer.Serialize(service.GetStatus(account, null, DateTime.UtcNow.AddMinutes(11))).Contains("Not logged in"), "probe output never reaches status");
+                    }
+                    finally { Directory.Delete(scratch, true); Directory.Delete(home, true); }
+                });
+            }
+
+            await RunTest("OpenCode and Cursor accounts keep the file or variable check because their status commands cannot verify one account", () =>
+            {
+                AssertFalse(AccountLoginProbe.HasStatusCommand(AgentRuntimeEnum.OpenCode));
+                AssertFalse(AccountLoginProbe.HasStatusCommand(AgentRuntimeEnum.Cursor));
+                string home = LoggedInHome(AgentRuntimeEnum.OpenCode);
+                try
+                {
+                    UsageRoutingService service = new UsageRoutingService { LoginProbeExecutable = _ => throw new InvalidOperationException("OpenCode must not be probed") };
+                    UsageAccountSettings account = new UsageAccountSettings { Id = "opencode", Runtime = AgentRuntimeEnum.OpenCode, HomeDirectory = home };
+                    AssertNull(service.GetLoginProblem(account, DateTime.UtcNow));
+                    AssertNull(service.GetLoginCheckedUtc("opencode"));
+                }
+                finally { Directory.Delete(home, true); }
+            });
+
+            await RunTest("Login probe settings are validated", () =>
+            {
+                AssertThrows<ArgumentException>(() => UsageRoutingService.Validate(new UsageRoutingSettings { LoginProbeIntervalMinutes = 0 }));
+                AssertThrows<ArgumentException>(() => UsageRoutingService.Validate(new UsageRoutingSettings { LoginProbeTimeoutSeconds = 61 }));
+                UsageRoutingService.Validate(new UsageRoutingSettings());
+            });
+
             await RunTest("Codex collector without a home keeps the server user's login", () =>
             {
                 ProcessStartInfo info = CodexUsageCollector.BuildStartInfo(new UsageAccountSettings { Id = "shared", Collector = "Codex" }, "codex");
@@ -301,7 +411,8 @@ namespace Armada.Test.Unit.Suites.Services
                         Enabled = true, Accounts = new List<UsageAccountSettings> { loggedOut, shared },
                         PersonaRoutes = new Dictionary<string, List<UsageRouteSettings>> { ["Worker"] = new List<UsageRouteSettings> { new UsageRouteSettings { AccountId = "logged-out" }, new UsageRouteSettings { AccountId = "shared" } } }
                     };
-                    UsageRoutingService service = new UsageRoutingService();
+                    // Never start a real runtime CLI from a unit test; this case covers the file pre-filter only.
+                    UsageRoutingService service = new UsageRoutingService { LoginProbeExecutable = _ => Path.Combine(home, "no-such-cli") };
                     ProviderUsageStatus status = service.GetStatus(loggedOut, null, DateTime.UtcNow);
                     AssertEqual("Exhausted", status.State);
                     AssertEqual(CaptainAccountLaunch.ReasonLoginMissing, status.Reason);
@@ -363,6 +474,19 @@ namespace Armada.Test.Unit.Suites.Services
                 UsageAccountSettings go = new UsageAccountSettings { Id = "go", Collector = "OpenCodeGo", Runtime = AgentRuntimeEnum.OpenCode, HomeDirectory = Path.Combine(Path.GetTempPath(), "go-home") };
                 AssertEqual(Path.Combine(go.HomeDirectory, "opencode", "auth.json"), CaptainAccountLaunch.LoginFilePath(go));
             });
+        }
+
+        private static async Task<string?> WaitForReasonAsync(UsageRoutingService service, UsageAccountSettings account, string expected, DateTime? now = null)
+        {
+            DateTime deadline = DateTime.UtcNow.AddSeconds(15);
+            string? reason = null;
+            while (DateTime.UtcNow < deadline)
+            {
+                reason = service.GetLoginProblem(account, now ?? DateTime.UtcNow);
+                if (reason == expected) return reason;
+                await Task.Delay(50).ConfigureAwait(false);
+            }
+            return reason;
         }
 
         /// <summary>The one decision for whether shell-stub tests run: they need a POSIX shell, so only Windows skips.</summary>

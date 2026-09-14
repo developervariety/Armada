@@ -26,8 +26,16 @@ namespace Armada.Core.Services
         private readonly Dictionary<string, DateTime> _RetryAfter = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, string> _AccountSources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, DateTime> _ExhaustedUntil = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, LoginProbeState> _LoginProbes = new Dictionary<string, LoginProbeState>(StringComparer.OrdinalIgnoreCase);
         private UsageRoutingSettings? _LastSettings;
         private DateTime _NextRefreshUtc;
+
+        #endregion
+
+        #region Public-Members
+
+        /// <summary>Resolves the CLI a login probe runs for a runtime. Replaceable so tests can supply stub CLIs.</summary>
+        public Func<Armada.Core.Enums.AgentRuntimeEnum, string> LoginProbeExecutable { get; set; } = AccountLoginProbe.DefaultExecutable;
 
         #endregion
 
@@ -40,6 +48,8 @@ namespace Armada.Core.Services
         public static void Validate(UsageRoutingSettings settings)
         {
             if (settings.RefreshIntervalMinutes < 1 || settings.RefreshIntervalMinutes > 60) throw new ArgumentException("Usage refresh interval must be between 1 and 60 minutes.");
+            if (settings.LoginProbeIntervalMinutes < 1 || settings.LoginProbeIntervalMinutes > 1440) throw new ArgumentException("Login probe interval must be between 1 and 1440 minutes.");
+            if (settings.LoginProbeTimeoutSeconds < 1 || settings.LoginProbeTimeoutSeconds > 60) throw new ArgumentException("Login probe timeout must be between 1 and 60 seconds.");
             if (settings.Accounts == null || settings.PersonaRoutes == null) throw new ArgumentException("Usage accounts and persona routes cannot be null.");
             if (settings.Accounts.Count > 32) throw new ArgumentException("At most 32 usage accounts are supported.");
             if (settings.MonthlyBudget < 0) throw new ArgumentException("Monthly budget cannot be negative.");
@@ -105,6 +115,7 @@ namespace Armada.Core.Services
                     {
                         HashSet<string> retained = new HashSet<string>(settings.Accounts.Select(a => a.Id), StringComparer.OrdinalIgnoreCase);
                         foreach (string id in _AccountSources.Keys.Where(id => !retained.Contains(id)).ToList()) { ForgetAccount(id); _ExhaustedUntil.Remove(id); }
+                        foreach (string id in _LoginProbes.Keys.Where(id => !retained.Contains(id)).ToList()) _LoginProbes.Remove(id);
                         foreach (UsageAccountSettings account in settings.Accounts)
                         {
                             string source = account.Collector + "\n" + account.CredentialEnv + "\n" + account.CredentialFilePath + "\n" + account.UsageFilePath
@@ -174,6 +185,31 @@ namespace Armada.Core.Services
             foreach (string key in _Conserving.Keys.Where(key => key.StartsWith(id + "\n", StringComparison.OrdinalIgnoreCase)).ToList()) _Conserving.Remove(key);
         }
 
+        private void StartLoginProbe(UsageAccountSettings account, LoginProbeState state, TimeSpan timeout)
+        {
+            UsageAccountSettings snapshot = new UsageAccountSettings { Id = account.Id, Runtime = account.Runtime, HomeDirectory = account.HomeDirectory };
+            string executable = LoginProbeExecutable(account.Runtime!.Value);
+            _ = Task.Run(async () =>
+            {
+                string? reason;
+                try
+                {
+                    reason = await AccountLoginProbe.RunAsync(snapshot, executable, timeout).ConfigureAwait(false);
+                }
+                catch (Exception ex) when (ex is IOException || ex is InvalidOperationException || ex is UnauthorizedAccessException || ex is System.ComponentModel.Win32Exception)
+                {
+                    // Named, not silent: an unexpected probe fault blocks the account with its own reason.
+                    reason = AccountLoginProbe.ReasonProbeFailed;
+                }
+                lock (_StateLock)
+                {
+                    state.Reason = reason;
+                    state.CheckedUtc = DateTime.UtcNow;
+                    state.Running = false;
+                }
+            });
+        }
+
         private static bool CollectorMatchesRuntime(string collector, Armada.Core.Enums.AgentRuntimeEnum runtime)
         {
             return collector switch
@@ -212,17 +248,60 @@ namespace Armada.Core.Services
                 if (!_ExhaustedUntil.TryGetValue(accountId, out DateTime existing) || existing < until) _ExhaustedUntil[accountId] = until;
         }
 
+        /// <summary>
+        /// Return the account's login problem, or null when its login is usable or it has no login binding. The file or
+        /// variable check runs first. For runtimes with a status command, the last probe result is returned and a stale
+        /// or missing one starts a background probe; this call never waits for a probe, so a scheduler tick is never
+        /// blocked. Before the first probe finishes, only the file check applies.
+        /// </summary>
+        public string? GetLoginProblem(UsageAccountSettings account, DateTime now)
+        {
+            if (account == null) throw new ArgumentNullException(nameof(account));
+            string? fileProblem = CaptainAccountLaunch.CheckReadiness(account);
+            if (fileProblem != null || !CaptainAccountLaunch.HasLaunchIdentity(account) || !AccountLoginProbe.HasStatusCommand(account.Runtime!.Value)) return fileProblem;
+            UsageRoutingSettings? settings = _LastSettings;
+            TimeSpan interval = TimeSpan.FromMinutes(settings?.LoginProbeIntervalMinutes ?? 10);
+            TimeSpan timeout = TimeSpan.FromSeconds(settings?.LoginProbeTimeoutSeconds ?? 10);
+            string source = account.Runtime + "\n" + account.HomeDirectory;
+            LoginProbeState state;
+            bool start = false;
+            lock (_StateLock)
+            {
+                if (!_LoginProbes.TryGetValue(account.Id, out LoginProbeState? existing) || existing.Source != source)
+                {
+                    existing = new LoginProbeState { Source = source };
+                    _LoginProbes[account.Id] = existing;
+                }
+                state = existing;
+                if (!state.Running && (!state.CheckedUtc.HasValue || state.CheckedUtc.Value.Add(interval) <= now))
+                {
+                    state.Running = true;
+                    start = true;
+                }
+            }
+            if (start) StartLoginProbe(account, state, timeout);
+            lock (_StateLock) return state.Reason;
+        }
+
+        /// <summary>When the account's last runtime login status probe finished, or null before any probe.</summary>
+        public DateTime? GetLoginCheckedUtc(string accountId)
+        {
+            lock (_StateLock) return _LoginProbes.TryGetValue(accountId, out LoginProbeState? state) ? state.CheckedUtc : null;
+        }
+
         /// <summary>Evaluate the applicable windows. A reset invalidates the old observation; it never invents a full allowance.</summary>
         public ProviderUsageStatus GetStatus(UsageAccountSettings account, string? model, DateTime now)
         {
-            // A missing login blocks before any allowance question: the captain cannot run at all.
-            string? loginProblem = CaptainAccountLaunch.CheckReadiness(account);
+            // A missing or rejected login blocks before any allowance question: the captain cannot run at all.
+            string? loginProblem = GetLoginProblem(account, now);
+            DateTime? loginCheckedUtc = GetLoginCheckedUtc(account.Id);
             lock (_StateLock)
             {
                 ProviderUsageSnapshot? snapshot = account.ManualSnapshot;
                 if (account.Collector != "Manual") _Snapshots.TryGetValue(account.Id, out snapshot);
                 ProviderUsageStatus result = new ProviderUsageStatus { AccountId = account.Id, ObservedUtc = snapshot?.ObservedUtc, Source = snapshot?.Source ?? "none", Windows = snapshot?.Windows ?? new List<ProviderUsageWindow>() };
                 result.Runtime = account.Runtime?.ToString();
+                result.LoginCheckedUtc = loginCheckedUtc;
                 if (_Errors.TryGetValue(account.Id, out string? error)) result.CollectionError = error;
                 if (loginProblem != null)
                 {
@@ -323,6 +402,18 @@ namespace Armada.Core.Services
             result.Candidates = normal.Count > 0 ? normal : low;
             result.Reason = result.Candidates.Count == 0 ? "usage_reserve_exhaustion_or_account_capacity" : normal.Count == 0 ? "low_allowance_no_approved_normal_fallback" : "preferred_eligible_route_with_allowance";
             return result;
+        }
+
+        #endregion
+
+        #region Private-Classes
+
+        private sealed class LoginProbeState
+        {
+            public string Source { get; set; } = String.Empty;
+            public string? Reason { get; set; }
+            public DateTime? CheckedUtc { get; set; }
+            public bool Running { get; set; }
         }
 
         #endregion
