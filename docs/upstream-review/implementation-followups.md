@@ -574,6 +574,14 @@ and report cancellation and skipped files accurately. Review all sibling tools
 for the same defects. Keep runtime activation blocked until real model/tool
 round trips and workspace boundary tests pass.
 
+Further review of the runtime candidate found direct destination writes that
+can truncate existing files on cancellation, an unbounded synchronous line-ending
+scan, replacement decoding of invalid UTF-8, and quadratic output truncation for
+large Unicode responses. Require atomic file replacement with original-byte
+preservation on failure, bounded cancellable reads, strict supported encoding,
+and efficient Unicode-safe truncation. These findings remain open until the
+corrected combined runtime passes its actual tool round trips.
+
 ## FOLLOWUP-020 — Harbor revocation must reach connected sessions
 
 The durable enrollment candidate checks the credential when a runner registers.
@@ -600,3 +608,11 @@ handoff without a landing callback. Actual HTTP tests cover active ownership
 and unknown state with no mission mutation. Final Check and Judge gates remain
 in force. The combined acceptance counts are recorded in FOLLOWUP-016.
 Deployment remains pending.
+
+Harbor schema review also found provider-specific nullability and primary-key
+metadata errors, overly broad type acceptance, and incomplete composite-key
+rejection. The provider matrix must prove each incompatible partial table is
+rejected without recording the migration as applied. A separate two-instance
+session test must prove that a fresh durable generation is accepted after
+another instance revokes and re-enrolls the runner, while old sessions stay
+invalid. A stale local generation cache must not reject the new owner forever.
