@@ -6,6 +6,8 @@ namespace Armada.Server.Routes
     using System.IO;
     using System.Linq;
     using System.Text.Json;
+    using System.Threading;
+    using System.Threading.Tasks;
     using WatsonWebserver;
     using WatsonWebserver.Core;
     using WatsonWebserver.Core.OpenApi;
@@ -30,6 +32,7 @@ namespace Armada.Server.Routes
         private readonly IAdmiralService _admiral;
         private readonly IMissionService _missionService;
         private readonly ManualCompletionProofService _manualCompletionProof;
+        private readonly Func<Mission, CancellationToken, Task<bool>> _isMissionProcessActive;
         private readonly ArmadaSettings _settings;
         private readonly IGitService _git;
         private readonly ILandingService _landingService;
@@ -66,6 +69,7 @@ namespace Armada.Server.Routes
         /// <param name="webSocketHub">WebSocket hub for real-time notifications.</param>
         /// <param name="logging">Logging module.</param>
         /// <param name="jsonOptions">JSON serializer options.</param>
+        /// <param name="isMissionProcessActive">Authoritative captain process ownership probe.</param>
         public MissionRoutes(
             DatabaseDriver database,
             IAdmiralService admiral,
@@ -79,12 +83,14 @@ namespace Armada.Server.Routes
             Func<Mission, Dock, Task> handleMissionComplete,
             ArmadaWebSocketHub? webSocketHub,
             LoggingModule logging,
-            JsonSerializerOptions jsonOptions)
+            JsonSerializerOptions jsonOptions,
+            Func<Mission, CancellationToken, Task<bool>> isMissionProcessActive)
         {
             _database = database;
             _admiral = admiral;
             _missionService = missionService;
             _manualCompletionProof = new ManualCompletionProofService(database, git);
+            _isMissionProcessActive = isMissionProcessActive ?? throw new ArgumentNullException(nameof(isMissionProcessActive));
             _settings = settings;
             _git = git;
             _landingService = landingService;
@@ -101,6 +107,20 @@ namespace Armada.Server.Routes
             _webSocketHub = webSocketHub;
             _logging = logging;
             _jsonOptions = jsonOptions;
+        }
+
+        private async Task<ManualCompletionProofResult> EvaluateManualCompletionAsync(
+            Mission mission,
+            bool activeLandingPipeline,
+            CancellationToken token)
+        {
+            if (await _isMissionProcessActive(mission, token).ConfigureAwait(false))
+            {
+                return ManualCompletionProofResult.Fail("manual_completion_process_active");
+            }
+
+            return await _manualCompletionProof
+                .EvaluateAsync(mission, activeLandingPipeline, token).ConfigureAwait(false);
         }
 
         private async Task<string> ReadFileSharedAsync(string path)
@@ -826,8 +846,8 @@ namespace Armada.Server.Routes
                             : await _database.Docks.ReadAsync(ctx.TenantId!, ctx.UserId!, mission.DockId).ConfigureAwait(false);
                     if (landingDock != null && landingDock.Active)
                     {
-                        ManualCompletionProofResult preflight = await _manualCompletionProof
-                            .EvaluateAsync(mission, true).ConfigureAwait(false);
+                        ManualCompletionProofResult preflight = await EvaluateManualCompletionAsync(
+                            mission, true, CancellationToken.None).ConfigureAwait(false);
                         if (!preflight.Allowed)
                         {
                             req.Http.Response.StatusCode = 409;
@@ -861,30 +881,12 @@ namespace Armada.Server.Routes
                         // Invoke the full landing pipeline (same as agent-driven completion)
                         await _handleMissionComplete(mission, landingDock).ConfigureAwait(false);
 
-                        // Re-read the mission to get the final state after landing
+                        // Re-read the mission to get the final state after landing. The immutable
+                        // proof ran before capture and landing; a post-landing downgrade cannot
+                        // undo a merge that was allowed without that proof.
                         mission = await _database.Missions.ReadAsync(id).ConfigureAwait(false);
                         if (mission == null)
                             return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found after landing" };
-
-                        if (mission.Status == MissionStatusEnum.Complete)
-                        {
-                            ManualCompletionProofResult landedProof = await _manualCompletionProof
-                                .EvaluateAsync(mission, false).ConfigureAwait(false);
-                            if (!landedProof.Allowed)
-                            {
-                                mission.Status = MissionStatusEnum.LandingFailed;
-                                mission.CompletedUtc = DateTime.UtcNow;
-                                mission.FailureReason = landedProof.Reason;
-                                mission.LastUpdateUtc = DateTime.UtcNow;
-                                await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-                                req.Http.Response.StatusCode = 409;
-                                return new ApiErrorResponse
-                                {
-                                    Error = ApiResultEnum.Conflict,
-                                    Message = "Manual completion blocked after landing: " + landedProof.Reason
-                                };
-                            }
-                        }
 
                         Signal landingSignal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " manual completion — landed as " + mission.Status);
                         if (!String.IsNullOrEmpty(mission.CaptainId)) landingSignal.FromCaptainId = mission.CaptainId;
@@ -903,8 +905,8 @@ namespace Armada.Server.Routes
                 // Standard transition: no dock available or not transitioning to Complete
                 if (newStatus == MissionStatusEnum.Complete)
                 {
-                    ManualCompletionProofResult proof = await _manualCompletionProof
-                        .EvaluateAsync(mission, false).ConfigureAwait(false);
+                    ManualCompletionProofResult proof = await EvaluateManualCompletionAsync(
+                        mission, false, CancellationToken.None).ConfigureAwait(false);
                     if (!proof.Allowed)
                     {
                         req.Http.Response.StatusCode = 409;

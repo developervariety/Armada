@@ -34,6 +34,13 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   an incident. The default provider refuses cutover until implemented.
 - Exclude raw provider exception text from persisted failures.
 
+### Manual mission completion safety
+
+- Route manual Complete transitions through immutable ancestry, Check, Judge,
+  and captain-process ownership proof before landing or status mutation. Read
+  all scoped Checks across pages, preserve intermediate pipeline handoffs, and
+  keep failed or pending REST Check results blocking.
+
 ### Ask MCP launch and discovery
 
 - Configure each temporary chat runtime with its Armada MCP connection. Preserve

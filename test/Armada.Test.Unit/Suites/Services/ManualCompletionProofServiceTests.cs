@@ -175,7 +175,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("PendingVoyageJudgeCannotBeBypassed", async () =>
+            await RunTest("IntermediateStageMayPrecedePendingJudge", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -191,14 +191,87 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         VoyageId = voyage.Id,
                         Persona = PersonaCatalog.Judge,
+                        Status = MissionStatusEnum.InProgress,
+                        DependsOnMissionId = worker.Id
+                    };
+                    await testDb.Driver.Missions.CreateAsync(judge).ConfigureAwait(false);
+                    ManualCompletionProofResult result = await new ManualCompletionProofService(
+                        testDb.Driver, new StubGitService { IsAncestorResult = true })
+                        .EvaluateAsync(worker, true).ConfigureAwait(false);
+                    AssertTrue(result.Allowed, "An intermediate stage may complete before its downstream Judge");
+                    AssertEqual("landing_pipeline", result.Reason, "Intermediate stage reason");
+                }
+            });
+
+            await RunTest("TerminalStageCannotBypassPendingJudge", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Voyage voyage = new Voyage { Title = "manual terminal judge voyage" };
+                    await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+                    Mission worker = new Mission("manual terminal worker")
+                    {
+                        VoyageId = voyage.Id,
+                        Mode = MissionModeEnum.Implementation
+                    };
+                    await testDb.Driver.Missions.CreateAsync(worker).ConfigureAwait(false);
+                    Mission judge = new Mission("manual terminal judge")
+                    {
+                        VoyageId = voyage.Id,
+                        Persona = PersonaCatalog.Judge,
                         Status = MissionStatusEnum.InProgress
                     };
                     await testDb.Driver.Missions.CreateAsync(judge).ConfigureAwait(false);
                     ManualCompletionProofResult result = await new ManualCompletionProofService(
                         testDb.Driver, new StubGitService { IsAncestorResult = true })
                         .EvaluateAsync(worker, true).ConfigureAwait(false);
-                    AssertFalse(result.Allowed, "A pending voyage Judge must retain authority");
+                    AssertFalse(result.Allowed, "A terminal stage must not bypass a pending Judge");
                     AssertEqual("manual_completion_judge_required", result.Reason, "Pending Judge reason");
+                }
+            });
+
+            await RunTest("ChecksAreReadAcrossAllPages", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Mission mission = new Mission("manual paged checks")
+                    {
+                        Mode = MissionModeEnum.Implementation,
+                        CommitHash = new String('a', 40)
+                    };
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    CheckRun failed = new CheckRun
+                    {
+                        MissionId = mission.Id,
+                        Status = CheckRunStatusEnum.Failed,
+                        Command = "dotnet test",
+                        StartedUtc = DateTime.UtcNow.AddHours(-2),
+                        CompletedUtc = DateTime.UtcNow.AddHours(-2),
+                        CreatedUtc = DateTime.UtcNow.AddHours(-2),
+                        CommitHash = mission.CommitHash
+                    };
+                    await testDb.Driver.CheckRuns.CreateAsync(failed).ConfigureAwait(false);
+                    for (int index = 0; index < 100; index++)
+                    {
+                        CheckRun passed = new CheckRun
+                        {
+                            MissionId = mission.Id,
+                            Status = CheckRunStatusEnum.Passed,
+                            Command = "dotnet test",
+                            StartedUtc = DateTime.UtcNow,
+                            CompletedUtc = DateTime.UtcNow,
+                            CreatedUtc = DateTime.UtcNow,
+                            CommitHash = mission.CommitHash
+                        };
+                        await testDb.Driver.CheckRuns.CreateAsync(passed).ConfigureAwait(false);
+                    }
+
+                    ManualCompletionProofResult result = await new ManualCompletionProofService(
+                        testDb.Driver, new StubGitService { IsAncestorResult = true })
+                        .EvaluateAsync(mission, true).ConfigureAwait(false);
+                    AssertFalse(result.Allowed, "A failed check on a later page must block completion");
+                    AssertEqual("manual_completion_failed_check", result.Reason, "Paged failed check reason");
                 }
             });
         }

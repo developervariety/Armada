@@ -12,6 +12,7 @@ namespace Armada.Server
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Runtimes;
+    using Armada.Runtimes.Interfaces;
     using Armada.Server.WebSocket;
 
     /// <summary>
@@ -244,6 +245,62 @@ namespace Armada.Server
             }
 
             return _HandledProcessExits.ContainsKey(processId);
+        }
+
+        /// <summary>
+        /// Prove whether a mission still owns a live captain process. The persisted mission and
+        /// captain bindings, the in-memory launch generation, and the runtime liveness probe must
+        /// all agree. A PID by itself is not sufficient because the operating system can reuse it.
+        /// </summary>
+        /// <param name="mission">Mission whose process ownership is checked.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True only for a live process still registered for this mission.</returns>
+        public async Task<bool> IsMissionProcessActiveAsync(Mission mission, CancellationToken token = default)
+        {
+            if (mission == null || String.IsNullOrWhiteSpace(mission.CaptainId)
+                || !mission.ProcessId.HasValue || mission.ProcessId.Value <= 0)
+            {
+                return false;
+            }
+
+            Captain? captain = await _Database.Captains.ReadAsync(mission.CaptainId).ConfigureAwait(false);
+            if (captain == null
+                || captain.State != CaptainStateEnum.Working
+                || !String.Equals(captain.CurrentMissionId, mission.Id, StringComparison.Ordinal)
+                || captain.ProcessId != mission.ProcessId)
+            {
+                return false;
+            }
+
+            int processId = mission.ProcessId.Value;
+            lock (_ProcessToCaptain)
+            {
+                if (!_ProcessToCaptain.TryGetValue(processId, out string? mappedCaptainId)
+                    || !_ProcessToMission.TryGetValue(processId, out string? mappedMissionId)
+                    || !String.Equals(mappedCaptainId, captain.Id, StringComparison.Ordinal)
+                    || !String.Equals(mappedMissionId, mission.Id, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+
+            if (IsProcessExitHandled(processId)) return false;
+
+            try
+            {
+                IAgentRuntime runtime = captain.Runtime == AgentRuntimeEnum.Custom
+                    ? throw new InvalidOperationException("Custom runtime liveness requires a registered runtime name")
+                    : _RuntimeFactory.Create(captain.Runtime);
+                return await runtime.IsRunningAsync(processId, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         /// <summary>

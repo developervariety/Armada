@@ -475,10 +475,16 @@ status write. Implementation missions require a true target ancestry proof when
 no active dock can land them. A false or unknown ancestry answer, missing vessel
 or commit, and any participating failed, pending, running or stale Check return
 Conflict and leave the mission unchanged. Review and Judge missions remain under
-their shared approval authority. Active-dock completion is checked before and
-after the landing handler, so a handler result cannot turn unlanded work into a
-terminal success. Audit and Research missions keep their report-only completion
-contract. Regression coverage uses real local Git fixtures for unlanded,
+their shared approval authority. A live captain process must also prove it has
+released the mission through the lifecycle ownership and runtime liveness seam
+before either the landing handler or a no-dock status write can run. Active-dock
+proof is complete before capture and landing, so a later handler result cannot
+undo a gate bypass after a merge. Intermediate pipeline stages may complete
+while a downstream Judge is pending; a terminal stage still requires Judge
+authority. Audit and Research missions keep their report-only completion
+contract, except mixed voyages still enforce real Check gates. Check reads are
+fully paginated. Regression coverage uses real local Git fixtures for unlanded,
 landed and missing refs, an injected unknown ancestry answer, Judge authority,
-failed/pending/stale Checks, and the REST no-dock path.
+failed/pending/stale Checks, paginated Checks, intermediate stages, and REST
+status paths.
 No production mission was changed during this review.

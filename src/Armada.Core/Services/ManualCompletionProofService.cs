@@ -60,11 +60,14 @@ namespace Armada.Core.Services
                 return ManualCompletionProofResult.Fail("manual_completion_judge_required");
             }
 
+            List<Mission>? voyageMissions = null;
             if (!String.IsNullOrWhiteSpace(mission.VoyageId))
             {
-                List<Mission> voyageMissions = await _Database.Missions
+                voyageMissions = await _Database.Missions
                     .EnumerateByVoyageAsync(mission.VoyageId, token).ConfigureAwait(false);
-                if (voyageMissions.Any(candidate => candidate.Id != mission.Id
+                bool hasDependentPipelineStage = voyageMissions.Any(candidate =>
+                    String.Equals(candidate.DependsOnMissionId, mission.Id, StringComparison.Ordinal));
+                if (!hasDependentPipelineStage && voyageMissions.Any(candidate => candidate.Id != mission.Id
                     && PersonaCatalog.Matches(candidate.Persona, PersonaCatalog.Judge)
                     && candidate.Status != MissionStatusEnum.Complete))
                 {
@@ -72,7 +75,8 @@ namespace Armada.Core.Services
                 }
             }
 
-            if (mission.IsReadOnlyMode)
+            if (mission.IsReadOnlyMode && (voyageMissions == null
+                || VoyageReportOnlyClassifier.IsFullyReportOnly(voyageMissions)))
             {
                 return ManualCompletionProofResult.Pass("report_only");
             }
@@ -143,15 +147,38 @@ namespace Armada.Core.Services
             Dictionary<string, CheckRun> checks = new Dictionary<string, CheckRun>(StringComparer.Ordinal);
             if (!String.IsNullOrWhiteSpace(mission.VoyageId))
             {
-                EnumerationResult<CheckRun> voyageChecks = await _Database.CheckRuns
-                    .EnumerateAsync(new CheckRunQuery { VoyageId = mission.VoyageId }, token).ConfigureAwait(false);
-                foreach (CheckRun check in voyageChecks.Objects) checks[check.Id] = check;
+                await ReadCheckScopeAsync(
+                    new CheckRunQuery { VoyageId = mission.VoyageId }, checks, token).ConfigureAwait(false);
             }
 
-            EnumerationResult<CheckRun> missionChecks = await _Database.CheckRuns
-                .EnumerateAsync(new CheckRunQuery { MissionId = mission.Id }, token).ConfigureAwait(false);
-            foreach (CheckRun check in missionChecks.Objects) checks[check.Id] = check;
+            await ReadCheckScopeAsync(new CheckRunQuery { MissionId = mission.Id }, checks, token)
+                .ConfigureAwait(false);
             return checks.Values.ToList();
+        }
+
+        private async Task ReadCheckScopeAsync(
+            CheckRunQuery query,
+            Dictionary<string, CheckRun> checks,
+            CancellationToken token)
+        {
+            const int pageSize = 100;
+            int pageNumber = 1;
+            while (true)
+            {
+                query.PageNumber = pageNumber;
+                query.PageSize = pageSize;
+                EnumerationResult<CheckRun> page = await _Database.CheckRuns
+                    .EnumerateAsync(query, token).ConfigureAwait(false);
+                foreach (CheckRun check in page.Objects) checks[check.Id] = check;
+
+                if (page.Objects.Count == 0
+                    || (page.TotalPages > 0 && pageNumber >= page.TotalPages)
+                    || (page.TotalPages <= 0 && page.Objects.Count < pageSize))
+                {
+                    return;
+                }
+                pageNumber++;
+            }
         }
     }
 

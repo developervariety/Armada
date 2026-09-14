@@ -143,6 +143,59 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual("Review", mission.Status.ToString());
             });
 
+            await RunTest("ManualComplete_FailedCheckIsBlockedAtRest", async () =>
+            {
+                Mission mission = await CreateMissionAsync("Manual failed check completion");
+                string missionId = mission.Id!;
+                await TransitionAsync(missionId, "Assigned");
+                await TransitionAsync(missionId, "InProgress");
+                await TransitionAsync(missionId, "WorkProduced");
+                Vessel checkVessel = await CreateVesselWithLandingModeAsync("Manual-check-vessel", "MergeQueue");
+                HttpResponseMessage import = await _AuthClient.PostAsync("/api/v1/check-runs/import", JsonHelper.ToJsonContent(new
+                {
+                    VesselId = checkVessel.Id,
+                    MissionId = missionId,
+                    Type = "Build",
+                    Status = "Failed",
+                    ProviderName = "manual-test",
+                    ExternalId = Guid.NewGuid().ToString("N"),
+                    Command = "isolated-check",
+                    Summary = "failed test fixture"
+                })).ConfigureAwait(false);
+                AssertStatusCode(HttpStatusCode.Created, import);
+
+                HttpResponseMessage complete = await TransitionAsync(missionId, "Complete");
+                AssertStatusCode(HttpStatusCode.Conflict, complete);
+                Mission persisted = await GetMissionAsync(missionId);
+                AssertEqual("WorkProduced", persisted.Status.ToString());
+            });
+
+            await RunTest("ManualComplete_PendingCheckIsBlockedAtRest", async () =>
+            {
+                Mission mission = await CreateMissionAsync("Manual pending check completion");
+                string missionId = mission.Id!;
+                await TransitionAsync(missionId, "Assigned");
+                await TransitionAsync(missionId, "InProgress");
+                await TransitionAsync(missionId, "WorkProduced");
+                Vessel checkVessel = await CreateVesselWithLandingModeAsync("Manual-pending-vessel", "MergeQueue");
+                HttpResponseMessage import = await _AuthClient.PostAsync("/api/v1/check-runs/import", JsonHelper.ToJsonContent(new
+                {
+                    VesselId = checkVessel.Id,
+                    MissionId = missionId,
+                    Type = "Build",
+                    Status = "Pending",
+                    ProviderName = "manual-test",
+                    ExternalId = Guid.NewGuid().ToString("N"),
+                    Command = "pending-check"
+                })).ConfigureAwait(false);
+                AssertStatusCode(HttpStatusCode.Created, import);
+
+                HttpResponseMessage complete = await TransitionAsync(missionId, "Complete");
+                AssertStatusCode(HttpStatusCode.Conflict, complete);
+                Mission persisted = await GetMissionAsync(missionId);
+                AssertEqual("WorkProduced", persisted.Status.ToString());
+            });
+
             // === MergeQueue Auto-Enqueue ===
 
             await RunTest("MergeQueue_VesselLandingMode_CreatesEntry", async () =>
