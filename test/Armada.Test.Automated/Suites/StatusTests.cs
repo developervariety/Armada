@@ -90,7 +90,7 @@ namespace Armada.Test.Automated.Suites
             return JsonHelper.Deserialize<Mission>(body);
         }
 
-        private async Task<VoyageDetailResponse> CreateVoyageAsync(string vesselId, string title, int missionCount = 2)
+        private async Task<Voyage> CreateVoyageAsync(string vesselId, string title, int missionCount = 2)
         {
             object[] missions = Enumerable.Range(1, missionCount)
                 .Select(i => (object)new { Title = "Voyage Mission " + i, Description = "Desc " + i })
@@ -105,7 +105,19 @@ namespace Armada.Test.Automated.Suites
             });
             HttpResponseMessage resp = await _AuthClient.PostAsync("/api/v1/voyages", content).ConfigureAwait(false);
             resp.EnsureSuccessStatusCode();
-            return await JsonHelper.DeserializeAsync<VoyageDetailResponse>(resp).ConfigureAwait(false);
+            return await JsonHelper.DeserializeAsync<Voyage>(resp).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Cancel a voyage this suite dispatched. A dispatched voyage on a real vessel launches its missions
+        /// in turn, and each later mission becomes assignable when the one before it ends. Left open, that
+        /// chain outlives the test and hands work to idle captains that later suites create, so a captain a
+        /// later test expects to stay idle can go Working. A cancelled voyage's missions are never assigned.
+        /// </summary>
+        private async Task CancelVoyageAsync(string voyageId)
+        {
+            HttpResponseMessage resp = await _AuthClient.DeleteAsync("/api/v1/voyages/" + voyageId).ConfigureAwait(false);
+            AssertEqual(HttpStatusCode.OK, resp.StatusCode, "The dispatched voyage must be cancelled when the test ends");
         }
 
         private async Task<Signal> CreateSignalAsync(string type, string message)
@@ -242,20 +254,32 @@ namespace Armada.Test.Automated.Suites
             {
                 string fleetId = await CreateFleetAsync().ConfigureAwait(false);
                 string vesselId = await CreateVesselAsync(fleetId).ConfigureAwait(false);
-                await CreateVoyageAsync(vesselId, "Status Voyage 1").ConfigureAwait(false);
-
-                ArmadaStatus status = await GetStatusAsync().ConfigureAwait(false);
-                AssertTrue(status.ActiveVoyages >= 1);
+                Voyage voyage = await CreateVoyageAsync(vesselId, "Status Voyage 1").ConfigureAwait(false);
+                try
+                {
+                    ArmadaStatus status = await GetStatusAsync().ConfigureAwait(false);
+                    AssertTrue(status.ActiveVoyages >= 1);
+                }
+                finally
+                {
+                    await CancelVoyageAsync(voyage.Id).ConfigureAwait(false);
+                }
             }).ConfigureAwait(false);
 
             await RunTest("GetStatus_AfterCreatingVoyage_VoyagesArrayPopulated", async () =>
             {
                 string fleetId = await CreateFleetAsync().ConfigureAwait(false);
                 string vesselId = await CreateVesselAsync(fleetId).ConfigureAwait(false);
-                await CreateVoyageAsync(vesselId, "Voyage Array Check").ConfigureAwait(false);
-
-                ArmadaStatus status = await GetStatusAsync().ConfigureAwait(false);
-                AssertTrue(status.Voyages.Count >= 1);
+                Voyage voyage = await CreateVoyageAsync(vesselId, "Voyage Array Check").ConfigureAwait(false);
+                try
+                {
+                    ArmadaStatus status = await GetStatusAsync().ConfigureAwait(false);
+                    AssertTrue(status.Voyages.Count >= 1);
+                }
+                finally
+                {
+                    await CancelVoyageAsync(voyage.Id).ConfigureAwait(false);
+                }
             }).ConfigureAwait(false);
 
             await RunTest("GetStatus_AfterCreatingSignals_ShowsRecentSignals", async () =>

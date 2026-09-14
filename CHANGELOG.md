@@ -573,6 +573,13 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   earlier cases claimed them and the filter found fewer than two. The missions
   now depend on a cancelled mission, which is never assigned, so they stay
   Pending whatever captains exist. Each create response must report Pending.
+- The status and event tests now cancel the voyages they dispatch, in a
+  `finally` block, before the test returns. Those voyages sit on real vessels,
+  so each of their missions launched an agent. Every agent exit triggers a
+  sweep that assigns Pending work to any idle captain. The open voyages kept
+  offering missions into later suites. The authentication test's newly created
+  captain was sometimes claimed before its delete, which returned the
+  documented 409. A cancelled voyage's missions are never assigned again.
 
 ### Helm configuration and branch client
 

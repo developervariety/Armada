@@ -130,6 +130,18 @@ namespace Armada.Test.Automated.Suites
             return voyage.Id;
         }
 
+        /// <summary>
+        /// Cancel a voyage this suite dispatched. A dispatched voyage on a real vessel launches its missions
+        /// in turn, and each later mission becomes assignable when the one before it ends. Left open, that
+        /// chain outlives the test and hands work to idle captains that later suites create, so a captain a
+        /// later test expects to stay idle can go Working. A cancelled voyage's missions are never assigned.
+        /// </summary>
+        private async Task CancelVoyageAsync(string voyageId)
+        {
+            HttpResponseMessage resp = await _AuthClient.DeleteAsync("/api/v1/voyages/" + voyageId).ConfigureAwait(false);
+            AssertEqual(HttpStatusCode.OK, resp.StatusCode, "The dispatched voyage must be cancelled when the test ends");
+        }
+
         #endregion
 
         #region Protected-Methods
@@ -546,21 +558,27 @@ namespace Armada.Test.Automated.Suites
                 string fleetId = await CreateFleetAsync().ConfigureAwait(false);
                 string vesselId = await CreateVesselAsync(fleetId).ConfigureAwait(false);
                 string voyageId = await CreateVoyageAsync(vesselId).ConfigureAwait(false);
-
-                Mission mission = await CreateMissionAsync("VoyageFilter", voyageId: voyageId).ConfigureAwait(false);
-                string missionId = mission.Id;
-                await TransitionAsync(missionId, "Assigned").ConfigureAwait(false);
-
-                HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/events?voyageId=" + voyageId).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, response.StatusCode);
-
-                EnumerationResult<ArmadaEvent> result = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(response).ConfigureAwait(false);
-
-                AssertTrue(result.Objects.Count >= 1);
-                foreach (ArmadaEvent evt in result.Objects)
+                try
                 {
-                    AssertNotNull(evt.VoyageId);
-                    AssertEqual(voyageId, evt.VoyageId);
+                    Mission mission = await CreateMissionAsync("VoyageFilter", voyageId: voyageId).ConfigureAwait(false);
+                    string missionId = mission.Id;
+                    await TransitionAsync(missionId, "Assigned").ConfigureAwait(false);
+
+                    HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/events?voyageId=" + voyageId).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.OK, response.StatusCode);
+
+                    EnumerationResult<ArmadaEvent> result = await JsonHelper.DeserializeAsync<EnumerationResult<ArmadaEvent>>(response).ConfigureAwait(false);
+
+                    AssertTrue(result.Objects.Count >= 1);
+                    foreach (ArmadaEvent evt in result.Objects)
+                    {
+                        AssertNotNull(evt.VoyageId);
+                        AssertEqual(voyageId, evt.VoyageId);
+                    }
+                }
+                finally
+                {
+                    await CancelVoyageAsync(voyageId).ConfigureAwait(false);
                 }
             }).ConfigureAwait(false);
 
