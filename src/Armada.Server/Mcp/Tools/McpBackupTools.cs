@@ -3,9 +3,8 @@ namespace Armada.Server.Mcp.Tools
     using System;
     using System.Text.Json;
     using System.Threading.Tasks;
-    using Armada.Core;
-    using Armada.Core.Database;
-    using Armada.Core.Settings;
+    using Armada.Core.Models;
+    using Armada.Core.Services;
 
     /// <summary>
     /// Registers MCP tools for backup and restore operations.
@@ -22,20 +21,20 @@ namespace Armada.Server.Mcp.Tools
         /// Registers backup and restore MCP tools with the server.
         /// </summary>
         /// <param name="register">Delegate to register each tool.</param>
-        /// <param name="database">Database driver for backup operations.</param>
-        /// <param name="settings">Armada settings for backup path configuration.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, ArmadaSettings settings)
+        /// <param name="backups">Shared provider-aware backup and restore service.</param>
+        public static void Register(RegisterToolDelegate register, DatabaseBackupService backups)
         {
             register(
                 "armada_backup",
-                "Create a ZIP backup of the Armada database and settings for disaster recovery. " +
-                "Uses SQLite online backup API for a consistent snapshot.",
+                "Create a verified provider-native backup of the configured Armada database (SQLite, PostgreSQL, MySQL or SQL Server) " +
+                "and archive it with settings and a manifest whose schema version and record counts come from that provider. " +
+                "Fails with a named reason instead of reporting success when the native backup or its isolated restore check fails.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
-                        outputPath = new { type = "string", description = "Output path for the ZIP file. Default: ~/.armada/backups/armada-backup-{timestamp}.zip" }
+                        outputPath = new { type = "string", description = "Output path for the ZIP file. Default: <dataDirectory>/backups/armada-backup-{timestamp}.zip" }
                     }
                 },
                 async (args) =>
@@ -44,14 +43,15 @@ namespace Armada.Server.Mcp.Tools
                         ? JsonSerializer.Deserialize<BackupArgs>(args.Value, _JsonOptions) ?? new BackupArgs()
                         : new BackupArgs();
 
-                    object result = await McpToolHelpers.PerformBackupAsync(database, settings, backupArgs.OutputPath).ConfigureAwait(false);
+                    DatabaseBackupResult result = await backups.BackupAsync(backupArgs.OutputPath).ConfigureAwait(false);
                     return result;
                 });
 
             register(
                 "armada_restore",
-                "Restore the Armada database and settings from a ZIP backup file. " +
-                "Creates a safety backup of the current state before overwriting. Server restart recommended after restore.",
+                "Restore a SQLite Armada database and settings from a ZIP backup file after a verified safety backup. " +
+                "Refused with restore_unsupported_for_provider_<type> on PostgreSQL, MySQL and SQL Server, and with backup_provider_mismatch " +
+                "for an archive from another provider. Server restart recommended after restore.",
                 new
                 {
                     type = "object",
@@ -70,7 +70,7 @@ namespace Armada.Server.Mcp.Tools
                     if (String.IsNullOrEmpty(restoreArgs.FilePath))
                         throw new ArgumentException("filePath is required");
 
-                    object result = await McpToolHelpers.PerformRestoreAsync(database, settings, restoreArgs.FilePath).ConfigureAwait(false);
+                    DatabaseRestoreResult result = await backups.RestoreAsync(restoreArgs.FilePath).ConfigureAwait(false);
                     return result;
                 });
         }

@@ -1025,7 +1025,7 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Backup & restore
-            new BackupRoutes(_Database, _Settings, _JsonOptions)
+            new BackupRoutes(new DatabaseBackupService(_Database, _Settings), _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Code index graph queries

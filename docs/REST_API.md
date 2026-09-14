@@ -3229,17 +3229,22 @@ curl -X DELETE http://localhost:7890/api/v1/pipelines/review-pipeline
 
 #### GET /api/v1/backup
 
-Create and download a ZIP backup of the Armada database and settings.
+Create and download a verified provider-native backup of the configured Armada database, with settings and a manifest.
+
+The backup uses the configured provider's native tooling: the SQLite online backup API, `pg_dump`, `mysqldump`, or SQL Server `BACKUP DATABASE`. The artifact is restored into an owned isolated target and verified before the archive is written. The MySQL, PostgreSQL and SQL Server client utilities must be installed on the admiral host. SQL Server also needs `selfDeploy.sqlServerBackupDirectory`, a path visible to the SQL Server host.
 
 **Response:** `200 OK` — Binary ZIP file stream with `Content-Disposition: attachment; filename="armada-backup-{timestamp}.zip"` header.
+
+**Errors:** `500` with `Message` set to a stable reason (for example `postgresql_backup_failed`, `backup_not_verified`, `sqlserver_server_backup_directory_not_configured`). No archive is produced.
 
 **ZIP Contents:**
 
 | File | Description |
 |---|---|
-| `armada.db` | SQLite database snapshot created via the SQLite online backup API |
+| `armada.db` | SQLite only: verified online backup of the configured database file |
+| `database/armada-backup.dump` / `.sql` / `.bak` | PostgreSQL custom-format dump, MySQL dump, or a SQL Server backup readable by the admiral |
 | `settings.json` | Current Armada server configuration |
-| `manifest.json` | Backup metadata: timestamp, schema version, Armada version, record counts per table |
+| `manifest.json` | `databaseType`, `schemaVersion` and `recordCounts` read from the provider; `backupTimestampUtc`, `armadaVersion`, `artifactEntry`, `artifactSha256`, `backupValidated`, `restoreVerified`, and `serverArtifactPath` when SQL Server keeps the artifact on the database host |
 
 **Example:**
 
@@ -3263,15 +3268,17 @@ Restore Armada from a previously created backup ZIP file.
 | `X-Original-Filename` | No | Original filename of the uploaded backup (used in the response message). If omitted, the server's temp filename is used. |
 
 **Validation:**
-- ZIP must contain `armada.db` with a valid `schema_migrations` table
-- A safety backup is automatically created before overwriting the current database
+- Restore replaces the database only when the admiral uses SQLite. PostgreSQL, MySQL and SQL Server return `409` with `restore_unsupported_for_provider_<type>` before the archive is read. A live native restore of a server database cannot be made atomic, and a failure part-way would leave the running database damaged. Restore those providers with their native tools while the admiral is stopped.
+- An archive whose manifest names another provider returns `409` with `backup_provider_mismatch`.
+- The ZIP must contain `armada.db` that passes `PRAGMA integrity_check` and has a `schema_migrations` table; otherwise `409` with `backup_database_entry_missing` or `backup_database_invalid`.
+- A verified safety backup is created first. The database is then replaced through the SQLite online backup API into the configured database file, so open connections stay valid.
 
 **Response:** `200 OK`
 
 ```json
 {
   "Status": "restored",
-  "SafetyBackupPath": "~/.armada/backups/armada-safety-backup-20260311T120000Z.zip",
+  "SafetyBackupPath": "~/.armada/backups/pre-restore-2026-03-11-120000-1a2b3c4d.zip",
   "SchemaVersion": 9,
   "Message": "Database restored from backup.zip. Restart the server to reload the restored data."
 }

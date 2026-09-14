@@ -20,6 +20,7 @@ namespace Armada.Server.WebSocket
     public class WebSocketCommandHandler
     {
         private readonly IAdmiralService _Admiral;
+        private readonly DatabaseBackupService? _Backups;
         private readonly DatabaseDriver _Database;
         private readonly IMergeQueueService _MergeQueue;
         private readonly ArmadaSettings? _Settings;
@@ -53,9 +54,11 @@ namespace Armada.Server.WebSocket
             JsonSerializerOptions jsonOptions,
             Action<string, string, string?, string?> broadcastMissionChange,
             Action<string, string, string?> broadcastVoyageChange,
-            MissionStatusTransitionService? statusTransitions = null)
+            MissionStatusTransitionService? statusTransitions = null,
+            DatabaseBackupService? backups = null)
         {
             _StatusTransitions = statusTransitions;
+            _Backups = backups;
             _Admiral = admiral;
             _Database = database;
             _MergeQueue = mergeQueue;
@@ -1015,8 +1018,18 @@ namespace Armada.Server.WebSocket
                 // ── Backup & Restore ─────────────────────────────────────
 
                 case "backup":
-                    object backupData = await Mcp.Tools.McpToolHelpers.PerformBackupAsync(_Database, _Settings!, command.OutputPath).ConfigureAwait(false);
-                    return new { type = "command.result", action = "backup", data = backupData };
+                {
+                    if (_Backups == null) return new { type = "command.error", action = "backup", error = "backup_unavailable" };
+                    try
+                    {
+                        DatabaseBackupResult backupData = await _Backups.BackupAsync(command.OutputPath).ConfigureAwait(false);
+                        return new { type = "command.result", action = "backup", data = (object)backupData };
+                    }
+                    catch (DatabaseBackupException ex)
+                    {
+                        return new { type = "command.error", action = "backup", error = ex.FailureReason };
+                    }
+                }
 
                 case "restore":
                 {
@@ -1025,8 +1038,16 @@ namespace Armada.Server.WebSocket
                     {
                         return new { type = "command.error", action = "restore", error = "filePath is required" };
                     }
-                    object restoreData = await Mcp.Tools.McpToolHelpers.PerformRestoreAsync(_Database, _Settings!, restoreFilePath).ConfigureAwait(false);
-                    return new { type = "command.result", action = "restore", data = restoreData };
+                    if (_Backups == null) return new { type = "command.error", action = "restore", error = "backup_unavailable" };
+                    try
+                    {
+                        DatabaseRestoreResult restoreData = await _Backups.RestoreAsync(restoreFilePath).ConfigureAwait(false);
+                        return new { type = "command.result", action = "restore", data = (object)restoreData };
+                    }
+                    catch (DatabaseBackupException ex)
+                    {
+                        return new { type = "command.error", action = "restore", error = ex.FailureReason };
+                    }
                 }
 
                 // ── Personas ──────────────────────────────────────────────

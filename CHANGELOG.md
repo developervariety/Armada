@@ -65,6 +65,26 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   decision under the provider's terms. See
   [account logins](docs/USAGE_ROUTING.md#account-logins).
 
+### Provider-aware backup and restore
+
+- MCP `armada_backup`, REST `GET /api/v1/backup` and the WebSocket `backup`
+  command now share one backup service. It takes a verified provider-native
+  backup of the configured database (SQLite, PostgreSQL, MySQL or SQL Server)
+  and restores that backup into an isolated target to check it. The manifest
+  records the provider, the schema version and the record counts that provider
+  reports. Previously every provider got a SQLite snapshot of
+  `databasePath`, so a PostgreSQL admiral reported a successful backup of an
+  unused empty file.
+- A failed native backup or isolated restore check now returns a named reason
+  and leaves no archive. SQL Server keeps its artifact on the database host and
+  the manifest records that path.
+- Restore replaces the database only on SQLite. It restores through the SQLite
+  online backup API into the configured database file, after a verified safety
+  backup. PostgreSQL, MySQL and SQL Server are refused with
+  `restore_unsupported_for_provider_<type>` before the archive is read. An
+  archive from another provider is refused with `backup_provider_mismatch`.
+  REST returns 409 for refusals and 500 for failures.
+
 ### API endpoint runtime lifecycle
 
 - Preserve synthetic API captain liveness until the loop exits, reject pre-cancelled

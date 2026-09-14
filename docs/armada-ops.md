@@ -2112,6 +2112,20 @@ AgentWake registration.
 | Write | `armada_backup` |
 | Destructive | `armada_restore`, `armada_stop_server` |
 
+Backup is provider-native and verified on every provider. Each run restores
+its own artifact into an isolated target and checks it before writing the
+archive. The manifest reports the configured provider's schema version and
+record counts. Install the provider's client utilities on the admiral host;
+SQL Server also needs `selfDeploy.sqlServerBackupDirectory`. A failure returns
+a named reason and leaves no archive, so a successful `armada_backup` is
+evidence of a restorable backup.
+
+Restore replaces the database only on SQLite. On PostgreSQL, MySQL and SQL
+Server it is refused with `restore_unsupported_for_provider_<type>`. For those
+providers, stop the admiral and restore the archive's native artifact with
+`pg_restore`, `mysql` or `RESTORE DATABASE` after taking a fresh backup, then
+start the admiral and check health and the schema version.
+
 ### 8.20 Disk Lifecycle
 
 `armada_disk_lifecycle` reports and, when explicitly enabled in settings,

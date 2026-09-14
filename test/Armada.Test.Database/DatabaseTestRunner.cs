@@ -6,12 +6,18 @@ namespace Armada.Test.Database
     using System.Collections.Generic;
     using System.Data.Common;
     using System.Diagnostics;
+    using System.IO;
+    using System.IO.Compression;
     using System.Runtime.CompilerServices;
+    using System.Security.Cryptography;
+    using System.Text.Json;
+    using System.Text.Json.Serialization;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Settings;
 
     /// <summary>
@@ -82,6 +88,7 @@ namespace Armada.Test.Database
                 await RunTest("MySQL_Unicode_Full_Uniqueness_Concurrency_Rollback", "Schema", () => new MysqlUnicodeUniquenessTests(_Settings).VerifyAsync(token), token);
 
             await RunTest("CoordinationLease_Reopen_Ownership_Expiry", "Operational", () => TestCoordinationLeaseAsync(token), token);
+            await RunTest("Backup_Native_Verified_Archive_Provider_Manifest_And_Restore_Contract", "Operational", () => TestNativeBackupAsync(token), token);
             await RunTest("HarborRunnerEnrollment_Reopen_And_CAS_Race", "Operational", () => new HarborRunnerEnrollmentDatabaseTests(_Driver, _Settings).VerifyAsync(token), token);
             await RunTest("Objective_Terminal_Backlog_Migration_Repairs_Only_Terminal_Rows", "Operational", () => TestObjectiveTerminalBacklogMigrationAsync(token), token);
             await RunTest("MissionAttemptFacts_Window_Scope_Bound_Reopen", "Operational", () => new ProductionFactDatabaseTests(_Driver, _Settings).VerifyMissionAttemptFactsAsync(token), token);
@@ -425,6 +432,90 @@ namespace Armada.Test.Database
             }
 
             _Results.Add(result);
+        }
+
+        private async Task TestNativeBackupAsync(CancellationToken token)
+        {
+            string root = Path.Combine(Path.GetTempPath(), "armada-dbtest-backup-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                ArmadaSettings armada = new ArmadaSettings
+                {
+                    DataDirectory = Path.Combine(root, "data"),
+                    Database = _Settings
+                };
+                string? sqlServerDirectory = Environment.GetEnvironmentVariable("ARMADA_SELF_DEPLOY_SQLSERVER_BACKUP_DIRECTORY");
+                if (_Settings.Type == DatabaseTypeEnum.SqlServer && String.IsNullOrWhiteSpace(sqlServerDirectory))
+                    throw new InvalidOperationException("Set ARMADA_SELF_DEPLOY_SQLSERVER_BACKUP_DIRECTORY to a directory visible to the SQL Server host.");
+                armada.SelfDeploy.SqlServerBackupDirectory = sqlServerDirectory;
+
+                await _Driver.Fleets.CreateAsync(new Fleet("backup-proof-" + Guid.NewGuid().ToString("N")), token).ConfigureAwait(false);
+                long expectedFleets = (await _Driver.Fleets.EnumerateAsync(token).ConfigureAwait(false)).Count;
+                int expectedSchema = await _Driver.GetSchemaVersionAsync(token).ConfigureAwait(false);
+                DatabaseBackupService backups = new DatabaseBackupService(_Driver, armada);
+                string archive = Path.Combine(root, "backup.zip");
+
+                DatabaseBackupResult result = await backups.BackupAsync(archive, token).ConfigureAwait(false);
+
+                DatabaseAssert.Equal(_Settings.Type, result.DatabaseType, "Backup provider");
+                DatabaseAssert.Equal(expectedSchema, result.SchemaVersion, "Backup schema version from the provider");
+                DatabaseAssert.Equal(expectedFleets, result.RecordCounts["fleets"], "Backup fleet count from the provider");
+                DatabaseBackupManifest manifest;
+                using (ZipArchive zip = ZipFile.OpenRead(archive))
+                {
+                    ZipArchiveEntry manifestEntry = zip.GetEntry("manifest.json") ?? throw new InvalidOperationException("manifest.json missing");
+                    JsonSerializerOptions options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                    options.Converters.Add(new JsonStringEnumConverter());
+                    using (Stream stream = manifestEntry.Open())
+                    {
+                        manifest = JsonSerializer.Deserialize<DatabaseBackupManifest>(stream, options) ?? throw new InvalidOperationException("manifest unreadable");
+                    }
+                    DatabaseAssert.Equal(_Settings.Type, manifest.DatabaseType, "Manifest provider");
+                    DatabaseAssert.Equal(true, manifest.BackupValidated, "Native backup validated");
+                    DatabaseAssert.Equal(true, manifest.RestoreVerified, "Isolated restore verified");
+                    DatabaseAssert.Equal(expectedFleets, manifest.RecordCounts["fleets"], "Manifest fleet count");
+                    if (String.IsNullOrEmpty(manifest.ServerArtifactPath))
+                    {
+                        ZipArchiveEntry artifact = zip.GetEntry(manifest.ArtifactEntry) ?? throw new InvalidOperationException("artifact entry missing: " + manifest.ArtifactEntry);
+                        if (artifact.Length == 0) throw new InvalidOperationException("artifact entry is empty");
+                        using (Stream stream = artifact.Open())
+                        {
+                            string digest = Convert.ToHexString(await SHA256.HashDataAsync(stream, token).ConfigureAwait(false)).ToLowerInvariant();
+                            DatabaseAssert.Equal(manifest.ArtifactSha256, digest, "Artifact digest");
+                        }
+                    }
+                    else
+                    {
+                        DatabaseAssert.Equal(DatabaseTypeEnum.SqlServer, _Settings.Type, "Only SQL Server keeps the artifact on the database host");
+                    }
+                }
+
+                if (_Settings.Type != DatabaseTypeEnum.Sqlite)
+                {
+                    string reason = String.Empty;
+                    try
+                    {
+                        await backups.RestoreAsync(archive, null, token).ConfigureAwait(false);
+                    }
+                    catch (DatabaseBackupException ex)
+                    {
+                        reason = ex.FailureReason;
+                    }
+                    DatabaseAssert.Equal("restore_unsupported_for_provider_" + _Settings.Type, reason, "Server provider restore refused");
+                    DatabaseAssert.Equal(expectedFleets, (long)(await _Driver.Fleets.EnumerateAsync(token).ConfigureAwait(false)).Count, "Refused restore changed nothing");
+                }
+            }
+            finally
+            {
+                try
+                {
+                    if (Directory.Exists(root)) Directory.Delete(root, true);
+                }
+                catch (IOException ex)
+                {
+                    Console.WriteLine("  backup test cleanup left " + root + ": " + ex.Message);
+                }
+            }
         }
 
         private async Task TestCoordinationLeaseAsync(CancellationToken token)

@@ -81,7 +81,8 @@ namespace Armada.Server.WebSocket
                 _JsonOptions,
                 BroadcastMissionChange,
                 BroadcastVoyageChange,
-                statusTransitions);
+                statusTransitions,
+                settings != null ? new DatabaseBackupService(_Database, settings) : null);
         }
 
         #endregion

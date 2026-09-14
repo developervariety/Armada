@@ -2212,7 +2212,7 @@ Trigger processing of the merge queue.
 
 #### backup
 
-Create a backup of the Armada database and settings as a ZIP archive.
+Create a verified provider-native backup of the configured database and archive it with settings and a manifest. Behaviour and archive contents match REST `GET /api/v1/backup`. A failure returns `command.error` with a stable reason in `error` and leaves no archive.
 
 **Request:**
 
@@ -2229,7 +2229,7 @@ Create a backup of the Armada database and settings as a ZIP archive.
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `action` | string | Yes | `"backup"` |
-| `data.OutputPath` | string | No | File path for the backup ZIP. Defaults to `~/.armada/backups/armada-backup-{timestamp}.zip` |
+| `data.OutputPath` | string | No | File path for the backup ZIP. Defaults to `<dataDirectory>/backups/armada-backup-{timestamp}.zip` |
 
 **Response:**
 
@@ -2238,16 +2238,18 @@ Create a backup of the Armada database and settings as a ZIP archive.
   "type": "command.result",
   "action": "backup",
   "data": {
-    "Path": "~/.armada/backups/armada-backup-20260311T120000Z.zip",
-    "Timestamp": "2026-03-11T12:00:00Z",
+    "Path": "~/.armada/backups/armada-backup-2026-03-11-120000.zip",
+    "TimestampUtc": "2026-03-11T12:00:00.0000000Z",
+    "DatabaseType": "Postgresql",
     "SchemaVersion": 9,
+    "ServerArtifactPath": "",
     "SizeBytes": 245760,
     "RecordCounts": {
-      "Fleets": 2,
-      "Vessels": 5,
-      "Captains": 3,
-      "Missions": 42,
-      "Voyages": 8
+      "fleets": 2,
+      "vessels": 5,
+      "captains": 3,
+      "missions": 42,
+      "voyages": 8
     }
   }
 }
@@ -2257,7 +2259,7 @@ Create a backup of the Armada database and settings as a ZIP archive.
 
 #### restore
 
-Restore Armada from a previously created backup ZIP file.
+Restore a SQLite Armada database from a previously created backup ZIP file. Behaviour matches REST `POST /api/v1/restore`. On PostgreSQL, MySQL and SQL Server the command returns `command.error` with `restore_unsupported_for_provider_<type>` and changes nothing. An archive from another provider returns `backup_provider_mismatch`.
 
 **Request:**
 
@@ -2284,14 +2286,14 @@ Restore Armada from a previously created backup ZIP file.
   "action": "restore",
   "data": {
     "Status": "restored",
-    "SafetyBackupPath": "~/.armada/backups/armada-safety-backup-20260311T120000Z.zip",
+    "SafetyBackupPath": "~/.armada/backups/pre-restore-2026-03-11-120000-1a2b3c4d.zip",
     "SchemaVersion": 9,
     "Message": "Database restored from armada-backup-20260311T120000Z.zip. Restart the server to reload the restored data."
   }
 }
 ```
 
-> **Note:** A safety backup is automatically created before overwriting. Restart the server after restoring.
+> **Note:** A verified safety backup is created before the SQLite database is replaced. Restart the server after restoring.
 
 ---
 

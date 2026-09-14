@@ -7,34 +7,28 @@ namespace Armada.Server.Routes
     using WatsonWebserver.Core.OpenApi;
     using Armada.Server;
     using Armada.Core;
-    using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
-    using Armada.Core.Settings;
-    using Armada.Server.Mcp.Tools;
 
     /// <summary>
     /// REST API routes for backup management.
     /// </summary>
     public class BackupRoutes
     {
-        private readonly DatabaseDriver _database;
-        private readonly ArmadaSettings _settings;
+        private readonly DatabaseBackupService _backups;
         private readonly JsonSerializerOptions _jsonOptions;
 
         /// <summary>
         /// Instantiate.
         /// </summary>
-        /// <param name="database">Database driver.</param>
-        /// <param name="settings">Application settings.</param>
+        /// <param name="backups">Shared provider-aware backup and restore service.</param>
         /// <param name="jsonOptions">JSON serializer options.</param>
         public BackupRoutes(
-            DatabaseDriver database,
-            ArmadaSettings settings,
+            DatabaseBackupService backups,
             JsonSerializerOptions jsonOptions)
         {
-            _database = database;
-            _settings = settings;
+            _backups = backups ?? throw new ArgumentNullException(nameof(backups));
             _jsonOptions = jsonOptions;
         }
 
@@ -58,8 +52,17 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
-                object backupResult = await McpToolHelpers.PerformBackupAsync(_database, _settings, null).ConfigureAwait(false);
-                string zipPath = (string)backupResult.GetType().GetProperty("Path")!.GetValue(backupResult)!;
+                DatabaseBackupResult backupResult;
+                try
+                {
+                    backupResult = await _backups.BackupAsync(null).ConfigureAwait(false);
+                }
+                catch (DatabaseBackupException ex)
+                {
+                    req.Http.Response.StatusCode = ex.Refused ? 409 : 500;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.FailureReason };
+                }
+                string zipPath = backupResult.Path;
                 byte[] fileBytes = await File.ReadAllBytesAsync(zipPath).ConfigureAwait(false);
                 string filename = Path.GetFileName(zipPath);
                 req.Http.Response.ContentType = "application/zip";
@@ -70,7 +73,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Backup")
                 .WithSummary("Download backup")
-                .WithDescription("Creates and streams a ZIP backup of the database and settings.")
+                .WithDescription("Creates a verified provider-native backup of the configured database and streams it as a ZIP with settings and a provider manifest. Returns 500 with a named reason when the native backup or its isolated restore check fails.")
                 .WithSecurity("ApiKey"));
 
             app.Post("/api/v1/restore", async (ApiRequest req) =>
@@ -90,8 +93,13 @@ namespace Armada.Server.Routes
                 {
                     await File.WriteAllBytesAsync(tempZipPath, body).ConfigureAwait(false);
                     string? originalFilename = req.Http.Request.Headers.Get("X-Original-Filename");
-                    object result = await McpToolHelpers.PerformRestoreAsync(_database, _settings, tempZipPath, originalFilename).ConfigureAwait(false);
+                    DatabaseRestoreResult result = await _backups.RestoreAsync(tempZipPath, originalFilename).ConfigureAwait(false);
                     return result;
+                }
+                catch (DatabaseBackupException ex)
+                {
+                    req.Http.Response.StatusCode = ex.Refused ? 409 : 500;
+                    return (object)new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.FailureReason };
                 }
                 finally
                 {
@@ -105,7 +113,7 @@ namespace Armada.Server.Routes
             api => api
                 .WithTag("Backup")
                 .WithSummary("Restore from backup")
-                .WithDescription("Accepts a ZIP backup file in the request body and restores the database and settings. Server restart recommended after restore.")
+                .WithDescription("Accepts a ZIP backup file and restores a SQLite database and settings after a verified safety backup. Returns 409 restore_unsupported_for_provider_<type> on PostgreSQL, MySQL and SQL Server, and 409 backup_provider_mismatch for an archive from another provider. Server restart recommended after restore.")
                 .WithSecurity("ApiKey"));
         }
     }

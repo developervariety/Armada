@@ -280,6 +280,22 @@ Vessel branch listing, push and merge are REST and dashboard operations only.
 No MCP tool writes vessel branches; see `docs/REST_API.md` for their
 authorization and refusal contract.
 
+## Backup And Restore
+
+`armada_backup` and `armada_restore` call the same backup service as REST
+`GET /api/v1/backup` and `POST /api/v1/restore` and the WebSocket `backup` and
+`restore` commands. `docs/REST_API.md` describes the archive contents.
+
+- `armada_backup` (`outputPath` optional) takes a verified provider-native
+  backup of the configured database. The manifest records the provider's
+  schema version and record counts. A failed native backup or isolated restore
+  check is a tool error carrying a stable reason, such as
+  `postgresql_backup_failed`, and no archive is written.
+- `armada_restore` (`filePath` required) replaces the database only on SQLite,
+  after a verified safety backup. PostgreSQL, MySQL and SQL Server are refused
+  with `restore_unsupported_for_provider_<type>`, and an archive from another
+  provider with `backup_provider_mismatch`. Nothing is changed in either case.
+
 ## Native Memory
 
 Durable native memory for captains, separate from the shared external memory
