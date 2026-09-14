@@ -245,7 +245,7 @@ namespace Armada.Core.Services
                     voyageByAttempt[voyageRecord.AttemptId] = voyageRecord.VoyageId;
             }
 
-            DateTime cutoff = DateTime.UtcNow - _DispatchAttemptReconciliationWindow;
+            DateTime cutoff = DateTime.UtcNow - ObjectiveDispatchAdmission.ReconciliationLookBack;
             foreach (ArmadaEvent evt in started.OrderBy(item => item.CreatedUtc))
             {
                 if (String.IsNullOrWhiteSpace(evt.EntityId) || closed.Contains(evt.EntityId)) continue;
@@ -325,8 +325,6 @@ namespace Armada.Core.Services
 
             return result;
         }
-
-        private static readonly TimeSpan _DispatchAttemptReconciliationWindow = TimeSpan.FromDays(7);
 
         private sealed class AdmissionKey
         {

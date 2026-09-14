@@ -105,11 +105,22 @@ namespace Armada.Core.Services
                     AND created_utc < @cutoff;",
                     cutoffStr, token).ConfigureAwait(false);
 
-                // Delete old events
-                totalDeleted += await ExecuteDeleteAsync(conn,
-                    @"DELETE FROM events
-                    WHERE created_utc < @cutoff;",
-                    cutoffStr, token).ConfigureAwait(false);
+                // Delete old events. Objective dispatch attempt records younger than the reconciliation
+                // look-back are kept whatever the retention period, so an attempt whose process stopped
+                // before closing it is still visible to reconciliation.
+                string attemptCutoffStr = (DateTime.UtcNow - ObjectiveDispatchAdmission.ReconciliationLookBack)
+                    .ToString(_Iso8601Format, CultureInfo.InvariantCulture);
+                using (SqliteCommand eventCmd = conn.CreateCommand())
+                {
+                    eventCmd.CommandText =
+                        @"DELETE FROM events
+                        WHERE created_utc < @cutoff
+                        AND NOT (COALESCE(entity_type, '') = @attempt_entity_type AND created_utc >= @attempt_cutoff);";
+                    eventCmd.Parameters.AddWithValue("@cutoff", cutoffStr);
+                    eventCmd.Parameters.AddWithValue("@attempt_entity_type", ObjectiveDispatchAdmission.AttemptEntityType);
+                    eventCmd.Parameters.AddWithValue("@attempt_cutoff", attemptCutoffStr);
+                    totalDeleted += await eventCmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                }
 
                 // Delete inactive docks with no captain older than retention
                 totalDeleted += await ExecuteDeleteAsync(conn,

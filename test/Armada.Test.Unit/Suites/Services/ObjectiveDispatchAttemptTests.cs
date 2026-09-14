@@ -3,12 +3,18 @@ namespace Armada.Test.Unit.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.Diagnostics;
+    using System.IO;
     using System.Linq;
+    using System.Net;
+    using System.Net.Sockets;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Settings;
+    using Armada.Server;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
 
@@ -60,6 +66,136 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     AssertEqual(objective.Id, retried.Objective.Id, "A retry after release must be admitted.");
                 }
+            });
+
+            await RunTest("The running server's health loop reconciles a crashed dispatch attempt", async () =>
+            {
+                string tempDir = Path.Combine(Path.GetTempPath(), "armada_attempt_health_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(tempDir);
+                DatabaseSettings dbSettings = new DatabaseSettings
+                {
+                    Type = DatabaseTypeEnum.Sqlite,
+                    Filename = Path.Combine(tempDir, "armada.db")
+                };
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    DataDirectory = tempDir,
+                    DatabasePath = dbSettings.Filename,
+                    Database = dbSettings,
+                    LogDirectory = Path.Combine(tempDir, "logs"),
+                    DocksDirectory = Path.Combine(tempDir, "docks"),
+                    ReposDirectory = Path.Combine(tempDir, "repos"),
+                    AdmiralPort = FreePort(),
+                    McpPort = FreePort(),
+                    ApiKey = "test-key-" + Guid.NewGuid().ToString("N"),
+                    HeartbeatIntervalSeconds = 5
+                };
+                settings.Rest.Hostname = "127.0.0.1";
+                settings.AutonomousObjectiveScheduler.Enabled = false;
+                settings.InitializeDirectories();
+                SyslogLogging.LoggingModule logging = new SyslogLogging.LoggingModule();
+                logging.Settings.EnableConsole = false;
+
+                ArmadaServer server = new ArmadaServer(logging, settings, quiet: true);
+                try
+                {
+                    await server.StartAsync().ConfigureAwait(false);
+                    using (DatabaseDriver driver = await DatabaseDriverFactory.CreateAndInitializeAsync(dbSettings).ConfigureAwait(false))
+                    {
+                        AuthContext auth = Auth();
+                        Vessel vessel = await driver.Vessels.CreateAsync(new Vessel("health-loop-attempt", "https://github.com/test/health-loop-attempt.git")
+                        {
+                            TenantId = auth.TenantId,
+                            UserId = auth.UserId
+                        }).ConfigureAwait(false);
+                        Objective objective = await driver.Objectives.CreateAsync(new Objective
+                        {
+                            TenantId = auth.TenantId,
+                            UserId = auth.UserId,
+                            Title = "Health loop attempt",
+                            Status = ObjectiveStatusEnum.Planned,
+                            VesselIds = new List<string> { vessel.Id }
+                        }).ConfigureAwait(false);
+                        ObjectiveService crashed = new ObjectiveService(driver, dispatchAdmissionTtl: TimeSpan.FromMilliseconds(100));
+                        ObjectiveDispatchAdmission admission = await crashed.AcquireDispatchAdmissionAsync(
+                            auth, new[] { objective.Id }, Descriptor("Health loop attempt", vessel.Id)).ConfigureAwait(false);
+                        Voyage orphan = await driver.Voyages.CreateAsync(new Voyage("Health loop attempt")
+                        {
+                            TenantId = auth.TenantId,
+                            UserId = auth.UserId,
+                            Status = VoyageStatusEnum.Open
+                        }).ConfigureAwait(false);
+                        await admission.RecordVoyageCreatedAsync(orphan).ConfigureAwait(false);
+                        await admission.AbandonAsCrashedAsync().ConfigureAwait(false);
+
+                        VoyageStatusEnum status = VoyageStatusEnum.Open;
+                        DateTime deadline = DateTime.UtcNow.AddSeconds(40);
+                        while (DateTime.UtcNow < deadline)
+                        {
+                            status = (await driver.Voyages.ReadAsync(orphan.Id).ConfigureAwait(false))!.Status;
+                            if (status == VoyageStatusEnum.Cancelled) break;
+                            await Task.Delay(500).ConfigureAwait(false);
+                        }
+
+                        AssertEqual(VoyageStatusEnum.Cancelled, status,
+                            "The server's periodic health loop must reconcile the crashed attempt created after startup.");
+                        List<ArmadaEvent> closed = await driver.Events
+                            .EnumerateByEntityAsync(ObjectiveDispatchAdmission.AttemptEntityType, admission.AttemptId).ConfigureAwait(false);
+                        AssertTrue(closed.Any(evt => evt.EventType == ObjectiveDispatchAdmission.ClosedEventType),
+                            "The health loop must close the reconciled attempt.");
+                    }
+                }
+                finally
+                {
+                    server.Stop();
+                    try
+                    {
+                        Directory.Delete(tempDir, true);
+                    }
+                    catch (IOException)
+                    {
+                        // A stopped server can briefly hold log handles; the temporary directory is disposable.
+                    }
+                }
+            });
+
+            await RunTest("Retention purge never deletes attempt records inside the reconciliation look-back", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DateTime now = DateTime.UtcNow;
+                async Task<ArmadaEvent> SeedAsync(string eventType, string? entityType, DateTime createdUtc)
+                {
+                    return await testDb.Driver.Events.CreateAsync(new ArmadaEvent(eventType, eventType)
+                    {
+                        EntityType = entityType,
+                        EntityId = entityType == null ? null : "entity-" + Guid.NewGuid().ToString("N"),
+                        CreatedUtc = createdUtc
+                    }).ConfigureAwait(false);
+                }
+
+                ArmadaEvent openInsideLookBack = await SeedAsync(ObjectiveDispatchAdmission.StartedEventType, ObjectiveDispatchAdmission.AttemptEntityType, now.AddDays(-3)).ConfigureAwait(false);
+                ArmadaEvent voyageInsideLookBack = await SeedAsync(ObjectiveDispatchAdmission.VoyageCreatedEventType, ObjectiveDispatchAdmission.AttemptEntityType, now.AddDays(-3)).ConfigureAwait(false);
+                ArmadaEvent attemptBeyondLookBack = await SeedAsync(ObjectiveDispatchAdmission.StartedEventType, ObjectiveDispatchAdmission.AttemptEntityType,
+                    now - ObjectiveDispatchAdmission.ReconciliationLookBack - TimeSpan.FromDays(1)).ConfigureAwait(false);
+                ArmadaEvent oldUntyped = await SeedAsync("mission.created", null, now.AddDays(-3)).ConfigureAwait(false);
+                ArmadaEvent oldOtherEntity = await SeedAsync("incident.snapshot", "incident", now.AddDays(-3)).ConfigureAwait(false);
+                ArmadaEvent recent = await SeedAsync("mission.created", null, now).ConfigureAwait(false);
+
+                SyslogLogging.LoggingModule logging = new SyslogLogging.LoggingModule();
+                logging.Settings.EnableConsole = false;
+                await new DataExpiryService(logging, testDb.ConnectionString, 1).PurgeExpiredDataAsync().ConfigureAwait(false);
+
+                AssertNotNull(await testDb.Driver.Events.ReadAsync(openInsideLookBack.Id).ConfigureAwait(false),
+                    "An attempt record inside the look-back must survive a shorter retention period.");
+                AssertNotNull(await testDb.Driver.Events.ReadAsync(voyageInsideLookBack.Id).ConfigureAwait(false),
+                    "The attempt's voyage record must survive with it.");
+                AssertNull(await testDb.Driver.Events.ReadAsync(attemptBeyondLookBack.Id).ConfigureAwait(false),
+                    "An attempt record older than the look-back follows normal retention.");
+                AssertNull(await testDb.Driver.Events.ReadAsync(oldUntyped.Id).ConfigureAwait(false),
+                    "An expired event without an entity type is still purged.");
+                AssertNull(await testDb.Driver.Events.ReadAsync(oldOtherEntity.Id).ConfigureAwait(false),
+                    "An expired event of another entity type is still purged.");
+                AssertNotNull(await testDb.Driver.Events.ReadAsync(recent.Id).ConfigureAwait(false));
             });
 
             await RunTest("Admission takes objective leases in one stable order whatever the request order", async () =>
@@ -333,6 +469,15 @@ namespace Armada.Test.Unit.Suites.Services
                 false,
                 true,
                 "UnitTest");
+        }
+
+        private static int FreePort()
+        {
+            TcpListener listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+            listener.Stop();
+            return port;
         }
 
         private static ObjectiveDispatchAttemptDescriptor Descriptor(string title, string vesselId)

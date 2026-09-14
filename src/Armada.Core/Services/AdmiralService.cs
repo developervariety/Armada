@@ -99,6 +99,10 @@ namespace Armada.Core.Services
         private readonly FleetCapacityAdmission _FleetCapacityAdmission;
         private readonly CaptainCrashLoopTracker _CrashLoopTracker;
         private readonly DispatchHold? _DispatchHold;
+
+        /// <inheritdoc />
+        public DispatchHold? DispatchHold => _DispatchHold;
+
         private IGitService _Git;
         private bool _RetryDispatchNeeded = false;
         private DateTime? _LastAuditNotifyUtc = null;

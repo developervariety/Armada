@@ -10,6 +10,12 @@ namespace Armada.Core.Services.Interfaces
     public interface IAdmiralService
     {
         /// <summary>
+        /// The runtime dispatch hold this admiral enforces, or null when none is configured. Dispatch
+        /// paths that create voyages outside the admiral check this same hold before creating anything.
+        /// </summary>
+        Armada.Core.Services.DispatchHold? DispatchHold => null;
+
+        /// <summary>
         /// Delegate invoked when a captain needs an agent process started.
         /// The handler receives (captain, mission, dock) and should return the process ID.
         /// </summary>

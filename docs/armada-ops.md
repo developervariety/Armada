@@ -238,6 +238,10 @@ losing voyage. A link failure cancels the new voyage and its active mission
 rows. A terminal voyage permits an intentional successor. Recovery uses a
 separate explicit rescue link because it continues a failed chain.
 
+An engaged dispatch hold is checked before admission and before either voyage
+creation path, including alias-ordered missions. A held dispatch records no
+attempt, takes no lease and creates no voyage row.
+
 Admission waits are bounded. When another request holds an objective's
 admission for longer than five seconds, dispatch creates nothing and returns
 409 `objective_dispatch_busy` with `Retryable: true` and `RetryAfterSeconds`.
@@ -267,6 +271,16 @@ links is cancelled with its missions. When the process stopped before the voyage
 id was recorded, the voyage is matched by the recorded title, vessel and start
 time. If more than one voyage matches, nothing is cancelled and the attempt is
 closed as unresolved with a warning.
+
+Reconciliation looks back seven days. Automatic event retention
+(`dataRetentionDays`) never deletes an attempt record younger than that, even
+when the retention period is shorter. Cascade cleanup cannot reach attempt
+records, because they carry no captain, vessel, mission or voyage id. Manual
+deletion is the one exception. `armada_delete_events`, the event delete routes
+and tenant or user deletion remove attempt records like any other event. If an
+unclosed attempt's records are deleted, reconciliation can no longer find an
+orphan voyage from that attempt. Before deleting events by hand, exclude the
+`objective-dispatch-attempt` entity type unless every such attempt is closed.
 
 Inside one Admiral process, objective linking is also serialized per objective
 by an in-memory keyed lock. That lock is local defense-in-depth only; it is not

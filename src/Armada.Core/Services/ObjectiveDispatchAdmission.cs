@@ -33,6 +33,12 @@ namespace Armada.Core.Services
         public const string AttemptEntityType = "objective-dispatch-attempt";
 
         /// <summary>
+        /// How far back reconciliation examines unclosed attempts. Automatic event retention keeps
+        /// every attempt record younger than this, so an unclosed attempt cannot vanish before it is reconciled.
+        /// </summary>
+        public static readonly TimeSpan ReconciliationLookBack = TimeSpan.FromDays(7);
+
+        /// <summary>
         /// Attempt identifier, also the holder of every admission lease.
         /// </summary>
         public string AttemptId => _Record.AttemptId;

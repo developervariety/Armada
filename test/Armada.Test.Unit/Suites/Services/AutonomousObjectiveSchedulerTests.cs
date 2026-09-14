@@ -2639,6 +2639,51 @@ namespace Armada.Test.Unit.Suites.Services
                     "The winning scheduler must release admission after linking.");
             }).ConfigureAwait(false);
 
+            await RunTest("SweepAsync_BusyObjectiveAdmission_RecordsAdmissionBusyAndDoesNotDispatch", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("busy-admission-scheduler", "https://github.com/test/busy-admission-scheduler.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Admission held elsewhere",
+                    Status = ObjectiveStatusEnum.Planned,
+                    BacklogState = ObjectiveBacklogStateEnum.ReadyForDispatch,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id }
+                }).ConfigureAwait(false);
+                string leaseName = ObjectiveService.BuildDispatchAdmissionLeaseName(Constants.DefaultTenantId, objective.Id);
+                AssertTrue(await testDb.Driver.CoordinationLeases.TryAcquireAsync(
+                    leaseName, "operator-dispatch", TimeSpan.FromMinutes(1), Constants.DefaultTenantId).ConfigureAwait(false));
+
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = new AutonomousObjectiveScheduler(
+                    testDb.Driver,
+                    new ObjectiveService(testDb.Driver, dispatchAdmissionWait: TimeSpan.FromMilliseconds(200)),
+                    admiral,
+                    new StubMergeQueueService(),
+                    EnabledSchedulerSettings(),
+                    logging);
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertContains("admission_busy", scheduler.LastSkipReason ?? String.Empty,
+                    "The sweep must name the busy admission as its skip reason.");
+                AssertEqual(0, admiral.DispatchVoyageCallCount, "A busy admission must not dispatch.");
+                AssertEqual(0, (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Count);
+                List<ArmadaEvent> events = await testDb.Driver.Events
+                    .EnumerateByTypeAsync("objective_scheduler.skipped_admission_busy").ConfigureAwait(false);
+                AssertEqual(1, events.Count, "The sweep must record the busy skip as an event.");
+                CoordinationLease lease = (await testDb.Driver.CoordinationLeases.ReadAsync(leaseName).ConfigureAwait(false))!;
+                AssertEqual("operator-dispatch", lease.Holder, "The scheduler must not disturb the holder's lease.");
+            }).ConfigureAwait(false);
+
             await RunTest("ReconcileObjective_LandedVoyage_CompletesAndMovesBacklogToInbox", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

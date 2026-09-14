@@ -855,6 +855,82 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("AliasDispatch_DispatchHoldEngaged_CreatesNoVoyageAttemptOrLease", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("held-alias-vessel", "https://github.com/test/held-alias.git")
+                        {
+                            TenantId = Constants.DefaultTenantId,
+                            UserId = Constants.DefaultUserId
+                        }).ConfigureAwait(false);
+                    Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Title = "Held alias objective",
+                        Status = ObjectiveStatusEnum.Scoped,
+                        VesselIds = new List<string> { vessel.Id }
+                    }).ConfigureAwait(false);
+                    DispatchHold hold = new DispatchHold();
+                    hold.Engage("Redeploying the admiral.", "unit-test-session");
+                    RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver) { DispatchHold = hold };
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver,
+                        admiral,
+                        objectiveService: new ObjectiveService(testDb.Driver),
+                        settings: new ArmadaSettings { CodeIndex = { Enabled = false } });
+
+                    VoyageDispatchResult? result = null;
+                    Exception? refusal = null;
+                    try
+                    {
+                        result = await service.DispatchAsync(new SharedVoyageDispatchRequest
+                        {
+                            Title = "held alias voyage",
+                            VesselId = vessel.Id,
+                            ObjectiveId = objective.Id,
+                            CodeContextMode = "off",
+                            Missions = new List<MissionDescription>
+                            {
+                                new MissionDescription("dependency", "runs first") { Alias = "dep" },
+                                new MissionDescription("dependent", "waits on dep") { DependsOnMissionAlias = "dep" }
+                            }
+                        }).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        refusal = ex;
+                    }
+
+                    AssertTrue(refusal != null || (result != null && !result.Succeeded),
+                        "An engaged dispatch hold must refuse the alias dispatch.");
+                    AssertEqual(0, (await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false)).Count,
+                        "The hold must be checked before any voyage row is created.");
+                    AssertEqual(0, (await testDb.Driver.Events.EnumerateByTypeAsync(ObjectiveDispatchAdmission.StartedEventType).ConfigureAwait(false)).Count,
+                        "The hold must be checked before an objective dispatch attempt is recorded.");
+                    AssertNull(await testDb.Driver.CoordinationLeases.ReadAsync(
+                            ObjectiveService.BuildDispatchAdmissionLeaseName(Constants.DefaultTenantId, objective.Id)).ConfigureAwait(false),
+                        "A held dispatch leaves no admission lease.");
+
+                    hold.Clear();
+                    VoyageDispatchResult cleared = await service.DispatchAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "alias voyage after clear",
+                        VesselId = vessel.Id,
+                        ObjectiveId = objective.Id,
+                        CodeContextMode = "off",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("dependency", "runs first") { Alias = "dep" },
+                            new MissionDescription("dependent", "waits on dep") { DependsOnMissionAlias = "dep" }
+                        }
+                    }).ConfigureAwait(false);
+                    AssertTrue(cleared.Succeeded, "The same alias dispatch proceeds once the hold is cleared.");
+                }
+            });
+
             await RunTest("AutoMode_CacheMiss_BuildsAndAttachesContextPack", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -1826,6 +1902,8 @@ namespace Armada.Test.Unit.Suites.Services
             public Func<Task<int>>? OnReconcileMergeEntries { get; set; }
             public Func<int, bool>? OnIsProcessExitHandled { get; set; }
             public Func<Task>? AfterVoyageCreateAsync { get; set; }
+
+            public DispatchHold? DispatchHold { get; set; }
 
             public Task<Voyage> DispatchVoyageAsync(
                 string title,

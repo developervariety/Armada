@@ -158,6 +158,14 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   attempt that stopped between voyage creation and linking: a voyage linked to
   any admitted objective is kept, an unlinked orphan voyage is cancelled, and an
   ambiguous match is reported without cancelling anything.
+- Shared voyage dispatch checks the admiral's dispatch hold before admission
+  and before any voyage is created. An alias-ordered dispatch no longer creates
+  and then cancels an empty voyage while the hold is engaged.
+- Automatic event retention keeps objective dispatch attempt records younger
+  than the seven-day reconciliation look-back, whatever `dataRetentionDays`
+  says, so an unclosed attempt cannot be purged before it is reconciled. Manual
+  event deletion remains an explicit operator action and is documented as a
+  risk.
 
 ### Native self-deploy preflight
 

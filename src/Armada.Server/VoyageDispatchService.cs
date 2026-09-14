@@ -207,6 +207,11 @@ namespace Armada.Server
 
             VoyageDispatchResult? preconditions = await ValidatePreconditionsAsync(request, token).ConfigureAwait(false);
             if (preconditions != null) return preconditions;
+
+            // The admiral's own hold rule, checked before admission and before either creation path. The
+            // alias path creates its voyage row directly, so waiting for the admiral would leave an empty
+            // voyage behind.
+            _Admiral.DispatchHold?.ThrowIfActive();
             LogDispatchInfo("dispatch step preconditions_ok elapsedMs=" + dispatchWatch.ElapsedMilliseconds);
 
             // Dispatch preparation can add objective text, inherited mode, start refs, and context
