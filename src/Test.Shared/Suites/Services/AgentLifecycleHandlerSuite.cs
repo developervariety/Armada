@@ -260,6 +260,78 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("api_endpoint_launch_records_provider_usage_as_mission_token_usage", "An API captain launch records provider-reported usage through mission token accounting", TestTags.Positive, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string worktreePath = Path.Combine(Path.GetTempPath(), "armada_api_launch_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(worktreePath);
+                    try
+                    {
+                        TenantMetadata tenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("ApiUsageTenant")).ConfigureAwait(false);
+                        UserMaster user = await testDb.Driver.Users.CreateAsync(new UserMaster(tenant.Id, "api-usage@lifecycle.test", "pass")).ConfigureAwait(false);
+                        ModelEndpoint endpoint = new ModelEndpoint
+                        {
+                            TenantId = tenant.Id,
+                            UserId = user.Id,
+                            Name = "Usage endpoint",
+                            Kind = ModelEndpointKindEnum.Inference,
+                            Provider = ModelProviderEnum.OpenAICompatible,
+                            BaseUrl = "http://127.0.0.1:9",
+                            Model = "usage-model",
+                            Enabled = true
+                        };
+                        await testDb.Driver.ModelEndpoints.CreateAsync(endpoint).ConfigureAwait(false);
+
+                        UsageScriptRuntimeFactory factory = new UsageScriptRuntimeFactory(CreateLogging());
+                        AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings, null, factory);
+                        Captain captain = new Captain("api-usage-captain", AgentRuntimeEnum.ApiEndpoint)
+                        {
+                            TenantId = endpoint.TenantId,
+                            UserId = endpoint.UserId,
+                            ModelEndpointId = endpoint.Id,
+                            Model = "usage-model",
+                            State = CaptainStateEnum.Working
+                        };
+                        Mission mission = new Mission("API usage mission")
+                        {
+                            TenantId = endpoint.TenantId,
+                            UserId = endpoint.UserId,
+                            CaptainId = captain.Id,
+                            Status = MissionStatusEnum.InProgress,
+                            Persona = "Worker",
+                            BranchName = "feature/api-usage"
+                        };
+                        captain.CurrentMissionId = mission.Id;
+                        await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                        await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                        Dock dock = new Dock { BranchName = "feature/api-usage", WorktreePath = worktreePath };
+
+                        int processId = await handler.HandleLaunchAgentAsync(captain, mission, dock).ConfigureAwait(false);
+                        AssertTrue(processId > 0, "The API captain launch must return its synthetic process id.");
+                        AssertEqual(1, factory.EndpointCreations, "The launch must create exactly one runtime from the admitted endpoint.");
+
+                        ArmadaEvent? usageEvent = null;
+                        await WaitForConditionAsync(async () =>
+                        {
+                            List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id, 50).ConfigureAwait(false);
+                            usageEvent = events.Find(item => item.EventType == "mission.token_usage");
+                            return usageEvent != null;
+                        }, TimeSpan.FromSeconds(10)).ConfigureAwait(false);
+
+                        AssertNotNull(usageEvent, "Provider usage must reach mission token accounting.");
+                        AssertEqual(captain.Id, usageEvent!.CaptainId);
+                        AssertContains("\"InputTokens\":12", usageEvent.Payload ?? String.Empty, "The event must carry provider input tokens.");
+                        AssertContains("\"OutputTokens\":7", usageEvent.Payload ?? String.Empty, "The event must carry provider output tokens.");
+                        AssertContains("usage-model", usageEvent.Payload ?? String.Empty, "The event must name the endpoint model.");
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(worktreePath, true); } catch { }
+                    }
+                }
+            }));
+
             cases.Add(CaseAsync("handle_launch_agent_async_passes_captain_model_to_runtime", "HandleLaunchAgentAsync passes captain model to runtime startup", TestTags.Positive, async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -629,11 +701,11 @@ namespace Test.Shared.Suites.Services
 
         #region Private-Methods
 
-        private static AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings, TimeSpan? modelValidationTimeout = null)
+        private static AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings, TimeSpan? modelValidationTimeout = null, AgentRuntimeFactory? runtimeFactoryOverride = null)
         {
             LoggingModule logging = CreateLogging();
             settings = CreateSettings();
-            AgentRuntimeFactory runtimeFactory = new AgentRuntimeFactory(logging);
+            AgentRuntimeFactory runtimeFactory = runtimeFactoryOverride ?? new AgentRuntimeFactory(logging);
             IAdmiralService admiral = new StubAdmiralService();
             IMessageTemplateService templateService = new MessageTemplateService(logging);
 
@@ -869,6 +941,51 @@ namespace Test.Shared.Suites.Services
         /// <summary>
         /// Admiral service stub whose process-exit handler is a no-op and whose other operations throw.
         /// </summary>
+        /// <summary>
+        /// Factory that builds a real API runtime for the admitted endpoint with a scripted provider client
+        /// reporting usage, so the lifecycle accounting path runs without a provider.
+        /// </summary>
+        private sealed class UsageScriptRuntimeFactory : AgentRuntimeFactory
+        {
+            public int EndpointCreations { get; private set; }
+
+            public UsageScriptRuntimeFactory(LoggingModule logging) : base(logging)
+            {
+            }
+
+            public override Armada.Runtimes.Interfaces.IAgentRuntime Create(ModelEndpoint endpoint)
+            {
+                EndpointCreations++;
+                return new ApiAgentRuntime(endpoint, CreateLogging(), 2, (ep, log) => new UsageScriptClient(log));
+            }
+        }
+
+        private sealed class UsageScriptClient : PolyPrompt.Clients.CompletionClientBase
+        {
+            public UsageScriptClient(LoggingModule logging) : base("http://127.0.0.1:9", null, logging) { }
+
+            public override Task<PolyPrompt.Models.ToolChatStreamingResponse> ToolChatStreamingAsync(PolyPrompt.Models.ToolChatRequest request, CancellationToken token = default)
+            {
+                return Task.FromResult(new PolyPrompt.Models.ToolChatStreamingResponse
+                {
+                    Success = true,
+                    Text = "Nothing to change.",
+                    ToolCalls = new List<PolyPrompt.Models.ToolCall>(),
+                    Usage = new PolyPrompt.Models.ChatStreamingUsage { PromptTokens = 12, CompletionTokens = 7, TotalTokens = 19 }
+                });
+            }
+
+            public override Task<PolyPrompt.Models.ToolChatResponse> ToolChatAsync(PolyPrompt.Models.ToolChatRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public override Task<PolyPrompt.Models.ChatResponse> ChatAsync(string prompt, PolyPrompt.Models.ChatCompletionOptions? options = null, CancellationToken token = default) => throw new NotSupportedException();
+            public override Task<PolyPrompt.Models.ChatStreamingResponse> ChatStreamingAsync(string prompt, PolyPrompt.Models.ChatCompletionOptions? options = null, CancellationToken token = default) => throw new NotSupportedException();
+            public override Task<PolyPrompt.Models.EmbeddingResponse> EmbedAsync(string input, PolyPrompt.Models.EmbeddingOptions? options = null, CancellationToken token = default) => throw new NotSupportedException();
+            public override Task<PolyPrompt.Models.EmbeddingResponse> EmbedAsync(List<string> inputs, PolyPrompt.Models.EmbeddingOptions? options = null, CancellationToken token = default) => throw new NotSupportedException();
+            public override Task<PolyPrompt.Models.GenerationResponse> GenerateAsync(string prompt, PolyPrompt.Models.GenerationOptions? options = null, CancellationToken token = default) => throw new NotSupportedException();
+            public override Task<PolyPrompt.Models.GenerationStreamingResponse> GenerateStreamingAsync(string prompt, PolyPrompt.Models.GenerationOptions? options = null, CancellationToken token = default) => throw new NotSupportedException();
+            public override IAsyncEnumerable<PolyPrompt.Models.ModelInformation> ListModelsAsync(CancellationToken token = default) => throw new NotSupportedException();
+            public override Task<PolyPrompt.Models.ModelInformation?> GetModelInformationAsync(string model, CancellationToken token = default) => throw new NotSupportedException();
+        }
+
         private sealed class StubAdmiralService : IAdmiralService
         {
             public Func<Captain, Mission, Dock, Task<int>>? OnLaunchAgent { get; set; }

@@ -24,6 +24,8 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   an unconfigured API runtime.
 - Manual completion proves an API captain's ownership from its running in-process
   loop, and unsupported runtimes still fail closed.
+- A lifecycle test launches an API captain and proves provider-reported usage
+  reaches the mission token usage event.
 - Ask chat applies the same endpoint admission rule as mission launch to the exact
   endpoint snapshot it runs, so private, disabled or mismatched endpoints are refused
   before a runtime exists.

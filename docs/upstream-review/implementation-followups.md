@@ -609,6 +609,23 @@ arguments and conversation history, rather than only emitted text. Prove
 cancellation after a temporary write starts, and fail before replacement if
 existing file permissions cannot be preserved.
 
+Source acceptance of the combined runtime now covers these cases with
+behavioural tests; no live provider call or deployment is part of it. Path
+containment is ordinal, and a case-distinct sibling is rejected. Recursive
+tools resolve every discovered entry and fail closed on a symlink descendant;
+reads, tool input and tool output are bounded, and cancellation is reported.
+Writes stage a temporary file, preserve the original bytes when cancelled after
+staging, preserve the Unix mode or fail first, and reject invalid UTF-8.
+Synthetic API loops count as live processes and as mission process ownership
+only while registered. Provider usage reaches the mission token usage event
+through a real launch; removing the usage publish fails that test. Unsuccessful
+responses without error text, oversized responses and exhausted iterations are
+failed runs, and HTTP bodies and conversation history are bounded before use.
+Chat and launch validate the exact endpoint snapshot they run through one
+admission rule. Tool calls are activity records, not answer text, and the tool
+catalog lists only the workspace registry. Hosted cloud providers stay refused
+until explicitly enabled, with loopback request translation tests.
+
 ## FOLLOWUP-020 — Harbor revocation must reach connected sessions
 
 The durable enrollment candidate checks the credential when a runner registers.
