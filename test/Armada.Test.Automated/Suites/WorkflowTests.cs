@@ -59,34 +59,23 @@ namespace Armada.Test.Automated.Suites
                 string fleetId = fleet.Id!;
                 AssertStartsWith("flt_", fleetId);
 
-                // Step 2: Register a vessel backed by its own repository, whose main branch already
-                // holds the commit the mission produced
-                DedicatedBareRepo repo = TestRepoHelper.CreateDedicatedBareRepo();
-                HttpResponseMessage vesselResp = await _AuthClient.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
-                {
-                    Name = "IntegrationRepo-" + Guid.NewGuid().ToString("N").Substring(0, 8),
-                    RepoUrl = repo.Url,
-                    LocalPath = repo.Path,
-                    DefaultBranch = "main",
-                    FleetId = fleetId
-                })).ConfigureAwait(false);
-                AssertStatusCode(HttpStatusCode.Created, vesselResp);
-                Vessel vessel = await JsonHelper.DeserializeAsync<Vessel>(vesselResp).ConfigureAwait(false);
+                // Step 2: Register a vessel
+                Vessel vessel = await CreateVesselAsync("IntegrationRepo", TestRepoHelper.GetLocalBareRepoUrl(), fleetId).ConfigureAwait(false);
                 string vesselId = vessel.Id!;
                 AssertStartsWith("vsl_", vesselId);
 
-                // Step 3: Create a mission on the vessel with its landed commit. Manual completion
-                // without an active dock requires that commit to be on the vessel target. The
-                // mission is created before the captain so no idle captain can claim it on create.
-                Mission mission = await CreateMissionAsync("Fix login bug", vesselId, repo.HeadCommit).ConfigureAwait(false);
-                string missionId = mission.Id!;
-                AssertStartsWith("msn_", missionId);
-                AssertEqual("Pending", mission.Status.ToString());
-
-                // Step 4: Create a captain
+                // Step 3: Create a captain
                 Captain captain = await CreateCaptainAsync("int-captain-1").ConfigureAwait(false);
                 string captainId = captain.Id!;
                 AssertStartsWith("cpt_", captainId);
+
+                // Step 4: Create a report-only mission without a vessel. With no vessel it is never
+                // assigned to an idle captain, including captains other suites leave behind, and a
+                // report-only mission may be completed manually without a landed commit.
+                Mission mission = await CreateMissionAsync("Fix login bug", mode: "Research").ConfigureAwait(false);
+                string missionId = mission.Id!;
+                AssertStartsWith("msn_", missionId);
+                AssertEqual("Pending", mission.Status.ToString());
 
                 // Step 5: Transition mission through its lifecycle. A mission in Review completes only
                 // through review approval, so rework returns it to InProgress before completion.
@@ -347,13 +336,13 @@ namespace Armada.Test.Automated.Suites
             return await JsonHelper.DeserializeAsync<Captain>(resp).ConfigureAwait(false);
         }
 
-        private async Task<Mission> CreateMissionAsync(string title, string? vesselId = null, string? commitHash = null)
+        private async Task<Mission> CreateMissionAsync(string title, string? vesselId = null, string? mode = null)
         {
             object payload = vesselId != null
-                ? (commitHash != null
-                    ? (object)new { Title = title, VesselId = vesselId, CommitHash = commitHash }
-                    : new { Title = title, VesselId = vesselId })
-                : new { Title = title };
+                ? (object)new { Title = title, VesselId = vesselId }
+                : mode != null
+                    ? new { Title = title, Mode = mode }
+                    : new { Title = title };
             HttpResponseMessage resp = await _AuthClient.PostAsync("/api/v1/missions", JsonHelper.ToJsonContent(payload)).ConfigureAwait(false);
             resp.EnsureSuccessStatusCode();
             string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
