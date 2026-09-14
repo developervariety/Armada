@@ -88,7 +88,7 @@ these areas. Do not duplicate its changes.
 | FOLLOWUP-013 | Closed | Captured OpenCode errors now fail chat and persist planning/refinement failure |
 | FOLLOWUP-014 | Verify | WebSocket exposure blocked by admin-only subscription; scoped delivery remains open |
 | FOLLOWUP-015 | Open | Persona, pipeline and prompt-template read visibility remains unscoped |
-| FOLLOWUP-016 | Open | Manual Complete without an active dock bypasses landing proof |
+| FOLLOWUP-016 | Closed | Manual Complete uses immutable Check and target ancestry proof; report-only completion remains allowed |
 
 ## FOLLOWUP-001 — Landing retry event
 
@@ -470,12 +470,15 @@ remain the authority for assignment and operational status.
 
 ## FOLLOWUP-016 — Manual completion without landing proof
 
-At `0152653c`, the mission status route writes `Complete` directly when no
-active dock is available. It logs `mission.manual_complete_no_dock` but checks
-neither target ancestry nor immutable Checks. The existing automated test
-`ManualComplete_NoDock_EmitsAuditEvent` accepts this behavior. This does not meet
-the held Review acceptance rule. Add a regression for unlanded held work and
-route completion through the shared proof gates. Keep valid report-only stage
-completion distinct from code landing. Also audit active-dock manual completion,
-which calls the landing handler directly rather than the Judge completion path.
+The manual Complete route now calls `ManualCompletionProofService` before any
+status write. Implementation missions require a true target ancestry proof when
+no active dock can land them. A false or unknown ancestry answer, missing vessel
+or commit, and any participating failed, pending, running or stale Check return
+Conflict and leave the mission unchanged. Review and Judge missions remain under
+their shared approval authority. Active-dock completion is checked before and
+after the landing handler, so a handler result cannot turn unlanded work into a
+terminal success. Audit and Research missions keep their report-only completion
+contract. Regression coverage uses real local Git fixtures for unlanded,
+landed and missing refs, an injected unknown ancestry answer, Judge authority,
+failed/pending/stale Checks, and the REST no-dock path.
 No production mission was changed during this review.

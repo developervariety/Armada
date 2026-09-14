@@ -29,6 +29,7 @@ namespace Armada.Server.Routes
         private readonly DatabaseDriver _database;
         private readonly IAdmiralService _admiral;
         private readonly IMissionService _missionService;
+        private readonly ManualCompletionProofService _manualCompletionProof;
         private readonly ArmadaSettings _settings;
         private readonly IGitService _git;
         private readonly ILandingService _landingService;
@@ -83,6 +84,7 @@ namespace Armada.Server.Routes
             _database = database;
             _admiral = admiral;
             _missionService = missionService;
+            _manualCompletionProof = new ManualCompletionProofService(database, git);
             _settings = settings;
             _git = git;
             _landingService = landingService;
@@ -824,6 +826,18 @@ namespace Armada.Server.Routes
                             : await _database.Docks.ReadAsync(ctx.TenantId!, ctx.UserId!, mission.DockId).ConfigureAwait(false);
                     if (landingDock != null && landingDock.Active)
                     {
+                        ManualCompletionProofResult preflight = await _manualCompletionProof
+                            .EvaluateAsync(mission, true).ConfigureAwait(false);
+                        if (!preflight.Allowed)
+                        {
+                            req.Http.Response.StatusCode = 409;
+                            return new ApiErrorResponse
+                            {
+                                Error = ApiResultEnum.Conflict,
+                                Message = "Manual completion blocked: " + preflight.Reason
+                            };
+                        }
+
                         // Capture diff before landing
                         if (_admiral.OnCaptureDiff != null)
                         {
@@ -852,6 +866,26 @@ namespace Armada.Server.Routes
                         if (mission == null)
                             return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found after landing" };
 
+                        if (mission.Status == MissionStatusEnum.Complete)
+                        {
+                            ManualCompletionProofResult landedProof = await _manualCompletionProof
+                                .EvaluateAsync(mission, false).ConfigureAwait(false);
+                            if (!landedProof.Allowed)
+                            {
+                                mission.Status = MissionStatusEnum.LandingFailed;
+                                mission.CompletedUtc = DateTime.UtcNow;
+                                mission.FailureReason = landedProof.Reason;
+                                mission.LastUpdateUtc = DateTime.UtcNow;
+                                await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                                req.Http.Response.StatusCode = 409;
+                                return new ApiErrorResponse
+                                {
+                                    Error = ApiResultEnum.Conflict,
+                                    Message = "Manual completion blocked after landing: " + landedProof.Reason
+                                };
+                            }
+                        }
+
                         Signal landingSignal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " manual completion — landed as " + mission.Status);
                         if (!String.IsNullOrEmpty(mission.CaptainId)) landingSignal.FromCaptainId = mission.CaptainId;
                         await _database.Signals.CreateAsync(landingSignal).ConfigureAwait(false);
@@ -867,6 +901,21 @@ namespace Armada.Server.Routes
                 }
 
                 // Standard transition: no dock available or not transitioning to Complete
+                if (newStatus == MissionStatusEnum.Complete)
+                {
+                    ManualCompletionProofResult proof = await _manualCompletionProof
+                        .EvaluateAsync(mission, false).ConfigureAwait(false);
+                    if (!proof.Allowed)
+                    {
+                        req.Http.Response.StatusCode = 409;
+                        return new ApiErrorResponse
+                        {
+                            Error = ApiResultEnum.Conflict,
+                            Message = "Manual completion blocked: " + proof.Reason
+                        };
+                    }
+                }
+
                 mission.Status = newStatus;
                 mission.LastUpdateUtc = DateTime.UtcNow;
 
@@ -882,16 +931,6 @@ namespace Armada.Server.Routes
                 }
 
                 await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-
-                // Audit event: manual Complete without an active dock bypasses the landing pipeline.
-                // This is allowed (operators may need it after restarts/cleanup) but should be visible.
-                if (newStatus == MissionStatusEnum.Complete)
-                {
-                    _logging.Warn(_Header + "mission " + id + " manually completed without active dock — landing pipeline was skipped");
-                    await _emitEvent("mission.manual_complete_no_dock",
-                        "Mission " + id + " manually marked Complete without an active dock (landing pipeline skipped)",
-                        "mission", id, mission.CaptainId, id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
-                }
 
                 Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " transitioned to " + newStatus);
                 if (!String.IsNullOrEmpty(mission.CaptainId)) signal.FromCaptainId = mission.CaptainId;

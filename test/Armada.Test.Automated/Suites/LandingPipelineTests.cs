@@ -59,18 +59,16 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual("PullRequestOpen", mission.Status.ToString());
             });
 
-            await RunTest("PullRequestOpen_TransitionsToComplete", async () =>
+            await RunTest("PullRequestOpen_RejectsCompleteWithoutLandingProof", async () =>
             {
                 string missionId = await CreateAndAdvanceMissionAsync("PR to Complete", "WorkProduced");
                 await TransitionAsync(missionId, "PullRequestOpen");
 
                 HttpResponseMessage resp = await TransitionAsync(missionId, "Complete");
-                AssertStatusCode(HttpStatusCode.OK, resp);
+                AssertStatusCode(HttpStatusCode.Conflict, resp);
 
                 Mission mission = await GetMissionAsync(missionId);
-                AssertEqual("Complete", mission.Status.ToString());
-                AssertTrue(mission.CompletedUtc != null,
-                    "CompletedUtc should be set");
+                AssertEqual("PullRequestOpen", mission.Status.ToString());
             });
 
             await RunTest("PullRequestOpen_TransitionsToLandingFailed", async () =>
@@ -115,31 +113,34 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual("PullRequestOpen", mission.Status.ToString());
             });
 
-            // === Manual Complete Without Dock (Audit Event) ===
+            // === Manual Complete Without Dock ===
 
-            await RunTest("ManualComplete_NoDock_EmitsAuditEvent", async () =>
+            await RunTest("ManualComplete_NoDock_RejectsUnlandedCode", async () =>
             {
                 // Create a mission and advance to WorkProduced (no dock since no vessel assignment)
                 string missionId = await CreateAndAdvanceMissionAsync("Manual complete audit", "WorkProduced");
 
-                // Manually transition to Complete (no dock exists for this mission)
+                // Manually transition to Complete (no dock exists for this code mission)
                 HttpResponseMessage resp = await TransitionAsync(missionId, "Complete");
-                AssertStatusCode(HttpStatusCode.OK, resp);
+                AssertStatusCode(HttpStatusCode.Conflict, resp);
 
                 Mission mission = await GetMissionAsync(missionId);
-                AssertEqual("Complete", mission.Status.ToString());
+                AssertEqual("WorkProduced", mission.Status.ToString());
+            });
 
-                // Check that the audit event was emitted
-                EnumerationResult<ArmadaEvent> events = await GetTypedAsync<EnumerationResult<ArmadaEvent>>("/api/v1/events?type=mission.manual_complete_no_dock");
-                int count = 0;
-                foreach (ArmadaEvent evt in events.Objects ?? new List<ArmadaEvent>())
-                {
-                    if (evt.MissionId != null && evt.MissionId == missionId)
-                    {
-                        count++;
-                    }
-                }
-                AssertTrue(count >= 1, "Expected at least 1 mission.manual_complete_no_dock event for mission " + missionId);
+            await RunTest("ManualComplete_ReviewStillRequiresApproval", async () =>
+            {
+                string missionId = await CreateAndAdvanceMissionAsync("Manual review completion", "InProgress");
+                HttpResponseMessage testing = await TransitionAsync(missionId, "Testing");
+                AssertStatusCode(HttpStatusCode.OK, testing);
+                HttpResponseMessage review = await TransitionAsync(missionId, "Review");
+                AssertStatusCode(HttpStatusCode.OK, review);
+
+                HttpResponseMessage complete = await TransitionAsync(missionId, "Complete");
+                AssertStatusCode(HttpStatusCode.Conflict, complete);
+
+                Mission mission = await GetMissionAsync(missionId);
+                AssertEqual("Review", mission.Status.ToString());
             });
 
             // === MergeQueue Auto-Enqueue ===
