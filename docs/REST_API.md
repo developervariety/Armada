@@ -461,12 +461,6 @@ List all tenants (paginated). Global admin only.
 
 ---
 
-#### POST /api/v1/tenants/enumerate
-
-Enumerate tenants with filtering and sorting via JSON body. Global admin only.
-
----
-
 #### POST /api/v1/tenants
 
 Create a new tenant. Global admin only.
@@ -528,12 +522,6 @@ List users (paginated). Global admins can list all users. Tenant admins can list
 **Response:** `200 OK` - [EnumerationResult](#enumerationresult)\<[UserMaster](#usermaster)\>
 
 Password fields are redacted in responses.
-
----
-
-#### POST /api/v1/users/enumerate
-
-Enumerate users with filtering and sorting via JSON body. Global admins can enumerate all users. Tenant admins are limited to their own tenant.
 
 ---
 
@@ -616,12 +604,6 @@ Deleting an unprotected user cascades through that user's subordinate resources 
 List credentials (paginated). Global admin: all credentials. Tenant admin: credentials in own tenant. Regular user: own credentials only.
 
 **Response:** `200 OK` - [EnumerationResult](#enumerationresult)\<[Credential](#credential)\>
-
----
-
-#### POST /api/v1/credentials/enumerate
-
-Enumerate credentials with filtering and sorting via JSON body. Results are scoped by role.
 
 ---
 
@@ -4701,106 +4683,103 @@ Response from `GET /api/v1/captains/{id}/log`.
 | 3 | POST | `/api/v1/tenants/lookup` | Lookup tenants by email | No |
 | 4 | POST | `/api/v1/onboarding` | Self-register new user | No* |
 | 5 | GET | `/api/v1/tenants` | List tenants (paginated) | Admin |
-| 6 | POST | `/api/v1/tenants/enumerate` | Enumerate tenants | Admin |
-| 7 | POST | `/api/v1/tenants` | Create tenant | Admin |
-| 8 | GET | `/api/v1/tenants/{id}` | Get tenant | Yes** |
-| 9 | PUT | `/api/v1/tenants/{id}` | Update tenant | Admin |
-| 10 | DELETE | `/api/v1/tenants/{id}` | Delete tenant | Admin |
-| 11 | GET | `/api/v1/users` | List users (paginated) | Admin |
-| 12 | POST | `/api/v1/users/enumerate` | Enumerate users | Admin |
-| 13 | POST | `/api/v1/users` | Create user | Admin |
-| 14 | GET | `/api/v1/users/{id}` | Get user | Yes** |
-| 15 | PUT | `/api/v1/users/{id}` | Update user | Admin |
-| 16 | DELETE | `/api/v1/users/{id}` | Delete user | Admin |
-| 17 | GET | `/api/v1/credentials` | List credentials (paginated) | Yes** |
-| 18 | POST | `/api/v1/credentials/enumerate` | Enumerate credentials | Yes** |
-| 19 | POST | `/api/v1/credentials` | Create credential | Yes** |
-| 20 | GET | `/api/v1/credentials/{id}` | Get credential | Yes** |
-| 21 | PUT | `/api/v1/credentials/{id}` | Update credential | Yes** |
-| 22 | DELETE | `/api/v1/credentials/{id}` | Delete credential | Yes** |
-| 23 | GET | `/api/v1/status` | System status dashboard | Yes |
-| 24 | GET | `/api/v1/status/health` | Health check | No |
-| 25 | POST | `/api/v1/server/stop` | Graceful shutdown | \*\*\* |
-| 26 | GET | `/api/v1/fleets` | List fleets (paginated) | Yes |
-| 27 | POST | `/api/v1/fleets/enumerate` | Enumerate fleets | Yes |
-| 28 | POST | `/api/v1/fleets` | Create fleet | Yes |
-| 29 | GET | `/api/v1/fleets/{id}` | Get fleet | Yes |
-| 30 | PUT | `/api/v1/fleets/{id}` | Update fleet | Yes |
-| 31 | DELETE | `/api/v1/fleets/{id}` | Delete fleet | Yes |
-| 32 | GET | `/api/v1/vessels` | List vessels (paginated) | Yes |
-| 33 | POST | `/api/v1/vessels/enumerate` | Enumerate vessels | Yes |
-| 34 | POST | `/api/v1/vessels` | Create vessel | Yes |
-| 35 | GET | `/api/v1/vessels/{id}` | Get vessel | Yes |
-| 36 | PUT | `/api/v1/vessels/{id}` | Update vessel | Yes |
-| 37 | DELETE | `/api/v1/vessels/{id}` | Delete vessel | Yes |
-| 38 | GET | `/api/v1/voyages` | List voyages (paginated) | Yes |
-| 39 | POST | `/api/v1/voyages/enumerate` | Enumerate voyages | Yes |
-| 40 | POST | `/api/v1/voyages` | Create voyage with missions | Yes |
-| 41 | GET | `/api/v1/voyages/{id}` | Get voyage with missions | Yes |
+| 6 | POST | `/api/v1/tenants` | Create tenant | Admin |
+| 7 | GET | `/api/v1/tenants/{id}` | Get tenant | Yes** |
+| 8 | PUT | `/api/v1/tenants/{id}` | Update tenant | Admin |
+| 9 | DELETE | `/api/v1/tenants/{id}` | Delete tenant | Admin |
+| 10 | GET | `/api/v1/users` | List users (paginated) | Admin |
+| 11 | POST | `/api/v1/users` | Create user | Admin |
+| 12 | GET | `/api/v1/users/{id}` | Get user | Yes** |
+| 13 | PUT | `/api/v1/users/{id}` | Update user | Admin |
+| 14 | DELETE | `/api/v1/users/{id}` | Delete user | Admin |
+| 15 | GET | `/api/v1/credentials` | List credentials (paginated) | Yes** |
+| 16 | POST | `/api/v1/credentials` | Create credential | Yes** |
+| 17 | GET | `/api/v1/credentials/{id}` | Get credential | Yes** |
+| 18 | PUT | `/api/v1/credentials/{id}` | Update credential | Yes** |
+| 19 | DELETE | `/api/v1/credentials/{id}` | Delete credential | Yes** |
+| 20 | GET | `/api/v1/status` | System status dashboard | Yes |
+| 21 | GET | `/api/v1/status/health` | Health check | No |
+| 22 | POST | `/api/v1/server/stop` | Graceful shutdown | \*\*\* |
+| 23 | GET | `/api/v1/fleets` | List fleets (paginated) | Yes |
+| 24 | POST | `/api/v1/fleets/enumerate` | Enumerate fleets | Yes |
+| 25 | POST | `/api/v1/fleets` | Create fleet | Yes |
+| 26 | GET | `/api/v1/fleets/{id}` | Get fleet | Yes |
+| 27 | PUT | `/api/v1/fleets/{id}` | Update fleet | Yes |
+| 28 | DELETE | `/api/v1/fleets/{id}` | Delete fleet | Yes |
+| 29 | GET | `/api/v1/vessels` | List vessels (paginated) | Yes |
+| 30 | POST | `/api/v1/vessels/enumerate` | Enumerate vessels | Yes |
+| 31 | POST | `/api/v1/vessels` | Create vessel | Yes |
+| 32 | GET | `/api/v1/vessels/{id}` | Get vessel | Yes |
+| 33 | PUT | `/api/v1/vessels/{id}` | Update vessel | Yes |
+| 34 | DELETE | `/api/v1/vessels/{id}` | Delete vessel | Yes |
+| 35 | GET | `/api/v1/voyages` | List voyages (paginated) | Yes |
+| 36 | POST | `/api/v1/voyages/enumerate` | Enumerate voyages | Yes |
+| 37 | POST | `/api/v1/voyages` | Create voyage with missions | Yes |
+| 38 | GET | `/api/v1/voyages/{id}` | Get voyage with missions | Yes |
 | 41a | GET | `/api/v1/voyages/{id}/mission-summary` | Scoped status counts and paged vessel IDs | Yes |
-| 42 | DELETE | `/api/v1/voyages/{id}` | Cancel voyage | Yes |
-| 43 | DELETE | `/api/v1/voyages/{id}/purge` | Permanently delete voyage | Yes |
-| 44 | GET | `/api/v1/missions` | List missions (paginated) | Yes |
-| 45 | POST | `/api/v1/missions/enumerate` | Enumerate missions | Yes |
-| 46 | POST | `/api/v1/missions` | Create mission | Yes |
-| 47 | GET | `/api/v1/missions/{id}` | Get mission | Yes |
-| 48 | PUT | `/api/v1/missions/{id}` | Update mission | Yes |
-| 49 | PUT | `/api/v1/missions/{id}/status` | Transition mission status | Yes |
-| 50 | DELETE | `/api/v1/missions/{id}` | Cancel mission | Yes |
-| 51 | POST | `/api/v1/missions/{id}/restart` | Restart failed/cancelled mission | Yes |
-| 52 | GET | `/api/v1/missions/{id}/diff` | Get mission diff | Yes |
-| 53 | GET | `/api/v1/missions/{id}/log` | Get mission log | Yes |
-| 54 | GET | `/api/v1/captains` | List captains (paginated) | Yes |
-| 55 | POST | `/api/v1/captains/enumerate` | Enumerate captains | Yes |
-| 56 | POST | `/api/v1/captains` | Create captain | Yes |
-| 57 | GET | `/api/v1/captains/{id}` | Get captain | Yes |
-| 58 | PUT | `/api/v1/captains/{id}` | Update captain | Yes |
-| 59 | POST | `/api/v1/captains/{id}/stop` | Stop captain | Yes |
-| 60 | POST | `/api/v1/captains/stop-all` | Stop all captains | Yes |
-| 61 | GET | `/api/v1/captains/{id}/log` | Get captain current log | Yes |
-| 62 | DELETE | `/api/v1/captains/{id}` | Delete captain | Yes |
-| 63 | GET | `/api/v1/signals` | List signals (paginated) | Yes |
-| 64 | POST | `/api/v1/signals/enumerate` | Enumerate signals | Yes |
-| 65 | POST | `/api/v1/signals` | Send signal | Yes |
-| 66 | GET | `/api/v1/events` | List events (paginated) | Yes |
-| 67 | POST | `/api/v1/events/enumerate` | Enumerate events | Yes |
-| 68 | GET | `/api/v1/merge-queue` | List merge queue (paginated) | Yes |
-| 69 | POST | `/api/v1/merge-queue/enumerate` | Enumerate merge queue | Yes |
-| 70 | POST | `/api/v1/merge-queue` | Enqueue branch | Yes |
-| 71 | GET | `/api/v1/merge-queue/{id}` | Get merge entry | Yes |
-| 72 | DELETE | `/api/v1/merge-queue/{id}` | Cancel merge entry | Yes |
-| 73 | POST | `/api/v1/merge-queue/process` | Process merge queue | Yes |
-| 74 | GET | `/api/v1/vessels/{vesselId}/code-index/status` | Get code-index status | Yes |
-| 75 | POST | `/api/v1/vessels/{vesselId}/code-index/update` | Refresh code index and graph sidecars | Yes |
-| 76 | POST | `/api/v1/vessels/{vesselId}/code-index/search` | Search indexed code chunks | Yes |
-| 77 | POST | `/api/v1/vessels/{vesselId}/code-index/search-symbols` | Search code graph symbols | Yes |
-| 78 | POST | `/api/v1/vessels/{vesselId}/code-index/callers` | Resolve direct symbol callers | Yes |
-| 79 | POST | `/api/v1/vessels/{vesselId}/code-index/callees` | Resolve direct symbol callees | Yes |
-| 80 | POST | `/api/v1/vessels/{vesselId}/code-index/node` | Resolve one graph node | Yes |
-| 81 | POST | `/api/v1/vessels/{vesselId}/code-index/files` | List graph files and symbols | Yes |
-| 82 | POST | `/api/v1/vessels/{vesselId}/code-index/explore` | Explore a bounded graph neighborhood | Yes |
-| 83 | POST | `/api/v1/vessels/{vesselId}/code-index/impact` | Traverse symbol impact | Yes |
-| 84 | POST | `/api/v1/vessels/{vesselId}/code-index/affected-tests` | Suggest affected tests | Yes |
-| 85 | GET | `/api/v1/vessels/{id}/readiness` | Vessel readiness summary | Yes |
-| 86 | GET | `/api/v1/vessels/{id}/landing-preview` | Vessel landing preview | Yes |
-| 87 | GET | `/api/v1/missions/{id}/landing-preview` | Mission landing preview | Yes |
-| 88 | POST | `/api/v1/docks/{id}/repair` | Repair a dock worktree | Yes |
-| 89 | POST | `/api/v1/docks/{id}/unstick` | Release a held captain and reclaim the dock | Yes |
-| 90 | GET | `/api/v1/planning-sessions` | List planning sessions | Yes |
-| 91 | POST | `/api/v1/planning-sessions` | Create a planning session | Yes |
-| 92 | GET | `/api/v1/planning-sessions/{id}` | Get a planning session | Yes |
-| 93 | POST | `/api/v1/planning-sessions/{id}/messages` | Send a planning turn | Yes |
-| 94 | POST | `/api/v1/planning-sessions/{id}/summarize` | Summarize planning into a draft | Yes |
-| 95 | POST | `/api/v1/planning-sessions/{id}/dispatch` | Dispatch a voyage from planning | Yes |
-| 96 | POST | `/api/v1/planning-sessions/{id}/stop-turn` | Abort the in-flight planning turn | Yes |
-| 97 | POST | `/api/v1/planning-sessions/{id}/stop` | Stop a planning session | Yes |
-| 98 | DELETE | `/api/v1/planning-sessions/{id}` | Delete a planning session | Yes |
-| 99 | GET | `/api/v1/missions/{id}/definition-of-done` | Mission definition-of-done configuration and latest evaluation | Yes |
-| 100 | GET | `/api/v1/missions/{id}/recovery` | Mission recovery counters, rescues, incidents and recovery events | Yes |
-| 101 | GET | `/api/v1/missions/{id}/auto-land` | Mission auto-land predicate, latest decision and merge entry audit | Yes |
-| 102 | GET | `/api/v1/vessels/{id}/branches` | List vessel branches and write-control availability | Yes |
-| 103 | POST | `/api/v1/vessels/{id}/branches/push` | Push a landing-repository branch to origin without force (tenant administrator) | Yes |
-| 104 | POST | `/api/v1/vessels/{id}/branches/merge` | Fast-forward or merge-commit landing-repository branches (tenant administrator) | Yes |
+| 39 | DELETE | `/api/v1/voyages/{id}` | Cancel voyage | Yes |
+| 40 | DELETE | `/api/v1/voyages/{id}/purge` | Permanently delete voyage | Yes |
+| 41 | GET | `/api/v1/missions` | List missions (paginated) | Yes |
+| 42 | POST | `/api/v1/missions/enumerate` | Enumerate missions | Yes |
+| 43 | POST | `/api/v1/missions` | Create mission | Yes |
+| 44 | GET | `/api/v1/missions/{id}` | Get mission | Yes |
+| 45 | PUT | `/api/v1/missions/{id}` | Update mission | Yes |
+| 46 | PUT | `/api/v1/missions/{id}/status` | Transition mission status | Yes |
+| 47 | DELETE | `/api/v1/missions/{id}` | Cancel mission | Yes |
+| 48 | POST | `/api/v1/missions/{id}/restart` | Restart failed/cancelled mission | Yes |
+| 49 | GET | `/api/v1/missions/{id}/diff` | Get mission diff | Yes |
+| 50 | GET | `/api/v1/missions/{id}/log` | Get mission log | Yes |
+| 51 | GET | `/api/v1/captains` | List captains (paginated) | Yes |
+| 52 | POST | `/api/v1/captains/enumerate` | Enumerate captains | Yes |
+| 53 | POST | `/api/v1/captains` | Create captain | Yes |
+| 54 | GET | `/api/v1/captains/{id}` | Get captain | Yes |
+| 55 | PUT | `/api/v1/captains/{id}` | Update captain | Yes |
+| 56 | POST | `/api/v1/captains/{id}/stop` | Stop captain | Yes |
+| 57 | POST | `/api/v1/captains/stop-all` | Stop all captains | Yes |
+| 58 | GET | `/api/v1/captains/{id}/log` | Get captain current log | Yes |
+| 59 | DELETE | `/api/v1/captains/{id}` | Delete captain | Yes |
+| 60 | GET | `/api/v1/signals` | List signals (paginated) | Yes |
+| 61 | POST | `/api/v1/signals/enumerate` | Enumerate signals | Yes |
+| 62 | POST | `/api/v1/signals` | Send signal | Yes |
+| 63 | GET | `/api/v1/events` | List events (paginated) | Yes |
+| 64 | POST | `/api/v1/events/enumerate` | Enumerate events | Yes |
+| 65 | GET | `/api/v1/merge-queue` | List merge queue (paginated) | Yes |
+| 66 | POST | `/api/v1/merge-queue/enumerate` | Enumerate merge queue | Yes |
+| 67 | POST | `/api/v1/merge-queue` | Enqueue branch | Yes |
+| 68 | GET | `/api/v1/merge-queue/{id}` | Get merge entry | Yes |
+| 69 | DELETE | `/api/v1/merge-queue/{id}` | Cancel merge entry | Yes |
+| 70 | POST | `/api/v1/merge-queue/process` | Process merge queue | Yes |
+| 71 | GET | `/api/v1/vessels/{vesselId}/code-index/status` | Get code-index status | Yes |
+| 72 | POST | `/api/v1/vessels/{vesselId}/code-index/update` | Refresh code index and graph sidecars | Yes |
+| 73 | POST | `/api/v1/vessels/{vesselId}/code-index/search` | Search indexed code chunks | Yes |
+| 74 | POST | `/api/v1/vessels/{vesselId}/code-index/search-symbols` | Search code graph symbols | Yes |
+| 75 | POST | `/api/v1/vessels/{vesselId}/code-index/callers` | Resolve direct symbol callers | Yes |
+| 76 | POST | `/api/v1/vessels/{vesselId}/code-index/callees` | Resolve direct symbol callees | Yes |
+| 77 | POST | `/api/v1/vessels/{vesselId}/code-index/node` | Resolve one graph node | Yes |
+| 78 | POST | `/api/v1/vessels/{vesselId}/code-index/files` | List graph files and symbols | Yes |
+| 79 | POST | `/api/v1/vessels/{vesselId}/code-index/explore` | Explore a bounded graph neighborhood | Yes |
+| 80 | POST | `/api/v1/vessels/{vesselId}/code-index/impact` | Traverse symbol impact | Yes |
+| 81 | POST | `/api/v1/vessels/{vesselId}/code-index/affected-tests` | Suggest affected tests | Yes |
+| 82 | GET | `/api/v1/vessels/{id}/readiness` | Vessel readiness summary | Yes |
+| 83 | GET | `/api/v1/vessels/{id}/landing-preview` | Vessel landing preview | Yes |
+| 84 | GET | `/api/v1/missions/{id}/landing-preview` | Mission landing preview | Yes |
+| 85 | POST | `/api/v1/docks/{id}/repair` | Repair a dock worktree | Yes |
+| 86 | POST | `/api/v1/docks/{id}/unstick` | Release a held captain and reclaim the dock | Yes |
+| 87 | GET | `/api/v1/planning-sessions` | List planning sessions | Yes |
+| 88 | POST | `/api/v1/planning-sessions` | Create a planning session | Yes |
+| 89 | GET | `/api/v1/planning-sessions/{id}` | Get a planning session | Yes |
+| 90 | POST | `/api/v1/planning-sessions/{id}/messages` | Send a planning turn | Yes |
+| 91 | POST | `/api/v1/planning-sessions/{id}/summarize` | Summarize planning into a draft | Yes |
+| 92 | POST | `/api/v1/planning-sessions/{id}/dispatch` | Dispatch a voyage from planning | Yes |
+| 93 | POST | `/api/v1/planning-sessions/{id}/stop-turn` | Abort the in-flight planning turn | Yes |
+| 94 | POST | `/api/v1/planning-sessions/{id}/stop` | Stop a planning session | Yes |
+| 95 | DELETE | `/api/v1/planning-sessions/{id}` | Delete a planning session | Yes |
+| 96 | GET | `/api/v1/missions/{id}/definition-of-done` | Mission definition-of-done configuration and latest evaluation | Yes |
+| 97 | GET | `/api/v1/missions/{id}/recovery` | Mission recovery counters, rescues, incidents and recovery events | Yes |
+| 98 | GET | `/api/v1/missions/{id}/auto-land` | Mission auto-land predicate, latest decision and merge entry audit | Yes |
+| 99 | GET | `/api/v1/vessels/{id}/branches` | List vessel branches and write-control availability | Yes |
+| 100 | POST | `/api/v1/vessels/{id}/branches/push` | Push a landing-repository branch to origin without force (tenant administrator) | Yes |
+| 101 | POST | `/api/v1/vessels/{id}/branches/merge` | Fast-forward or merge-commit landing-repository branches (tenant administrator) | Yes |
 
 This table is a quick route index, not the complete contract. Use `/openapi.json` or `/swagger` for the live REST surface.
 

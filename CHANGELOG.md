@@ -330,6 +330,13 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   header, a variable is undefined, or a no-auth Admiral example is refused.
 - A client route contract invokes every public `ArmadaApiClient` method and fails
   when a call reaches a route the Admiral does not serve.
+- Collection requests for vessel branch push and merge, and a Harbor folder for
+  runner enrollment create and revoke. Harbor requests start with `Requires
+  Harbor:`; the contract reads a second Admiral started with Harbor and
+  WebSockets enabled, and fails when a marked request is served with Harbor off
+  or a Harbor-only route is unmarked or has no request.
+- The REST API reference no longer lists tenant, user and credential enumerate
+  routes, which the Admiral does not serve.
 
 ### Model endpoint health persistence
 

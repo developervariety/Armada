@@ -56,6 +56,28 @@ namespace Test.Shared.Infrastructure
         }
 
         /// <summary>
+        /// Start a separate Admiral with Harbor and WebSockets enabled, read its table, and stop it.
+        /// Harbor routes are registered only in this configuration.
+        /// </summary>
+        /// <returns>The Harbor-enabled Admiral route table.</returns>
+        public static async Task<ServedRouteTable> ReadHarborAdmiralAsync()
+        {
+            E2EServerFixture fx = await E2EServerFixture.StartIsolatedAsync(settings =>
+            {
+                settings.Harbor.Enabled = true;
+                settings.WebSocketEnabled = true;
+            }).ConfigureAwait(false);
+            try
+            {
+                return FromRoutes(fx.Server.RestRoutes);
+            }
+            finally
+            {
+                fx.Stop();
+            }
+        }
+
+        /// <summary>
         /// Start a proxy on a free loopback port, read its table, and stop it.
         /// </summary>
         /// <returns>The proxy route table.</returns>

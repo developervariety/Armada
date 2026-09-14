@@ -191,7 +191,29 @@ namespace Test.Shared.Infrastructure
 
         #region Private-Methods
 
-        private async Task StartAsync()
+        /// <summary>
+        /// Start a separate in-process Admiral whose settings the caller adjusts before start. The caller
+        /// owns it and must call <see cref="Stop"/>; it never replaces the shared or per-suite servers.
+        /// </summary>
+        /// <param name="configure">Settings changes applied before the server starts.</param>
+        /// <returns>The started fixture.</returns>
+        public static async Task<E2EServerFixture> StartIsolatedAsync(Action<ArmadaSettings> configure)
+        {
+            if (configure == null) throw new ArgumentNullException(nameof(configure));
+            E2EServerFixture fixture = new E2EServerFixture();
+            await fixture.StartAsync(configure).ConfigureAwait(false);
+            return fixture;
+        }
+
+        /// <summary>
+        /// Stop an isolated fixture and remove its temp directory.
+        /// </summary>
+        public void Stop()
+        {
+            Shutdown();
+        }
+
+        private async Task StartAsync(Action<ArmadaSettings>? configure = null)
         {
             // Upstream lowers BaseAgentRuntime.GracefulStopTimeoutMs here so a stop-all does not wait
             // ~10s per captain. This fork already fixed that in production rather than in the harness:
@@ -229,6 +251,7 @@ namespace Test.Shared.Infrastructure
             // falls back to 127.0.0.1 -- which massively inflates E2E time and pushes cases toward the
             // per-case timeout. Pinning to 127.0.0.1 on both ends keeps every connection pure IPv4.
             settings.Rest.Hostname = "127.0.0.1";
+            configure?.Invoke(settings);
             settings.InitializeDirectories();
 
             // Pre-seed the server's database from the shared migrated-and-seeded template so the server's

@@ -115,5 +115,10 @@ so a route list is never maintained by hand.
   proxy requests, and no authentication refusal for Admiral examples marked
   no-auth.
 
-The collection does not include the tenant, user and credential enumerate routes
-that `docs/REST_API.md` still lists. The Admiral does not register them.
+Harbor routes are registered only when `Harbor.Enabled` and `WebSocketEnabled`
+are set. The contract reads a second Admiral started with both enabled. A request
+whose description starts with `Requires Harbor:` must be served by that Admiral
+and not by the default one; every Harbor-only route must have such a request.
+
+The Admiral does not register tenant, user or credential enumerate routes, so
+neither the collection nor `docs/REST_API.md` lists them.

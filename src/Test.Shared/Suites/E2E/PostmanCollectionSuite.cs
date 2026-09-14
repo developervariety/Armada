@@ -27,6 +27,11 @@ namespace Test.Shared.Suites.E2E
         private const string SuiteId = "E2E.PostmanCollection";
         private const string AdmiralBase = "{{baseUrl}}";
         private const string ProxyBase = "{{proxyBaseUrl}}";
+
+        /// <summary>
+        /// Description prefix for requests whose routes the Admiral registers only when Harbor is enabled.
+        /// </summary>
+        private const string HarborMarker = "Requires Harbor:";
         private static readonly Regex _Variable = new Regex(@"\{\{[^{}]+\}\}", RegexOptions.Compiled);
 
         #endregion
@@ -44,6 +49,7 @@ namespace Test.Shared.Suites.E2E
                 CaseAsync("every_request_matches_a_served_route", "Every Postman request targets a served route and method", TestTags.Positive, async () =>
                 {
                     ServedRouteTable admiral = await ServedRouteTable.ReadAdmiralAsync(this).ConfigureAwait(false);
+                    ServedRouteTable harbor = await ServedRouteTable.ReadHarborAdmiralAsync().ConfigureAwait(false);
                     ServedRouteTable proxy = await ServedRouteTable.ReadProxyAsync().ConfigureAwait(false);
                     List<CollectionRequest> requests = ReadCollection();
                     AssertTrue(requests.Count > 0, "The collection must contain requests.");
@@ -51,7 +57,7 @@ namespace Test.Shared.Suites.E2E
                     List<string> failures = new List<string>();
                     foreach (CollectionRequest request in requests)
                     {
-                        ServedRouteTable? table = SelectTable(request, admiral, proxy, out string path);
+                        ServedRouteTable? table = SelectTable(request, request.RequiresHarbor ? harbor : admiral, proxy, out string path);
                         if (table == null)
                         {
                             failures.Add(request.Describe() + ": URL must start with " + AdmiralBase + " or " + ProxyBase);
@@ -67,16 +73,22 @@ namespace Test.Shared.Suites.E2E
                 CaseAsync("every_served_api_route_has_a_request", "Every served API route has a Postman request", TestTags.Positive, async () =>
                 {
                     ServedRouteTable admiral = await ServedRouteTable.ReadAdmiralAsync(this).ConfigureAwait(false);
+                    ServedRouteTable harbor = await ServedRouteTable.ReadHarborAdmiralAsync().ConfigureAwait(false);
                     ServedRouteTable proxy = await ServedRouteTable.ReadProxyAsync().ConfigureAwait(false);
                     List<CollectionRequest> requests = ReadCollection();
 
                     List<string> missing = new List<string>();
-                    AddMissing(admiral, "/api/", requests, missing, request =>
+                    AddMissing(admiral.Routes, "/api/", requests, missing, request =>
                     {
-                        if (request.Url.StartsWith(AdmiralBase, StringComparison.OrdinalIgnoreCase)) return StripQuery(request.Url.Substring(AdmiralBase.Length));
+                        if (!request.RequiresHarbor && request.Url.StartsWith(AdmiralBase, StringComparison.OrdinalIgnoreCase)) return StripQuery(request.Url.Substring(AdmiralBase.Length));
                         return null;
                     });
-                    AddMissing(proxy, "/proxy-api/", requests, missing, request =>
+                    AddMissing(HarborOnlyRoutes(admiral, harbor), "/api/", requests, missing, request =>
+                    {
+                        if (request.RequiresHarbor && request.Url.StartsWith(AdmiralBase, StringComparison.OrdinalIgnoreCase)) return StripQuery(request.Url.Substring(AdmiralBase.Length));
+                        return null;
+                    });
+                    AddMissing(proxy.Routes, "/proxy-api/", requests, missing, request =>
                     {
                         if (!request.Url.StartsWith(ProxyBase, StringComparison.OrdinalIgnoreCase)) return null;
                         string path = StripQuery(request.Url.Substring(ProxyBase.Length));
@@ -84,6 +96,26 @@ namespace Test.Shared.Suites.E2E
                     });
 
                     AssertTrue(missing.Count == 0, missing.Count + " served route(s) have no collection request:\n" + String.Join("\n", missing));
+                }),
+                CaseAsync("harbor_requests_are_served_only_when_harbor_is_enabled", "Harbor requests are marked and served only when Harbor is enabled", TestTags.Positive, async () =>
+                {
+                    ServedRouteTable admiral = await ServedRouteTable.ReadAdmiralAsync(this).ConfigureAwait(false);
+                    ServedRouteTable harbor = await ServedRouteTable.ReadHarborAdmiralAsync().ConfigureAwait(false);
+                    List<ServedRoute> harborOnly = HarborOnlyRoutes(admiral, harbor);
+                    AssertTrue(harborOnly.Count > 0, "Enabling Harbor must register routes the default Admiral does not serve.");
+
+                    List<string> failures = new List<string>();
+                    foreach (CollectionRequest request in ReadCollection().Where(request => request.Url.StartsWith(AdmiralBase, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        string path = StripQuery(request.Url.Substring(AdmiralBase.Length));
+                        bool harborRoute = harborOnly.Any(route => route.Matches(request.Method, path));
+                        if (harborRoute && !request.RequiresHarbor)
+                            failures.Add(request.Describe() + ": served only with Harbor enabled but not marked \"" + HarborMarker + "\"");
+                        if (request.RequiresHarbor && admiral.Serves(request.Method, path))
+                            failures.Add(request.Describe() + ": marked \"" + HarborMarker + "\" but served with Harbor disabled");
+                    }
+
+                    AssertTrue(failures.Count == 0, String.Join("\n", failures));
                 }),
                 CaseAsync("request_bodies_are_json_and_proxy_relays_carry_a_session", "Postman bodies parse and proxy relays send the proxy session", TestTags.Positive, async () =>
                 {
@@ -158,9 +190,19 @@ namespace Test.Shared.Suites.E2E
 
         #region Private-Methods
 
-        private static void AddMissing(ServedRouteTable table, string prefix, List<CollectionRequest> requests, List<string> missing, Func<CollectionRequest, string?> pathFor)
+        /// <summary>
+        /// Routes the Harbor-enabled Admiral serves and the default Admiral does not.
+        /// </summary>
+        private static List<ServedRoute> HarborOnlyRoutes(ServedRouteTable admiral, ServedRouteTable harbor)
         {
-            IEnumerable<ServedRoute> routes = table.Routes
+            return harbor.Routes
+                .Where(route => !admiral.Routes.Any(existing => existing.Method == route.Method && String.Equals(existing.Path, route.Path, StringComparison.Ordinal)))
+                .ToList();
+        }
+
+        private static void AddMissing(IEnumerable<ServedRoute> table, string prefix, List<CollectionRequest> requests, List<string> missing, Func<CollectionRequest, string?> pathFor)
+        {
+            IEnumerable<ServedRoute> routes = table
                 .Where(route => route.Path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(route => route.Path, StringComparer.Ordinal)
                 .ThenBy(route => route.Method, StringComparer.Ordinal);
@@ -245,6 +287,7 @@ namespace Test.Shared.Suites.E2E
                 request.Url = item.Request.Url.Raw.Trim();
                 request.RawBody = item.Request.Body?.Raw;
                 request.NoAuth = String.Equals(item.Request.Auth?.Type, "noauth", StringComparison.OrdinalIgnoreCase);
+                request.RequiresHarbor = (item.Request.Description ?? String.Empty).StartsWith(HarborMarker, StringComparison.Ordinal);
                 request.Headers = new HashSet<string>(headers.Select(header => header.Key), StringComparer.OrdinalIgnoreCase);
                 request.DeclaresJson = headers.Any(header =>
                     String.Equals(header.Key, "Content-Type", StringComparison.OrdinalIgnoreCase)
@@ -296,6 +339,8 @@ namespace Test.Shared.Suites.E2E
             public string? RawBody { get; set; }
 
             public bool NoAuth { get; set; }
+
+            public bool RequiresHarbor { get; set; }
 
             public bool DeclaresJson { get; set; }
 
@@ -352,6 +397,9 @@ namespace Test.Shared.Suites.E2E
 
             [JsonPropertyName("auth")]
             public PostmanAuth? Auth { get; set; }
+
+            [JsonPropertyName("description")]
+            public string? Description { get; set; }
         }
 
         private sealed class PostmanHeader

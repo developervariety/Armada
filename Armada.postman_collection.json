@@ -274,6 +274,12 @@
                          "value":  "",
                          "type":  "string",
                          "description":  "Prompt template name for template detail and update requests."
+                     },
+                     {
+                         "key":  "harborRunnerId",
+                         "value":  "",
+                         "type":  "string",
+                         "description":  "Harbor runner ID for enrollment create and revoke requests."
                      }
                  ],
     "item":  [
@@ -2296,6 +2302,68 @@
                                                                             ]
                                                               },
                                                       "description":  "Returns readiness warnings and blocking issues for a vessel, optionally scoped to a requested workflow check."
+                                                  }
+                                  },
+                                  {
+                                      "name":  "Push Vessel Branch",
+                                      "request":  {
+                                                      "method":  "POST",
+                                                      "header":  [
+                                                                     {
+                                                                         "key":  "Content-Type",
+                                                                         "value":  "application/json"
+                                                                     }
+                                                                 ],
+                                                      "body":  {
+                                                                   "mode":  "raw",
+                                                                   "raw":  "{\n  \"SourceRef\": \"feature/landing-fix\",\n  \"TargetRef\": \"feature/landing-fix\",\n  \"Remote\": \"origin\"\n}"
+                                                               },
+                                                      "url":  {
+                                                                  "raw":  "{{baseUrl}}/api/v1/vessels/{{vesselId}}/branches/push",
+                                                                  "host":  [
+                                                                               "{{baseUrl}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "api",
+                                                                               "v1",
+                                                                               "vessels",
+                                                                               "{{vesselId}}",
+                                                                               "branches",
+                                                                               "push"
+                                                                           ]
+                                                              },
+                                                      "description":  "Pushes one landing-repository branch to the vessel\u0027s configured origin without force. Requires a tenant administrator. Refusals name a reason code and change no refs. Outward action: the branch reaches the remote."
+                                                  }
+                                  },
+                                  {
+                                      "name":  "Merge Vessel Branches",
+                                      "request":  {
+                                                      "method":  "POST",
+                                                      "header":  [
+                                                                     {
+                                                                         "key":  "Content-Type",
+                                                                         "value":  "application/json"
+                                                                     }
+                                                                 ],
+                                                      "body":  {
+                                                                   "mode":  "raw",
+                                                                   "raw":  "{\n  \"SourceRef\": \"feature/landing-fix\",\n  \"TargetRef\": \"main\",\n  \"Strategy\": \"FastForward\"\n}"
+                                                               },
+                                                      "url":  {
+                                                                  "raw":  "{{baseUrl}}/api/v1/vessels/{{vesselId}}/branches/merge",
+                                                                  "host":  [
+                                                                               "{{baseUrl}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "api",
+                                                                               "v1",
+                                                                               "vessels",
+                                                                               "{{vesselId}}",
+                                                                               "branches",
+                                                                               "merge"
+                                                                           ]
+                                                              },
+                                                      "description":  "Merges one landing-repository branch into another by fast-forward or explicit merge commit. Strategy is FastForward or MergeCommit. Never pushes and never rewrites the target. Requires a tenant administrator."
                                                   }
                                   }
                               ]
@@ -12130,6 +12198,65 @@
                                                                            ]
                                                               },
                                                       "description":  "Refresh the Admiral-owned code index for a vessel\u0027s default branch and rewrite chunks plus graph sidecars."
+                                                  }
+                                  }
+                              ]
+                 },
+                 {
+                     "name":  "Harbor",
+                     "description":  "Harbor runner enrollment. Every request in this folder requires Harbor: the Admiral registers these routes only when Harbor.Enabled and WebSocketEnabled are set.",
+                     "item":  [
+                                  {
+                                      "name":  "Create Harbor Runner Enrollment",
+                                      "request":  {
+                                                      "method":  "POST",
+                                                      "header":  [
+                                                                     {
+                                                                         "key":  "Content-Type",
+                                                                         "value":  "application/json"
+                                                                     }
+                                                                 ],
+                                                      "body":  {
+                                                                   "mode":  "raw",
+                                                                   "raw":  "{\n  \"RunnerId\": \"{{harborRunnerId}}\",\n  \"CredentialId\": \"{{credentialId}}\"\n}"
+                                                               },
+                                                      "url":  {
+                                                                  "raw":  "{{baseUrl}}/api/v1/harbor-runners/enrollments",
+                                                                  "host":  [
+                                                                               "{{baseUrl}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "api",
+                                                                               "v1",
+                                                                               "harbor-runners",
+                                                                               "enrollments"
+                                                                           ]
+                                                              },
+                                                      "description":  "Requires Harbor: served only when Harbor.Enabled and WebSocketEnabled are set. Enrolls a Harbor runner against an existing credential. Requires a tenant administrator."
+                                                  }
+                                  },
+                                  {
+                                      "name":  "Revoke Harbor Runner Enrollment",
+                                      "request":  {
+                                                      "method":  "POST",
+                                                      "header":  [
+
+                                                                 ],
+                                                      "url":  {
+                                                                  "raw":  "{{baseUrl}}/api/v1/harbor-runners/enrollments/{{harborRunnerId}}/revoke",
+                                                                  "host":  [
+                                                                               "{{baseUrl}}"
+                                                                           ],
+                                                                  "path":  [
+                                                                               "api",
+                                                                               "v1",
+                                                                               "harbor-runners",
+                                                                               "enrollments",
+                                                                               "{{harborRunnerId}}",
+                                                                               "revoke"
+                                                                           ]
+                                                              },
+                                                      "description":  "Requires Harbor: served only when Harbor.Enabled and WebSocketEnabled are set. Revokes a runner enrollment; the runner can no longer link. Requires a tenant administrator."
                                                   }
                                   }
                               ]
