@@ -139,10 +139,18 @@ namespace Armada.Test.Unit.Suites.Services
                 [AgentRuntimeEnum.OpenCode] = "XDG_DATA_HOME"
             };
 
-            if (OperatingSystem.IsWindows())
+            await RunTest("POSIX shell skip applies only on Windows", () =>
             {
-                // The launch probes are POSIX shell scripts. Record the gap as a visible failure, never a silent pass.
-                await RunTest("Launch environment probes require a POSIX host", () => { throw new PlatformNotSupportedException("Run the captain account launch probes on Linux or macOS."); });
+                AssertNull(PosixShellSkipReason(false), "a POSIX host must run the launch probes, never skip them");
+                AssertNotNull(PosixShellSkipReason(true), "a Windows host must record a named skip");
+                AssertEqual(OperatingSystem.IsWindows(), PosixShellSkipReason(OperatingSystem.IsWindows()) != null, "the skip follows the current host");
+            });
+
+            string? posixSkip = PosixShellSkipReason(OperatingSystem.IsWindows());
+            if (posixSkip != null)
+            {
+                // The launch probes are POSIX shell scripts. Record a named, counted skip rather than a failure.
+                SkipTest("launch_environment_tests_require_posix_shell", posixSkip);
             }
             else
             {
@@ -355,6 +363,12 @@ namespace Armada.Test.Unit.Suites.Services
                 UsageAccountSettings go = new UsageAccountSettings { Id = "go", Collector = "OpenCodeGo", Runtime = AgentRuntimeEnum.OpenCode, HomeDirectory = Path.Combine(Path.GetTempPath(), "go-home") };
                 AssertEqual(Path.Combine(go.HomeDirectory, "opencode", "auth.json"), CaptainAccountLaunch.LoginFilePath(go));
             });
+        }
+
+        /// <summary>The one decision for whether shell-stub tests run: they need a POSIX shell, so only Windows skips.</summary>
+        internal static string? PosixShellSkipReason(bool isWindows)
+        {
+            return isWindows ? "Stub runtimes are POSIX shell scripts; run these tests on Linux or macOS." : null;
         }
 
         private static UsageRoutingSettings Single(UsageAccountSettings account)
