@@ -89,6 +89,13 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   `mysqldump`) that native backup and the self-deploy preflight run. SQL
   Server's ODBC 18 `sqlcmd` still has to be added in a derived image, because
   it needs Microsoft's repository and an EULA acceptance.
+- `scripts/common/install-database-client-wrappers.sh` links a container
+  wrapper under each native client name, so native backup and its database
+  test can run on a host whose databases run in containers without client
+  packages. The database backup case reports a named, counted skip
+  (`native_client_missing_<tool>`, `sqlserver_backup_directory_not_configured`)
+  when a prerequisite is absent, and the database test summary lists skipped
+  cases with their reasons.
 - A missing native client or `dotnet` runtime is reported as
   `native_client_missing_<tool>` by the backup provider, the backup service,
   the self-deploy preflight and the candidate validator, instead of a generic

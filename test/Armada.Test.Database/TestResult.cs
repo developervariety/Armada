@@ -34,6 +34,11 @@ namespace Armada.Test.Database
         public bool Passed { get; private set; } = false;
 
         /// <summary>
+        /// True when the case could not run in this environment; <see cref="ErrorMessage"/> holds the reason.
+        /// </summary>
+        public bool Skipped { get; private set; } = false;
+
+        /// <summary>
         /// Duration of the test execution.
         /// </summary>
         public TimeSpan Duration { get; set; } = TimeSpan.Zero;
@@ -113,9 +118,19 @@ namespace Armada.Test.Database
         /// <param name="duration">Time taken before the failure.</param>
         /// <param name="errorMessage">Description of the failure.</param>
         /// <param name="exception">Exception that caused the failure, if any.</param>
+        public void MarkSkipped(TimeSpan duration, string reason)
+        {
+            Passed = false;
+            Skipped = true;
+            Duration = duration;
+            ErrorMessage = reason ?? "";
+            Exception = null;
+        }
+
         public void MarkFailed(TimeSpan duration, string errorMessage, Exception exception = null)
         {
             Passed = false;
+            Skipped = false;
             Duration = duration;
             ErrorMessage = errorMessage ?? "";
             Exception = exception;
@@ -127,7 +142,7 @@ namespace Armada.Test.Database
         /// <returns>Formatted result string.</returns>
         public override string ToString()
         {
-            string status = Passed ? "[PASS]" : "[FAIL]";
+            string status = Passed ? "[PASS]" : Skipped ? "[SKIP]" : "[FAIL]";
             string ms = Duration.TotalMilliseconds.ToString("F1") + "ms";
             string result = status + " " + _TestName + " (" + ms + ")";
 

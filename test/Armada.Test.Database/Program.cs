@@ -203,7 +203,7 @@ namespace Armada.Test.Database
                 Cases = System.Linq.Enumerable.Select(results, result => new
                 {
                     SuiteId = "Armada.Test.Database." + result.Category, CaseId = result.TestName,
-                    result.SourcePath, result.SourceLine, Outcome = result.Passed ? "passed" : "failed",
+                    result.SourcePath, result.SourceLine, Outcome = result.Passed ? "passed" : result.Skipped ? "skipped" : "failed", SkipReason = result.Skipped ? result.ErrorMessage : null,
                     ElapsedMs = result.Duration.TotalMilliseconds
                 })
             }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
@@ -215,13 +215,20 @@ namespace Armada.Test.Database
             int total = results.Count;
             int passed = 0;
             int failed = 0;
+            int skipped = 0;
             List<TestResult> failedTests = new List<TestResult>();
+            List<TestResult> skippedTests = new List<TestResult>();
 
             foreach (TestResult result in results)
             {
                 if (result.Passed)
                 {
                     passed++;
+                }
+                else if (result.Skipped)
+                {
+                    skipped++;
+                    skippedTests.Add(result);
                 }
                 else
                 {
@@ -234,7 +241,19 @@ namespace Armada.Test.Database
             Console.WriteLine("================================================================================");
             Console.WriteLine("TEST SUMMARY");
             Console.WriteLine("================================================================================");
-            Console.WriteLine("Total: " + total + "  Passed: " + passed + "  Failed: " + failed);
+            Console.WriteLine("Total: " + total + "  Passed: " + passed + "  Failed: " + failed + "  Skipped: " + skipped);
+
+            if (skippedTests.Count > 0)
+            {
+                Console.WriteLine();
+                Console.WriteLine("Skipped Tests:");
+                foreach (TestResult result in skippedTests)
+                {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine("  " + result.ToString());
+                    Console.ResetColor();
+                }
+            }
 
             if (failedTests.Count > 0)
             {

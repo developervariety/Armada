@@ -13,6 +13,34 @@ For a server provider, supply `--type postgresql|mysql|sqlserver`, `--hostname`,
 `--port`, `--username`, `--password` and `--database`. Provision the database
 before running the tests. Keep credentials outside source and saved logs.
 
+### Native backup case
+
+`Backup_Native_Verified_Archive_Provider_Manifest_And_Restore_Contract` takes a real provider-native backup through
+the shared backup service. On a server provider it needs that provider's client tools on `PATH`: PostgreSQL
+`pg_dump createdb pg_restore psql dropdb`, MySQL `mysql mysqldump`, SQL Server `sqlcmd`. SQL Server also needs
+`ARMADA_SELF_DEPLOY_SQLSERVER_BACKUP_DIRECTORY`, a directory the SQL Server process can write. If a prerequisite is
+missing the case is a named skip (for example `native_client_missing_pg_dump`), listed under "Skipped Tests" and
+counted in the summary; it never passes without running.
+
+On a host whose databases run in containers without client packages, run the clients inside those containers:
+
+```sh
+scripts/common/install-database-client-wrappers.sh /tmp/armada-db-clients
+export PATH=/tmp/armada-db-clients:$PATH
+export ARMADA_CLIENT_POSTGRESQL_CONTAINER=<postgres-container> ARMADA_CLIENT_POSTGRESQL_PORTS=<host-port>:5432
+export ARMADA_CLIENT_MYSQL_CONTAINER=<mysql-container> ARMADA_CLIENT_MYSQL_PORTS=<host-port>:3306
+export ARMADA_CLIENT_SQLSERVER_CONTAINER=<sqlserver-container> ARMADA_CLIENT_SQLSERVER_PORTS=<host-port>:1433
+export ARMADA_SELF_DEPLOY_SQLSERVER_BACKUP_DIRECTORY=/var/opt/mssql/data
+export ARMADA_DATA_DIRECTORY=$(mktemp -d)
+dotnet Armada.Test.Database.dll --type postgresql --hostname 127.0.0.1 --port <host-port> \
+  --username <user> --password <password> --database <empty-database>
+```
+
+The wrapper forwards passwords by environment name only and streams `pg_dump --file`, `mysqldump --result-file`
+and the `pg_restore` input between the host and the container. Set `ARMADA_DATA_DIRECTORY` to a disposable directory
+so the archive never includes a real `settings.json`. A SQL Server backup file stays in the container directory;
+remove it after the run.
+
 Every migration scenario refuses a nonempty database. Use a different empty
 database for each invocation. A failed scenario leaves its database available
 for diagnosis; do not rerun fixture setup against it. To check a saved database

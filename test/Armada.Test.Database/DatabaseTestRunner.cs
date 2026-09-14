@@ -420,6 +420,16 @@ namespace Armada.Test.Database
                 Console.ResetColor();
                 Console.WriteLine(name + " (" + sw.ElapsedMilliseconds + "ms)");
             }
+            catch (DatabaseTestSkipException skip)
+            {
+                sw.Stop();
+                result.MarkSkipped(sw.Elapsed, skip.Message);
+
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.Write("  [SKIP] ");
+                Console.ResetColor();
+                Console.WriteLine(name + " - " + skip.Message);
+            }
             catch (Exception ex)
             {
                 sw.Stop();
@@ -434,6 +444,30 @@ namespace Armada.Test.Database
             _Results.Add(result);
         }
 
+        private static IReadOnlyList<string> RequiredNativeClients(DatabaseTypeEnum type)
+        {
+            switch (type)
+            {
+                case DatabaseTypeEnum.Postgresql: return new[] { "pg_dump", "createdb", "pg_restore", "psql", "dropdb" };
+                case DatabaseTypeEnum.Mysql: return new[] { "mysql", "mysqldump" };
+                case DatabaseTypeEnum.SqlServer: return new[] { "sqlcmd" };
+                default: return Array.Empty<string>();
+            }
+        }
+
+        private static bool IsOnPath(string tool)
+        {
+            string[] names = OperatingSystem.IsWindows() ? new[] { tool + ".exe", tool + ".cmd", tool } : new[] { tool };
+            foreach (string directory in (Environment.GetEnvironmentVariable("PATH") ?? String.Empty).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+            {
+                foreach (string name in names)
+                {
+                    if (File.Exists(Path.Combine(directory, name))) return true;
+                }
+            }
+            return false;
+        }
+
         private async Task TestNativeBackupAsync(CancellationToken token)
         {
             string root = Path.Combine(Path.GetTempPath(), "armada-dbtest-backup-" + Guid.NewGuid().ToString("N"));
@@ -444,9 +478,17 @@ namespace Armada.Test.Database
                     DataDirectory = Path.Combine(root, "data"),
                     Database = _Settings
                 };
+                // Native backup runs the provider's client tools. Check every prerequisite before doing any work so an
+                // unprepared host reports a named skip instead of a failure from inside the backup.
+                foreach (string tool in RequiredNativeClients(_Settings.Type))
+                {
+                    if (!IsOnPath(tool))
+                        throw new DatabaseTestSkipException("native_client_missing_" + tool
+                            + ": install the client or run scripts/common/install-database-client-wrappers.sh (see test/Armada.Test.Database/README.md)");
+                }
                 string? sqlServerDirectory = Environment.GetEnvironmentVariable("ARMADA_SELF_DEPLOY_SQLSERVER_BACKUP_DIRECTORY");
                 if (_Settings.Type == DatabaseTypeEnum.SqlServer && String.IsNullOrWhiteSpace(sqlServerDirectory))
-                    throw new InvalidOperationException("Set ARMADA_SELF_DEPLOY_SQLSERVER_BACKUP_DIRECTORY to a directory visible to the SQL Server host.");
+                    throw new DatabaseTestSkipException("sqlserver_backup_directory_not_configured: set ARMADA_SELF_DEPLOY_SQLSERVER_BACKUP_DIRECTORY to a directory visible to the SQL Server host");
                 armada.SelfDeploy.SqlServerBackupDirectory = sqlServerDirectory;
 
                 await _Driver.Fleets.CreateAsync(new Fleet("backup-proof-" + Guid.NewGuid().ToString("N")), token).ConfigureAwait(false);
