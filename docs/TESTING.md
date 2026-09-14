@@ -167,6 +167,17 @@ Each test suite creates its own data, asserts only on that data, and cleans up a
 - Suites can run in any order without affecting each other
 - Use `--no-cleanup` to preserve test data after a run for debugging
 
+## Agent Runtimes and Credentials in Test Hosts
+
+The in-process Admiral in `test/Armada.Test.Automated` and in the shared `E2EServerFixture` never starts the agent CLIs installed on the machine running the suite.
+
+- **Test runtime.** Both hosts construct `ArmadaServer` with `TestAgentRuntimeFactory` (`src/Test.Shared/Infrastructure`). Every CLI runtime (Claude Code, Codex, Gemini, Cursor, OpenCode, Mux) is a `NonLaunchingAgentRuntime`. A start registers a synthetic process identifier that the health checks treat as alive, writes the mission log header, and does no work. It runs until a stop arrives through any runtime instance, then reports exit code 137 on the instance that started it. A captain therefore stays Working exactly as long as its mission holds it, and no agent exit hands Pending work to other idle captains. API-endpoint runtimes run in-process and are created as usual.
+- **Explicit exits.** A test that needs a failed or completed run calls `NonLaunchingAgentRuntime.Exit(processId, exitCode)`. No test may rely on a real CLI failing to start.
+- **Launch check.** Each start is recorded in `TestProcessLaunchLog`. After the run, `test/Armada.Test.Automated` and `src/Test.Automated` fail with `RESULT: FAIL (agent process launches)` when any operating-system agent process was started for a runtime that was not opted in. The message names each executable, its process id and its exit code. The check also runs when `--suite` or `--suites` narrows the run.
+- **Opting in to a real runtime.** Set `ARMADA_TEST_REAL_RUNTIMES` to a comma-separated list of runtime names, for example `ARMADA_TEST_REAL_RUNTIMES=ClaudeCode`. Only those runtimes start their CLI. A name that is not a CLI runtime stops the runner at startup. A suite that needs a real runtime calls `TestAgentRuntimeFactory.RealRuntimeSkipReason(runtime, optedIn)` and skips with the returned reason, which names either the missing opt-in or the executable not found on `PATH`.
+- **Stopping a start.** Cancelling a voyage cancels only its Pending and Assigned missions, so a started mission keeps its test runtime running, as a real agent would. A test that must free the captain cancels the mission and calls `POST /api/v1/captains/{id}/stop`.
+- **Provider environment.** The unit, automated, runtimes and shared runners, and the E2E fixture, remove model-provider credentials and agent-session variables from their own process before any test runs, and print how many they removed (names only). The removed names are the prefixes `ANTHROPIC_`, `OPENAI_`, `AZURE_OPENAI_`, `CLAUDE_CODE_`, `CODEX_`, `CURSOR_`, `GEMINI_`, `OPENCODE_`, `OPENROUTER_` and `DEEPSEEK_`, and `CLAUDECODE`, `GOOGLE_API_KEY` and `MISTRAL_API_KEY`. A test that asserts on inherited provider variables sets them itself. Set `ARMADA_TEST_KEEP_PROVIDER_ENVIRONMENT=1` only for a deliberate real-runtime run.
+
 ## Adding Tests
 
 1. Find or create the appropriate suite in `Suites/`

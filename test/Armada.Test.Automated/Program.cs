@@ -8,6 +8,7 @@ namespace Armada.Test.Automated
     using Armada.Test.Automated.Suites;
     using Armada.Test.Common;
     using SyslogLogging;
+    using global::Test.Shared.Infrastructure;
 
     public class Program
     {
@@ -17,8 +18,20 @@ namespace Armada.Test.Automated
             // explicit DataDirectory otherwise resolve under the live Armada home and write there.
             TestDataDirectory.Redirect();
             TestDataDirectory.Verify();
+            TestProcessEnvironment.RemoveProviderVariablesAndReport();
 
             CommandLineOptions options;
+            IReadOnlyCollection<AgentRuntimeEnum> realRuntimes;
+
+            try
+            {
+                realRuntimes = TestAgentRuntimeFactory.ReadOptedInRuntimes();
+            }
+            catch (ArgumentException ex)
+            {
+                Console.WriteLine("Error: " + ex.Message);
+                return 1;
+            }
 
             try
             {
@@ -87,7 +100,8 @@ namespace Armada.Test.Automated
             settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel = 50;
             settings.InitializeDirectories();
 
-            ArmadaServer server = new ArmadaServer(logging, settings, quiet: true);
+            // Dispatched missions use the non-launching test runtime; only an opted-in runtime starts its CLI.
+            ArmadaServer server = new ArmadaServer(logging, settings, new TestAgentRuntimeFactory(logging, settings, realRuntimes), quiet: true);
             await server.StartAsync().ConfigureAwait(false);
             await Task.Delay(500).ConfigureAwait(false);
 
@@ -112,6 +126,8 @@ namespace Armada.Test.Automated
             {
                 TestRunner runner = new TestRunner("ARMADA AUTOMATED TEST SUITE");
 
+                // First: its new captain must not be handed Pending work that later suites leave open.
+                runner.AddSuite(new TestHostRuntimeTests(authClient, realRuntimes));
                 runner.AddSuite(new DeploymentTests(authClient, unauthClient, baseUrl));
                 runner.AddSuite(new EnvironmentTests(authClient, unauthClient));
                 runner.AddSuite(new GitHubIntegrationTests(authClient, unauthClient, baseUrl));
@@ -143,10 +159,17 @@ namespace Armada.Test.Automated
                 runner.AddSuite(new PlanningWebSocketTests(authClient, unauthClient, restPort, apiKey));
                 runner.AddSuite(new WorkflowTests(authClient, unauthClient));
                 runner.AddSuite(new LandingPipelineTests(authClient, unauthClient, server, mcpClient, restPort, apiKey));
-
                 runner.VerifyRegistration(typeof(Program).Assembly);
 
                 exitCode = await runner.RunAllAsync(options.SuiteFilters).ConfigureAwait(false);
+
+                string? launchFailure = TestProcessLaunchLog.DescribeUnpermittedProcessLaunches(realRuntimes);
+                if (launchFailure != null)
+                {
+                    Console.WriteLine("RESULT: FAIL (agent process launches)");
+                    Console.WriteLine(launchFailure);
+                    exitCode = 1;
+                }
             }
             finally
             {

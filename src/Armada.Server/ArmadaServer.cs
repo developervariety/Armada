@@ -60,6 +60,7 @@ namespace Armada.Server
         private IBuildDriftService _BuildDriftService = null!;
         private ICaptainQuarantineService _CaptainQuarantine = null!;
         private AgentRuntimeFactory _RuntimeFactory = null!;
+        private AgentRuntimeFactory? _SuppliedRuntimeFactory;
         private SettingsFileWatcher? _SettingsWatcher;
 
         private Webserver _App = null!;
@@ -161,6 +162,20 @@ namespace Armada.Server
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Quiet = quiet;
+        }
+
+        /// <summary>
+        /// Instantiate with the runtime factory every captain launch, stop, liveness probe, chat, planning and
+        /// validation run uses. The Admiral builds its own factory from settings when none is supplied.
+        /// </summary>
+        /// <param name="logging">Logging module.</param>
+        /// <param name="settings">Application settings.</param>
+        /// <param name="runtimeFactory">Runtime factory to use instead of the settings-built one.</param>
+        /// <param name="quiet">Suppress startup console output.</param>
+        public ArmadaServer(LoggingModule logging, ArmadaSettings settings, AgentRuntimeFactory runtimeFactory, bool quiet = false)
+            : this(logging, settings, quiet)
+        {
+            _SuppliedRuntimeFactory = runtimeFactory ?? throw new ArgumentNullException(nameof(runtimeFactory));
         }
 
         #endregion
@@ -270,7 +285,8 @@ namespace Armada.Server
             _CriticalTriggerEvaluator = new CriticalTriggerEvaluator();
             _LandingService = new LandingService(_Logging, _Database, _Settings, _Git);
             _TemplateService = new MessageTemplateService(_Logging, _PromptTemplateService);
-            _RuntimeFactory = new AgentRuntimeFactory(_Logging, _Settings.CodeIndex.OpenCodeServer, _Settings.ModelProviders);
+            _RuntimeFactory = _SuppliedRuntimeFactory
+                ?? new AgentRuntimeFactory(_Logging, _Settings.CodeIndex.OpenCodeServer, _Settings.ModelProviders);
             _Workspace = new WorkspaceService();
             _RequestHistoryCapture = new RequestHistoryCaptureService(_Settings);
             _WorkflowProfileService = new WorkflowProfileService(_Database, _Logging);

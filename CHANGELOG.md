@@ -72,6 +72,34 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   ignored tenants is removed from the database interface and all four
   providers. A mission or captain with no tenant belongs to the default tenant,
   matching how older rows were backfilled.
+### Test hosts start no agent CLI
+
+- The automated test host and the shared end-to-end fixture no longer start
+  the agent CLIs installed on the machine running the suite. A dispatched
+  mission used to start the real runtime, for example `claude` on `PATH`, with
+  that user's tooling and credentials. Those processes exited or ran against
+  test docks, and every exit offered Pending work to other idle captains, so a
+  captain a later test expected to stay idle could go Working. A test runtime
+  start now ends only when it is stopped, which removes that trigger. The
+  dispatcher still assigns Pending work to any idle captain, so a test that
+  leaves work open can still hand it to a captain a later test creates; tests
+  must cancel the work they dispatch.
+- `ArmadaServer` accepts an `AgentRuntimeFactory`. Without one it builds its
+  own from settings, as before, so production launches are unchanged.
+- Both test hosts supply a test runtime factory. Every CLI runtime is a
+  non-launching runtime: a start registers a synthetic process that stays
+  running until it is stopped, then reports exit code 137. A test that needs
+  another outcome raises the exit explicitly.
+- After the run, the automated runner and the shared runner fail with
+  `RESULT: FAIL (agent process launches)` when any agent process was started,
+  and name each executable and its exit code. A suite that needs a real
+  runtime opts in through `ARMADA_TEST_REAL_RUNTIMES` and skips with a named
+  reason when the runtime is not opted in or not on `PATH`.
+- The unit, automated, runtimes and shared runners, and the end-to-end
+  fixture, remove model-provider credentials and agent-session variables
+  (`ANTHROPIC_*`, `OPENAI_*`, `CLAUDE_CODE_*` and related names) from their own
+  process before any test runs, unless `ARMADA_TEST_KEEP_PROVIDER_ENVIRONMENT`
+  is set.
 
 ### Data expiry on every provider
 

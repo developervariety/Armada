@@ -16,6 +16,7 @@ namespace Armada.Test.Unit
             // explicit DataDirectory otherwise resolve under the live Armada home and write there.
             TestDataDirectory.Redirect();
             TestDataDirectory.Verify();
+            global::Test.Shared.Infrastructure.TestProcessEnvironment.RemoveProviderVariablesAndReport();
 
             List<string> suiteFilters;
             try

@@ -334,7 +334,11 @@ namespace Test.Shared.Infrastructure
             // byte-identical to letting the server migrate from empty, just without the per-boot cost.
             TestDatabaseHelper.SeedDatabaseFile(sqlitePath);
 
-            _Server = new ArmadaServer(logging, settings, quiet: true);
+            // Dispatched missions use the non-launching test runtime unless a runtime is opted in by name, so a
+            // run never starts the agent CLIs installed on this machine or reads their credentials.
+            TestProcessEnvironment.RemoveProviderVariables();
+            _Server = new ArmadaServer(logging, settings,
+                new TestAgentRuntimeFactory(logging, settings, TestAgentRuntimeFactory.ReadOptedInRuntimes()), quiet: true);
             await _Server.StartAsync().ConfigureAwait(false);
 
             BaseUrl = "http://127.0.0.1:" + RestPort;

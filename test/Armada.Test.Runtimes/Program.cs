@@ -7,6 +7,10 @@ namespace Armada.Test.Runtimes
     {
         public static async Task<int> Main(string[] args)
         {
+            // Adapter tests assert on the environment a captain process inherits, so the developer's provider
+            // variables must not be present unless a test sets them.
+            global::Test.Shared.Infrastructure.TestProcessEnvironment.RemoveProviderVariablesAndReport();
+
             List<string> suiteFilters;
             try
             {

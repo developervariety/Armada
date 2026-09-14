@@ -36,6 +36,18 @@ namespace Test.Automated
         public static async Task<int> Main(string[] args)
         {
             string? resultsPath = null;
+            TestProcessEnvironment.RemoveProviderVariablesAndReport();
+
+            IReadOnlyCollection<Armada.Core.Enums.AgentRuntimeEnum> realRuntimes;
+            try
+            {
+                realRuntimes = TestAgentRuntimeFactory.ReadOptedInRuntimes();
+            }
+            catch (ArgumentException ex)
+            {
+                Console.Error.WriteLine("RESULT: FAIL (configuration) " + ex.Message);
+                return 2;
+            }
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -102,6 +114,15 @@ namespace Test.Automated
             int exitCode = await ConsoleRunner.RunAsync(suites, resultsPath: resultsPath).ConfigureAwait(false);
 
             WriteSkipped(skipped);
+
+            string? launchFailure = TestProcessLaunchLog.DescribeUnpermittedProcessLaunches(realRuntimes);
+            if (launchFailure != null)
+            {
+                Console.WriteLine("RESULT: FAIL (agent process launches)");
+                Console.WriteLine(launchFailure);
+                return exitCode == 0 ? 1 : exitCode;
+            }
+
             return exitCode;
         }
 

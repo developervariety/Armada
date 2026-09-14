@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\src\Armada.Core\Armada.Core.csproj" />
     <ProjectReference Include="..\..\src\Armada.Runtimes\Armada.Runtimes.csproj" />
     <ProjectReference Include="..\Armada.Test.Common\Armada.Test.Common.csproj" />
+    <ProjectReference Include="..\..\src\Test.Shared\Test.Shared.csproj" />
   </ItemGroup>
 
 </Project>
