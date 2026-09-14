@@ -1,4 +1,4 @@
-namespace Armada.Test.Unit.TestHelpers
+namespace Test.Shared.Infrastructure
 {
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;

@@ -91,7 +91,7 @@ namespace Test.Shared.Suites.Services
 
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     TestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver);
                     Captain captain = entities.Captain;
@@ -116,7 +116,7 @@ namespace Test.Shared.Suites.Services
 
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     TestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver);
                     Captain captain = entities.Captain;
@@ -145,7 +145,7 @@ namespace Test.Shared.Suites.Services
 
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     TestEntitiesResult entities = await CreateTestEntitiesAsync(testDb.Driver);
                     Captain captain = entities.Captain;
@@ -171,7 +171,7 @@ namespace Test.Shared.Suites.Services
 
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     await AssertThrowsAsync<ArgumentNullException>(async () =>
                     {
@@ -190,7 +190,7 @@ namespace Test.Shared.Suites.Services
 
                     IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
                     ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
                     Captain captain = new Captain("idle-captain");
                     captain.CurrentMissionId = null;
@@ -398,7 +398,7 @@ namespace Test.Shared.Suites.Services
 
                     IDockService dockService = new DockService(logging, db, settings, git);
                     ICaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
-                    IMissionService missionService = new MissionService(logging, db, settings, dockService, captainService);
+                    IMissionService missionService = new MissionService(logging, db, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
                     IVoyageService voyageService = new VoyageService(logging, db);
                     AdmiralService admiral = new AdmiralService(logging, db, settings, captainService, missionService, voyageService, dockService);
 

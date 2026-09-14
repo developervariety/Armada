@@ -137,7 +137,7 @@ namespace Test.Shared.Suites.Services
             StubGitService git = new StubGitService();
             IDockService dockService = new DockService(logging, db, settings, git);
             ICaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
-            IMissionService missionService = new MissionService(logging, db, settings, dockService, captainService);
+            IMissionService missionService = new MissionService(logging, db, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
             IVoyageService voyageService = new VoyageService(logging, db);
             IAdmiralService admiral = new AdmiralService(logging, db, settings, captainService, missionService, voyageService, dockService);
             return new AskArmadaService(db, admiral, logging);

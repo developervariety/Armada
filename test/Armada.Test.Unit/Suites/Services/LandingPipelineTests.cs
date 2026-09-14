@@ -13,6 +13,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Server;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
+    using TestResourcePressure = global::Test.Shared.Infrastructure.TestResourcePressure;
     using SyslogLogging;
 
     /// <summary>

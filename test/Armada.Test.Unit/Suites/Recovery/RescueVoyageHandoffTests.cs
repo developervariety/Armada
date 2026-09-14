@@ -15,6 +15,7 @@ namespace Armada.Test.Unit.Suites.Recovery
     using Armada.Server;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
+    using TestResourcePressure = global::Test.Shared.Infrastructure.TestResourcePressure;
     using Microsoft.Data.Sqlite;
     using SyslogLogging;
 

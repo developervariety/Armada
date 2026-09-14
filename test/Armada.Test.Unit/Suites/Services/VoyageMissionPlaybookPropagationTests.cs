@@ -13,6 +13,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Settings;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
+    using TestResourcePressure = global::Test.Shared.Infrastructure.TestResourcePressure;
 
     /// <summary>
     /// Regression tests for voyage-level merged playbooks propagating to persisted

@@ -9,6 +9,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Settings;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
+    using FixedResourcePressureProbe = global::Test.Shared.Infrastructure.FixedResourcePressureProbe;
     using SyslogLogging;
 
     /// <summary>Tests for the resource-pressure admission policy and OOM classification.</summary>

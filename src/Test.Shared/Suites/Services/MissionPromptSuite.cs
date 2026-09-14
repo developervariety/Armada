@@ -972,7 +972,7 @@ namespace Test.Shared.Suites.Services
         {
             IDockService dockService = new DockService(logging, db, settings, git);
             ICaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
-            return new MissionService(logging, db, settings, dockService, captainService);
+            return new MissionService(logging, db, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
         }
 
         private static MissionService CreateMissionServiceWithTemplates(LoggingModule logging, DatabaseDriver db, ArmadaSettings settings, StubGitService git, out IPromptTemplateService templateService)
@@ -980,7 +980,7 @@ namespace Test.Shared.Suites.Services
             IDockService dockService = new DockService(logging, db, settings, git);
             ICaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
             templateService = new PromptTemplateService(db, logging);
-            return new MissionService(logging, db, settings, dockService, captainService, templateService);
+            return new MissionService(logging, db, settings, dockService, captainService, templateService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
         }
 
         private static TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)

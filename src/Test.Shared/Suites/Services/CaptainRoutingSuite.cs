@@ -303,7 +303,7 @@ namespace Test.Shared.Suites.Services
             DirCreatingGitService git = new DirCreatingGitService();
             IDockService dockService = new DockService(logging, db, settings, git);
             CaptainService captainService = new CaptainService(logging, db, settings, git, dockService);
-            MissionService missionService = new MissionService(logging, db, settings, dockService, captainService, git: git);
+            MissionService missionService = new MissionService(logging, db, settings, dockService, captainService, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
 
             int nextPid = 5000;
             captainService.OnLaunchAgent = (_, _, _) =>

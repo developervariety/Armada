@@ -494,7 +494,7 @@ namespace Test.Shared.Suites.Services
                 return Task.FromResult(nextPid++);
             };
 
-            MissionService missionService = new MissionService(logging, db, settings, dockService, captainService);
+            MissionService missionService = new MissionService(logging, db, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
             return new ServiceSet(missionService, captainService, dockService);
         }
 

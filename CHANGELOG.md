@@ -544,6 +544,11 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   dispatch then succeeded. The test now keeps the default lease and releases
   it explicitly after the voyage is created, so only the link fence can
   detect the loss. A failure message names what dispatch returned.
+- The fixed resource-pressure probe and its admission factory moved to the
+  shared test infrastructure, so there is one copy. The unit harnesses use it
+  from there, and every mission service the shared Touchstone service suites
+  build now injects it. Those suites used the host memory probe and, under a
+  memory cap, deferred assignments that their assertions expect to launch.
 
 ### Helm configuration and branch client
 
