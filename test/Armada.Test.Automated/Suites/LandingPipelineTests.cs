@@ -2,12 +2,15 @@ namespace Armada.Test.Automated.Suites
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics;
     using System.Linq;
     using System.Net;
     using System.Net.Http;
+    using System.Reflection;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Server;
     using Armada.Test.Common;
 
     /// <summary>
@@ -28,15 +31,17 @@ namespace Armada.Test.Automated.Suites
 
         private HttpClient _AuthClient;
         private HttpClient _UnauthClient;
+        private ArmadaServer _Server;
 
         #endregion
 
         #region Constructors-and-Factories
 
-        public LandingPipelineTests(HttpClient authClient, HttpClient unauthClient)
+        public LandingPipelineTests(HttpClient authClient, HttpClient unauthClient, ArmadaServer server)
         {
             _AuthClient = authClient ?? throw new ArgumentNullException(nameof(authClient));
             _UnauthClient = unauthClient ?? throw new ArgumentNullException(nameof(unauthClient));
+            _Server = server ?? throw new ArgumentNullException(nameof(server));
         }
 
         #endregion
@@ -194,6 +199,53 @@ namespace Armada.Test.Automated.Suites
                 AssertStatusCode(HttpStatusCode.Conflict, complete);
                 Mission persisted = await GetMissionAsync(missionId);
                 AssertEqual("WorkProduced", persisted.Status.ToString());
+            });
+
+            await RunTest("ManualComplete_ActiveProcessReturnsConflictWithoutMutationAtRest", async () =>
+            {
+                string suffix = Guid.NewGuid().ToString("N");
+                string captainId = "cpt_manual_active_" + suffix;
+                string missionId = "msn_manual_active_" + suffix;
+                int processId = Process.GetCurrentProcess().Id;
+
+                HttpResponseMessage captainResponse = await _AuthClient.PostAsync("/api/v1/captains",
+                    JsonHelper.ToJsonContent(new
+                    {
+                        Id = captainId,
+                        Name = "manual active captain " + suffix,
+                        Runtime = "ClaudeCode",
+                        State = "Working",
+                        CurrentMissionId = missionId,
+                        ProcessId = processId
+                    })).ConfigureAwait(false);
+                AssertStatusCode(HttpStatusCode.Created, captainResponse);
+
+                HttpResponseMessage missionResponse = await _AuthClient.PostAsync("/api/v1/missions",
+                    JsonHelper.ToJsonContent(new
+                    {
+                        Id = missionId,
+                        Title = "manual active process mission " + suffix,
+                        CaptainId = captainId,
+                        ProcessId = processId,
+                        Mode = "Implementation"
+                    })).ConfigureAwait(false);
+                AssertStatusCode(HttpStatusCode.Created, missionResponse);
+                RegisterActiveProcessForRestProof(processId, captainId, missionId);
+                try
+                {
+                    await TransitionAsync(missionId, "Assigned");
+                    await TransitionAsync(missionId, "InProgress");
+                    await TransitionAsync(missionId, "WorkProduced");
+                    HttpResponseMessage complete = await TransitionAsync(missionId, "Complete");
+                    AssertStatusCode(HttpStatusCode.Conflict, complete);
+                    Mission persisted = await GetMissionAsync(missionId);
+                    AssertEqual("WorkProduced", persisted.Status.ToString(),
+                        "an active process must prevent status mutation");
+                }
+                finally
+                {
+                    UnregisterActiveProcessForRestProof(processId);
+                }
             });
 
             await RunTest("ManualComplete_IntermediateStageUsesSharedHandoffAtRest", async () =>
@@ -420,6 +472,42 @@ namespace Armada.Test.Automated.Suites
         private async Task<Mission> GetMissionAsync(string missionId)
         {
             return await GetTypedAsync<Mission>("/api/v1/missions/" + missionId).ConfigureAwait(false);
+        }
+
+        private void RegisterActiveProcessForRestProof(int processId, string captainId, string missionId)
+        {
+            object lifecycle = typeof(ArmadaServer)
+                .GetField("_AgentLifecycle", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(_Server)!;
+            Dictionary<int, string> processToCaptain = (Dictionary<int, string>)lifecycle.GetType()
+                .GetField("_ProcessToCaptain", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(lifecycle)!;
+            Dictionary<int, string> processToMission = (Dictionary<int, string>)lifecycle.GetType()
+                .GetField("_ProcessToMission", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(lifecycle)!;
+            lock (processToCaptain)
+            {
+                processToCaptain[processId] = captainId;
+                processToMission[processId] = missionId;
+            }
+        }
+
+        private void UnregisterActiveProcessForRestProof(int processId)
+        {
+            object lifecycle = typeof(ArmadaServer)
+                .GetField("_AgentLifecycle", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(_Server)!;
+            Dictionary<int, string> processToCaptain = (Dictionary<int, string>)lifecycle.GetType()
+                .GetField("_ProcessToCaptain", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(lifecycle)!;
+            Dictionary<int, string> processToMission = (Dictionary<int, string>)lifecycle.GetType()
+                .GetField("_ProcessToMission", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(lifecycle)!;
+            lock (processToCaptain)
+            {
+                processToCaptain.Remove(processId);
+                processToMission.Remove(processId);
+            }
         }
 
         private async Task<T> GetTypedAsync<T>(string path)
