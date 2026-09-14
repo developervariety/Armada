@@ -1694,6 +1694,16 @@ expiry and offer **Quarantine** and **Lift Quarantine**.
 | Interrupt | `armada_cancel_mission`, `armada_cancel_voyage` |
 | Destructive | `armada_purge_mission`, `armada_delete_missions`, `armada_purge_voyage`, `armada_delete_voyages` |
 
+`armada_transition_mission_status`, the WebSocket `transition_mission_status`
+command, and `PUT /api/v1/missions/{id}/status` share one operator transition
+path. A manual `Complete` meets the same gates on all three: review approval for
+a mission in `Review`, Judge authority for a terminal stage, captain process
+release, participating Check state, and target ancestry of the mission commit
+when no active dock will land it. A refusal names its reason, for example
+`Manual completion blocked: manual_completion_ancestry_unavailable`, and leaves
+the mission unchanged. Treat the reason as the finding. Do not retry the same
+request on another surface.
+
 `armada_mission_output` pages the authoritative safe report artifact. Follow
 `nextOffset` until `hasMore` is false. Then verify `sha256`, `finalized`, and
 `complete`. A missing page, incomplete artifact, or digest mismatch is an

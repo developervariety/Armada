@@ -51,17 +51,21 @@ namespace Test.Shared.Suites.E2E
                 string captainId = captain.Id!;
                 AssertStartsWith("cpt_", captainId);
 
-                // Step 4: Create a mission (without vesselId to avoid git operations)
-                Mission mission = await CreateMissionAsync(authClient, "Fix login bug").ConfigureAwait(false);
+                // Step 4: Create a report-only mission without a vessel. With no vessel it is never
+                // assigned to an idle captain, and a report-only mission may be completed manually
+                // without a landed commit.
+                Mission mission = await CreateMissionAsync(authClient, "Fix login bug", mode: "Research").ConfigureAwait(false);
                 string missionId = mission.Id!;
                 AssertStartsWith("msn_", missionId);
                 AssertEqual("Pending", mission.Status.ToString());
 
-                // Step 5: Transition mission through full lifecycle
+                // Step 5: Transition mission through its lifecycle. A mission in Review completes only
+                // through review approval, so rework returns it to InProgress before completion.
                 await TransitionMissionStatusAsync(authClient, missionId, "Assigned").ConfigureAwait(false);
                 await TransitionMissionStatusAsync(authClient, missionId, "InProgress").ConfigureAwait(false);
                 await TransitionMissionStatusAsync(authClient, missionId, "Testing").ConfigureAwait(false);
                 await TransitionMissionStatusAsync(authClient, missionId, "Review").ConfigureAwait(false);
+                await TransitionMissionStatusAsync(authClient, missionId, "InProgress").ConfigureAwait(false);
                 HttpResponseMessage completeResp = await TransitionMissionStatusAsync(authClient, missionId, "Complete").ConfigureAwait(false);
                 AssertStatusCode(HttpStatusCode.OK, completeResp);
 
@@ -340,11 +344,13 @@ namespace Test.Shared.Suites.E2E
             return await JsonHelper.DeserializeAsync<Captain>(resp).ConfigureAwait(false);
         }
 
-        private static async Task<Mission> CreateMissionAsync(HttpClient authClient, string title, string? vesselId = null)
+        private static async Task<Mission> CreateMissionAsync(HttpClient authClient, string title, string? vesselId = null, string? mode = null)
         {
             object payload = vesselId != null
                 ? (object)new { Title = title, VesselId = vesselId }
-                : new { Title = title };
+                : mode != null
+                    ? new { Title = title, Mode = mode }
+                    : new { Title = title };
             HttpResponseMessage resp = await authClient.PostAsync("/api/v1/missions", JsonHelper.ToJsonContent(payload)).ConfigureAwait(false);
             resp.EnsureSuccessStatusCode();
             string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);

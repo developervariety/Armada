@@ -71,6 +71,7 @@ namespace Armada.Server
         internal WatsonWebserver.Core.Routing.WebserverRoutes RestRoutes => _App.Routes;
         private ArmadaMcpHttpServer _McpServer = null!;
         private ArmadaWebSocketHub _WebSocketHub = null!;
+        private MissionStatusTransitionService _StatusTransitions = null!;
 
         private IMergeQueueService _MergeQueue = null!;
         private Armada.Core.Services.JobService _JobService = null!;
@@ -509,7 +510,13 @@ namespace Armada.Server
             };
 
             // Initialize WebSocket hub (before routes so it's available for injection)
-            _WebSocketHub = new ArmadaWebSocketHub(_Logging, _Admiral, _Database, _MergeQueue, _AuthenticationService, _Settings, _Git, () => { OnStopping?.Invoke(); _TokenSource.Cancel(); });
+            // REST, WebSocket, and MCP status transitions share this one path so a manual Complete
+            // meets the same gates on every entry point.
+            _StatusTransitions = new MissionStatusTransitionService(
+                _Database, _Admiral, _MissionService, _Git, _AgentLifecycle.IsMissionProcessActiveAsync,
+                _MissionLanding.HandleMissionCompleteAsync, EmitEventAsync, _Logging);
+            _WebSocketHub = new ArmadaWebSocketHub(_Logging, _Admiral, _Database, _MergeQueue, _AuthenticationService, _Settings, _Git, () => { OnStopping?.Invoke(); _TokenSource.Cancel(); }, _StatusTransitions);
+            _StatusTransitions.SetWebSocketHub(_WebSocketHub);
             _AgentLifecycle.SetWebSocketHub(_WebSocketHub);
             _MissionLanding.SetWebSocketHub(_WebSocketHub);
             missionService.OnReviewRequested = _WebSocketHub.BroadcastApprovalNeeded;
@@ -951,7 +958,7 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Missions
-            new MissionRoutes(_Database, _Admiral, _MissionService, _Settings, _Git, _LandingService, _LandingPreviewService, _GitHubIntegrationService, EmitEventAsync, _MissionLanding.HandleMissionCompleteAsync, _WebSocketHub, _Logging, _JsonOptions, _AgentLifecycle.IsMissionProcessActiveAsync)
+            new MissionRoutes(_Database, _Admiral, _MissionService, _Settings, _Git, _LandingService, _LandingPreviewService, _GitHubIntegrationService, EmitEventAsync, _WebSocketHub, _Logging, _JsonOptions, _StatusTransitions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Captains
@@ -1429,7 +1436,8 @@ namespace Armada.Server
                 longRunningJobs: _LongRunningJobs,
                 coordinationService: _CoordinationService,
                 dispatchHold: _DispatchHold,
-                objectiveDispatchPreviewService: _ObjectiveDispatchPreviewService);
+                objectiveDispatchPreviewService: _ObjectiveDispatchPreviewService,
+                statusTransitions: _StatusTransitions);
 
         }
 

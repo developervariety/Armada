@@ -519,6 +519,11 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   and captain-process ownership proof before landing or status mutation. Read
   all scoped Checks across pages, preserve intermediate pipeline handoffs, and
   keep failed or pending REST Check results blocking.
+- WebSocket `transition_mission_status` and MCP `armada_transition_mission_status`
+  now use the same operator transition path as the REST status route, so a
+  manual Complete meets the same review, Judge, Check, process and ancestry gates
+  on every entry point. A refusal returns its named reason and leaves the
+  mission unchanged; these surfaces previously marked unproven work Complete.
 
 ### Ask MCP launch and discovery
 

@@ -1605,6 +1605,21 @@ Update an existing mission.
 
 Transition a mission to a new status. The transition must be valid according to the [Mission Status Transitions](#mission-status-transitions) rules.
 
+The command uses the same operator transition path as `PUT /api/v1/missions/{id}/status`.
+A transition to `Complete` must pass the manual completion gates described in the REST
+API reference: review and Judge authority, captain process release, Check state, and,
+with no active dock, target ancestry of the mission commit. A refusal leaves the mission
+unchanged and returns a `command.error` frame that names the reason:
+
+```json
+{
+  "type": "command.error",
+  "action": "transition_mission_status",
+  "error": "Manual completion blocked: manual_completion_ancestry_unavailable",
+  "reason": "manual_completion_ancestry_unavailable"
+}
+```
+
 **Request:**
 
 ```json

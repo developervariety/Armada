@@ -31,8 +31,7 @@ namespace Armada.Server.Routes
         private readonly DatabaseDriver _database;
         private readonly IAdmiralService _admiral;
         private readonly IMissionService _missionService;
-        private readonly ManualCompletionProofService _manualCompletionProof;
-        private readonly Func<Mission, CancellationToken, Task<bool>> _isMissionProcessActive;
+        private readonly MissionStatusTransitionService _statusTransitions;
         private readonly ArmadaSettings _settings;
         private readonly IGitService _git;
         private readonly ILandingService _landingService;
@@ -42,7 +41,6 @@ namespace Armada.Server.Routes
         private readonly MissionAutoLandReportService _autoLandReport;
         private readonly GitHubIntegrationService _gitHub;
         private readonly Func<string, string, string?, string?, string?, string?, string?, string?, Task> _emitEvent;
-        private readonly Func<Mission, Dock, Task> _handleMissionComplete;
         private readonly ArmadaWebSocketHub? _webSocketHub;
         private readonly LoggingModule _logging;
         private readonly JsonSerializerOptions _jsonOptions;
@@ -65,11 +63,10 @@ namespace Armada.Server.Routes
         /// <param name="landingPreview">Mission landing-preview service.</param>
         /// <param name="gitHub">GitHub integration service.</param>
         /// <param name="emitEvent">Event broadcast callback.</param>
-        /// <param name="handleMissionComplete">Mission completion callback.</param>
         /// <param name="webSocketHub">WebSocket hub for real-time notifications.</param>
         /// <param name="logging">Logging module.</param>
         /// <param name="jsonOptions">JSON serializer options.</param>
-        /// <param name="isMissionProcessActive">Authoritative captain process ownership probe.</param>
+        /// <param name="statusTransitions">Shared operator status transition path.</param>
         public MissionRoutes(
             DatabaseDriver database,
             IAdmiralService admiral,
@@ -80,17 +77,15 @@ namespace Armada.Server.Routes
             LandingPreviewService landingPreview,
             GitHubIntegrationService gitHub,
             Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEvent,
-            Func<Mission, Dock, Task> handleMissionComplete,
             ArmadaWebSocketHub? webSocketHub,
             LoggingModule logging,
             JsonSerializerOptions jsonOptions,
-            Func<Mission, CancellationToken, Task<bool>> isMissionProcessActive)
+            MissionStatusTransitionService statusTransitions)
         {
             _database = database;
             _admiral = admiral;
             _missionService = missionService;
-            _manualCompletionProof = new ManualCompletionProofService(database, git);
-            _isMissionProcessActive = isMissionProcessActive ?? throw new ArgumentNullException(nameof(isMissionProcessActive));
+            _statusTransitions = statusTransitions ?? throw new ArgumentNullException(nameof(statusTransitions));
             _settings = settings;
             _git = git;
             _landingService = landingService;
@@ -103,47 +98,9 @@ namespace Armada.Server.Routes
             _autoLandReport = new MissionAutoLandReportService(database, logging);
             _gitHub = gitHub ?? throw new ArgumentNullException(nameof(gitHub));
             _emitEvent = emitEvent;
-            _handleMissionComplete = handleMissionComplete;
             _webSocketHub = webSocketHub;
             _logging = logging;
             _jsonOptions = jsonOptions;
-        }
-
-        private async Task<ManualCompletionProofResult> EvaluateManualCompletionAsync(
-            Mission mission,
-            bool activeLandingPipeline,
-            CancellationToken token)
-        {
-            bool processActive;
-            try
-            {
-                processActive = await _isMissionProcessActive(mission, token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch
-            {
-                return ManualCompletionProofResult.Fail("manual_completion_process_liveness_unknown");
-            }
-            if (processActive)
-            {
-                return ManualCompletionProofResult.Fail("manual_completion_process_active");
-            }
-
-            return await _manualCompletionProof
-                .EvaluateAsync(mission, activeLandingPipeline, token).ConfigureAwait(false);
-        }
-
-        private async Task<Captain?> ReadMissionCaptainAsync(AuthContext ctx, Mission mission)
-        {
-            if (String.IsNullOrWhiteSpace(mission.CaptainId)) return null;
-            return ctx.IsAdmin
-                ? await _database.Captains.ReadAsync(mission.CaptainId).ConfigureAwait(false)
-                : ctx.IsTenantAdmin
-                    ? await _database.Captains.ReadAsync(ctx.TenantId!, mission.CaptainId).ConfigureAwait(false)
-                    : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, mission.CaptainId).ConfigureAwait(false);
         }
 
         private async Task<string> ReadFileSharedAsync(string path)
@@ -261,13 +218,6 @@ namespace Armada.Server.Routes
                 FileName = fileName,
                 Path = path
             };
-        }
-
-        private bool IsValidTransition(MissionStatusEnum current, MissionStatusEnum target)
-        {
-            // Delegated to the single authoritative table. This copy was the complete one, so the
-            // delegation changes no answer here; it removes the fifth place the rules could drift.
-            return MissionStateMachine.IsValidTransition(current, target);
         }
 
         /// <summary>
@@ -851,199 +801,34 @@ namespace Armada.Server.Routes
                 if (!Enum.TryParse<MissionStatusEnum>(transition.Status, true, out MissionStatusEnum newStatus))
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Invalid status: " + transition.Status };
 
-                // Validate transitions
-                bool valid = IsValidTransition(mission.Status, newStatus);
-                if (!valid)
-                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Invalid transition from " + mission.Status + " to " + newStatus };
-
-                // If manually transitioning to Complete and an active dock exists, route through
-                // the full landing pipeline (PR creation, merge, branch cleanup, dock reclaim)
-                // instead of just mutating the status. This ensures manual completion has the
-                // same semantics as agent-driven completion.
-                if (newStatus == MissionStatusEnum.Complete && !String.IsNullOrEmpty(mission.DockId))
-                {
-                    Dock? landingDock = ctx.IsAdmin
-                        ? await _database.Docks.ReadAsync(mission.DockId).ConfigureAwait(false)
+                // REST, WebSocket, and MCP share one operator transition path: validation, the
+                // manual completion gates, active-dock landing, and intermediate handoff.
+                MissionStatusTransitionResult result = await _statusTransitions.TransitionAsync(
+                    mission,
+                    newStatus,
+                    dockId => ctx.IsAdmin
+                        ? _database.Docks.ReadAsync(dockId)
                         : ctx.IsTenantAdmin
-                            ? await _database.Docks.ReadAsync(ctx.TenantId!, mission.DockId).ConfigureAwait(false)
-                            : await _database.Docks.ReadAsync(ctx.TenantId!, ctx.UserId!, mission.DockId).ConfigureAwait(false);
-                    if (landingDock != null && landingDock.Active)
-                    {
-                        ManualCompletionProofResult preflight = await EvaluateManualCompletionAsync(
-                            mission, true, CancellationToken.None).ConfigureAwait(false);
-                        if (!preflight.Allowed)
-                        {
-                            req.Http.Response.StatusCode = 409;
-                            return new ApiErrorResponse
-                            {
-                                Error = ApiResultEnum.Conflict,
-                                Message = "Manual completion blocked: " + preflight.Reason
-                            };
-                        }
+                            ? _database.Docks.ReadAsync(ctx.TenantId!, dockId)
+                            : _database.Docks.ReadAsync(ctx.TenantId!, ctx.UserId!, dockId),
+                    captainId => ctx.IsAdmin
+                        ? _database.Captains.ReadAsync(captainId)
+                        : ctx.IsTenantAdmin
+                            ? _database.Captains.ReadAsync(ctx.TenantId!, captainId)
+                            : _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, captainId)).ConfigureAwait(false);
 
-                        List<Mission> voyageMissions = String.IsNullOrWhiteSpace(mission.VoyageId)
-                            ? new List<Mission>()
-                            : await _database.Missions.EnumerateByVoyageAsync(mission.VoyageId).ConfigureAwait(false);
-                        bool hasDependentPipelineStage = voyageMissions.Any(candidate =>
-                            String.Equals(candidate.DependsOnMissionId, mission.Id, StringComparison.Ordinal));
-                        if (hasDependentPipelineStage)
-                        {
-                            Captain? completionCaptain = await ReadMissionCaptainAsync(ctx, mission).ConfigureAwait(false);
-                            if (completionCaptain == null
-                                || !String.Equals(completionCaptain.CurrentMissionId, mission.Id, StringComparison.Ordinal))
-                            {
-                                req.Http.Response.StatusCode = 409;
-                                return new ApiErrorResponse
-                                {
-                                    Error = ApiResultEnum.Conflict,
-                                    Message = "Manual completion blocked: manual_completion_captain_unavailable"
-                                };
-                            }
-
-                            // Intermediate stages use the same shared completion service as an agent
-                            // exit. It captures the diff, prepares the downstream stage, and does
-                            // not call the landing handler while a dependent stage remains.
-                            await _missionService.HandleCompletionAsync(completionCaptain, mission.Id).ConfigureAwait(false);
-                            mission = await _database.Missions.ReadAsync(id).ConfigureAwait(false)
-                                ?? throw new InvalidOperationException("Mission disappeared during manual pipeline handoff.");
-                        }
-                        else
-                        {
-                            // Capture diff before landing
-                            if (_admiral.OnCaptureDiff != null)
-                            {
-                                try
-                                {
-                                    await _admiral.OnCaptureDiff.Invoke(mission, landingDock).ConfigureAwait(false);
-                                }
-                                catch (Exception diffEx)
-                                {
-                                    _logging.Warn(_Header + "error capturing diff during manual completion of " + id + ": " + diffEx.Message);
-                                }
-                            }
-
-                            // Set to WorkProduced first so the landing handler can process it
-                            mission.Status = MissionStatusEnum.WorkProduced;
-                            mission.LastUpdateUtc = DateTime.UtcNow;
-                            await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-
-                            _logging.Info(_Header + "manual Complete transition for " + id + " — routing through landing pipeline");
-
-                            // Invoke the full landing pipeline (same as agent-driven completion)
-                            // Use the Admiral callback seam so the route and agent completion share
-                            // one landing handler, while isolated tests can prove this callback is
-                            // not reached for an intermediate handoff.
-                            Func<Mission, Dock, Task> completionHandler =
-                                _admiral.OnMissionComplete ?? _handleMissionComplete;
-                            await completionHandler(mission, landingDock).ConfigureAwait(false);
-
-                            // Re-read the mission to get the final state after landing. The immutable
-                            // proof ran before capture and landing; a post-landing downgrade cannot
-                            // undo a merge that was allowed without that proof.
-                            mission = await _database.Missions.ReadAsync(id).ConfigureAwait(false);
-                            if (mission == null)
-                                return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found after landing" };
-                        }
-
-                        Signal landingSignal = new Signal(SignalTypeEnum.Progress, hasDependentPipelineStage
-                            ? "Mission " + id + " manual completion — handed off as " + mission.Status
-                            : "Mission " + id + " manual completion — landed as " + mission.Status);
-                        if (!String.IsNullOrEmpty(mission.CaptainId)) landingSignal.FromCaptainId = mission.CaptainId;
-                        await _database.Signals.CreateAsync(landingSignal).ConfigureAwait(false);
-
-                        await _emitEvent("mission.status_changed", hasDependentPipelineStage
-                            ? "Mission " + id + " manually completed — handed off as " + mission.Status
-                            : "Mission " + id + " manually completed — landed as " + mission.Status,
-                            "mission", id, mission.CaptainId, id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
-
-                        if (_webSocketHub != null)
-                            _webSocketHub.BroadcastMissionChange(id, mission.Status.ToString(), mission.Title, mission.VoyageId);
-
-                        return (object)mission;
-                    }
-                }
-
-                // Standard transition: no dock available or not transitioning to Complete
-                bool intermediateCompletionHandled = false;
-                if (newStatus == MissionStatusEnum.Complete)
+                switch (result.Outcome)
                 {
-                    ManualCompletionProofResult proof = await EvaluateManualCompletionAsync(
-                        mission, false, CancellationToken.None).ConfigureAwait(false);
-                    if (!proof.Allowed)
-                    {
+                    case MissionStatusTransitionOutcomeEnum.Applied:
+                        return (object)result.Mission!;
+                    case MissionStatusTransitionOutcomeEnum.Refused:
                         req.Http.Response.StatusCode = 409;
-                        return new ApiErrorResponse
-                        {
-                            Error = ApiResultEnum.Conflict,
-                            Message = "Manual completion blocked: " + proof.Reason
-                        };
-                    }
-
-                    List<Mission> voyageMissions = String.IsNullOrWhiteSpace(mission.VoyageId)
-                        ? new List<Mission>()
-                        : await _database.Missions.EnumerateByVoyageAsync(mission.VoyageId).ConfigureAwait(false);
-                    bool hasDependentPipelineStage = voyageMissions.Any(candidate =>
-                        String.Equals(candidate.DependsOnMissionId, mission.Id, StringComparison.Ordinal));
-                    if (hasDependentPipelineStage)
-                    {
-                        Captain? completionCaptain = await ReadMissionCaptainAsync(ctx, mission).ConfigureAwait(false);
-                        if (completionCaptain == null
-                            || !String.Equals(completionCaptain.CurrentMissionId, mission.Id, StringComparison.Ordinal))
-                        {
-                            req.Http.Response.StatusCode = 409;
-                            return new ApiErrorResponse
-                            {
-                                Error = ApiResultEnum.Conflict,
-                                Message = "Manual completion blocked: manual_completion_captain_unavailable"
-                            };
-                        }
-
-                        await _missionService.HandleCompletionAsync(completionCaptain, mission.Id).ConfigureAwait(false);
-                        mission = await _database.Missions.ReadAsync(id).ConfigureAwait(false)
-                            ?? throw new InvalidOperationException("Mission disappeared during manual pipeline handoff.");
-                        intermediateCompletionHandled = true;
-                        // Report the durable handoff result in the REST signal and event. The
-                        // requested Complete status was only the operator trigger; it was not the
-                        // persisted outcome for an intermediate stage.
-                        newStatus = mission.Status;
-                    }
+                        return new ApiErrorResponse { Error = ApiResultEnum.Conflict, Message = result.Message };
+                    case MissionStatusTransitionOutcomeEnum.MissionMissing:
+                        return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = result.Message };
+                    default:
+                        return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = result.Message };
                 }
-
-                if (!intermediateCompletionHandled)
-                {
-                    mission.Status = newStatus;
-                    mission.LastUpdateUtc = DateTime.UtcNow;
-
-                    if (newStatus == MissionStatusEnum.InProgress && mission.StartedUtc == null)
-                    {
-                        mission.StartedUtc = DateTime.UtcNow;
-                    }
-
-                    if (newStatus == MissionStatusEnum.Complete || newStatus == MissionStatusEnum.Failed ||
-                        newStatus == MissionStatusEnum.LandingFailed || newStatus == MissionStatusEnum.Cancelled)
-                    {
-                        mission.CompletedUtc = DateTime.UtcNow;
-                    }
-
-                    await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-                }
-
-                Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " transitioned to " + newStatus);
-                if (!String.IsNullOrEmpty(mission.CaptainId)) signal.FromCaptainId = mission.CaptainId;
-                await _database.Signals.CreateAsync(signal).ConfigureAwait(false);
-
-                await _emitEvent("mission.status_changed", "Mission " + id + " transitioned to " + newStatus,
-                    "mission", id, mission.CaptainId, id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
-
-                // Broadcast specific mission change for dashboard toast notifications
-                if (_webSocketHub != null)
-                {
-                    _webSocketHub.BroadcastMissionChange(id, newStatus.ToString(), mission.Title, mission.VoyageId);
-                    if (newStatus == MissionStatusEnum.Review)
-                        _webSocketHub.BroadcastApprovalNeeded(mission);
-                }
-
-                return (object)mission;
             },
             api => api
                 .WithTag("Missions")

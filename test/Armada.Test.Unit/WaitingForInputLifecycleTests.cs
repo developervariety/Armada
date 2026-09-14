@@ -279,6 +279,11 @@ namespace Armada.Test.Unit
             // every PullRequestOpen transition — because a guard on one copy cannot see the others.
             // They now delegate to MissionStateMachine, so the guard asserts the delegation and
             // MissionTransitionTableAgreementTests asserts the rules themselves.
+            //
+            // The REST, WebSocket, and MCP operator transitions go one step further: none of them
+            // validates or writes a status itself. They call MissionStatusTransitionService, which
+            // alone delegates to MissionStateMachine. The automated suite compares the three
+            // entry points' completion decisions behaviourally; these guards pin the delegation.
 
             await RunTest("AgentLifecycleHandler validator delegates to the shared state machine", () =>
             {
@@ -289,22 +294,37 @@ namespace Armada.Test.Unit
                     "No local transition table remains to drift from the shared one");
             });
 
-            await RunTest("WebSocketCommandHandler validator delegates to the shared state machine", () =>
+            await RunTest("MissionStatusTransitionService validator delegates to the shared state machine", () =>
             {
-                string contents = ReadSource(Path.Combine("src", "Armada.Server", "WebSocket", "WebSocketCommandHandler.cs"));
-                AssertContains("return MissionStateMachine.IsValidTransition(current, target);", contents, "Delegates to MissionStateMachine");
+                string contents = ReadSource(Path.Combine("src", "Armada.Server", "MissionStatusTransitionService.cs"));
+                AssertContains("MissionStateMachine.IsValidTransition(mission.Status, newStatus)", contents, "Delegates to MissionStateMachine");
                 Assert(
                     !contents.Contains("(MissionStatusEnum.WaitingForInput, MissionStatusEnum.Pending) => true"),
                     "No local transition table remains to drift from the shared one");
             });
 
-            await RunTest("MissionRoutes validator delegates to the shared state machine", () =>
+            await RunTest("WebSocketCommandHandler status transition delegates to the shared transition service", () =>
+            {
+                string contents = ReadSource(Path.Combine("src", "Armada.Server", "WebSocket", "WebSocketCommandHandler.cs"));
+                AssertContains("_StatusTransitions.TransitionAsync(tmMission, tmNewStatus)", contents, "Delegates to MissionStatusTransitionService");
+                Assert(!contents.Contains("IsValidTransition("), "No local transition validator remains");
+                Assert(!contents.Contains("tmMission.Status = tmNewStatus"), "No local status write bypasses the completion gates");
+            });
+
+            await RunTest("MissionRoutes status transition delegates to the shared transition service", () =>
             {
                 string contents = ReadSource(Path.Combine("src", "Armada.Server", "Routes", "MissionRoutes.cs"));
-                AssertContains("return MissionStateMachine.IsValidTransition(current, target);", contents, "Delegates to MissionStateMachine");
-                Assert(
-                    !contents.Contains("if (current == MissionStatusEnum.WaitingForInput)"),
-                    "No local transition table remains to drift from the shared one");
+                AssertContains("_statusTransitions.TransitionAsync(", contents, "Delegates to MissionStatusTransitionService");
+                Assert(!contents.Contains("IsValidTransition("), "No local transition validator remains");
+                Assert(!contents.Contains("ManualCompletionProofService"), "No local copy of the completion gate remains");
+            });
+
+            await RunTest("McpMissionTools status transition delegates to the shared transition service", () =>
+            {
+                string contents = ReadSource(Path.Combine("src", "Armada.Server", "Mcp", "Tools", "McpMissionTools.cs"));
+                AssertContains("statusTransitions.TransitionAsync(mission, newStatus)", contents, "Delegates to MissionStatusTransitionService");
+                Assert(!contents.Contains("McpToolHelpers.IsValidTransition("), "No local transition validator remains");
+                Assert(!contents.Contains("mission.Status = newStatus"), "No local status write bypasses the completion gates");
             });
 
             await RunTest("TableRenderer maps WaitingForInput to ASCII-safe color and icon", () =>

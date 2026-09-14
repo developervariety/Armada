@@ -63,7 +63,7 @@ namespace Armada.Server.WebSocket
         /// <param name="settings">Optional Armada settings for log/diff paths.</param>
         /// <param name="git">Optional git service for diff generation.</param>
         /// <param name="onStop">Optional callback invoked when stop_server is requested.</param>
-        public ArmadaWebSocketHub(LoggingModule logging, IAdmiralService admiral, DatabaseDriver database, IMergeQueueService mergeQueue, IAuthenticationService authentication, ArmadaSettings? settings = null, IGitService? git = null, Action? onStop = null)
+        public ArmadaWebSocketHub(LoggingModule logging, IAdmiralService admiral, DatabaseDriver database, IMergeQueueService mergeQueue, IAuthenticationService authentication, ArmadaSettings? settings = null, IGitService? git = null, Action? onStop = null, MissionStatusTransitionService? statusTransitions = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
@@ -80,7 +80,8 @@ namespace Armada.Server.WebSocket
                 onStop,
                 _JsonOptions,
                 BroadcastMissionChange,
-                BroadcastVoyageChange);
+                BroadcastVoyageChange,
+                statusTransitions);
         }
 
         #endregion

@@ -1629,6 +1629,21 @@ Transition a mission to a new status. Only valid transitions are allowed.
 **Response:** `200 OK` - [Mission](#mission)
 **Error:** `400` - Invalid transition or invalid status name
 **Error:** `404` - Mission not found
+**Error:** `409` - Manual completion blocked; `Message` is `Manual completion blocked: <reason>`
+
+**Manual completion:** a transition to `Complete` must pass the shared manual
+completion gates before anything is written. The same gates apply to the WebSocket
+`transition_mission_status` command and the MCP `armada_transition_mission_status`
+tool. A mission in `Review` completes only through review approval
+(`manual_completion_review_required`), a terminal stage needs Judge authority,
+and a live captain process must have released the mission. Participating failed,
+pending or stale Checks block completion. With an active dock the mission lands
+through the landing pipeline. An intermediate pipeline stage is handed off to its
+downstream stage instead. With no active dock, an Implementation mission's commit
+must already be an ancestor of the vessel default branch. Without a vessel or
+commit the reason is `manual_completion_ancestry_unavailable`. Audit and Research
+missions keep their report-only completion contract. A refused request leaves the
+mission unchanged.
 
 **Valid Status Transitions:**
 

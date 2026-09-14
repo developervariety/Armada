@@ -98,7 +98,8 @@ namespace Armada.Server.Mcp
             LongRunningJobService? longRunningJobs = null,
             Armada.Server.CoordinationService? coordinationService = null,
             Armada.Core.Services.DispatchHold? dispatchHold = null,
-            ObjectiveDispatchPreviewService? objectiveDispatchPreviewService = null)
+            ObjectiveDispatchPreviewService? objectiveDispatchPreviewService = null,
+            MissionStatusTransitionService? statusTransitions = null)
         {
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
             longRunningJobs = longRunningJobs ?? new LongRunningJobService();
@@ -109,7 +110,7 @@ namespace Armada.Server.Mcp
             McpFleetTools.Register(register, database);
             McpVesselTools.Register(register, database, dockService);
             McpVoyageTools.Register(register, database, admiral, settings, onStopCaptain, logging, codeIndexService, objectiveService, longRunningJobs, objectiveDispatchPreviewService);
-            McpMissionTools.Register(register, database, admiral, settings, git, landingService, onStopCaptain);
+            McpMissionTools.Register(register, database, admiral, settings, git, landingService, onStopCaptain, statusTransitions);
             McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, logging, captainQuarantine);
             McpCaptainDiagnosticsTools.Register(register, database, codeIndexService);
             if (unlandedBranches != null) McpUnlandedBranchTools.Register(register, unlandedBranches);

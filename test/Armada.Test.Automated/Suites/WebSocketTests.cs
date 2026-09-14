@@ -653,7 +653,14 @@ namespace Armada.Test.Automated.Suites
 
             await RunTest("TransitionMissionStatus_ToComplete_SetsCompletedUtc", async () =>
             {
-                string missionId = await CreateMissionViaRestAsync("ws-complete-mission").ConfigureAwait(false);
+                // A report-only mission satisfies the shared manual completion proof without a
+                // landed commit; the gate itself is covered by the landing pipeline suite.
+                HttpResponseMessage createResp = await _AuthClient.PostAsync("/api/v1/missions",
+                    JsonHelper.ToJsonContent(new { Title = "ws-complete-mission", Mode = "Research" })).ConfigureAwait(false);
+                createResp.EnsureSuccessStatusCode();
+                string createBody = await createResp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                MissionCreateResponse createWrapper = JsonHelper.Deserialize<MissionCreateResponse>(createBody);
+                string missionId = (createWrapper.Mission ?? JsonHelper.Deserialize<Mission>(createBody)).Id;
 
                 // Pending -> Assigned -> InProgress via REST
                 await _AuthClient.PutAsync("/api/v1/missions/" + missionId + "/status",

@@ -28,6 +28,7 @@ namespace Armada.Server.WebSocket
         private readonly JsonSerializerOptions _JsonOptions;
         private readonly Action<string, string, string?, string?> _BroadcastMissionChange;
         private readonly Action<string, string, string?> _BroadcastVoyageChange;
+        private readonly MissionStatusTransitionService? _StatusTransitions;
 
         /// <summary>
         /// Instantiate the command handler.
@@ -41,6 +42,7 @@ namespace Armada.Server.WebSocket
         /// <param name="jsonOptions">JSON serializer options.</param>
         /// <param name="broadcastMissionChange">Callback to broadcast mission state changes.</param>
         /// <param name="broadcastVoyageChange">Callback to broadcast voyage state changes.</param>
+        /// <param name="statusTransitions">Shared operator status transition path; without it transitions are refused.</param>
         public WebSocketCommandHandler(
             IAdmiralService admiral,
             DatabaseDriver database,
@@ -50,8 +52,10 @@ namespace Armada.Server.WebSocket
             Action? onStop,
             JsonSerializerOptions jsonOptions,
             Action<string, string, string?, string?> broadcastMissionChange,
-            Action<string, string, string?> broadcastVoyageChange)
+            Action<string, string, string?> broadcastVoyageChange,
+            MissionStatusTransitionService? statusTransitions = null)
         {
+            _StatusTransitions = statusTransitions;
             _Admiral = admiral;
             _Database = database;
             _MergeQueue = mergeQueue;
@@ -528,22 +532,18 @@ namespace Armada.Server.WebSocket
                     {
                         return new { type = "command.error", action = "transition_mission_status", error = "Invalid status: " + tmStatus };
                     }
-                    else if (!IsValidTransition(tmMission.Status, tmNewStatus))
+                    else if (_StatusTransitions == null)
                     {
-                        return new { type = "command.error", action = "transition_mission_status", error = "Invalid transition from " + tmMission.Status + " to " + tmNewStatus };
+                        return new { type = "command.error", action = "transition_mission_status", error = MissionStatusTransitionService.UnavailableMessage };
                     }
                     else
                     {
-                        tmMission.Status = tmNewStatus;
-                        tmMission.LastUpdateUtc = DateTime.UtcNow;
-                        if (tmNewStatus == MissionStatusEnum.Complete || tmNewStatus == MissionStatusEnum.Failed || tmNewStatus == MissionStatusEnum.LandingFailed || tmNewStatus == MissionStatusEnum.Cancelled)
-                            tmMission.CompletedUtc = DateTime.UtcNow;
-                        await _Database.Missions.UpdateAsync(tmMission).ConfigureAwait(false);
-                        Signal tmSignal = new Signal(SignalTypeEnum.Progress, "Mission " + tmId + " transitioned to " + tmNewStatus);
-                        if (!String.IsNullOrEmpty(tmMission.CaptainId)) tmSignal.FromCaptainId = tmMission.CaptainId;
-                        await _Database.Signals.CreateAsync(tmSignal).ConfigureAwait(false);
-                        _BroadcastMissionChange(tmId, tmNewStatus.ToString(), tmMission.Title, tmMission.VoyageId);
-                        return new { type = "command.result", action = "transition_mission_status", data = (object)tmMission };
+                        // The shared operator transition path applies the same validation, manual
+                        // completion gates, landing, and handoff as the REST status route.
+                        MissionStatusTransitionResult tmResult = await _StatusTransitions.TransitionAsync(tmMission, tmNewStatus).ConfigureAwait(false);
+                        if (tmResult.Outcome == MissionStatusTransitionOutcomeEnum.Applied)
+                            return new { type = "command.result", action = "transition_mission_status", data = (object)tmResult.Mission! };
+                        return new { type = "command.error", action = "transition_mission_status", error = tmResult.Message, reason = tmResult.Reason };
                     }
                 }
 
@@ -1140,12 +1140,5 @@ namespace Armada.Server.WebSocket
             }
         }
 
-        private bool IsValidTransition(MissionStatusEnum current, MissionStatusEnum target)
-        {
-            // Delegated to the single authoritative table so the WebSocket command surface and the
-            // services agree. A local copy here omitted every PullRequestOpen transition, so this
-            // surface rejected the PR-fallback flow as an invalid transition.
-            return MissionStateMachine.IsValidTransition(current, target);
-        }
     }
 }

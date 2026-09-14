@@ -39,6 +39,8 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="onStopCaptain">Optional callback that kills a captain's agent process by captain id.
         /// Invoked from armada_cancel_mission when the captain is currently running this mission so
         /// the agent process actually exits instead of staying orphaned in Working state.</param>
+        /// <param name="statusTransitions">Shared operator status transition path used by
+        /// armada_transition_mission_status; without it every transition is refused.</param>
         public static void Register(
             RegisterToolDelegate register,
             DatabaseDriver database,
@@ -46,7 +48,8 @@ namespace Armada.Server.Mcp.Tools
             ArmadaSettings? settings,
             IGitService? git,
             ILandingService? landingService = null,
-            Func<string, Task>? onStopCaptain = null)
+            Func<string, Task>? onStopCaptain = null,
+            MissionStatusTransitionService? statusTransitions = null)
         {
             register(
                 "armada_mission_status",
@@ -585,23 +588,16 @@ namespace Armada.Server.Mcp.Tools
                     if (!Enum.TryParse<MissionStatusEnum>(statusStr, true, out MissionStatusEnum newStatus))
                         return (object)new { Error = "Invalid status: " + statusStr };
 
-                    if (!McpToolHelpers.IsValidTransition(mission.Status, newStatus))
-                        return (object)new { Error = "Invalid transition from " + mission.Status + " to " + newStatus };
+                    if (statusTransitions == null)
+                        return (object)new { Error = MissionStatusTransitionService.UnavailableMessage };
 
-                    mission.Status = newStatus;
-                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    // The shared operator transition path applies the same validation, manual
+                    // completion gates, landing, and handoff as the REST status route.
+                    MissionStatusTransitionResult transition = await statusTransitions.TransitionAsync(mission, newStatus).ConfigureAwait(false);
+                    if (transition.Outcome != MissionStatusTransitionOutcomeEnum.Applied)
+                        return (object)new { Error = transition.Message, Reason = transition.Reason };
 
-                    if (newStatus == MissionStatusEnum.Complete || newStatus == MissionStatusEnum.Failed || newStatus == MissionStatusEnum.Cancelled)
-                        mission.CompletedUtc = DateTime.UtcNow;
-
-                    mission = await database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-
-                    Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + missionId + " transitioned to " + newStatus);
-                    signal.TenantId = ArmadaConstants.DefaultTenantId;
-                    if (!String.IsNullOrEmpty(mission.CaptainId)) signal.FromCaptainId = mission.CaptainId;
-                    await database.Signals.CreateAsync(signal).ConfigureAwait(false);
-
-                    return (object)SanitizeMissionForStatus(mission);
+                    return (object)SanitizeMissionForStatus(transition.Mission!);
                 });
 
             // Diff and log tools require settings and git service

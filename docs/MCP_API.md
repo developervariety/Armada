@@ -222,6 +222,22 @@ When a structured result includes an action hint, follow it before you retry.
 Do not repeat a dispatch call until you have checked whether it created a
 voyage.
 
+`armada_transition_mission_status` uses the same operator transition path as
+the REST status route and the WebSocket `transition_mission_status` command. A
+manual `Complete` that fails a completion gate returns a structured error result
+and leaves the mission unchanged:
+
+```json
+{
+  "Error": "Manual completion blocked: manual_completion_ancestry_unavailable",
+  "Reason": "manual_completion_ancestry_unavailable"
+}
+```
+
+The gates are review approval, Judge authority, captain process release, Check
+state, and target ancestry of the mission commit when no active dock will land
+it. The same request on another surface gets the same decision.
+
 Common protocol errors:
 
 | Condition | Result |

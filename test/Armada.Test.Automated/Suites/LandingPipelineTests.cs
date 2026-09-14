@@ -6,7 +6,12 @@ namespace Armada.Test.Automated.Suites
     using System.Linq;
     using System.Net;
     using System.Net.Http;
+    using System.Net.WebSockets;
     using System.Reflection;
+    using System.Text;
+    using System.Text.Json;
+    using System.Text.RegularExpressions;
+    using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -34,16 +39,22 @@ namespace Armada.Test.Automated.Suites
         private HttpClient _AuthClient;
         private HttpClient _UnauthClient;
         private ArmadaServer _Server;
+        private HttpClient _McpClient;
+        private int _RestPort;
+        private string _ApiKey;
 
         #endregion
 
         #region Constructors-and-Factories
 
-        public LandingPipelineTests(HttpClient authClient, HttpClient unauthClient, ArmadaServer server)
+        public LandingPipelineTests(HttpClient authClient, HttpClient unauthClient, ArmadaServer server, HttpClient mcpClient, int restPort, string apiKey)
         {
             _AuthClient = authClient ?? throw new ArgumentNullException(nameof(authClient));
             _UnauthClient = unauthClient ?? throw new ArgumentNullException(nameof(unauthClient));
             _Server = server ?? throw new ArgumentNullException(nameof(server));
+            _McpClient = mcpClient ?? throw new ArgumentNullException(nameof(mcpClient));
+            _RestPort = restPort;
+            _ApiKey = apiKey ?? throw new ArgumentNullException(nameof(apiKey));
         }
 
         #endregion
@@ -405,6 +416,78 @@ namespace Armada.Test.Automated.Suites
                     "REST status event does not report requested Complete for an intermediate stage");
             });
 
+            // === Manual Complete Across Entry Points ===
+
+            await RunTest("ManualComplete_WebSocket_NoCommitRefusedWithReason", async () =>
+            {
+                string missionId = await CreateInProgressCompletionFixtureAsync("ws no-commit", CompletionFixture.NoCommit);
+                CompletionDecision decision = await CompleteViaWebSocketAsync(missionId);
+                AssertFalse(decision.Allowed, "WebSocket completion without a commit is refused: " + decision.Detail);
+                AssertEqual("manual_completion_ancestry_unavailable", decision.Reason, decision.Detail);
+                await AssertCompletionRefusedStateAsync(missionId, MissionStatusEnum.InProgress);
+            });
+
+            await RunTest("ManualComplete_Mcp_NoCommitRefusedWithReason", async () =>
+            {
+                string missionId = await CreateInProgressCompletionFixtureAsync("mcp no-commit", CompletionFixture.NoCommit);
+                CompletionDecision decision = await CompleteViaMcpAsync(missionId);
+                AssertFalse(decision.Allowed, "MCP completion without a commit is refused: " + decision.Detail);
+                AssertEqual("manual_completion_ancestry_unavailable", decision.Reason, decision.Detail);
+                await AssertCompletionRefusedStateAsync(missionId, MissionStatusEnum.InProgress);
+            });
+
+            await RunTest("ManualComplete_WebSocket_LandedCommitCompletes", async () =>
+            {
+                string missionId = await CreateInProgressCompletionFixtureAsync("ws landed", CompletionFixture.Landed);
+                CompletionDecision decision = await CompleteViaWebSocketAsync(missionId);
+                AssertTrue(decision.Allowed, "WebSocket completion with a landed commit succeeds: " + decision.Detail);
+                Mission stored = await GetMissionAsync(missionId);
+                AssertEqual(MissionStatusEnum.Complete, stored.Status);
+                AssertNotNull(stored.CompletedUtc, "completion stamps CompletedUtc");
+            });
+
+            await RunTest("ManualComplete_Mcp_LandedCommitCompletes", async () =>
+            {
+                string missionId = await CreateInProgressCompletionFixtureAsync("mcp landed", CompletionFixture.Landed);
+                CompletionDecision decision = await CompleteViaMcpAsync(missionId);
+                AssertTrue(decision.Allowed, "MCP completion with a landed commit succeeds: " + decision.Detail);
+                Mission stored = await GetMissionAsync(missionId);
+                AssertEqual(MissionStatusEnum.Complete, stored.Status);
+                AssertNotNull(stored.CompletedUtc, "completion stamps CompletedUtc");
+            });
+
+            await RunTest("ManualComplete_RestWebSocketAndMcpReachIdenticalDecisions", async () =>
+            {
+                // Each fixture is built three times, once per entry point, so every surface
+                // decides the same stored state. The expected outcome is asserted as well, so
+                // three surfaces agreeing on a wrong answer still fails.
+                (CompletionFixture Fixture, bool Allowed, string? Reason, MissionStatusEnum Status)[] scenarios = new[]
+                {
+                    (CompletionFixture.NoCommit, false, (string?)"manual_completion_ancestry_unavailable", MissionStatusEnum.InProgress),
+                    (CompletionFixture.LandedInReview, false, (string?)"manual_completion_review_required", MissionStatusEnum.Review),
+                    (CompletionFixture.Landed, true, (string?)null, MissionStatusEnum.Complete)
+                };
+
+                foreach ((CompletionFixture fixture, bool allowed, string? reason, MissionStatusEnum status) in scenarios)
+                {
+                    string restId = await CreateInProgressCompletionFixtureAsync("rest " + fixture, fixture);
+                    string wsId = await CreateInProgressCompletionFixtureAsync("ws " + fixture, fixture);
+                    string mcpId = await CreateInProgressCompletionFixtureAsync("mcp " + fixture, fixture);
+
+                    CompletionDecision rest = await CompleteViaRestAsync(restId);
+                    CompletionDecision ws = await CompleteViaWebSocketAsync(wsId);
+                    CompletionDecision mcp = await CompleteViaMcpAsync(mcpId);
+
+                    foreach ((string surface, CompletionDecision decision, string id) in new[] { ("REST", rest, restId), ("WebSocket", ws, wsId), ("MCP", mcp, mcpId) })
+                    {
+                        AssertEqual(allowed, decision.Allowed, surface + " decision for " + fixture + ": " + decision.Detail);
+                        AssertEqual(reason, decision.Reason, surface + " reason for " + fixture + ": " + decision.Detail);
+                        Mission stored = await GetMissionAsync(id);
+                        AssertEqual(status, stored.Status, surface + " stored status for " + fixture);
+                    }
+                }
+            });
+
             // === MergeQueue Auto-Enqueue ===
 
             await RunTest("MergeQueue_VesselLandingMode_CreatesEntry", async () =>
@@ -588,6 +671,171 @@ namespace Armada.Test.Automated.Suites
                 ?? throw new InvalidOperationException("Active dock fixture mission was not found.");
             mission.DockId = dock.Id;
             await database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+        }
+
+        private enum CompletionFixture
+        {
+            NoCommit,
+            Landed,
+            LandedInReview
+        }
+
+        private sealed class CompletionDecision
+        {
+            public bool Allowed { get; set; }
+            public string? Reason { get; set; }
+            public string Detail { get; set; } = String.Empty;
+        }
+
+        /// <summary>
+        /// Build an Implementation mission in InProgress (or Review) for a manual Complete request.
+        /// </summary>
+        /// <remarks>
+        /// The mission is created without a vessel so no idle captain can claim it. A landed fixture
+        /// then records a vessel backed by its own repository and that repository's main commit
+        /// directly in the store, so the completion gate proves real ancestry.
+        /// </remarks>
+        private async Task<string> CreateInProgressCompletionFixtureAsync(string title, CompletionFixture fixture)
+        {
+            Mission mission = await CreateMissionAsync("manual entry point " + title);
+            string missionId = mission.Id!;
+
+            if (fixture != CompletionFixture.NoCommit)
+            {
+                DedicatedBareRepo repo = TestRepoHelper.CreateDedicatedBareRepo();
+                HttpResponseMessage vesselResponse = await _AuthClient.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                {
+                    Name = "manual-entry-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                    RepoUrl = repo.Url,
+                    LocalPath = repo.Path,
+                    DefaultBranch = "main"
+                })).ConfigureAwait(false);
+                AssertStatusCode(HttpStatusCode.Created, vesselResponse);
+                Vessel vessel = await JsonHelper.DeserializeAsync<Vessel>(vesselResponse).ConfigureAwait(false);
+
+                DatabaseDriver database = ReadServerDatabase();
+                Mission stored = await database.Missions.ReadAsync(missionId).ConfigureAwait(false)
+                    ?? throw new InvalidOperationException("Completion fixture mission was not found.");
+                stored.VesselId = vessel.Id;
+                stored.CommitHash = repo.HeadCommit;
+                await database.Missions.UpdateAsync(stored).ConfigureAwait(false);
+            }
+
+            string[] chain = fixture == CompletionFixture.LandedInReview
+                ? new[] { "Assigned", "InProgress", "Review" }
+                : new[] { "Assigned", "InProgress" };
+            foreach (string status in chain)
+            {
+                HttpResponseMessage resp = await TransitionAsync(missionId, status).ConfigureAwait(false);
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                AssertStatusCode(HttpStatusCode.OK, resp, "fixture transition to " + status + ": " + body);
+            }
+
+            return missionId;
+        }
+
+        private async Task<CompletionDecision> CompleteViaRestAsync(string missionId)
+        {
+            HttpResponseMessage resp = await TransitionAsync(missionId, "Complete").ConfigureAwait(false);
+            string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+            bool allowed = resp.StatusCode == HttpStatusCode.OK
+                && JsonHelper.Deserialize<Mission>(body).Status == MissionStatusEnum.Complete;
+            return new CompletionDecision { Allowed = allowed, Reason = ReadCompletionReason(body), Detail = (int)resp.StatusCode + " " + body };
+        }
+
+        private async Task<CompletionDecision> CompleteViaWebSocketAsync(string missionId)
+        {
+            using ClientWebSocket ws = new ClientWebSocket();
+            using CancellationTokenSource cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            await ws.ConnectAsync(new Uri("ws://localhost:" + _RestPort + "/ws"), cts.Token).ConfigureAwait(false);
+
+            await SendWebSocketJsonAsync(ws, new { Route = "authenticate", apiKey = _ApiKey }, cts.Token).ConfigureAwait(false);
+            JsonElement auth = await ReceiveWebSocketFrameAsync(ws, frame => true, cts.Token).ConfigureAwait(false);
+            if (auth.GetProperty("type").GetString() != "auth.result")
+                throw new InvalidOperationException("WebSocket authentication failed: " + auth.GetRawText());
+
+            await SendWebSocketJsonAsync(ws, new { Route = "command", action = "transition_mission_status", id = missionId, status = "Complete" }, cts.Token).ConfigureAwait(false);
+            JsonElement reply = await ReceiveWebSocketFrameAsync(ws, frame =>
+                frame.TryGetProperty("type", out JsonElement type)
+                && (type.GetString() == "command.result" || type.GetString() == "command.error"), cts.Token).ConfigureAwait(false);
+
+            string raw = reply.GetRawText();
+            bool allowed = reply.GetProperty("type").GetString() == "command.result"
+                && JsonHelper.Deserialize<Mission>(reply.GetProperty("data").GetRawText()).Status == MissionStatusEnum.Complete;
+            return new CompletionDecision { Allowed = allowed, Reason = ReadCompletionReason(raw), Detail = raw };
+        }
+
+        private async Task<CompletionDecision> CompleteViaMcpAsync(string missionId)
+        {
+            object request = new
+            {
+                jsonrpc = "2.0",
+                id = 1,
+                method = "tools/call",
+                @params = new { name = "armada_transition_mission_status", arguments = new { missionId = missionId, status = "Complete" } }
+            };
+            HttpRequestMessage httpRequest = new HttpRequestMessage(HttpMethod.Post, "/mcp");
+            httpRequest.Content = JsonHelper.ToJsonContent(request);
+            httpRequest.Headers.Add("Accept", "application/json, text/event-stream");
+            HttpResponseMessage response = await _McpClient.SendAsync(httpRequest).ConfigureAwait(false);
+            string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            string json = body;
+            if (String.Equals(response.Content.Headers.ContentType?.MediaType, "text/event-stream", StringComparison.OrdinalIgnoreCase))
+            {
+                json = body.Split('\n').First(line => line.StartsWith("data:", StringComparison.Ordinal)).Substring(5).Trim();
+            }
+
+            JsonElement envelope = JsonSerializer.Deserialize<JsonElement>(json);
+            if (!envelope.TryGetProperty("result", out JsonElement result))
+                throw new InvalidOperationException("MCP transition returned no result: " + json);
+            string text = result.GetProperty("content")[0].GetProperty("text").GetString() ?? String.Empty;
+            JsonElement payload = JsonSerializer.Deserialize<JsonElement>(text);
+            bool allowed = payload.ValueKind == JsonValueKind.Object
+                && !payload.TryGetProperty("Error", out _)
+                && payload.TryGetProperty("Status", out JsonElement statusElement)
+                && String.Equals(statusElement.ToString(), "Complete", StringComparison.Ordinal);
+            return new CompletionDecision { Allowed = allowed, Reason = ReadCompletionReason(text), Detail = text };
+        }
+
+        private static string? ReadCompletionReason(string text)
+        {
+            Match match = Regex.Match(text ?? String.Empty, "manual_completion_[a-z_]+");
+            return match.Success ? match.Value : null;
+        }
+
+        private async Task AssertCompletionRefusedStateAsync(string missionId, MissionStatusEnum unchangedStatus)
+        {
+            Mission stored = await GetMissionAsync(missionId);
+            AssertEqual(unchangedStatus, stored.Status, "refused completion leaves the status unchanged");
+            AssertTrue(stored.CompletedUtc == null, "refused completion does not stamp CompletedUtc");
+        }
+
+        private static async Task SendWebSocketJsonAsync(ClientWebSocket ws, object message, CancellationToken token)
+        {
+            byte[] bytes = Encoding.UTF8.GetBytes(JsonHelper.Serialize(message));
+            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, token).ConfigureAwait(false);
+        }
+
+        private static async Task<JsonElement> ReceiveWebSocketFrameAsync(ClientWebSocket ws, Func<JsonElement, bool> accept, CancellationToken token)
+        {
+            byte[] buffer = new byte[1048576];
+            while (true)
+            {
+                int count = 0;
+                WebSocketReceiveResult result;
+                do
+                {
+                    result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer, count, buffer.Length - count), token).ConfigureAwait(false);
+                    if (result.MessageType == WebSocketMessageType.Close)
+                        throw new InvalidOperationException("WebSocket closed before the expected frame.");
+                    count += result.Count;
+                }
+                while (!result.EndOfMessage);
+
+                using JsonDocument doc = JsonDocument.Parse(Encoding.UTF8.GetString(buffer, 0, count));
+                JsonElement frame = doc.RootElement.Clone();
+                if (accept(frame)) return frame;
+            }
         }
 
         private DatabaseDriver ReadServerDatabase()

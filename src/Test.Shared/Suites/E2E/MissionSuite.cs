@@ -583,8 +583,7 @@ namespace Test.Shared.Suites.E2E
                 List<string> createdVesselIds = new List<string>();
                 List<string> createdMissionIds = new List<string>();
 
-                string vesselId = await SetupVesselAsync(authClient, createdFleetIds, createdVesselIds);
-                Mission created = await CreateMissionAsync(authClient, createdMissionIds, vesselId, "IPToComplete");
+                Mission created = await CreateUnboundMissionAsync(authClient, createdMissionIds, "IPToComplete", "Research");
                 string missionId = created.Id;
 
                 await TransitionAndAssertAsync(authClient, missionId, "Assigned");
@@ -670,8 +669,7 @@ namespace Test.Shared.Suites.E2E
                 List<string> createdVesselIds = new List<string>();
                 List<string> createdMissionIds = new List<string>();
 
-                string vesselId = await SetupVesselAsync(authClient, createdFleetIds, createdVesselIds);
-                Mission created = await CreateMissionAsync(authClient, createdMissionIds, vesselId, "TestToComplete");
+                Mission created = await CreateUnboundMissionAsync(authClient, createdMissionIds, "TestToComplete", "Research");
                 string missionId = created.Id;
 
                 await TransitionAndAssertAsync(authClient, missionId, "Assigned");
@@ -698,22 +696,35 @@ namespace Test.Shared.Suites.E2E
                 await TransitionAndAssertAsync(authClient, missionId, "Failed");
             }));
 
-            cases.Add(CaseAsync("status_transition_review_to_complete_succeeds", "StatusTransition_ReviewToComplete_Succeeds", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("status_transition_review_to_complete_requires_review_approval", "StatusTransition_ReviewToComplete_RequiresReviewApproval", TestTags.Negative, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
-                List<string> createdVesselIds = new List<string>();
                 List<string> createdMissionIds = new List<string>();
 
-                string vesselId = await SetupVesselAsync(authClient, createdFleetIds, createdVesselIds);
-                Mission created = await CreateMissionAsync(authClient, createdMissionIds, vesselId, "ReviewToComplete");
+                // A report-only mission otherwise satisfies the completion proof, so the refusal can
+                // only come from the review gate.
+                Mission created = await CreateUnboundMissionAsync(authClient, createdMissionIds, "ReviewToComplete", "Research");
                 string missionId = created.Id;
 
                 await TransitionAndAssertAsync(authClient, missionId, "Assigned");
                 await TransitionAndAssertAsync(authClient, missionId, "InProgress");
                 await TransitionAndAssertAsync(authClient, missionId, "Review");
-                await TransitionAndAssertAsync(authClient, missionId, "Complete");
+                await AssertCompleteRefusedAsync(authClient, missionId, "manual_completion_review_required", "Review");
+            }));
+
+            cases.Add(CaseAsync("status_transition_in_progress_to_complete_without_commit_refused_ancestry_unavailable", "StatusTransition_InProgressToComplete_WithoutCommit_RefusedAncestryUnavailable", TestTags.Negative, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
+                HttpClient authClient = fx.AuthClient;
+                List<string> createdMissionIds = new List<string>();
+
+                Mission created = await CreateUnboundMissionAsync(authClient, createdMissionIds, "NoCommitComplete", null);
+                string missionId = created.Id;
+
+                await TransitionAndAssertAsync(authClient, missionId, "Assigned");
+                await TransitionAndAssertAsync(authClient, missionId, "InProgress");
+                await AssertCompleteRefusedAsync(authClient, missionId, "manual_completion_ancestry_unavailable", "InProgress");
             }));
 
             cases.Add(CaseAsync("status_transition_review_to_in_progress_succeeds", "StatusTransition_ReviewToInProgress_Succeeds", TestTags.Positive, async () =>
@@ -756,22 +767,21 @@ namespace Test.Shared.Suites.E2E
 
             #region StatusTransition-Valid-Lifecycle
 
-            cases.Add(CaseAsync("status_transition_full_lifecycle_pending_through_review_to_complete", "StatusTransition_FullLifecycle_PendingThroughReviewToComplete", TestTags.Positive, async () =>
+            cases.Add(CaseAsync("status_transition_full_lifecycle_pending_through_review_rework_to_complete", "StatusTransition_FullLifecycle_PendingThroughReviewReworkToComplete", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
                 HttpClient authClient = fx.AuthClient;
-                List<string> createdFleetIds = new List<string>();
-                List<string> createdVesselIds = new List<string>();
                 List<string> createdMissionIds = new List<string>();
 
-                string vesselId = await SetupVesselAsync(authClient, createdFleetIds, createdVesselIds);
-                Mission created = await CreateMissionAsync(authClient, createdMissionIds, vesselId, "Lifecycle Full");
+                Mission created = await CreateUnboundMissionAsync(authClient, createdMissionIds, "Lifecycle Full", "Research");
                 string missionId = created.Id;
 
                 await TransitionAndAssertAsync(authClient, missionId, "Assigned");
                 await TransitionAndAssertAsync(authClient, missionId, "InProgress");
                 await TransitionAndAssertAsync(authClient, missionId, "Testing");
                 await TransitionAndAssertAsync(authClient, missionId, "Review");
+                await TransitionAndAssertAsync(authClient, missionId, "InProgress");
+                await TransitionAndAssertAsync(authClient, missionId, "Testing");
 
                 HttpResponseMessage response = await TransitionAsync(authClient, missionId, "Complete");
                 AssertEqual(HttpStatusCode.OK, response.StatusCode);
@@ -787,14 +797,14 @@ namespace Test.Shared.Suites.E2E
                 List<string> createdVesselIds = new List<string>();
                 List<string> createdMissionIds = new List<string>();
 
-                string vesselId = await SetupVesselAsync(authClient, createdFleetIds, createdVesselIds);
-                Mission created = await CreateMissionAsync(authClient, createdMissionIds, vesselId, "Complete Timestamp");
+                Mission created = await CreateUnboundMissionAsync(authClient, createdMissionIds, "Complete Timestamp", "Research");
                 string missionId = created.Id;
 
                 await TransitionAndAssertAsync(authClient, missionId, "Assigned");
                 await TransitionAndAssertAsync(authClient, missionId, "InProgress");
 
                 HttpResponseMessage response = await TransitionAsync(authClient, missionId, "Complete");
+                AssertEqual(HttpStatusCode.OK, response.StatusCode);
                 Mission transitioned = await JsonHelper.DeserializeAsync<Mission>(response);
                 AssertTrue(transitioned.CompletedUtc != null);
             }));
@@ -827,8 +837,7 @@ namespace Test.Shared.Suites.E2E
                 List<string> createdVesselIds = new List<string>();
                 List<string> createdMissionIds = new List<string>();
 
-                string vesselId = await SetupVesselAsync(authClient, createdFleetIds, createdVesselIds);
-                Mission created = await CreateMissionAsync(authClient, createdMissionIds, vesselId, "Runtime Timestamp");
+                Mission created = await CreateUnboundMissionAsync(authClient, createdMissionIds, "Runtime Timestamp", "Research");
                 string missionId = created.Id;
 
                 await TransitionAndAssertAsync(authClient, missionId, "Assigned");
@@ -885,8 +894,7 @@ namespace Test.Shared.Suites.E2E
                 List<string> createdVesselIds = new List<string>();
                 List<string> createdMissionIds = new List<string>();
 
-                string vesselId = await SetupVesselAsync(authClient, createdFleetIds, createdVesselIds);
-                Mission created = await CreateMissionAsync(authClient, createdMissionIds, vesselId, "Bounce Back");
+                Mission created = await CreateUnboundMissionAsync(authClient, createdMissionIds, "Bounce Back", "Research");
                 string missionId = created.Id;
 
                 await TransitionAndAssertAsync(authClient, missionId, "Assigned");
@@ -894,7 +902,6 @@ namespace Test.Shared.Suites.E2E
                 await TransitionAndAssertAsync(authClient, missionId, "Testing");
                 await TransitionAndAssertAsync(authClient, missionId, "InProgress");
                 await TransitionAndAssertAsync(authClient, missionId, "Testing");
-                await TransitionAndAssertAsync(authClient, missionId, "Review");
                 await TransitionAndAssertAsync(authClient, missionId, "Complete");
             }));
 
@@ -906,15 +913,13 @@ namespace Test.Shared.Suites.E2E
                 List<string> createdVesselIds = new List<string>();
                 List<string> createdMissionIds = new List<string>();
 
-                string vesselId = await SetupVesselAsync(authClient, createdFleetIds, createdVesselIds);
-                Mission created = await CreateMissionAsync(authClient, createdMissionIds, vesselId, "Review Bounce");
+                Mission created = await CreateUnboundMissionAsync(authClient, createdMissionIds, "Review Bounce", "Research");
                 string missionId = created.Id;
 
                 await TransitionAndAssertAsync(authClient, missionId, "Assigned");
                 await TransitionAndAssertAsync(authClient, missionId, "InProgress");
                 await TransitionAndAssertAsync(authClient, missionId, "Review");
                 await TransitionAndAssertAsync(authClient, missionId, "InProgress");
-                await TransitionAndAssertAsync(authClient, missionId, "Review");
                 await TransitionAndAssertAsync(authClient, missionId, "Complete");
             }));
 
@@ -1087,8 +1092,7 @@ namespace Test.Shared.Suites.E2E
                 List<string> createdVesselIds = new List<string>();
                 List<string> createdMissionIds = new List<string>();
 
-                string vesselId = await SetupVesselAsync(authClient, createdFleetIds, createdVesselIds);
-                Mission created = await CreateMissionAsync(authClient, createdMissionIds, vesselId, "CompleteTerminal");
+                Mission created = await CreateUnboundMissionAsync(authClient, createdMissionIds, "CompleteTerminal", "Research");
                 string missionId = created.Id;
 
                 await TransitionAndAssertAsync(authClient, missionId, "Assigned");
@@ -2329,6 +2333,42 @@ namespace Test.Shared.Suites.E2E
             Voyage voyage = JsonHelper.Deserialize<Voyage>(body);
             createdVoyageIds.Add(voyage.Id);
             return voyage.Id;
+        }
+
+        /// <summary>
+        /// Creates a mission without a vessel, so no idle captain on the shared server can claim it.
+        /// A Research mode mission satisfies the manual completion proof as report-only work; an
+        /// Implementation mission without a vessel or commit cannot prove target ancestry.
+        /// </summary>
+        private static async Task<Mission> CreateUnboundMissionAsync(HttpClient client, List<string> createdMissionIds, string title, string? mode)
+        {
+            object requestBody = mode != null
+                ? (object)new { Title = title, Mode = mode }
+                : new { Title = title };
+            HttpResponseMessage resp = await client.PostAsync("/api/v1/missions", JsonHelper.ToJsonContent(requestBody));
+            string body = await resp.Content.ReadAsStringAsync();
+            MissionCreateResponse wrapper = JsonHelper.Deserialize<MissionCreateResponse>(body);
+            Mission mission = wrapper.Mission ?? JsonHelper.Deserialize<Mission>(body);
+            if (String.IsNullOrEmpty(mission.Id))
+                throw new Exception("CreateUnboundMissionAsync failed (" + (int)resp.StatusCode + "): " + body);
+            createdMissionIds.Add(mission.Id);
+            return mission;
+        }
+
+        /// <summary>
+        /// Requests Complete and asserts the named refusal with the stored status left unchanged.
+        /// </summary>
+        private static async Task AssertCompleteRefusedAsync(HttpClient client, string missionId, string reason, string unchangedStatus)
+        {
+            HttpResponseMessage response = await TransitionAsync(client, missionId, "Complete");
+            string body = await response.Content.ReadAsStringAsync();
+            AssertEqual(HttpStatusCode.Conflict, response.StatusCode);
+            AssertTrue(body.Contains(reason, StringComparison.Ordinal), "refusal names " + reason + ": " + body);
+
+            HttpResponseMessage read = await client.GetAsync("/api/v1/missions/" + missionId);
+            Mission stored = await JsonHelper.DeserializeAsync<Mission>(read);
+            AssertEqual(unchangedStatus, stored.Status.ToString());
+            AssertTrue(stored.CompletedUtc == null, "refused completion does not stamp CompletedUtc");
         }
 
         private static TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)
