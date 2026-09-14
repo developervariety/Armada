@@ -243,6 +243,15 @@ namespace Armada.Test.Unit.TestHelpers
 
         public List<string> RevisionCommitShaCalls { get; } = new List<string>();
 
+        /// <summary>Committer times keyed by "repoPath|revision".</summary>
+        public Dictionary<string, DateTime?> CommitTimes { get; } = new Dictionary<string, DateTime?>();
+
+        public Task<DateTime?> GetCommitTimeUtcAsync(string repoPath, string revision, CancellationToken token = default)
+        {
+            if (CommitTimes.TryGetValue(repoPath + "|" + revision, out DateTime? keyed)) return Task.FromResult(keyed);
+            return Task.FromResult<DateTime?>(null);
+        }
+
         public Task<string?> GetRevisionCommitShaAsync(string repoPath, string revision, CancellationToken token = default)
         {
             RevisionCommitShaCalls.Add(repoPath + "|" + revision);

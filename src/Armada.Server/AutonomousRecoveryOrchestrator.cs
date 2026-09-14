@@ -53,6 +53,7 @@ namespace Armada.Server
         private readonly Func<Mission, string, string?, CancellationToken, Task<JudgeFollowUp>> _CaptureJudgeFollowUp;
         private readonly DispatchHold? _DispatchHold;
         private readonly TerminalMarkerTracker? _TerminalMarkers;
+        private readonly CaptainStallEvaluator _StallEvaluator;
 
         // Missions whose withheld nudge already produced an event, so a finished captain yields one
         // event rather than one per sweep tick; every withheld nudge is still counted and logged.
@@ -143,6 +144,7 @@ namespace Armada.Server
             _ConventionChecker = conventionChecker;
             _CriticalTriggerEvaluator = criticalTriggerEvaluator;
             _ProviderProgress = providerProgress;
+            _StallEvaluator = new CaptainStallEvaluator(_Database, _Git, _Logging);
             _CheckRuns = checkRuns;
             _CaptureJudgeFollowUp = captureJudgeFollowUp
                 ?? ((mission, verdict, recommendation, token) =>
@@ -2012,29 +2014,12 @@ namespace Armada.Server
 
                 DateTime nowUtc = DateTime.UtcNow;
 
-                // When the provider-progress tracker is wired, classify the stall by source so a
-                // provider-silent captain (heartbeat fresh but provider-progress stale) is
-                // distinguished from a heartbeat-only stall. Without the tracker, fall back to
-                // the original heartbeat-only threshold check.
-                ProviderStallKind stallKind;
+                // Output first: a captain whose heartbeat (or provider progress, when the runtime
+                // reports it) is inside the window needs no stall decision at all.
                 DateTime? lastProviderProgressUtc = null;
-                if (_ProviderProgress != null)
-                {
-                    _ProviderProgress.TryGet(captain.Id, out lastProviderProgressUtc);
-                    stallKind = ProviderStallClassifier.Classify(
-                        captain.LastHeartbeatUtc,
-                        lastProviderProgressUtc,
-                        thresholdMinutes,
-                        nowUtc);
-                    if (stallKind == ProviderStallKind.None) continue;
-                }
-                else
-                {
-                    TimeSpan heartbeatQuietFor = nowUtc - captain.LastHeartbeatUtc.Value;
-                    if (heartbeatQuietFor.TotalMinutes < thresholdMinutes)
-                        continue;
-                    stallKind = ProviderStallKind.HeartbeatStall;
-                }
+                _ProviderProgress?.TryGet(captain.Id, out lastProviderProgressUtc);
+                ProviderStallKind stallKind = CaptainStallEvaluator.ClassifyOutput(captain, lastProviderProgressUtc, thresholdMinutes, nowUtc);
+                if (stallKind == ProviderStallKind.None) continue;
 
                 Mission? mission = await _Database.Missions.ReadAsync(captain.CurrentMissionId, token).ConfigureAwait(false);
                 if (mission == null || !IsLiveMissionStatus(mission.Status))
@@ -2073,6 +2058,13 @@ namespace Armada.Server
                 if (await HasRecentAutoNudgeAsync(captain, token).ConfigureAwait(false))
                     continue;
 
+                // Quiet output is not a stall on its own: the shared evaluator also reads the dock
+                // worktree and the branch tip, and records the decision with its evidence.
+                CaptainStallDecision stall = await _StallEvaluator.EvaluateAsync(
+                    captain, mission, thresholdMinutes, nowUtc, lastProviderProgressUtc, token).ConfigureAwait(false);
+                await _StallEvaluator.RecordAsync(stall, "autonomous_recovery_nudge", captain, mission, token).ConfigureAwait(false);
+                if (!stall.IsStalled) continue;
+
                 string reason = StallReasonFor(stallKind, captain, lastProviderProgressUtc, nowUtc);
                 Signal signal = new Signal(SignalTypeEnum.Mail,
                     _NudgeMarker + " " + reason +
@@ -2084,7 +2076,7 @@ namespace Armada.Server
 
                 await EmitEventAsync("autonomous_recovery.mail_nudge_sent",
                     "Autonomous Mail nudge sent to captain " + captain.Id + " for mission " + mission.Id +
-                    " (stall kind: " + stallKind + ")",
+                    " (stall kind: " + stallKind + "). Evidence: " + stall.DescribeEvidence(),
                     mission, null, token).ConfigureAwait(false);
             }
         }

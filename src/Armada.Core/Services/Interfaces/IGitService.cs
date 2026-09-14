@@ -329,6 +329,23 @@ namespace Armada.Core.Services.Interfaces
             return Task.FromResult<string?>(null);
         }
 
+        /// <summary>
+        /// Resolve the committer time of the commit a revision names.
+        /// </summary>
+        /// <remarks>
+        /// Stall evaluation reads it as evidence of work: a branch tip committed inside the stall
+        /// window means the captain is working. An implementation that cannot answer returns null,
+        /// which the evaluator reports as "branch tip unavailable" rather than as an old commit.
+        /// </remarks>
+        /// <param name="repoPath">Repository or worktree path.</param>
+        /// <param name="revision">Revision to resolve, for example a branch name.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The UTC committer time, or null when it cannot be resolved.</returns>
+        Task<DateTime?> GetCommitTimeUtcAsync(string repoPath, string revision, CancellationToken token = default)
+        {
+            return Task.FromResult<DateTime?>(null);
+        }
+
         /// <summary>Resolve an exact or unique suffix path at an immutable revision. Query errors propagate.</summary>
         Task<string?> ResolveAnchorPathOnRevisionAsync(string worktreePath, string revision, string relativePath,
             CancellationToken token = default) => throw new NotSupportedException("Pinned path queries are not supported.");

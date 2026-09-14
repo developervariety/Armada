@@ -1673,6 +1673,12 @@ namespace Armada.Core.Services
             return parsed == MissionModeEnum.Audit || parsed == MissionModeEnum.Research;
         }
 
+        private CaptainStallEvaluator? _StallEvaluator;
+
+        // Created on first use so the stall rule reads the same database and git service the
+        // admiral was built with.
+        private CaptainStallEvaluator StallEvaluator => _StallEvaluator ??= new CaptainStallEvaluator(_Database, _Git, _Logging);
+
         /// <summary>
         /// Process health check for a single captain. Isolated so exceptions in one captain
         /// do not prevent processing of other captains.
@@ -1843,13 +1849,20 @@ namespace Armada.Core.Services
                 // health check would mask stalled agents that are technically running but
                 // producing no output.
 
-                // Check for stall (no output for too long)
+                // Check for stall. Quiet output alone is not a stall: some runtimes stream nothing
+                // between tool calls. The shared evaluator also reads the dock worktree and the
+                // branch tip, and records the decision with its evidence.
                 if (captain.LastHeartbeatUtc.HasValue)
                 {
-                    TimeSpan elapsed = DateTime.UtcNow - captain.LastHeartbeatUtc.Value;
-                    if (elapsed.TotalMinutes > _Settings.StallThresholdMinutes)
+                    DateTime nowUtc = DateTime.UtcNow;
+                    if (CaptainStallEvaluator.ClassifyOutput(captain, null, _Settings.StallThresholdMinutes, nowUtc) != ProviderStallKind.None)
                     {
-                        _Logging.Warn(_Header + "captain " + captain.Id + " appears stalled (" + elapsed.TotalMinutes.ToString("F1") + " min since last heartbeat)");
+                        CaptainStallDecision stall = await StallEvaluator.EvaluateAsync(
+                            captain, mission, _Settings.StallThresholdMinutes, nowUtc, token: token).ConfigureAwait(false);
+                        await StallEvaluator.RecordAsync(stall, "admiral_heartbeat_stall", captain, mission, token).ConfigureAwait(false);
+                        if (!stall.IsStalled) return;
+
+                        _Logging.Warn(_Header + "captain " + captain.Id + " appears stalled: " + stall.DescribeEvidence());
 
                         // Attempt auto-recovery if under the limit
                         if (captain.RecoveryAttempts < _Settings.MaxRecoveryAttempts)
@@ -1858,7 +1871,10 @@ namespace Armada.Core.Services
                             if (_Captains.OnStopAgent != null)
                             {
                                 try { await _Captains.OnStopAgent.Invoke(captain).ConfigureAwait(false); }
-                                catch { }
+                                catch (Exception stopEx)
+                                {
+                                    _Logging.Warn(_Header + "could not stop stalled captain " + captain.Id + " before recovery: " + stopEx.Message);
+                                }
                             }
 
                             await _Captains.TryRecoverAsync(captain, token).ConfigureAwait(false);
@@ -1891,7 +1907,10 @@ namespace Armada.Core.Services
                             if (_Captains.OnStopAgent != null)
                             {
                                 try { await _Captains.OnStopAgent.Invoke(captain).ConfigureAwait(false); }
-                                catch { }
+                                catch (Exception stopEx)
+                                {
+                                    _Logging.Warn(_Header + "could not stop stalled captain " + captain.Id + " after recovery exhaustion: " + stopEx.Message);
+                                }
                             }
 
                             // Reclaim the dock worktree so it doesn't leak

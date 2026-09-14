@@ -151,6 +151,25 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   keeps the existing fallback to the runtime's `[verdict]` echo or a labelled
   verdict.
 
+### A quiet captain that is still writing its dock is not stalled
+
+- A stall decision now reads three signals: the captain's output (its
+  heartbeat, or provider progress for a runtime that reports it), the newest
+  write in its dock worktree outside `.git`, and the committer time of its
+  branch tip. Any signal inside the stall window clears the stall. A runtime
+  that streams nothing between tool calls is no longer nudged, killed or
+  restarted while it edits files or commits.
+- One shared evaluator makes the decision. The autonomous recovery Mail nudge
+  and the admiral heartbeat-stall kill, restart and recovery-exhausted failure
+  both call it; neither keeps its own threshold check.
+- Each decision records `captain.stall_confirmed` (every time) or
+  `captain.stall_cleared` (when it first clears or its clearing signal changes,
+  then at most once per stall window). The event names the deciding signal and
+  carries the evidence: output age, newest dock write, entries read, and branch
+  tip time. The nudge event carries the same evidence.
+- A failure to stop a stalled captain's process is now logged instead of
+  swallowed.
+
 ### A completion is de-duplicated per launch, not per mission
 
 - The completion handler still skips a repeat completion for the same launch

@@ -588,6 +588,36 @@ Dispatch is the start of the operator loop.
 A quiet captain is not proof of a stall. Compare the mission state, process
 ID, dock status, log activity, and elapsed time.
 
+Armada applies the same rule. A stall decision reads three signals:
+
+1. The captain's output: its heartbeat, or its provider-progress time for a
+   runtime that reports provider progress.
+2. The newest write in the mission's dock worktree, excluding `.git`. A
+   directory modification time counts, so a deleted file is a write.
+3. The committer time of the mission branch tip in the vessel repository.
+
+If any signal is inside the stall window, the captain is not stalled. The
+autonomous recovery Mail nudge (window: `stallThresholdMinutes` times
+`autonomousRecovery.stallMailNudgeThresholdRatio`) and the admiral
+heartbeat-stall kill, restart or failure (window: `stallThresholdMinutes`)
+call one shared evaluator. A runtime that streams nothing between tool calls is
+therefore not nudged or restarted while its dock or branch keeps changing.
+
+Each decision records an event that names the deciding signal and the
+evidence:
+
+- `captain.stall_confirmed`: no signal was inside the window. It is recorded
+  for every confirmed decision, before the nudge, restart or failure.
+- `captain.stall_cleared`: output was quiet, but a dock write or a branch
+  commit was inside the window. It is recorded when a stall first clears or its
+  clearing signal changes, then at most once per window while the same signal
+  keeps clearing it. Every decision is also logged.
+
+The dock scan reads at most 50,000 entries and stops at the first write inside
+the window. The event says when the scan stopped at its bound, when directories
+could not be read, when no dock is recorded, and when the branch tip is
+unavailable.
+
 ### 4.6 Verify With Checks
 
 Create Pending Checks when the objective or voyage is created. Build and unit

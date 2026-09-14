@@ -836,6 +836,36 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<DateTime?> GetCommitTimeUtcAsync(string repoPath, string revision, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) return null;
+            if (String.IsNullOrEmpty(revision)) return null;
+
+            try
+            {
+                string output = await RunGitAsync(
+                    repoPath,
+                    token,
+                    "log",
+                    "-1",
+                    "--format=%ct",
+                    "--end-of-options",
+                    revision).ConfigureAwait(false);
+                if (!Int64.TryParse(output.Trim(), out long seconds)) return null;
+                return DateTimeOffset.FromUnixTimeSeconds(seconds).UtcDateTime;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "could not read the commit time of " + revision + " in " + repoPath + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <inheritdoc />
         public async Task<IReadOnlyList<GitAnchorCommit>> GetCommitsTouchingPathAsync(
             string worktreePath,
             string relativePath,
