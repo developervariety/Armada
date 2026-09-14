@@ -281,6 +281,14 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   Reject malformed original input and ambiguous managed entries before writes.
 - Add typed read-only vessel branch inspection and actual HTTP route tests for
   health, vessel serialization, branch inspection and authentication errors.
+- Per-command help renders for every registered command without starting an
+  Admiral; `voyage create --help` no longer fails on unescaped markup. Helm
+  request and response bodies use named enum values, so `ask` reads the
+  Admiral's reply kind and objective status and priority are sent by name.
+- The embedded Admiral reads settings through the same loader as Helm commands,
+  so it binds the saved ports and accepts the saved bearer key instead of
+  silently starting on defaults. First-run settings initialization writes once
+  and never rewrites an existing file.
 
 ### Guarded vessel branch writes
 

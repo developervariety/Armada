@@ -153,6 +153,19 @@ namespace Armada.Helm
 
         static int Main(string[] args)
         {
+            return Run(args);
+        }
+
+        /// <summary>
+        /// Parse and execute one CLI invocation.
+        /// </summary>
+        /// <param name="args">Command-line arguments.</param>
+        /// <param name="console">Optional console for command and help output; defaults to the process console.</param>
+        /// <returns>Process exit code.</returns>
+        internal static int Run(string[] args, IAnsiConsole? console = null)
+        {
+            args = (string[])args.Clone();
+
             // Normalize Windows-style help flags (/?  -?) to the standard --help everywhere,
             // so `armada /?`, `armada mission /?`, etc. all work.
             for (int i = 0; i < args.Length; i++)
@@ -211,6 +224,7 @@ namespace Armada.Helm
             {
                 config.SetApplicationName("armada");
                 config.SetApplicationVersion(Constants.ProductVersion);
+                if (console != null) config.ConfigureConsole(console);
 
                 // --- Common commands (top-level, used most often) ---
                 config.AddCommand<GoCommand>("go")

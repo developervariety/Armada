@@ -92,6 +92,9 @@ Helm adopts upstream grouped help and detected OpenCode/Mux MCP setup. The fork
 retains Board commands and the Codex startup timeout. Managed JSONC edits preserve
 unrelated text and UTF-8 encoding, and reject malformed or ambiguous input.
 The typed client also exposes the fork's read-only vessel branch inspection.
+Per-command help renders locally for every command. Helm sends and reads enum
+values by name, and the embedded Admiral starts from the same settings loader as
+the CLI, so it uses the saved ports and bearer key.
 
 Manual quarantine and release share one service across REST, MCP and Captain
 Detail **Lift Quarantine**. A hold is refused while the captain owns a mission,

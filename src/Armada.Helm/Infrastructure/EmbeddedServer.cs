@@ -3,7 +3,6 @@ namespace Armada.Helm.Infrastructure
     using System;
     using System.IO;
     using System.Net.Http;
-    using System.Text.Json;
     using SyslogLogging;
     using Armada.Core;
     using Armada.Core.Settings;
@@ -44,15 +43,7 @@ namespace Armada.Helm.Infrastructure
                 _Started = true;
             }
 
-            // Load settings
-            ArmadaSettings settings = new ArmadaSettings();
-            string settingsPath = Path.Combine(Constants.DefaultDataDirectory, "settings.json");
-            if (File.Exists(settingsPath))
-            {
-                string json = File.ReadAllText(settingsPath);
-                ArmadaSettings? loaded = JsonSerializer.Deserialize<ArmadaSettings>(json);
-                if (loaded != null) settings = loaded;
-            }
+            ArmadaSettings settings = await LoadSettingsAsync(ArmadaSettings.DefaultSettingsPath).ConfigureAwait(false);
 
             settings.InitializeDirectories();
 
@@ -98,6 +89,22 @@ namespace Armada.Helm.Infrastructure
 
             _Server?.Stop();
             _Server = null;
+        }
+
+        #endregion
+
+        #region Internal-Methods
+
+        /// <summary>
+        /// Read the settings file the embedded Admiral starts from. It uses the same loader as
+        /// Helm commands, so the embedded Admiral binds the port and accepts the bearer key the
+        /// client reads from that file.
+        /// </summary>
+        /// <param name="path">Settings file path.</param>
+        /// <returns>Loaded settings, or defaults when the file is absent.</returns>
+        internal static Task<ArmadaSettings> LoadSettingsAsync(string path)
+        {
+            return ArmadaSettings.LoadAsync(path);
         }
 
         #endregion

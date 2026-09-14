@@ -75,3 +75,21 @@ Each added wrapper has a route contract test with exact path and query,
 non-default typed response assertions, and populated request JSON assertions.
 IDs and persona path segments are URL encoded. No unsupported upstream list,
 enumeration, Harbor, or branch operation was added.
+
+## Helm CLI contracts
+
+`Services.HelmCli` checks the CLI against its own command model and a live
+in-process Admiral:
+
+- Every command path listed by `armada cli xmldoc` renders help through both
+  `<command> --help` and `help <command>` with exit code 0, without starting an
+  embedded Admiral or creating a settings file.
+- Helm reads the enum names the Admiral writes (`POST /api/v1/ask` reply kind)
+  and writes enum names the Admiral stores (objective status and priority).
+- The embedded Admiral and Helm commands load `settings.json` through one
+  loader, so saved ports, data directory and bearer key match. First-run
+  initialization writes the file once and does not rewrite an existing one.
+
+The fork keeps `Authorization: Bearer` for Helm REST calls. Admiral startup does
+not generate or write a key, so Helm does not reload settings after embedded
+startup; both sides read the same file with the same loader.

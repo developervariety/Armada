@@ -25,14 +25,9 @@ namespace Armada.Helm.Commands
 
         private static ArmadaApiClient? _ApiClient;
         private static readonly HttpClient _Client = new HttpClient();
-        private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true,
-            WriteIndented = true
-        };
+        private static readonly JsonSerializerOptions _JsonOptions = HelmJson.Options;
         private static bool _ServerReady = false;
         private static ArmadaSettings? _CachedSettings;
-        private static bool _AutoInitDone = false;
 
         #endregion
 
@@ -113,12 +108,11 @@ namespace Armada.Helm.Commands
         {
             if (_CachedSettings != null) return _CachedSettings;
 
-            _CachedSettings = ArmadaSettings.LoadAsync().GetAwaiter().GetResult();
-
-            if (!_AutoInitDone)
+            bool initialized;
+            _CachedSettings = HelmSettings.LoadOrInitialize(ArmadaSettings.DefaultSettingsPath, out initialized);
+            if (initialized)
             {
-                _AutoInitDone = true;
-                AutoInitializeIfNeeded(_CachedSettings);
+                AnsiConsole.MarkupLine($"[dim]Initialized Armada config at {Markup.Escape(ArmadaSettings.DefaultSettingsPath)}[/]");
             }
 
             return _CachedSettings;
@@ -379,19 +373,6 @@ namespace Armada.Helm.Commands
         #endregion
 
         #region Private-Methods
-
-        /// <summary>
-        /// Auto-initialize settings on first use if no settings file exists.
-        /// </summary>
-        private void AutoInitializeIfNeeded(ArmadaSettings settings)
-        {
-            if (File.Exists(ArmadaSettings.DefaultSettingsPath)) return;
-
-            // First run — save defaults silently
-            settings.InitializeDirectories();
-            settings.SaveAsync().GetAwaiter().GetResult();
-            AnsiConsole.MarkupLine($"[dim]Initialized Armada config at {Markup.Escape(ArmadaSettings.DefaultSettingsPath)}[/]");
-        }
 
         /// <summary>
         /// Register a vessel from a git remote URL.
