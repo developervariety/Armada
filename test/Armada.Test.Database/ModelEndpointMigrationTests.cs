@@ -116,9 +116,169 @@ namespace Armada.Test.Database
                 DatabaseAssert.True(stopped, "Model endpoint partial index checkpoint was reached");
             }
             MigrationScenarioRunner.AssertHistory(before, await scenarioRunner.ReadHistoryAsync(token).ConfigureAwait(false));
+            int linkVersion = _Settings.Type switch
+            {
+                DatabaseTypeEnum.Sqlite => 89, DatabaseTypeEnum.Postgresql => 90,
+                DatabaseTypeEnum.Mysql => 81, DatabaseTypeEnum.SqlServer => 84,
+                _ => throw new NotSupportedException()
+            };
+            using (DatabaseDriver driver = scenarioRunner.CreateDriver())
+            {
+                driver.MigrationCheckpoint = (seen, ordinal) =>
+                {
+                    if (seen == linkVersion && ordinal == -1) throw new StopException();
+                };
+                bool stoppedBeforeLink = false;
+                try { await driver.InitializeAsync(token).ConfigureAwait(false); }
+                catch (StopException) { stoppedBeforeLink = true; }
+                DatabaseAssert.True(stoppedBeforeLink, "Captain model endpoint link pre-apply checkpoint was reached");
+                DatabaseAssert.Equal(version, await driver.GetSchemaVersionAsync(token).ConfigureAwait(false), "Model endpoint partial restart completes migration");
+            }
+
+            await VerifyCaptainLinkGuardAsync(token).ConfigureAwait(false);
+        }
+
+        private async Task VerifyCaptainLinkGuardAsync(CancellationToken token)
+        {
+            int version = _Settings.Type switch
+            {
+                DatabaseTypeEnum.Sqlite => 89, DatabaseTypeEnum.Postgresql => 90,
+                DatabaseTypeEnum.Mysql => 81, DatabaseTypeEnum.SqlServer => 84,
+                _ => throw new NotSupportedException()
+            };
+            MigrationScenarioRunner scenarioRunner = new MigrationScenarioRunner(_Settings);
+            Dictionary<int, string> before = await scenarioRunner.ReadHistoryAsync(token).ConfigureAwait(false);
+
+            await ExecuteStatementsAsync(PartialCaptainLinkSql(), token).ConfigureAwait(false);
+            await AssertCaptainLinkRejectedAsync(scenarioRunner, before, token).ConfigureAwait(false);
+
+            if (_Settings.Type == DatabaseTypeEnum.Sqlite)
+                await AssertSqliteCompositeCaptainLinkRejectedAsync(scenarioRunner, before, token).ConfigureAwait(false);
+            if (_Settings.Type == DatabaseTypeEnum.Mysql)
+                await AssertMysqlCrossDatabaseCaptainLinkRejectedAsync(scenarioRunner, before, token).ConfigureAwait(false);
+
+            await ExecuteStatementsAsync(RepairPartialCaptainLinkSql(), token).ConfigureAwait(false);
+            using (DatabaseDriver driver = scenarioRunner.CreateDriver())
+            {
+                driver.MigrationCheckpoint = (seen, ordinal) =>
+                {
+                    if (seen == version && ordinal == 0) throw new StopException();
+                };
+                bool stopped = false;
+                try { await driver.InitializeAsync(token).ConfigureAwait(false); }
+                catch (StopException) { stopped = true; }
+                DatabaseAssert.True(stopped, "Captain model endpoint link partial checkpoint was reached");
+            }
+            MigrationScenarioRunner.AssertHistory(before, await scenarioRunner.ReadHistoryAsync(token).ConfigureAwait(false));
             using (DatabaseDriver driver = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
             {
-                DatabaseAssert.Equal(version, await driver.GetSchemaVersionAsync(token).ConfigureAwait(false), "Model endpoint partial restart completes migration");
+                DatabaseAssert.Equal(version, await driver.GetSchemaVersionAsync(token).ConfigureAwait(false), "Captain model endpoint link restart completes migration");
+            }
+            DatabaseAssert.True(await CaptainLinkExistsAsync(token).ConfigureAwait(false), "Captain model endpoint foreign key is present after restart");
+        }
+
+        private async Task AssertCaptainLinkRejectedAsync(MigrationScenarioRunner scenarioRunner,
+            Dictionary<int, string> before, CancellationToken token)
+        {
+            bool rejected = false;
+            try
+            {
+                using (DatabaseDriver driver = scenarioRunner.CreateDriver())
+                    await driver.InitializeAsync(token).ConfigureAwait(false);
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("captain model endpoint link schema", StringComparison.Ordinal))
+            {
+                rejected = true;
+            }
+            DatabaseAssert.True(rejected, "Malformed captain model endpoint foreign key is rejected");
+            MigrationScenarioRunner.AssertHistory(before, await scenarioRunner.ReadHistoryAsync(token).ConfigureAwait(false));
+        }
+
+        private async Task AssertSqliteCompositeCaptainLinkRejectedAsync(MigrationScenarioRunner scenarioRunner,
+            Dictionary<int, string> before, CancellationToken token)
+        {
+            string originalSql = await ReadScalarStringAsync(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='captains';", token).ConfigureAwait(false);
+            DatabaseAssert.True(!String.IsNullOrWhiteSpace(originalSql), "SQLite captain table DDL is available for composite-FK fixture");
+            string compositeSql = originalSql.Trim().TrimEnd(';');
+            int firstConstraint = compositeSql.IndexOf("FOREIGN KEY", StringComparison.OrdinalIgnoreCase);
+            DatabaseAssert.True(firstConstraint > 0, "SQLite captain table DDL has a table constraint boundary");
+            compositeSql = compositeSql.Substring(0, firstConstraint)
+                + "model_endpoint_guard_marker TEXT, "
+                + compositeSql.Substring(firstConstraint);
+            int close = compositeSql.LastIndexOf(')');
+            DatabaseAssert.True(close > 0, "SQLite captain table DDL has a closing column list");
+            compositeSql = compositeSql.Substring(0, close)
+                + ", FOREIGN KEY (model_endpoint_id, model_endpoint_guard_marker) REFERENCES model_endpoints(id, tenant_id))";
+
+            bool originalRenamed = false;
+            bool replacementCreated = false;
+            bool parentCompositeIndexCreated = false;
+            Exception? testFailure = null;
+            try
+            {
+                await ExecuteStatementsAsync("PRAGMA foreign_keys=OFF; ALTER TABLE captains RENAME TO captains_guard_original;", token).ConfigureAwait(false);
+                originalRenamed = true;
+                await ExecuteAsync("CREATE UNIQUE INDEX idx_model_endpoints_guard_composite ON model_endpoints(id, tenant_id);", token).ConfigureAwait(false);
+                parentCompositeIndexCreated = true;
+                await ExecuteAsync(compositeSql + ";", token).ConfigureAwait(false);
+                replacementCreated = true;
+                DatabaseAssert.True(replacementCreated, "SQLite composite captain-link fixture was created");
+                await AssertCaptainLinkRejectedAsync(scenarioRunner, before, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                testFailure = ex;
+                throw;
+            }
+            finally
+            {
+                try
+                {
+                    if (replacementCreated)
+                        await ExecuteAsync("DROP TABLE captains;", token).ConfigureAwait(false);
+                    if (originalRenamed)
+                        await ExecuteAsync("ALTER TABLE captains_guard_original RENAME TO captains;", token).ConfigureAwait(false);
+                    if (parentCompositeIndexCreated)
+                        await ExecuteAsync("DROP INDEX idx_model_endpoints_guard_composite;", token).ConfigureAwait(false);
+                    await ExecuteAsync("PRAGMA foreign_keys=ON;", token).ConfigureAwait(false);
+                }
+                catch (Exception cleanupFailure)
+                {
+                    if (testFailure != null)
+                        throw new AggregateException(testFailure, cleanupFailure);
+                    throw;
+                }
+            }
+        }
+
+        private async Task AssertMysqlCrossDatabaseCaptainLinkRejectedAsync(MigrationScenarioRunner scenarioRunner,
+            Dictionary<int, string> before, CancellationToken token)
+        {
+            string databaseName = "armada_guard_cross_" + Guid.NewGuid().ToString("N");
+            string quotedDatabase = "`" + databaseName + "`";
+            bool databaseCreated = false;
+            bool originalConstraintDropped = false;
+            bool crossConstraintCreated = false;
+            try
+            {
+                await ExecuteAsync("CREATE DATABASE " + quotedDatabase + ";", token).ConfigureAwait(false);
+                databaseCreated = true;
+                await ExecuteAsync("CREATE TABLE " + quotedDatabase + ".model_endpoints (id VARCHAR(450) CHARACTER SET utf8mb4 NOT NULL PRIMARY KEY) ENGINE=InnoDB;", token).ConfigureAwait(false);
+                await ExecuteAsync("ALTER TABLE captains DROP FOREIGN KEY fk_partial_wrong;", token).ConfigureAwait(false);
+                originalConstraintDropped = true;
+                await ExecuteAsync("ALTER TABLE captains ADD CONSTRAINT fk_partial_cross FOREIGN KEY (model_endpoint_id) REFERENCES " + quotedDatabase + ".model_endpoints(id);", token).ConfigureAwait(false);
+                crossConstraintCreated = true;
+                await AssertCaptainLinkRejectedAsync(scenarioRunner, before, token).ConfigureAwait(false);
+            }
+            finally
+            {
+                if (crossConstraintCreated)
+                    await ExecuteAsync("ALTER TABLE captains DROP FOREIGN KEY fk_partial_cross;", token).ConfigureAwait(false);
+                if (originalConstraintDropped)
+                    await ExecuteAsync("ALTER TABLE captains ADD CONSTRAINT fk_partial_wrong FOREIGN KEY (model_endpoint_id) REFERENCES tenants(id) ON DELETE CASCADE;", token).ConfigureAwait(false);
+                if (databaseCreated)
+                    await ExecuteAsync("DROP DATABASE " + quotedDatabase + ";", token).ConfigureAwait(false);
             }
         }
 
@@ -199,6 +359,51 @@ namespace Armada.Test.Database
             };
         }
 
+        private string PartialCaptainLinkSql()
+        {
+            return _Settings.Type switch
+            {
+                DatabaseTypeEnum.Sqlite => "ALTER TABLE captains ADD COLUMN model_endpoint_id TEXT;",
+                DatabaseTypeEnum.Postgresql => "ALTER TABLE captains ADD COLUMN model_endpoint_id TEXT; ALTER TABLE captains ADD CONSTRAINT fk_partial_wrong FOREIGN KEY (model_endpoint_id) REFERENCES tenants(id) ON DELETE CASCADE NOT VALID;",
+                DatabaseTypeEnum.Mysql => "ALTER TABLE captains ADD COLUMN model_endpoint_id VARCHAR(450) CHARACTER SET utf8mb4 NULL; ALTER TABLE captains ADD CONSTRAINT fk_partial_wrong FOREIGN KEY (model_endpoint_id) REFERENCES tenants(id) ON DELETE CASCADE;",
+                DatabaseTypeEnum.SqlServer => "ALTER TABLE captains ADD model_endpoint_id NVARCHAR(450) NULL; ALTER TABLE captains ADD CONSTRAINT fk_partial_wrong FOREIGN KEY (model_endpoint_id) REFERENCES tenants(id) ON DELETE CASCADE;",
+                _ => throw new NotSupportedException()
+            };
+        }
+
+        private string RepairPartialCaptainLinkSql()
+        {
+            return _Settings.Type switch
+            {
+                DatabaseTypeEnum.Sqlite => "ALTER TABLE captains DROP COLUMN model_endpoint_id; ALTER TABLE captains ADD COLUMN model_endpoint_id TEXT REFERENCES model_endpoints(id) ON DELETE RESTRICT;",
+                DatabaseTypeEnum.Postgresql => "ALTER TABLE captains DROP CONSTRAINT fk_partial_wrong;",
+                DatabaseTypeEnum.Mysql => "ALTER TABLE captains DROP FOREIGN KEY fk_partial_wrong;",
+                DatabaseTypeEnum.SqlServer => "ALTER TABLE captains DROP CONSTRAINT fk_partial_wrong;",
+                _ => throw new NotSupportedException()
+            };
+        }
+
+        private async Task<bool> CaptainLinkExistsAsync(CancellationToken token)
+        {
+            string sql = _Settings.Type switch
+            {
+                DatabaseTypeEnum.Sqlite => "SELECT COUNT(*) FROM pragma_foreign_key_list('captains') WHERE \"from\"='model_endpoint_id' AND \"table\"='model_endpoints' AND \"to\"='id' AND \"on_delete\"='RESTRICT';",
+                DatabaseTypeEnum.Postgresql => "SELECT COUNT(*) FROM information_schema.key_column_usage k JOIN information_schema.constraint_column_usage c ON c.constraint_schema=k.constraint_schema AND c.constraint_name=k.constraint_name JOIN information_schema.referential_constraints r ON r.constraint_schema=k.constraint_schema AND r.constraint_name=k.constraint_name WHERE k.table_schema=current_schema() AND k.table_name='captains' AND k.column_name='model_endpoint_id' AND c.table_name='model_endpoints' AND c.column_name='id' AND r.delete_rule='RESTRICT';",
+                DatabaseTypeEnum.Mysql => "SELECT COUNT(*) FROM information_schema.key_column_usage k JOIN information_schema.referential_constraints r ON r.constraint_schema=k.constraint_schema AND r.constraint_name=k.constraint_name WHERE k.constraint_schema=DATABASE() AND k.table_name='captains' AND k.column_name='model_endpoint_id' AND k.referenced_table_name='model_endpoints' AND k.referenced_column_name='id' AND r.delete_rule='RESTRICT';",
+                DatabaseTypeEnum.SqlServer => "SELECT COUNT(*) FROM sys.foreign_keys f JOIN sys.foreign_key_columns k ON k.constraint_object_id=f.object_id JOIN sys.tables t ON t.object_id=k.parent_object_id JOIN sys.columns c ON c.object_id=t.object_id AND c.column_id=k.parent_column_id JOIN sys.tables rt ON rt.object_id=k.referenced_object_id JOIN sys.columns rc ON rc.object_id=rt.object_id AND rc.column_id=k.referenced_column_id WHERE t.schema_id=SCHEMA_ID() AND t.name='captains' AND c.name='model_endpoint_id' AND rt.name='model_endpoints' AND rc.name='id' AND f.delete_referential_action_desc='NO_ACTION';",
+                _ => throw new NotSupportedException()
+            };
+            using (DbConnection connection = MigrationScenarioRunner.CreateConnection(_Settings))
+            {
+                await connection.OpenAsync(token).ConfigureAwait(false);
+                using (DbCommand command = connection.CreateCommand())
+                {
+                    command.CommandText = sql;
+                    return Convert.ToInt64(await command.ExecuteScalarAsync(token).ConfigureAwait(false)) == 1L;
+                }
+            }
+        }
+
         private async Task ExecuteAsync(string sql, CancellationToken token)
         {
             using (DbConnection connection = MigrationScenarioRunner.CreateConnection(_Settings))
@@ -210,6 +415,26 @@ namespace Armada.Test.Database
                     await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
             }
+        }
+
+        private async Task<string> ReadScalarStringAsync(string sql, CancellationToken token)
+        {
+            using (DbConnection connection = MigrationScenarioRunner.CreateConnection(_Settings))
+            {
+                await connection.OpenAsync(token).ConfigureAwait(false);
+                using (DbCommand command = connection.CreateCommand())
+                {
+                    command.CommandText = sql;
+                    object? value = await command.ExecuteScalarAsync(token).ConfigureAwait(false);
+                    return value == null || value == DBNull.Value ? String.Empty : Convert.ToString(value) ?? String.Empty;
+                }
+            }
+        }
+
+        private async Task ExecuteStatementsAsync(string sql, CancellationToken token)
+        {
+            foreach (string statement in sql.Split(';', StringSplitOptions.RemoveEmptyEntries))
+                await ExecuteAsync(statement + ";", token).ConfigureAwait(false);
         }
 
         private async Task<bool> TableExistsAsync(CancellationToken token)

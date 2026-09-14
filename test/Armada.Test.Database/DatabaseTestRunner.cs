@@ -74,6 +74,7 @@ namespace Armada.Test.Database
             }, token);
 
             await RunTest("ModelEndpoint_Persistence_Scope_Unicode_Reopen", "Operational", () => TestModelEndpointPersistenceAsync(token), token);
+            await RunTest("Captain_ModelEndpoint_Link_Persists_Across_Reopen", "Operational", () => TestCaptainModelEndpointLinkAsync(token), token);
             await RunTest("ModelEndpoint_Health_Conditional_Update_CAS_And_Nulls", "Operational", () => TestModelEndpointHealthCasAsync(token), token);
             await RunTest("ModelEndpoint_Persistence_Rejects_Corrupt_Enums", "Operational", () => TestModelEndpointCorruptEnumsAsync(token), token);
 
@@ -246,6 +247,54 @@ namespace Armada.Test.Database
             }
 
             await _Driver.ModelEndpoints.DeleteAsync(id, token).ConfigureAwait(false);
+        }
+
+        private async Task TestCaptainModelEndpointLinkAsync(CancellationToken token)
+        {
+            string endpointId = "mep_captain_link_" + Guid.NewGuid().ToString("N");
+            ModelEndpoint endpoint = new ModelEndpoint
+            {
+                Id = endpointId,
+                TenantId = null,
+                UserId = null,
+                Name = "Captain link endpoint",
+                Kind = ModelEndpointKindEnum.Inference,
+                Scope = ScopeEnum.TenantWide,
+                Provider = ModelProviderEnum.OpenAICompatible,
+                BaseUrl = "http://localhost:9999",
+                Model = "link-model",
+                Enabled = false
+            };
+            Captain captain = new Captain("Captain endpoint link", AgentRuntimeEnum.ApiEndpoint)
+            {
+                Id = "cpt_model_endpoint_link_" + Guid.NewGuid().ToString("N"),
+                TenantId = null,
+                UserId = null,
+                ModelEndpointId = endpoint.Id
+            };
+
+            await _Driver.ModelEndpoints.CreateAsync(endpoint, token).ConfigureAwait(false);
+            try
+            {
+                await _Driver.Captains.CreateAsync(captain, token).ConfigureAwait(false);
+                try
+                {
+                    using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                    {
+                        Captain stored = DatabaseAssert.NotNull(await reopened.Captains.ReadAsync(captain.Id, token).ConfigureAwait(false), "Captain survives endpoint-link migration and reopen");
+                        DatabaseAssert.Equal(endpoint.Id, stored.ModelEndpointId, "Captain model endpoint link round trip");
+                        DatabaseAssert.Equal(AgentRuntimeEnum.ApiEndpoint, stored.Runtime, "API endpoint runtime round trip");
+                    }
+                }
+                finally
+                {
+                    await _Driver.Captains.DeleteAsync(captain.Id, token).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                await _Driver.ModelEndpoints.DeleteAsync(endpoint.Id, token).ConfigureAwait(false);
+            }
         }
 
         private async Task TestModelEndpointHealthCasAsync(CancellationToken token)

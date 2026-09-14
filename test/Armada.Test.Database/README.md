@@ -35,7 +35,7 @@ without constructing a scenario, omit `--migration-scenario`.
 | `catalog-guards` | Server providers | Wrong type, nullability, default and index rejection; corrected restart |
 | `mysql-compat` | MySQL | Populated Unicode backfill, no repeat row update, damaged mapping, duplicate/orphan/FK/default rejection |
 | `sqlserver-corrections` | SQL Server | Equivalent and incompatible pre-staged v59/v68 objects; separate correction evidence and complete model value |
-| `model-endpoint-guards` | All four | Incompatible pre-existing model endpoint table is rejected without advancing history; interrupted table creation restarts successfully |
+| `model-endpoint-guards` | All four | Incompatible pre-existing model endpoint table and malformed captain link are rejected without advancing history; interrupted table and captain-link migrations restart successfully |
 
 The server catalog fixture also tests disabled primary-key and foreign-key
 state where supported. PostgreSQL's historical UTC conversion runs with a

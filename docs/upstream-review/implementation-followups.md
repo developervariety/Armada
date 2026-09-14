@@ -507,12 +507,17 @@ These findings apply to unaccepted candidates, not the deployed image:
   preservation and exact-output fixtures passed independent checks. The combined
   Helm and SDK run passed 101 tests with no failures or skips. CLI help aliases
   also passed. Deployment remains pending.
-- Captain endpoint links need interruption/restart and incompatible partial
-  schema tests for their new migrations. Required link-column reads must not
-  silently ignore database errors.
-- Endpoint health probes must not block the Admiral heartbeat, Check execution,
-  recovery or incident sweeps. Use a bounded, non-overlapping background sweep.
-- Provider request fixtures must use each provider's actual response shape.
+- Captain endpoint service and linkage corrections passed independent acceptance:
+  55 shared service/HTTP/lifecycle tests and 29 combined wiring/safety tests.
+  Fresh installation and partial-migration restart passed on all four providers.
+  Initial SQLite composite and MySQL cleanup fixtures failed; both corrected
+  fixtures now execute and pass. Required link reads preserve database errors,
+  and typed FK errors produce a safe deletion conflict.
+- Endpoint health runs in a separate serial, cancellable loop. The blocked-probe
+  test and production delegation check pass; it no longer runs inside the core
+  heartbeat. Provider fixtures use actual response shapes and configured
+  credentials, including Ollama. Deployment and live provider access remain
+  separate acceptance steps.
 - Native self-rebuild backup, isolated restore, candidate validation and cleanup
   passed on all four providers after the SQL Server restore-command fix. A
   second run covered quoted SQL Server paths. Independent review then found

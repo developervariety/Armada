@@ -80,6 +80,16 @@ namespace Armada.Core.Models
         }
 
         /// <summary>
+        /// Identifier of the inference model endpoint used by an API-endpoint captain.
+        /// This value is null for the existing CLI runtimes.
+        /// </summary>
+        public string? ModelEndpointId
+        {
+            get => _ModelEndpointId;
+            set => _ModelEndpointId = String.IsNullOrEmpty(value) ? null : value;
+        }
+
+        /// <summary>
         /// Per-captain provider credential override used when this captain's model is served
         /// by an external provider (for example example-provider). Takes precedence over the
         /// provider's host-level environment variable, so captains on separate subscriptions
@@ -233,6 +243,7 @@ namespace Armada.Core.Models
         private string _Id = Constants.IdGenerator.GenerateKSortable(Constants.CaptainIdPrefix, 24);
         private string _Name = "Captain";
         private string? _Model = null;
+        private string? _ModelEndpointId = null;
 
         #endregion
 

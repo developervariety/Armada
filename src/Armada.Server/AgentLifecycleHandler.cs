@@ -128,6 +128,7 @@ namespace Armada.Server
         /// <param name="promptTemplateService">Prompt template service (optional).</param>
         /// <param name="webSocketHub">WebSocket hub (nullable).</param>
         /// <param name="emitEventAsync">Delegate to emit events.</param>
+        /// <param name="modelValidationTimeout">Optional validation timeout override.</param>
         public AgentLifecycleHandler(
             LoggingModule logging,
             DatabaseDriver database,
@@ -265,12 +266,46 @@ namespace Armada.Server
         public Task<string?> ValidateCaptainModelAsync(Captain captain, CancellationToken token = default)
         {
             if (captain == null) throw new ArgumentNullException(nameof(captain));
+            if (captain.Runtime == AgentRuntimeEnum.ApiEndpoint)
+                return ValidateApiEndpointCaptainAsync(captain, token);
             if (captain.Runtime == AgentRuntimeEnum.Mux)
             {
                 return ValidateMuxCaptainBypassingQuotaAsync(captain, token);
             }
 
             return ValidateModelBypassingQuotaAsync(captain.Runtime, captain.Model, captain, token);
+        }
+
+        /// <summary>
+        /// Validate an API-endpoint captain against the captain tenant. The endpoint must be enabled and
+        /// provide inference capabilities before the captain can be admitted for launch.
+        /// </summary>
+        /// <param name="captain">Captain to validate.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Null when valid, otherwise a safe validation message.</returns>
+        private async Task<string?> ValidateApiEndpointCaptainAsync(Captain captain, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(captain.ModelEndpointId))
+                return "An API-endpoint captain must reference an inference model endpoint.";
+            if (String.IsNullOrWhiteSpace(captain.TenantId))
+                return "An API-endpoint captain must belong to a tenant.";
+            if (!String.IsNullOrWhiteSpace(captain.ApiKey) || !String.IsNullOrWhiteSpace(captain.ApiBaseUrl))
+                return "API-endpoint captain credentials must be configured on the model endpoint.";
+
+            ModelEndpoint? endpoint = await _Database.ModelEndpoints.ReadAsync(captain.TenantId!, captain.ModelEndpointId!, token).ConfigureAwait(false);
+            if (endpoint == null)
+                return "The referenced model endpoint is not available to this captain.";
+            if (endpoint.Scope == ScopeEnum.UserSpecific
+                && !String.Equals(endpoint.UserId, captain.UserId, StringComparison.Ordinal))
+                return "The referenced model endpoint is not available to this captain.";
+            if (endpoint.Kind != ModelEndpointKindEnum.Inference)
+                return "An API-endpoint captain requires an inference model endpoint.";
+            if (!endpoint.Enabled)
+                return "The referenced model endpoint is disabled.";
+            if (!String.IsNullOrWhiteSpace(captain.Model)
+                && !String.Equals(captain.Model, endpoint.Model, StringComparison.Ordinal))
+                return "The captain model must match the configured model endpoint model.";
+            return null;
         }
 
         private async Task<string?> ValidateMuxCaptainBypassingQuotaAsync(Captain captain, CancellationToken token)
@@ -1339,6 +1374,9 @@ namespace Armada.Server
             {
                 options = new MuxCaptainOptions();
             }
+
+            if (String.IsNullOrWhiteSpace(options.Endpoint))
+                return "Mux validation requires a named endpoint.";
 
             try
             {

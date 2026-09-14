@@ -7,8 +7,8 @@ namespace Armada.Core.Models
 
     /// <summary>
     /// A configured external model endpoint (an embedding or inference/completion model behind a provider
-    /// API). Armada manages and monitors these: it health-checks the base URL, lets an operator validate the
-    /// model with a real request, and never returns the stored API key.
+    /// API). Armada manages and monitors these: automatic health checks use the base URL, the explicit validate
+    /// operation sends a bounded provider-specific model request, and the stored API key is never returned.
     /// </summary>
     public class ModelEndpoint
     {
@@ -51,8 +51,8 @@ namespace Armada.Core.Models
         }
 
         /// <summary>
-        /// Whether this endpoint serves embeddings or inference (chat/completion). Selects how it is
-        /// validated.
+        /// Whether this endpoint serves embeddings or inference (chat/completion). Selects the runtime request
+        /// contract; the explicit validation operation checks the provider response shape and model output.
         /// </summary>
         public ModelEndpointKindEnum Kind { get; set; } = ModelEndpointKindEnum.Inference;
 
@@ -83,7 +83,9 @@ namespace Armada.Core.Models
         public string? Model { get; set; } = null;
 
         /// <summary>
-        /// Optional embedding dimensionality hint (embedding endpoints). Clamped to non-negative.
+        /// Optional expected embedding dimensionality (embedding endpoints). Validation compares the returned
+        /// vector with this value; providers keep their own request contract and are not forced to emit this
+        /// size. Clamped to non-negative.
         /// </summary>
         public int Dimensionality
         {
@@ -101,7 +103,8 @@ namespace Armada.Core.Models
         }
 
         /// <summary>
-        /// Whether the endpoint is enabled for use and monitoring.
+        /// Whether the endpoint is enabled for use and monitoring. New endpoints are disabled until an
+        /// operator explicitly enables them, so startup health loops never call an unreviewed provider.
         /// </summary>
         public bool Enabled { get; set; } = false;
 

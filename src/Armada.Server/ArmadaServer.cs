@@ -3,6 +3,7 @@ namespace Armada.Server
     using System.Collections.Generic;
     using System.IO;
     using System.Net.Http;
+    using System.Linq;
     using System.Runtime.CompilerServices;
     using System.Text.Json;
     using SyslogLogging;
@@ -105,6 +106,7 @@ namespace Armada.Server
         private GitHubIntegrationService _GitHubIntegrationService = null!;
         private LandingPreviewService _LandingPreviewService = null!;
         private HistoricalTimelineService _HistoricalTimelineService = null!;
+        private ModelEndpointService _ModelEndpointService = null!;
 
         private ISessionTokenService _SessionTokenService = null!;
         private IAuthenticationService _AuthenticationService = null!;
@@ -119,6 +121,7 @@ namespace Armada.Server
 
         private CancellationTokenSource _TokenSource = new CancellationTokenSource();
         private Task _HealthCheckTask = null!;
+        private Task _ModelEndpointHealthTask = null!;
         private int _HealthCheckCycles = 0;
         private DateTime _StartUtc = DateTime.UtcNow;
         private readonly ConditionalWeakTable<HttpContextBase, AuthContext> _RequestAuthContexts = new ConditionalWeakTable<HttpContextBase, AuthContext>();
@@ -282,6 +285,14 @@ namespace Armada.Server
             _GitHubIntegrationService = new GitHubIntegrationService(_Database, _ObjectiveService, _CheckRunService, _DeploymentService, _Settings, _Logging);
             _LandingPreviewService = new LandingPreviewService(_Database, _Logging, _Settings);
             _HistoricalTimelineService = new HistoricalTimelineService(_Database);
+            _ModelEndpointService = new ModelEndpointService(
+                _Database,
+                _Logging,
+                isInUse: async (endpointId, token) =>
+                {
+                    List<Captain> captains = await _Database.Captains.EnumerateAsync(token).ConfigureAwait(false);
+                    return captains.Any(captain => String.Equals(captain.ModelEndpointId, endpointId, StringComparison.Ordinal));
+                });
             _RemoteTunnel = new RemoteTunnelManager(_Logging, _Settings);
             _RemoteDashboardRelay = new RemoteDashboardRelayService(_Logging, _Settings, _RemoteTunnel.PublishEventAsync);
             admiralService.OnGetRemoteTunnelStatus = _RemoteTunnel.GetStatus;
@@ -618,6 +629,7 @@ namespace Armada.Server
 
             // Start health check loop
             _HealthCheckTask = HealthCheckLoopAsync(_TokenSource.Token);
+            _ModelEndpointHealthTask = ModelEndpointHealthLoopAsync(_TokenSource.Token);
         }
 
         /// <summary>
@@ -732,6 +744,14 @@ namespace Armada.Server
             }
 
             _TokenSource.Cancel();
+            try
+            {
+                _ModelEndpointHealthTask?.GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "model endpoint health loop stop error: " + ex.Message);
+            }
             _ObjectiveScheduler?.Dispose();
             _RemoteTunnel?.StopAsync().GetAwaiter().GetResult();
             _RemoteDashboardRelay?.DisposeAsync().GetAwaiter().GetResult();
@@ -845,6 +865,10 @@ namespace Armada.Server
 
             // Environments
             new EnvironmentRoutes(_EnvironmentService)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Managed model endpoints (embedding/inference)
+            new ModelEndpointRoutes(_ModelEndpointService)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Structured check runs
@@ -1593,6 +1617,15 @@ namespace Armada.Server
                     _Logging.Warn(_Header + "health check error: " + ex.Message);
                 }
             }
+        }
+
+        private async Task ModelEndpointHealthLoopAsync(CancellationToken token)
+        {
+            await ModelEndpointHealthSweepRunner.RunAsync(
+                async sweepToken => await _ModelEndpointService.CheckHealthAllAsync(sweepToken).ConfigureAwait(false),
+                TimeSpan.FromMilliseconds(Math.Max(1, _Settings.HeartbeatIntervalSeconds) * 1000),
+                ex => _Logging.Warn(_Header + "model endpoint health sweep error: " + ex.Message),
+                token).ConfigureAwait(false);
         }
 
         private async Task<RemoteTunnelRequestResult> HandleRemoteTunnelRequestAsync(RemoteTunnelEnvelope envelope, CancellationToken token)

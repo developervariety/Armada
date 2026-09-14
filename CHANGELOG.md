@@ -42,6 +42,11 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   observed version. Preserve concurrent configuration changes on all providers.
 - Preserve SQL Server fractional timestamps so valid health updates can pass
   the version check.
+- Run endpoint health sweeps in a separate cancellable loop so a slow provider
+  cannot delay the core captain and dispatch health loop.
+- Require exact provider metadata for captain endpoint foreign keys, classify
+  deletion conflicts by provider error code, and enforce the named Mux endpoint
+  validation contract.
 
 ### Harbor identity core
 
@@ -63,6 +68,20 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   Unicode IDs, full-value uniqueness and existing migration history.
 - Default endpoints to disabled. Reject incompatible partial schemas and corrupt
   stored provider, kind and scope values.
+
+### Scoped model endpoint service and captain links
+
+- Add authenticated model endpoint CRUD and provider-specific validation routes.
+  Tenant-wide and user-specific ownership rules, write-only API keys, disabled
+  defaults, bounded requests, disabled redirects and safe error responses apply
+  across the service.
+- Restrict health sweeps to global administrators. Health updates use a
+  conditional timestamp write so a probe cannot overwrite a concurrent endpoint
+  edit.
+- Persist nullable captain endpoint links in a new migration after the endpoint
+  migration for each provider. Captain admission checks tenant, private-owner,
+  inference-kind, enabled-state and model compatibility. Provider foreign keys
+  reject endpoint deletion when a captain link races the service check.
 
 ### Self-deploy safety gate
 

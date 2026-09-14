@@ -72,6 +72,68 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
+            await RunTest("ArmadaServer isolates model endpoint health from the core heartbeat loop", () =>
+            {
+                string path = Path.Combine(FindRepositoryRoot(), "src", "Armada.Server", "ArmadaServer.cs");
+                string contents = File.ReadAllText(path);
+                int coreStart = contents.IndexOf("private async Task HealthCheckLoopAsync", StringComparison.Ordinal);
+                int endpointStart = contents.IndexOf("private async Task ModelEndpointHealthLoopAsync", StringComparison.Ordinal);
+                AssertTrue(coreStart >= 0 && endpointStart > coreStart, "ArmadaServer should define both health loops");
+                string coreLoop = contents.Substring(coreStart, endpointStart - coreStart);
+                AssertFalse(coreLoop.Contains("CheckHealthAllAsync", StringComparison.Ordinal), "A blocked model provider must not block the core heartbeat loop");
+                AssertContains("_ModelEndpointService.CheckHealthAllAsync(sweepToken)", contents, "The endpoint health loop must retain the provider sweep");
+                AssertContains("_ModelEndpointHealthTask = ModelEndpointHealthLoopAsync(_TokenSource.Token)", contents, "The endpoint health loop must start independently");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("A blocked model endpoint sweep does not block the core heartbeat and cancels cleanly", async () =>
+            {
+                TaskCompletionSource<bool> sweepStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                TaskCompletionSource<bool> heartbeatCompleted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                using CancellationTokenSource cancellation = new CancellationTokenSource();
+                int activeSweeps = 0;
+                int maximumActiveSweeps = 0;
+                int sweepCount = 0;
+
+                Task sweep = ModelEndpointHealthSweepRunner.RunAsync(
+                    async token =>
+                    {
+                        Interlocked.Increment(ref sweepCount);
+                        int active = Interlocked.Increment(ref activeSweeps);
+                        int observedMaximum;
+                        do
+                        {
+                            observedMaximum = maximumActiveSweeps;
+                            if (active <= observedMaximum) break;
+                        }
+                        while (Interlocked.CompareExchange(ref maximumActiveSweeps, active, observedMaximum) != observedMaximum);
+
+                        sweepStarted.TrySetResult(true);
+                        try
+                        {
+                            await Task.Delay(Timeout.InfiniteTimeSpan, token).ConfigureAwait(false);
+                        }
+                        finally
+                        {
+                            Interlocked.Decrement(ref activeSweeps);
+                        }
+                    },
+                    TimeSpan.Zero,
+                    _ => { },
+                    cancellation.Token);
+
+                await sweepStarted.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                Task heartbeat = Task.Run(() => heartbeatCompleted.TrySetResult(true));
+                await heartbeatCompleted.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                cancellation.Cancel();
+                await sweep.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                await heartbeat.ConfigureAwait(false);
+
+                AssertEqual(1, sweepCount, "A blocked sweep must not overlap or start a second probe.");
+                AssertEqual(1, maximumActiveSweeps, "Endpoint probes must run serially.");
+                AssertEqual(0, activeSweeps, "Cancellation must release the active probe.");
+            }).ConfigureAwait(false);
+
             await RunTest("ArmadaServer source runs can auto-detect the React dashboard build", () =>
             {
                 string path = Path.Combine(FindRepositoryRoot(), "src", "Armada.Server", "ArmadaServer.cs");
