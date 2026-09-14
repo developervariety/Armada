@@ -155,8 +155,11 @@ namespace Armada.Test.Database
                 }
                 DatabaseAssert.True(stopped, "Selected migration fault point was reached");
                 before = await ReadHistoryAsync(token).ConfigureAwait(false);
-                int expectedVersion = scenario == "partial-first" ? 0 : scenario == "partial-anchor" ? anchorVersion - 1 : 51;
-                DatabaseAssert.Equal(expectedVersion, before.Count == 0 ? 0 : System.Linq.Enumerable.Max(before.Keys), "Failure did not advance applied version");
+                int appliedMaximum = before.Count == 0 ? 0 : System.Linq.Enumerable.Max(before.Keys);
+                if (scenario == "partial-anchor")
+                    DatabaseAssert.True(!before.ContainsKey(anchorVersion) && appliedMaximum < anchorVersion, "Failure did not record the anchor version");
+                else
+                    DatabaseAssert.Equal(scenario == "partial-first" ? 0 : 51, appliedMaximum, "Failure did not advance applied version");
                 if (scenario == "partial-identity")
                 {
                     using (DbConnection connection = CreateConnection(_Settings))

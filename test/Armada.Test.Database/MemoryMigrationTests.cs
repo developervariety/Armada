@@ -35,7 +35,9 @@ namespace Armada.Test.Database
             await StopAtAsync(version, -1, token).ConfigureAwait(false);
             MigrationScenarioRunner history = new MigrationScenarioRunner(_Settings);
             Dictionary<int, string> before = await history.ReadHistoryAsync(token).ConfigureAwait(false);
-            DatabaseAssert.Equal(version - 1, System.Linq.Enumerable.Max(before.Keys), "Memory version is the next pending version");
+            // Version numbers are not contiguous, so prove this version is pending rather than a predecessor number.
+            DatabaseAssert.True(!before.ContainsKey(version), "Memory version is not yet applied");
+            DatabaseAssert.True(System.Linq.Enumerable.Max(before.Keys) < version, "Every applied version precedes the memory version");
             DatabaseAssert.True(!await TableExistsAsync(token).ConfigureAwait(false), "Memories are absent before the migration");
 
             await StopAtAsync(version, 0, token).ConfigureAwait(false);

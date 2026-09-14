@@ -37,7 +37,7 @@ namespace Armada.Test.Database
             }
 
             Dictionary<int, string> before = await scenarioRunner.ReadHistoryAsync(token).ConfigureAwait(false);
-            DatabaseAssert.Equal(version - 1, before.Count == 0 ? 0 : System.Linq.Enumerable.Max(before.Keys),
+            DatabaseAssert.True(!before.ContainsKey(version) && (before.Count == 0 || System.Linq.Enumerable.Max(before.Keys) < version),
                 "Harbor migration remains pending for schema guard fixture");
 
             string[] fixtures = new[]

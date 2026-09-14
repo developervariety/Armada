@@ -38,11 +38,12 @@ namespace Armada.Test.Database
 
             await StopAtAsync(scenarioRunner, linkVersion, 0, "captain endpoint-link", token).ConfigureAwait(false);
             Dictionary<int, string> beforeLink = await scenarioRunner.ReadHistoryAsync(token).ConfigureAwait(false);
-            DatabaseAssert.Equal(linkVersion - 1, MaxVersion(beforeLink), "Interrupted endpoint-link migration is not recorded");
+            DatabaseAssert.True(!beforeLink.ContainsKey(linkVersion) && MaxVersion(beforeLink) < linkVersion, "Interrupted endpoint-link migration is not recorded");
 
             await StopAtAsync(scenarioRunner, harborVersion, 1, "Harbor enrollment", token).ConfigureAwait(false);
             Dictionary<int, string> beforeHarbor = await scenarioRunner.ReadHistoryAsync(token).ConfigureAwait(false);
-            DatabaseAssert.Equal(linkVersion, MaxVersion(beforeHarbor), "Restart records the endpoint-link migration but not the interrupted Harbor migration");
+            DatabaseAssert.True(beforeHarbor.ContainsKey(linkVersion) && !beforeHarbor.ContainsKey(harborVersion) && MaxVersion(beforeHarbor) < harborVersion,
+                "Restart records the endpoint-link migration but not the interrupted Harbor migration");
             MigrationScenarioRunner.AssertHistory(beforeLink, beforeHarbor);
 
             await ExecuteAsync("DROP TABLE IF EXISTS harbor_runner_enrollments;", token).ConfigureAwait(false);

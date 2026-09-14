@@ -64,7 +64,7 @@ namespace Armada.Test.Database
                 DatabaseAssert.True(stopped, "Model endpoint pre-apply checkpoint was reached");
             }
             Dictionary<int, string> before = await scenarioRunner.ReadHistoryAsync(token).ConfigureAwait(false);
-            DatabaseAssert.Equal(version - 1, before.Count == 0 ? 0 : System.Linq.Enumerable.Max(before.Keys), "Model endpoint migration is pending");
+            DatabaseAssert.True(!before.ContainsKey(version) && (before.Count == 0 || System.Linq.Enumerable.Max(before.Keys) < version), "Model endpoint migration is pending");
 
             await ExecuteAsync(IncompatibleTableSql(), token).ConfigureAwait(false);
             bool rejected = false;
