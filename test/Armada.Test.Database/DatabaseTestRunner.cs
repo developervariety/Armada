@@ -83,6 +83,7 @@ namespace Armada.Test.Database
 
             await RunTest("CoordinationLease_Reopen_Ownership_Expiry", "Operational", () => TestCoordinationLeaseAsync(token), token);
             await RunTest("HarborRunnerEnrollment_Reopen_And_CAS_Race", "Operational", () => new HarborRunnerEnrollmentDatabaseTests(_Driver, _Settings).VerifyAsync(token), token);
+            await RunTest("Objective_Terminal_Backlog_Migration_Repairs_Only_Terminal_Rows", "Operational", () => TestObjectiveTerminalBacklogMigrationAsync(token), token);
 
             Console.WriteLine("--- Tenant/User/Credential ---");
             await RunTest("Tenant_Create_Read_Update_Enumerate", "Auth", () => TestTenantCrudAsync(token), token);
@@ -445,6 +446,92 @@ namespace Armada.Test.Database
                 foreach (string holder in new[] { "first", "second", "expired", "replacement" })
                     await _Driver.CoordinationLeases.ReleaseAsync(name, holder, token).ConfigureAwait(false);
             }
+        }
+
+        private async Task TestObjectiveTerminalBacklogMigrationAsync(CancellationToken token)
+        {
+            string[] statements = TerminalBacklogMigrationStatements();
+            DatabaseAssert.True(statements.Length > 0, "Terminal backlog migration is registered for " + _Settings.Type);
+
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                TenantMetadata tenant = await fixture.CreateTenantAsync("terminal-backlog", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "terminal-backlog", token: token).ConfigureAwait(false);
+                Dictionary<string, ObjectiveBacklogStateEnum> expected = new Dictionary<string, ObjectiveBacklogStateEnum>();
+                Dictionary<string, DateTime> updatedBefore = new Dictionary<string, DateTime>();
+
+                async Task SeedAsync(ObjectiveStatusEnum status, ObjectiveBacklogStateEnum state, ObjectiveBacklogStateEnum after)
+                {
+                    Objective objective = await fixture.CreateObjectiveAsync(tenant.Id, user.Id, "terminal-backlog", token: token).ConfigureAwait(false);
+                    objective.Status = status;
+                    objective.BacklogState = state;
+                    await _Driver.Objectives.UpdateAsync(objective, token).ConfigureAwait(false);
+                    Objective stored = DatabaseAssert.NotNull(await _Driver.Objectives.ReadAsync(objective.Id, token).ConfigureAwait(false), "Seeded objective");
+                    DatabaseAssert.Equal(state, stored.BacklogState, "Seeded contradictory backlog state persists before migration");
+                    expected[objective.Id] = after;
+                    updatedBefore[objective.Id] = stored.LastUpdateUtc;
+                }
+
+                await SeedAsync(ObjectiveStatusEnum.Completed, ObjectiveBacklogStateEnum.ReadyForDispatch, ObjectiveBacklogStateEnum.Inbox).ConfigureAwait(false);
+                await SeedAsync(ObjectiveStatusEnum.Completed, ObjectiveBacklogStateEnum.Dispatched, ObjectiveBacklogStateEnum.Inbox).ConfigureAwait(false);
+                await SeedAsync(ObjectiveStatusEnum.Cancelled, ObjectiveBacklogStateEnum.Refining, ObjectiveBacklogStateEnum.Inbox).ConfigureAwait(false);
+                await SeedAsync(ObjectiveStatusEnum.Completed, ObjectiveBacklogStateEnum.Inbox, ObjectiveBacklogStateEnum.Inbox).ConfigureAwait(false);
+                await SeedAsync(ObjectiveStatusEnum.Planned, ObjectiveBacklogStateEnum.ReadyForDispatch, ObjectiveBacklogStateEnum.ReadyForDispatch).ConfigureAwait(false);
+                await SeedAsync(ObjectiveStatusEnum.InProgress, ObjectiveBacklogStateEnum.Dispatched, ObjectiveBacklogStateEnum.Dispatched).ConfigureAwait(false);
+                await SeedAsync(ObjectiveStatusEnum.Deployed, ObjectiveBacklogStateEnum.ReadyForDispatch, ObjectiveBacklogStateEnum.ReadyForDispatch).ConfigureAwait(false);
+
+                using (DbConnection connection = MigrationScenarioRunner.CreateConnection(_Settings))
+                {
+                    await connection.OpenAsync(token).ConfigureAwait(false);
+                    foreach (string statement in statements)
+                    {
+                        using (DbCommand command = connection.CreateCommand())
+                        {
+                            command.CommandText = statement;
+                            await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
+                        }
+                    }
+                }
+
+                foreach (KeyValuePair<string, ObjectiveBacklogStateEnum> row in expected)
+                {
+                    Objective stored = DatabaseAssert.NotNull(await _Driver.Objectives.ReadAsync(row.Key, token).ConfigureAwait(false), "Migrated objective");
+                    DatabaseAssert.Equal(row.Value, stored.BacklogState, "Backlog state after migration for " + stored.Status);
+                    DatabaseAssert.Equal(updatedBefore[row.Key], stored.LastUpdateUtc, "Migration keeps the update time for " + stored.Status);
+                }
+            }
+            finally
+            {
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private string[] TerminalBacklogMigrationStatements()
+        {
+            int version = _Settings.Type switch
+            {
+                DatabaseTypeEnum.Sqlite => 92,
+                DatabaseTypeEnum.Postgresql => 93,
+                DatabaseTypeEnum.Mysql => 84,
+                DatabaseTypeEnum.SqlServer => 87,
+                _ => throw new NotSupportedException()
+            };
+            if (_Settings.Type == DatabaseTypeEnum.Mysql)
+                return Armada.Core.Database.Mysql.Queries.TableQueries.MigrationV84Statements;
+
+            List<SchemaMigration> migrations = _Settings.Type switch
+            {
+                DatabaseTypeEnum.Sqlite => Armada.Core.Database.Sqlite.Queries.TableQueries.GetMigrations(),
+                DatabaseTypeEnum.Postgresql => Armada.Core.Database.Postgresql.Queries.TableQueries.GetMigrations(),
+                _ => Armada.Core.Database.SqlServer.Queries.TableQueries.GetMigrations()
+            };
+            foreach (SchemaMigration migration in migrations)
+            {
+                if (migration.Version == version)
+                    return System.Linq.Enumerable.ToArray(migration.Statements);
+            }
+            return Array.Empty<string>();
         }
 
         private async Task TestTenantCrudAsync(CancellationToken token)

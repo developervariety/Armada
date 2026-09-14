@@ -89,6 +89,7 @@ namespace Armada.Core.Services
         private static bool IsCandidate(Objective obj)
         {
             return obj.AutoDispatchEnabled
+                && !ObjectiveLifecycleRules.IsTerminalStatus(obj.Status)
                 && (obj.Status == ObjectiveStatusEnum.Scoped || obj.Status == ObjectiveStatusEnum.Planned);
         }
 

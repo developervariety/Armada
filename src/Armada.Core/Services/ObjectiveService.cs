@@ -852,11 +852,18 @@ namespace Armada.Core.Services
 
         private async Task<List<Objective>> ReadAllObjectivesAsync(AuthContext auth, CancellationToken token)
         {
+            List<Objective> objectives;
             if (auth.IsAdmin)
-                return await _Database.Objectives.EnumerateAsync(token).ConfigureAwait(false);
-            if (auth.IsTenantAdmin)
-                return await _Database.Objectives.EnumerateAsync(auth.TenantId!, token).ConfigureAwait(false);
-            return await _Database.Objectives.EnumerateAsync(auth.TenantId!, auth.UserId!, token).ConfigureAwait(false);
+                objectives = await _Database.Objectives.EnumerateAsync(token).ConfigureAwait(false);
+            else if (auth.IsTenantAdmin)
+                objectives = await _Database.Objectives.EnumerateAsync(auth.TenantId!, token).ConfigureAwait(false);
+            else
+                objectives = await _Database.Objectives.EnumerateAsync(auth.TenantId!, auth.UserId!, token).ConfigureAwait(false);
+
+            // A row written before the terminal backlog rule existed must still never read as dispatchable.
+            foreach (Objective objective in objectives)
+                ObjectiveLifecycleRules.ApplyTerminalBacklogState(objective);
+            return objectives;
         }
 
         /// <summary>
@@ -871,11 +878,17 @@ namespace Armada.Core.Services
 
         private async Task<Objective?> ReadObjectiveRowAsync(AuthContext auth, string id, CancellationToken token)
         {
+            Objective? objective;
             if (auth.IsAdmin)
-                return await _Database.Objectives.ReadAsync(id, token).ConfigureAwait(false);
-            if (auth.IsTenantAdmin)
-                return await _Database.Objectives.ReadAsync(auth.TenantId!, id, token).ConfigureAwait(false);
-            return await _Database.Objectives.ReadAsync(auth.TenantId!, auth.UserId!, id, token).ConfigureAwait(false);
+                objective = await _Database.Objectives.ReadAsync(id, token).ConfigureAwait(false);
+            else if (auth.IsTenantAdmin)
+                objective = await _Database.Objectives.ReadAsync(auth.TenantId!, id, token).ConfigureAwait(false);
+            else
+                objective = await _Database.Objectives.ReadAsync(auth.TenantId!, auth.UserId!, id, token).ConfigureAwait(false);
+
+            if (objective != null)
+                ObjectiveLifecycleRules.ApplyTerminalBacklogState(objective);
+            return objective;
         }
 
         private async Task DeleteObjectiveRowAsync(AuthContext auth, string id, CancellationToken token)
@@ -985,6 +998,9 @@ namespace Armada.Core.Services
 
         private async Task UpsertObjectiveRowAsync(Objective objective, CancellationToken token, bool skipIfExistingNewer)
         {
+            // Every objective row write passes here, so the terminal status and its backlog state
+            // are always written together in one row update.
+            ObjectiveLifecycleRules.ApplyTerminalBacklogState(objective);
             Objective? existing = await _Database.Objectives.ReadAsync(objective.Id, token).ConfigureAwait(false);
             if (existing == null)
             {

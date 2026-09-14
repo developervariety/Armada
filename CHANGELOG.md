@@ -136,6 +136,13 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   when no caller holds or waits for the objective, while callers for one
   objective stay serialized. The lock is local defense-in-depth; the database
   admission lease remains the cross-instance guarantee.
+- A Completed or Cancelled objective now rests in the `Inbox` backlog state in
+  the same row write that makes it terminal, whether the change comes from a
+  manual edit, an import, a recovery link or scheduler reconciliation after
+  landing. One shared rule applies on every objective write and read, so a
+  terminal objective never lists or selects as `ReadyForDispatch`. A data
+  migration on all four providers moves existing terminal rows out of active
+  backlog states and leaves nonterminal rows unchanged.
 
 ### Native self-deploy preflight
 

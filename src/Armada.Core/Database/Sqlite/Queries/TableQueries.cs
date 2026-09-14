@@ -1594,6 +1594,9 @@ namespace Armada.Core.Database.Sqlite.Queries
                 ),
                 new SchemaMigration(91, "Persist project authorization policy",
                     @"ALTER TABLE project_profiles ADD COLUMN authorization_policy TEXT NULL;"
+                ),
+                new SchemaMigration(92, "Move terminal objectives out of dispatchable backlog states",
+                    @"UPDATE objectives SET backlog_state = 'Inbox' WHERE status IN ('Completed', 'Cancelled') AND (backlog_state IS NULL OR backlog_state <> 'Inbox');"
                 )
             };
         }

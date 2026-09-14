@@ -663,7 +663,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(80, "Persist managed model endpoints", TableQueries.MigrationV80Statements),
                 new SchemaMigration(81, "Persist captain model endpoint links", TableQueries.MigrationV81Statements),
                 new SchemaMigration(82, "Persist Harbor runner enrollments", TableQueries.MigrationV82Statements),
-                new SchemaMigration(83, "Persist project authorization policy", TableQueries.MigrationV83Statements)
+                new SchemaMigration(83, "Persist project authorization policy", TableQueries.MigrationV83Statements),
+                new SchemaMigration(84, "Move terminal objectives out of dispatchable backlog states", TableQueries.MigrationV84Statements)
             };
         }
 

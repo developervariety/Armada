@@ -2638,6 +2638,95 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNull(await testDb.Driver.CoordinationLeases.ReadAsync(leaseName).ConfigureAwait(false),
                     "The winning scheduler must release admission after linking.");
             }).ConfigureAwait(false);
+
+            await RunTest("ReconcileObjective_LandedVoyage_CompletesAndMovesBacklogToInbox", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Voyage landed = await testDb.Driver.Voyages.CreateAsync(new Voyage("Landed voyage")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Status = VoyageStatusEnum.Complete
+                }).ConfigureAwait(false);
+                await testDb.Driver.Missions.CreateAsync(new Mission("Landed work")
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    VoyageId = landed.Id,
+                    Status = MissionStatusEnum.Complete
+                }).ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Landed objective",
+                    Status = ObjectiveStatusEnum.InProgress,
+                    BacklogState = ObjectiveBacklogStateEnum.Dispatched,
+                    VoyageIds = new List<string> { landed.Id }
+                }).ConfigureAwait(false);
+
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(
+                    testDb.Driver, new RecordingAdmiralService(testDb.Driver), EnabledSchedulerSettings());
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                Objective reconciled = (await testDb.Driver.Objectives.ReadAsync(objective.Id).ConfigureAwait(false))!;
+                AssertEqual(ObjectiveStatusEnum.Completed, reconciled.Status);
+                AssertEqual(ObjectiveBacklogStateEnum.Inbox, reconciled.BacklogState,
+                    "Landing reconciliation must leave the dispatchable backlog in the same write as completion.");
+            }).ConfigureAwait(false);
+
+            await RunTest("SweepAsync_TerminalReadyForDispatchRow_NeverSelectsWhileValidRowDispatches", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("terminal-backlog-vessel", "https://github.com/test/terminal-backlog.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                Objective contradictory = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Completed yet ReadyForDispatch",
+                    Status = ObjectiveStatusEnum.Completed,
+                    BacklogState = ObjectiveBacklogStateEnum.ReadyForDispatch,
+                    AutoDispatchEnabled = true,
+                    Priority = ObjectivePriorityEnum.P0,
+                    VesselIds = new List<string> { vessel.Id }
+                }).ConfigureAwait(false);
+                Objective valid = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Planned and ReadyForDispatch",
+                    Status = ObjectiveStatusEnum.Planned,
+                    BacklogState = ObjectiveBacklogStateEnum.ReadyForDispatch,
+                    AutoDispatchEnabled = true,
+                    Priority = ObjectivePriorityEnum.P2,
+                    VesselIds = new List<string> { vessel.Id }
+                }).ConfigureAwait(false);
+
+                List<Objective> candidates = AutonomousObjectiveSelector.SelectCandidates(
+                    await testDb.Driver.Objectives.EnumerateAsync().ConfigureAwait(false));
+                AssertFalse(candidates.Any(item => item.Id == contradictory.Id),
+                    "A terminal objective is never a scheduler candidate, whatever its backlog state reads.");
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, EnabledSchedulerSettings());
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchVoyageCallCount, "Only the valid active row dispatches.");
+                Objective storedValid = (await testDb.Driver.Objectives.ReadAsync(valid.Id).ConfigureAwait(false))!;
+                AssertEqual(1, storedValid.VoyageIds.Count);
+                Objective storedContradictory = (await testDb.Driver.Objectives.ReadAsync(contradictory.Id).ConfigureAwait(false))!;
+                AssertEqual(0, storedContradictory.VoyageIds.Count);
+
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                EnumerationResult<Objective> ready = await objectives.EnumerateAsync(
+                    AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, true, true, "UnitTest"),
+                    new ObjectiveQuery { BacklogState = ObjectiveBacklogStateEnum.ReadyForDispatch, PageSize = 100 }).ConfigureAwait(false);
+                AssertFalse(ready.Objects.Any(item => item.Id == contradictory.Id),
+                    "A completed objective never appears in the ReadyForDispatch backlog.");
+            }).ConfigureAwait(false);
         }
 
         private static RecordingObjectiveDispatchPreview DependencyBlockedPreview(

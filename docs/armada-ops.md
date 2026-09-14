@@ -244,6 +244,14 @@ cross-instance admission. The database lease is the guarantee. A lock entry
 exists only while a caller holds or waits for that objective, so the lock set
 stays bounded however many objectives the process links.
 
+A Completed or Cancelled objective always rests in the `Inbox` backlog state.
+Armada moves it there in the same row write that makes it terminal, on every
+path: a manual update, an import, a recovery link, and scheduler reconciliation
+after the linked voyages land. A terminal objective therefore never lists or
+selects as `ReadyForDispatch`, and an operator does not need to move a finished
+row to `Inbox` by hand. Existing terminal rows in an active backlog state are
+moved by a schema migration; rows with a nonterminal status are unchanged.
+
 When `voyageDispatch.rejectStagePersonaTitlePrefixes` is true and the
 prefix list is not empty, a mission title that already carries a listed
 stage-persona prefix such as `[Worker] ` is rejected with 400 and code

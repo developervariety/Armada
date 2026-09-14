@@ -1216,6 +1216,12 @@ namespace Armada.Core.Database.Mysql.Queries
             @"ALTER TABLE project_profiles ADD COLUMN authorization_policy LONGTEXT CHARACTER SET utf8mb4 NULL;"
         };
 
+        /// <summary>Migration v84 statements moving terminal objectives out of dispatchable backlog states.</summary>
+        public static readonly string[] MigrationV84Statements = new string[]
+        {
+            @"UPDATE objectives SET backlog_state = 'Inbox' WHERE status IN ('Completed', 'Cancelled') AND (backlog_state IS NULL OR backlog_state <> 'Inbox');"
+        };
+
         /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
