@@ -37,13 +37,11 @@ namespace Armada.Core.Services
         private const string _Header = "[ObjectiveService] ";
         private readonly SemaphoreSlim _BackfillLock = new SemaphoreSlim(1, 1);
         private static readonly SemaphoreSlim _DependencyWriteLock = new SemaphoreSlim(1, 1);
-        // Serializes voyage linking per objective. The autonomous scheduler and every operator
-        // dispatch path link through LinkVoyageAsync, so a scheduler sweep racing an operator
-        // dispatch for one row settles on a single winner through this one guard. Static so every
-        // ObjectiveService instance in the process shares it; each instance owns a separate
-        // DatabaseDriver handle to the same store.
-        private static readonly ConcurrentDictionary<string, SemaphoreSlim> _VoyageLinkLocks =
-            new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.OrdinalIgnoreCase);
+        // Serializes voyage linking per objective inside this process. Static so every
+        // ObjectiveService instance in the process shares it. This is local defense-in-depth only:
+        // the durable dispatch admission lease is the cross-instance guarantee. Entries exist only
+        // while a caller holds or awaits an objective, so the lock set stays bounded.
+        private static readonly KeyedAsyncLock _VoyageLinkLocks = new KeyedAsyncLock(StringComparer.OrdinalIgnoreCase);
         private readonly TimeSpan _DispatchAdmissionTtl;
         private bool _BackfillCompleted = false;
         private const string _ObjectiveDeletedEventType = "objective.deleted";
@@ -70,6 +68,11 @@ namespace Armada.Core.Services
             if (_DispatchAdmissionTtl <= TimeSpan.Zero)
                 throw new ArgumentOutOfRangeException(nameof(dispatchAdmissionTtl));
         }
+
+        /// <summary>
+        /// Number of per-objective link locks currently held or awaited in this process.
+        /// </summary>
+        public static int ActiveVoyageLinkLockCount => _VoyageLinkLocks.Count;
 
         /// <summary>
         /// Acquire the durable reservation shared by scheduler and operator dispatch. The caller
@@ -683,9 +686,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(objectiveId)) throw new ArgumentNullException(nameof(objectiveId));
             if (String.IsNullOrWhiteSpace(voyageId)) throw new ArgumentNullException(nameof(voyageId));
 
-            SemaphoreSlim linkLock = _VoyageLinkLocks.GetOrAdd(objectiveId, _ => new SemaphoreSlim(1, 1));
-            await linkLock.WaitAsync(token).ConfigureAwait(false);
-            try
+            using (await _VoyageLinkLocks.AcquireAsync(objectiveId, token).ConfigureAwait(false))
             {
                 Objective objective = await ReadAsync(auth, objectiveId, token).ConfigureAwait(false)
                     ?? throw new InvalidOperationException("Objective not found.");
@@ -716,10 +717,6 @@ namespace Armada.Core.Services
                 PromoteStatus(objective, ObjectiveStatusEnum.InProgress);
                 objective.BacklogState = ObjectiveBacklogStateEnum.Dispatched;
                 return await PersistLinkedObjectiveAsync(auth, objective, token).ConfigureAwait(false);
-            }
-            finally
-            {
-                linkLock.Release();
             }
         }
 

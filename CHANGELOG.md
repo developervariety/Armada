@@ -129,6 +129,13 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   unavailable one as a blocking `execution` finding. The objective scheduler and
   manual dispatch share this preview. `AvailableLicensedContexts` in settings
   lists the licensed context names captains can use.
+### Objective dispatch admission
+
+- The in-process objective link lock no longer keeps one entry for every
+  objective the process ever linked. Entries are reference counted and removed
+  when no caller holds or waits for the objective, while callers for one
+  objective stay serialized. The lock is local defense-in-depth; the database
+  admission lease remains the cross-instance guarantee.
 
 ### Native self-deploy preflight
 

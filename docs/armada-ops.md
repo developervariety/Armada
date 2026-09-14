@@ -238,6 +238,12 @@ losing voyage. A link failure cancels the new voyage and its active mission
 rows. A terminal voyage permits an intentional successor. Recovery uses a
 separate explicit rescue link because it continues a failed chain.
 
+Inside one Admiral process, objective linking is also serialized per objective
+by an in-memory keyed lock. That lock is local defense-in-depth only; it is not
+cross-instance admission. The database lease is the guarantee. A lock entry
+exists only while a caller holds or waits for that objective, so the lock set
+stays bounded however many objectives the process links.
+
 When `voyageDispatch.rejectStagePersonaTitlePrefixes` is true and the
 prefix list is not empty, a mission title that already carries a listed
 stage-persona prefix such as `[Worker] ` is rejected with 400 and code

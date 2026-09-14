@@ -1570,6 +1570,57 @@ namespace Armada.Test.Unit.Suites.Services
                     "The winning voyage stays nonterminal.");
             });
 
+            await RunTest("Link locks for many objectives return to the baseline count after the links finish", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                AuthContext auth = AuthContext.Authenticated(
+                    Armada.Core.Constants.DefaultTenantId,
+                    Armada.Core.Constants.DefaultUserId,
+                    false,
+                    true,
+                    "UnitTest");
+                int baseline = ObjectiveService.ActiveVoyageLinkLockCount;
+
+                List<Task> links = new List<Task>();
+                for (int i = 0; i < 60; i++)
+                {
+                    Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = auth.TenantId,
+                        UserId = auth.UserId,
+                        Title = "Lock lifecycle " + i,
+                        Status = ObjectiveStatusEnum.Scoped
+                    }).ConfigureAwait(false);
+                    for (int j = 0; j < 2; j++)
+                    {
+                        Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Lock voyage " + i + "-" + j)
+                        {
+                            TenantId = auth.TenantId,
+                            UserId = auth.UserId,
+                            Status = VoyageStatusEnum.Open
+                        }).ConfigureAwait(false);
+                        links.Add(LinkIgnoringConflictAsync(objective.Id, voyage.Id));
+                    }
+                }
+
+                await Task.WhenAll(links).ConfigureAwait(false);
+                AssertEqual(baseline, ObjectiveService.ActiveVoyageLinkLockCount,
+                    "Every per-objective link lock must be removed once no caller holds or awaits it.");
+
+                async Task LinkIgnoringConflictAsync(string objectiveId, string voyageId)
+                {
+                    try
+                    {
+                        await objectives.LinkVoyageAsync(auth, objectiveId, voyageId).ConfigureAwait(false);
+                    }
+                    catch (ObjectiveAlreadyDispatchedException)
+                    {
+                        // The second concurrent link for one objective is refused by design.
+                    }
+                }
+            });
+
             await RunTest("Objective dispatch admission persists until disposal and releases for the next holder", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
