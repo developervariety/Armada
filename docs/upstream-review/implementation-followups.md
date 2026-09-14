@@ -15,11 +15,11 @@ remove separate Notifications history and Code Index pages. This supersedes incr
 and compatibility contracts remain intact. No final dashboard acceptance is
 claimed by earlier partial browser or test evidence.
 
-Current accepted SDK source is `4a0787e5`: supported profile, skill, Ask,
-objective, refinement, delivery, list and enumeration wrappers are present.
-The combined client suite ran 86 tests with no failures or skips. Helm,
-Postman, branch-client coverage and isolated HTTP round trips remain open.
-These changes are not deployed.
+Accepted SDK and Helm integration is `7092406a`: supported wrappers, branch
+inspection, JSONC-preserving MCP setup and help aliases passed 101 combined
+client/Helm checks, including actual isolated HTTP calls. BaseCommand settings
+reload, enum requests and Postman updates remain open. These changes are not
+deployed.
 
 Harbor and self-rebuild require hardened implementations. Harbor must validate
 credentials; self-rebuild must stop after backup failure. Keep existing deployment
@@ -39,7 +39,9 @@ Deployment and a live read-only Ask tool call remain unverified.
 
 Read-only branch inspection landed in `c69d5627`. It uses persisted paths,
 preserves refs, and reports corrupt HEAD as an error. Root checks passed:
-89 API tests and 60 Git service tests. Optional writes remain absent.
+89 API tests and 60 Git service tests. Manual completion guards landed in
+`e5fca427`; 34 unit, 55 shared and 17 actual REST checks passed. Optional writes
+remain absent; deployment remains pending.
 
 Crash-loop protection landed in `b4ed7ab6` through the existing quarantine
 service. It preserves active work and stronger or indefinite holds. Root checks
@@ -58,15 +60,24 @@ rejection and full Unicode IDs. The final disabled-default check passed on each
 provider. Conditional health persistence also passed on all four providers:
 72 tests each on SQLite, PostgreSQL and SQL Server, and 73 on MySQL. The checks
 cover null values, fractional timestamps and stale writes after configuration
-changes. The service candidate still needs REST boundary checks and real model
-validation. Endpoints
-remain disabled by default; persistence acceptance does not complete the objective.
+changes. Scoped service and captain-link integration landed in `7b94c82e`
+after 55 shared service/HTTP checks, 29 combined wiring/safety checks and
+four-provider link migration proof. API runtime execution remains under review.
+Endpoints remain disabled by default; this does not complete the objective.
 
 Self-rebuild preflight landed in `e52018a8`. Root validation passed 12 tests.
 The default provider refuses deployment until backup, restore and candidate proof
-all pass. Native backup and isolated restore remain under review. Candidate and
-process proof are incomplete. This source is not deployed. Mocked success flags
-do not satisfy deployment proof.
+all pass. Native backup and isolated restore landed in `a00aa410` after 33
+local checks and actual backup/restore/candidate validation on all four providers.
+The bounded build runner landed in `94c68ff0`. Local image retention landed in
+`98a92c69` after stub failures and a real isolated Docker build. Supervised
+cutover, rollback and final candidate proof remain open. This source is not
+deployed. Mocked success flags do not satisfy deployment proof.
+
+The combined C# source at `9e8498a7` passed 3,945 unit tests with no failures and
+one explicit isolated-provider integration skip. Later accepted retention changes
+are shell and documentation changes with separate proof. Pending Harbor, API
+runtime and scoped asset candidates are not included in this count.
 
 A fetch of both remotes found a later upstream Linter persona addition. The
 comparison remains pinned to the accepted review anchor. The new persona and
@@ -98,6 +109,12 @@ these areas. Do not duplicate its changes.
 | FOLLOWUP-014 | Verify | WebSocket exposure blocked by admin-only subscription; scoped delivery remains open |
 | FOLLOWUP-015 | Open | Persona, pipeline and prompt-template read visibility remains unscoped |
 | FOLLOWUP-016 | Closed | Manual Complete uses immutable Check and target ancestry proof; report-only completion remains allowed |
+| FOLLOWUP-017 | Verify | Accepted components have proof; remaining candidate findings are tracked below |
+| FOLLOWUP-018 | Open | Self-rebuild still needs immutable supervised cutover and rollback |
+| FOLLOWUP-019 | Open | API runtime lifecycle, usage, response limits and atomic-write proof |
+| FOLLOWUP-020 | Open | Harbor enrollment schema compatibility and session revocation proof |
+| FOLLOWUP-021 | Closed | Unknown process state blocks manual completion before mutation |
+| FOLLOWUP-022 | Closed | Local image retention matches real Docker behavior and verifies both tags |
 
 ## FOLLOWUP-001 — Landing retry event
 
@@ -614,6 +631,13 @@ rejected without recording the migration as applied. A separate two-instance
 session test must prove that a fresh durable generation is accepted after
 another instance revokes and re-enrolls the runner, while old sessions stay
 invalid. A stale local generation cache must not reject the new owner forever.
+
+A root equivalent-table check found another concrete SQLite defect in the
+candidate: a table created by its own DDL is rejected when the Harbor version is
+pending. The guard disagrees with `runner_id` nullability and `active` type.
+Fresh installation and transactional rollback tests did not exercise that case.
+Require acceptance of an equivalent preexisting table as well as rejection of
+independently malformed tables before landing the enrollment migration.
 
 ## FOLLOWUP-021 — Unknown process state must block manual completion
 
