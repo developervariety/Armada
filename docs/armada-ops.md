@@ -1148,7 +1148,7 @@ See [DELIVERY_OPERATIONS.md](DELIVERY_OPERATIONS.md) for the detailed procedure.
 
 Self-deploy is opt-in (`selfDeploy.enabled` defaults to `false`). After a
 successful Release build, the service runs an
-injected safety preflight before it starts the external watchdog. The preflight
+injected safety preflight before it prepares the supervised cutover. The preflight
 must prove all three conditions: a recoverable backup was created and
 validated, restore verification passed, and the candidate server was validated.
 If any condition fails, or if the provider returns no result or throws, the
@@ -1196,6 +1196,81 @@ The Release build uses this same runner with an argument list and a configured
 build timeout. Caller cancellation and timeout both terminate the process tree
 and observe the redirected pipes before the build result is returned; a build
 that cannot be terminated or drained fails closed.
+
+### Self-deploy supervised cutover
+
+Self-deploy restarts only a process-owned admiral. Inside a container the
+container runtime owns the admiral process, so self-deploy fails closed with
+`container_host_requires_external_deploy` and the host-side image deployment
+remains the only deploy path there.
+
+The running admiral performs these steps, and any failure opens an incident
+and keeps it as the owner:
+
+1. Capture the running server directory as the rollback artifact before the
+   build, because the build may overwrite that directory.
+2. Build, then run the safety preflight.
+3. Capture the candidate build directory as the candidate artifact.
+4. Read the schema version and its own identity (process id and start time).
+5. Create the restart record in `Prepared`. A new record is refused while an
+   unresolved or unreadable record exists (`restart_in_progress`).
+6. Start the supervisor from the rollback artifact with
+   `--self-deploy-supervise <operation>` and wait up to
+   `selfDeploy.handshakeTimeoutSeconds` for `Armed`. If it does not arm, the
+   admiral aborts the record and stops the supervisor by identity.
+7. Write `ExitRequested` and exit.
+
+Artifacts live under `<dataDirectory>/self-deploy/releases/<sha256>`. The
+digest covers every relative path, size and content hash. Files are read-only,
+symlinks are refused, and each artifact is re-verified before every launch.
+The restart record is `<dataDirectory>/self-deploy/restart-record.json`. Every
+change is a compare-and-swap under an exclusive record lock, written to a
+flushed temporary file and renamed into place. A separate supervisor lock
+allows one supervisor or recovery run at a time.
+
+The supervisor verifies both artifacts and the recorded admiral identity, then
+writes `Armed`. It waits for `ExitRequested`, then waits up to
+`selfDeploy.oldProcessExitTimeoutSeconds` for that exact process to exit. An
+admiral that does not exit is terminated by identity; its descendants are not.
+A reused process id counts as exited and is never signalled. If exit cannot be
+confirmed, or the process state cannot be verified, the record fails and
+nothing is launched.
+
+Launches are recorded before and after they happen (`CandidateStarting` with
+and without the process identity). Health requires
+`GET http://127.0.0.1:<admiralPort>/api/v1/status/health` to report `healthy`
+with a `StartUtc` no earlier than the launched process, within
+`selfDeploy.healthTimeoutSeconds`. The result is one of:
+
+- The candidate is healthy: `Committed`.
+- The candidate exits or stays unhealthy: the supervisor stops it, confirms
+  the exit, rereads the schema version and launches the rollback artifact,
+  giving `RolledBack` or `Failed`.
+- The candidate advanced the schema, or the schema version cannot be read: the
+  previous binary is not started, giving `RollbackBlocked`. Restore the
+  retained preflight backup before starting the previous binary; writes made
+  after the cutover are lost by that restore.
+
+While a record is non-terminal, a normal admiral start exits with code 3 and
+names the record. Only the process the supervisor launched for that operation
+may start (`ARMADA_SELF_DEPLOY_OPERATION_ID`). After a supervisor or host
+interruption, run the server with `--self-deploy-recover`:
+
+- If the recorded admiral still runs before any stop, the record aborts and
+  that admiral stays the owner.
+- If the interruption came before a candidate launch, the rollback artifact is
+  launched. Recovery never launches the candidate.
+- A running candidate is committed only if it proves health; otherwise it is
+  stopped and rolled back.
+- A launch whose identity was not recorded, two running recorded processes, or
+  an unverifiable process state all fail without starting anything.
+
+Exit code 0 means the record proves a healthy owner or no record exists.
+
+Current limits: the release store is not pruned; supervised processes inherit
+the supervisor's standard streams; Windows storage fails closed; and the
+default preflight is still unwired, so no cutover runs until the native
+preflight is connected and accepted.
 
 The real utility checks are separate and disabled by default; the default guard
 performs no database work. To run them against disposable provider databases, set

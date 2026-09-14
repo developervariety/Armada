@@ -110,7 +110,7 @@ these areas. Do not duplicate its changes.
 | FOLLOWUP-015 | Open | Persona, pipeline and prompt-template read visibility remains unscoped |
 | FOLLOWUP-016 | Closed | Manual Complete uses immutable Check and target ancestry proof; report-only completion remains allowed |
 | FOLLOWUP-017 | Verify | Accepted components have proof; remaining candidate findings are tracked below |
-| FOLLOWUP-018 | Open | Self-rebuild still needs immutable supervised cutover and rollback |
+| FOLLOWUP-018 | Verify | Supervised cutover, rollback and recovery implemented; preflight wiring and live rehearsal remain |
 | FOLLOWUP-019 | Open | API runtime lifecycle, usage, response limits and atomic-write proof |
 | FOLLOWUP-020 | Open | Harbor enrollment schema compatibility and session revocation proof |
 | FOLLOWUP-021 | Closed | Unknown process state blocks manual completion before mutation |
@@ -553,8 +553,9 @@ These findings apply to unaccepted candidates, not the deployed image:
   provider round trips, with no failures or skips. The final run uses private
   Unix storage and includes the quoted SQL Server path. Windows storage still
   fails closed until owner-only ACL verification is available. Process cutover,
-  health validation and rollback remain open in FOLLOWUP-018. Self-rebuild
-  remains disabled and the default preflight remains unwired.
+  health validation, rollback and restart recovery are now implemented; their
+  acceptance state is in FOLLOWUP-018. Self-rebuild remains disabled and the
+  default preflight remains unwired.
 
 Keep these entries open until the corrected combined tree has independent proof.
 
@@ -569,12 +570,112 @@ provider integration entry was explicitly skipped because its isolated scope
 was not configured in that local run. The earlier four-provider native proof
 remains separate evidence. This change does not enable self-rebuild.
 
-The current watchdog waits for a numeric PID, can kill it after a timeout, and
-starts the candidate without checking health or retaining a rollback target.
-Replace this path with verified process ownership, immutable candidate and
-rollback artifacts, bounded health validation, and a durable restart record.
-Prove failure and interrupted-restart recovery on isolated processes before
-enabling it. A successful restore rehearsal does not prove safe cutover.
+### Reproduced defect
+
+The removed watchdog identified the admiral only by a numeric PID. Given the PID
+of an unrelated live process and a one-second wait, it killed that process and
+exited 0. It then started a candidate that exited 1, and still reported success:
+there was no health check and no rollback target.
+
+### Implemented cutover
+
+The watchdog scripts and supervisor are removed. `docs/armada-ops.md`
+("Self-deploy supervised cutover") describes the replacement:
+
+- Process identity is the id plus the start time.
+- Candidate and rollback artifacts are content-addressed and read-only, and are
+  re-verified before every launch.
+- A durable compare-and-swap restart record carries the handshake, launches and
+  outcomes.
+- Health is bounded and must come from a server that started after the launch.
+- Rollback stops the candidate first, and a schema the candidate advanced blocks
+  rollback.
+- A startup guard refuses a normal start during an unresolved restart.
+- `--self-deploy-recover` drives an interrupted restart to a terminal state.
+- Self-deploy fails closed inside a container.
+
+Two further defects were found and fixed during this work:
+
+- The private-directory helper created missing parents with public permissions.
+  The default layout captures the rollback artifact before it writes the
+  record, so every real cutover would have failed closed. Before the fix, 17 of
+  18 coordinator cases failed with `private_storage_permissions_unverified`.
+- A terminated process briefly reported an unverifiable start time while it
+  exited. The exit wait stopped at that state, so a confirmed kill could read as
+  unconfirmed.
+
+Unit proof uses real operating-system processes on an isolated host. The covered
+paths are:
+
+- Commit only after old exit is confirmed.
+- A hung admiral is terminated by identity.
+- A reused id is not signalled.
+- An exit request that never arrives aborts without touching the admiral.
+- An unverifiable admiral fails without a launch.
+- An unhealthy or crashed candidate rolls back.
+- An advanced or unreadable schema blocks rollback.
+- A tampered candidate is refused.
+- An unhealthy rollback fails.
+- A held supervisor lock changes nothing.
+- An interrupted supervisor recovers to commit, or to rollback.
+- An interruption before launch restores rollback only.
+- A still-running admiral aborts recovery.
+- Overlapping recorded processes and an unrecorded launch identity fail closed.
+
+Service tests cover the fail-closed gates before any process starts: container
+host, rollback capture, candidate capture, admiral identity, an unresolved
+restart, backup, restore and candidate preflight failures, a supervisor that
+never arms, and a supervisor that refuses the artifacts. A supervisor
+interruption is simulated by abandoning the coordinator at its health check; a
+hard kill of a real supervisor process is part of the rehearsal below.
+
+### Value decision: container SelfDeploy versus upstream A/B slots
+
+The production target is an admiral in a container with PostgreSQL. It is
+deployed from host-side images, with retained rollback image tags and an isolated
+restore rehearsal before the swap.
+
+- **A/B slots: rejected for this target.** Slot directories and a baton
+  relaunch live inside the container. The image is the deploy unit, and a
+  relaunch that exits the entrypoint ends the container. Upstream backup and
+  restore are SQLite-only and continue after a backup failure, and health
+  rollback depends on Harbor. None of this adds a guarantee that the host image
+  procedure lacks.
+- **Hardened SelfDeploy: retained for process-owned hosts only**, disabled by
+  default. It fails closed inside a container.
+- **Container deployment stays external.** An immutable image digest takes the
+  place of the artifact. The single compose service keeps processes from
+  overlapping. Health `StartUtc` and the migration check are the cutover proof.
+  The retained image plus the preflight backup restore is the rollback.
+
+### What the separate deployment window must prove
+
+The owner authorizes this window separately. No server change was made here.
+
+1. **Container rollout.**
+   - The running image contains the change (health `StartUtc` after the swap,
+     and build drift).
+   - `selfDeploy.enabled` stays false.
+   - A normal start is not refused, because no record exists.
+   - `--self-deploy-recover` inside the container prints `NoRecord` and exits 0.
+   - Helm and dashboard evidence is unchanged.
+   - The host systemd `armada.service` is never started.
+2. **Before any enablement on a process-owned host,** run an isolated rehearsal
+   with the real server binary, a disposable copy of the real database, and the
+   native preflight connected. It must show:
+   - A backup failure and a candidate migration failure create no record.
+   - An unhealthy candidate ends `RolledBack`, with the previous binary healthy.
+   - `kill -9` of the supervisor during `CandidateStarting` makes a normal start
+     exit 3; `--self-deploy-recover` then reaches a terminal state with one
+     owner.
+   - A candidate that advances the schema and then fails ends `RollbackBlocked`,
+     and a restore of the retained backup starts the previous binary.
+   - A hung admiral is stopped by identity without stopping its captains.
+   - Supervised processes survive their standard streams closing under the host
+     service manager.
+
+Keep this entry at Verify until the rehearsal passes and the native preflight is
+connected by an accepted change.
 
 ## FOLLOWUP-019 — API runtime workspace tools remain unaccepted
 

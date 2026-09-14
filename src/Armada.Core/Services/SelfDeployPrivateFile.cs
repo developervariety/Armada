@@ -32,8 +32,22 @@ namespace Armada.Core.Services
                 return;
             }
 
-            Directory.CreateDirectory(fullPath, PrivateDirectoryMode);
-            VerifyDirectory(fullPath);
+            // Directory.CreateDirectory applies the requested mode only to the leaf; missing ancestors
+            // would get the default public mode. Create each missing level with the private mode so a
+            // nested private path never leaves a public parent that a later private check rejects.
+            Stack<string> missing = new Stack<string>();
+            string? cursor = fullPath;
+            while (!String.IsNullOrEmpty(cursor) && !Directory.Exists(cursor))
+            {
+                missing.Push(cursor);
+                cursor = Path.GetDirectoryName(cursor);
+            }
+            while (missing.Count > 0)
+            {
+                string level = missing.Pop();
+                Directory.CreateDirectory(level, PrivateDirectoryMode);
+                VerifyDirectory(level);
+            }
         }
 
         public static async Task WriteTextAsync(string path, string content, CancellationToken token)

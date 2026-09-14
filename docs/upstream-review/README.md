@@ -274,7 +274,7 @@ Acceptance:
 
 ### Phase 6: Decide on provider-safe self-rebuild and rollback
 
-Deferred architecture decision. Upstream dashboard A/B rebuild and Harbor rollback do not directly fit the running PostgreSQL/container deployment. Static review finds SQLite-only backup helpers and continuation after backup failure. Do not activate the upstream rebuild action as a routine UI port.
+Decision recorded in `implementation-followups.md` FOLLOWUP-018: upstream A/B slots are rejected for the PostgreSQL/container target, the hardened fork SelfDeploy is kept for process-owned hosts (disabled by default, fail-closed in containers), and container deployment stays the external image procedure. Upstream dashboard A/B rebuild and Harbor rollback do not directly fit the running PostgreSQL/container deployment. Static review finds SQLite-only backup helpers and continuation after backup failure. Do not activate the upstream rebuild action as a routine UI port.
 
 Depends on: Decide whether detached Harbor runners justify a separate integration; Adapt optional observability and dependency updates.
 

@@ -1,5 +1,7 @@
 namespace Armada.Core.Settings
 {
+    using Armada.Core.Models;
+
     /// <summary>
     /// Opt-in settings for rebuilding and supervised restart when the self-hosted
     /// armada vessel lands to its own default branch.
@@ -46,6 +48,35 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Maximum seconds either side of the admiral-supervisor handshake waits for the other.
+        /// A timeout aborts the cutover while the running admiral stays the owner.
+        /// </summary>
+        public int HandshakeTimeoutSeconds
+        {
+            get => _HandshakeTimeoutSeconds;
+            set => _HandshakeTimeoutSeconds = Math.Clamp(value, 5, 300);
+        }
+
+        /// <summary>
+        /// Maximum seconds the supervisor waits for the previous admiral to exit before terminating
+        /// that exact process. The candidate never starts until the exit is confirmed.
+        /// </summary>
+        public int OldProcessExitTimeoutSeconds
+        {
+            get => _OldProcessExitTimeoutSeconds;
+            set => _OldProcessExitTimeoutSeconds = Math.Clamp(value, 5, 900);
+        }
+
+        /// <summary>
+        /// Maximum seconds a launched candidate or rollback server has to prove health.
+        /// </summary>
+        public int HealthTimeoutSeconds
+        {
+            get => _HealthTimeoutSeconds;
+            set => _HealthTimeoutSeconds = Math.Clamp(value, 10, 1800);
+        }
+
+        /// <summary>
         /// Solution path relative to the vessel WorkingDirectory.
         /// </summary>
         public string SolutionRelativePath { get; set; } = "src/Armada.sln";
@@ -61,18 +92,29 @@ namespace Armada.Core.Settings
         public string TargetFramework { get; set; } = "net10.0";
 
         /// <summary>
-        /// Optional supervisor script path relative to WorkingDirectory.
-        /// When null, scripts/admiral-watchdog.ps1 on Windows or scripts/admiral-watchdog.sh elsewhere.
-        /// </summary>
-        public string? SupervisorScriptRelativePath { get; set; }
-
-        /// <summary>
-        /// Server DLL path relative to WorkingDirectory used by the supervisor to start the new admiral.
+        /// Server DLL path relative to WorkingDirectory. Its directory is captured as the immutable candidate artifact.
         /// </summary>
         public string ServerDllRelativePath { get; set; } = "src/Armada.Server/bin/Release/net10.0/Armada.Server.dll";
+
+        /// <summary>
+        /// Cutover bounds derived from these settings.
+        /// </summary>
+        /// <returns>Cutover options.</returns>
+        public SelfDeployCutoverOptions ToCutoverOptions()
+        {
+            return new SelfDeployCutoverOptions
+            {
+                HandshakeTimeout = TimeSpan.FromSeconds(HandshakeTimeoutSeconds),
+                OldProcessExitTimeout = TimeSpan.FromSeconds(OldProcessExitTimeoutSeconds),
+                HealthTimeout = TimeSpan.FromSeconds(HealthTimeoutSeconds)
+            };
+        }
 
         private int _DebounceSeconds = 30;
         private int _MergeQueueDrainTimeoutSeconds = 300;
         private int _BuildTimeoutSeconds = 600;
+        private int _HandshakeTimeoutSeconds = 30;
+        private int _OldProcessExitTimeoutSeconds = 120;
+        private int _HealthTimeoutSeconds = 120;
     }
 }

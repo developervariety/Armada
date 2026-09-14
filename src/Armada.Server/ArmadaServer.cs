@@ -244,7 +244,7 @@ namespace Armada.Server
                 _Settings,
                 _Git,
                 new SelfDeployBuildRunner(_Logging),
-                new SelfDeploySupervisor(_Logging),
+                SelfDeployCutoverComponents.CreateDefault(_Settings.DataDirectory, _Settings.SelfDeploy),
                 new FailClosedSelfDeployPreflight(),
                 () =>
                 {

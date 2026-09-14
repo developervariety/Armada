@@ -1,6 +1,5 @@
 namespace Armada.Core.Services
 {
-    using System.Diagnostics;
     using System.Text.Json;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -10,17 +9,20 @@ namespace Armada.Core.Services
     using SyslogLogging;
 
     /// <summary>
-    /// Debounced self-deploy pipeline: workdir sync, Release build gate, incident on failure,
-    /// and supervised restart on success.
+    /// Debounced self-deploy pipeline: workdir sync, immutable rollback capture, Release build gate,
+    /// safety preflight, immutable candidate capture, and a supervised cutover handshake. Every failed
+    /// step opens an incident and keeps the running admiral as the owner.
     /// </summary>
     public sealed class SelfDeployService : ISelfDeployService
     {
+        private const string ServerEntryAssembly = "Armada.Server.dll";
+
         private readonly LoggingModule _Logging;
         private readonly DatabaseDriver _Database;
         private readonly ArmadaSettings _Settings;
         private readonly IGitService _Git;
         private readonly ISelfDeployBuildRunner _BuildRunner;
-        private readonly ISelfDeploySupervisor _Supervisor;
+        private readonly SelfDeployCutoverComponents _Cutover;
         private readonly ISelfDeployPreflight _Preflight;
         private readonly Action? _RequestProcessExit;
         private readonly object _ScheduleGate = new object();
@@ -28,15 +30,22 @@ namespace Armada.Core.Services
         private const string _Header = "[SelfDeployService] ";
 
         /// <summary>
-        /// Instantiate.
+        /// Instantiate with the fail-closed default preflight.
         /// </summary>
+        /// <param name="logging">Logging module.</param>
+        /// <param name="database">Armada database driver.</param>
+        /// <param name="settings">Armada settings.</param>
+        /// <param name="git">Git service.</param>
+        /// <param name="buildRunner">Release build runner.</param>
+        /// <param name="cutover">Cutover collaborators.</param>
+        /// <param name="requestProcessExit">Optional process-exit callback.</param>
         public SelfDeployService(
             LoggingModule logging,
             DatabaseDriver database,
             ArmadaSettings settings,
             IGitService git,
             ISelfDeployBuildRunner buildRunner,
-            ISelfDeploySupervisor supervisor,
+            SelfDeployCutoverComponents cutover,
             Action? requestProcessExit = null)
             : this(
                 logging,
@@ -44,7 +53,7 @@ namespace Armada.Core.Services
                 settings,
                 git,
                 buildRunner,
-                supervisor,
+                cutover,
                 new FailClosedSelfDeployPreflight(),
                 requestProcessExit)
         {
@@ -58,7 +67,7 @@ namespace Armada.Core.Services
         /// <param name="settings">Armada settings.</param>
         /// <param name="git">Git service.</param>
         /// <param name="buildRunner">Release build runner.</param>
-        /// <param name="supervisor">External restart supervisor.</param>
+        /// <param name="cutover">Cutover collaborators.</param>
         /// <param name="preflight">Provider that proves backup, restore verification, and candidate validation.</param>
         /// <param name="requestProcessExit">Optional process-exit callback.</param>
         public SelfDeployService(
@@ -67,7 +76,7 @@ namespace Armada.Core.Services
             ArmadaSettings settings,
             IGitService git,
             ISelfDeployBuildRunner buildRunner,
-            ISelfDeploySupervisor supervisor,
+            SelfDeployCutoverComponents cutover,
             ISelfDeployPreflight preflight,
             Action? requestProcessExit = null)
         {
@@ -76,7 +85,7 @@ namespace Armada.Core.Services
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Git = git ?? throw new ArgumentNullException(nameof(git));
             _BuildRunner = buildRunner ?? throw new ArgumentNullException(nameof(buildRunner));
-            _Supervisor = supervisor ?? throw new ArgumentNullException(nameof(supervisor));
+            _Cutover = cutover ?? throw new ArgumentNullException(nameof(cutover));
             _Preflight = preflight ?? throw new ArgumentNullException(nameof(preflight));
             _RequestProcessExit = requestProcessExit;
         }
@@ -140,6 +149,13 @@ namespace Armada.Core.Services
                 return false;
             }
 
+            if (_Cutover.Environment.IsContainer)
+            {
+                await BlockAsync(selfVessel, mergeEntryId, "container_host_requires_external_deploy",
+                    "Self-deploy is disabled inside a container; the container runtime owns the admiral process", token).ConfigureAwait(false);
+                return false;
+            }
+
             bool queueIdle = await WaitForMergeQueueDrainAsync(selfVessel.Id, settings, token).ConfigureAwait(false);
             if (!queueIdle)
             {
@@ -162,6 +178,20 @@ namespace Armada.Core.Services
                 return false;
             }
 
+            // The running server may execute from the build output the Release build overwrites, so the
+            // rollback artifact is captured before building.
+            SelfDeployReleaseArtifact rollback;
+            try
+            {
+                rollback = await _Cutover.Artifacts.CaptureAsync(_Cutover.Environment.CurrentServerDirectory, ServerEntryAssembly, token).ConfigureAwait(false);
+            }
+            catch (SelfDeployCutoverException ex)
+            {
+                await BlockAsync(selfVessel, mergeEntryId, "rollback_" + ex.FailureReason,
+                    "Rollback artifact capture failed; admiral restart aborted", token).ConfigureAwait(false);
+                return false;
+            }
+
             await EmitEventAsync("self_deploy.build_started", selfVessel.Id, mergeEntryId,
                 "Release build started for self-deploy after " + reason, new { vesselId = selfVessel.Id, mergeEntryId, reason }, token).ConfigureAwait(false);
 
@@ -178,7 +208,6 @@ namespace Armada.Core.Services
             }
 
             string serverDllPath = Path.GetFullPath(Path.Combine(workingDirectory, settings.ServerDllRelativePath));
-            string supervisorScriptPath = ResolveSupervisorScriptPath(workingDirectory, settings);
 
             await EmitEventAsync("self_deploy.preflight_started", selfVessel.Id, mergeEntryId,
                 "Self-deploy safety preflight started",
@@ -232,33 +261,131 @@ namespace Armada.Core.Services
             }
 
             await EmitEventAsync("self_deploy.preflight_succeeded", selfVessel.Id, mergeEntryId,
-                "Self-deploy preflight passed; requesting supervised restart",
+                "Self-deploy preflight passed; preparing supervised cutover",
                 new { vesselId = selfVessel.Id, mergeEntryId }, token).ConfigureAwait(false);
 
-            await EmitEventAsync("self_deploy.build_succeeded", selfVessel.Id, mergeEntryId,
-                "Release build and safety preflight succeeded; requesting supervised restart",
-                new { vesselId = selfVessel.Id, mergeEntryId }, token).ConfigureAwait(false);
+            return await PrepareCutoverAsync(selfVessel, mergeEntryId, rollback, serverDllPath, token).ConfigureAwait(false);
+        }
 
-            int admiralPid = Process.GetCurrentProcess().Id;
-            bool spawned = await _Supervisor.RequestSupervisedRestartAsync(
-                workingDirectory,
-                admiralPid,
-                serverDllPath,
-                supervisorScriptPath,
-                token).ConfigureAwait(false);
-
-            if (!spawned)
+        private async Task<bool> PrepareCutoverAsync(
+            Vessel selfVessel,
+            string? mergeEntryId,
+            SelfDeployReleaseArtifact rollback,
+            string serverDllPath,
+            CancellationToken token)
+        {
+            SelfDeployReleaseArtifact candidate;
+            try
             {
-                await EmitSkippedAsync(selfVessel.Id, mergeEntryId, "supervisor_spawn_failed", token).ConfigureAwait(false);
-                await OpenBuildIncidentAsync(selfVessel, mergeEntryId,
-                    "Self-deploy supervisor failed to spawn",
-                    "Supervisor script: " + supervisorScriptPath, token).ConfigureAwait(false);
+                string candidateDirectory = Path.GetDirectoryName(serverDllPath) ?? String.Empty;
+                candidate = await _Cutover.Artifacts.CaptureAsync(candidateDirectory, Path.GetFileName(serverDllPath), token).ConfigureAwait(false);
+            }
+            catch (SelfDeployCutoverException ex)
+            {
+                await BlockAsync(selfVessel, mergeEntryId, "candidate_" + ex.FailureReason,
+                    "Candidate artifact capture failed; admiral restart aborted", token).ConfigureAwait(false);
+                return false;
+            }
+
+            int schemaVersion;
+            try
+            {
+                schemaVersion = await _Database.GetSchemaVersionAsync(token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                await BlockAsync(selfVessel, mergeEntryId, "schema_version_unreadable",
+                    "Schema version could not be read before cutover; admiral restart aborted", token).ConfigureAwait(false);
+                return false;
+            }
+
+            SelfDeployProcessIdentity? admiral = _Cutover.ProcessHost.Capture(_Cutover.Environment.CurrentProcessId);
+            if (admiral == null)
+            {
+                await BlockAsync(selfVessel, mergeEntryId, "admiral_identity_unverified",
+                    "Running admiral identity could not be verified; admiral restart aborted", token).ConfigureAwait(false);
+                return false;
+            }
+
+            string operationId = "sdo_" + Guid.NewGuid().ToString("N");
+            SelfDeployRestartRecord record = new SelfDeployRestartRecord
+            {
+                OperationId = operationId,
+                CreatedUtc = DateTime.UtcNow,
+                OldProcess = admiral,
+                Candidate = candidate,
+                Rollback = rollback,
+                SchemaVersionBefore = schemaVersion,
+                HealthUrl = SelfDeployHttpHealthProbe.LoopbackHealthUrl(_Settings.AdmiralPort)
+            };
+            record.MoveTo(SelfDeployRestartStateEnum.Prepared, "admiral_prepared");
+
+            SelfDeployRestartTransitionResult created;
+            try
+            {
+                created = await _Cutover.Records.CreateAsync(record, token).ConfigureAwait(false);
+            }
+            catch (SelfDeployCutoverException ex)
+            {
+                await BlockAsync(selfVessel, mergeEntryId, ex.FailureReason,
+                    "Restart record could not be written; admiral restart aborted", token).ConfigureAwait(false);
+                return false;
+            }
+            if (!created.Applied)
+            {
+                await BlockAsync(selfVessel, mergeEntryId, created.FailureReason,
+                    "Restart record is not available for a new cutover; admiral restart aborted", token).ConfigureAwait(false);
+                return false;
+            }
+
+            SelfDeployProcessIdentity supervisor;
+            try
+            {
+                supervisor = _Cutover.ProcessHost.Start(_Cutover.LaunchPlanner.ForSupervisor(rollback, operationId));
+            }
+            catch (SelfDeployCutoverException ex)
+            {
+                await AbortPreparedAsync(operationId, "supervisor_" + ex.FailureReason, token).ConfigureAwait(false);
+                await BlockAsync(selfVessel, mergeEntryId, "supervisor_" + ex.FailureReason,
+                    "Self-deploy supervisor failed to start; admiral restart aborted", token).ConfigureAwait(false);
+                return false;
+            }
+
+            string? armFailure = await WaitForSupervisorArmAsync(operationId, supervisor, token).ConfigureAwait(false);
+            if (armFailure != null)
+            {
+                await BlockAsync(selfVessel, mergeEntryId, armFailure,
+                    "Self-deploy supervisor did not arm; admiral restart aborted", token).ConfigureAwait(false);
+                return false;
+            }
+
+            SelfDeployRestartTransitionResult exitRequested = await _Cutover.Records.TryTransitionAsync(operationId,
+                new[] { SelfDeployRestartStateEnum.Armed },
+                r => r.MoveTo(SelfDeployRestartStateEnum.ExitRequested, "admiral_exit_requested"), token).ConfigureAwait(false);
+            if (!exitRequested.Applied)
+            {
+                await BlockAsync(selfVessel, mergeEntryId, "exit_request_rejected_" + exitRequested.FailureReason,
+                    "Self-deploy supervisor ended the handshake; admiral restart aborted", token).ConfigureAwait(false);
                 return false;
             }
 
             await EmitEventAsync("self_deploy.restart_requested", selfVessel.Id, mergeEntryId,
-                "Supervised restart requested for admiral pid " + admiralPid,
-                new { vesselId = selfVessel.Id, mergeEntryId, admiralPid, serverDllPath, supervisorScriptPath }, token).ConfigureAwait(false);
+                "Supervised cutover armed; admiral " + admiral.ProcessId + " is exiting",
+                new
+                {
+                    vesselId = selfVessel.Id,
+                    mergeEntryId,
+                    operationId,
+                    admiralPid = admiral.ProcessId,
+                    supervisorPid = supervisor.ProcessId,
+                    candidateDigest = candidate.Digest,
+                    rollbackDigest = rollback.Digest,
+                    schemaVersion
+                }, token).ConfigureAwait(false);
 
             if (_RequestProcessExit != null)
             {
@@ -277,6 +404,48 @@ namespace Armada.Core.Services
             }
 
             return true;
+        }
+
+        private async Task<string?> WaitForSupervisorArmAsync(
+            string operationId,
+            SelfDeployProcessIdentity supervisor,
+            CancellationToken token)
+        {
+            SelfDeployCutoverOptions options = _Cutover.Options;
+            DateTime deadline = DateTime.UtcNow + options.HandshakeTimeout;
+            while (DateTime.UtcNow < deadline)
+            {
+                SelfDeployRestartRecordReadResult read = await _Cutover.Records.ReadAsync(token).ConfigureAwait(false);
+                if (!read.IsReadable) return "restart_record_" + (read.Exists ? read.FailureReason : "missing");
+                SelfDeployRestartRecord current = read.Record!;
+                if (current.State == SelfDeployRestartStateEnum.Armed) return null;
+                if (current.State != SelfDeployRestartStateEnum.Prepared) return "supervisor_" + current.Reason;
+                await Task.Delay(options.PollInterval, token).ConfigureAwait(false);
+            }
+
+            SelfDeployRestartTransitionResult aborted = await AbortPreparedAsync(operationId, "supervisor_arm_timeout", token).ConfigureAwait(false);
+            if (!aborted.Applied)
+            {
+                if (aborted.Record != null && aborted.Record.State == SelfDeployRestartStateEnum.Armed) return null;
+                return "supervisor_arm_timeout_" + aborted.FailureReason;
+            }
+
+            bool stopped = await _Cutover.ProcessHost.TerminateAsync(supervisor, true, options.TerminationTimeout, token).ConfigureAwait(false);
+            return stopped ? "supervisor_arm_timeout" : "supervisor_arm_timeout_supervisor_exit_unconfirmed";
+        }
+
+        private async Task<SelfDeployRestartTransitionResult> AbortPreparedAsync(string operationId, string reason, CancellationToken token)
+        {
+            return await _Cutover.Records.TryTransitionAsync(operationId,
+                new[] { SelfDeployRestartStateEnum.Prepared },
+                r => r.MoveTo(SelfDeployRestartStateEnum.Aborted, reason), token).ConfigureAwait(false);
+        }
+
+        private async Task BlockAsync(Vessel vessel, string? mergeEntryId, string reason, string summary, CancellationToken token)
+        {
+            await EmitEventAsync("self_deploy.cutover_blocked", vessel.Id, mergeEntryId, summary,
+                new { vesselId = vessel.Id, mergeEntryId, reason }, token).ConfigureAwait(false);
+            await OpenBuildIncidentAsync(vessel, mergeEntryId, summary, reason, token).ConfigureAwait(false);
         }
 
         private async Task RunScheduledWorkerAsync()
@@ -501,7 +670,7 @@ namespace Armada.Core.Services
                     VesselId = vessel.Id,
                     Impact = "Admiral self-deploy did not restart the running server.",
                     RootCause = detail,
-                    RecoveryNotes = "Inspect WorkingDirectory sync state and Release build output. The running admiral was left online.",
+                    RecoveryNotes = "Inspect WorkingDirectory sync state, Release build output, preflight result and the self-deploy restart record. The running admiral was left online.",
                     DetectedUtc = DateTime.UtcNow
                 }, token).ConfigureAwait(false);
 
@@ -552,28 +721,6 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "failed to emit " + eventType + ": " + ex.Message);
             }
-        }
-
-        private static string ResolveSupervisorScriptPath(string workingDirectory, SelfDeploySettings settings)
-        {
-            string? relative = settings.SupervisorScriptRelativePath;
-            if (String.IsNullOrWhiteSpace(relative))
-            {
-                if (OperatingSystem.IsWindows())
-                {
-                    relative = "scripts/windows/admiral-watchdog.ps1";
-                }
-                else if (OperatingSystem.IsMacOS())
-                {
-                    relative = "scripts/macos/admiral-watchdog.sh";
-                }
-                else
-                {
-                    relative = "scripts/linux/admiral-watchdog.sh";
-                }
-            }
-
-            return Path.GetFullPath(Path.Combine(workingDirectory, relative));
         }
 
         private static string DescribePreflightFailure(SelfDeployPreflightResult? result)

@@ -3,6 +3,7 @@ namespace Armada.Server
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Net.Http;
     using System.Runtime.Loader;
     using System.Text.Json;
     using System.Text.Json.Serialization;
@@ -10,6 +11,8 @@ namespace Armada.Server
     using SyslogLogging;
     using Armada.Core;
     using Armada.Core.Database;
+    using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Settings;
 
     /// <summary>
@@ -22,6 +25,60 @@ namespace Armada.Server
         private static ArmadaServer _Server = null!;
         private static bool _ShuttingDown = false;
         private static CancellationTokenSource _TokenSource = new CancellationTokenSource();
+
+        /// <summary>
+        /// Run the self-deploy supervisor for one operation, or recovery when no operation id is given.
+        /// Exit code 0 means the record proves a healthy owner or no restart record exists.
+        /// </summary>
+        private static async Task<int> RunSelfDeployCutoverAsync(string? operationId)
+        {
+            try
+            {
+                SelfDeployCutoverComponents components = SelfDeployCutoverComponents.CreateDefault(_Settings.DataDirectory, _Settings.SelfDeploy);
+                using (HttpClient client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan })
+                {
+                    SelfDeployCutoverCoordinator coordinator = new SelfDeployCutoverCoordinator(
+                        components.ProcessHost,
+                        new SelfDeployHttpHealthProbe(client, TimeSpan.FromSeconds(5)),
+                        components.Artifacts,
+                        new SelfDeployDatabaseSchemaVersionReader(_Settings.Database, _Logging),
+                        components.LaunchPlanner,
+                        components.Records,
+                        components.Options);
+
+                    SelfDeployCutoverResult result;
+                    if (operationId == null)
+                    {
+                        result = await coordinator.RecoverAsync().ConfigureAwait(false);
+                    }
+                    else
+                    {
+                        SelfDeployProcessIdentity? supervisor = components.ProcessHost.Capture(Environment.ProcessId);
+                        if (supervisor == null)
+                        {
+                            ReportSelfDeploy("SELF-DEPLOY supervisor_identity_unverified");
+                            return 1;
+                        }
+                        result = await coordinator.SuperviseAsync(operationId, supervisor).ConfigureAwait(false);
+                    }
+
+                    ReportSelfDeploy("SELF-DEPLOY " + (result.State?.ToString() ?? "NoRecord") + ": " + result.Reason);
+                    bool nothingToRecover = operationId == null && result.State == null && result.Reason == "no_restart_record";
+                    return result.HealthyOwnerProven || nothingToRecover ? 0 : 1;
+                }
+            }
+            catch (SelfDeployCutoverException ex)
+            {
+                ReportSelfDeploy("SELF-DEPLOY failed closed: " + ex.FailureReason);
+                return 1;
+            }
+        }
+
+        private static void ReportSelfDeploy(string line)
+        {
+            _Logging.Info("[Program] " + line);
+            Console.WriteLine(line);
+        }
 
         static async Task Main(string[] args)
         {
@@ -87,6 +144,38 @@ namespace Armada.Server
                     Console.WriteLine("DATABASE VALIDATION PASSED; schema version "
                         + await database.GetSchemaVersionAsync().ConfigureAwait(false));
                 }
+                return;
+            }
+
+            if (Array.IndexOf(args, SelfDeployDotnetLaunchPlanner.SuperviseArgument) >= 0)
+            {
+                if (args.Length != 2 || args[0] != SelfDeployDotnetLaunchPlanner.SuperviseArgument)
+                    throw new ArgumentException(SelfDeployDotnetLaunchPlanner.SuperviseArgument + " requires exactly one operation id.");
+                Environment.ExitCode = await RunSelfDeployCutoverAsync(args[1]).ConfigureAwait(false);
+                return;
+            }
+
+            if (Array.IndexOf(args, SelfDeployDotnetLaunchPlanner.RecoverArgument) >= 0)
+            {
+                if (args.Length != 1)
+                    throw new ArgumentException(SelfDeployDotnetLaunchPlanner.RecoverArgument + " must be the only argument.");
+                Environment.ExitCode = await RunSelfDeployCutoverAsync(null).ConfigureAwait(false);
+                return;
+            }
+
+            SelfDeployRestartRecordStore restartRecords = new SelfDeployRestartRecordStore(
+                SelfDeployRestartRecordStore.DirectoryFor(_Settings.DataDirectory));
+            SelfDeployStartupDecision startup = SelfDeployStartupGuard.Evaluate(
+                await restartRecords.ReadAsync().ConfigureAwait(false),
+                Environment.GetEnvironmentVariable(SelfDeployRestartRecordStore.OperationIdVariable));
+            if (!startup.Allowed)
+            {
+                string refusal = "[Program] startup refused by the self-deploy restart record (" + startup.Reason + "): "
+                    + restartRecords.RecordPath + ". Run with " + SelfDeployDotnetLaunchPlanner.RecoverArgument
+                    + " to drive the restart to a terminal state.";
+                _Logging.Warn(refusal);
+                Console.Error.WriteLine(refusal);
+                Environment.ExitCode = 3;
                 return;
             }
 

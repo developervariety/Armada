@@ -136,8 +136,8 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   validation for all four providers. Native process output and cancellation are
   bounded, and Unix settings and backup directories use private permissions.
 - Windows storage fails closed until owner-only ACL verification is available.
-  The default preflight stays disabled; supervised cutover and rollback remain
-  separate acceptance work.
+  The default preflight stays unwired, so self-deploy cannot cut over until the
+  native preflight is accepted and connected.
 - Self-deploy Release builds use the bounded native command runner with an
   argument list, bounded output capture, configured timeout, and caller
   cancellation that terminates and observes the child process tree.
@@ -145,6 +145,34 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   current mutable tag under unique dated tags before the build. Retention
   collisions and Docker inspection or tag failures stop the build, and failed
   builds keep both rollback references.
+
+### Supervised self-deploy cutover and rollback
+
+- Replaced the PID-only watchdog scripts with a server supervisor mode
+  (`--self-deploy-supervise`) launched from the immutable rollback artifact.
+  Processes are identified by id and start time, so a reused id is never
+  signalled, and the candidate starts only after the previous admiral is
+  confirmed gone. The old `selfDeploy.supervisorScriptRelativePath` setting is
+  removed.
+- The running build and the candidate build are copied into content-addressed,
+  read-only artifacts in private storage and re-verified before every launch. A
+  changed or added file refuses the launch.
+- A durable restart record with compare-and-swap transitions carries the
+  admiral-supervisor handshake, both launches, health outcomes and rollback. A
+  normal admiral start is refused while a restart is unresolved, and
+  `--self-deploy-recover` drives an interrupted restart to a terminal state
+  without promoting an unsupervised candidate.
+- Health cutover requires the loopback health endpoint to report healthy from a
+  server started after the launch, within `selfDeploy.healthTimeoutSeconds`.
+  A failed candidate is stopped and the rollback artifact is relaunched; a
+  candidate that advanced the schema blocks rollback for an operator restore.
+- Self-deploy fails closed inside a container, when the rollback or candidate
+  capture fails, when the admiral identity or schema version cannot be read,
+  when the supervisor does not arm, and while another restart is unresolved.
+  New bounds: `selfDeploy.handshakeTimeoutSeconds` and
+  `selfDeploy.oldProcessExitTimeoutSeconds`.
+- Private self-deploy directories now create every missing parent with
+  owner-only permissions, and process termination is confirmed by observed exit.
 
 
 ### Helm configuration and branch client
