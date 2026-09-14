@@ -14,6 +14,16 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### WebSocket command events reach the record's owner
+
+- The mission and voyage change events that the WebSocket `cancel_voyage`,
+  `cancel_mission` and `restart_mission` commands cause now follow the changed
+  record's owner, like the same change made through REST or MCP. They reached
+  global administrators only, so a tenant administrator did not see a change
+  to its own tenant's mission. The calling session, the owning user and the
+  administrators of the record's tenant receive them; another tenant's
+  sessions do not.
+
 ### Mux authenticates to the Armada MCP endpoint
 
 - Mux captains and Mux entries written by `armada mcp install` now carry a

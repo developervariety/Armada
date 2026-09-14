@@ -199,6 +199,55 @@ namespace Armada.Test.Automated.Suites
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Command_CancelMission_ReachesTheOwningTenantAdministratorOnly", async () =>
+            {
+                string tenantAToken = await CreateTenantAdministratorTokenAsync("ws-cmd-a").ConfigureAwait(false);
+                string tenantBToken = await CreateTenantAdministratorTokenAsync("ws-cmd-b").ConfigureAwait(false);
+                string missionId = await CreateMissionWithBearerAsync(tenantAToken, "ws-command-owned-mission").ConfigureAwait(false);
+
+                using (ClientWebSocket ownerAdmin = await ConnectAnonymousAsync().ConfigureAwait(false))
+                using (ClientWebSocket otherAdmin = await ConnectAnonymousAsync().ConfigureAwait(false))
+                {
+                    await AuthenticateAsync(ownerAdmin, new { Route = "authenticate", token = tenantAToken }).ConfigureAwait(false);
+                    await AuthenticateAsync(otherAdmin, new { Route = "authenticate", token = tenantBToken }).ConfigureAwait(false);
+                    await SendJsonAsync(ownerAdmin, new { Route = "subscribe" }).ConfigureAwait(false);
+                    await WaitForTypeAsync(ownerAdmin, "stream.ready").ConfigureAwait(false);
+                    await SendJsonAsync(otherAdmin, new { Route = "subscribe" }).ConfigureAwait(false);
+                    await WaitForTypeAsync(otherAdmin, "stream.ready").ConfigureAwait(false);
+
+                    // A global administrator changes the tenant's mission through a WebSocket command.
+                    JsonElement cancel = await WsCommandAsync("cancel_mission", new { id = missionId }).ConfigureAwait(false);
+                    AssertEqual("command.result", cancel.GetProperty("type").GetString());
+
+                    bool ownerSaw = false;
+                    DateTime ownerDeadline = DateTime.UtcNow.AddSeconds(15);
+                    while (!ownerSaw && DateTime.UtcNow < ownerDeadline)
+                    {
+                        JsonElement? frame = await ReceiveFrameOrCloseAsync(ownerAdmin, 15).ConfigureAwait(false);
+                        if (!frame.HasValue) break;
+                        ownerSaw = frame.Value.TryGetProperty("type", out JsonElement frameType)
+                            && frameType.GetString() == "mission.changed"
+                            && frame.Value.GetRawText().Contains(missionId, StringComparison.Ordinal);
+                    }
+                    AssertTrue(ownerSaw, "the administrator of the mission's tenant receives the event its command caused");
+
+                    // The command reply is queued after the broadcast, so every frame before it must omit
+                    // the other tenant's mission.
+                    await SendJsonAsync(otherAdmin, new { Route = "command", action = "status" }).ConfigureAwait(false);
+                    bool otherReplied = false;
+                    DateTime otherDeadline = DateTime.UtcNow.AddSeconds(15);
+                    while (!otherReplied && DateTime.UtcNow < otherDeadline)
+                    {
+                        JsonElement? frame = await ReceiveFrameOrCloseAsync(otherAdmin, 15).ConfigureAwait(false);
+                        AssertTrue(frame.HasValue, "the other tenant's session stays open");
+                        AssertFalse(frame!.Value.GetRawText().Contains(missionId, StringComparison.Ordinal),
+                            "another tenant's administrator must not receive the event");
+                        otherReplied = frame.Value.TryGetProperty("type", out JsonElement replyType) && replyType.GetString() == "command.error";
+                    }
+                    AssertTrue(otherReplied, "the other tenant's session receives its command reply");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Authenticate_ApiKeyHeaderOnUpgrade_AllowsSubscribe", async () =>
             {
                 using (ClientWebSocket ws = new ClientWebSocket())
@@ -1422,6 +1471,46 @@ namespace Armada.Test.Automated.Suites
             // Fallback: response is the mission directly
             Mission mission = JsonHelper.Deserialize<Mission>(body);
             return mission.Id;
+        }
+
+        private async Task<string> CreateTenantAdministratorTokenAsync(string label)
+        {
+            string suffix = Guid.NewGuid().ToString("N").Substring(0, 8);
+            HttpResponseMessage tenantResponse = await _AuthClient.PostAsync("/api/v1/tenants",
+                JsonHelper.ToJsonContent(new { Name = label + "-" + suffix })).ConfigureAwait(false);
+            tenantResponse.EnsureSuccessStatusCode();
+            TenantMetadata tenant = await JsonHelper.DeserializeAsync<TenantMetadata>(tenantResponse).ConfigureAwait(false);
+
+            HttpResponseMessage userResponse = await _AuthClient.PostAsync("/api/v1/users",
+                JsonHelper.ToJsonContent(new
+                {
+                    TenantId = tenant.Id,
+                    Email = label + "-" + suffix + "@ws.armada",
+                    PasswordSha256 = UserMaster.ComputePasswordHash("testpass"),
+                    IsTenantAdmin = true
+                })).ConfigureAwait(false);
+            userResponse.EnsureSuccessStatusCode();
+            UserMaster user = await JsonHelper.DeserializeAsync<UserMaster>(userResponse).ConfigureAwait(false);
+
+            HttpResponseMessage credentialResponse = await _AuthClient.PostAsync("/api/v1/credentials",
+                JsonHelper.ToJsonContent(new { TenantId = tenant.Id, UserId = user.Id, Name = label + "-cred" })).ConfigureAwait(false);
+            credentialResponse.EnsureSuccessStatusCode();
+            Credential credential = await JsonHelper.DeserializeAsync<Credential>(credentialResponse).ConfigureAwait(false);
+            return credential.BearerToken;
+        }
+
+        private async Task<string> CreateMissionWithBearerAsync(string bearerToken, string title)
+        {
+            using (HttpClient client = new HttpClient { BaseAddress = _AuthClient.BaseAddress })
+            {
+                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
+                HttpResponseMessage resp = await client.PostAsync("/api/v1/missions", JsonHelper.ToJsonContent(new { Title = title })).ConfigureAwait(false);
+                resp.EnsureSuccessStatusCode();
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                MissionCreateResponse wrapper = JsonHelper.Deserialize<MissionCreateResponse>(body);
+                if (wrapper.Mission != null) return wrapper.Mission.Id;
+                return JsonHelper.Deserialize<Mission>(body).Id;
+            }
         }
 
         private async Task<string> CreateVoyageViaRestAsync(string title)

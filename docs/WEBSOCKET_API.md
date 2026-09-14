@@ -158,8 +158,12 @@ this frame and not in the URL. Query strings appear in request logs.
   caller's own sessions and global administrators. Planning and objective
   refinement session events follow the session's owner. A mission status
   change applied by `transition_mission_status` follows the mission's owner,
-  like the same change made through REST or MCP. Other events caused by a
-  WebSocket `command` reach global administrators only.
+  like the same change made through REST or MCP. The mission and voyage change
+  events that `cancel_voyage`, `cancel_mission` and `restart_mission` cause
+  follow the changed record's owner in the same way. The calling session is a
+  global administrator, so it receives them too; the administrators of the
+  record's tenant and its owning user receive them, and another tenant's
+  sessions do not.
 - Cursors are positions in one stream shared by every session. A scoped session
   does not receive events it may not read, so its cursors can skip. Detect lost
   history from `event.gap` frames; cursor arithmetic is reliable only for a

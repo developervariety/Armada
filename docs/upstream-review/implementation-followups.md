@@ -402,7 +402,8 @@ sessions are intended to remain unaffected; final review should cover both.
 Tenant-filtered delivery has replaced the interim admin-only subscribe. Every
 broadcast carries a delivery scope from the record it describes and reaches the
 owning user, the owning tenant's administrators and global administrators;
-ownerless events and WebSocket-command events stay admin-only. Replay and
+ownerless events stay admin-only, and events caused by WebSocket commands follow
+the changed record's owner. Replay and
 catch-up obey the same scope, and the fleet snapshot is global-admin only. Ask
 chat events follow the caller who started the turn. Commands still require a
 global administrator. Remaining: browser verification of narrower-role

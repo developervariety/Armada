@@ -27,8 +27,8 @@ namespace Armada.Server.WebSocket
         private readonly IGitService? _Git;
         private readonly Action? _OnStop;
         private readonly JsonSerializerOptions _JsonOptions;
-        private readonly Action<string, string, string?, string?> _BroadcastMissionChange;
-        private readonly Action<string, string, string?> _BroadcastVoyageChange;
+        private readonly Action<Mission> _BroadcastMissionChange;
+        private readonly Action<Voyage> _BroadcastVoyageChange;
         private readonly MissionStatusTransitionService? _StatusTransitions;
 
         /// <summary>
@@ -41,8 +41,8 @@ namespace Armada.Server.WebSocket
         /// <param name="git">Optional git service for diff generation.</param>
         /// <param name="onStop">Optional callback invoked when stop_server is requested.</param>
         /// <param name="jsonOptions">JSON serializer options.</param>
-        /// <param name="broadcastMissionChange">Callback to broadcast mission state changes.</param>
-        /// <param name="broadcastVoyageChange">Callback to broadcast voyage state changes.</param>
+        /// <param name="broadcastMissionChange">Callback to broadcast a changed mission to the sessions that may read it.</param>
+        /// <param name="broadcastVoyageChange">Callback to broadcast a changed voyage to the sessions that may read it.</param>
         /// <param name="statusTransitions">Shared operator status transition path; without it transitions are refused.</param>
         public WebSocketCommandHandler(
             IAdmiralService admiral,
@@ -52,8 +52,8 @@ namespace Armada.Server.WebSocket
             IGitService? git,
             Action? onStop,
             JsonSerializerOptions jsonOptions,
-            Action<string, string, string?, string?> broadcastMissionChange,
-            Action<string, string, string?> broadcastVoyageChange,
+            Action<Mission> broadcastMissionChange,
+            Action<Voyage> broadcastVoyageChange,
             MissionStatusTransitionService? statusTransitions = null,
             DatabaseBackupService? backups = null)
         {
@@ -385,12 +385,13 @@ namespace Armada.Server.WebSocket
                             }
                         }
                         int cvCancelled = cvMissions.Count(m => m.Status == MissionStatusEnum.Cancelled);
-                        _BroadcastVoyageChange(cvId, VoyageStatusEnum.Cancelled.ToString(), cvVoyage.Title);
+                        // Command events follow the changed record's owner, like the same change made through REST.
+                        _BroadcastVoyageChange(cvVoyage);
                         foreach (Mission cvCm in cvMissions)
                         {
                             if (cvCm.Status == MissionStatusEnum.Cancelled)
                             {
-                                _BroadcastMissionChange(cvCm.Id, MissionStatusEnum.Cancelled.ToString(), cvCm.Title, cvCm.VoyageId);
+                                _BroadcastMissionChange(cvCm);
                             }
                         }
                         return new { type = "command.result", action = "cancel_voyage", data = (object)new { Voyage = cvVoyage, CancelledMissions = cvCancelled } };
@@ -582,7 +583,7 @@ namespace Armada.Server.WebSocket
                         cmMission.CompletedUtc = DateTime.UtcNow;
                         cmMission.LastUpdateUtc = DateTime.UtcNow;
                         cmMission = await _Database.Missions.UpdateAsync(cmMission).ConfigureAwait(false);
-                        _BroadcastMissionChange(cmId, MissionStatusEnum.Cancelled.ToString(), cmMission.Title, cmMission.VoyageId);
+                        _BroadcastMissionChange(cmMission);
                         return new { type = "command.result", action = "cancel_mission", data = (object)cmMission };
                     }
                 }
@@ -681,7 +682,7 @@ namespace Armada.Server.WebSocket
                         Signal rmSignal = new Signal(SignalTypeEnum.Progress, "Mission " + rmId + " restarted");
                         await _Database.Signals.CreateAsync(rmSignal).ConfigureAwait(false);
 
-                        _BroadcastMissionChange(rmId, MissionStatusEnum.Pending.ToString(), rmMission.Title, rmMission.VoyageId);
+                        _BroadcastMissionChange(rmMission);
                         return new { type = "command.result", action = "restart_mission", data = (object)rmMission };
                     }
                 }
