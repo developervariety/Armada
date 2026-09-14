@@ -39,7 +39,7 @@ DOCKER_BIN="${ARMADA_DOCKER_BIN:-docker}"
 is_safe_scalar "$CONTAINER" || die "running container name is invalid"
 is_safe_scalar "$MUTABLE_TAG" || die "mutable image tag is invalid"
 case "$MUTABLE_TAG" in
-    */*:*) ;;
+    *:*) ;;
     *) die "mutable image tag must include a repository and tag" ;;
 esac
 [ -f "$DOCKERFILE" ] || die "Dockerfile does not exist: $DOCKERFILE"
@@ -58,11 +58,11 @@ esac
 
 DOCKER=("$DOCKER_BIN")
 
-CONTAINER_INSPECTION="$("${DOCKER[@]}" container inspect --format '{{.State.Running}}\t{{.Image}}' "$CONTAINER" 2>/dev/null)" \
+CONTAINER_RUNNING="$("${DOCKER[@]}" container inspect --format '{{.State.Running}}' "$CONTAINER" 2>/dev/null)" \
     || die "running container inspect failed"
-CONTAINER_RUNNING="${CONTAINER_INSPECTION%%$'\t'*}"
-RUNNING_IMAGE_ID="${CONTAINER_INSPECTION#*$'\t'}"
 [ "$CONTAINER_RUNNING" = "true" ] || die "container is not running"
+RUNNING_IMAGE_ID="$("${DOCKER[@]}" container inspect --format '{{.Image}}' "$CONTAINER" 2>/dev/null)" \
+    || die "running container image inspect failed"
 case "$RUNNING_IMAGE_ID" in
     sha256:*) ;;
     *) die "running container has no immutable image ID" ;;
@@ -96,19 +96,37 @@ MUTABLE_RETENTION_NAME="${MUTABLE_RETENTION_TAG##*:}"
 [ "${#RUNNING_RETENTION_NAME}" -le 128 ] || die "running retention tag is too long"
 [ "${#MUTABLE_RETENTION_NAME}" -le 128 ] || die "mutable retention tag is too long"
 
-if "${DOCKER[@]}" image inspect "$RUNNING_RETENTION_TAG" >/dev/null 2>&1; then
-    die "running retention tag already exists; refusing overwrite"
-fi
-if "${DOCKER[@]}" image inspect "$MUTABLE_RETENTION_TAG" >/dev/null 2>&1; then
-    die "mutable retention tag already exists; refusing overwrite"
-fi
+retention_tag_is_absent() {
+    local tag="$1"
+    local listed
+    listed="$("${DOCKER[@]}" image ls --no-trunc --format '{{.Repository}}:{{.Tag}}' "$tag" 2>/dev/null)" \
+        || die "retention tag collision check failed"
+    if [ -n "$listed" ]; then
+        [ "$listed" = "$tag" ] && die "retention tag already exists; refusing overwrite"
+        die "retention tag collision check returned an unexpected tag"
+    fi
+}
+
+retention_tag_is_absent "$RUNNING_RETENTION_TAG"
+retention_tag_is_absent "$MUTABLE_RETENTION_TAG"
+
+verify_retention_tag() {
+    local source_id="$1"
+    local tag="$2"
+    local retained_id
+    retained_id="$("${DOCKER[@]}" image inspect --format '{{.Id}}' "$tag" 2>/dev/null)" \
+        || die "retained image verification failed"
+    [ "$retained_id" = "$source_id" ] || die "retained image ID verification failed"
+}
 
 # Keep both references before the build. If a later tag or the build fails,
 # these references remain available for operator rollback.
 "${DOCKER[@]}" image tag "$RUNNING_IMAGE_ID" "$RUNNING_RETENTION_TAG" \
     || die "running image retention tag failed"
+verify_retention_tag "$RUNNING_IMAGE_ID" "$RUNNING_RETENTION_TAG"
 "${DOCKER[@]}" image tag "$MUTABLE_IMAGE_ID" "$MUTABLE_RETENTION_TAG" \
     || die "mutable image retention tag failed"
+verify_retention_tag "$MUTABLE_IMAGE_ID" "$MUTABLE_RETENTION_TAG"
 
 echo "retained_running_image=${RUNNING_IMAGE_ID} tag=${RUNNING_RETENTION_TAG}"
 echo "retained_mutable_image=${MUTABLE_IMAGE_ID} tag=${MUTABLE_RETENTION_TAG}"

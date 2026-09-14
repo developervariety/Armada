@@ -41,8 +41,12 @@ done
 
 if [ "${1:-}" = "container" ] && [ "${2:-}" = "inspect" ]; then
     [ "${ARMADA_FAKE_CONTAINER_MISSING:-0}" = 1 ] && exit 1
-    [ "${ARMADA_FAKE_CONTAINER_STOPPED:-0}" = 1 ] && printf 'false\tsha256:running\n' && exit 0
-    printf 'true\tsha256:running\n'
+    if [ "${4:-}" = "{{.State.Running}}" ]; then
+        [ "${ARMADA_FAKE_CONTAINER_STOPPED:-0}" = 1 ] && printf 'false\n' && exit 0
+        printf 'true\n'
+    else
+        printf 'sha256:running\n'
+    fi
     exit 0
 fi
 
@@ -52,11 +56,25 @@ if [ "${1:-}" = "image" ] && [ "${2:-}" = "inspect" ]; then
         printf 'sha256:mutable\n'
         exit 0
     fi
-    if [ "${ARMADA_FAKE_COLLISION:-0}" = 1 ] && [[ "$last_arg" == *armada-retained-* ]]; then
-        printf 'sha256:existing-retention\n'
+    if [ "${ARMADA_FAKE_VERIFY_FAIL:-0}" = 1 ]; then
+        printf 'sha256:wrong\n'
+        exit 0
+    fi
+    if [[ "$last_arg" == *armada-retained-running-* ]]; then
+        printf 'sha256:running\n'
+        exit 0
+    fi
+    if [[ "$last_arg" == *armada-retained-tag-* ]]; then
+        printf 'sha256:mutable\n'
         exit 0
     fi
     exit 1
+fi
+
+if [ "${1:-}" = "image" ] && [ "${2:-}" = "ls" ]; then
+    [ "${ARMADA_FAKE_DAEMON_FAIL:-0}" = 1 ] && exit 1
+    [ "${ARMADA_FAKE_COLLISION:-0}" = 1 ] && printf '%s\n' "$last_arg"
+    exit 0
 fi
 
 if [ "${1:-}" = "image" ] && [ "${2:-}" = "tag" ]; then
@@ -77,7 +95,7 @@ DOCKERFILE="${TMP}/Docker File"
 CONTEXT="${TMP}/build context"
 mkdir -p "$CONTEXT"
 touch "$DOCKERFILE"
-MUTABLE_TAG="local/armada-server:latest"
+MUTABLE_TAG="armada:latest"
 
 run_helper() {
     local log="$1"
@@ -85,11 +103,13 @@ run_helper() {
     : > "$log"
     ARMADA_DOCKER_BIN="$FAKE_DOCKER" \
         ARMADA_FAKE_DOCKER_LOG="$log" \
-        ARMADA_FAKE_MUTABLE_TAG="$MUTABLE_TAG" \
+        ARMADA_FAKE_MUTABLE_TAG="$2" \
         ARMADA_FAKE_CONTAINER_MISSING="${ARMADA_FAKE_CONTAINER_MISSING:-0}" \
         ARMADA_FAKE_CONTAINER_STOPPED="${ARMADA_FAKE_CONTAINER_STOPPED:-0}" \
         ARMADA_FAKE_MUTABLE_MISSING="${ARMADA_FAKE_MUTABLE_MISSING:-0}" \
         ARMADA_FAKE_COLLISION="${ARMADA_FAKE_COLLISION:-0}" \
+        ARMADA_FAKE_DAEMON_FAIL="${ARMADA_FAKE_DAEMON_FAIL:-0}" \
+        ARMADA_FAKE_VERIFY_FAIL="${ARMADA_FAKE_VERIFY_FAIL:-0}" \
         ARMADA_FAKE_TAG_FAIL="${ARMADA_FAKE_TAG_FAIL:-0}" \
         ARMADA_FAKE_BUILD_FAIL="${ARMADA_FAKE_BUILD_FAIL:-0}" \
         "$HELPER" "$@"
@@ -114,7 +134,7 @@ RUNNING_TAG_TWO="$(printf '%s\n' "$OUTPUT_TWO" | sed -n 's/^retained_running_ima
 [ -n "$RUNNING_TAG_ONE" ] || fail "first retention tag was not recorded"
 [ -n "$RUNNING_TAG_TWO" ] || fail "second retention tag was not recorded"
 [ "$RUNNING_TAG_ONE" != "$RUNNING_TAG_TWO" ] || fail "retention tag was reused"
-[[ "$RUNNING_TAG_ONE" =~ ^local/armada-server:armada-retained-running-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}$ ]] \
+[[ "$RUNNING_TAG_ONE" =~ ^armada:armada-retained-running-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{16}$ ]] \
     || fail "first retention tag is not uniquely dated"
 
 FIRST_TAG_LINE="$(grep -n $'^image\ttag\t' "$LOG_SUCCESS" | head -n 1 | cut -d: -f1)"
@@ -143,7 +163,13 @@ ARMADA_FAKE_MUTABLE_MISSING=1 run_failure_case missing-mutable \
 ARMADA_FAKE_COLLISION=1 run_failure_case retention-collision \
     armada-server "$MUTABLE_TAG" "$DOCKERFILE" "$CONTEXT"
 
+ARMADA_FAKE_DAEMON_FAIL=1 run_failure_case retention-inspect-failure \
+    armada-server "$MUTABLE_TAG" "$DOCKERFILE" "$CONTEXT"
+
 ARMADA_FAKE_TAG_FAIL=1 run_failure_case tag-failure \
+    armada-server "$MUTABLE_TAG" "$DOCKERFILE" "$CONTEXT"
+
+ARMADA_FAKE_VERIFY_FAIL=1 run_failure_case retained-inspect-failure \
     armada-server "$MUTABLE_TAG" "$DOCKERFILE" "$CONTEXT"
 
 LOG_BUILD_FAILURE="${TMP}/build-failure.log"
