@@ -14,6 +14,12 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### OpenCode provider failures
+
+- Parse captured top-level provider errors into bounded, redacted activity.
+- Fail Ask replies after terminal provider errors, including errors after partial
+  text. Preserve the named failure in retryable planning and refinement sessions.
+
 ### Model endpoint persistence
 
 - Add append-only endpoint storage on all four database providers. Preserve

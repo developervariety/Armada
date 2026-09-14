@@ -85,7 +85,7 @@ these areas. Do not duplicate its changes.
 | FOLLOWUP-010 | Verify | Route matrix repaired; browser workflow proof remains |
 | FOLLOWUP-011 | Verify | Wildcard captain assignment needs actual dispatch-path regression coverage |
 | FOLLOWUP-012 | Closed | Owner approved advisory-only setting; UI and API documentation agree |
-| FOLLOWUP-013 | Open | Top-level OpenCode errors need a captured event and regression proof |
+| FOLLOWUP-013 | Closed | Captured OpenCode errors now fail chat and persist planning/refinement failure |
 | FOLLOWUP-014 | Verify | WebSocket exposure blocked by admin-only subscription; scoped delivery remains open |
 | FOLLOWUP-015 | Open | Persona, pipeline and prompt-template read visibility remains unscoped |
 | FOLLOWUP-016 | Open | Manual Complete without an active dock bypasses landing proof |
@@ -346,13 +346,17 @@ part of the combined closeout.
 
 ## FOLLOWUP-013 — OpenCode top-level errors
 
-Runtime answer cleanup landed in `7bdb2d27`. A real OpenCode 1.18.30 run
-against an isolated local HTTP fixture now supplies the missing top-level
-`error.data` event. The fixture returned HTTP 400; no paid provider or Armada
-operation was used. The adapter candidate parses this shape and removes response
-body, header, URL and session metadata from its activity output. Acceptance still
-requires behavioral chat, planning and refinement tests, including partial text
-followed by a terminal error. A classification helper test alone is insufficient.
+A real OpenCode 1.18.30 run against an isolated local HTTP fixture supplied the
+missing top-level `error.data` event. The fixture returned HTTP 400; no paid
+provider or Armada operation was used. The adapter parses this shape into bounded
+redacted activity. It excludes response body, header, URL and session metadata.
+
+Chat fails after a terminal provider error, including one after partial text.
+Planning and refinement preserve the named failure and remain retryable. Root
+validation passed 30 tests with no failures or skips on the combined tree,
+including actual chat and coordinator turns driven by a local fake executable.
+The full runtime suite also passed 184 tests with no failures or skips.
+Deployment verification remains open.
 
 ## FOLLOWUP-014 — WebSocket and MCP scope
 

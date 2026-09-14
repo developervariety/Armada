@@ -2,12 +2,15 @@ namespace Test.Shared.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Services;
     using Test.Shared.Infrastructure;
     using Touchstone.Core;
+    using Armada.Runtimes;
+    using SyslogLogging;
     using static Test.Shared.Infrastructure.Asserts;
 
     /// <summary>
@@ -86,6 +89,22 @@ namespace Test.Shared.Suites.Services
                 AssertNull(ReasoningEffortTranslator.ToOpenCodeVariant(null));
             }));
 
+            cases.Add(Case("api_error_is_safe_activity", "OpenCode API errors become bounded activity", TestTags.Negative, () =>
+            {
+                string line = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "docs", "upstream-review", "fixtures", "opencode-api-error.jsonl")).Trim();
+                TestOpenCodeRuntime runtime = new TestOpenCodeRuntime();
+                string rendered = runtime.Transform(line);
+                AssertTrue(rendered.Contains("opencode error", StringComparison.Ordinal), "expected named OpenCode error activity");
+                AssertTrue(rendered.Contains("Local fixture provider rejected the request", StringComparison.Ordinal), "expected typed error message");
+                AssertTrue(rendered.Contains("status 400", StringComparison.Ordinal), "expected typed status");
+                AssertFalse(rendered.Contains("secret response body", StringComparison.Ordinal), "response body must not be rendered");
+                AssertFalse(rendered.Contains("127.0.0.1", StringComparison.Ordinal), "metadata URL must not be rendered");
+                AssertFalse(rendered.Contains("sessionID", StringComparison.Ordinal), "session metadata must not be rendered");
+                AssertFalse(rendered.Contains("secret-value", StringComparison.Ordinal), "secret-bearing error code must be redacted");
+                AssertTrue(OpenCodeRuntime.IsProviderFailureActivity(rendered), "chat and planning must classify the rendered error as failure");
+                AssertFalse(OpenCodeRuntime.IsProviderFailureActivity("[ARMADA:ACTIVITY] tool read x (ok)"), "successful tool activity is not a provider failure");
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: "Services.OpenCodeRuntime",
                 displayName: "OpenCode Runtime",
@@ -108,6 +127,32 @@ namespace Test.Shared.Suites.Services
                     return Task.CompletedTask;
                 },
                 tags: new List<string> { tag });
+        }
+
+        private sealed class TestOpenCodeRuntime : OpenCodeRuntime
+        {
+            public TestOpenCodeRuntime()
+                : base(new LoggingModule())
+            {
+            }
+
+            public string Transform(string line)
+            {
+                return TransformOutputLine(line);
+            }
+        }
+
+        private static string FindRepositoryRoot()
+        {
+            DirectoryInfo? current = new DirectoryInfo(AppContext.BaseDirectory);
+            while (current != null)
+            {
+                if (File.Exists(Path.Combine(current.FullName, "README.md"))
+                    && Directory.Exists(Path.Combine(current.FullName, "src")))
+                    return current.FullName;
+                current = current.Parent;
+            }
+            throw new DirectoryNotFoundException("Could not find the Armada repository root.");
         }
 
         #endregion

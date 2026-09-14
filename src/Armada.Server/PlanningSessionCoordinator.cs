@@ -767,6 +767,7 @@ namespace Armada.Server
                 TaskCompletionSource<int?> exitSource = new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously);
                 object outputLock = new object();
                 StringBuilder output = new StringBuilder();
+                string? runtimeFailure = null;
 
                 ChatToolActivityTracker activityTracker = new ChatToolActivityTracker();
                 runtime.OnOutputReceived += (processId, line) =>
@@ -775,6 +776,11 @@ namespace Armada.Server
                     // cards, and no activity record reaches the planning message.
                     if (ActivityRecords.IsActivityRecord(line))
                     {
+                        if (OpenCodeRuntime.IsProviderFailureActivity(line))
+                        {
+                            lock (outputLock) runtimeFailure = line.Substring("[ARMADA:ACTIVITY] ".Length).Trim();
+                            return;
+                        }
                         if (ActivityRecords.TryParseToolActivity(line, out ToolActivityRecord activity))
                         {
                             ChatToolActivityEvent toolEvent;
@@ -834,7 +840,11 @@ namespace Armada.Server
                 {
                 }
 
-                if (String.IsNullOrWhiteSpace(finalContent) && exitCode.HasValue && exitCode.Value != 0)
+                if (!String.IsNullOrWhiteSpace(runtimeFailure))
+                {
+                    finalContent = runtimeFailure!;
+                }
+                else if (String.IsNullOrWhiteSpace(finalContent) && exitCode.HasValue && exitCode.Value != 0)
                 {
                     finalContent = "Planning turn exited with code " + exitCode.Value + " before producing a final response.";
                 }
@@ -856,7 +866,7 @@ namespace Armada.Server
                 if (!stopRequested)
                 {
                     session.Status = PlanningSessionStatusEnum.Active;
-                    session.FailureReason = null;
+                    session.FailureReason = runtimeFailure;
                 }
                 session.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.PlanningSessions.UpdateAsync(session).ConfigureAwait(false);

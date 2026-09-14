@@ -40,6 +40,17 @@ namespace Armada.Runtimes
         public override bool SupportsResume => false;
 
         /// <summary>
+        /// Identify the safe activity record emitted for a provider failure. Chat and planning
+        /// consumers use this marker to fail the turn instead of treating the activity as an answer.
+        /// </summary>
+        /// <param name="line">Rendered runtime output line.</param>
+        /// <returns>True when the line is a named OpenCode provider failure.</returns>
+        public static bool IsProviderFailureActivity(string? line)
+        {
+            return line?.StartsWith("[ARMADA:ACTIVITY] opencode error ", StringComparison.Ordinal) == true;
+        }
+
+        /// <summary>
         /// Starts an OpenCode captain process, adding the external-provider overlay only
         /// when the captain selects a model served by a registered provider.
         /// </summary>
@@ -378,12 +389,34 @@ namespace Armada.Runtimes
                 return BuildToolActivity(evt);
             }
 
+            if (evt != null && evt.Error != null)
+            {
+                return BuildApiErrorActivity(evt.Error);
+            }
+
             if (evt != null && IsRecognizedNonContentEvent(evt))
             {
                 return String.Empty;
             }
 
             return line;
+        }
+
+        /// <summary>
+        /// Render a bounded provider failure without copying the response body, headers, URL, or
+        /// other transport metadata into the mission log.
+        /// </summary>
+        private static string BuildApiErrorActivity(OpenCodeApiError error)
+        {
+            string message = error.Data?.Message ?? error.Message ?? "OpenCode provider request failed";
+            string detail = StructuredRuntimeLogFormatter.RedactSecretValues(
+                StructuredRuntimeLogFormatter.TruncateActivityText(message, StructuredRuntimeLogFormatter.CommandDetailLimit));
+            int? statusCode = error.StatusCode ?? error.Data?.StatusCode;
+            string suffix = statusCode.HasValue ? " (status " + statusCode.Value + ")" : String.Empty;
+            if (!String.IsNullOrWhiteSpace(error.Data?.Code))
+                suffix += " [" + StructuredRuntimeLogFormatter.RedactSecretValues(
+                    StructuredRuntimeLogFormatter.TruncateActivityText(error.Data!.Code!, 40)) + "]";
+            return "[ARMADA:ACTIVITY] opencode error " + detail + suffix;
         }
 
         /// <summary>
@@ -565,6 +598,44 @@ namespace Armada.Runtimes
             /// </summary>
             [JsonPropertyName("tokens")]
             public OpenCodeTokenUsage? Tokens { get; set; }
+
+            /// <summary>
+            /// Top-level provider or transport failure returned by OpenCode.
+            /// </summary>
+            [JsonPropertyName("error")]
+            public OpenCodeApiError? Error { get; set; }
+        }
+
+        /// <summary>Typed OpenCode API failure envelope.</summary>
+        private sealed class OpenCodeApiError
+        {
+            /// <summary>Provider error message.</summary>
+            [JsonPropertyName("message")]
+            public string? Message { get; set; }
+
+            /// <summary>HTTP status reported by the OpenCode client.</summary>
+            [JsonPropertyName("statusCode")]
+            public int? StatusCode { get; set; }
+
+            /// <summary>Nested provider error details.</summary>
+            [JsonPropertyName("data")]
+            public OpenCodeApiErrorData? Data { get; set; }
+        }
+
+        /// <summary>Typed provider error details used for safe operator diagnostics.</summary>
+        private sealed class OpenCodeApiErrorData
+        {
+            /// <summary>Provider error message.</summary>
+            [JsonPropertyName("message")]
+            public string? Message { get; set; }
+
+            /// <summary>Provider error code.</summary>
+            [JsonPropertyName("code")]
+            public string? Code { get; set; }
+
+            /// <summary>HTTP status reported inside provider error data.</summary>
+            [JsonPropertyName("statusCode")]
+            public int? StatusCode { get; set; }
         }
 
         /// <summary>

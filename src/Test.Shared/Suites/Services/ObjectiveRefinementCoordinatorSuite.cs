@@ -3,6 +3,7 @@ namespace Test.Shared.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -42,6 +43,60 @@ namespace Test.Shared.Suites.Services
         public TestSuiteDescriptor Build()
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
+
+            cases.Add(CaseAsync("opencode_provider_error_is_persisted_without_applying_proposal", "OpenCode provider error is persisted without applying a proposal", TestTags.Negative, async () =>
+            {
+                await OpenCodeTestEnvironmentGate.Instance.WaitAsync().ConfigureAwait(false);
+                string root = Path.Combine(Path.GetTempPath(), "armada-refinement-opencode-error-" + Guid.NewGuid().ToString("N"));
+                string script = Path.Combine(root, OperatingSystem.IsWindows() ? "opencode.cmd" : "opencode");
+                string? prior = null;
+                try
+                {
+                    Directory.CreateDirectory(root);
+                    prior = Environment.GetEnvironmentVariable("ARMADA_TEST_OPENCODE");
+                    string fixtureText = (await File.ReadAllTextAsync(Path.Combine(FindRepositoryRoot(), "docs", "upstream-review", "fixtures", "opencode-api-error.jsonl")).ConfigureAwait(false)).Trim();
+                    string encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(fixtureText));
+                    string scriptText = OperatingSystem.IsWindows()
+                        ? "@echo off\npowershell -NoProfile -Command \"[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + encoded + "'))\"\n"
+                        : "#!/bin/sh\nprintf '%s' '" + encoded + "' | base64 -d\n";
+                    await File.WriteAllTextAsync(script, scriptText).ConfigureAwait(false);
+                    if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                    Environment.SetEnvironmentVariable("ARMADA_TEST_OPENCODE", script);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    using (CoordinatorFixture state = new CoordinatorFixture(testDb.Driver))
+                    {
+                        CoordinatorFixture.TenantUserResult user = await state.CreateTenantUserAsync("OpenCode refinement").ConfigureAwait(false);
+                        Objective objective = await state.CreateObjectiveAsync("Provider failure objective", user.TenantId, user.UserId).ConfigureAwait(false);
+                        string originalTitle = objective.Title;
+                        Captain captain = await state.CreateCaptainAsync("OpenCode refinement fixture", AgentRuntimeEnum.OpenCode, user.TenantId, user.UserId, CaptainStateEnum.Refining).ConfigureAwait(false);
+                        ObjectiveRefinementSession session = await state.CreateSessionAsync(objective, captain).ConfigureAwait(false);
+                        await state.Coordinator.SendMessageAsync(session, "Ask provider.").ConfigureAwait(false);
+                        await WaitForAsync(async () =>
+                        {
+                            ObjectiveRefinementSession? current = await testDb.Driver.ObjectiveRefinementSessions.ReadAsync(session.Id).ConfigureAwait(false);
+                            List<ObjectiveRefinementMessage> rows = await testDb.Driver.ObjectiveRefinementMessages.EnumerateBySessionAsync(session.Id).ConfigureAwait(false);
+                            return current?.ProcessId == null && rows.Exists(item => item.Role == "Assistant" && (item.Content ?? String.Empty).Contains("opencode error", StringComparison.Ordinal));
+                        }).ConfigureAwait(false);
+                        ObjectiveRefinementSession saved = await testDb.Driver.ObjectiveRefinementSessions.ReadAsync(session.Id) ?? throw new Exception("refinement session disappeared");
+                        List<ObjectiveRefinementMessage> messages = await testDb.Driver.ObjectiveRefinementMessages.EnumerateBySessionAsync(session.Id).ConfigureAwait(false);
+                        AssertContains("opencode error", saved.FailureReason ?? String.Empty);
+                        AssertTrue(messages.Exists(item => item.Role == "Assistant" && (item.Content ?? String.Empty).Contains("opencode error", StringComparison.Ordinal)), "Provider error must be persisted.");
+                        AssertEqual(ObjectiveRefinementSessionStatusEnum.Active, saved.Status);
+                        Objective unchanged = await testDb.Driver.Objectives.ReadAsync(objective.Id) ?? throw new Exception("objective disappeared");
+                        AssertEqual(originalTitle, unchanged.Title);
+                    }
+                }
+                finally
+                {
+                    try
+                    {
+                        if (prior != null) Environment.SetEnvironmentVariable("ARMADA_TEST_OPENCODE", prior);
+                        else Environment.SetEnvironmentVariable("ARMADA_TEST_OPENCODE", null);
+                        if (Directory.Exists(root)) Directory.Delete(root, true);
+                    }
+                    finally { OpenCodeTestEnvironmentGate.Instance.Release(); }
+                }
+            }));
 
             cases.Add(CaseAsync("send_message_async_creates_transcript_rows_and_recovers_to_active_state_when_runtime_is_unsupported", "SendMessageAsync creates transcript rows and recovers to active state when runtime is unsupported", TestTags.Negative, async () =>
             {
@@ -357,6 +412,17 @@ namespace Test.Shared.Suites.Services
             }
 
             throw new TimeoutException("Timed out waiting for refinement coordinator background work.");
+        }
+
+        private static string FindRepositoryRoot()
+        {
+            DirectoryInfo? current = new DirectoryInfo(AppContext.BaseDirectory);
+            while (current != null)
+            {
+                if (File.Exists(Path.Combine(current.FullName, "README.md")) && Directory.Exists(Path.Combine(current.FullName, "src"))) return current.FullName;
+                current = current.Parent;
+            }
+            throw new DirectoryNotFoundException("Could not find the Armada repository root.");
         }
 
         private static async Task<ObjectiveRefinementSession> RequireSessionAsync(DatabaseDriver database, string sessionId)

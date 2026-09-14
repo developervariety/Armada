@@ -173,6 +173,7 @@ namespace Armada.Server
                 int? reportedTokens = null;
                 string? reportedModel = null;
                 string? claudeFinalReply = null;
+                string? runtimeFailure = null;
                 string? turnId = request.TurnId;
                 ChatToolActivityTracker activityTracker = new ChatToolActivityTracker();
 
@@ -331,6 +332,11 @@ namespace Armada.Server
                     // cards, and no activity record reaches the reply or the streamed text.
                     if (ActivityRecords.IsActivityRecord(line))
                     {
+                        if (OpenCodeRuntime.IsProviderFailureActivity(line))
+                        {
+                            lock (outputLock) runtimeFailure = line.Substring("[ARMADA:ACTIVITY] ".Length).Trim();
+                            return;
+                        }
                         if (ActivityRecords.TryParseToolActivity(line, out ToolActivityRecord activity))
                         {
                             ChatToolActivityEvent toolEvent;
@@ -401,6 +407,9 @@ namespace Armada.Server
                     lock (outputLock)
                         reply = (!String.IsNullOrWhiteSpace(claudeFinalReply) ? claudeFinalReply! : output.ToString()).Trim();
                 }
+
+                if (!String.IsNullOrWhiteSpace(runtimeFailure))
+                    return Fail(runtimeFailure!);
 
                 if (String.IsNullOrWhiteSpace(reply))
                 {

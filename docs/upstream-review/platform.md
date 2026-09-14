@@ -53,6 +53,11 @@ CLI families `43dc251d1`, `f4bf55d2b`, `004b9fb6f`, `9e82d9cdc`, `9b3a1d9ad` add
 
 `AgentRuntimeFactory.cs` upstream removes fork `OpenCodeServerSettings` and `ModelProvidersSettings` injection while adding endpoint resolution. Upstream replacements of `BaseAgentRuntime.cs`, Claude, Codex, Cursor and OpenCode remove much fork provider routing, structured log conversion, progress/token events, environment handling and exit records. `RuntimeLogNoiseFilter.cs` and `StructuredRuntimeLogFormatter.cs` are fork-only. Decision: RETAIN. Extend constructors/factory for accepted new providers without dropping existing injection.
 
+OpenCode top-level provider failures are typed and rendered as bounded named activity. Response
+bodies, headers, URLs, and session metadata remain excluded from mission output. Chat, planning,
+and refinement consumers classify that marker as a failed turn, so an error-only stream cannot
+be accepted as a successful empty answer.
+
 OpenCode upstream protocol families `8239c073e`, `9b3a1d9ad`, `9e82d9cdc` recognize type/part/eventType, extract direct text/part.text/message.content, and keep reasoning out of reply text. Fork has a larger typed parser and provider integration. Decision: ADAPT only after a fixture proves a missing shape. Keep fork typed JSON rules; upstream uses direct JsonElement. Test stdout/stderr, thinking, errors, final answer, token accounting, credential isolation, long stdin prompt, and cancellation for every supported runtime.
 
 ## Larger capabilities: separate deferred phases

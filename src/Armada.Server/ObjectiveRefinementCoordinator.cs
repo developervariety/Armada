@@ -591,9 +591,15 @@ namespace Armada.Server
                 TaskCompletionSource<int?> exitSource = new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously);
                 object outputLock = new object();
                 StringBuilder output = new StringBuilder();
+                string? runtimeFailure = null;
 
                 runtime.OnOutputReceived += (processId, line) =>
                 {
+                    if (OpenCodeRuntime.IsProviderFailureActivity(line))
+                    {
+                        lock (outputLock) runtimeFailure = line.Substring("[ARMADA:ACTIVITY] ".Length).Trim();
+                        return;
+                    }
                     string updatedContent;
                     lock (outputLock)
                     {
@@ -644,7 +650,11 @@ namespace Armada.Server
                 {
                 }
 
-                if (String.IsNullOrWhiteSpace(finalContent) && exitCode.HasValue && exitCode.Value != 0)
+                if (!String.IsNullOrWhiteSpace(runtimeFailure))
+                {
+                    finalContent = runtimeFailure!;
+                }
+                else if (String.IsNullOrWhiteSpace(finalContent) && exitCode.HasValue && exitCode.Value != 0)
                 {
                     finalContent = "Refinement turn exited with code " + exitCode.Value + " before producing a final response.";
                 }
@@ -666,7 +676,7 @@ namespace Armada.Server
                 if (!stopRequested)
                 {
                     session.Status = ObjectiveRefinementSessionStatusEnum.Active;
-                    session.FailureReason = null;
+                    session.FailureReason = runtimeFailure;
                 }
                 session.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.ObjectiveRefinementSessions.UpdateAsync(session).ConfigureAwait(false);

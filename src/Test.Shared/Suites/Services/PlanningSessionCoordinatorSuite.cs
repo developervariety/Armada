@@ -3,6 +3,7 @@ namespace Test.Shared.Suites.Services
     using System;
     using System.Collections.Generic;
     using System.IO;
+    using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
     using Microsoft.Data.Sqlite;
@@ -46,6 +47,60 @@ namespace Test.Shared.Suites.Services
         public TestSuiteDescriptor Build()
         {
             List<TestCaseDescriptor> cases = new List<TestCaseDescriptor>();
+
+            cases.Add(CaseAsync("opencode_provider_error_is_persisted_as_failed_turn", "OpenCode provider error is persisted as planning failure", TestTags.Negative, async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada-planning-opencode-diagnostic-" + Guid.NewGuid().ToString("N"));
+                string script = Path.Combine(root, OperatingSystem.IsWindows() ? "opencode.cmd" : "opencode");
+                string marker = Path.Combine(root, "started");
+                await OpenCodeTestEnvironmentGate.Instance.WaitAsync().ConfigureAwait(false);
+                string? prior = null;
+                try
+                {
+                prior = Environment.GetEnvironmentVariable("ARMADA_TEST_OPENCODE");
+                Directory.CreateDirectory(root);
+                string fixture = (await File.ReadAllTextAsync(Path.Combine(FindRepositoryRoot(), "docs", "upstream-review", "fixtures", "opencode-api-error.jsonl")).ConfigureAwait(false)).Trim();
+                string encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(fixture));
+                string contents = OperatingSystem.IsWindows()
+                    ? "@echo off\necho started > \"" + marker + "\"\npowershell -NoProfile -Command \"[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + encoded + "'))\"\n"
+                    : "#!/bin/sh\necho started > '" + marker + "'\nprintf '%s' '" + encoded + "' | base64 -d\n";
+                await File.WriteAllTextAsync(script, contents).ConfigureAwait(false);
+                if (!OperatingSystem.IsWindows())
+                    File.SetUnixFileMode(script, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                Environment.SetEnvironmentVariable("ARMADA_TEST_OPENCODE", script);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    using (CoordinatorFixture state = new CoordinatorFixture(testDb.Driver))
+                    {
+                    Vessel vessel = await state.CreateVesselAsync("opencode-diagnostic-vessel").ConfigureAwait(false);
+                    Captain captain = await state.CreateCaptainAsync("opencode-diagnostic-planner", AgentRuntimeEnum.OpenCode).ConfigureAwait(false);
+                    PlanningSession session = await state.Coordinator.CreateAsync(null, null, captain, vessel, new PlanningSessionCreateRequest { Title = "Provider error" }).ConfigureAwait(false);
+                    Dock dock = await testDb.Driver.Docks.ReadAsync(session.DockId!) ?? throw new Exception("planning dock disappeared");
+                    Directory.CreateDirectory(dock.WorktreePath!);
+                        await state.Coordinator.SendMessageAsync(session, "Ask the provider.").ConfigureAwait(false);
+                        await WaitForAsync(async () =>
+                        {
+                            PlanningSession? current = await testDb.Driver.PlanningSessions.ReadAsync(session.Id).ConfigureAwait(false);
+                            List<PlanningSessionMessage> rows = await testDb.Driver.PlanningSessionMessages.EnumerateBySessionAsync(session.Id).ConfigureAwait(false);
+                            return current?.ProcessId == null && rows.Exists(item => item.Role == "Assistant" && (item.Content ?? String.Empty).Contains("opencode error", StringComparison.Ordinal));
+                        }).ConfigureAwait(false);
+                        List<PlanningSessionMessage> messages = await testDb.Driver.PlanningSessionMessages.EnumerateBySessionAsync(session.Id).ConfigureAwait(false);
+                        PlanningSession refreshed = await testDb.Driver.PlanningSessions.ReadAsync(session.Id) ?? throw new Exception("session disappeared");
+                        string assistant = String.Join(" | ", messages.FindAll(item => item.Role == "Assistant").ConvertAll(item => item.Content ?? "<null>"));
+                        AssertTrue(File.Exists(marker), "fake OpenCode was not launched; session=" + refreshed.Status + " process=" + refreshed.ProcessId + " assistant=" + assistant);
+                        AssertContains("opencode error", assistant);
+                        AssertContains("opencode error", refreshed.FailureReason ?? String.Empty);
+                    }
+                }
+                finally
+                {
+                    try
+                    {
+                        Environment.SetEnvironmentVariable("ARMADA_TEST_OPENCODE", prior);
+                        if (Directory.Exists(root)) Directory.Delete(root, true);
+                    }
+                    finally { OpenCodeTestEnvironmentGate.Instance.Release(); }
+                }
+            }));
 
             cases.Add(CaseAsync("create_async_reserves_captain_and_dock", "CreateAsync reserves captain and dock", TestTags.Positive, async () =>
             {
@@ -815,6 +870,28 @@ namespace Test.Shared.Suites.Services
             }
 
             throw new Exception("Assertion failed: expected " + typeof(TException).Name + " but no exception was thrown");
+        }
+
+        private static string FindRepositoryRoot()
+        {
+            DirectoryInfo? current = new DirectoryInfo(AppContext.BaseDirectory);
+            while (current != null)
+            {
+                if (File.Exists(Path.Combine(current.FullName, "README.md")) && Directory.Exists(Path.Combine(current.FullName, "src"))) return current.FullName;
+                current = current.Parent;
+            }
+            throw new DirectoryNotFoundException("Could not find the Armada repository root.");
+        }
+
+        private static async Task WaitForAsync(Func<Task<bool>> predicate)
+        {
+            DateTime deadline = DateTime.UtcNow.AddSeconds(15);
+            while (DateTime.UtcNow < deadline)
+            {
+                if (await predicate().ConfigureAwait(false)) return;
+                await Task.Delay(100).ConfigureAwait(false);
+            }
+            throw new TimeoutException("Timed out waiting for the planning provider failure.");
         }
 
         private static TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)
