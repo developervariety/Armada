@@ -8,6 +8,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
+    using Microsoft.Extensions.Time.Testing;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
@@ -345,13 +346,15 @@ namespace Armada.Test.Unit.Suites.Services
                         await WritePersistedIndexAsync(settings, vessel, records, documentCount).ConfigureAwait(false);
 
                         CountingEmbeddingClient embeddingClient = new CountingEmbeddingClient(new float[] { 1.0f, 0.0f, 0.0f });
+                        // The budget runs on a clock the test never advances, so the pack cannot degrade by
+                        // budget expiry; the fallback it reports must come from the document-count threshold.
+                        FakeTimeProvider time = new FakeTimeProvider();
                         CodeIndexService service = CreateService(testDb, dataRoot, s =>
                         {
                             s.UseSemanticSearch = false;
                             s.ContextPackBudgetMs = 500;
-                        }, embeddingClient);
+                        }, embeddingClient, timeProvider: time);
 
-                        Stopwatch stopwatch = Stopwatch.StartNew();
                         ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
                         {
                             VesselId = vessel.Id,
@@ -359,14 +362,14 @@ namespace Armada.Test.Unit.Suites.Services
                             TokenBudget = 1200,
                             MaxResults = 4
                         }).ConfigureAwait(false);
-                        stopwatch.Stop();
 
                         AssertTrue(response.Metrics.FastPackFallbackUsed, "Large vessel should auto-enable fast-pack fallback");
                         AssertFalse(response.Metrics.GraphExpansionUsed, "Large vessel should skip graph expansion");
                         AssertTrue(File.Exists(response.MaterializedPath), "Pack should still be materialized");
                         AssertContains(topPath, response.Markdown, "Top search result must still be in the pack");
                         AssertEqual(0, embeddingClient.CallCount, "Lexical fast pack should not issue any embedding calls");
-                        AssertTrue(stopwatch.ElapsedMilliseconds < 5000, "Large-vessel pack should complete well under budget (elapsed " + stopwatch.ElapsedMilliseconds + "ms)");
+                        AssertFalse(response.Warnings.Any(w => w.Contains("context_pack_budget_expired", StringComparison.OrdinalIgnoreCase)),
+                            "The large-vessel pack must finish inside its budget, not degrade by budget expiry (warnings: " + String.Join(" | ", response.Warnings) + ")");
                         AssertTrue(response.Warnings.Any(w => w.Contains("fast_pack_threshold", StringComparison.OrdinalIgnoreCase)),
                             "Warning should explain the fast-pack fallback");
                     }
@@ -452,23 +455,26 @@ namespace Armada.Test.Unit.Suites.Services
                         // top lexical result still appears), skip graph expansion, and stage a search-only pack
                         // -- proving the hard budget now covers the initial search/embedding phase, not just the
                         // later graph/summarizer stages.
-                        SlowEmbeddingClient embeddingClient = new SlowEmbeddingClient(new float[] { 1.0f, 0.0f, 0.0f }, delayMs: 1500);
+                        BlockingEmbeddingClient embeddingClient = new BlockingEmbeddingClient(new float[] { 1.0f, 0.0f, 0.0f });
+                        FakeTimeProvider time = new FakeTimeProvider();
                         CodeIndexService service = CreateService(testDb, dataRoot, s =>
                         {
                             s.UseSemanticSearch = true;
-                            s.ContextPackBudgetMs = 300;
+                            s.ContextPackBudgetMs = 500;
                             s.FastPackFileThreshold = 5000;
-                        }, embeddingClient);
+                        }, embeddingClient, timeProvider: time);
 
-                        Stopwatch stopwatch = Stopwatch.StartNew();
-                        ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
+                        Task<ContextPackResponse> build = service.BuildContextPackAsync(new ContextPackRequest
                         {
                             VesselId = vessel.Id,
                             Goal = "ExactMatchKeyword",
                             TokenBudget = 1200,
                             MaxResults = 4
-                        }).ConfigureAwait(false);
-                        stopwatch.Stop();
+                        });
+                        await StageSignal.WaitForAsync(embeddingClient.Entered, build, "query embedding").ConfigureAwait(false);
+                        // Advance by exactly the budget: 500ms is the smallest budget the setting accepts.
+                        time.Advance(TimeSpan.FromMilliseconds(500));
+                        ContextPackResponse response = await build.ConfigureAwait(false);
 
                         AssertTrue(File.Exists(response.MaterializedPath), "Budget fallback should still stage a pack");
                         AssertContains("src/Service.cs", response.Markdown, "Lexical search result must still be in the fallback pack");
@@ -476,7 +482,7 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertFalse(response.Metrics.GraphExpansionUsed, "Budget-expired search must skip graph expansion");
                         AssertTrue(response.Warnings.Any(w => w.Contains("context_pack_budget_expired", StringComparison.OrdinalIgnoreCase)),
                             "Warning should report the budget expiration (warnings: " + String.Join(" | ", response.Warnings) + ")");
-                        AssertTrue(stopwatch.ElapsedMilliseconds < 5000, "Budget fallback should complete quickly (elapsed " + stopwatch.ElapsedMilliseconds + "ms)");
+                        AssertTrue(embeddingClient.Cancelled, "The budget must cut the pending query embedding short rather than wait for it");
                     }
                 }
                 finally
@@ -550,27 +556,31 @@ namespace Armada.Test.Unit.Suites.Services
                         // and labels a budget-driven abort `context_pack_budget_expired` -- distinct from the
                         // per-call `summarizer_timeout`. FastPackOnly removes graph timing from the equation so
                         // only the fast lexical search precedes the summarizer.
-                        DelayingInferenceClient inference = new DelayingInferenceClient(delayMs: 6000, summary: "summary that arrives after the budget");
+                        BlockingInferenceClient inference = new BlockingInferenceClient("summary that arrives after the budget");
+                        FakeTimeProvider time = new FakeTimeProvider();
                         CodeIndexService service = CreateService(testDb, dataRoot, s =>
                         {
                             s.UseSemanticSearch = false;
                             s.UseSummarizer = true;
                             s.SummarizerTimeoutSeconds = 600;
                             s.ContextPackBudgetMs = 1000;
-                        }, inferenceClient: inference);
+                        }, inferenceClient: inference, timeProvider: time);
 
                         await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
 
-                        Stopwatch stopwatch = Stopwatch.StartNew();
-                        ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
+                        Task<ContextPackResponse> build = service.BuildContextPackAsync(new ContextPackRequest
                         {
                             VesselId = vessel.Id,
                             Goal = "SearchKeyword",
                             TokenBudget = 1200,
                             MaxResults = 4,
                             FastPackOnly = true
-                        }).ConfigureAwait(false);
-                        stopwatch.Stop();
+                        });
+                        await StageSignal.WaitForAsync(inference.Entered, build, "summarizer call").ConfigureAwait(false);
+                        time.Advance(TimeSpan.FromMilliseconds(1000));
+                        ContextPackResponse response = await build.ConfigureAwait(false);
+                        bool summarizerStillPending = !inference.Completed;
+                        inference.Release();
 
                         AssertEqual(1, inference.CallCount, "Summarizer must have been entered exactly once (budget alive at the gate)");
                         AssertFalse(response.IsSummarized, "A budget-aborted summarizer must not mark the pack as summarized");
@@ -582,12 +592,72 @@ namespace Armada.Test.Unit.Suites.Services
 
                         string materialized = await File.ReadAllTextAsync(response.MaterializedPath).ConfigureAwait(false);
                         AssertEqual(response.Markdown, materialized, "Budget-aborted summarizer must materialize the raw markdown fallback");
-                        AssertTrue(stopwatch.ElapsedMilliseconds < 5000, "Budget must cut the slow summarizer short, not wait the full delay (elapsed " + stopwatch.ElapsedMilliseconds + "ms)");
+                        AssertTrue(summarizerStillPending, "The budget must end the wait while the summarizer call is still pending, not wait for it to return");
                     }
                 }
                 finally
                 {
                     TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("BuildContextPackAsync_BudgetSpentBeforeIndexRead_StillStagesLexicalPack", async () =>
+            {
+                string dataRoot = NewTempDirectory("armada-fast-pack-budget-spent-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, Path.Combine(dataRoot, "repo")).ConfigureAwait(false);
+                        ArmadaSettings settings = BuildSettings(dataRoot);
+
+                        List<CodeIndexRecord> records = new List<CodeIndexRecord>
+                        {
+                            new CodeIndexRecord
+                            {
+                                VesselId = vessel.Id,
+                                Path = "src/Service.cs",
+                                CommitSha = "abc",
+                                ContentHash = "h1",
+                                Language = "csharp",
+                                StartLine = 1,
+                                EndLine = 5,
+                                IsReferenceOnly = false,
+                                Content = "public class Service { public void ExactMatchKeyword() { } }"
+                            }
+                        };
+                        await WritePersistedIndexAsync(settings, vessel, records, documentCount: 1).ConfigureAwait(false);
+
+                        // A loaded host can spend the whole budget before the local index is even read. The
+                        // budget bounds the optional slow stages; it must not turn that into a cancelled build
+                        // that stages nothing when the lexical results are one local read away.
+                        CodeIndexService service = CreateService(testDb, dataRoot, s =>
+                        {
+                            s.UseSemanticSearch = false;
+                            s.ContextPackBudgetMs = 500;
+                            s.FastPackFileThreshold = 5000;
+                        }, timeProvider: new BudgetAlreadySpentTimeProvider());
+
+                        ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
+                        {
+                            VesselId = vessel.Id,
+                            Goal = "ExactMatchKeyword",
+                            TokenBudget = 1200,
+                            MaxResults = 4
+                        }).ConfigureAwait(false);
+
+                        AssertTrue(File.Exists(response.MaterializedPath), "A spent budget must still stage a pack");
+                        AssertContains("src/Service.cs", response.Markdown, "The lexical result must be in the pack");
+                        AssertTrue(response.Metrics.FastPackFallbackUsed, "A spent budget must mark the pack as a fast-pack fallback");
+                        AssertFalse(response.Metrics.GraphExpansionUsed, "A spent budget must skip graph expansion");
+                        AssertTrue(response.Warnings.Any(w => w.Contains("context_pack_budget_expired", StringComparison.OrdinalIgnoreCase)),
+                            "The pack must say the budget expired (warnings: " + String.Join(" | ", response.Warnings) + ")");
+                    }
+                }
+                finally
+                {
                     TryDeleteDirectory(dataRoot);
                 }
             });
@@ -600,11 +670,12 @@ namespace Armada.Test.Unit.Suites.Services
             string dataRoot,
             Action<CodeIndexSettings>? configureCodeIndex = null,
             IEmbeddingClient? embeddingClient = null,
-            IInferenceClient? inferenceClient = null)
+            IInferenceClient? inferenceClient = null,
+            TimeProvider? timeProvider = null)
         {
             ArmadaSettings settings = BuildSettings(dataRoot, configureCodeIndex);
             LoggingModule logging = SilentLogging();
-            return new CodeIndexService(logging, testDb.Driver, settings, new GitService(logging), embeddingClient, inferenceClient);
+            return new CodeIndexService(logging, testDb.Driver, settings, new GitService(logging), embeddingClient, inferenceClient, timeProvider);
         }
 
         private static ArmadaSettings BuildSettings(string dataRoot, Action<CodeIndexSettings>? configureCodeIndex = null)
@@ -890,45 +961,99 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
-        private sealed class SlowEmbeddingClient : IEmbeddingClient
+        private sealed class BlockingEmbeddingClient : IEmbeddingClient
         {
             private readonly float[] _Vector;
-            private readonly int _DelayMs;
+            private readonly TaskCompletionSource _Entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            private int _Cancelled;
 
-            public SlowEmbeddingClient(float[] vector, int delayMs)
+            public BlockingEmbeddingClient(float[] vector)
             {
                 _Vector = vector ?? throw new ArgumentNullException(nameof(vector));
-                _DelayMs = delayMs;
             }
+
+            /// <summary>Completes when the query embedding has been requested.</summary>
+            public Task Entered => _Entered.Task;
+
+            /// <summary>True when the service cancelled the pending embedding.</summary>
+            public bool Cancelled => Volatile.Read(ref _Cancelled) != 0;
 
             public async Task<float[]> EmbedAsync(string text, CancellationToken token = default)
             {
-                await Task.Delay(_DelayMs, token).ConfigureAwait(false);
+                _Entered.TrySetResult();
+                try
+                {
+                    // Pending until the service cancels it; only the budget can end this call.
+                    await Task.Delay(Timeout.InfiniteTimeSpan, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    Interlocked.Exchange(ref _Cancelled, 1);
+                    throw;
+                }
+
                 return _Vector;
             }
         }
 
-        private sealed class DelayingInferenceClient : IInferenceClient
+        private sealed class BlockingInferenceClient : IInferenceClient
         {
-            private readonly int _DelayMs;
             private readonly string _Summary;
+            private readonly TaskCompletionSource _Entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly TaskCompletionSource _Release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            private int _CallCount;
+            private int _Completed;
 
-            public int CallCount { get; private set; }
-
-            public DelayingInferenceClient(int delayMs, string summary)
+            public BlockingInferenceClient(string summary)
             {
-                _DelayMs = delayMs;
                 _Summary = summary ?? throw new ArgumentNullException(nameof(summary));
             }
 
+            public int CallCount => Volatile.Read(ref _CallCount);
+
+            /// <summary>Completes when the summarizer call has started.</summary>
+            public Task Entered => _Entered.Task;
+
+            /// <summary>True once the call has returned its summary.</summary>
+            public bool Completed => Volatile.Read(ref _Completed) != 0;
+
+            /// <summary>Let the pending call return.</summary>
+            public void Release() => _Release.TrySetResult();
+
             public async Task<string> CompleteAsync(string systemPrompt, string userMessage, CancellationToken token = default)
             {
-                CallCount++;
-                // Honor only the caller token: the production summarizer passes the caller token here while
-                // bounding completion via a budget-linked delay race, so a budget expiry must cut the wait
-                // without this completion ever returning or faulting.
-                await Task.Delay(_DelayMs, token).ConfigureAwait(false);
+                Interlocked.Increment(ref _CallCount);
+                _Entered.TrySetResult();
+                // Honor only the caller token, as the production summarizer passes it: the service's own
+                // timeout or budget must end the wait while this call is still pending.
+                await _Release.Task.WaitAsync(token).ConfigureAwait(false);
+                Interlocked.Exchange(ref _Completed, 1);
                 return _Summary;
+            }
+        }
+
+        /// <summary>
+        /// A clock on which every timer is already due when it is created, so a budget timer is spent
+        /// before the operation that created it does any work.
+        /// </summary>
+        private sealed class BudgetAlreadySpentTimeProvider : TimeProvider
+        {
+            public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+            {
+                if (dueTime != Timeout.InfiniteTimeSpan) callback(state);
+                return new FiredTimer();
+            }
+
+            private sealed class FiredTimer : ITimer
+            {
+                public bool Change(TimeSpan dueTime, TimeSpan period) => false;
+
+                public void Dispose()
+                {
+                    // Nothing to release: the timer fired synchronously when it was created.
+                }
+
+                public ValueTask DisposeAsync() => ValueTask.CompletedTask;
             }
         }
 

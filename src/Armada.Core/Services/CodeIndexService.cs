@@ -38,6 +38,7 @@ namespace Armada.Core.Services
         private IGitService _Git;
         private IEmbeddingClient? _EmbeddingClient;
         private IInferenceClient? _InferenceClient;
+        private readonly TimeProvider _TimeProvider;
         private PolyglotSymbolExtractor _SymbolExtractor = new PolyglotSymbolExtractor();
         private static readonly ConcurrentDictionary<string, CodeIndexActiveUpdate> _ActiveUpdates = new ConcurrentDictionary<string, CodeIndexActiveUpdate>(StringComparer.OrdinalIgnoreCase);
         private const int _DefaultGraphSearchLimit = 20;
@@ -79,7 +80,8 @@ namespace Armada.Core.Services
             ArmadaSettings settings,
             IGitService git,
             IEmbeddingClient? embeddingClient = null,
-            IInferenceClient? inferenceClient = null)
+            IInferenceClient? inferenceClient = null,
+            TimeProvider? timeProvider = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
@@ -87,6 +89,7 @@ namespace Armada.Core.Services
             _Git = git ?? throw new ArgumentNullException(nameof(git));
             _EmbeddingClient = embeddingClient;
             _InferenceClient = inferenceClient;
+            _TimeProvider = timeProvider ?? TimeProvider.System;
         }
 
         #endregion
@@ -442,7 +445,17 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
-        public async Task<CodeSearchResponse> SearchAsync(CodeSearchRequest request, CancellationToken token = default)
+        public Task<CodeSearchResponse> SearchAsync(CodeSearchRequest request, CancellationToken token = default)
+        {
+            return SearchCoreAsync(request, lexicalOnly: false, token);
+        }
+
+        /// <summary>
+        /// Search the vessel index. A lexical-only search reads the existing local index and scores it
+        /// lexically: it starts no index update, query embedding or graph boost, so its cost is bounded
+        /// by one local read even when the caller has no time budget left for the optional stages.
+        /// </summary>
+        private async Task<CodeSearchResponse> SearchCoreAsync(CodeSearchRequest request, bool lexicalOnly, CancellationToken token)
         {
             EnsureEnabled();
             if (request == null) throw new ArgumentNullException(nameof(request));
@@ -450,7 +463,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(request.Query)) throw new ArgumentNullException(nameof(request.Query));
 
             CodeIndexStatus status = await GetStatusAsync(request.VesselId, token).ConfigureAwait(false);
-            if (status.IndexedAtUtc == null || String.Equals(status.Freshness, "Missing", StringComparison.Ordinal))
+            if (!lexicalOnly && (status.IndexedAtUtc == null || String.Equals(status.Freshness, "Missing", StringComparison.Ordinal)))
             {
                 status = await UpdateAsync(request.VesselId, token).ConfigureAwait(false);
             }
@@ -460,7 +473,7 @@ namespace Armada.Core.Services
             int limit = ClampLimit(request.Limit, _Settings.CodeIndex.MaxSearchResults);
 
             float[]? queryVector = null;
-            if (_Settings.CodeIndex.UseSemanticSearch && _EmbeddingClient != null)
+            if (!lexicalOnly && _Settings.CodeIndex.UseSemanticSearch && _EmbeddingClient != null)
             {
                 try
                 {
@@ -489,7 +502,7 @@ namespace Armada.Core.Services
                     .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
             }
 
-            Dictionary<string, double> graphBoostsByPath = _Settings.CodeIndex.UseGraphSearchBoosts
+            Dictionary<string, double> graphBoostsByPath = !lexicalOnly && _Settings.CodeIndex.UseGraphSearchBoosts
                 ? await BuildGraphSearchBoostsAsync(request.VesselId, request.Query, token).ConfigureAwait(false)
                 : new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
 
@@ -642,7 +655,7 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
             if (String.IsNullOrWhiteSpace(request.Goal)) throw new ArgumentNullException(nameof(request.Goal));
 
-            Stopwatch totalStopwatch = Stopwatch.StartNew();
+            long totalStarted = _TimeProvider.GetTimestamp();
 
             int tokenBudget = request.TokenBudget;
             if (tokenBudget < 500) tokenBudget = 500;
@@ -656,9 +669,11 @@ namespace Armada.Core.Services
             // as OperationCanceledException, but a budget overrun degrades gracefully -- we stage the best
             // (search-only / partial) pack assembled so far instead of timing out and staging nothing.
             // A relevant partial pack beats no pack on a large vessel.
+            // The budget timer and every elapsed measurement run on the injected time provider, so budget
+            // expiry is an event the host clock drives rather than a race against host load.
             int budgetMs = _Settings.CodeIndex.ContextPackBudgetMs;
-            using CancellationTokenSource budgetCts = CancellationTokenSource.CreateLinkedTokenSource(token);
-            budgetCts.CancelAfter(TimeSpan.FromMilliseconds(budgetMs));
+            using CancellationTokenSource budgetTimer = new CancellationTokenSource(TimeSpan.FromMilliseconds(budgetMs), _TimeProvider);
+            using CancellationTokenSource budgetCts = CancellationTokenSource.CreateLinkedTokenSource(token, budgetTimer.Token);
             CancellationToken budgetToken = budgetCts.Token;
 
             List<string> warnings = new List<string>();
@@ -672,10 +687,21 @@ namespace Armada.Core.Services
                 IncludeReferenceOnly = false
             };
 
-            Stopwatch searchStopwatch = Stopwatch.StartNew();
-            CodeSearchResponse search = await SearchAsync(searchRequest, budgetToken).ConfigureAwait(false);
-            searchStopwatch.Stop();
-            long searchElapsedMs = searchStopwatch.ElapsedMilliseconds;
+            long searchStarted = _TimeProvider.GetTimestamp();
+            CodeSearchResponse search;
+            try
+            {
+                search = await SearchCoreAsync(searchRequest, lexicalOnly: false, budgetToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!token.IsCancellationRequested && budgetToken.IsCancellationRequested)
+            {
+                // The budget ran out before search produced results -- on a loaded host that can happen
+                // before the local index is even read. The budget bounds the optional slow stages, so
+                // rerun the search lexically on the caller token: one local read, no indexing, embedding
+                // or graph boost. The search-only warning below records the expiry.
+                search = await SearchCoreAsync(searchRequest, lexicalOnly: true, token).ConfigureAwait(false);
+            }
+            long searchElapsedMs = (long)_TimeProvider.GetElapsedTime(searchStarted).TotalMilliseconds;
 
             // Caller cancellation always wins over budget degradation: a genuinely cancelled caller token
             // must surface as OperationCanceledException, never a silently degraded pack. The query
@@ -744,7 +770,7 @@ namespace Armada.Core.Services
                 string systemPrompt = "You are a codebase analyst. Given code chunks from a repository, produce a compact markdown summary for a software engineer who needs to understand the relevant patterns before making a change. Output: first a 3-5 sentence synthesis naming the key types, their responsibilities, and any important call chains. Then a bulleted file-by-file list of key types and their roles. Be concise. No introductory text. Output only the summary markdown.";
                 string userMessage = "Goal: " + request.Goal + "\n\n" + markdown;
                 int timeoutSeconds = _Settings.CodeIndex.SummarizerTimeoutSeconds;
-                Stopwatch summarizerStopwatch = Stopwatch.StartNew();
+                long summarizerStarted = _TimeProvider.GetTimestamp();
                 try
                 {
                     // Time-box the summarizer completion. A slow or hung summarizer must not consume the
@@ -754,7 +780,7 @@ namespace Armada.Core.Services
                     // context-pack budget so a late-stage summarization cannot blow through the hard ceiling.
                     Task<string> completeTask = _InferenceClient.CompleteAsync(systemPrompt, userMessage, token);
                     using CancellationTokenSource delayCts = CancellationTokenSource.CreateLinkedTokenSource(token, budgetToken);
-                    Task delayTask = Task.Delay(TimeSpan.FromSeconds(timeoutSeconds), delayCts.Token);
+                    Task delayTask = Task.Delay(TimeSpan.FromSeconds(timeoutSeconds), _TimeProvider, delayCts.Token);
                     Task winner = await Task.WhenAny(completeTask, delayTask).ConfigureAwait(false);
                     if (ReferenceEquals(winner, completeTask))
                     {
@@ -794,8 +820,7 @@ namespace Armada.Core.Services
                 }
                 finally
                 {
-                    summarizerStopwatch.Stop();
-                    summarizerElapsedMs = summarizerStopwatch.ElapsedMilliseconds;
+                    summarizerElapsedMs = (long)_TimeProvider.GetElapsedTime(summarizerStarted).TotalMilliseconds;
                 }
             }
 
@@ -816,7 +841,7 @@ namespace Armada.Core.Services
             response.PrestagedFiles.Add(new PrestagedFile(materializedPath, "_briefing/context-pack.md"));
             foreach (string w in warnings)
                 response.Warnings.Add(w);
-            totalStopwatch.Stop();
+            long totalElapsedMs = (long)_TimeProvider.GetElapsedTime(totalStarted).TotalMilliseconds;
             response.Metrics = BuildContextPackMetrics(
                 response,
                 graphExpansionUsed: graphExpansion.Used,
@@ -824,7 +849,7 @@ namespace Armada.Core.Services
                 fastPackFallbackUsed: fastPackFallbackUsed,
                 searchElapsedMs: searchElapsedMs,
                 summarizerElapsedMs: summarizerElapsedMs,
-                totalElapsedMs: totalStopwatch.ElapsedMilliseconds);
+                totalElapsedMs: totalElapsedMs);
             return response;
         }
 

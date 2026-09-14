@@ -8,6 +8,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
+    using Microsoft.Extensions.Time.Testing;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
@@ -189,7 +190,8 @@ namespace Armada.Test.Unit.Suites.Services
                     using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                     {
                         Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
-                        DelayingInferenceClient inference = new DelayingInferenceClient(8000, "slow summary that arrives too late");
+                        BlockingInferenceClient inference = new BlockingInferenceClient("slow summary that arrives too late");
+                        TimerSignalingTimeProvider time = new TimerSignalingTimeProvider(TimeSpan.FromSeconds(1));
                         CodeIndexService service = CreateService(
                             testDb,
                             dataRoot,
@@ -199,22 +201,33 @@ namespace Armada.Test.Unit.Suites.Services
                                 ci.UseSemanticSearch = false;
                                 ci.UseSummarizer = true;
                                 ci.SummarizerTimeoutSeconds = 1;
-                            });
+                            },
+                            timeProvider: time);
 
                         await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
 
-                        Stopwatch elapsed = Stopwatch.StartNew();
-                        ContextPackResponse response = await service.BuildContextPackAsync(new ContextPackRequest
+                        // Advance exactly the per-call timeout after the call starts. The default context-pack
+                        // budget is longer, so only the summarizer timeout can end the wait.
+                        Task<ContextPackResponse> build = service.BuildContextPackAsync(new ContextPackRequest
                         {
                             VesselId = vessel.Id,
                             Goal = "alpha",
                             TokenBudget = 1000
-                        }).ConfigureAwait(false);
-                        elapsed.Stop();
+                        });
+                        // The timeout timer is created only after the summarizer call has started, so advancing on
+                        // the call signal alone can move the clock before the timer exists and the timer never
+                        // fires. Advance once both the call and its timeout timer are in place.
+                        await StageSignal.WaitForAsync(inference.Entered, build, "summarizer call").ConfigureAwait(false);
+                        await StageSignal.WaitForAsync(time.WatchedTimerCreated, build, "summarizer timeout timer").ConfigureAwait(false);
+                        time.Advance(TimeSpan.FromSeconds(1));
+                        ContextPackResponse response = await build.ConfigureAwait(false);
+                        bool summarizerStillPending = !inference.Completed;
+                        inference.Release();
 
                         AssertFalse(response.IsSummarized, "IsSummarized must be false when the summarizer times out");
                         AssertTrue(response.SummarizedMarkdown == null, "SummarizedMarkdown must be null on timeout");
-                        AssertTrue(elapsed.Elapsed.TotalSeconds < 5, "Build must not block for the full slow-summarizer duration");
+                        AssertTrue(summarizerStillPending, "Build must stop waiting at the per-call timeout while the summarizer call is still pending");
+                        AssertFalse(response.Warnings.Exists(w => w.Contains("context_pack_budget_expired")), "The per-call timeout, not the overall budget, must end the wait");
                         AssertEqual(1, inference.CallCount, "Inference client must have been invoked once");
                         AssertTrue(response.Warnings.Exists(w => w.Contains("summarizer_timeout")), "A non-blocking summarizer_timeout warning must be recorded");
 
@@ -363,11 +376,12 @@ namespace Armada.Test.Unit.Suites.Services
             TestDatabase testDb,
             string dataRoot,
             IInferenceClient? inferenceClient,
-            Action<CodeIndexSettings>? configureCodeIndex)
+            Action<CodeIndexSettings>? configureCodeIndex,
+            TimeProvider? timeProvider = null)
         {
             ArmadaSettings settings = BuildSettings(dataRoot, configureCodeIndex);
             LoggingModule logging = SilentLogging();
-            return new CodeIndexService(logging, testDb.Driver, settings, new GitService(logging), null, inferenceClient);
+            return new CodeIndexService(logging, testDb.Driver, settings, new GitService(logging), null, inferenceClient, timeProvider);
         }
 
         private static async Task<Vessel> CreateVesselAsync(TestDatabase testDb, string repositoryPath)
@@ -512,23 +526,61 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
-        private sealed class DelayingInferenceClient : IInferenceClient
+        /// <summary>
+        /// A controlled clock that signals when a timer with the watched due time is created, so a test
+        /// advances time only after the timer it means to fire exists.
+        /// </summary>
+        private sealed class TimerSignalingTimeProvider : FakeTimeProvider
         {
-            private readonly int _DelayMs;
-            private readonly string _Result;
+            private readonly TimeSpan _WatchedDueTime;
+            private readonly TaskCompletionSource _WatchedTimerCreated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-            public int CallCount { get; private set; }
-
-            public DelayingInferenceClient(int delayMs, string result)
+            public TimerSignalingTimeProvider(TimeSpan watchedDueTime)
             {
-                _DelayMs = delayMs;
+                _WatchedDueTime = watchedDueTime;
+            }
+
+            /// <summary>Completes once a timer with the watched due time has been registered.</summary>
+            public Task WatchedTimerCreated => _WatchedTimerCreated.Task;
+
+            public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+            {
+                ITimer timer = base.CreateTimer(callback, state, dueTime, period);
+                if (dueTime == _WatchedDueTime) _WatchedTimerCreated.TrySetResult();
+                return timer;
+            }
+        }
+
+        private sealed class BlockingInferenceClient : IInferenceClient
+        {
+            private readonly string _Result;
+            private readonly TaskCompletionSource _Entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly TaskCompletionSource _Release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            private int _CallCount;
+            private int _Completed;
+
+            public BlockingInferenceClient(string result)
+            {
                 _Result = result ?? String.Empty;
             }
 
+            public int CallCount => Volatile.Read(ref _CallCount);
+
+            /// <summary>Completes when the summarizer call has started.</summary>
+            public Task Entered => _Entered.Task;
+
+            /// <summary>True once the call has returned.</summary>
+            public bool Completed => Volatile.Read(ref _Completed) != 0;
+
+            /// <summary>Let the pending call return.</summary>
+            public void Release() => _Release.TrySetResult();
+
             public async Task<string> CompleteAsync(string systemPrompt, string userMessage, CancellationToken token = default)
             {
-                CallCount++;
-                await Task.Delay(_DelayMs, token).ConfigureAwait(false);
+                Interlocked.Increment(ref _CallCount);
+                _Entered.TrySetResult();
+                await _Release.Task.WaitAsync(token).ConfigureAwait(false);
+                Interlocked.Exchange(ref _Completed, 1);
                 return _Result;
             }
         }

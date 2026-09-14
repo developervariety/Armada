@@ -483,6 +483,20 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Cutover decisions re-read a briefly unverifiable process state for a bounded
   window before failing closed. A candidate that exits at once is therefore
   recorded as exited rather than as unverifiable.
+### Code index context pack budget
+
+- A context pack whose budget runs out before search produces results now
+  stages the lexical pack instead of throwing. On a loaded host the budget
+  could expire before the local index was read, and the build failed with
+  `TaskCanceledException`. The build now reruns the search lexically on the
+  caller token: one local read, with no index update, embedding or graph boost.
+  The pack still reports `context_pack_budget_expired`. Caller cancellation
+  still propagates.
+- The context pack budget, the summarizer timeout and the elapsed metrics run on
+  an injectable `TimeProvider`, which defaults to the system clock. The budget
+  and summarizer tests advance a controlled clock after the stage under test
+  starts, instead of racing real delays against real budgets.
+
 ### Remote dashboard websocket relay
 
 - A relay session is removed from relay state before `armada.ws.closed` or
