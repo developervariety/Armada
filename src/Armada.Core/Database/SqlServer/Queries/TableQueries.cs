@@ -958,6 +958,14 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF COL_LENGTH('check_runs','slot_requested_utc') IS NULL ALTER TABLE check_runs ADD slot_requested_utc NVARCHAR(450) NULL;",
                     @"IF OBJECT_ID('lane_state_transitions','U') IS NULL CREATE TABLE lane_state_transitions (id NVARCHAR(128) NOT NULL PRIMARY KEY, lane_key NVARCHAR(1024) NOT NULL, eligible_count INT NOT NULL, occupied INT NOT NULL, capacity INT NOT NULL, block_reason NVARCHAR(32) NOT NULL, eligible_source_families NVARCHAR(512) NOT NULL DEFAULT '', is_checkpoint BIT NOT NULL DEFAULT 0, valid_for_seconds INT NOT NULL, created_utc DATETIME2 NOT NULL);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_lane_state_transitions_created' AND object_id=OBJECT_ID('lane_state_transitions')) CREATE INDEX idx_lane_state_transitions_created ON lane_state_transitions(created_utc);"
+                ),
+                new SchemaMigration(93, "Persist configuration record ownership",
+                    @"ALTER TABLE personas ADD user_id NVARCHAR(450) NULL;",
+                    @"ALTER TABLE personas ADD ownership_scope NVARCHAR(32) NOT NULL CONSTRAINT df_personas_ownership_scope DEFAULT 'TenantWide';",
+                    @"ALTER TABLE pipelines ADD user_id NVARCHAR(450) NULL;",
+                    @"ALTER TABLE pipelines ADD ownership_scope NVARCHAR(32) NOT NULL CONSTRAINT df_pipelines_ownership_scope DEFAULT 'TenantWide';",
+                    @"ALTER TABLE prompt_templates ADD user_id NVARCHAR(450) NULL;",
+                    @"ALTER TABLE prompt_templates ADD ownership_scope NVARCHAR(32) NOT NULL CONSTRAINT df_prompt_templates_ownership_scope DEFAULT 'TenantWide';"
                 )
             };
         }

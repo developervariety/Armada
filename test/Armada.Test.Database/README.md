@@ -63,6 +63,11 @@ between restarts, and then restarts to completion. It checks applied history,
 revocation persistence across a reopen, and compare-and-set enrollment and
 revocation after restart.
 
+A scenario that seeds rows while the schema is stopped below a version writes
+them with SQL that names only columns present at that version. Driver create
+methods write the newest row shape, so they would name columns that a later
+migration adds and fail against the older schema.
+
 | Scenario | Providers | Proof |
 | --- | --- | --- |
 | `fresh` | All four | Initial schema, repeat startup and ordinary persistence cases |
@@ -78,6 +83,7 @@ revocation after restart.
 | `preview-migration` | All four | Populated upgrade, equivalent values, incompatible type/null/default, interrupted restart; MySQL also rejects restricted text encodings |
 | `memory-migration` | All four | Memory tables absent before the version, interrupted run uncommitted, committed once with unchanged old history, Unicode round trip, tenant key uniqueness, guarded update and cascade delete |
 | `learned-facts-removal` | All four | Populated learned playbooks, voyage links, snapshots, default-playbook entries, reflection pipelines, consolidator persona and templates, pack hints and reflection columns beside operator rows and native memory; interrupted restart, removal of only the learned-facts rows and references, dropped table and columns, unchanged history on repeat startup |
+| `ownership-migration` | All four | Ownership columns absent before the version, interrupted run uncommitted, only that version committed with unchanged old history, a persona written before the migration reads back tenant-wide with no owner, Unicode owner round trip across a reopen and an idempotent restart |
 | `catalog-guards` | Server providers | Wrong type, nullability, default and index rejection; corrected restart |
 | `mysql-compat` | MySQL | Populated Unicode backfill, no repeat row update, damaged mapping, duplicate/orphan/FK/default rejection |
 | `sqlserver-corrections` | SQL Server | Equivalent and incompatible pre-staged v59/v68 objects; separate correction evidence and complete model value |

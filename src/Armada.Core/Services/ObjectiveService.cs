@@ -1510,7 +1510,7 @@ namespace Armada.Core.Services
             }
 
             if (!String.IsNullOrWhiteSpace(objective.SuggestedPipelineId)
-                && !await ReadPipelineAsync(objective.SuggestedPipelineId, token).ConfigureAwait(false))
+                && !await ReadPipelineAsync(auth, objective.SuggestedPipelineId, token).ConfigureAwait(false))
             {
                 throw new InvalidOperationException("Pipeline not found or not accessible: " + objective.SuggestedPipelineId);
             }
@@ -1559,7 +1559,7 @@ namespace Armada.Core.Services
 
             if (request.SuggestedPipelineId != null
                 && !String.IsNullOrWhiteSpace(objective.SuggestedPipelineId)
-                && !await ReadPipelineAsync(objective.SuggestedPipelineId, token).ConfigureAwait(false))
+                && !await ReadPipelineAsync(auth, objective.SuggestedPipelineId, token).ConfigureAwait(false))
             {
                 throw new InvalidOperationException("Pipeline not found or not accessible: " + objective.SuggestedPipelineId);
             }
@@ -1766,10 +1766,12 @@ namespace Armada.Core.Services
             return await _Database.ObjectiveRefinementSessions.ReadAsync(auth.TenantId!, auth.UserId!, id, token).ConfigureAwait(false);
         }
 
-        private async Task<bool> ReadPipelineAsync(string id, CancellationToken token)
+        private async Task<bool> ReadPipelineAsync(AuthContext auth, string id, CancellationToken token)
         {
+            // A suggested pipeline must be one the caller may read, so an objective cannot point at
+            // another user's private pipeline by id.
             Pipeline? pipeline = await _Database.Pipelines.ReadAsync(id, token).ConfigureAwait(false);
-            return pipeline != null;
+            return pipeline != null && Armada.Core.Authorization.OwnershipPolicy.CanView(auth, pipeline);
         }
 
         private async Task WriteSnapshotAsync(AuthContext auth, Objective objective, CancellationToken token)

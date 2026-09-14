@@ -6,6 +6,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
     using System.Threading.Tasks;
     using Npgsql;
     using SyslogLogging;
+    using Armada.Core.Database;
     using Armada.Core.Database.Interfaces;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -58,10 +59,12 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = new NpgsqlCommand())
                 {
                     cmd.Connection = conn;
-                    cmd.CommandText = @"INSERT INTO prompt_templates (id, tenant_id, name, description, category, content, is_built_in, active, created_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @name, @description, @category, @content, @is_built_in, @active, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO prompt_templates (id, tenant_id, user_id, ownership_scope, name, description, category, content, is_built_in, active, created_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @user_id, @ownership_scope, @name, @description, @category, @content, @is_built_in, @active, @created_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", template.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)template.TenantId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@user_id", (object?)template.UserId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@ownership_scope", template.OwnershipScope.ToString());
                     cmd.Parameters.AddWithValue("@name", template.Name);
                     cmd.Parameters.AddWithValue("@description", (object?)template.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@category", template.Category);
@@ -165,6 +168,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Connection = conn;
                     cmd.CommandText = @"UPDATE prompt_templates SET
                         tenant_id = @tenant_id,
+                        user_id = @user_id,
+                        ownership_scope = @ownership_scope,
                         name = @name,
                         description = @description,
                         category = @category,
@@ -175,6 +180,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", template.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)template.TenantId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@user_id", (object?)template.UserId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@ownership_scope", template.OwnershipScope.ToString());
                     cmd.Parameters.AddWithValue("@name", template.Name);
                     cmd.Parameters.AddWithValue("@description", (object?)template.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@category", template.Category);
@@ -338,6 +345,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             PromptTemplate template = new PromptTemplate();
             template.Id = reader["id"].ToString()!;
             template.TenantId = NullableString(reader["tenant_id"]);
+            template.UserId = NullableString(reader["user_id"]);
+            template.OwnershipScope = OwnershipColumns.ParseScope(reader["ownership_scope"]);
             template.Name = reader["name"].ToString()!;
             template.Description = NullableString(reader["description"]);
             template.Category = reader["category"].ToString()!;

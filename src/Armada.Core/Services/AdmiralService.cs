@@ -1063,7 +1063,16 @@ namespace Armada.Core.Services
             List<SelectedPlaybook> personaLayer = new List<SelectedPlaybook>();
             if (!String.IsNullOrEmpty(mission.Persona))
             {
-                Persona? persona = await _Database.Personas.ReadByNameAsync(mission.Persona!, token).ConfigureAwait(false);
+                // A persona's default playbooks enter this mission only when the mission's owner may use it.
+                OwnedRecordLookup<Persona> personaLookup = await OwnedRecordScope.ReadUsableByNameAsync(
+                    mission.TenantId,
+                    mission.UserId,
+                    mission.Persona!,
+                    () => _Database.Personas.EnumerateAsync(token),
+                    record => record.Name).ConfigureAwait(false);
+                if (personaLookup.WasRefused)
+                    _Logging.Warn(_Header + "mission " + mission.Id + " names persona '" + mission.Persona + "' that its owner may not use -- persona playbooks not merged");
+                Persona? persona = personaLookup.Record;
                 if (persona != null)
                 {
                     personaLayer = persona.GetDefaultPlaybooks();
@@ -1626,27 +1635,43 @@ namespace Armada.Core.Services
         /// </summary>
         public async Task<Pipeline?> ResolvePipelineAsync(string? pipelineId, Vessel vessel, CancellationToken token = default)
         {
+            // A dispatch runs on behalf of the vessel's owner. A pipeline that owner may not use is
+            // refused wherever the reference comes from: an explicit id or name, the vessel default or
+            // the fleet default. A refused reference is logged and kept; only a missing one is cleared.
+
             // Explicit pipeline ID takes priority
             if (!String.IsNullOrEmpty(pipelineId))
             {
                 Pipeline? explicit_ = await _Database.Pipelines.ReadAsync(pipelineId, token).ConfigureAwait(false);
-                if (explicit_ != null) return explicit_;
-
-                // Try by name if not found by ID
-                explicit_ = await _Database.Pipelines.ReadByNameAsync(pipelineId, token).ConfigureAwait(false);
-                if (explicit_ != null) return explicit_;
+                if (explicit_ != null)
+                {
+                    if (Armada.Core.Authorization.OwnershipPolicy.CanUseFor(vessel.TenantId, vessel.UserId, explicit_)) return explicit_;
+                    _Logging.Warn(_Header + "vessel " + vessel.Id + " requested pipeline " + explicit_.Id + " that its owner may not use -- request refused");
+                }
+                else
+                {
+                    // Try by name if not found by ID
+                    Pipeline? named = await ReadUsablePipelineByNameAsync(pipelineId, vessel, token).ConfigureAwait(false);
+                    if (named != null) return named;
+                }
             }
 
             // Vessel default
             if (!String.IsNullOrEmpty(vessel.DefaultPipelineId))
             {
                 Pipeline? vesselPipeline = await _Database.Pipelines.ReadAsync(vessel.DefaultPipelineId, token).ConfigureAwait(false);
-                if (vesselPipeline != null) return vesselPipeline;
-
-                // Pipeline no longer exists -- clear the stale reference
-                _Logging.Warn(_Header + "vessel " + vessel.Id + " references missing pipeline " + vessel.DefaultPipelineId + " -- clearing");
-                vessel.DefaultPipelineId = null;
-                await _Database.Vessels.UpdateAsync(vessel, token).ConfigureAwait(false);
+                if (vesselPipeline != null)
+                {
+                    if (Armada.Core.Authorization.OwnershipPolicy.CanUseFor(vessel.TenantId, vessel.UserId, vesselPipeline)) return vesselPipeline;
+                    _Logging.Warn(_Header + "vessel " + vessel.Id + " default pipeline " + vesselPipeline.Id + " is private to another owner -- not inherited");
+                }
+                else
+                {
+                    // Pipeline no longer exists -- clear the stale reference
+                    _Logging.Warn(_Header + "vessel " + vessel.Id + " references missing pipeline " + vessel.DefaultPipelineId + " -- clearing");
+                    vessel.DefaultPipelineId = null;
+                    await _Database.Vessels.UpdateAsync(vessel, token).ConfigureAwait(false);
+                }
             }
 
             // Fleet default
@@ -1656,16 +1681,39 @@ namespace Armada.Core.Services
                 if (fleet != null && !String.IsNullOrEmpty(fleet.DefaultPipelineId))
                 {
                     Pipeline? fleetPipeline = await _Database.Pipelines.ReadAsync(fleet.DefaultPipelineId, token).ConfigureAwait(false);
-                    if (fleetPipeline != null) return fleetPipeline;
-
-                    // Pipeline no longer exists -- clear the stale reference
-                    _Logging.Warn(_Header + "fleet " + fleet.Id + " references missing pipeline " + fleet.DefaultPipelineId + " -- clearing");
-                    fleet.DefaultPipelineId = null;
-                    await _Database.Fleets.UpdateAsync(fleet, token).ConfigureAwait(false);
+                    if (fleetPipeline != null)
+                    {
+                        if (Armada.Core.Authorization.OwnershipPolicy.CanUseFor(vessel.TenantId, vessel.UserId, fleetPipeline)) return fleetPipeline;
+                        _Logging.Warn(_Header + "fleet " + fleet.Id + " default pipeline " + fleetPipeline.Id + " is private to another owner -- not inherited by vessel " + vessel.Id);
+                    }
+                    else
+                    {
+                        // Pipeline no longer exists -- clear the stale reference
+                        _Logging.Warn(_Header + "fleet " + fleet.Id + " references missing pipeline " + fleet.DefaultPipelineId + " -- clearing");
+                        fleet.DefaultPipelineId = null;
+                        await _Database.Fleets.UpdateAsync(fleet, token).ConfigureAwait(false);
+                    }
                 }
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Find a pipeline by name that the vessel's owner may use: the owner's own tenant first, then a
+        /// shared record of the same name. Same-name records the owner may not use are logged and skipped.
+        /// </summary>
+        private async Task<Pipeline?> ReadUsablePipelineByNameAsync(string name, Vessel vessel, CancellationToken token)
+        {
+            OwnedRecordLookup<Pipeline> lookup = await OwnedRecordScope.ReadUsableByNameAsync(
+                vessel.TenantId,
+                vessel.UserId,
+                name,
+                () => _Database.Pipelines.EnumerateAsync(token),
+                pipeline => pipeline.Name).ConfigureAwait(false);
+            if (lookup.WasRefused)
+                _Logging.Warn(_Header + "vessel " + vessel.Id + " requested pipeline '" + name + "', but every record of that name belongs to another owner -- request refused");
+            return lookup.Record;
         }
 
         /// <summary>

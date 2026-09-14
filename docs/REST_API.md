@@ -125,16 +125,35 @@ Operational entities persist both `TenantId` and `UserId`. Those ownership colum
 | `/api/v1/merge-queue` | ALL | Authenticated | Tenant-scoped |
 | `/api/v1/playbooks` | GET/POST/PUT/DELETE | Authenticated / TenantAdmin | Reads are tenant-scoped for any authenticated user. Mutations require tenant admin. |
 | `/api/v1/memories` | ALL | Authenticated | Tenant-scoped. A caller sees the tenant-wide records of its tenant plus its own; only a tenant admin changes a tenant-wide record. |
-| `/api/v1/prompt-templates` | GET, POST `/enumerate` | Authenticated | Templates are shared by every tenant and found by name |
-| `/api/v1/prompt-templates` | POST/PUT, POST `/{name}/reset` | AdminOnly | Global admin only, because a change affects every tenant |
-| `/api/v1/personas` | GET, POST `/enumerate` | Authenticated | |
-| `/api/v1/personas` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and never a built-in flag. Update and delete find the persona inside the caller's tenant; a global admin reaches every tenant |
+| `/api/v1/prompt-templates` | GET, POST `/enumerate` | Authenticated | Reads follow the ownership rule below. A user-specific template is never resolved into a mission prompt |
+| `/api/v1/prompt-templates` | POST/PUT, POST `/{name}/reset` | AdminOnly | Global admin only, because a change affects every tenant. Create records the caller's tenant and user |
+| `/api/v1/personas` | GET, POST `/enumerate` | Authenticated | Reads follow the ownership rule below |
+| `/api/v1/personas` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and user and never a built-in flag. Update and delete find the persona inside the caller's tenant and require edit rights under the ownership rule; a global admin reaches every tenant |
 | `/api/v1/inbox` | GET | AdminOnly | Global admin only. The inbox reads fleet-wide state that carries no tenant or user scope |
 | `/api/v1/ask` | POST | AdminOnly | Global admin only. Answers come from fleet-wide state that carries no tenant or user scope |
 | `/api/v1/captains/{id}/chat` | POST | TenantAdmin | The captain is found inside the caller's scope; another tenant's captain returns `404` before its runtime starts |
 | `/api/v1/coordination` | ALL | AdminOnly | Global admin only. Rooms are found by key alone, so every tenant shares every room, message, claim and participant |
-| `/api/v1/pipelines` | GET, POST `/enumerate` | Authenticated | |
-| `/api/v1/pipelines` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and never a built-in flag. Update and delete find the pipeline inside the caller's tenant; a global admin reaches every tenant |
+| `/api/v1/pipelines` | GET, POST `/enumerate` | Authenticated | Reads follow the ownership rule below |
+| `/api/v1/pipelines` | POST/PUT/DELETE | TenantAdmin | Create records the caller's tenant and user and never a built-in flag. Update and delete find the pipeline inside the caller's tenant and require edit rights under the ownership rule; a global admin reaches every tenant |
+
+**Ownership rule for personas, pipelines and prompt templates.** Each record has
+`TenantId`, `UserId` and `OwnershipScope` (`TenantWide` or `UserSpecific`). The
+same rule governs native memory. A global administrator reads every record.
+Nobody else crosses a tenant. Inside the tenant, a tenant administrator reads
+every record, any user reads tenant-wide records, and only the owning user reads
+a user-specific record. Built-in records stay readable to every authenticated
+caller. List and enumerate totals count only the records the caller may read,
+and a record the caller may not read returns `404`. `OwnershipScope` is about
+who may see a record. It is separate from the applicability `Scope` of workflow
+and project profiles. Records that existed before ownership are tenant-wide with
+no owning user.
+
+Dispatch uses a pipeline or persona on behalf of the owner of the vessel or
+mission. A user-specific record of another user is refused, whether the
+reference is an explicit id, a name, a vessel default or a fleet default. The
+refusal is logged, and the reference is kept rather than cleared as missing.
+The objective dispatch preview reports `pipeline_not_usable` or
+`default_pipeline_not_usable`.
 | `/api/v1/planning-sessions` | GET | Authenticated | Planning-session list in caller scope |
 | `/api/v1/planning-sessions` | POST | TenantAdmin | Create one planning session in caller scope |
 | `/api/v1/planning-sessions/{id}` | GET | Authenticated | Read one planning session in caller scope |

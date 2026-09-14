@@ -8,6 +8,7 @@ namespace Armada.Core.Services
     using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core.Authorization;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -376,40 +377,32 @@ namespace Armada.Core.Services
 
         private static string TenantOf(AuthContext auth)
         {
-            return String.IsNullOrWhiteSpace(auth.TenantId) ? Constants.DefaultTenantId : auth.TenantId!;
+            return OwnershipPolicy.TenantOf(auth);
         }
 
         private static string UserOf(AuthContext auth)
         {
-            return String.IsNullOrWhiteSpace(auth.UserId) ? Constants.DefaultUserId : auth.UserId!;
+            return OwnershipPolicy.UserOf(auth);
         }
 
         private static bool IsAdministrator(AuthContext auth)
         {
-            return auth.IsAdmin || auth.IsTenantAdmin;
+            return OwnershipPolicy.IsAdministrator(auth);
         }
 
-        private static bool SameTenant(AuthContext auth, Memory memory)
+        private static OwnershipScopeEnum OwnershipOf(Memory memory)
         {
-            return String.Equals(memory.TenantId, TenantOf(auth), StringComparison.Ordinal);
+            return memory.Scope == MemoryScopeEnum.UserSpecific ? OwnershipScopeEnum.UserSpecific : OwnershipScopeEnum.TenantWide;
         }
 
         private static bool CanView(AuthContext auth, Memory memory)
         {
-            if (auth.IsAdmin) return true;
-            if (!SameTenant(auth, memory)) return false;
-            if (auth.IsTenantAdmin) return true;
-            if (memory.Scope == MemoryScopeEnum.TenantWide) return true;
-            return String.Equals(memory.UserId, UserOf(auth), StringComparison.Ordinal);
+            return OwnershipPolicy.CanView(auth, memory.TenantId, memory.UserId, OwnershipOf(memory));
         }
 
         private static bool CanEdit(AuthContext auth, Memory memory)
         {
-            if (auth.IsAdmin) return true;
-            if (!SameTenant(auth, memory)) return false;
-            if (auth.IsTenantAdmin) return true;
-            if (memory.Scope != MemoryScopeEnum.UserSpecific) return false;
-            return String.Equals(memory.UserId, UserOf(auth), StringComparison.Ordinal);
+            return OwnershipPolicy.CanEdit(auth, memory.TenantId, memory.UserId, OwnershipOf(memory));
         }
 
         private static bool Contains(string? haystack, string needle)

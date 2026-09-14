@@ -56,7 +56,9 @@ namespace Armada.Server.Routes
                 EnumerationQuery query = new EnumerationQuery();
                 query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
                 Stopwatch sw = Stopwatch.StartNew();
-                EnumerationResult<Persona> result = await _database.Personas.EnumerateAsync(query).ConfigureAwait(false);
+                // Paging runs over the records this caller may read, so totals never count a hidden record.
+                EnumerationResult<Persona> result = Armada.Core.Services.OwnedRecordScope.Page(
+                    await _database.Personas.EnumerateAsync().ConfigureAwait(false), ctx, query);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -79,7 +81,9 @@ namespace Armada.Server.Routes
                 EnumerationQuery query = JsonSerializer.Deserialize<EnumerationQuery>(req.Http.Request.DataAsString, _jsonOptions) ?? new EnumerationQuery();
                 query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
                 Stopwatch sw = Stopwatch.StartNew();
-                EnumerationResult<Persona> result = await _database.Personas.EnumerateAsync(query).ConfigureAwait(false);
+                // Paging runs over the records this caller may read, so totals never count a hidden record.
+                EnumerationResult<Persona> result = Armada.Core.Services.OwnedRecordScope.Page(
+                    await _database.Personas.EnumerateAsync().ConfigureAwait(false), ctx, query);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -100,7 +104,12 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 string name = req.Parameters["name"];
-                Persona? persona = await _database.Personas.ReadByNameAsync(name).ConfigureAwait(false);
+                Persona? persona = await Armada.Core.Services.OwnedRecordScope.ReadByNameAsync(
+                    ctx,
+                    name,
+                    (tenantId, personaName) => _database.Personas.ReadByNameAsync(tenantId, personaName),
+                    () => _database.Personas.EnumerateAsync(),
+                    record => record.Name).ConfigureAwait(false);
                 if (persona == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Persona not found" }; }
                 return (object)persona;
             },
@@ -127,6 +136,7 @@ namespace Armada.Server.Routes
                 // Ownership comes from the caller, never from the body. Built-in records are
                 // seeded by the server, so a request cannot create one.
                 persona.TenantId = ctx.TenantId;
+                persona.UserId = ctx.UserId;
                 persona.IsBuiltIn = false;
                 persona = await _database.Personas.CreateAsync(persona).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 201;
@@ -154,7 +164,7 @@ namespace Armada.Server.Routes
                 Persona? existing = ctx.IsAdmin
                     ? await _database.Personas.ReadByNameAsync(name).ConfigureAwait(false)
                     : await _database.Personas.ReadByNameAsync(ctx.TenantId!, name).ConfigureAwait(false);
-                if (existing == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Persona not found" }; }
+                if (existing == null || !Armada.Core.Authorization.OwnershipPolicy.CanEdit(ctx, existing)) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Persona not found" }; }
                 Persona body = JsonSerializer.Deserialize<Persona>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Persona.");
                 if (body.Description != null) existing.Description = body.Description;
@@ -187,7 +197,7 @@ namespace Armada.Server.Routes
                 Persona? existing = ctx.IsAdmin
                     ? await _database.Personas.ReadByNameAsync(name).ConfigureAwait(false)
                     : await _database.Personas.ReadByNameAsync(ctx.TenantId!, name).ConfigureAwait(false);
-                if (existing == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Persona not found" }; }
+                if (existing == null || !Armada.Core.Authorization.OwnershipPolicy.CanEdit(ctx, existing)) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Persona not found" }; }
                 if (existing.IsBuiltIn) { req.Http.Response.StatusCode = 400; return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Built-in personas cannot be deleted" }; }
                 await _database.Personas.DeleteAsync(existing.Id).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 204;

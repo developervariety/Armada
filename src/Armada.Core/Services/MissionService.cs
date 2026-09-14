@@ -4048,7 +4048,12 @@ namespace Armada.Core.Services
                 string? pipelineId = vessel.DefaultPipelineId;
                 if (String.IsNullOrEmpty(pipelineId)) return TestOwnershipEnum.SoleTestOwner;
 
-                Pipeline? pipeline = await _Database.Pipelines.ReadAsync(pipelineId!, token).ConfigureAwait(false);
+                // Dispatch refuses a default pipeline the vessel's owner may not use, so test ownership
+                // is resolved as if that default were absent.
+                Pipeline? pipeline = OwnedRecordScope.UsableFor(
+                    await _Database.Pipelines.ReadAsync(pipelineId!, token).ConfigureAwait(false),
+                    vessel.TenantId,
+                    vessel.UserId);
                 return TestOwnershipResolver.Resolve(mission, pipeline);
             }
             catch (Exception ex)
@@ -8509,7 +8514,7 @@ namespace Armada.Core.Services
 
             if (String.IsNullOrEmpty(resolvedCaptainId))
             {
-                Persona? persona = await ReadPersonaByNameAsync(mission.TenantId, mission.Persona, token).ConfigureAwait(false);
+                Persona? persona = await ReadPersonaByNameAsync(mission, mission.Persona, token).ConfigureAwait(false);
                 if (persona != null && !String.IsNullOrEmpty(persona.DefaultCaptainId))
                     resolvedCaptainId = persona.DefaultCaptainId;
             }
@@ -8548,15 +8553,19 @@ namespace Armada.Core.Services
             }
         }
 
-        private async Task<Persona?> ReadPersonaByNameAsync(string? tenantId, string personaName, CancellationToken token)
+        private async Task<Persona?> ReadPersonaByNameAsync(Mission mission, string personaName, CancellationToken token)
         {
-            if (!String.IsNullOrEmpty(tenantId))
-            {
-                Persona? scoped = await _Database.Personas.ReadByNameAsync(tenantId, personaName, token).ConfigureAwait(false);
-                if (scoped != null) return scoped;
-            }
-
-            return await _Database.Personas.ReadByNameAsync(personaName, token).ConfigureAwait(false);
+            // The mission's owner decides which persona applies: its own tenant's record first, then a
+            // shared one. Another user's private persona never shapes this mission.
+            OwnedRecordLookup<Persona> lookup = await OwnedRecordScope.ReadUsableByNameAsync(
+                mission.TenantId,
+                mission.UserId,
+                personaName,
+                () => _Database.Personas.EnumerateAsync(token),
+                record => record.Name).ConfigureAwait(false);
+            if (lookup.WasRefused)
+                _Logging.Warn(_Header + "mission " + mission.Id + " names persona '" + personaName + "' that its owner may not use -- persona not applied");
+            return lookup.Record;
         }
 
         private async Task<CaptainTierEnum?> CaptainEffectiveTierAsync(string captainId, CancellationToken token)

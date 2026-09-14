@@ -1091,6 +1091,14 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"ALTER TABLE check_runs ADD COLUMN IF NOT EXISTS slot_requested_utc TIMESTAMPTZ NULL;",
                     @"CREATE TABLE IF NOT EXISTS lane_state_transitions (id TEXT PRIMARY KEY, lane_key TEXT NOT NULL, eligible_count INTEGER NOT NULL, occupied INTEGER NOT NULL, capacity INTEGER NOT NULL, block_reason TEXT NOT NULL, eligible_source_families TEXT NOT NULL DEFAULT '', is_checkpoint BOOLEAN NOT NULL DEFAULT FALSE, valid_for_seconds INTEGER NOT NULL, created_utc TIMESTAMPTZ NOT NULL);",
                     @"CREATE INDEX IF NOT EXISTS idx_lane_state_transitions_created ON lane_state_transitions(created_utc);"
+                ),
+                new SchemaMigration(99, "Persist configuration record ownership",
+                    @"ALTER TABLE personas ADD COLUMN user_id TEXT;",
+                    @"ALTER TABLE personas ADD COLUMN ownership_scope TEXT NOT NULL DEFAULT 'TenantWide';",
+                    @"ALTER TABLE pipelines ADD COLUMN user_id TEXT;",
+                    @"ALTER TABLE pipelines ADD COLUMN ownership_scope TEXT NOT NULL DEFAULT 'TenantWide';",
+                    @"ALTER TABLE prompt_templates ADD COLUMN user_id TEXT;",
+                    @"ALTER TABLE prompt_templates ADD COLUMN ownership_scope TEXT NOT NULL DEFAULT 'TenantWide';"
                 )
             };
         }

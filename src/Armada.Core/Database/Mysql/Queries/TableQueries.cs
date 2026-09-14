@@ -1263,6 +1263,20 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration 90: owning user and ownership scope for personas, pipelines and prompt templates.
+        /// Existing records become tenant-wide, which keeps them visible inside their tenant.
+        /// </summary>
+        public static readonly string[] MigrationV90Statements = new string[]
+        {
+            @"ALTER TABLE personas ADD COLUMN user_id VARCHAR(450) CHARACTER SET utf8mb4 NULL;",
+            @"ALTER TABLE personas ADD COLUMN ownership_scope VARCHAR(32) NOT NULL DEFAULT 'TenantWide';",
+            @"ALTER TABLE pipelines ADD COLUMN user_id VARCHAR(450) CHARACTER SET utf8mb4 NULL;",
+            @"ALTER TABLE pipelines ADD COLUMN ownership_scope VARCHAR(32) NOT NULL DEFAULT 'TenantWide';",
+            @"ALTER TABLE prompt_templates ADD COLUMN user_id VARCHAR(450) CHARACTER SET utf8mb4 NULL;",
+            @"ALTER TABLE prompt_templates ADD COLUMN ownership_scope VARCHAR(32) NOT NULL DEFAULT 'TenantWide';"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

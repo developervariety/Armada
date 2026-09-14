@@ -837,6 +837,33 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   runtime starts. Before, a tenant administrator could chat with, and run the
   model of, a captain in another tenant.
 
+### Persona, pipeline and prompt template reads respect ownership
+
+- Personas, pipelines and prompt templates now store an owning user and an
+  ownership scope (`TenantWide` or `UserSpecific`) on all four database
+  providers. Records that existed before are tenant-wide. Ownership scope is
+  separate from the applicability scope of workflow and project profiles.
+- List, enumerate and name lookups follow one shared ownership rule, the same
+  rule native memory uses. A global administrator reads everything, nobody else
+  crosses a tenant, and a user-specific record is visible only to its owner and
+  tenant administrators. Built-in records stay readable to every caller, and
+  totals count only visible records. Before, any authenticated user could list
+  and read every tenant's records.
+- Dispatch, dispatch preview, persona resolution, test ownership and objective
+  pipeline links use a record only when the owner of the vessel or mission may
+  use it. A refused reference is logged and kept, not cleared as missing.
+  Before, a vessel default could put another user's private pipeline into a
+  dispatch.
+- Mission prompt resolution never uses a user-specific prompt template. Before,
+  a private template of the same name replaced the shared template in every
+  mission prompt.
+- MCP persona, pipeline and prompt template reads and the persona, pipeline and
+  template entries of `armada_enumerate` apply the same rule, and MCP creates
+  record their owner.
+- The learned-facts removal migration scenario seeds personas, pipelines, their
+  stages and prompt templates with only the columns present below its version,
+  so the ownership columns a later migration adds no longer break its seed.
+
 ### Persona, pipeline and prompt template writes respect ownership
 
 - Persona and pipeline create, update and delete now require a tenant

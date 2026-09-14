@@ -56,7 +56,9 @@ namespace Armada.Server.Routes
                 EnumerationQuery query = new EnumerationQuery();
                 query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
                 Stopwatch sw = Stopwatch.StartNew();
-                EnumerationResult<Pipeline> result = await _database.Pipelines.EnumerateAsync(query).ConfigureAwait(false);
+                // Paging runs over the records this caller may read, so totals never count a hidden record.
+                EnumerationResult<Pipeline> result = Armada.Core.Services.OwnedRecordScope.Page(
+                    await _database.Pipelines.EnumerateAsync().ConfigureAwait(false), ctx, query);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -79,7 +81,9 @@ namespace Armada.Server.Routes
                 EnumerationQuery query = JsonSerializer.Deserialize<EnumerationQuery>(req.Http.Request.DataAsString, _jsonOptions) ?? new EnumerationQuery();
                 query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
                 Stopwatch sw = Stopwatch.StartNew();
-                EnumerationResult<Pipeline> result = await _database.Pipelines.EnumerateAsync(query).ConfigureAwait(false);
+                // Paging runs over the records this caller may read, so totals never count a hidden record.
+                EnumerationResult<Pipeline> result = Armada.Core.Services.OwnedRecordScope.Page(
+                    await _database.Pipelines.EnumerateAsync().ConfigureAwait(false), ctx, query);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -100,7 +104,12 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 string name = req.Parameters["name"];
-                Pipeline? pipeline = await _database.Pipelines.ReadByNameAsync(name).ConfigureAwait(false);
+                Pipeline? pipeline = await Armada.Core.Services.OwnedRecordScope.ReadByNameAsync(
+                    ctx,
+                    name,
+                    (tenantId, pipelineName) => _database.Pipelines.ReadByNameAsync(tenantId, pipelineName),
+                    () => _database.Pipelines.EnumerateAsync(),
+                    record => record.Name).ConfigureAwait(false);
                 if (pipeline == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Pipeline not found" }; }
                 return (object)pipeline;
             },
@@ -127,6 +136,7 @@ namespace Armada.Server.Routes
                 // Ownership comes from the caller, never from the body. Built-in records are
                 // seeded by the server, so a request cannot create one.
                 pipeline.TenantId = ctx.TenantId;
+                pipeline.UserId = ctx.UserId;
                 pipeline.IsBuiltIn = false;
                 pipeline = await _database.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 201;
@@ -154,7 +164,7 @@ namespace Armada.Server.Routes
                 Pipeline? existing = ctx.IsAdmin
                     ? await _database.Pipelines.ReadByNameAsync(name).ConfigureAwait(false)
                     : await _database.Pipelines.ReadByNameAsync(ctx.TenantId!, name).ConfigureAwait(false);
-                if (existing == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Pipeline not found" }; }
+                if (existing == null || !Armada.Core.Authorization.OwnershipPolicy.CanEdit(ctx, existing)) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Pipeline not found" }; }
                 Pipeline body = JsonSerializer.Deserialize<Pipeline>(req.Http.Request.DataAsString, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Pipeline.");
                 if (body.Description != null) existing.Description = body.Description;
@@ -187,7 +197,7 @@ namespace Armada.Server.Routes
                 Pipeline? existing = ctx.IsAdmin
                     ? await _database.Pipelines.ReadByNameAsync(name).ConfigureAwait(false)
                     : await _database.Pipelines.ReadByNameAsync(ctx.TenantId!, name).ConfigureAwait(false);
-                if (existing == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Pipeline not found" }; }
+                if (existing == null || !Armada.Core.Authorization.OwnershipPolicy.CanEdit(ctx, existing)) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Pipeline not found" }; }
                 if (existing.IsBuiltIn) { req.Http.Response.StatusCode = 400; return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Built-in pipelines cannot be deleted" }; }
                 await _database.Pipelines.DeleteAsync(existing.Id).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 204;

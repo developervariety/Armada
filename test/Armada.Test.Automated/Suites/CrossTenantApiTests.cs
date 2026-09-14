@@ -1345,6 +1345,133 @@ using System.IO;
 
             #endregion
 
+            #region Owned-Asset-Read-Scope
+
+            // Reads follow the shared ownership rule: nobody but a global administrator crosses a
+            // tenant, a user-specific record is visible only to its owner and tenant administrators,
+            // and built-in records stay readable to every authenticated caller.
+            string tenantWidePersona = "xt-tw-persona-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            string privatePersona = "xt-us-persona-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            string tenantWidePipeline = "xt-tw-pipeline-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            string privatePipeline = "xt-us-pipeline-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            string adminTemplate = "xt.template." + Guid.NewGuid().ToString("N").Substring(0, 8);
+
+            // This region creates its own owner and reader, so earlier tests that change the shared
+            // tenant A users cannot decide its outcome.
+            HttpClient? ownerClient = null;
+            HttpClient? readerClient = null;
+            string? ownerUserId = null;
+
+            await RunTest("OwnedAssets_Setup_CreateTenantWideAndPrivateRecords", async () =>
+            {
+                TenantUserCredentialResult owner = await CreateUserCredentialAsync(_TenantAId!, "owned-owner", true).ConfigureAwait(false);
+                TenantUserCredentialResult reader = await CreateUserCredentialAsync(_TenantAId!, "owned-reader").ConfigureAwait(false);
+                ownerClient = CreateBearerClient(owner.BearerToken);
+                readerClient = CreateBearerClient(reader.BearerToken);
+                ownerUserId = owner.UserId;
+
+                HttpResponseMessage tw = await _ClientA!.PostAsync("/api/v1/personas",
+                    JsonHelper.ToJsonContent(new { Name = tenantWidePersona, PromptTemplateName = "persona.worker" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, tw.StatusCode, "Tenant-wide persona created");
+
+                HttpResponseMessage us = await ownerClient.PostAsync("/api/v1/personas",
+                    JsonHelper.ToJsonContent(new { Name = privatePersona, PromptTemplateName = "persona.worker", OwnershipScope = "UserSpecific", UserId = _UserAId })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, us.StatusCode, "User-specific persona created");
+                Persona created = await JsonHelper.DeserializeAsync<Persona>(us).ConfigureAwait(false);
+                AssertEqual(ownerUserId, created.UserId, "The server records the creating user, not the body's");
+
+                HttpResponseMessage twp = await _ClientA!.PostAsync("/api/v1/pipelines",
+                    JsonHelper.ToJsonContent(new { Name = tenantWidePipeline, Stages = new[] { new { Order = 1, PersonaName = "Worker" } } })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, twp.StatusCode, "Tenant-wide pipeline created");
+
+                HttpResponseMessage usp = await ownerClient.PostAsync("/api/v1/pipelines",
+                    JsonHelper.ToJsonContent(new { Name = privatePipeline, OwnershipScope = "UserSpecific", Stages = new[] { new { Order = 1, PersonaName = "Worker" } } })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, usp.StatusCode, "User-specific pipeline created");
+
+                HttpResponseMessage tpl = await _AdminClient.PostAsync("/api/v1/prompt-templates",
+                    JsonHelper.ToJsonContent(new { Name = adminTemplate, Category = "mission", Content = "global admin template" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.Created, tpl.StatusCode, "Default-tenant template created");
+            }).ConfigureAwait(false);
+
+            await RunTest("OwnedAssets_AnonymousAndInvalidCredential_Return401", async () =>
+            {
+                foreach (string path in new[] { "/api/v1/personas", "/api/v1/pipelines", "/api/v1/prompt-templates", "/api/v1/personas/Worker" })
+                {
+                    HttpResponseMessage anonymous = await _UnauthClient.GetAsync(path).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Unauthorized, anonymous.StatusCode, "Anonymous read of " + path);
+                    using (HttpClient invalid = CreateBearerClient("invalid-" + Guid.NewGuid().ToString("N")))
+                    {
+                        HttpResponseMessage response = await invalid.GetAsync(path).ConfigureAwait(false);
+                        AssertEqual(HttpStatusCode.Unauthorized, response.StatusCode, "Invalid credential read of " + path);
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("OwnedAssets_OtherTenant_CannotReadTenantRecords", async () =>
+            {
+                AssertEqual(HttpStatusCode.NotFound, (await _ClientB!.GetAsync("/api/v1/personas/" + tenantWidePersona).ConfigureAwait(false)).StatusCode, "Tenant B persona detail");
+                AssertEqual(HttpStatusCode.NotFound, (await _ClientB!.GetAsync("/api/v1/pipelines/" + tenantWidePipeline).ConfigureAwait(false)).StatusCode, "Tenant B pipeline detail");
+                AssertEqual(HttpStatusCode.NotFound, (await _ClientB!.GetAsync("/api/v1/prompt-templates/" + adminTemplate).ConfigureAwait(false)).StatusCode, "Tenant B template detail");
+
+                EnumerationResult<Persona> personas = await JsonHelper.DeserializeAsync<EnumerationResult<Persona>>(
+                    await _ClientB!.GetAsync("/api/v1/personas?pageSize=1000").ConfigureAwait(false)).ConfigureAwait(false);
+                AssertFalse(personas.Objects.Any(p => p.Name == tenantWidePersona || p.Name == privatePersona), "Tenant B persona list");
+                AssertTrue(personas.Objects.All(p => p.IsBuiltIn || p.TenantId == _TenantBId), "Tenant B lists only built-in or own-tenant personas");
+
+                EnumerationResult<Pipeline> pipelines = await JsonHelper.DeserializeAsync<EnumerationResult<Pipeline>>(
+                    await _ClientB!.PostAsync("/api/v1/pipelines/enumerate", JsonHelper.ToJsonContent(new { PageSize = 1000 })).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertFalse(pipelines.Objects.Any(p => p.Name == tenantWidePipeline || p.Name == privatePipeline), "Tenant B pipeline enumerate");
+
+                EnumerationResult<PromptTemplate> templates = await JsonHelper.DeserializeAsync<EnumerationResult<PromptTemplate>>(
+                    await _ClientB!.GetAsync("/api/v1/prompt-templates?pageSize=1000").ConfigureAwait(false)).ConfigureAwait(false);
+                AssertFalse(templates.Objects.Any(t => t.Name == adminTemplate), "Tenant B template list");
+            }).ConfigureAwait(false);
+
+            await RunTest("OwnedAssets_BuiltIns_StayReadableToEveryCaller", async () =>
+            {
+                foreach (HttpClient client in new[] { _ClientB!, readerClient!, _AdminClient })
+                {
+                    AssertEqual(HttpStatusCode.OK, (await client.GetAsync("/api/v1/personas/Worker").ConfigureAwait(false)).StatusCode, "Built-in persona");
+                    AssertEqual(HttpStatusCode.OK, (await client.GetAsync("/api/v1/pipelines/WorkerOnly").ConfigureAwait(false)).StatusCode, "Built-in pipeline");
+                    AssertEqual(HttpStatusCode.OK, (await client.GetAsync("/api/v1/prompt-templates/mission.rules").ConfigureAwait(false)).StatusCode, "Built-in template");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("OwnedAssets_OrdinaryUser_SeesTenantWideButNotAnotherUsersRecord", async () =>
+            {
+                AssertEqual(HttpStatusCode.OK, (await readerClient!.GetAsync("/api/v1/personas/" + tenantWidePersona).ConfigureAwait(false)).StatusCode, "Tenant-wide persona");
+                AssertEqual(HttpStatusCode.OK, (await readerClient!.GetAsync("/api/v1/pipelines/" + tenantWidePipeline).ConfigureAwait(false)).StatusCode, "Tenant-wide pipeline");
+                AssertEqual(HttpStatusCode.NotFound, (await readerClient!.GetAsync("/api/v1/personas/" + privatePersona).ConfigureAwait(false)).StatusCode, "Another user's persona");
+                AssertEqual(HttpStatusCode.NotFound, (await readerClient!.GetAsync("/api/v1/pipelines/" + privatePipeline).ConfigureAwait(false)).StatusCode, "Another user's pipeline");
+
+                EnumerationResult<Persona> personas = await JsonHelper.DeserializeAsync<EnumerationResult<Persona>>(
+                    await readerClient!.PostAsync("/api/v1/personas/enumerate", JsonHelper.ToJsonContent(new { PageSize = 1000 })).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertTrue(personas.Objects.Any(p => p.Name == tenantWidePersona), "Tenant-wide persona listed");
+                AssertFalse(personas.Objects.Any(p => p.Name == privatePersona), "Another user's persona not listed");
+                AssertEqual((long)personas.Objects.Count, personas.TotalRecords, "Totals count only visible records");
+            }).ConfigureAwait(false);
+
+            await RunTest("OwnedAssets_OwnerTenantAdminAndGlobalAdmin_SeePrivateRecord", async () =>
+            {
+                AssertEqual(HttpStatusCode.OK, (await ownerClient!.GetAsync("/api/v1/personas/" + privatePersona).ConfigureAwait(false)).StatusCode, "Owner");
+                AssertEqual(HttpStatusCode.OK, (await _ClientA!.GetAsync("/api/v1/personas/" + privatePersona).ConfigureAwait(false)).StatusCode, "Tenant administrator");
+                AssertEqual(HttpStatusCode.OK, (await _AdminClient.GetAsync("/api/v1/personas/" + privatePersona).ConfigureAwait(false)).StatusCode, "Global administrator");
+                AssertEqual(HttpStatusCode.OK, (await ownerClient!.GetAsync("/api/v1/pipelines/" + privatePipeline).ConfigureAwait(false)).StatusCode, "Owner pipeline");
+                AssertEqual(HttpStatusCode.OK, (await _AdminClient.GetAsync("/api/v1/prompt-templates/" + adminTemplate).ConfigureAwait(false)).StatusCode, "Global administrator template");
+            }).ConfigureAwait(false);
+
+            await RunTest("OwnedAssets_Cleanup", async () =>
+            {
+                AssertEqual(HttpStatusCode.NoContent, (await _ClientA!.DeleteAsync("/api/v1/personas/" + privatePersona).ConfigureAwait(false)).StatusCode, "Delete private persona");
+                AssertEqual(HttpStatusCode.NoContent, (await _ClientA!.DeleteAsync("/api/v1/personas/" + tenantWidePersona).ConfigureAwait(false)).StatusCode, "Delete tenant-wide persona");
+                AssertEqual(HttpStatusCode.NoContent, (await _ClientA!.DeleteAsync("/api/v1/pipelines/" + privatePipeline).ConfigureAwait(false)).StatusCode, "Delete private pipeline");
+                AssertEqual(HttpStatusCode.NoContent, (await _ClientA!.DeleteAsync("/api/v1/pipelines/" + tenantWidePipeline).ConfigureAwait(false)).StatusCode, "Delete tenant-wide pipeline");
+                ownerClient?.Dispose();
+                readerClient?.Dispose();
+            }).ConfigureAwait(false);
+
+            #endregion
+
             #region Fleet-Aggregate-Authorization
 
             // Inbox and Ask read every tenant with no caller scope, so only a global administrator

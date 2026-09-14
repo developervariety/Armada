@@ -60,7 +60,9 @@ namespace Armada.Server.Routes
                 EnumerationQuery query = new EnumerationQuery();
                 query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
                 Stopwatch sw = Stopwatch.StartNew();
-                EnumerationResult<PromptTemplate> result = await _database.PromptTemplates.EnumerateAsync(query).ConfigureAwait(false);
+                // Paging runs over the records this caller may read, so totals never count a hidden record.
+                EnumerationResult<PromptTemplate> result = Armada.Core.Services.OwnedRecordScope.Page(
+                    await _database.PromptTemplates.EnumerateAsync().ConfigureAwait(false), ctx, query);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -83,7 +85,9 @@ namespace Armada.Server.Routes
                 EnumerationQuery query = JsonSerializer.Deserialize<EnumerationQuery>(req.Http.Request.DataAsString, _jsonOptions) ?? new EnumerationQuery();
                 query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
                 Stopwatch sw = Stopwatch.StartNew();
-                EnumerationResult<PromptTemplate> result = await _database.PromptTemplates.EnumerateAsync(query).ConfigureAwait(false);
+                // Paging runs over the records this caller may read, so totals never count a hidden record.
+                EnumerationResult<PromptTemplate> result = Armada.Core.Services.OwnedRecordScope.Page(
+                    await _database.PromptTemplates.EnumerateAsync().ConfigureAwait(false), ctx, query);
                 result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
                 return result;
             },
@@ -129,6 +133,9 @@ namespace Armada.Server.Routes
                 template.Category = normalizedCategory;
                 template.Description = String.IsNullOrWhiteSpace(template.Description) ? null : template.Description.Trim();
                 template.IsBuiltIn = false;
+                // Ownership comes from the caller, never from the body.
+                template.TenantId = ctx.TenantId;
+                template.UserId = ctx.UserId;
                 template.CreatedUtc = DateTime.UtcNow;
                 template.LastUpdateUtc = DateTime.UtcNow;
 
@@ -161,7 +168,12 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 string name = req.Parameters["name"];
-                PromptTemplate? template = await _database.PromptTemplates.ReadByNameAsync(name).ConfigureAwait(false);
+                PromptTemplate? template = await Armada.Core.Services.OwnedRecordScope.ReadByNameAsync(
+                    ctx,
+                    name,
+                    (tenantId, templateName) => _database.PromptTemplates.ReadByNameAsync(tenantId, templateName),
+                    () => _database.PromptTemplates.EnumerateAsync(),
+                    record => record.Name).ConfigureAwait(false);
                 if (template == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Prompt template not found" }; }
                 return (object)template;
             },

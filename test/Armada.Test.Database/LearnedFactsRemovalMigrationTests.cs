@@ -111,25 +111,18 @@ namespace Armada.Test.Database
             seed.OperatorPlaybook = await CreatePlaybookAsync(driver, "vessel-guide.md", token).ConfigureAwait(false);
             seed.LookalikePlaybook = await CreatePlaybookAsync(driver, "release-notes-learned.md", token).ConfigureAwait(false);
 
-            seed.Reflections = await CreatePipelineAsync(driver, "Reflections", new[] { "MemoryConsolidator" }, token).ConfigureAwait(false);
-            seed.ReflectionsDualJudge = await CreatePipelineAsync(driver, "ReflectionsDualJudge", new[] { "MemoryConsolidator", "Judge" }, token).ConfigureAwait(false);
-            seed.CustomPipeline = await CreatePipelineAsync(driver, "CustomReview", new[] { "Worker", "Judge" }, token).ConfigureAwait(false);
-            seed.PipelineWithConsolidatorStage = await CreatePipelineAsync(driver, "OperatorWithConsolidator", new[] { "Worker", "MemoryConsolidator", "Judge" }, token).ConfigureAwait(false);
-            seed.ConsolidatorOnlyPipeline = await CreatePipelineAsync(driver, "OperatorConsolidatorOnly", new[] { "MemoryConsolidator" }, token).ConfigureAwait(false);
+            seed.Reflections = await CreatePipelineAsync("Reflections", new[] { "MemoryConsolidator" }, token).ConfigureAwait(false);
+            seed.ReflectionsDualJudge = await CreatePipelineAsync("ReflectionsDualJudge", new[] { "MemoryConsolidator", "Judge" }, token).ConfigureAwait(false);
+            seed.CustomPipeline = await CreatePipelineAsync("CustomReview", new[] { "Worker", "Judge" }, token).ConfigureAwait(false);
+            seed.PipelineWithConsolidatorStage = await CreatePipelineAsync("OperatorWithConsolidator", new[] { "Worker", "MemoryConsolidator", "Judge" }, token).ConfigureAwait(false);
+            seed.ConsolidatorOnlyPipeline = await CreatePipelineAsync("OperatorConsolidatorOnly", new[] { "MemoryConsolidator" }, token).ConfigureAwait(false);
 
-            await CreateTemplateAsync(driver, "persona.memory_consolidator", "persona", token).ConfigureAwait(false);
-            await CreateTemplateAsync(driver, "mission.model_context_updates", "mission", token).ConfigureAwait(false);
-            await CreateTemplateAsync(driver, "persona.custom_reviewer", "persona", token).ConfigureAwait(false);
+            await CreateTemplateAsync("persona.memory_consolidator", "persona", token).ConfigureAwait(false);
+            await CreateTemplateAsync("mission.model_context_updates", "mission", token).ConfigureAwait(false);
+            await CreateTemplateAsync("persona.custom_reviewer", "persona", token).ConfigureAwait(false);
 
-            Persona consolidator = new Persona("MemoryConsolidator", "persona.memory_consolidator");
-            consolidator.TenantId = tenant;
-            consolidator.DefaultPlaybooks = Selections(seed.LearnedPersona);
-            await driver.Personas.CreateAsync(consolidator, token).ConfigureAwait(false);
-
-            Persona reviewer = new Persona("CustomReviewer", "persona.custom_reviewer");
-            reviewer.TenantId = tenant;
-            reviewer.DefaultPlaybooks = Selections(seed.LearnedPersona, seed.OperatorPlaybook);
-            await driver.Personas.CreateAsync(reviewer, token).ConfigureAwait(false);
+            await CreatePersonaAsync("MemoryConsolidator", "persona.memory_consolidator", Selections(seed.LearnedPersona), token).ConfigureAwait(false);
+            await CreatePersonaAsync("CustomReviewer", "persona.custom_reviewer", Selections(seed.LearnedPersona, seed.OperatorPlaybook), token).ConfigureAwait(false);
 
             Fleet fleet = new Fleet("LearnedFactsFleet");
             fleet.TenantId = tenant;
@@ -339,20 +332,42 @@ namespace Armada.Test.Database
             return (await driver.Playbooks.CreateAsync(playbook, token).ConfigureAwait(false)).Id;
         }
 
-        private static async Task<string> CreatePipelineAsync(DatabaseDriver driver, string name, string[] personas, CancellationToken token)
+        // Personas, pipelines, their stages and prompt templates are seeded while the schema stops below the
+        // removal version. Driver create methods write the newest row shape, which names columns that later
+        // migrations add, so these rows are written with SQL that names only columns present at that version.
+        private async Task<string> CreatePipelineAsync(string name, string[] personas, CancellationToken token)
         {
-            Pipeline pipeline = new Pipeline(name);
-            pipeline.TenantId = Constants.DefaultTenantId;
-            pipeline.Stages = personas.Select((persona, index) => new PipelineStage(index + 1, persona)).ToList();
-            return (await driver.Pipelines.CreateAsync(pipeline, token).ConfigureAwait(false)).Id;
+            string id = new Pipeline(name).Id;
+            await ExecuteAsync("INSERT INTO pipelines (id, tenant_id, name, is_built_in, active, created_utc, last_update_utc) VALUES (@id, @tenant, @name, @builtIn, @active, @created, @updated);", token,
+                ("@id", id), ("@tenant", Constants.DefaultTenantId), ("@name", name), ("@builtIn", Flag(false)), ("@active", Flag(true)),
+                ("@created", Timestamp()), ("@updated", Timestamp())).ConfigureAwait(false);
+            for (int index = 0; index < personas.Length; index++)
+            {
+                await ExecuteAsync("INSERT INTO pipeline_stages (id, pipeline_id, stage_order, persona_name, is_optional) VALUES (@id, @pipeline, @order, @persona, @optional);", token,
+                    ("@id", new PipelineStage(index + 1, personas[index]).Id), ("@pipeline", id), ("@order", index + 1), ("@persona", personas[index]),
+                    ("@optional", Flag(false))).ConfigureAwait(false);
+            }
+            return id;
         }
 
-        private static async Task CreateTemplateAsync(DatabaseDriver driver, string name, string category, CancellationToken token)
+        private async Task CreateTemplateAsync(string name, string category, CancellationToken token)
         {
-            PromptTemplate template = new PromptTemplate(name, "template body for " + name);
-            template.TenantId = Constants.DefaultTenantId;
-            template.Category = category;
-            await driver.PromptTemplates.CreateAsync(template, token).ConfigureAwait(false);
+            await ExecuteAsync("INSERT INTO prompt_templates (id, tenant_id, name, category, content, is_built_in, active, created_utc, last_update_utc) VALUES (@id, @tenant, @name, @category, @content, @builtIn, @active, @created, @updated);", token,
+                ("@id", new PromptTemplate(name, "template body for " + name).Id), ("@tenant", Constants.DefaultTenantId), ("@name", name), ("@category", category),
+                ("@content", "template body for " + name), ("@builtIn", Flag(false)), ("@active", Flag(true)), ("@created", Timestamp()), ("@updated", Timestamp())).ConfigureAwait(false);
+        }
+
+        private async Task CreatePersonaAsync(string name, string templateName, string defaultPlaybooks, CancellationToken token)
+        {
+            await ExecuteAsync("INSERT INTO personas (id, tenant_id, name, prompt_template_name, is_built_in, default_playbooks, active, created_utc, last_update_utc) VALUES (@id, @tenant, @name, @template, @builtIn, @defaults, @active, @created, @updated);", token,
+                ("@id", new Persona(name, templateName).Id), ("@tenant", Constants.DefaultTenantId), ("@name", name), ("@template", templateName),
+                ("@builtIn", Flag(false)), ("@defaults", defaultPlaybooks), ("@active", Flag(true)), ("@created", Timestamp()), ("@updated", Timestamp())).ConfigureAwait(false);
+        }
+
+        private object Flag(bool value)
+        {
+            // PostgreSQL stores these flags as booleans; the other providers as integers.
+            return _Settings.Type == DatabaseTypeEnum.Postgresql ? (object)value : (value ? 1 : 0);
         }
 
         private object Timestamp()

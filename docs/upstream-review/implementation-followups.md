@@ -417,21 +417,20 @@ but rooms remain shared by key. Deployment remains FOLLOWUP-007.
 update/delete inside their tenant, and derives create ownership from the caller.
 Request bodies cannot create built-in records. Prompt-template writes require
 a global administrator because templates are shared. These repairs are landed.
-The implementation census still identifies persona, pipeline and prompt-template
-reads as unscoped; the user/auth objective remains InProgress.
+Persona, pipeline and prompt-template reads now follow one shared ownership rule,
+`OwnershipPolicy`, which native memory also calls. Each record stores an owning
+user and an `OwnershipScope`, and list, enumerate and name lookups page over the
+records the caller may read. Dispatch, dispatch preview, persona resolution,
+test-ownership resolution and objective links use a pipeline or persona only
+when its owner may use it. Resolution never places a user-specific prompt
+template into a mission prompt. Recorded before/after: the cross-tenant REST
+persona read returned 200 before and must return 404 after. Unit cases for
+private-pipeline inheritance and private-template resolution failed before and
+pass after. The native-memory suite passed 15/15 after the rule moved.
 
-Finish the read-visibility contract across list, enumerate, detail/name lookup
-and consumers. Cover tenant-wide and user-specific assets, built-in/shared
-visibility, same-name records, cross-tenant denial and same-tenant user boundaries.
-The prior implementation session recorded a delegated decision to defer full
-read ownership while all production users are global administrators. It also
-deferred MCP replacement and tenant-filtered live events. These are explicit
-remaining capability limits, not implemented scope isolation. Revisit only as
-accepted campaign work with the required schema and client compatibility proof. Full ownership
-would reuse the existing memory visibility rule; coordinate through its work
-rather than modifying the separate native-memory port. Any schema additions must use new provider-specific migration numbers and
-retain full Unicode identifiers and full-value uniqueness. Require applicable
-fresh/upgrade/restart/persistence proof before accepting schema work.
+Remaining for final acceptance: migration and restart proof on PostgreSQL, MySQL
+and SQL Server, and live deployment. The schema uses new provider-specific
+migration numbers, and records that existed before migration become tenant-wide.
 
 `c763ac2b` also restricts fleet-wide Inbox and Ask to global administrators and
 resolves captain-chat ownership before starting a runtime. Final review should

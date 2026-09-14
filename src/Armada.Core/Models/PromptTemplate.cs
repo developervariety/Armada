@@ -2,12 +2,13 @@ namespace Armada.Core.Models
 {
     using System;
     using System.Text.Json.Serialization;
+    using Armada.Core.Enums;
 
     /// <summary>
     /// A prompt template used to generate agent instructions.
     /// Templates support placeholder parameters such as {MissionId}, {VesselName}, etc.
     /// </summary>
-    public class PromptTemplate
+    public class PromptTemplate : IOwnedRecord
     {
         #region Public-Members
 
@@ -28,6 +29,17 @@ namespace Armada.Core.Models
         /// Tenant identifier.
         /// </summary>
         public string? TenantId { get; set; } = null;
+
+        /// <summary>
+        /// Owning user. The server records the creating caller.
+        /// </summary>
+        public string? UserId { get; set; } = null;
+
+        /// <summary>
+        /// Who may see the template inside its tenant. Records that predate ownership are tenant-wide.
+        /// A user-specific template is never resolved into a mission prompt.
+        /// </summary>
+        public OwnershipScopeEnum OwnershipScope { get; set; } = OwnershipScopeEnum.TenantWide;
 
         /// <summary>
         /// Template name, used as a unique lookup key (e.g. "mission.rules", "persona.worker").

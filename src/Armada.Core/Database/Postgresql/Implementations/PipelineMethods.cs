@@ -6,6 +6,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
     using System.Threading.Tasks;
     using Npgsql;
     using SyslogLogging;
+    using Armada.Core.Database;
     using Armada.Core.Database.Interfaces;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -59,10 +60,12 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = new NpgsqlCommand())
                 {
                     cmd.Connection = conn;
-                    cmd.CommandText = @"INSERT INTO pipelines (id, tenant_id, name, description, is_built_in, active, created_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @name, @description, @is_built_in, @active, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO pipelines (id, tenant_id, user_id, ownership_scope, name, description, is_built_in, active, created_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @user_id, @ownership_scope, @name, @description, @is_built_in, @active, @created_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", pipeline.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)pipeline.TenantId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@user_id", (object?)pipeline.UserId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@ownership_scope", pipeline.OwnershipScope.ToString());
                     cmd.Parameters.AddWithValue("@name", pipeline.Name);
                     cmd.Parameters.AddWithValue("@description", (object?)pipeline.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@is_built_in", pipeline.IsBuiltIn);
@@ -186,6 +189,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Connection = conn;
                     cmd.CommandText = @"UPDATE pipelines SET
                         tenant_id = @tenant_id,
+                        user_id = @user_id,
+                        ownership_scope = @ownership_scope,
                         name = @name,
                         description = @description,
                         is_built_in = @is_built_in,
@@ -194,6 +199,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", pipeline.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)pipeline.TenantId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@user_id", (object?)pipeline.UserId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@ownership_scope", pipeline.OwnershipScope.ToString());
                     cmd.Parameters.AddWithValue("@name", pipeline.Name);
                     cmd.Parameters.AddWithValue("@description", (object?)pipeline.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@is_built_in", pipeline.IsBuiltIn);
@@ -445,6 +452,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             Pipeline pipeline = new Pipeline();
             pipeline.Id = reader["id"].ToString()!;
             pipeline.TenantId = NullableString(reader["tenant_id"]);
+            pipeline.UserId = NullableString(reader["user_id"]);
+            pipeline.OwnershipScope = OwnershipColumns.ParseScope(reader["ownership_scope"]);
             pipeline.Name = reader["name"].ToString()!;
             pipeline.Description = NullableString(reader["description"]);
             pipeline.IsBuiltIn = Convert.ToBoolean(reader["is_built_in"]);

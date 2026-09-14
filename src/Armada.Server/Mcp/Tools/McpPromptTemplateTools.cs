@@ -44,7 +44,9 @@ namespace Armada.Server.Mcp.Tools
                     PromptTemplateArgs request = args.HasValue
                         ? JsonSerializer.Deserialize<PromptTemplateArgs>(args.Value, _JsonOptions) ?? new PromptTemplateArgs()
                         : new PromptTemplateArgs();
-                    List<PromptTemplate> templates = await templateService.ListAsync(request.Category).ConfigureAwait(false);
+                    AuthContext caller = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    List<PromptTemplate> templates = (await templateService.ListAsync(request.Category).ConfigureAwait(false))
+                        .FindAll(template => Armada.Core.Authorization.OwnershipPolicy.CanView(caller, template));
                     bool wantsFull = args.HasValue
                         && args.Value.TryGetProperty("includeFullContent", out JsonElement _full)
                         && _full.ValueKind == JsonValueKind.True;
@@ -77,7 +79,10 @@ namespace Armada.Server.Mcp.Tools
                     PromptTemplate? existing = await database.PromptTemplates.ReadByNameAsync(request.Name).ConfigureAwait(false);
                     if (existing != null) return (object)new { Error = "Template already exists: " + request.Name };
 
+                    AuthContext caller = McpToolHelpers.CreateDefaultTenantAdminContext();
                     PromptTemplate template = new PromptTemplate(request.Name, request.Content);
+                    template.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
+                    template.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
                     template.Category = request.Category;
                     template.Description = request.Description;
                     if (request.Active.HasValue) template.Active = request.Active.Value;
@@ -103,8 +108,17 @@ namespace Armada.Server.Mcp.Tools
                     PromptTemplateArgs request = JsonSerializer.Deserialize<PromptTemplateArgs>(args!.Value, _JsonOptions)!;
                     string name = request.Name;
                     if (String.IsNullOrEmpty(name)) return (object)new { Error = "name is required" };
-                    PromptTemplate? template = await templateService.ResolveAsync(name).ConfigureAwait(false);
-                    if (template == null) return (object)new { Error = "Template not found: " + name };
+                    // A stored record the caller may read wins; otherwise the shared resolution, which
+                    // never returns another user's private template, supplies the embedded default.
+                    AuthContext caller = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    PromptTemplate? template = await Armada.Core.Services.OwnedRecordScope.ReadByNameAsync(
+                        caller,
+                        name,
+                        (tenantId, templateName) => database.PromptTemplates.ReadByNameAsync(tenantId, templateName),
+                        () => database.PromptTemplates.EnumerateAsync(),
+                        record => record.Name).ConfigureAwait(false)
+                        ?? await templateService.ResolveAsync(name).ConfigureAwait(false);
+                    if (template == null || !Armada.Core.Authorization.OwnershipPolicy.CanView(caller, template)) return (object)new { Error = "Template not found: " + name };
                     return (object)template;
                 });
 

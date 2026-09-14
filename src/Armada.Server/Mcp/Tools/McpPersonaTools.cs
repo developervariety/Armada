@@ -53,7 +53,9 @@ namespace Armada.Server.Mcp.Tools
                     if (String.IsNullOrEmpty(request.PromptTemplateName)) return (object)new { Error = "promptTemplateName is required" };
 
                     Persona persona = new Persona(request.Name, request.PromptTemplateName);
-                    persona.TenantId = ArmadaConstants.DefaultTenantId;
+                    AuthContext caller = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    persona.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
+                    persona.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
                     if (request.Description != null)
                         persona.Description = request.Description;
                     if (request.DefaultPlaybooks != null)
@@ -80,7 +82,7 @@ namespace Armada.Server.Mcp.Tools
                     PersonaArgs request = JsonSerializer.Deserialize<PersonaArgs>(args!.Value, _JsonOptions)!;
                     string name = request.Name;
                     if (String.IsNullOrEmpty(name)) return (object)new { Error = "name is required" };
-                    Persona? persona = await database.Personas.ReadByNameAsync(name).ConfigureAwait(false);
+                    Persona? persona = await ReadVisibleAsync(database, McpToolHelpers.CreateDefaultTenantAdminContext(), name).ConfigureAwait(false);
                     if (persona == null) return (object)new { Error = "Persona not found: " + name };
                     return (object)persona;
                 });
@@ -106,8 +108,9 @@ namespace Armada.Server.Mcp.Tools
                     string name = request.Name;
                     if (String.IsNullOrEmpty(name)) return (object)new { Error = "name is required" };
 
-                    Persona? persona = await database.Personas.ReadByNameAsync(name).ConfigureAwait(false);
-                    if (persona == null) return (object)new { Error = "Persona not found: " + name };
+                    AuthContext caller = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    Persona? persona = await ReadVisibleAsync(database, caller, name).ConfigureAwait(false);
+                    if (persona == null || !Armada.Core.Authorization.OwnershipPolicy.CanEdit(caller, persona)) return (object)new { Error = "Persona not found: " + name };
 
                     if (request.Description != null)
                         persona.Description = request.Description;
@@ -138,13 +141,24 @@ namespace Armada.Server.Mcp.Tools
                     string name = request.Name;
                     if (String.IsNullOrEmpty(name)) return (object)new { Error = "name is required" };
 
-                    Persona? persona = await database.Personas.ReadByNameAsync(name).ConfigureAwait(false);
-                    if (persona == null) return (object)new { Error = "Persona not found: " + name };
+                    AuthContext caller = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    Persona? persona = await ReadVisibleAsync(database, caller, name).ConfigureAwait(false);
+                    if (persona == null || !Armada.Core.Authorization.OwnershipPolicy.CanEdit(caller, persona)) return (object)new { Error = "Persona not found: " + name };
                     if (persona.IsBuiltIn) return (object)new { Error = "Cannot delete built-in persona: " + name };
 
                     await database.Personas.DeleteAsync(persona.Id).ConfigureAwait(false);
                     return (object)new { Status = "deleted", Name = name };
                 });
+        }
+
+        private static Task<Persona?> ReadVisibleAsync(DatabaseDriver database, AuthContext caller, string name)
+        {
+            return Armada.Core.Services.OwnedRecordScope.ReadByNameAsync(
+                caller,
+                name,
+                (tenantId, personaName) => database.Personas.ReadByNameAsync(tenantId, personaName),
+                () => database.Personas.EnumerateAsync(),
+                record => record.Name);
         }
 
         private static object DefaultPlaybooksSchema()

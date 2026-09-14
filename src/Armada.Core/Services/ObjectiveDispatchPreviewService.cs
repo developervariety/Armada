@@ -8,6 +8,7 @@ namespace Armada.Core.Services
     using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Enums;
+    using Armada.Core.Authorization;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
@@ -552,11 +553,36 @@ namespace Armada.Core.Services
             ObjectiveDispatchPreview result,
             CancellationToken token)
         {
+            // The preview applies the same ownership rule as dispatch: a pipeline is used on behalf of
+            // the vessel's owner, and a record that owner may not use is reported as refused, not missing.
             if (!String.IsNullOrWhiteSpace(explicitPipeline))
             {
-                Pipeline? requested = await _Database.Pipelines.ReadAsync(explicitPipeline, token).ConfigureAwait(false)
-                    ?? await _Database.Pipelines.ReadByNameAsync(explicitPipeline, token).ConfigureAwait(false);
-                if (requested == null)
+                Pipeline? requested = await _Database.Pipelines.ReadAsync(explicitPipeline, token).ConfigureAwait(false);
+                bool refused = false;
+                if (requested != null)
+                {
+                    if (!OwnershipPolicy.CanUseFor(vessel.TenantId, vessel.UserId, requested))
+                    {
+                        requested = null;
+                        refused = true;
+                    }
+                }
+                else
+                {
+                    OwnedRecordLookup<Pipeline> lookup = await OwnedRecordScope.ReadUsableByNameAsync(
+                        vessel.TenantId,
+                        vessel.UserId,
+                        explicitPipeline,
+                        () => _Database.Pipelines.EnumerateAsync(token),
+                        pipeline => pipeline.Name).ConfigureAwait(false);
+                    requested = lookup.Record;
+                    refused = lookup.WasRefused;
+                }
+
+                if (refused)
+                    AddIssue(result, "pipeline_not_usable", "pipeline", ReadinessSeverityEnum.Error,
+                        "The requested pipeline belongs to another owner and cannot be used for this vessel.", explicitPipeline);
+                else if (requested == null)
                     AddIssue(result, "pipeline_not_found", "pipeline", ReadinessSeverityEnum.Error,
                         "The requested pipeline does not exist.", explicitPipeline);
                 else
@@ -579,6 +605,12 @@ namespace Armada.Core.Services
             {
                 AddIssue(result, "default_pipeline_not_found", "pipeline", ReadinessSeverityEnum.Error,
                     "The effective default pipeline does not exist.", inheritedPipelineId);
+                return null;
+            }
+            if (!OwnershipPolicy.CanUseFor(vessel.TenantId, vessel.UserId, inherited))
+            {
+                AddIssue(result, "default_pipeline_not_usable", "pipeline", ReadinessSeverityEnum.Error,
+                    "The effective default pipeline belongs to another owner and is not inherited by this vessel.", inheritedPipelineId);
                 return null;
             }
             ValidatePipeline(inherited, result);

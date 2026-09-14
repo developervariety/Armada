@@ -3,12 +3,13 @@ namespace Armada.Core.Models
     using System;
     using System.Collections.Generic;
     using System.Text.Json.Serialization;
+    using Armada.Core.Enums;
 
     /// <summary>
     /// An ordered sequence of persona stages that a dispatch goes through.
     /// Pipelines define the workflow for processing missions (e.g. Architect then Worker then Judge).
     /// </summary>
-    public class Pipeline
+    public class Pipeline : IOwnedRecord
     {
         #region Public-Members
 
@@ -29,6 +30,16 @@ namespace Armada.Core.Models
         /// Tenant identifier.
         /// </summary>
         public string? TenantId { get; set; } = null;
+
+        /// <summary>
+        /// Owning user. The server records the creating caller.
+        /// </summary>
+        public string? UserId { get; set; } = null;
+
+        /// <summary>
+        /// Who may see the pipeline inside its tenant. Records that predate ownership are tenant-wide.
+        /// </summary>
+        public OwnershipScopeEnum OwnershipScope { get; set; } = OwnershipScopeEnum.TenantWide;
 
         /// <summary>
         /// Pipeline name (e.g. "WorkerOnly", "FullPipeline", "Reviewed").

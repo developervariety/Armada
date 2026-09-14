@@ -6,6 +6,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
     using System.Threading.Tasks;
     using Microsoft.Data.SqlClient;
     using SyslogLogging;
+    using Armada.Core.Database;
     using Armada.Core.Database.Interfaces;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -57,10 +58,12 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO prompt_templates (id, tenant_id, name, description, category, content, is_built_in, active, created_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @name, @description, @category, @content, @is_built_in, @active, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO prompt_templates (id, tenant_id, user_id, ownership_scope, name, description, category, content, is_built_in, active, created_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @user_id, @ownership_scope, @name, @description, @category, @content, @is_built_in, @active, @created_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", template.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)template.TenantId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@user_id", (object?)template.UserId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@ownership_scope", template.OwnershipScope.ToString());
                     cmd.Parameters.AddWithValue("@name", template.Name);
                     cmd.Parameters.AddWithValue("@description", (object?)template.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@category", template.Category);
@@ -160,6 +163,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 {
                     cmd.CommandText = @"UPDATE prompt_templates SET
                         tenant_id = @tenant_id,
+                        user_id = @user_id,
+                        ownership_scope = @ownership_scope,
                         name = @name,
                         description = @description,
                         category = @category,
@@ -170,6 +175,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", template.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)template.TenantId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@user_id", (object?)template.UserId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@ownership_scope", template.OwnershipScope.ToString());
                     cmd.Parameters.AddWithValue("@name", template.Name);
                     cmd.Parameters.AddWithValue("@description", (object?)template.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@category", template.Category);
@@ -327,6 +334,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
             PromptTemplate template = new PromptTemplate();
             template.Id = reader["id"].ToString()!;
             template.TenantId = SqlServerDatabaseDriver.NullableString(reader["tenant_id"]);
+            template.UserId = SqlServerDatabaseDriver.NullableString(reader["user_id"]);
+            template.OwnershipScope = OwnershipColumns.ParseScope(reader["ownership_scope"]);
             template.Name = reader["name"].ToString()!;
             template.Description = SqlServerDatabaseDriver.NullableString(reader["description"]);
             template.Category = reader["category"].ToString()!;

@@ -91,7 +91,10 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(name)) throw new ArgumentNullException(nameof(name));
 
             PromptTemplate? dbTemplate = await _Database.PromptTemplates.ReadByNameAsync(name, token).ConfigureAwait(false);
-            if (dbTemplate != null)
+
+            // Resolution builds prompts that run for every tenant and user, so a user-specific
+            // template is never used here. Its owner still reads it through the scoped read routes.
+            if (dbTemplate != null && dbTemplate.OwnershipScope != Armada.Core.Enums.OwnershipScopeEnum.UserSpecific)
             {
                 return dbTemplate;
             }

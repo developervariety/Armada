@@ -145,6 +145,7 @@ namespace Armada.Test.Database
             await RunTest("ObjectiveRefinementSession_Message_Create_Read_Update_Enumerate", "Operational", () => TestObjectiveRefinementCrudAsync(token), token);
             await RunTest("Memory_Create_Read_Update_Tags_Reopen", "Operational", () => TestMemoryCrudAsync(token), token);
             await RunTest("Memory_Tenant_Fence_Key_Uniqueness_Guarded_Update", "Operational", () => TestMemoryScopingAsync(token), token);
+            await RunTest("Configuration_Ownership_Create_Update_Reopen", "Operational", () => TestConfigurationOwnershipAsync(token), token);
 
             Console.WriteLine();
             Console.WriteLine("--- Cascade Verification ---");
@@ -1319,6 +1320,78 @@ namespace Armada.Test.Database
                 {
                     await _Driver.Memories.DeleteAsync(tenantA, createdA.Id, token).ConfigureAwait(false);
                     await _Driver.Memories.DeleteAsync(tenantB, createdB.Id, token).ConfigureAwait(false);
+                }
+            }
+        }
+
+        private async Task TestConfigurationOwnershipAsync(CancellationToken token)
+        {
+            // Personas, pipelines and prompt templates store an owning user and an ownership scope.
+            // Both must survive create, update and a reopen, with full Unicode identifiers.
+            TenantMetadata tenant = new TenantMetadata("ownership 日本語")
+            {
+                Id = "ten_ownership_" + Guid.NewGuid().ToString("N").Substring(0, 8)
+            };
+            await _Driver.Tenants.CreateAsync(tenant, token).ConfigureAwait(false);
+            string userId = "usr_ownership_日本語_" + Guid.NewGuid().ToString("N").Substring(0, 8);
+            string suffix = Guid.NewGuid().ToString("N").Substring(0, 8);
+
+            Persona persona = new Persona("ownership-persona-" + suffix, "persona.worker")
+            {
+                TenantId = tenant.Id, UserId = userId, OwnershipScope = OwnershipScopeEnum.UserSpecific
+            };
+            Pipeline pipeline = new Pipeline("ownership-pipeline-" + suffix)
+            {
+                TenantId = tenant.Id, UserId = userId, OwnershipScope = OwnershipScopeEnum.UserSpecific
+            };
+            pipeline.Stages.Add(new PipelineStage(1, "Worker"));
+            PromptTemplate template = new PromptTemplate("ownership.template." + suffix, "content")
+            {
+                TenantId = tenant.Id, UserId = userId, OwnershipScope = OwnershipScopeEnum.UserSpecific
+            };
+            Persona legacyDefault = new Persona("ownership-default-" + suffix, "persona.worker") { TenantId = tenant.Id };
+
+            await _Driver.Personas.CreateAsync(persona, token).ConfigureAwait(false);
+            await _Driver.Pipelines.CreateAsync(pipeline, token).ConfigureAwait(false);
+            await _Driver.PromptTemplates.CreateAsync(template, token).ConfigureAwait(false);
+            await _Driver.Personas.CreateAsync(legacyDefault, token).ConfigureAwait(false);
+            try
+            {
+                using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+                {
+                    Persona storedPersona = DatabaseAssert.NotNull(await reopened.Personas.ReadAsync(persona.Id, token).ConfigureAwait(false), "Persona retained");
+                    DatabaseAssert.Equal(userId, storedPersona.UserId, "Persona Unicode owner");
+                    DatabaseAssert.Equal(OwnershipScopeEnum.UserSpecific, storedPersona.OwnershipScope, "Persona scope");
+
+                    Pipeline storedPipeline = DatabaseAssert.NotNull(await reopened.Pipelines.ReadByNameAsync(tenant.Id, pipeline.Name, token).ConfigureAwait(false), "Pipeline retained");
+                    DatabaseAssert.Equal(userId, storedPipeline.UserId, "Pipeline owner");
+                    DatabaseAssert.Equal(OwnershipScopeEnum.UserSpecific, storedPipeline.OwnershipScope, "Pipeline scope");
+
+                    PromptTemplate storedTemplate = DatabaseAssert.NotNull(await reopened.PromptTemplates.ReadAsync(template.Id, token).ConfigureAwait(false), "Template retained");
+                    DatabaseAssert.Equal(userId, storedTemplate.UserId, "Template owner");
+                    DatabaseAssert.Equal(OwnershipScopeEnum.UserSpecific, storedTemplate.OwnershipScope, "Template scope");
+
+                    Persona storedDefault = DatabaseAssert.NotNull(await reopened.Personas.ReadAsync(legacyDefault.Id, token).ConfigureAwait(false), "Default persona retained");
+                    DatabaseAssert.True(storedDefault.UserId == null, "A record created without an owner keeps a null user");
+                    DatabaseAssert.Equal(OwnershipScopeEnum.TenantWide, storedDefault.OwnershipScope, "A record created without a scope is tenant-wide");
+
+                    storedPersona.OwnershipScope = OwnershipScopeEnum.TenantWide;
+                    storedPersona.UserId = null;
+                    await reopened.Personas.UpdateAsync(storedPersona, token).ConfigureAwait(false);
+                    Persona updated = DatabaseAssert.NotNull(await reopened.Personas.ReadAsync(persona.Id, token).ConfigureAwait(false), "Updated persona retained");
+                    DatabaseAssert.Equal(OwnershipScopeEnum.TenantWide, updated.OwnershipScope, "Scope update applies");
+                    DatabaseAssert.True(updated.UserId == null, "Owner update applies");
+                }
+            }
+            finally
+            {
+                if (!_NoCleanup)
+                {
+                    await _Driver.Personas.DeleteAsync(persona.Id, token).ConfigureAwait(false);
+                    await _Driver.Personas.DeleteAsync(legacyDefault.Id, token).ConfigureAwait(false);
+                    await _Driver.Pipelines.DeleteAsync(pipeline.Id, token).ConfigureAwait(false);
+                    await _Driver.PromptTemplates.DeleteAsync(template.Id, token).ConfigureAwait(false);
+                    await _Driver.Tenants.DeleteAsync(tenant.Id, token).ConfigureAwait(false);
                 }
             }
         }

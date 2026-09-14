@@ -248,13 +248,15 @@ namespace Armada.Server.Mcp.Tools
                             return (object)mqResult;
                         case "personas":
                         case "persona":
-                            EnumerationResult<Persona> personas = await database.Personas.EnumerateAsync(query).ConfigureAwait(false);
+                            EnumerationResult<Persona> personas = OwnedRecordScope.Page(
+                                await database.Personas.EnumerateAsync().ConfigureAwait(false), McpToolHelpers.CreateDefaultTenantAdminContext(), query);
                             return (object)personas;
                         case "prompt_templates":
                         case "prompt_template":
                         case "templates":
                         case "template":
-                            EnumerationResult<PromptTemplate> templates = await database.PromptTemplates.EnumerateAsync(query).ConfigureAwait(false);
+                            EnumerationResult<PromptTemplate> templates = OwnedRecordScope.Page(
+                                await database.PromptTemplates.EnumerateAsync().ConfigureAwait(false), McpToolHelpers.CreateDefaultTenantAdminContext(), query);
                             if (request.IncludeDescription != true)
                             {
                                 object projectedTemplates = new
@@ -282,7 +284,8 @@ namespace Armada.Server.Mcp.Tools
                             return (object)memories;
                         case "pipelines":
                         case "pipeline":
-                            EnumerationResult<Pipeline> pipelines = await database.Pipelines.EnumerateAsync(query).ConfigureAwait(false);
+                            EnumerationResult<Pipeline> pipelines = OwnedRecordScope.Page(
+                                await database.Pipelines.EnumerateAsync().ConfigureAwait(false), McpToolHelpers.CreateDefaultTenantAdminContext(), query);
                             return (object)pipelines;
                         case "playbooks":
                         case "playbook":

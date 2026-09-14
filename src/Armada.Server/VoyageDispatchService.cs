@@ -694,8 +694,11 @@ namespace Armada.Server
             string? pipelineId = requestedPipelineId;
             if (String.IsNullOrEmpty(pipelineId) && !String.IsNullOrEmpty(requestedPipeline))
             {
+                // Several tenants may own a pipeline with this name. Pass the name on, so the admiral's
+                // pipeline resolution picks the record the vessel's owner may use, instead of turning
+                // the name into whichever record's id the storage returns first.
                 Pipeline? namedPipeline = await _Database.Pipelines.ReadByNameAsync(requestedPipeline).ConfigureAwait(false);
-                if (namedPipeline != null) pipelineId = namedPipeline.Id;
+                if (namedPipeline != null) pipelineId = requestedPipeline;
                 else return "__pipeline_not_found__";
             }
 

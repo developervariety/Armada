@@ -64,7 +64,9 @@ namespace Armada.Server.Mcp.Tools
                     if (request.Stages == null || request.Stages.Count == 0) return (object)new { Error = "stages is required and must not be empty" };
 
                     Pipeline pipeline = new Pipeline(request.Name);
-                    pipeline.TenantId = ArmadaConstants.DefaultTenantId;
+                    AuthContext caller = McpToolHelpers.CreateDefaultTenantAdminContext();
+                    pipeline.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
+                    pipeline.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
                     if (request.Description != null)
                         pipeline.Description = request.Description;
 
@@ -106,7 +108,12 @@ namespace Armada.Server.Mcp.Tools
                     PipelineArgs request = JsonSerializer.Deserialize<PipelineArgs>(args!.Value, _JsonOptions)!;
                     string name = request.Name;
                     if (String.IsNullOrEmpty(name)) return (object)new { Error = "name is required" };
-                    Pipeline? pipeline = await database.Pipelines.ReadByNameAsync(name).ConfigureAwait(false);
+                    Pipeline? pipeline = await Armada.Core.Services.OwnedRecordScope.ReadByNameAsync(
+                        McpToolHelpers.CreateDefaultTenantAdminContext(),
+                        name,
+                        (tenantId, pipelineName) => database.Pipelines.ReadByNameAsync(tenantId, pipelineName),
+                        () => database.Pipelines.EnumerateAsync(),
+                        record => record.Name).ConfigureAwait(false);
                     if (pipeline == null) return (object)new { Error = "Pipeline not found: " + name };
                     return (object)pipeline;
                 });

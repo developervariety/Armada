@@ -86,6 +86,8 @@ namespace Armada.Test.Database
 
             if (scenario == "learned-facts-removal")
                 await new LearnedFactsRemovalMigrationTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
+            if (scenario == "ownership-migration")
+                await new ConfigurationOwnershipMigrationTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
 
             if (scenario == "backend-migration")
                 await new BackendMetadataMigrationTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
@@ -123,7 +125,7 @@ namespace Armada.Test.Database
                     await Task.WhenAll(firstStart, secondStart).ConfigureAwait(false);
                 }
             }
-            else if (scenario != "fresh" && scenario != "catalog-guards" && scenario != "mysql-compat" && scenario != "sqlserver-corrections" && scenario != "preview-migration" && scenario != "backend-migration" && scenario != "anchor-migration" && scenario != "memory-migration" && scenario != "learned-facts-removal" && scenario != "postgres-legacy" && scenario != "admission-migration" && scenario != "model-endpoint-migration")
+            else if (scenario != "fresh" && scenario != "catalog-guards" && scenario != "mysql-compat" && scenario != "sqlserver-corrections" && scenario != "preview-migration" && scenario != "backend-migration" && scenario != "anchor-migration" && scenario != "memory-migration" && scenario != "ownership-migration" && scenario != "learned-facts-removal" && scenario != "postgres-legacy" && scenario != "admission-migration" && scenario != "model-endpoint-migration")
             {
                 int anchorVersion = _Settings.Type switch
                 {

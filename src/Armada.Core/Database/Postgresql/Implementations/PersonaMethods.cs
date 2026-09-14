@@ -6,6 +6,7 @@ namespace Armada.Core.Database.Postgresql.Implementations
     using System.Threading.Tasks;
     using Npgsql;
     using SyslogLogging;
+    using Armada.Core.Database;
     using Armada.Core.Database.Interfaces;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -58,10 +59,12 @@ namespace Armada.Core.Database.Postgresql.Implementations
                 using (NpgsqlCommand cmd = new NpgsqlCommand())
                 {
                     cmd.Connection = conn;
-                    cmd.CommandText = @"INSERT INTO personas (id, tenant_id, name, description, prompt_template_name, is_built_in, default_playbooks, active, default_captain_id, created_utc, last_update_utc)
-                        VALUES (@id, @tenant_id, @name, @description, @prompt_template_name, @is_built_in, @default_playbooks, @active, @default_captain_id, @created_utc, @last_update_utc);";
+                    cmd.CommandText = @"INSERT INTO personas (id, tenant_id, user_id, ownership_scope, name, description, prompt_template_name, is_built_in, default_playbooks, active, default_captain_id, created_utc, last_update_utc)
+                        VALUES (@id, @tenant_id, @user_id, @ownership_scope, @name, @description, @prompt_template_name, @is_built_in, @default_playbooks, @active, @default_captain_id, @created_utc, @last_update_utc);";
                     cmd.Parameters.AddWithValue("@id", persona.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)persona.TenantId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@user_id", (object?)persona.UserId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@ownership_scope", persona.OwnershipScope.ToString());
                     cmd.Parameters.AddWithValue("@name", persona.Name);
                     cmd.Parameters.AddWithValue("@description", (object?)persona.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@prompt_template_name", persona.PromptTemplateName);
@@ -166,6 +169,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                     cmd.Connection = conn;
                     cmd.CommandText = @"UPDATE personas SET
                         tenant_id = @tenant_id,
+                        user_id = @user_id,
+                        ownership_scope = @ownership_scope,
                         name = @name,
                         description = @description,
                         prompt_template_name = @prompt_template_name,
@@ -177,6 +182,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         WHERE id = @id;";
                     cmd.Parameters.AddWithValue("@id", persona.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)persona.TenantId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@user_id", (object?)persona.UserId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@ownership_scope", persona.OwnershipScope.ToString());
                     cmd.Parameters.AddWithValue("@name", persona.Name);
                     cmd.Parameters.AddWithValue("@description", (object?)persona.Description ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@prompt_template_name", persona.PromptTemplateName);
@@ -341,6 +348,8 @@ namespace Armada.Core.Database.Postgresql.Implementations
             Persona persona = new Persona();
             persona.Id = reader["id"].ToString()!;
             persona.TenantId = NullableString(reader["tenant_id"]);
+            persona.UserId = NullableString(reader["user_id"]);
+            persona.OwnershipScope = OwnershipColumns.ParseScope(reader["ownership_scope"]);
             persona.Name = reader["name"].ToString()!;
             persona.Description = NullableString(reader["description"]);
             persona.PromptTemplateName = reader["prompt_template_name"].ToString()!;
