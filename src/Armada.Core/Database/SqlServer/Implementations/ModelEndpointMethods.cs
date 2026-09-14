@@ -106,6 +106,39 @@ namespace Armada.Core.Database.SqlServer.Implementations
         }
 
         /// <inheritdoc />
+        public async Task<bool> UpdateHealthAsync(ModelEndpoint endpoint, DateTime expectedLastUpdateUtc, CancellationToken token = default)
+        {
+            if (endpoint == null) throw new ArgumentNullException(nameof(endpoint));
+            using (SqlConnection conn = new SqlConnection(_Driver.ConnectionString))
+            {
+                await conn.OpenAsync(token).ConfigureAwait(false);
+                using (SqlCommand cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = @"UPDATE model_endpoints SET
+                        health_status = @health_status,
+                        last_health_check_utc = @last_health_check_utc,
+                        last_health_error = @last_health_error,
+                        last_latency_ms = @last_latency_ms,
+                        health_history_json = @health_history_json,
+                        last_update_utc = @last_update_utc
+                        WHERE id = @id AND last_update_utc = @expected_last_update_utc;";
+                    cmd.Parameters.AddWithValue("@id", endpoint.Id);
+                    cmd.Parameters.AddWithValue("@health_status", endpoint.HealthStatus.ToString());
+                    SqlParameter lastHealthCheck = cmd.Parameters.Add("@last_health_check_utc", System.Data.SqlDbType.DateTime2);
+                    lastHealthCheck.Value = endpoint.LastHealthCheckUtc.HasValue ? (object)endpoint.LastHealthCheckUtc.Value : DBNull.Value;
+                    cmd.Parameters.AddWithValue("@last_health_error", (object?)endpoint.LastHealthError ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@last_latency_ms", (object?)endpoint.LastLatencyMs ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@health_history_json", JsonSerializer.Serialize(endpoint.HealthHistory ?? new List<ModelEndpointHealthRecord>(), _Json));
+                    SqlParameter lastUpdate = cmd.Parameters.Add("@last_update_utc", System.Data.SqlDbType.DateTime2);
+                    lastUpdate.Value = endpoint.LastUpdateUtc;
+                    SqlParameter expectedLastUpdate = cmd.Parameters.Add("@expected_last_update_utc", System.Data.SqlDbType.DateTime2);
+                    expectedLastUpdate.Value = expectedLastUpdateUtc;
+                    return await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false) == 1;
+                }
+            }
+        }
+
+        /// <inheritdoc />
         public async Task<ModelEndpoint?> ReadAsync(string id, CancellationToken token = default)
         {
             if (String.IsNullOrWhiteSpace(id)) throw new ArgumentNullException(nameof(id));
@@ -338,11 +371,11 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 TimeoutMs = SqlServerDatabaseDriver.NullableInt(reader["timeout_ms"]) ?? 120000,
                 Enabled = SqlServerDatabaseDriver.NullableBool(reader, "enabled") ?? true,
                 HealthStatus = ParseEnum(reader["health_status"], EndpointHealthStatusEnum.Unknown),
-                LastHealthCheckUtc = SqlServerDatabaseDriver.FromIso8601Nullable(reader["last_health_check_utc"]),
+                LastHealthCheckUtc = SqlServerDatabaseDriver.FromDatabaseTimestampNullable(reader["last_health_check_utc"]),
                 LastHealthError = SqlServerDatabaseDriver.NullableString(reader["last_health_error"]),
                 LastLatencyMs = reader["last_latency_ms"] == DBNull.Value ? null : Convert.ToInt64(reader["last_latency_ms"]),
-                CreatedUtc = SqlServerDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
-                LastUpdateUtc = SqlServerDatabaseDriver.FromIso8601(reader["last_update_utc"].ToString()!)
+                CreatedUtc = SqlServerDatabaseDriver.FromDatabaseTimestamp(reader["created_utc"]),
+                LastUpdateUtc = SqlServerDatabaseDriver.FromDatabaseTimestamp(reader["last_update_utc"])
             };
 
             endpoint.ApiKey = SqlServerDatabaseDriver.NullableString(reader["api_key"]);

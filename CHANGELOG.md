@@ -14,6 +14,13 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Model endpoint health persistence
+
+- Update endpoint health only when the stored update timestamp matches the
+  observed version. Preserve concurrent configuration changes on all providers.
+- Preserve SQL Server fractional timestamps so valid health updates can pass
+  the version check.
+
 ### Harbor identity core
 
 - Add a disabled session registry that requires a verified principal and an

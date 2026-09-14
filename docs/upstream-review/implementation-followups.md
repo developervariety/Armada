@@ -55,8 +55,11 @@ Model endpoint persistence passed independent checks on all four providers:
 fresh installation, partial restart, schema guards and historical upgrade.
 Persistence tests passed 71 per provider and 72 on MySQL, including corrupt enum
 rejection and full Unicode IDs. The final disabled-default check passed on each
-provider. The service candidate still needs REST boundary checks, real model
-validation and health writes that preserve concurrent configuration. Endpoints
+provider. Conditional health persistence also passed on all four providers:
+72 tests each on SQLite, PostgreSQL and SQL Server, and 73 on MySQL. The checks
+cover null values, fractional timestamps and stale writes after configuration
+changes. The service candidate still needs REST boundary checks and real model
+validation. Endpoints
 remain disabled by default; persistence acceptance does not complete the objective.
 
 Self-rebuild preflight landed in `e52018a8`. Root validation passed 12 tests.

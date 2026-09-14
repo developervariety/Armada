@@ -24,3 +24,10 @@ fresh run on each provider also verified the disabled model default.
 
 This is persistence acceptance only. The service, provider request validation,
 API captain integration and deployment are separate acceptance steps.
+
+Health writes now use a conditional update on the observed timestamp. They
+change health fields only and reject stale results after a configuration edit.
+SQL Server reads preserve fractional timestamp precision. Independent fresh
+database runs passed 72 tests each on SQLite, PostgreSQL and SQL Server, and
+73 on MySQL. These runs include null health values, fractional timestamps and
+stale-write rejection. No applied migration changed.

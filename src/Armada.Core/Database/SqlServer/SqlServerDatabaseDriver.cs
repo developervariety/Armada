@@ -304,6 +304,30 @@ namespace Armada.Core.Database.SqlServer
         }
 
         /// <summary>
+        /// Read a SQL Server timestamp without formatting a typed DateTime through a culture-sensitive,
+        /// second-resolution string first.
+        /// </summary>
+        /// <param name="value">Database timestamp.</param>
+        /// <returns>UTC timestamp.</returns>
+        internal static DateTime FromDatabaseTimestamp(object value)
+        {
+            if (value is DateTime timestamp)
+                return DateTime.SpecifyKind(timestamp, DateTimeKind.Utc);
+            return FromIso8601(value.ToString()!);
+        }
+
+        /// <summary>
+        /// Read an optional SQL Server timestamp while preserving DateTime2 fractional seconds.
+        /// </summary>
+        /// <param name="value">Database timestamp.</param>
+        /// <returns>UTC timestamp, or null.</returns>
+        internal static DateTime? FromDatabaseTimestampNullable(object value)
+        {
+            if (value == null || value == DBNull.Value) return null;
+            return FromDatabaseTimestamp(value);
+        }
+
+        /// <summary>
         /// Convert an object value to a nullable DateTime with UTC kind, handling DBNull.
         /// </summary>
         /// <param name="value">Object value.</param>

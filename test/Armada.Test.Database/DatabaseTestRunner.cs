@@ -74,6 +74,7 @@ namespace Armada.Test.Database
             }, token);
 
             await RunTest("ModelEndpoint_Persistence_Scope_Unicode_Reopen", "Operational", () => TestModelEndpointPersistenceAsync(token), token);
+            await RunTest("ModelEndpoint_Health_Conditional_Update_CAS_And_Nulls", "Operational", () => TestModelEndpointHealthCasAsync(token), token);
             await RunTest("ModelEndpoint_Persistence_Rejects_Corrupt_Enums", "Operational", () => TestModelEndpointCorruptEnumsAsync(token), token);
 
             if (_Settings.Type == Armada.Core.Enums.DatabaseTypeEnum.Mysql)
@@ -245,6 +246,72 @@ namespace Armada.Test.Database
             }
 
             await _Driver.ModelEndpoints.DeleteAsync(id, token).ConfigureAwait(false);
+        }
+
+        private async Task TestModelEndpointHealthCasAsync(CancellationToken token)
+        {
+            string id = "mep_health_cas_" + Guid.NewGuid().ToString("N");
+            ModelEndpoint endpoint = new ModelEndpoint
+            {
+                Id = id,
+                TenantId = "tenant-health-cas",
+                UserId = "user-health-cas",
+                Name = "Health CAS fixture",
+                Kind = ModelEndpointKindEnum.Inference,
+                Scope = ScopeEnum.TenantWide,
+                Provider = ModelProviderEnum.OpenAI,
+                BaseUrl = "http://localhost:9999",
+                Model = "health-cas-model"
+            };
+            await _Driver.ModelEndpoints.CreateAsync(endpoint, token).ConfigureAwait(false);
+            try
+            {
+                ModelEndpoint first = DatabaseAssert.NotNull(await _Driver.ModelEndpoints.ReadAsync(id, token).ConfigureAwait(false), "Health CAS fixture survives create");
+                DateTime expectedStoredTimestamp = new DateTime(2037, 4, 5, 6, 7, 8, DateTimeKind.Utc).AddTicks(9012340);
+                first.LastUpdateUtc = expectedStoredTimestamp;
+                await _Driver.ModelEndpoints.UpdateAsync(first, token).ConfigureAwait(false);
+                first = DatabaseAssert.NotNull(await _Driver.ModelEndpoints.ReadAsync(id, token).ConfigureAwait(false), "Health CAS fixture preserves subsecond timestamp");
+                DatabaseAssert.Equal(expectedStoredTimestamp, first.LastUpdateUtc, "DateTime2 timestamp must preserve fractional seconds");
+                DateTime expectedInitialVersion = first.LastUpdateUtc;
+                first.HealthStatus = EndpointHealthStatusEnum.Healthy;
+                first.LastHealthCheckUtc = null;
+                first.LastHealthError = null;
+                first.LastLatencyMs = null;
+                first.HealthHistory = new List<ModelEndpointHealthRecord>();
+                DatabaseAssert.True(await _Driver.ModelEndpoints.UpdateHealthAsync(first, expectedInitialVersion, token).ConfigureAwait(false), "Conditional health update should succeed for the expected generation");
+
+                ModelEndpoint afterHealth = DatabaseAssert.NotNull(await _Driver.ModelEndpoints.ReadAsync(id, token).ConfigureAwait(false), "Health CAS fixture survives health update");
+                DatabaseAssert.Equal(EndpointHealthStatusEnum.Healthy, afterHealth.HealthStatus, "Health status update round trip");
+                DatabaseAssert.True(afterHealth.LastHealthCheckUtc == null, "Nullable health timestamp must remain null");
+                DatabaseAssert.True(afterHealth.LastHealthError == null, "Nullable health error must remain null");
+                DatabaseAssert.True(afterHealth.LastLatencyMs == null, "Nullable latency must remain null");
+
+                DateTime expectedAfterHealthVersion = afterHealth.LastUpdateUtc;
+                ModelEndpoint staleHealth = DatabaseAssert.NotNull(await _Driver.ModelEndpoints.ReadAsync(id, token).ConfigureAwait(false), "Stale health fixture captures the old row");
+                ModelEndpoint changed = DatabaseAssert.NotNull(await _Driver.ModelEndpoints.ReadAsync(id, token).ConfigureAwait(false), "Configuration edit reads a fresh row");
+                changed.Name = "Configuration edit";
+                changed.BaseUrl = "http://localhost:10001";
+                changed.ApiKey = "new-health-key";
+                changed.Model = "new-health-model";
+                changed.LastUpdateUtc = expectedAfterHealthVersion.AddSeconds(1);
+                await _Driver.ModelEndpoints.UpdateAsync(changed, token).ConfigureAwait(false);
+
+                staleHealth.HealthStatus = EndpointHealthStatusEnum.Unhealthy;
+                staleHealth.LastHealthCheckUtc = DateTime.UtcNow;
+                staleHealth.LastHealthError = "stale result";
+                staleHealth.LastLatencyMs = 99;
+                DatabaseAssert.True(!await _Driver.ModelEndpoints.UpdateHealthAsync(staleHealth, expectedAfterHealthVersion, token).ConfigureAwait(false), "A stale observed generation must be rejected");
+                ModelEndpoint final = DatabaseAssert.NotNull(await _Driver.ModelEndpoints.ReadAsync(id, token).ConfigureAwait(false), "Health CAS fixture survives stale update");
+                DatabaseAssert.Equal("Configuration edit", final.Name, "Rejected health update must preserve configuration name");
+                DatabaseAssert.Equal("http://localhost:10001", final.BaseUrl, "Rejected health update must preserve configuration URL");
+                DatabaseAssert.Equal("new-health-key", final.ApiKey, "Rejected health update must preserve configuration key");
+                DatabaseAssert.Equal("new-health-model", final.Model, "Rejected health update must preserve configuration model");
+                DatabaseAssert.Equal(EndpointHealthStatusEnum.Healthy, final.HealthStatus, "Rejected health update must preserve newer health");
+            }
+            finally
+            {
+                await _Driver.ModelEndpoints.DeleteAsync(id, token).ConfigureAwait(false);
+            }
         }
 
         private async Task UpdateRawEndpointFieldAsync(string id, string field, string value, CancellationToken token)

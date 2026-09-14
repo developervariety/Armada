@@ -18,6 +18,11 @@ namespace Armada.Core.Database.Interfaces
         Task<ModelEndpoint> UpdateAsync(ModelEndpoint endpoint, CancellationToken token = default);
 
         /// <summary>
+        /// Updates health fields only when the endpoint configuration has not changed since it was read.
+        /// </summary>
+        Task<bool> UpdateHealthAsync(ModelEndpoint endpoint, DateTime expectedLastUpdateUtc, CancellationToken token = default);
+
+        /// <summary>
         /// Reads a model endpoint by its identifier.
         /// </summary>
         Task<ModelEndpoint?> ReadAsync(string id, CancellationToken token = default);
