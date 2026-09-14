@@ -455,6 +455,7 @@ namespace Armada.Server
 
                         if (result.MessageType == WebSocketMessageType.Close)
                         {
+                            DetachSession(relaySession);
                             await PublishCloseAsync(relaySession, result.CloseStatus, result.CloseStatusDescription).ConfigureAwait(false);
                             await CloseRelaySocketAsync(relaySession.ProxySocketId, relaySession, result.CloseStatus ?? WebSocketCloseStatus.NormalClosure, result.CloseStatusDescription ?? "Remote websocket closed").ConfigureAwait(false);
                             return;
@@ -488,6 +489,7 @@ namespace Armada.Server
             }
             catch (WebSocketException ex)
             {
+                DetachSession(relaySession);
                 _Logging.Warn(_Header + "websocket relay receive loop failed for " + relaySession.ProxySocketId + ": " + ex.Message);
                 await _PublishEventAsync(
                     "armada.ws.error",
@@ -500,6 +502,7 @@ namespace Armada.Server
             }
             catch (Exception ex)
             {
+                DetachSession(relaySession);
                 _Logging.Warn(_Header + "unexpected websocket relay failure for " + relaySession.ProxySocketId + ": " + ex.Message);
                 await _PublishEventAsync(
                     "armada.ws.error",
@@ -512,9 +515,20 @@ namespace Armada.Server
             }
             finally
             {
-                _WebSocketSessions.TryRemove(relaySession.ProxySocketId, out RelayWebSocketSession? _);
+                DetachSession(relaySession);
                 await CloseRelaySocketAsync(relaySession.ProxySocketId, relaySession, WebSocketCloseStatus.NormalClosure, "Relay closed").ConfigureAwait(false);
             }
+        }
+
+        /// <summary>
+        /// Remove a session from relay state before its terminal event is published. A proxy may react to
+        /// that event at once, and a message it sends must find no session rather than reach a socket that
+        /// is closing or disposed. Removal matches the instance, so a new session that reuses the proxy
+        /// socket id is never evicted.
+        /// </summary>
+        private void DetachSession(RelayWebSocketSession relaySession)
+        {
+            _WebSocketSessions.TryRemove(new KeyValuePair<string, RelayWebSocketSession>(relaySession.ProxySocketId, relaySession));
         }
 
         private async Task PublishCloseAsync(RelayWebSocketSession relaySession, WebSocketCloseStatus? closeStatus, string? reason)

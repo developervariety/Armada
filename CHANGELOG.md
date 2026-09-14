@@ -483,6 +483,16 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Cutover decisions re-read a briefly unverifiable process state for a bounded
   window before failing closed. A candidate that exits at once is therefore
   recorded as exited rather than as unverifiable.
+### Remote dashboard websocket relay
+
+- A relay session is removed from relay state before `armada.ws.closed` or
+  `armada.ws.error` is published. Before, the receive loop published the event
+  first, so a message the proxy sent in reaction still found the closing
+  session: it reached the socket and got 202 or 502 instead of 404. Removal
+  matches the session instance, so a new session that reuses the proxy socket
+  id is never evicted. A test sends from inside the closed-event publish and
+  requires 404.
+
 ### Deterministic assignment test harnesses
 
 - Unit test harnesses that build a mission service now inject resource-pressure

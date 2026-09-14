@@ -212,6 +212,7 @@ Current websocket relay guarantees:
 - multiple browser sockets can relay through one connected instance tunnel
 - message ordering is preserved per proxied socket
 - close codes and reasons are forwarded where practical
+- a session is removed from relay state before `armada.ws.closed` or `armada.ws.error` is published, so a message sent in reaction to either event is answered `404 not_found` and never reaches the closing socket
 
 Current limitation:
 

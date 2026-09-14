@@ -226,6 +226,62 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertEqual(404, missingSession.StatusCode, "Closed websocket sessions should be removed from relay state");
             }).ConfigureAwait(false);
+
+            await RunTest("HandleAsync RemoteClose_SessionIsGoneWhenTheClosedEventIsPublished", async () =>
+            {
+                await using LoopbackRelayHost host = await LoopbackRelayHost.StartAsync().ConfigureAwait(false);
+                RelayEventCollector collector = new RelayEventCollector();
+                await using RemoteDashboardRelayService service = new RemoteDashboardRelayService(
+                    CreateLogging(),
+                    CreateSettings(host.Port),
+                    collector.RecordAsync);
+
+                // A proxy may react to the closed event at once. Sending from inside the publish call
+                // is the earliest such reaction, so the relay must already have dropped the session.
+                RemoteTunnelRequestResult? sentOnClosedEvent = null;
+                collector.OnPublishAsync = async (method, payload) =>
+                {
+                    if (!String.Equals(method, "armada.ws.closed", StringComparison.OrdinalIgnoreCase)) return;
+                    sentOnClosedEvent = await service.HandleAsync(
+                        RemoteTunnelProtocol.CreateRequest(
+                            "armada.ws.message",
+                            new RemoteTunnelWebSocketMessage
+                            {
+                                ProxySocketId = "sock-race",
+                                Data = "sent on the closed event"
+                            }),
+                        CancellationToken.None).ConfigureAwait(false);
+                };
+
+                RemoteTunnelRequestResult openResult = await service.HandleAsync(
+                    RemoteTunnelProtocol.CreateRequest(
+                        "armada.ws.open",
+                        new RemoteTunnelWebSocketOpenRequest
+                        {
+                            ProxySocketId = "sock-race",
+                            Path = "/ws"
+                        }),
+                    CancellationToken.None).ConfigureAwait(false);
+                AssertEqual(200, openResult.StatusCode, "WebSocket open should succeed");
+
+                await service.HandleAsync(
+                    RemoteTunnelProtocol.CreateRequest(
+                        "armada.ws.message",
+                        new RemoteTunnelWebSocketMessage
+                        {
+                            ProxySocketId = "sock-race",
+                            Data = "close-me"
+                        }),
+                    CancellationToken.None).ConfigureAwait(false);
+
+                await collector.WaitForAsync<RemoteTunnelWebSocketCloseRequest>(
+                    "armada.ws.closed",
+                    payload => payload.ProxySocketId == "sock-race").ConfigureAwait(false);
+
+                AssertNotNull(sentOnClosedEvent, "The closed-event reaction must have run");
+                AssertEqual(404, sentOnClosedEvent!.StatusCode,
+                    "A message sent when the closed event is published must find no session, not reach the closing socket");
+            }).ConfigureAwait(false);
         }
 
         private static LoggingModule CreateLogging()
@@ -274,18 +330,46 @@ namespace Armada.Test.Unit.Suites.Services
         private sealed class RelayEventCollector
         {
             private readonly ConcurrentQueue<(string Method, object? Payload)> _Events = new ConcurrentQueue<(string Method, object? Payload)>();
+            private readonly object _SignalLock = new object();
+            private TaskCompletionSource _Recorded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
-            public Task RecordAsync(string method, object? payload, CancellationToken token)
+            /// <summary>
+            /// Runs inside the publish call, before it returns to the relay, so a test can act at the
+            /// exact moment the relay announces an event.
+            /// </summary>
+            public Func<string, object?, Task>? OnPublishAsync { get; set; }
+
+            public async Task RecordAsync(string method, object? payload, CancellationToken token)
             {
+                if (OnPublishAsync != null)
+                {
+                    await OnPublishAsync(method, payload).ConfigureAwait(false);
+                }
+
                 _Events.Enqueue((method, payload));
-                return Task.CompletedTask;
+                TaskCompletionSource recorded;
+                lock (_SignalLock)
+                {
+                    recorded = _Recorded;
+                    _Recorded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                }
+
+                recorded.TrySetResult();
             }
 
             public async Task<T> WaitForAsync<T>(string method, Func<T, bool> predicate, int timeoutMs = 5000) where T : class
             {
-                DateTime deadlineUtc = DateTime.UtcNow.AddMilliseconds(timeoutMs);
-                while (DateTime.UtcNow < deadlineUtc)
+                // Wake on each recorded event rather than on a polling interval; the delay is only the
+                // failure backstop for an event that never arrives.
+                Task timeout = Task.Delay(timeoutMs);
+                while (true)
                 {
+                    Task nextEvent;
+                    lock (_SignalLock)
+                    {
+                        nextEvent = _Recorded.Task;
+                    }
+
                     foreach ((string Method, object? Payload) entry in _Events)
                     {
                         if (!String.Equals(entry.Method, method, StringComparison.OrdinalIgnoreCase))
@@ -299,10 +383,11 @@ namespace Armada.Test.Unit.Suites.Services
                         }
                     }
 
-                    await Task.Delay(25).ConfigureAwait(false);
+                    if (await Task.WhenAny(nextEvent, timeout).ConfigureAwait(false) == timeout)
+                    {
+                        throw new TimeoutException("Timed out waiting for relay event " + method + ".");
+                    }
                 }
-
-                throw new TimeoutException("Timed out waiting for relay event " + method + ".");
             }
         }
 
