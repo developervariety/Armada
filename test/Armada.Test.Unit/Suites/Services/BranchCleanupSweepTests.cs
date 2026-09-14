@@ -505,6 +505,58 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("A WorkProduced mission under an ended voyage stops holding its landed branch once reconciled", async () =>
+            {
+                string rootDir = NewTempDir();
+                try
+                {
+                    LandedFixture fx = await CreateLandedFixtureAsync(rootDir).ConfigureAwait(false);
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        GitService git = new GitService(logging);
+                        Vessel vessel = await CreateFixtureVesselAsync(testDb, fx, "sweep-ended-voyage", BranchCleanupPolicyEnum.LocalAndRemote).ConfigureAwait(false);
+
+                        Voyage voyage = new Voyage("ended voyage");
+                        voyage.Status = VoyageStatusEnum.Failed;
+                        voyage.CompletedUtc = DateTime.UtcNow.AddHours(-2);
+                        voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                        Mission mission = new Mission("upstream stage", "work produced before the voyage failed downstream");
+                        mission.VesselId = vessel.Id;
+                        mission.VoyageId = voyage.Id;
+                        mission.Persona = "Worker";
+                        mission.BranchName = ActiveLanded;
+                        mission.CommitHash = await git.GetRevisionCommitShaAsync(fx.Bare, "refs/heads/" + ActiveLanded).ConfigureAwait(false);
+                        mission.Status = MissionStatusEnum.WorkProduced;
+                        await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                        BranchCleanupSweepService service = new BranchCleanupSweepService(
+                            logging, testDb.Driver, new ArmadaSettings(), git);
+
+                        BranchCleanupSweepResult before = await service.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+                        AssertTrue(before.KeptActive >= 1, "a WorkProduced mission holds its branch while it reads as live");
+                        AssertTrue((await ListRefsAsync(fx.Bare).ConfigureAwait(false)).Contains("refs/heads/" + ActiveLanded), "the held branch survives the first sweep");
+
+                        TerminalVoyageMissionReconciliationRequest request = new TerminalVoyageMissionReconciliationRequest();
+                        request.DryRun = false;
+                        request.IncludeHistorical = true;
+                        await new TerminalVoyageMissionReconciler(logging, testDb.Driver, git)
+                            .ReconcileAsync(request, CancellationToken.None).ConfigureAwait(false);
+                        AssertEqual(MissionStatusEnum.Complete, (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!.Status,
+                            "landed work under the ended voyage is Complete");
+
+                        BranchCleanupSweepResult after = await service.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+                        AssertEqual(0, after.KeptActive, "the kept-for-active-missions count drops once the mission is terminal");
+                        AssertFalse((await ListRefsAsync(fx.Bare).ConfigureAwait(false)).Contains("refs/heads/" + ActiveLanded), "the landed branch is swept");
+                    }
+                }
+                finally
+                {
+                    TryDelete(rootDir);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Logs a summary on a run that removes nothing and names each skipped vessel", async () =>
             {
                 string rootDir = NewTempDir();

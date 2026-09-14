@@ -89,6 +89,7 @@ namespace Armada.Server
         private DiskLifecycleService _DiskLifecycle = null!;
         private ArmadaTelemetryHost? _TelemetryHost = null;
         private BranchCleanupSweepService _BranchCleanupSweep = null!;
+        private TerminalVoyageMissionReconciler _TerminalVoyageMissions = null!;
         private OpenCodeServerLauncher _OpenCodeServerLauncher = null!;
         private RemoteTunnelManager _RemoteTunnel = null!;
         private RemoteDashboardRelayService _RemoteDashboardRelay = null!;
@@ -354,6 +355,7 @@ namespace Armada.Server
             _TelemetryHost = new ArmadaTelemetryHost(_Logging);
             _TelemetryHost.Start(_Settings.Telemetry);
             _BranchCleanupSweep = new BranchCleanupSweepService(_Logging, _Database, _Settings, _Git);
+            _TerminalVoyageMissions = new TerminalVoyageMissionReconciler(_Logging, _Database, _Git);
 
             // Initialize remote trigger service (no-op when remoteTrigger section is absent or disabled)
             RemoteTriggerHttpClient rtHttp = new RemoteTriggerHttpClient(_Logging);
@@ -1432,6 +1434,7 @@ namespace Armada.Server
                 objectiveScheduler: _ObjectiveScheduler,
                 captainQuarantine: _CaptainQuarantine,
                 unlandedBranches: new UnlandedBranchService(_Database, new GitService(_Logging), _Logging),
+                terminalVoyageMissions: _TerminalVoyageMissions,
                 diskLifecycle: _DiskLifecycle,
                 longRunningJobs: _LongRunningJobs,
                 coordinationService: _CoordinationService,
@@ -1680,7 +1683,20 @@ namespace Armada.Server
 
                 // Remove landed Armada branches and expired landed preserved refs; the sweep logs its own summary.
                 HealthLoopMaintenanceStep.EveryCycles("branch cleanup sweep", () => _Settings.BranchCleanupSweepIntervalCycles,
-                    async stepToken => await _BranchCleanupSweep.SweepAsync(stepToken).ConfigureAwait(false))
+                    async stepToken => await _BranchCleanupSweep.SweepAsync(stepToken).ConfigureAwait(false)),
+
+                // Move WorkProduced missions under recently ended voyages to a terminal status from landing
+                // evidence; no voyage-ending path does it. Older rows are repaired by the operator tool.
+                HealthLoopMaintenanceStep.EveryCycles("terminal voyage mission reconciliation", () => 10, async stepToken =>
+                {
+                    TerminalVoyageMissionReconciliationRequest request = new TerminalVoyageMissionReconciliationRequest
+                    {
+                        DryRun = false,
+                        IncludeHistorical = false,
+                        MaxItems = 0
+                    };
+                    await _TerminalVoyageMissions.ReconcileAsync(request, stepToken).ConfigureAwait(false);
+                })
             };
         }
 

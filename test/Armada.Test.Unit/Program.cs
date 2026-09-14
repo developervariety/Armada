@@ -342,6 +342,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new MissionServiceNoOpCompletionTests());
             runner.AddSuite(new MissionServiceSelfHealHandoffTests());
             runner.AddSuite(new MissionServiceTerminalBranchReapTests());
+            runner.AddSuite(new TerminalVoyageMissionReconcilerTests());
             runner.AddSuite(new SchedulerHydrationTests());
             runner.AddSuite(new SchedulerCapacityTests());
             runner.AddSuite(new VoyageMailboxSignalPayloadTests());

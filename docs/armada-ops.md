@@ -1798,7 +1798,7 @@ expiry and offer **Quarantine** and **Lift Quarantine**.
 | Risk | Tools |
 | --- | --- |
 | Read | `armada_voyage_status`, `armada_mission_status`, `armada_mission_output`, `armada_get_mission_diff`, `armada_get_mission_log` |
-| Write | `armada_create_mission`, `armada_update_mission`, `armada_transition_mission_status` |
+| Write | `armada_create_mission`, `armada_update_mission`, `armada_transition_mission_status`, `armada_reconcile_terminal_voyage_missions` (`dryRun=false`; see 8.26) |
 | Execute | `armada_dispatch`, `armada_restart_mission`, `armada_retry_landing` |
 | Interrupt | `armada_cancel_mission`, `armada_cancel_voyage` |
 | Destructive | `armada_purge_mission`, `armada_delete_missions`, `armada_purge_voyage`, `armada_delete_voyages` |
@@ -2416,6 +2416,72 @@ refs/armada-preserved refs/armada/docks refs/armada/missions` in the vessel bare
 and `git ls-remote origin` before and after that run. For the anchor families,
 count per family on origin through the vessel working checkout:
 `git ls-remote origin 'refs/armada/*' | cut -f2 | cut -d/ -f1-3 | sort | uniq -c`.
+
+A WorkProduced mission under an ended voyage is terminal only after 8.26
+reconciles it. Until then its branch counts as kept for active missions.
+
+### 8.26 Terminal Voyage Mission Reconciliation
+
+WorkProduced means that work exists and a later stage or landing will act on
+it. That is a valid resting state only while the voyage is `Open` or
+`InProgress`. The paths that end a voyage count WorkProduced as finished and
+leave the mission in place: the completion check, the landing drain, the halt
+after a failed stage, and every cancel surface. Without reconciliation those
+missions read as live forever to branch cleanup, capacity and recovery.
+
+One rule gives each such mission a terminal status. It uses landing evidence,
+never the voyage status alone, because a Failed voyage can hold landed work
+and a Complete voyage can hold unlanded work:
+
+| Evidence | Voyage | Mission becomes | Reason |
+| --- | --- | --- | --- |
+| Commit is an ancestor of the default branch in the vessel bare, or a merge entry is `Landed` | any ended | `Complete` | `terminal_voyage_work_landed` |
+| Commit exists and is not on the default branch | `Failed` | `Failed` | `terminal_voyage_work_unlanded` |
+| Same | `Cancelled` or `Complete` | `Cancelled` | `terminal_voyage_work_unlanded` |
+| Commit absent from the vessel bare | as above | as above | `terminal_voyage_commit_absent` |
+| No commit recorded | as above | as above | `terminal_voyage_no_commit` |
+
+Unlanded work is never marked `Complete`. Under a `Complete` voyage it becomes
+`Cancelled`, because another stage landed and this stage's commit was
+superseded. A `Failed` or `Cancelled` mission carries the reason in
+`FailureReason`. Every change records a `mission.terminal_voyage_reconciled`
+event with the voyage status, landing probe and commit. The mission keeps its
+commit and branch. The pass never deletes branches, refs or commits, and it
+runs no rescue or wake.
+
+The rule keeps a mission unchanged in these cases, and counts each by reason:
+
+- `ancestry_unknown`: there is no vessel or repository, the default branch does
+  not resolve, or the probe failed.
+- `landing_in_flight`: a merge entry for the mission is not yet `Landed`,
+  `Failed` or `Cancelled`.
+- `voyage_terminal_grace`: the voyage ended less than ten minutes ago.
+- `awaiting_manual_landing`: the voyage ended `Complete` with landing mode
+  `None`. The work waits for a person to land it.
+
+The health loop runs the rule every 10 cycles for voyages that ended in the
+last 24 hours. It logs a
+`[TerminalVoyageMissionReconciler] terminal voyage mission reconciliation`
+summary line whenever it changes a mission or finds unknown ancestry.
+
+To repair older rows, use `armada_reconcile_terminal_voyage_missions`:
+
+1. Take a database backup in an approved window.
+2. Run the tool with its defaults (`dryRun=true`, `includeHistorical=true`). It
+   returns a background job; read the result with `armada_job_status`. Check
+   `completed`, `failed`, `cancelled`, `kept` and `reasons`. Scope the run with
+   `vesselId` or `voyageId` if you need to.
+3. Run it again with `dryRun=false`. The counts must match the dry run, apart
+   from missions that changed in between (`status_changed`).
+4. Run the dry run once more. It must examine zero missions, apart from the
+   kept reasons above.
+5. Read the next branch cleanup summary. Its `kept for active missions` count
+   drops by the branches the repaired missions held.
+
+| Risk | Tools |
+| --- | --- |
+| Read | `armada_reconcile_terminal_voyage_missions` (`dryRun=true`, the default) |
+| Write | `armada_reconcile_terminal_voyage_missions` (`dryRun=false`) |
 
 ## 9. Safety Rules
 

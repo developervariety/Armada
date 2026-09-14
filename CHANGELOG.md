@@ -108,6 +108,25 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   the self-deploy preflight and the candidate validator, instead of a generic
   stage failure.
 
+### Mission lifecycle after a voyage ends
+
+- A mission no longer stays WorkProduced after its voyage ends. One rule decides
+  its terminal status from landing evidence, not from the voyage status. Work
+  whose commit is on the vessel default branch, or whose merge entry landed,
+  becomes Complete. Unlanded work becomes Failed under a Failed voyage and
+  Cancelled under a Complete or Cancelled voyage. The mission records a named
+  reason, and each change records a `mission.terminal_voyage_reconciled` event.
+- The rule keeps a mission unchanged, and names why, when ancestry is unknown,
+  a landing is still in flight, the voyage ended less than ten minutes ago, or
+  a Complete voyage asked for no landing.
+- The health loop reconciles voyages that ended in the last 24 hours. The new
+  `armada_reconcile_terminal_voyage_missions` tool repairs older rows. It is a
+  dry run by default and never deletes branches, refs or commits.
+- WorkProduced to Failed is now a legal mission transition.
+- Branch cleanup stops keeping branches for reconciled missions, so the sweep's
+  kept-for-active-missions count drops after a repair. Status counts stop
+  reporting ended work as WorkProduced.
+
 ### API endpoint runtime lifecycle
 
 - Preserve synthetic API captain liveness until the loop exits, reject pre-cancelled

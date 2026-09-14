@@ -48,9 +48,12 @@ namespace Armada.Core.Services
                         || target == MissionStatusEnum.Cancelled;
 
                 case MissionStatusEnum.WorkProduced:
+                    // Failed is reached when the voyage ended Failed and the produced work never
+                    // landed; see TerminalVoyageMissionRule.
                     return target == MissionStatusEnum.PullRequestOpen
                         || target == MissionStatusEnum.Complete
                         || target == MissionStatusEnum.LandingFailed
+                        || target == MissionStatusEnum.Failed
                         || target == MissionStatusEnum.Cancelled;
 
                 case MissionStatusEnum.PullRequestOpen:

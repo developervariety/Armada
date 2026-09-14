@@ -40,6 +40,7 @@ namespace Test.Shared.Suites.Services
             AddLegal(cases, MissionStatusEnum.WorkProduced, MissionStatusEnum.PullRequestOpen);
             AddLegal(cases, MissionStatusEnum.WorkProduced, MissionStatusEnum.Complete);
             AddLegal(cases, MissionStatusEnum.WorkProduced, MissionStatusEnum.LandingFailed);
+            AddLegal(cases, MissionStatusEnum.WorkProduced, MissionStatusEnum.Failed);
             AddLegal(cases, MissionStatusEnum.PullRequestOpen, MissionStatusEnum.Complete);
             AddLegal(cases, MissionStatusEnum.Review, MissionStatusEnum.Complete);
             AddLegal(cases, MissionStatusEnum.Review, MissionStatusEnum.InProgress);
