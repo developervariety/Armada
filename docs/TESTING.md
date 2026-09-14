@@ -9,6 +9,9 @@ dotnet run --project test/Armada.Test.Automated --framework net10.0
 dotnet run --project test/Armada.Test.Unit --framework net10.0
 dotnet run --project test/Armada.Test.Runtimes --framework net10.0
 
+# Shared Touchstone suites over src/Test.Shared (lists every skipped case with its reason)
+dotnet run --project src/Test.Automated/Test.Automated.csproj --framework net10.0
+
 # Database driver tests (explicit SQLite provider)
 dotnet run --project test/Armada.Test.Database --framework net10.0 -- --type sqlite --filename test.db
 
@@ -29,12 +32,13 @@ dotnet run --project test/Armada.Test.Database --framework net10.0 -- --type mys
 | `Armada.Test.Automated` | ~891 | REST API, MCP tools, WebSocket, authentication, end-to-end workflows |
 | `Armada.Test.Unit` | ~3344 | Database operations, model serialization, service logic |
 | `Armada.Test.Runtimes` | ~179 | Agent runtime adapters (Claude Code, Codex, Gemini, Cursor, Mux, OpenCode) |
+| `src/Test.Automated` | ~2480 | Shared Touchstone suites over `src/Test.Shared`: database, models, runtimes, services, end-to-end |
 | `Armada.Test.Database` | ~100+ | Database driver CRUD operations across all 4 backends (SQLite, PostgreSQL, SQL Server, MySQL) |
 | `Armada.Test.Common` | — | Shared test infrastructure (TestRunner, TestSuite, TestResult) |
 
 ## How It Works
 
-The fork unit, automated, runtime and database runners are console applications. The shared test suites also have NUnit and xUnit adapters under `src/`; see [test discovery](upstream-review/test-discovery.md) for their registration and filtering rules. Use the command for the selected runner; `dotnet test` does not execute the console runners.
+The fork unit, automated, runtime and database runners are console applications. The shared test suites run through the `src/Test.Automated` console runner and also have NUnit and xUnit adapters under `src/`; see [Shared Suite Runner](#shared-suite-runner) and [test discovery](upstream-review/test-discovery.md). Use the command for the selected runner; `dotnet test` does not execute the console runners.
 
 - `TestSuite` — abstract base class in `Armada.Test.Common`. Each suite groups related tests, provides assertion helpers, and cleans up its own test data.
 - `TestRunner` — orchestrates suites, prints colored results, generates summary with failed test details.
@@ -66,6 +70,44 @@ Because there is no reflection-based discovery in this runner, the total IS the
 check that a new test is wired in: after adding tests, confirm the total moved
 by exactly the number you added. A total that did not move means the tests are
 not registered and will never run, never fail, and never appear.
+
+## Shared Suite Runner
+
+`src/Test.Automated` runs every suite in `src/Test.Shared` through the Touchstone console runner. Suites are discovered by reflection, so a written suite cannot be left unregistered.
+
+- **Build.** The project is in `src/Armada.sln`, so the solution build compiles it on every change. It is multi-targeted; pass `--framework`.
+- **Gate.** `scripts/common/run-tests.sh` runs it as the `shared` suite beside `unit`, `automated` and `runtimes`. A failure in any of the four fails the combined result.
+- **Options.** `--suites <prefixes>` narrows the run to suite ids with those comma-separated prefixes. `--results <path>` writes JSON results. `--db-type`, `--db-host`, `--db-port`, `--db-user`, `--db-pass` and `--db-name` target a server provider.
+- **Output.** After the summary the runner prints `Skipped Tests: N`, each skipped case id with its reason, and the counts by disposition. A run with no source checkout above it says that legacy owners were not verified.
+- **Exit codes.** 0 when nothing failed. 1 when a case failed. 2 when discovery fails (a stale disposition record), when the suite filter matches no suite, or when the selection would execute nothing.
+
+### Ownership
+
+The legacy executables remain the owners of the fork cases they execute. The shared runner owns every shared case it executes. When a shared case cannot execute correctly, it is recorded once in `src/Test.Shared/Infrastructure/SharedCaseDispositions.cs` and reported by every runner as a named, counted skip:
+
+| Disposition | Meaning | Owner named in the record |
+|-------------|---------|---------------------------|
+| Duplicate of an executed legacy case | The shared copy predates a contract change that the legacy case already asserts. | The legacy file and registered case name |
+| Awaiting owner decision | The shared case asserts behaviour the fork does not implement. | None; the owner decides whether to implement the behaviour or retire the case |
+
+Discovery fails when a record names no discovered case or names a legacy case that its file no longer registers, so a rename or removal cannot silently hide a case. The per-case list and the reasons are in [the case mapping](upstream-review/test-discovery-cases.md#shared-runner-failure-inventory).
+
+| Shared suite prefix | Executed by | Legacy runner with overlapping cases |
+|---------------------|-------------|--------------------------------------|
+| `Database.*`, `Models.*` | Shared runner | `test/Armada.Test.Unit`, `test/Armada.Test.Database` |
+| `Services.*` | Shared runner | `test/Armada.Test.Unit` |
+| `Runtimes.*` | Shared runner | `test/Armada.Test.Runtimes` |
+| `E2E.*` | Shared runner | `test/Armada.Test.Automated` |
+
+A shared end-to-end suite that creates missions or voyages cancels its active work after each case, because fleet capacity admission counts every active voyage and standalone mission.
+
+### Reproducing the inventory
+
+```bash
+dotnet build src/Test.Automated -f net10.0
+dotnet run --no-build --framework net10.0 --project src/Test.Automated -- --results shared-results.json
+python3 -c "import json; [print(r['testId'], '|', (r['message'] or '').splitlines()[0]) for r in json.load(open('shared-results.json')) if not r['success'] and not r['skipped']]"
+```
 
 ## Command-Line Options
 

@@ -52,8 +52,12 @@ namespace Test.Shared
                 descriptors.Add(suite.Build());
             }
 
-            List<TestSuiteDescriptor> ordered = descriptors
-                .OrderBy(d => d.SuiteId, StringComparer.Ordinal)
+            // Dispositions apply to the whole discovered set before any filter, so a stale entry fails every
+            // run rather than only the runs whose filter happens to include it.
+            List<TestSuiteDescriptor> ordered = SharedCaseDispositions.Apply(
+                    descriptors.OrderBy(d => d.SuiteId, StringComparer.Ordinal).ToList(),
+                    SharedCaseDispositions.All,
+                    SharedCaseDispositions.FindRepositoryRoot())
                 .ToList();
 
             // Optional diagnostic/CI filter: ARMADA_TEST_SUITES=E2E,Database restricts the run

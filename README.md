@@ -532,7 +532,10 @@ Run test projects on .NET 10:
 dotnet run --project test/Armada.Test.Automated --framework net10.0
 dotnet run --project test/Armada.Test.Unit --framework net10.0
 dotnet run --project test/Armada.Test.Runtimes --framework net10.0
+dotnet run --project src/Test.Automated/Test.Automated.csproj --framework net10.0
 ```
+
+The last command runs the shared suites in `src/Test.Shared` and lists every skipped case with its reason; see [Testing](docs/TESTING.md#shared-suite-runner).
 
 Dashboard asset changes require:
 

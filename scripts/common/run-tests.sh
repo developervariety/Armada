@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Run the three test suites concurrently and report a combined result.
+# Run the four test suites concurrently and report a combined result.
 #
 # The suites are independent processes: each builds its own temp SQLite database
 # under the system temp directory and shares no fixture state, so running them
@@ -9,7 +9,11 @@
 #
 # Usage:
 #   scripts/run-tests.sh            # all three, concurrently
-#   scripts/run-tests.sh unit       # one suite by name (unit|automated|runtimes)
+#   scripts/run-tests.sh unit       # one suite by name (unit|automated|runtimes|shared)
+#
+# "shared" is the Touchstone runner over src/Test.Shared. It prints every skipped
+# case with its recorded reason and exits non-zero on any failure, on a stale
+# disposition record, or when the selection would execute nothing.
 #
 set -uo pipefail
 
@@ -19,11 +23,12 @@ cd "$REPO_ROOT"
 FRAMEWORK="${ARMADA_TEST_FRAMEWORK:-net10.0}"
 LOG_DIR="$(mktemp -d)"
 
-declare -a SUITE_NAMES=(unit automated runtimes)
+declare -a SUITE_NAMES=(unit automated runtimes shared)
 declare -a SUITE_PROJECTS=(
   test/Armada.Test.Unit/Test.Unit.csproj
   test/Armada.Test.Automated/Test.Automated.csproj
   test/Armada.Test.Runtimes/Armada.Test.Runtimes.csproj
+  src/Test.Automated/Test.Automated.csproj
 )
 
 # ClaudeCodeProviderRoutingTests asserts on the environment a child process would
@@ -93,7 +98,8 @@ if [ "$failed" -ne 0 ]; then
   echo "RESULT: FAIL"
   echo
   for name in "${running[@]}"; do
-    grep -hE "^\s+FAIL" "$LOG_DIR/$name.log" 2>/dev/null | sed "s/^/  [$name] /"
+    grep -hE "^\s+FAIL| FAIL +[0-9]+ms$" "$LOG_DIR/$name.log" 2>/dev/null | sed "s/^/  [$name] /"
+    grep -hE "^RESULT: FAIL \(discovery\)" "$LOG_DIR/$name.log" 2>/dev/null | sed "s/^/  [$name] /"
   done
   echo
   echo "Full output: $LOG_DIR"

@@ -52,15 +52,16 @@ dotnet build src/Armada.sln
 dotnet run --project test/Armada.Test.Automated/Test.Automated.csproj --framework net10.0
 dotnet run --project test/Armada.Test.Unit/Test.Unit.csproj --framework net10.0
 dotnet run --project test/Armada.Test.Runtimes/Armada.Test.Runtimes.csproj --framework net10.0
+dotnet run --project src/Test.Automated/Test.Automated.csproj --framework net10.0
 ```
 
 Armada's own tests run through `dotnet run --project`, not `dotnet test`. Every
 other vessel uses `dotnet test`; using the wrong one here reads as a broken test
 setup.
 
-The three suites are independent processes and share no state, so all three can
+The four suites are independent processes and share no state, so all four can
 run at once. `scripts/{linux,macos}/run-tests.sh` does that and prints a
-combined result; pass `unit`, `automated`, or `runtimes` to run just one. It
+combined result; pass `unit`, `automated`, `runtimes`, or `shared` to run just one. It
 also unsets `ANTHROPIC_*` for the child, because `ClaudeCodeProviderRoutingTests`
 asserts on the environment a captain process would inherit and fails when the
 caller exports those variables.

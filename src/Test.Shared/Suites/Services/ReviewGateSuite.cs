@@ -239,7 +239,8 @@ namespace Test.Shared.Suites.Services
                 nextPid++;
                 return Task.FromResult(nextPid);
             };
-            missionService.OnGetMissionOutput = _ => "reviewable stage output";
+            missionService.OnGetMissionOutput = _ =>
+                "[ARMADA:RESULT] COMPLETE\nImplemented the requested behavior with unit test coverage for the primary and negative paths. The change is committed to the mission branch and the suite passes locally with no regressions in the affected modules.";
 
             Vessel vessel = new Vessel("review-vessel", "https://github.com/test/repo.git");
             vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_review_bare_" + Guid.NewGuid().ToString("N"));
@@ -291,16 +292,26 @@ namespace Test.Shared.Suites.Services
             Mission workerMission = voyageMissions.First(m => String.Equals(m.Persona ?? "Worker", "Worker", StringComparison.OrdinalIgnoreCase));
             Mission? downstreamMission = voyageMissions.FirstOrDefault(m => String.Equals(m.Persona, "Judge", StringComparison.OrdinalIgnoreCase));
 
-            Captain? assignedWorker = await db.Captains.ReadAsync(workerCaptain.Id).ConfigureAwait(false);
-            AssertNotNull(assignedWorker, "Worker captain should be readable after dispatch");
+            // Dispatch assigns in background work that also visits the downstream stage. A scenario
+            // that proceeds while that work runs races it for the sibling-lane lease and the mission
+            // row, so the review action under test can lose its own assignment. Wait for it to end.
+            await admiralService.WhenQueuedAssignmentsDrainedAsync().ConfigureAwait(false);
 
             workerMission = await db.Missions.ReadAsync(workerMission.Id).ConfigureAwait(false)
-                ?? throw new InvalidOperationException("Expected worker mission to be readable after dispatch.");
+                ?? throw new InvalidOperationException("Expected worker mission after dispatch.");
+            Captain? assignedWorker = await db.Captains.ReadAsync(workerCaptain.Id).ConfigureAwait(false);
 
             if (includeDownstreamStage)
             {
                 AssertNotNull(downstreamMission, "Downstream judge stage should exist");
             }
+
+            AssertEqual(MissionStatusEnum.InProgress, workerMission.Status, "Fixture assignment: " + workerMission.FailureReason);
+            AssertNotNull(workerMission.DockId, "Fixture mission dock");
+            AssertEqual(MissionAssignmentStateEnum.Assigned, workerMission.AssignmentState, "Fixture assignment state");
+            AssertNotNull(workerMission.ProcessId, "Fixture mission process");
+            AssertEqual(workerMission.Id, assignedWorker?.CurrentMissionId, "Fixture captain holds the worker mission");
+            AssertNotNull(assignedWorker!.ProcessId, "Fixture captain process");
 
             return new ReviewScenario
             {

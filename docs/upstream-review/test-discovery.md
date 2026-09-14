@@ -2,7 +2,10 @@
 
 The existing fork executables remain the test owners. No test folder or runner
 was replaced. The shared Touchstone console, xUnit and NUnit adapters remain
-separate; this change does not adopt them as substitutes for fork execution.
+separate and do not substitute for fork execution. The console runner now builds
+with the solution and runs in the test gate; its ownership rules and failure
+inventory are in [Testing](../TESTING.md#shared-suite-runner) and
+[the case mapping](test-discovery-cases.md#shared-runner-failure-inventory).
 
 ## Registration and identity
 

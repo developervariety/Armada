@@ -622,6 +622,9 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Shared WebSocket cases authenticate each session before subscribing or sending a command.
 - A REST vessel update that omits `gitHubTokenOverride` keeps the stored override; only an explicit value replaces or clears it.
 - Request-history summary buckets sit on the epoch grid for every bucket width, through the same rule token-usage summaries use, so a two-hour bucket no longer splits into hourly buckets.
+- The shared runner runs in `scripts/common/run-tests.sh` as the `shared` suite. It lists every skipped case with its reason and exits with code 2 when discovery fails, the suite filter matches nothing, or the selection would execute nothing.
+- Shared cases that duplicate an executed legacy case, or assert behaviour the fork does not implement, are recorded once and reported by every runner as named, counted skips. A record that names no case, or a legacy owner its file no longer registers, fails discovery.
+- The shared review-gate fixture waits for dispatch's queued assignment work through the admiral's drain, which the core assembly now exposes to the shared test assembly, instead of racing it.
 
 ### API collection and client route contracts
 

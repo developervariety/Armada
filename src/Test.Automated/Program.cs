@@ -1,9 +1,13 @@
 namespace Test.Automated
 {
     using System;
+    using System.Collections.Generic;
+    using System.Linq;
     using System.Threading.Tasks;
     using Test.Shared;
+    using Test.Shared.Infrastructure;
     using Touchstone.Cli;
+    using Touchstone.Core;
 
     /// <summary>
     /// Console/CLI runner for the shared Armada Touchstone test descriptors. Runs every discovered suite via
@@ -17,6 +21,9 @@ namespace Test.Automated
     /// --db-host, --db-port, --db-user, --db-pass, and --db-name. These map onto the ARMADA_TEST_DB_*
     /// environment variables the shared harness reads, so the same suite runs unchanged against a real
     /// server. SQLite (the default) needs no connection arguments.
+    ///
+    /// After the run it lists every skipped case with its reason and the disposition counts. Discovery that
+    /// fails, a filter that matches no suite, or a selection with nothing to execute exits with code 2.
     /// </summary>
     public static class Program
     {
@@ -66,7 +73,54 @@ namespace Test.Automated
                 }
             }
 
-            return await ConsoleRunner.RunAsync(ArmadaTestSuites.All, resultsPath: resultsPath).ConfigureAwait(false);
+            IReadOnlyList<TestSuiteDescriptor> suites;
+            try
+            {
+                suites = ArmadaTestSuites.All;
+            }
+            catch (InvalidOperationException ex)
+            {
+                Console.Error.WriteLine("RESULT: FAIL (discovery) " + ex.Message);
+                return 2;
+            }
+
+            if (suites.Count == 0)
+            {
+                Console.Error.WriteLine("RESULT: FAIL (discovery) no suite matched the suite filter '"
+                    + Environment.GetEnvironmentVariable("ARMADA_TEST_SUITES") + "'.");
+                return 2;
+            }
+
+            List<TestCaseDescriptor> skipped = suites.SelectMany(suite => suite.Cases).Where(testCase => testCase.Skip).ToList();
+            int executable = suites.Sum(suite => suite.Cases.Count) - skipped.Count;
+            if (executable == 0)
+            {
+                Console.Error.WriteLine("RESULT: FAIL (discovery) every selected case is skipped, so the run would execute nothing.");
+                return 2;
+            }
+
+            int exitCode = await ConsoleRunner.RunAsync(suites, resultsPath: resultsPath).ConfigureAwait(false);
+
+            WriteSkipped(skipped);
+            return exitCode;
+        }
+
+        private static void WriteSkipped(List<TestCaseDescriptor> skipped)
+        {
+            Console.WriteLine("Skipped Tests: " + skipped.Count);
+            foreach (TestCaseDescriptor testCase in skipped)
+            {
+                Console.WriteLine("  " + testCase.TestId);
+                Console.WriteLine("    " + (String.IsNullOrWhiteSpace(testCase.SkipReason) ? "(no reason recorded)" : testCase.SkipReason));
+            }
+
+            HashSet<string> skippedIds = new HashSet<string>(skipped.Select(testCase => testCase.TestId), StringComparer.Ordinal);
+            int duplicates = SharedCaseDispositions.All.Count(d => d.Kind == SharedCaseDispositionKindEnum.DuplicateOfLegacyCase && skippedIds.Contains(d.TestId));
+            int awaiting = SharedCaseDispositions.All.Count(d => d.Kind == SharedCaseDispositionKindEnum.AwaitingOwnerDecision && skippedIds.Contains(d.TestId));
+            Console.WriteLine("Skipped by disposition: " + duplicates + " duplicate of an executed legacy case, " + awaiting + " awaiting owner decision, "
+                + (skipped.Count - duplicates - awaiting) + " other named skip.");
+            if (SharedCaseDispositions.FindRepositoryRoot() == null)
+                Console.WriteLine("Legacy owners were not verified: the runner is not inside a source checkout.");
         }
     }
 }

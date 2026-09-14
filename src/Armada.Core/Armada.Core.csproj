@@ -9,6 +9,7 @@
          ComputeLexicalScore whole-query needle length gate) directly. -->
     <InternalsVisibleTo Include="Test.Unit" />
     <InternalsVisibleTo Include="Armada.Test.Database" />
+    <InternalsVisibleTo Include="Test.Shared" />
   </ItemGroup>
 
   <ItemGroup>
