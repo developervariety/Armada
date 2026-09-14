@@ -14,6 +14,16 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Native self-deploy preflight
+
+- Added provider-native backup, owned isolated restore and candidate database
+  validation for all four providers. Native process output and cancellation are
+  bounded, and Unix settings and backup directories use private permissions.
+- Windows storage fails closed until owner-only ACL verification is available.
+  The default preflight stays disabled; supervised cutover and rollback remain
+  separate acceptance work.
+
+
 ### Helm configuration and branch client
 
 - Add grouped help and help aliases, with detected OpenCode and Mux MCP setup.

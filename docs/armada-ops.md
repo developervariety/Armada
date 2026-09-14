@@ -1021,14 +1021,66 @@ See [DELIVERY_OPERATIONS.md](DELIVERY_OPERATIONS.md) for the detailed procedure.
 ### Self-deploy preflight
 
 Self-deploy is opt-in (`selfDeploy.enabled` defaults to `false`). After a
-successful Release build, the service requires a validated backup, an isolated
-restore and candidate validation before it calls the restart supervisor. Missing
-or conflicting proof records a failure and opens an incident. A provider
-exception never permits restart or copies raw exception text into the record.
+successful Release build, the service runs an
+injected safety preflight before it starts the external watchdog. The preflight
+must prove all three conditions: a recoverable backup was created and
+validated, restore verification passed, and the candidate server was validated.
+If any condition fails, or if the provider returns no result or throws, the
+service records the failure, opens an incident, and keeps the current admiral
+running.
 
-The default preflight refuses cutover. Provider-native backup, candidate checks
-and rollback integration need separate acceptance before self-deploy can be used.
-Keep the current container deployment and rollback procedure until then.
+The native backup provider now supports SQLite, MySQL, PostgreSQL, and SQL
+Server. It creates a unique artifact and restores it into a unique isolated
+file or database before it reports backup and restore proof. Native utility
+passwords are passed through environment variables and are never command
+arguments. SQL Server backup paths must be visible to the SQL Server host.
+The isolated target stays available for the candidate check and is removed
+through the provider cleanup operation after that check. Cleanup requires the
+opaque ownership token returned by the provider, so an arbitrary file or
+database name cannot be deleted. The backup artifact is kept for rollback.
+MySQL requires every source table to use InnoDB for the single-transaction
+snapshot contract. MySQL, PostgreSQL, and SQL Server also require their native
+client utilities (`mysqldump`/`mysql`, `pg_dump`/`createdb`/`pg_restore`/`psql`,
+and ODBC 18 `sqlcmd`) on the executing host. SQL Server utility calls set `-Nm`
+or `-No` from `DatabaseSettings.RequireEncryption` and pass `-C` explicitly to
+match the typed server-certificate trust contract; a wrapper must not weaken
+TLS checks.
+
+The default preflight is still fail-closed. When
+`SelfDeployCandidateProcessValidator` is connected, the native provider adapter
+writes temporary settings with the effective connection fields and the owned
+isolated target, then runs the candidate DLL with `--validate-database`. It
+requires both a zero process exit and the validation pass marker before it
+reports candidate proof. Candidate validation inspects the isolated restored
+copy only; the running database and migration history are not modified by this
+provider. A build success or a backup proof alone never permits cutover.
+On Unix, the operation directory and settings file are created with owner-only
+permissions (`0700` and `0600`); an existing directory with public permission
+bits or a symlink is rejected. On Windows, native self-deploy storage is
+disabled until the provider has a platform ACL implementation that verifies
+owner-only ACLs for both new and existing paths; it fails closed with
+`private_storage_acl_unverified`. A path name or temp-root location is not
+treated as proof. The rollback artifact remains
+inside that private directory. The native runner bounds each captured output
+stream and observes every pipe task after a bounded timeout. It closes standard
+input only when the request redirected it. A truncation marker fails candidate
+proof, so a noisy command cannot hide its validation result; an inherited child
+pipe returns the stable `native_command_io_drain_timeout` failure.
+
+The real utility checks are separate and disabled by default; the default guard
+performs no database work. To run them against disposable provider databases, set
+`ARMADA_SELF_DEPLOY_INTEGRATION=1`,
+`ARMADA_SELF_DEPLOY_INTEGRATION_SCOPE=isolated-test-databases`,
+`ARMADA_SELF_DEPLOY_CANDIDATE_DLL`, and
+`ARMADA_SELF_DEPLOY_BACKUP_DIRECTORY`. Set typed provider variables with the
+`ARMADA_SELF_DEPLOY_SQLITE_*`, `ARMADA_SELF_DEPLOY_MYSQL_*`,
+`ARMADA_SELF_DEPLOY_POSTGRESQL_*`, and `ARMADA_SELF_DEPLOY_SQLSERVER_*`
+prefixes (`FILENAME` for SQLite; `HOSTNAME`, `PORT`, `USERNAME`, `PASSWORD`,
+and `DATABASE_NAME` for server providers). SQL Server also requires
+`ARMADA_SELF_DEPLOY_SQLSERVER_BACKUP_DIRECTORY`, which must be visible to the
+SQL Server host. The suite uses the injected native runner, so PATH wrappers
+can route utilities into isolated provider containers without changing the
+application database configuration.
 
 ## 7. Configuration And Administration
 

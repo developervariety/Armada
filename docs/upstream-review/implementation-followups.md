@@ -514,16 +514,15 @@ These findings apply to unaccepted candidates, not the deployed image:
   recovery or incident sweeps. Use a bounded, non-overlapping background sweep.
 - Provider request fixtures must use each provider's actual response shape.
 - Native self-rebuild backup, isolated restore, candidate validation and cleanup
-  passed on all four providers after the SQL Server restore-command fix.
-  A second four-provider run also passed with a SQL Server path that contains
-  an apostrophe and a literal template token. Private storage and bounded
-  process cleanup still need final combined proof. The latest cleanup candidate
-  accesses standard input even when no input pipe was configured. Independent
-  execution of the latest candidate produced 19 passes and one failure: the
-  inherited-pipe case returned `native_command_io_close_failed` instead of
-  `native_command_io_drain_timeout`. Correct the access and rerun this case.
-  Process cutover, health verification and rollback still need acceptance.
-  Self-rebuild remains disabled.
+  passed on all four providers after the SQL Server restore-command fix. A
+  second run covered quoted SQL Server paths. Independent review then found
+  the inherited-pipe cleanup defect: 19 passed and one failed at that candidate.
+  The corrected combined tree passed 33 native/preflight tests and four real
+  provider round trips, with no failures or skips. The final run uses private
+  Unix storage and includes the quoted SQL Server path. Windows storage still
+  fails closed until owner-only ACL verification is available. Process cutover,
+  health validation and rollback remain open in FOLLOWUP-018. Self-rebuild
+  remains disabled and the default preflight remains unwired.
 
 Keep these entries open until the corrected combined tree has independent proof.
 
