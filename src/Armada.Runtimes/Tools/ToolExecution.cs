@@ -9,6 +9,12 @@ namespace Armada.Runtimes.Tools
     /// <summary>Shared limits and bounded I/O helpers for built-in workspace tools.</summary>
     internal static class ToolExecution
     {
+        /// <summary>
+        /// Test-only callback invoked after a temporary file is flushed and before replacement. Production
+        /// code leaves this unset; the callback makes cancellation after staging deterministic in tests.
+        /// </summary>
+        internal static Func<CancellationToken, Task>? BeforeAtomicReplaceAsync { get; set; }
+
         /// <summary>Create a linked cancellation source with the configured tool timeout.</summary>
         public static CancellationTokenSource CreateTimeoutSource(CancellationToken callerToken)
         {
@@ -96,6 +102,10 @@ namespace Armada.Runtimes.Tools
                     await stream.WriteAsync(bytes.AsMemory(), token).ConfigureAwait(false);
                     await stream.FlushAsync(token).ConfigureAwait(false);
                 }
+
+                Func<CancellationToken, Task>? beforeReplace = BeforeAtomicReplaceAsync;
+                if (beforeReplace != null)
+                    await beforeReplace(token).ConfigureAwait(false);
                 token.ThrowIfCancellationRequested();
 
                 if (existingMode.HasValue)

@@ -517,9 +517,36 @@ namespace Test.Shared.Suites.Runtimes
                     AssertFalse(edit.Success, "Invalid UTF-8 edit must fail closed.");
                     byte[] afterInvalidEdit = await File.ReadAllBytesAsync(path).ConfigureAwait(false);
                     AssertTrue(ByteArraysEqual(invalidUtf8, afterInvalidEdit), "Invalid UTF-8 edit must preserve original bytes.");
+
+                    await File.WriteAllTextAsync(path, original, new UTF8Encoding(false)).ConfigureAwait(false);
+                    UnixFileMode? originalMode = null;
+                    if (!OperatingSystem.IsWindows())
+                    {
+                        originalMode = File.GetUnixFileMode(path);
+                    }
+
+                    using CancellationTokenSource stagedCancellation = new CancellationTokenSource();
+                    ToolExecution.BeforeAtomicReplaceAsync = token =>
+                    {
+                        stagedCancellation.Cancel();
+                        return Task.CompletedTask;
+                    };
+                    ToolResult stagedWrite = await registry.ExecuteAsync("staged-cancel-write", "write_file", ParseArgs("{\"file_path\":\"original.txt\",\"content\":\"replacement after staging\"}"), dir, stagedCancellation.Token).ConfigureAwait(false);
+                    AssertFalse(stagedWrite.Success, "Cancellation after staging must fail before replacement.");
+                    AssertEqual(original, File.ReadAllText(path), "Cancellation after staging must preserve original bytes.");
+                    AssertTrue(Directory.GetFiles(dir, ".armada-write-*.tmp").Length == 0, "Cancellation after staging must clean the temporary file.");
+                    ToolExecution.BeforeAtomicReplaceAsync = null;
+
+                    ToolResult modeWrite = await registry.ExecuteAsync("mode-write", "write_file", ParseArgs("{\"file_path\":\"original.txt\",\"content\":\"mode preserved\"}"), dir, CancellationToken.None).ConfigureAwait(false);
+                    AssertTrue(modeWrite.Success, "A normal atomic write must succeed after a cancelled staged write.");
+                    if (originalMode.HasValue)
+                    {
+                        AssertEqual(originalMode.Value, File.GetUnixFileMode(path), "Atomic replacement must preserve the existing Unix file mode.");
+                    }
                 }
                 finally
                 {
+                    ToolExecution.BeforeAtomicReplaceAsync = null;
                     Cleanup(dir);
                 }
             }));
