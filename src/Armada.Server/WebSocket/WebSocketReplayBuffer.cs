@@ -85,8 +85,9 @@ namespace Armada.Server.WebSocket
         /// Assign the next cursor, serialize its event frame, and retain it when it fits.
         /// </summary>
         /// <param name="frameFactory">Builds the frame from the stream identifier and assigned cursor.</param>
+        /// <param name="scope">Who may receive the event; null delivers to global administrators only.</param>
         /// <returns>The assigned event record, including a frame that is too large to retain.</returns>
-        public WebSocketReplayRecord Append(Func<string, long, string> frameFactory)
+        public WebSocketReplayRecord Append(Func<string, long, string> frameFactory, WebSocketDeliveryScope? scope = null)
         {
             if (frameFactory == null) throw new ArgumentNullException(nameof(frameFactory));
 
@@ -96,7 +97,7 @@ namespace Armada.Server.WebSocket
                 string frame = frameFactory(StreamId, cursor)
                     ?? throw new InvalidOperationException("The WebSocket replay frame factory returned null.");
                 int byteCount = Encoding.UTF8.GetByteCount(frame);
-                WebSocketReplayRecord record = new WebSocketReplayRecord(cursor, frame, byteCount);
+                WebSocketReplayRecord record = new WebSocketReplayRecord(cursor, frame, byteCount, scope ?? WebSocketDeliveryScope.AdminOnly);
                 _CurrentCursor = cursor;
 
                 if (byteCount <= _ByteCapacity)
@@ -197,16 +198,23 @@ namespace Armada.Server.WebSocket
         public int ByteCount { get; }
 
         /// <summary>
+        /// Who may receive the event, on live delivery and on replay alike.
+        /// </summary>
+        public WebSocketDeliveryScope Scope { get; }
+
+        /// <summary>
         /// Instantiate.
         /// </summary>
         /// <param name="cursor">Event cursor.</param>
         /// <param name="frame">Serialized event frame.</param>
         /// <param name="byteCount">UTF-8 frame size.</param>
-        public WebSocketReplayRecord(long cursor, string frame, int byteCount)
+        /// <param name="scope">Who may receive the event; null delivers to global administrators only.</param>
+        public WebSocketReplayRecord(long cursor, string frame, int byteCount, WebSocketDeliveryScope? scope = null)
         {
             Cursor = cursor;
             Frame = frame ?? throw new ArgumentNullException(nameof(frame));
             ByteCount = byteCount;
+            Scope = scope ?? WebSocketDeliveryScope.AdminOnly;
         }
     }
 

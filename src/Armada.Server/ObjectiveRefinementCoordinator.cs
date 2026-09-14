@@ -124,7 +124,7 @@ namespace Armada.Server
                 captain.LastHeartbeatUtc = DateTime.UtcNow;
                 captain.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
-                _WebSocketHub?.BroadcastCaptainChange(captain.Id, captain.State.ToString(), captain.Name);
+                _WebSocketHub?.BroadcastCaptainChange(captain);
 
                 BroadcastSessionChanged(session);
                 await _EmitEventAsync(
@@ -158,7 +158,7 @@ namespace Armada.Server
                         failedCaptain.LastHeartbeatUtc = DateTime.UtcNow;
                         failedCaptain.LastUpdateUtc = DateTime.UtcNow;
                         await _Database.Captains.UpdateAsync(failedCaptain, token).ConfigureAwait(false);
-                        _WebSocketHub?.BroadcastCaptainChange(failedCaptain.Id, failedCaptain.State.ToString(), failedCaptain.Name);
+                        _WebSocketHub?.BroadcastCaptainChange(failedCaptain);
                     }
                 }
                 catch
@@ -210,7 +210,7 @@ namespace Armada.Server
                 LastUpdateUtc = DateTime.UtcNow
             };
             userMessage = await _Database.ObjectiveRefinementMessages.CreateAsync(userMessage, token).ConfigureAwait(false);
-            BroadcastMessageCreated(userMessage);
+            BroadcastMessageCreated(session, userMessage);
 
             ObjectiveRefinementMessage assistantMessage = new ObjectiveRefinementMessage
             {
@@ -225,7 +225,7 @@ namespace Armada.Server
                 LastUpdateUtc = DateTime.UtcNow
             };
             assistantMessage = await _Database.ObjectiveRefinementMessages.CreateAsync(assistantMessage, token).ConfigureAwait(false);
-            BroadcastMessageCreated(assistantMessage);
+            BroadcastMessageCreated(session, assistantMessage);
 
             session.Status = ObjectiveRefinementSessionStatusEnum.Responding;
             session.ProcessId = null;
@@ -343,7 +343,8 @@ namespace Armada.Server
                         sessionId = session.Id,
                         messageId = sourceMessage.Id,
                         summary = draft
-                    });
+                    },
+                SessionScope(session));
 
                 await _EmitEventAsync(
                     "objective-refinement-session.summary.created",
@@ -413,7 +414,8 @@ namespace Armada.Server
                     sessionId = session.Id,
                     objectiveId = updated.Id,
                     summary
-                });
+                },
+                SessionScope(session));
 
             await _EmitEventAsync(
                 "objective-refinement-session.applied",
@@ -450,7 +452,7 @@ namespace Armada.Server
             _WebSocketHub?.BroadcastEvent(
                 "objective-refinement-session.deleted",
                 "Objective refinement session deleted",
-                new { sessionId = session.Id, objectiveId = session.ObjectiveId });
+                new { sessionId = session.Id, objectiveId = session.ObjectiveId }, SessionScope(session));
 
             await _EmitEventAsync(
                 "objective-refinement-session.deleted",
@@ -524,7 +526,7 @@ namespace Armada.Server
                             LastUpdateUtc = DateTime.UtcNow
                         };
                         interruption = await _Database.ObjectiveRefinementMessages.CreateAsync(interruption, token).ConfigureAwait(false);
-                        BroadcastMessageCreated(interruption);
+                        BroadcastMessageCreated(session, interruption);
                     }
 
                     captain.State = CaptainStateEnum.Refining;
@@ -534,7 +536,7 @@ namespace Armada.Server
                     captain.LastHeartbeatUtc = DateTime.UtcNow;
                     captain.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
-                    _WebSocketHub?.BroadcastCaptainChange(captain.Id, captain.State.ToString(), captain.Name);
+                    _WebSocketHub?.BroadcastCaptainChange(captain);
 
                     if (session.Status == ObjectiveRefinementSessionStatusEnum.Responding)
                     {
@@ -609,7 +611,7 @@ namespace Armada.Server
 
                     assistantMessage.Content = updatedContent;
                     assistantMessage.LastUpdateUtc = DateTime.UtcNow;
-                    BroadcastMessageUpdated(assistantMessage);
+                    BroadcastMessageUpdated(session, assistantMessage);
                 };
                 runtime.OnProcessExited += (processId, exitCode) => exitSource.TrySetResult(exitCode);
 
@@ -662,7 +664,7 @@ namespace Armada.Server
                 assistantMessage.Content = finalContent.Trim();
                 assistantMessage.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.ObjectiveRefinementMessages.UpdateAsync(assistantMessage).ConfigureAwait(false);
-                BroadcastMessageUpdated(assistantMessage);
+                BroadcastMessageUpdated(session, assistantMessage);
 
                 captain = await RequireCaptainAsync(session.CaptainId, CancellationToken.None).ConfigureAwait(false);
                 captain.ProcessId = null;
@@ -694,7 +696,7 @@ namespace Armada.Server
                         assistantMessage.Content = "Refinement response failed: " + ex.Message;
                         assistantMessage.LastUpdateUtc = DateTime.UtcNow;
                         await _Database.ObjectiveRefinementMessages.UpdateAsync(assistantMessage).ConfigureAwait(false);
-                        BroadcastMessageUpdated(assistantMessage);
+                        BroadcastMessageUpdated(session, assistantMessage);
                     }
 
                     if (session != null)
@@ -721,7 +723,7 @@ namespace Armada.Server
                             captain.LastHeartbeatUtc = DateTime.UtcNow;
                             captain.LastUpdateUtc = DateTime.UtcNow;
                             await _Database.Captains.UpdateAsync(captain).ConfigureAwait(false);
-                            _WebSocketHub?.BroadcastCaptainChange(captain.Id, captain.State.ToString(), captain.Name);
+                            _WebSocketHub?.BroadcastCaptainChange(captain);
                         }
                     }
                 }
@@ -902,7 +904,7 @@ namespace Armada.Server
                 captain.LastHeartbeatUtc = DateTime.UtcNow;
                 captain.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
-                _WebSocketHub?.BroadcastCaptainChange(captain.Id, captain.State.ToString(), captain.Name);
+                _WebSocketHub?.BroadcastCaptainChange(captain);
 
                 int? exitCode = await exitSource.Task.ConfigureAwait(false);
 
@@ -959,7 +961,7 @@ namespace Armada.Server
                             refreshedCaptain.LastHeartbeatUtc = DateTime.UtcNow;
                             refreshedCaptain.LastUpdateUtc = DateTime.UtcNow;
                             await _Database.Captains.UpdateAsync(refreshedCaptain, CancellationToken.None).ConfigureAwait(false);
-                            _WebSocketHub?.BroadcastCaptainChange(refreshedCaptain.Id, refreshedCaptain.State.ToString(), refreshedCaptain.Name);
+                            _WebSocketHub?.BroadcastCaptainChange(refreshedCaptain);
                         }
                     }
                     catch (Exception ex)
@@ -1016,7 +1018,7 @@ namespace Armada.Server
                 message.IsSelected = shouldSelect;
                 message.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.ObjectiveRefinementMessages.UpdateAsync(message, token).ConfigureAwait(false);
-                BroadcastMessageUpdated(message);
+                BroadcastMessageUpdated(session, message);
             }
         }
 
@@ -1078,7 +1080,7 @@ namespace Armada.Server
                     captain.LastHeartbeatUtc = DateTime.UtcNow;
                     captain.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Captains.UpdateAsync(captain).ConfigureAwait(false);
-                    _WebSocketHub?.BroadcastCaptainChange(captain.Id, captain.State.ToString(), captain.Name);
+                    _WebSocketHub?.BroadcastCaptainChange(captain);
                 }
 
                 session = await RequireSessionAsync(session.Id, CancellationToken.None).ConfigureAwait(false);
@@ -1118,15 +1120,22 @@ namespace Armada.Server
             return runtime;
         }
 
+        private static WebSocketDeliveryScope SessionScope(ObjectiveRefinementSession session)
+        {
+            // A session event reaches only the sessions that may read the session.
+            return WebSocketDeliveryScope.ForOwner(session.TenantId, session.UserId);
+        }
+
         private void BroadcastSessionChanged(ObjectiveRefinementSession session)
         {
             _WebSocketHub?.BroadcastEvent(
                 "objective-refinement-session.changed",
                 "Objective refinement session updated",
-                new { session });
+                new { session },
+                SessionScope(session));
         }
 
-        private void BroadcastMessageCreated(ObjectiveRefinementMessage message)
+        private void BroadcastMessageCreated(ObjectiveRefinementSession session, ObjectiveRefinementMessage message)
         {
             _WebSocketHub?.BroadcastEvent(
                 "objective-refinement-session.message.created",
@@ -1136,10 +1145,11 @@ namespace Armada.Server
                     sessionId = message.ObjectiveRefinementSessionId,
                     objectiveId = message.ObjectiveId,
                     message
-                });
+                },
+                SessionScope(session));
         }
 
-        private void BroadcastMessageUpdated(ObjectiveRefinementMessage message)
+        private void BroadcastMessageUpdated(ObjectiveRefinementSession session, ObjectiveRefinementMessage message)
         {
             _WebSocketHub?.BroadcastEvent(
                 "objective-refinement-session.message.updated",
@@ -1149,7 +1159,8 @@ namespace Armada.Server
                     sessionId = message.ObjectiveRefinementSessionId,
                     objectiveId = message.ObjectiveId,
                     message
-                });
+                },
+                SessionScope(session));
         }
 
         private async Task<ObjectiveRefinementSession> RequireSessionAsync(string sessionId, CancellationToken token)

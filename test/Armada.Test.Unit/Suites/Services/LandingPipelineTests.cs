@@ -301,14 +301,25 @@ namespace Armada.Test.Unit.Suites.Services
                     "public Task HandleVoyageCompleteAsync(Voyage voyage)",
                     "public async Task<bool> HandleReconcilePullRequestAsync(Mission mission)");
 
+                // The record overload reads the status and the owner scope from the persisted voyage.
                 AssertContains(
-                    "BroadcastVoyageChange(voyage.Id, voyage.Status.ToString(), voyage.Title)",
+                    "BroadcastVoyageChange(voyage)",
                     method,
-                    "Voyage completion broadcast must use the persisted terminal voyage status.");
+                    "Voyage completion broadcast must pass the persisted voyage so its terminal status and owner are used.");
                 AssertDoesNotContain(
-                    "BroadcastVoyageChange(voyage.Id, VoyageStatusEnum.Complete.ToString(), voyage.Title)",
+                    "VoyageStatusEnum.Complete.ToString()",
                     method,
                     "Failed voyages must not be broadcast as Complete.");
+
+                string hub = ReadRepositoryFile("src", "Armada.Server", "WebSocket", "ArmadaWebSocketHub.cs");
+                string overload = ExtractBetween(
+                    hub,
+                    "public void BroadcastVoyageChange(Voyage voyage)",
+                    "public void BroadcastCaptainChange(");
+                AssertContains(
+                    "voyage.Status.ToString()",
+                    overload,
+                    "The voyage broadcast overload must use the persisted voyage status.");
                 return Task.CompletedTask;
             });
 

@@ -400,6 +400,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new MemoryServiceTests());
             runner.AddSuite(new McpMemoryToolsTests());
             runner.AddSuite(new OwnershipScopeTests());
+            runner.AddSuite(new WebSocketDeliveryScopeTests());
 
             runner.VerifyRegistration(typeof(Program).Assembly);
 

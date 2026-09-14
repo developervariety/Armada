@@ -399,17 +399,23 @@ also closes silent unauthenticated sessions after 15 seconds; the recorded
 before/after case is in FOLLOWUP-007. Header-authenticated and frame-authenticated
 sessions are intended to remain unaffected; final review should cover both.
 
-This is an interim restriction, not tenant-filtered delivery. Keep Verify for
-independent authentication/subscription/broadcast tests and an explicit final
-disposition of narrower-role live updates. Test REST refresh and permission
-feedback in real dashboard sessions. Preserve global-admin behavior and command
-denial for narrower roles. No new live provider or operational action is needed
-to test these boundaries.
+Tenant-filtered delivery has replaced the interim admin-only subscribe. Every
+broadcast carries a delivery scope from the record it describes and reaches the
+owning user, the owning tenant's administrators and global administrators;
+ownerless events and WebSocket-command events stay admin-only. Replay and
+catch-up obey the same scope, and the fleet snapshot is global-admin only. Ask
+chat events follow the caller who started the turn. Commands still require a
+global administrator. Remaining: browser verification of narrower-role
+dashboard sessions, and a live deployment.
 
-MCP still uses the fixed operator scope and local operator bridge policy.
-Any authenticated replacement needs its own proof; WebSocket changes do not
-certify MCP scoping. Coordination REST access is now admin-only in `76b75a14`,
-but rooms remain shared by key. Deployment remains FOLLOWUP-007.
+MCP requests now authenticate through the REST authentication service; missing
+or invalid credentials get 401 and no default administrative context remains.
+Only global administrators see the operator catalog; narrower roles get the
+caller-scoped persona, pipeline, prompt template and memory tools. Captains use
+a per-start launch credential referenced by environment variable; Mux cannot
+present it. The SSH bridge reads a protected server-side header file. Operator
+migration steps are in `docs/armada-ops.md`. Coordination rooms remain shared by
+key behind global-admin access. Deployment remains FOLLOWUP-007.
 
 ## FOLLOWUP-015 — Asset read visibility and remaining user scope
 

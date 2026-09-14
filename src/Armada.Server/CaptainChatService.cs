@@ -101,8 +101,28 @@ namespace Armada.Server
         /// <param name="request">The new message and prior conversation.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>The assistant reply and its timing statistics.</returns>
-        public async Task<CaptainChatResponse> ChatAsync(string captainId, CaptainChatRequest request, CancellationToken token = default)
+        public Task<CaptainChatResponse> ChatAsync(string captainId, CaptainChatRequest request, CancellationToken token = default)
         {
+            // Without a caller the turn's live events reach global administrators only.
+            return ChatAsync(null, captainId, request, token);
+        }
+
+        /// <summary>
+        /// Send one chat turn to a captain for an authenticated caller. The turn's live chunk, tool and
+        /// thinking events are delivered only to the caller's own sessions and to global administrators.
+        /// </summary>
+        /// <param name="caller">Authenticated caller, or null to deliver live events to global administrators only.</param>
+        /// <param name="captainId">Captain identifier (cpt_ prefix).</param>
+        /// <param name="request">The new message and prior conversation.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The assistant reply and its timing statistics.</returns>
+        public async Task<CaptainChatResponse> ChatAsync(AuthContext? caller, string captainId, CaptainChatRequest request, CancellationToken token = default)
+        {
+            _TurnScope.Value = caller == null || !caller.IsAuthenticated
+                ? Armada.Server.WebSocket.WebSocketDeliveryScope.AdminOnly
+                : Armada.Server.WebSocket.WebSocketDeliveryScope.ForOwner(
+                    Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller),
+                    Armada.Core.Authorization.OwnershipPolicy.UserOf(caller));
             if (String.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
             if (request == null) throw new ArgumentNullException(nameof(request));
             if (String.IsNullOrWhiteSpace(request.Message)) return Fail("A message is required.");
@@ -609,25 +629,35 @@ namespace Armada.Server
             return collected.ToString().Trim();
         }
 
+        // The delivery scope of the chat turn running on this async flow. It is set once per turn from
+        // the caller, so every live event of that turn reaches the same sessions.
+        private static readonly AsyncLocal<Armada.Server.WebSocket.WebSocketDeliveryScope?> _TurnScope =
+            new AsyncLocal<Armada.Server.WebSocket.WebSocketDeliveryScope?>();
+
+        private Armada.Server.WebSocket.WebSocketDeliveryScope CurrentTurnScope()
+        {
+            return _TurnScope.Value ?? Armada.Server.WebSocket.WebSocketDeliveryScope.AdminOnly;
+        }
+
         private void EmitChunk(string? turnId, string delta)
         {
             if (String.IsNullOrEmpty(turnId) || _WebSocketHub == null || String.IsNullOrEmpty(delta)) return;
-            try { _WebSocketHub.BroadcastEvent("ask.chunk", String.Empty, new { turnId, delta }); }
-            catch { }
+            try { _WebSocketHub.BroadcastEvent("ask.chunk", String.Empty, new { turnId, delta }, CurrentTurnScope()); }
+            catch (Exception ex) { _Logging.Debug(_Header + "ask.chunk broadcast failed for turn " + turnId + ": " + ex.Message); }
         }
 
         private void EmitTool(string? turnId, object payload)
         {
             if (String.IsNullOrEmpty(turnId) || _WebSocketHub == null) return;
-            try { _WebSocketHub.BroadcastEvent("ask.tool", String.Empty, payload); }
-            catch { }
+            try { _WebSocketHub.BroadcastEvent("ask.tool", String.Empty, payload, CurrentTurnScope()); }
+            catch (Exception ex) { _Logging.Debug(_Header + "ask.tool broadcast failed for turn " + turnId + ": " + ex.Message); }
         }
 
         private void EmitThinking(string? turnId, string delta)
         {
             if (String.IsNullOrEmpty(turnId) || _WebSocketHub == null || String.IsNullOrEmpty(delta)) return;
-            try { _WebSocketHub.BroadcastEvent("ask.thinking", String.Empty, new { turnId, delta }); }
-            catch { }
+            try { _WebSocketHub.BroadcastEvent("ask.thinking", String.Empty, new { turnId, delta }, CurrentTurnScope()); }
+            catch (Exception ex) { _Logging.Debug(_Header + "ask.thinking broadcast failed for turn " + turnId + ": " + ex.Message); }
         }
 
         private static string? Truncate(string? value, int max)

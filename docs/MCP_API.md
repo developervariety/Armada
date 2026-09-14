@@ -234,6 +234,10 @@ When a structured result includes an action hint, follow it before you retry.
 Do not repeat a dispatch call until you have checked whether it created a
 voyage.
 
+`armada_transition_mission_status` runs as the authenticated caller. A mission
+the caller may not read returns `Mission not found` and is not changed. The
+change it applies is broadcast with the mission owner's delivery scope.
+
 `armada_transition_mission_status` uses the same operator transition path as
 the REST status route and the WebSocket `transition_mission_status` command. A
 manual `Complete` that fails a completion gate returns a structured error result

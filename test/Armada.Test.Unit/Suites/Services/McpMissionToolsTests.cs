@@ -9,6 +9,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
+    using Armada.Server.Mcp;
     using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
@@ -24,6 +25,59 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("TransitionMissionStatus_CallerOutsideMissionOwnerIsRefusedWithoutChange", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("owned transition")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        Status = MissionStatusEnum.Pending
+                    }).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? transitionHandler = null;
+                    // No transition service is supplied, so a caller who passes the scope check
+                    // receives the unavailable refusal; only the scope check yields "Mission not found".
+                    McpMissionTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_transition_mission_status") transitionHandler = handler; },
+                        testDb.Driver,
+                        new RecordingAdmiralDouble(),
+                        null,
+                        null);
+                    AssertNotNull(transitionHandler, "armada_transition_mission_status handler must be registered");
+                    JsonElement args = JsonSerializer.SerializeToElement(new { missionId = mission.Id, status = "Assigned" });
+
+                    AuthContext otherTenantUser = AuthContext.Authenticated("ten_other", "usr_other", false, false, "Test");
+                    string foreignJson;
+                    using (McpCallerContext.Begin(otherTenantUser))
+                    {
+                        foreignJson = JsonSerializer.Serialize(await transitionHandler!(args).ConfigureAwait(false));
+                    }
+                    AssertContains("Mission not found", foreignJson, "another tenant's caller cannot transition or discover the mission");
+
+                    AuthContext otherTenantAdmin = AuthContext.Authenticated("ten_other", "usr_other_admin", false, true, "Test");
+                    string foreignAdminJson;
+                    using (McpCallerContext.Begin(otherTenantAdmin))
+                    {
+                        foreignAdminJson = JsonSerializer.Serialize(await transitionHandler!(args).ConfigureAwait(false));
+                    }
+                    AssertContains("Mission not found", foreignAdminJson, "a tenant administrator cannot transition another tenant's mission");
+
+                    AuthContext ownerTenantAdmin = AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, "usr_owner_admin", false, true, "Test");
+                    string ownerJson;
+                    using (McpCallerContext.Begin(ownerTenantAdmin))
+                    {
+                        ownerJson = JsonSerializer.Serialize(await transitionHandler!(args).ConfigureAwait(false));
+                    }
+                    AssertFalse(ownerJson.Contains("Mission not found", StringComparison.Ordinal),
+                        "the owning tenant's administrator passes the scope check: " + ownerJson);
+
+                    Mission? unchanged = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual(MissionStatusEnum.Pending, unchanged!.Status, "a refused transition leaves the mission unchanged");
+                }
+            });
+
             await RunTest("MissionOutput_ReturnsPersistedDigestBackedPage", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

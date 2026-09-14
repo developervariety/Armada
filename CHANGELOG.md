@@ -837,6 +837,31 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   runtime starts. Before, a tenant administrator could chat with, and run the
   model of, a captain in another tenant.
 
+### WebSocket events reach only the sessions that may read them
+
+- Any authenticated WebSocket session may now subscribe. Before, subscribe
+  required a global administrator because every broadcast went to every
+  subscriber.
+- Each broadcast carries a delivery scope taken from the record it describes:
+  missions, voyages, captains, check runs, objectives, deployments, incidents,
+  runbook executions, planning and refinement sessions, and events the Admiral
+  writes. It reaches the owning user, the owning tenant's administrators and
+  global administrators. An event with no known owner reaches global
+  administrators only.
+- Mission status transitions made through the shared transition path, from
+  REST, WebSocket `transition_mission_status` or MCP, broadcast with the
+  mission owner's scope. Other events caused by a WebSocket command still reach
+  global administrators only. A refused transition is a reply to the requesting
+  session alone and changes nothing.
+- MCP `armada_transition_mission_status` runs as the authenticated caller. A
+  mission the caller may not read is reported as not found and is not changed.
+- Replayed and catch-up events obey the same scope as live ones.
+- The fleet status and reconciliation snapshot go to global administrators
+  only; other sessions receive a scoped snapshot and reload through REST.
+- Ask chat chunk, tool and thinking events reach only the caller who started
+  the turn and global administrators. Before, every subscriber received every
+  captain chat turn.
+
 ### MCP requests authenticate
 
 - Every MCP HTTP request now authenticates through the REST authentication

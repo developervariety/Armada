@@ -1498,6 +1498,8 @@ namespace Armada.Server
                 // Broadcast to WebSocket clients
                 if (_WebSocketHub != null)
                 {
+                    // The event already carries its owner's scope, so it reaches only the sessions
+                    // that may read the record it describes; an ownerless event stays admin-only.
                     _WebSocketHub.BroadcastEvent(eventType, message, new
                     {
                         entityType = entityType,
@@ -1506,7 +1508,7 @@ namespace Armada.Server
                         missionId = missionId,
                         vesselId = vesselId,
                         voyageId = voyageId
-                    });
+                    }, Armada.Server.WebSocket.WebSocketDeliveryScope.ForOwner(evt.TenantId, evt.UserId));
                 }
 
                 // Mirror selected fleet events onto the coordination board so concurrent

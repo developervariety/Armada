@@ -867,7 +867,7 @@ namespace Armada.Server.Routes
                     await _database.Signals.CreateAsync(signal).ConfigureAwait(false);
                     await _emitEvent("mission.review_approved", "Mission " + id + " review approved",
                         "mission", id, mission.CaptainId, id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
-                    _webSocketHub?.BroadcastMissionChange(id, mission.Status.ToString(), mission.Title, mission.VoyageId);
+                    _webSocketHub?.BroadcastMissionChange(mission);
                     return (object)mission;
                 }
                 catch (InvalidOperationException ioe)
@@ -913,7 +913,7 @@ namespace Armada.Server.Routes
                     await _database.Signals.CreateAsync(signal).ConfigureAwait(false);
                     await _emitEvent("mission.review_denied", "Mission " + id + " review denied",
                         "mission", id, mission.CaptainId, id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
-                    _webSocketHub?.BroadcastMissionChange(id, mission.Status.ToString(), mission.Title, mission.VoyageId);
+                    _webSocketHub?.BroadcastMissionChange(mission);
                     return (object)mission;
                 }
                 catch (InvalidOperationException ioe)
@@ -1109,7 +1109,8 @@ namespace Armada.Server.Routes
                 // Broadcast specific mission change for dashboard toast notifications
                 if (_webSocketHub != null)
                 {
-                    _webSocketHub.BroadcastMissionChange(id, MissionStatusEnum.Pending.ToString(), mission.Title, mission.VoyageId);
+                    _webSocketHub.BroadcastMissionChange(id, MissionStatusEnum.Pending.ToString(), mission.Title, mission.VoyageId,
+                        WebSocketDeliveryScope.ForOwner(mission.TenantId, mission.UserId));
                 }
 
                 return (object)mission;

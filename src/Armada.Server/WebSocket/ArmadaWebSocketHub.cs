@@ -140,13 +140,27 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
-        /// Broadcast a mission state change to all connected clients.
+        /// Broadcast a mission state change to global administrators. Use the overload that takes a
+        /// delivery scope to reach the mission's owner as well.
         /// </summary>
         /// <param name="missionId">Mission ID.</param>
         /// <param name="status">New status.</param>
         /// <param name="title">Mission title.</param>
         /// <param name="voyageId">Parent voyage ID, or null for a standalone mission.</param>
         public void BroadcastMissionChange(string missionId, string status, string? title, string? voyageId)
+        {
+            BroadcastMissionChange(missionId, status, title, voyageId, WebSocketDeliveryScope.AdminOnly);
+        }
+
+        /// <summary>
+        /// Broadcast a mission state change to the sessions that may read the mission.
+        /// </summary>
+        /// <param name="missionId">Mission ID.</param>
+        /// <param name="status">New status.</param>
+        /// <param name="title">Mission title.</param>
+        /// <param name="voyageId">Parent voyage ID, or null for a standalone mission.</param>
+        /// <param name="scope">Who may receive the event.</param>
+        public void BroadcastMissionChange(string missionId, string status, string? title, string? voyageId, WebSocketDeliveryScope scope)
         {
             WebSocketEventEnvelope payload = new WebSocketEventEnvelope
             {
@@ -161,16 +175,40 @@ namespace Armada.Server.WebSocket
                 Timestamp = DateTime.UtcNow
             };
 
-            BroadcastEvent(payload);
+            BroadcastEvent(payload, scope);
         }
 
         /// <summary>
-        /// Broadcast a voyage state change to all connected clients.
+        /// Broadcast a mission state change to the sessions that may read the mission.
+        /// </summary>
+        /// <param name="mission">Changed mission.</param>
+        public void BroadcastMissionChange(Mission mission)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            BroadcastMissionChange(mission.Id, mission.Status.ToString(), mission.Title, mission.VoyageId,
+                WebSocketDeliveryScope.ForOwner(mission.TenantId, mission.UserId));
+        }
+
+        /// <summary>
+        /// Broadcast a voyage state change to global administrators. Use the overload that takes a
+        /// delivery scope to reach the voyage's owner as well.
         /// </summary>
         /// <param name="voyageId">Voyage ID.</param>
         /// <param name="status">New status.</param>
         /// <param name="title">Voyage title.</param>
         public void BroadcastVoyageChange(string voyageId, string status, string? title = null)
+        {
+            BroadcastVoyageChange(voyageId, status, title, WebSocketDeliveryScope.AdminOnly);
+        }
+
+        /// <summary>
+        /// Broadcast a voyage state change to the sessions that may read the voyage.
+        /// </summary>
+        /// <param name="voyageId">Voyage ID.</param>
+        /// <param name="status">New status.</param>
+        /// <param name="title">Voyage title.</param>
+        /// <param name="scope">Who may receive the event.</param>
+        public void BroadcastVoyageChange(string voyageId, string status, string? title, WebSocketDeliveryScope scope)
         {
             WebSocketEventEnvelope payload = new WebSocketEventEnvelope
             {
@@ -184,16 +222,44 @@ namespace Armada.Server.WebSocket
                 Timestamp = DateTime.UtcNow
             };
 
-            BroadcastEvent(payload);
+            BroadcastEvent(payload, scope);
         }
 
         /// <summary>
-        /// Broadcast a captain state change to all connected clients.
+        /// Broadcast a voyage state change to the sessions that may read the voyage.
+        /// </summary>
+        /// <param name="voyage">Changed voyage.</param>
+        public void BroadcastVoyageChange(Voyage voyage)
+        {
+            if (voyage == null) throw new ArgumentNullException(nameof(voyage));
+            BroadcastVoyageChange(voyage.Id, voyage.Status.ToString(), voyage.Title,
+                WebSocketDeliveryScope.ForOwner(voyage.TenantId, voyage.UserId));
+        }
+
+        /// <summary>
+        /// Broadcast a captain state change to global administrators. Use the overload that takes the
+        /// captain to reach its owner as well.
         /// </summary>
         /// <param name="captainId">Captain ID.</param>
         /// <param name="state">New state.</param>
         /// <param name="name">Captain name.</param>
         public void BroadcastCaptainChange(string captainId, string state, string? name = null)
+        {
+            BroadcastCaptainChange(captainId, state, name, WebSocketDeliveryScope.AdminOnly);
+        }
+
+        /// <summary>
+        /// Broadcast a captain state change to the sessions that may read the captain.
+        /// </summary>
+        /// <param name="captain">Changed captain.</param>
+        public void BroadcastCaptainChange(Captain captain)
+        {
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            BroadcastCaptainChange(captain.Id, captain.State.ToString(), captain.Name,
+                WebSocketDeliveryScope.ForOwner(captain.TenantId, captain.UserId));
+        }
+
+        private void BroadcastCaptainChange(string captainId, string state, string? name, WebSocketDeliveryScope scope)
         {
             WebSocketEventEnvelope payload = new WebSocketEventEnvelope
             {
@@ -207,11 +273,11 @@ namespace Armada.Server.WebSocket
                 Timestamp = DateTime.UtcNow
             };
 
-            BroadcastEvent(payload);
+            BroadcastEvent(payload, scope);
         }
 
         /// <summary>
-        /// Broadcast a structured check-run change to all connected clients.
+        /// Broadcast a structured check-run change to the sessions that may read the check run.
         /// </summary>
         /// <param name="run">Changed check run.</param>
         public void BroadcastCheckRunChange(CheckRun run)
@@ -223,11 +289,11 @@ namespace Armada.Server.WebSocket
                 Timestamp = DateTime.UtcNow
             };
 
-            BroadcastEvent(payload);
+            BroadcastEvent(payload, WebSocketDeliveryScope.ForOwner(run.TenantId, run.UserId));
         }
 
         /// <summary>
-        /// Broadcast an objective change to all connected clients.
+        /// Broadcast an objective change to the sessions that may read the objective.
         /// </summary>
         /// <param name="objective">Changed objective.</param>
         public void BroadcastObjectiveChange(Objective objective)
@@ -239,15 +305,16 @@ namespace Armada.Server.WebSocket
                 Timestamp = DateTime.UtcNow
             };
 
-            BroadcastEvent(payload);
+            BroadcastEvent(payload, WebSocketDeliveryScope.ForOwner(objective.TenantId, objective.UserId));
         }
 
         /// <summary>
-        /// Broadcast a deployment change to all connected clients.
+        /// Broadcast a deployment change to the sessions that may read the deployment.
         /// </summary>
         /// <param name="deployment">Changed deployment.</param>
         public void BroadcastDeploymentChange(Deployment deployment)
         {
+            WebSocketDeliveryScope deploymentScope = WebSocketDeliveryScope.ForOwner(deployment.TenantId, deployment.UserId);
             WebSocketEventEnvelope changedPayload = new WebSocketEventEnvelope
             {
                 Type = "deployment.changed",
@@ -255,7 +322,7 @@ namespace Armada.Server.WebSocket
                 Timestamp = DateTime.UtcNow
             };
 
-            BroadcastEvent(changedPayload);
+            BroadcastEvent(changedPayload, deploymentScope);
 
             WebSocketEventEnvelope progressPayload = new WebSocketEventEnvelope
             {
@@ -275,7 +342,7 @@ namespace Armada.Server.WebSocket
                 Timestamp = DateTime.UtcNow
             };
 
-            BroadcastEvent(progressPayload);
+            BroadcastEvent(progressPayload, deploymentScope);
 
             if (!String.IsNullOrWhiteSpace(deployment.EnvironmentId) || !String.IsNullOrWhiteSpace(deployment.EnvironmentName))
             {
@@ -298,12 +365,12 @@ namespace Armada.Server.WebSocket
                     Timestamp = DateTime.UtcNow
                 };
 
-                BroadcastEvent(environmentPayload);
+                BroadcastEvent(environmentPayload, deploymentScope);
             }
         }
 
         /// <summary>
-        /// Broadcast an incident change to all connected clients.
+        /// Broadcast an incident change to the sessions that may read the incident.
         /// </summary>
         /// <param name="incident">Changed incident.</param>
         public void BroadcastIncidentChange(Incident incident)
@@ -315,11 +382,11 @@ namespace Armada.Server.WebSocket
                 Timestamp = DateTime.UtcNow
             };
 
-            BroadcastEvent(payload);
+            BroadcastEvent(payload, WebSocketDeliveryScope.ForOwner(incident.TenantId, incident.UserId));
         }
 
         /// <summary>
-        /// Broadcast a runbook execution change to all connected clients.
+        /// Broadcast a runbook execution change to the sessions that may read the execution.
         /// </summary>
         /// <param name="execution">Changed runbook execution.</param>
         public void BroadcastRunbookExecutionChange(RunbookExecution execution)
@@ -331,11 +398,12 @@ namespace Armada.Server.WebSocket
                 Timestamp = DateTime.UtcNow
             };
 
-            BroadcastEvent(payload);
+            BroadcastEvent(payload, WebSocketDeliveryScope.ForOwner(execution.TenantId, execution.UserId));
         }
 
         /// <summary>
-        /// Broadcast an approval-needed notification when a mission enters review.
+        /// Broadcast an approval-needed notification, to the sessions that may read the mission, when a
+        /// mission enters review.
         /// </summary>
         /// <param name="mission">Mission awaiting approval.</param>
         public void BroadcastApprovalNeeded(Mission mission)
@@ -357,16 +425,29 @@ namespace Armada.Server.WebSocket
                 Timestamp = DateTime.UtcNow
             };
 
-            BroadcastEvent(payload);
+            BroadcastEvent(payload, WebSocketDeliveryScope.ForOwner(mission.TenantId, mission.UserId));
         }
 
         /// <summary>
-        /// Broadcast a generic event to all connected clients.
+        /// Broadcast a generic event to global administrators. Use the overload that takes a delivery
+        /// scope to reach the owner of the record the event describes.
         /// </summary>
         /// <param name="eventType">Event type string.</param>
         /// <param name="message">Event message.</param>
         /// <param name="data">Optional additional data.</param>
         public void BroadcastEvent(string eventType, string message, object? data = null)
+        {
+            BroadcastEvent(eventType, message, data, WebSocketDeliveryScope.AdminOnly);
+        }
+
+        /// <summary>
+        /// Broadcast a generic event to the sessions a delivery scope allows.
+        /// </summary>
+        /// <param name="eventType">Event type string.</param>
+        /// <param name="message">Event message.</param>
+        /// <param name="data">Optional additional data.</param>
+        /// <param name="scope">Who may receive the event.</param>
+        public void BroadcastEvent(string eventType, string message, object? data, WebSocketDeliveryScope scope)
         {
             WebSocketEventEnvelope payload = new WebSocketEventEnvelope
             {
@@ -376,7 +457,7 @@ namespace Armada.Server.WebSocket
                 Timestamp = DateTime.UtcNow
             };
 
-            BroadcastEvent(payload);
+            BroadcastEvent(payload, scope);
         }
 
         #endregion
@@ -421,17 +502,9 @@ namespace Armada.Server.WebSocket
 
                 if (string.Equals(route, "subscribe", StringComparison.OrdinalIgnoreCase))
                 {
-                    // The status snapshot and broadcasts are not filtered by tenant or user, so
-                    // only a global administrator may receive them. The connection stays open
-                    // so a client does not reconnect in a loop.
-                    if (!connection.Auth.IsAdmin)
-                    {
-                        EnqueueOrDisconnect(sessionId, JsonSerializer.Serialize(
-                            new { type = "subscribe.forbidden", message = "Live WebSocket events require a global administrator." },
-                            _JsonOptions));
-                        return;
-                    }
-
+                    // Any authenticated session may subscribe. Each event carries a delivery scope and
+                    // reaches only the sessions that may read the record it describes; fleet-wide
+                    // aggregates stay with global administrators.
                     WebSocketSubscribeRequest request = JsonSerializer.Deserialize<WebSocketSubscribeRequest>(body, _JsonOptions)
                         ?? new WebSocketSubscribeRequest { Route = "subscribe" };
                     await ActivateSubscriptionAsync(sessionId, request).ConfigureAwait(false);
@@ -476,7 +549,7 @@ namespace Armada.Server.WebSocket
             }
         }
 
-        private void BroadcastEvent(WebSocketEventEnvelope payload)
+        private void BroadcastEvent(WebSocketEventEnvelope payload, WebSocketDeliveryScope scope)
         {
             try
             {
@@ -489,11 +562,12 @@ namespace Armada.Server.WebSocket
                         payload.StreamId = streamId;
                         payload.Cursor = cursor;
                         return JsonSerializer.Serialize(payload, _JsonOptions);
-                    });
+                    }, scope);
                     foreach (KeyValuePair<Guid, ClientConnection> kvp in _Sessions)
                     {
                         ClientConnection connection = kvp.Value;
                         if (!connection.Subscribed) continue;
+                        if (!record.Scope.CanReceive(connection.Auth)) continue;
                         if (!connection.Session.IsConnected || !connection.Output.TryEnqueue(record.Frame))
                             disconnected.Add(kvp);
                     }
@@ -529,10 +603,15 @@ namespace Armada.Server.WebSocket
                     replay = _ReplayBuffer.ReadAfter(request.StreamId, request.Cursor.Value);
             }
 
-            ArmadaStatus status = await _Admiral.GetStatusAsync().ConfigureAwait(false);
-            FleetReconciliationSnapshot reconciliation = await _SnapshotService
-                .GetAsync(request.VoyageId)
-                .ConfigureAwait(false);
+            // The status and reconciliation snapshots aggregate every tenant, so only a global
+            // administrator receives them. A narrower session gets a scoped snapshot and reloads its
+            // own records through the REST API, which applies its scope.
+            if (!_Sessions.TryGetValue(sessionId, out ClientConnection? subscriber)) return;
+            bool fleetWide = subscriber.Auth != null && subscriber.Auth.IsAdmin;
+            ArmadaStatus? status = fleetWide ? await _Admiral.GetStatusAsync().ConfigureAwait(false) : null;
+            FleetReconciliationSnapshot? reconciliation = fleetWide
+                ? await _SnapshotService.GetAsync(request.VoyageId).ConfigureAwait(false)
+                : null;
 
             ClientConnection? failedConnection = null;
             lock (_BroadcastLock)
@@ -540,8 +619,8 @@ namespace Armada.Server.WebSocket
                 if (!_Sessions.TryGetValue(sessionId, out ClientConnection? connection)) return;
                 WebSocketReplayReadResult catchUp = _ReplayBuffer.ReadAfter(_ReplayBuffer.StreamId, snapshotWatermark);
                 string? gapReason = replay?.GapReason;
-                IReadOnlyList<WebSocketReplayRecord> initialRecords = replay?.Records ?? Array.Empty<WebSocketReplayRecord>();
-                IReadOnlyList<WebSocketReplayRecord> catchUpRecords = catchUp.Records;
+                IReadOnlyList<WebSocketReplayRecord> initialRecords = FilterForSession(replay?.Records ?? Array.Empty<WebSocketReplayRecord>(), connection.Auth);
+                IReadOnlyList<WebSocketReplayRecord> catchUpRecords = FilterForSession(catchUp.Records, connection.Auth);
                 long readyCursor = _ReplayBuffer.CurrentCursor;
 
                 if (catchUp.HasGap)
@@ -584,7 +663,7 @@ namespace Armada.Server.WebSocket
                     type = "status.snapshot",
                     streamId = _ReplayBuffer.StreamId,
                     cursor = snapshotWatermark,
-                    data = new { status, reconciliation },
+                    data = new { status, reconciliation, scoped = !fleetWide },
                     timestamp = DateTime.UtcNow
                 }, _JsonOptions));
                 foreach (WebSocketReplayRecord record in catchUpRecords) frames.Add(record.Frame);
@@ -608,6 +687,18 @@ namespace Armada.Server.WebSocket
 
             if (failedConnection != null)
                 DisconnectConnection(sessionId, failedConnection, "Outbound subscription queue reached its capacity.");
+        }
+
+        private static IReadOnlyList<WebSocketReplayRecord> FilterForSession(IReadOnlyList<WebSocketReplayRecord> records, AuthContext? auth)
+        {
+            // Replayed events obey the same delivery scope as live ones, so reconnecting never reveals
+            // an event the session could not have received.
+            List<WebSocketReplayRecord> allowed = new List<WebSocketReplayRecord>(records.Count);
+            foreach (WebSocketReplayRecord record in records)
+            {
+                if (record.Scope.CanReceive(auth)) allowed.Add(record);
+            }
+            return allowed;
         }
 
         private void EnqueueOrDisconnect(Guid sessionId, string json)

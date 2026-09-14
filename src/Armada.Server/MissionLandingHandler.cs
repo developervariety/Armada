@@ -219,7 +219,8 @@ namespace Armada.Server
 
                 if (_WebSocketHub != null)
                 {
-                    _WebSocketHub.BroadcastMissionChange(mission.Id, MissionStatusEnum.Failed.ToString(), mission.Title, mission.VoyageId);
+                    _WebSocketHub.BroadcastMissionChange(mission.Id, MissionStatusEnum.Failed.ToString(), mission.Title, mission.VoyageId,
+                        WebSocketDeliveryScope.ForOwner(mission.TenantId, mission.UserId));
                 }
                 return;
             }
@@ -328,6 +329,7 @@ namespace Armada.Server
                         // Broadcast PullRequestOpen via WebSocket
                         if (_WebSocketHub != null)
                         {
+                            WebSocketDeliveryScope pullRequestScope = WebSocketDeliveryScope.ForOwner(mission.TenantId, mission.UserId);
                             _WebSocketHub.BroadcastEvent("mission.pull_request_open", "Pull request opened: " + mission.Title, new
                             {
                                 entityType = "mission",
@@ -336,8 +338,8 @@ namespace Armada.Server
                                 missionId = mission.Id,
                                 vesselId = mission.VesselId,
                                 voyageId = mission.VoyageId
-                            });
-                            _WebSocketHub.BroadcastMissionChange(mission.Id, MissionStatusEnum.PullRequestOpen.ToString(), mission.Title, mission.VoyageId);
+                            }, pullRequestScope);
+                            _WebSocketHub.BroadcastMissionChange(mission.Id, MissionStatusEnum.PullRequestOpen.ToString(), mission.Title, mission.VoyageId, pullRequestScope);
                         }
 
                         // PR path handles its own status — skip the generic landing result block below
@@ -849,10 +851,10 @@ namespace Armada.Server
                     missionId = mission.Id,
                     vesselId = mission.VesselId,
                     voyageId = mission.VoyageId
-                });
+                }, WebSocketDeliveryScope.ForOwner(mission.TenantId, mission.UserId));
 
                 // Broadcast specific mission change for dashboard toast notifications
-                _WebSocketHub.BroadcastMissionChange(mission.Id, mission.Status.ToString(), mission.Title, mission.VoyageId);
+                _WebSocketHub.BroadcastMissionChange(mission);
             }
 
             // NOTE: Dock reclaim is NOT done here. MissionService.HandleCompletionAsync
@@ -885,7 +887,7 @@ namespace Armada.Server
 
             if (_WebSocketHub != null)
             {
-                _WebSocketHub.BroadcastVoyageChange(voyage.Id, voyage.Status.ToString(), voyage.Title);
+                _WebSocketHub.BroadcastVoyageChange(voyage);
             }
 
             return Task.CompletedTask;
@@ -1000,6 +1002,7 @@ namespace Armada.Server
                                 // Broadcast via WebSocket
                                 if (_WebSocketHub != null)
                                 {
+                                    WebSocketDeliveryScope completedScope = WebSocketDeliveryScope.ForOwner(mission.TenantId, mission.UserId);
                                     _WebSocketHub.BroadcastEvent("mission.completed", "Mission completed (PR merged): " + mission.Title, new
                                     {
                                         entityType = "mission",
@@ -1008,8 +1011,8 @@ namespace Armada.Server
                                         missionId = mission.Id,
                                         vesselId = mission.VesselId,
                                         voyageId = mission.VoyageId
-                                    });
-                                    _WebSocketHub.BroadcastMissionChange(mission.Id, MissionStatusEnum.Complete.ToString(), mission.Title, mission.VoyageId);
+                                    }, completedScope);
+                                    _WebSocketHub.BroadcastMissionChange(mission.Id, MissionStatusEnum.Complete.ToString(), mission.Title, mission.VoyageId, completedScope);
                                 }
                             }
                         }

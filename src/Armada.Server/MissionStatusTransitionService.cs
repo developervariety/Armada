@@ -174,7 +174,8 @@ namespace Armada.Server
                     await _EmitEvent("mission.status_changed", "Mission " + id + " manually completed — " + outcomeText + mission.Status,
                         "mission", id, mission.CaptainId, id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
 
-                    _WebSocketHub?.BroadcastMissionChange(id, mission.Status.ToString(), mission.Title, mission.VoyageId);
+                    // The record overload carries the mission owner's delivery scope.
+                    _WebSocketHub?.BroadcastMissionChange(mission);
                     return MissionStatusTransitionResult.Applied(mission);
                 }
             }
@@ -228,7 +229,7 @@ namespace Armada.Server
 
             if (_WebSocketHub != null)
             {
-                _WebSocketHub.BroadcastMissionChange(id, newStatus.ToString(), mission.Title, mission.VoyageId);
+                _WebSocketHub.BroadcastMissionChange(mission);
                 if (newStatus == MissionStatusEnum.Review)
                     _WebSocketHub.BroadcastApprovalNeeded(mission);
             }

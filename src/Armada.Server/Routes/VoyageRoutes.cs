@@ -495,12 +495,13 @@ namespace Armada.Server.Routes
                 // Broadcast voyage and mission cancellations for dashboard toast notifications
                 if (_webSocketHub != null)
                 {
-                    _webSocketHub.BroadcastVoyageChange(id, VoyageStatusEnum.Cancelled.ToString(), voyage.Title);
+                    _webSocketHub.BroadcastVoyageChange(id, VoyageStatusEnum.Cancelled.ToString(), voyage.Title,
+                        WebSocketDeliveryScope.ForOwner(voyage.TenantId, voyage.UserId));
                     foreach (Mission cm in missions)
                     {
                         if (cm.Status == MissionStatusEnum.Cancelled)
                         {
-                            _webSocketHub.BroadcastMissionChange(cm.Id, MissionStatusEnum.Cancelled.ToString(), cm.Title, cm.VoyageId);
+                            _webSocketHub.BroadcastMissionChange(cm);
                         }
                     }
                 }

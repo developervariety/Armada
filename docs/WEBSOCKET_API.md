@@ -143,10 +143,27 @@ this frame and not in the URL. Query strings appear in request logs.
   `auth.required` and closes the session.
 - `command` requires a global administrator, because the command handler does
   not apply tenant or user scope. Other sessions receive `command.error`.
-- `subscribe` also requires a global administrator. The status snapshot and
-  the broadcast events are not yet filtered by tenant or user, so a session
-  with narrower rights receives `subscribe.forbidden` and keeps its connection.
-  Dashboard pages for such a session refresh through the REST API.
+- `subscribe` is open to any authenticated session. Each event carries a
+  delivery scope and reaches only the sessions that may read the record it
+  describes: the owning user, administrators of the owning tenant, and global
+  administrators. An event with no known owner, such as a coordination board
+  note or a scheduler event, reaches global administrators only. Replayed and
+  catch-up events obey the same rule, so reconnecting never reveals an event the
+  session could not have received live.
+- The `status.snapshot` fleet status and reconciliation aggregate every tenant,
+  so only a global administrator receives them. For any other session both are
+  `null` and `data.scoped` is `true`; such a session loads its own records
+  through the REST API, which applies its scope.
+- Ask chat `ask.chunk`, `ask.tool` and `ask.thinking` events reach only the
+  caller's own sessions and global administrators. Planning and objective
+  refinement session events follow the session's owner. A mission status
+  change applied by `transition_mission_status` follows the mission's owner,
+  like the same change made through REST or MCP. Other events caused by a
+  WebSocket `command` reach global administrators only.
+- Cursors are positions in one stream shared by every session. A scoped session
+  does not receive events it may not read, so its cursors can skip. Detect lost
+  history from `event.gap` frames; cursor arithmetic is reliable only for a
+  global-administrator session, which receives every event.
 
 The server handles frames in order, so a client can send `authenticate` and
 `subscribe` together.
@@ -1619,6 +1636,11 @@ unchanged and returns a `command.error` frame that names the reason:
   "reason": "manual_completion_ancestry_unavailable"
 }
 ```
+
+The `command.result` or `command.error` frame is a reply to the session that sent
+the command; no other session receives it. An applied transition is announced to
+subscribers as a mission change that reaches only the sessions that may read the
+mission.
 
 **Request:**
 

@@ -121,7 +121,7 @@ namespace Armada.Test.Automated.Suites
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("Authenticate_NonAdminUser_CannotSubscribeOrRunCommands", async () =>
+            await RunTest("Authenticate_NonAdminUser_ReceivesScopedSnapshotAndNoForeignEvents", async () =>
             {
                 string email = "ws-user-" + Guid.NewGuid().ToString("N").Substring(0, 8) + "@test.armada";
                 using (StringContent content = new StringContent(
@@ -145,17 +145,56 @@ namespace Armada.Test.Automated.Suites
                         JsonElement refused = await WaitForTypeAsync(ws, "command.error").ConfigureAwait(false);
                         AssertContains("administrator", refused.GetProperty("error").GetString() ?? "");
 
-                        // The snapshot and broadcasts are not filtered by tenant or user, so a
-                        // narrower session must not receive them.
+                        // A narrower session may subscribe. The fleet-wide aggregates are withheld,
+                        // and the snapshot says it is scoped.
                         await SendJsonAsync(ws, new { Route = "subscribe" }).ConfigureAwait(false);
-                        JsonElement? subscribeReply = await ReceiveFrameOrCloseAsync(ws, 10).ConfigureAwait(false);
-                        AssertTrue(subscribeReply.HasValue, "Expected a subscribe reply on an open connection");
-                        AssertEqual("subscribe.forbidden", subscribeReply!.Value.GetProperty("type").GetString());
+                        JsonElement snapshot = await WaitForTypeAsync(ws, "status.snapshot").ConfigureAwait(false);
+                        JsonElement snapshotData = snapshot.GetProperty("data");
+                        AssertTrue(snapshotData.GetProperty("scoped").GetBoolean(), "a narrower session receives a scoped snapshot");
+                        AssertEqual(JsonValueKind.Null, snapshotData.GetProperty("status").ValueKind, "fleet status is withheld");
+                        AssertEqual(JsonValueKind.Null, snapshotData.GetProperty("reconciliation").ValueKind, "fleet reconciliation is withheld");
+                        await WaitForTypeAsync(ws, "stream.ready").ConfigureAwait(false);
 
-                        // The connection stays open, so the dashboard does not reconnect in a loop.
-                        await SendJsonAsync(ws, new { Route = "command", action = "status" }).ConfigureAwait(false);
-                        JsonElement stillOpen = await WaitForTypeAsync(ws, "command.error").ConfigureAwait(false);
-                        AssertEqual("command.error", stillOpen.GetProperty("type").GetString());
+                        // An administrator session subscribed at the same time proves the event was
+                        // broadcast, so silence on the user session is filtering, not a missing event.
+                        using (ClientWebSocket admin = await ConnectAsync().ConfigureAwait(false))
+                        {
+                            await SendJsonAsync(admin, new { Route = "subscribe" }).ConfigureAwait(false);
+                            await WaitForTypeAsync(admin, "stream.ready").ConfigureAwait(false);
+
+                            string voyageId = await CreateVoyageViaRestAsync("ws-scoped-voyage").ConfigureAwait(false);
+                            HttpResponseMessage cancel = await _AuthClient.DeleteAsync("/api/v1/voyages/" + voyageId).ConfigureAwait(false);
+                            cancel.EnsureSuccessStatusCode();
+
+                            bool adminSaw = false;
+                            DateTime adminDeadline = DateTime.UtcNow.AddSeconds(15);
+                            while (!adminSaw && DateTime.UtcNow < adminDeadline)
+                            {
+                                JsonElement? frame = await ReceiveFrameOrCloseAsync(admin, 15).ConfigureAwait(false);
+                                if (!frame.HasValue) break;
+                                adminSaw = frame.Value.GetRawText().Contains(voyageId, StringComparison.Ordinal);
+                            }
+                            AssertTrue(adminSaw, "the administrator session receives the voyage event");
+
+                            // The broadcast was queued before this command was sent, so a delivered voyage
+                            // event would arrive ahead of the command reply. Every frame up to the reply
+                            // must omit the voyage. The reply also proves commands still need a global
+                            // administrator after subscribing.
+                            await SendJsonAsync(ws, new { Route = "command", action = "status" }).ConfigureAwait(false);
+                            JsonElement? stillRefused = null;
+                            DateTime userDeadline = DateTime.UtcNow.AddSeconds(15);
+                            while (stillRefused == null && DateTime.UtcNow < userDeadline)
+                            {
+                                JsonElement? frame = await ReceiveFrameOrCloseAsync(ws, 15).ConfigureAwait(false);
+                                AssertTrue(frame.HasValue, "the user session stays open while waiting for the command reply");
+                                AssertFalse(frame!.Value.GetRawText().Contains(voyageId, StringComparison.Ordinal),
+                                    "a user in the same tenant must not receive another user's voyage event");
+                                if (frame.Value.TryGetProperty("type", out JsonElement frameType) && frameType.GetString() == "command.error")
+                                    stillRefused = frame.Value;
+                            }
+                            AssertTrue(stillRefused.HasValue, "the user session receives the command refusal");
+                            AssertContains("administrator", stillRefused!.Value.GetProperty("error").GetString() ?? "");
+                        }
                     }
                 }
             }).ConfigureAwait(false);
@@ -634,6 +673,51 @@ namespace Armada.Test.Automated.Suites
                 JsonElement resp = await WsCommandAsync("transition_mission_status", new { id = missionId, status = "Complete" }).ConfigureAwait(false);
                 AssertEqual("command.error", resp.GetProperty("type").GetString());
                 AssertContains("Invalid transition", resp.GetProperty("error").GetString()!);
+            }).ConfigureAwait(false);
+
+            await RunTest("TransitionMissionStatus_Refused_RepliesOnlyToCallingSession", async () =>
+            {
+                string missionId = await CreateMissionViaRestAsync("ws-refused-transition-scope").ConfigureAwait(false);
+                Mission? before = await JsonHelper.DeserializeAsync<Mission>(
+                    await _AuthClient.GetAsync("/api/v1/missions/" + missionId).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertNotNull(before, "the mission reads back before the transition");
+
+                using (ClientWebSocket caller = await ConnectAsync().ConfigureAwait(false))
+                using (ClientWebSocket observer = await ConnectAsync().ConfigureAwait(false))
+                {
+                    await SendJsonAsync(observer, new { Route = "subscribe" }).ConfigureAwait(false);
+                    await WaitForTypeAsync(observer, "stream.ready").ConfigureAwait(false);
+
+                    // A newly created mission cannot move straight to Complete, so the shared
+                    // transition path refuses it.
+                    await SendJsonAsync(caller, new { Route = "command", action = "transition_mission_status", id = missionId, status = "Complete" }).ConfigureAwait(false);
+                    JsonElement refusal = await WaitForTypeAsync(caller, "command.error").ConfigureAwait(false);
+                    AssertEqual("transition_mission_status", refusal.GetProperty("action").GetString());
+                    AssertContains("Invalid transition", refusal.GetProperty("error").GetString() ?? "");
+
+                    // The observer's own command reply is queued after the refusal was produced, so a
+                    // refusal or mission change that leaked to it would arrive first.
+                    await SendJsonAsync(observer, new { Route = "command", action = "status" }).ConfigureAwait(false);
+                    bool observerReplied = false;
+                    DateTime deadline = DateTime.UtcNow.AddSeconds(15);
+                    while (!observerReplied && DateTime.UtcNow < deadline)
+                    {
+                        JsonElement? frame = await ReceiveFrameOrCloseAsync(observer, 15).ConfigureAwait(false);
+                        AssertTrue(frame.HasValue, "the observer session stays open while waiting for its command reply");
+                        string raw = frame!.Value.GetRawText();
+                        AssertFalse(raw.Contains("Invalid transition", StringComparison.Ordinal),
+                            "the refusal text reaches only the session that requested the transition");
+                        string? frameType = frame.Value.TryGetProperty("type", out JsonElement typeElement) ? typeElement.GetString() : null;
+                        AssertFalse(frameType == "command.error",
+                            "a refused transition reply is sent only to the session that requested it");
+                        observerReplied = frameType == "command.result";
+                    }
+                    AssertTrue(observerReplied, "the observer session receives its own command reply");
+                }
+
+                Mission? after = await JsonHelper.DeserializeAsync<Mission>(
+                    await _AuthClient.GetAsync("/api/v1/missions/" + missionId).ConfigureAwait(false)).ConfigureAwait(false);
+                AssertEqual(before!.Status, after!.Status, "a refused transition leaves the mission unchanged");
             }).ConfigureAwait(false);
 
             await RunTest("TransitionMissionStatus_InvalidStatusString_ReturnsError", async () =>

@@ -152,7 +152,7 @@ namespace Armada.Server
                 captain.LastHeartbeatUtc = DateTime.UtcNow;
                 captain.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
-                _WebSocketHub?.BroadcastCaptainChange(captain.Id, captain.State.ToString(), captain.Name);
+                _WebSocketHub?.BroadcastCaptainChange(captain);
 
                 BroadcastSessionChanged(session);
                 await _EmitEventAsync(
@@ -192,7 +192,7 @@ namespace Armada.Server
                         failedCaptain.LastHeartbeatUtc = DateTime.UtcNow;
                         failedCaptain.LastUpdateUtc = DateTime.UtcNow;
                         await _Database.Captains.UpdateAsync(failedCaptain, token).ConfigureAwait(false);
-                        _WebSocketHub?.BroadcastCaptainChange(failedCaptain.Id, failedCaptain.State.ToString(), failedCaptain.Name);
+                        _WebSocketHub?.BroadcastCaptainChange(failedCaptain);
                     }
                 }
                 catch
@@ -241,7 +241,7 @@ namespace Armada.Server
                 LastUpdateUtc = DateTime.UtcNow
             };
             userMessage = await _Database.PlanningSessionMessages.CreateAsync(userMessage, token).ConfigureAwait(false);
-            BroadcastMessageCreated(userMessage);
+            BroadcastMessageCreated(session, userMessage);
 
             PlanningSessionMessage assistantMessage = new PlanningSessionMessage
             {
@@ -255,7 +255,7 @@ namespace Armada.Server
                 LastUpdateUtc = DateTime.UtcNow
             };
             assistantMessage = await _Database.PlanningSessionMessages.CreateAsync(assistantMessage, token).ConfigureAwait(false);
-            BroadcastMessageCreated(assistantMessage);
+            BroadcastMessageCreated(session, assistantMessage);
 
             session.Status = PlanningSessionStatusEnum.Responding;
             session.ProcessId = null;
@@ -414,7 +414,8 @@ namespace Armada.Server
                     sessionId = session.Id,
                     voyageId = voyage.Id,
                     messageId = sourceMessage.Id
-                });
+                },
+                SessionScope(session));
 
             await _EmitEventAsync(
                 "planning-session.dispatch.created",
@@ -528,7 +529,8 @@ namespace Armada.Server
                         sessionId = session.Id,
                         messageId = sourceMessage.Id,
                         draft
-                    });
+                    },
+                SessionScope(session));
 
                 await _EmitEventAsync(
                     "planning-session.summary.created",
@@ -570,7 +572,7 @@ namespace Armada.Server
             _WebSocketHub?.BroadcastEvent(
                 "planning-session.deleted",
                 "Planning session deleted",
-                new { sessionId = session.Id });
+                new { sessionId = session.Id }, SessionScope(session));
 
             await _EmitEventAsync(
                 "planning-session.deleted",
@@ -743,7 +745,7 @@ namespace Armada.Server
                     captain.LastHeartbeatUtc = DateTime.UtcNow;
                     captain.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
-                    _WebSocketHub?.BroadcastCaptainChange(captain.Id, captain.State.ToString(), captain.Name);
+                    _WebSocketHub?.BroadcastCaptainChange(captain);
 
                     if (recoveredSession.Status == PlanningSessionStatusEnum.Responding)
                     {
@@ -808,7 +810,7 @@ namespace Armada.Server
                         {
                             ChatToolActivityEvent toolEvent;
                             lock (outputLock) toolEvent = activityTracker.Next(activity);
-                            BroadcastToolActivity(assistantMessage, toolEvent);
+                            BroadcastToolActivity(session, assistantMessage, toolEvent);
                         }
                         return;
                     }
@@ -822,7 +824,7 @@ namespace Armada.Server
 
                     assistantMessage.Content = updatedContent;
                     assistantMessage.LastUpdateUtc = DateTime.UtcNow;
-                    BroadcastMessageUpdated(assistantMessage);
+                    BroadcastMessageUpdated(session, assistantMessage);
                 };
                 runtime.OnProcessExited += (processId, exitCode) => exitSource.TrySetResult(exitCode);
 
@@ -875,7 +877,7 @@ namespace Armada.Server
                 assistantMessage.Content = finalContent.Trim();
                 assistantMessage.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.PlanningSessionMessages.UpdateAsync(assistantMessage).ConfigureAwait(false);
-                BroadcastMessageUpdated(assistantMessage);
+                BroadcastMessageUpdated(session, assistantMessage);
 
                 captain = await RequireCaptainAsync(session.CaptainId, CancellationToken.None).ConfigureAwait(false);
                 captain.ProcessId = null;
@@ -907,7 +909,7 @@ namespace Armada.Server
                         assistantMessage.Content = "Planning response failed: " + ex.Message;
                         assistantMessage.LastUpdateUtc = DateTime.UtcNow;
                         await _Database.PlanningSessionMessages.UpdateAsync(assistantMessage).ConfigureAwait(false);
-                        BroadcastMessageUpdated(assistantMessage);
+                        BroadcastMessageUpdated(session, assistantMessage);
                     }
 
                     if (session != null)
@@ -934,7 +936,7 @@ namespace Armada.Server
                             captain.LastHeartbeatUtc = DateTime.UtcNow;
                             captain.LastUpdateUtc = DateTime.UtcNow;
                             await _Database.Captains.UpdateAsync(captain).ConfigureAwait(false);
-                            _WebSocketHub?.BroadcastCaptainChange(captain.Id, captain.State.ToString(), captain.Name);
+                            _WebSocketHub?.BroadcastCaptainChange(captain);
                         }
                     }
                 }
@@ -1183,7 +1185,7 @@ namespace Armada.Server
                 captain.LastHeartbeatUtc = DateTime.UtcNow;
                 captain.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Captains.UpdateAsync(captain, token).ConfigureAwait(false);
-                _WebSocketHub?.BroadcastCaptainChange(captain.Id, captain.State.ToString(), captain.Name);
+                _WebSocketHub?.BroadcastCaptainChange(captain);
 
                 int? exitCode = await exitSource.Task.ConfigureAwait(false);
 
@@ -1240,7 +1242,7 @@ namespace Armada.Server
                             refreshedCaptain.LastHeartbeatUtc = DateTime.UtcNow;
                             refreshedCaptain.LastUpdateUtc = DateTime.UtcNow;
                             await _Database.Captains.UpdateAsync(refreshedCaptain, CancellationToken.None).ConfigureAwait(false);
-                            _WebSocketHub?.BroadcastCaptainChange(refreshedCaptain.Id, refreshedCaptain.State.ToString(), refreshedCaptain.Name);
+                            _WebSocketHub?.BroadcastCaptainChange(refreshedCaptain);
                         }
                     }
                     catch (Exception ex)
@@ -1418,7 +1420,7 @@ namespace Armada.Server
                     captain.LastHeartbeatUtc = DateTime.UtcNow;
                     captain.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Captains.UpdateAsync(captain).ConfigureAwait(false);
-                    _WebSocketHub?.BroadcastCaptainChange(captain.Id, captain.State.ToString(), captain.Name);
+                    _WebSocketHub?.BroadcastCaptainChange(captain);
                 }
 
                 session = await RequireSessionAsync(session.Id, CancellationToken.None).ConfigureAwait(false);
@@ -1459,15 +1461,22 @@ namespace Armada.Server
             return runtime;
         }
 
+        private static WebSocketDeliveryScope SessionScope(PlanningSession session)
+        {
+            // A session event reaches only the sessions that may read the session.
+            return WebSocketDeliveryScope.ForOwner(session.TenantId, session.UserId);
+        }
+
         private void BroadcastSessionChanged(PlanningSession session)
         {
             _WebSocketHub?.BroadcastEvent(
                 "planning-session.changed",
                 "Planning session updated",
-                new { session });
+                new { session },
+                SessionScope(session));
         }
 
-        private void BroadcastMessageCreated(PlanningSessionMessage message)
+        private void BroadcastMessageCreated(PlanningSession session, PlanningSessionMessage message)
         {
             _WebSocketHub?.BroadcastEvent(
                 "planning-session.message.created",
@@ -1476,10 +1485,11 @@ namespace Armada.Server
                 {
                     sessionId = message.PlanningSessionId,
                     message
-                });
+                },
+                SessionScope(session));
         }
 
-        private void BroadcastMessageUpdated(PlanningSessionMessage message)
+        private void BroadcastMessageUpdated(PlanningSession session, PlanningSessionMessage message)
         {
             _WebSocketHub?.BroadcastEvent(
                 "planning-session.message.updated",
@@ -1488,10 +1498,11 @@ namespace Armada.Server
                 {
                     sessionId = message.PlanningSessionId,
                     message
-                });
+                },
+                SessionScope(session));
         }
 
-        private void BroadcastToolActivity(PlanningSessionMessage message, ChatToolActivityEvent toolEvent)
+        private void BroadcastToolActivity(PlanningSession session, PlanningSessionMessage message, ChatToolActivityEvent toolEvent)
         {
             _WebSocketHub?.BroadcastEvent(
                 "planning-session.tool",
@@ -1505,7 +1516,8 @@ namespace Armada.Server
                     name = toolEvent.Name,
                     arguments = toolEvent.Arguments,
                     ok = toolEvent.Ok
-                });
+                },
+                SessionScope(session));
         }
 
         private async Task<PlanningSession> RequireSessionAsync(string sessionId, CancellationToken token)

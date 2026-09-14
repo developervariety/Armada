@@ -582,8 +582,13 @@ namespace Armada.Server.Mcp.Tools
                     string missionId = request.MissionId;
                     string statusStr = request.Status;
 
+                    // The transition runs as the authenticated caller. A mission the caller may not
+                    // read is reported as missing, so its existence is not disclosed across owners.
+                    AuthContext caller = McpCallerContext.Require();
                     Mission? mission = await database.Missions.ReadAsync(missionId).ConfigureAwait(false);
-                    if (mission == null) return (object)new { Error = "Mission not found" };
+                    if (mission == null
+                        || !Armada.Core.Authorization.OwnershipPolicy.CanView(caller, mission.TenantId, mission.UserId, OwnershipScopeEnum.UserSpecific))
+                        return (object)new { Error = "Mission not found" };
 
                     if (!Enum.TryParse<MissionStatusEnum>(statusStr, true, out MissionStatusEnum newStatus))
                         return (object)new { Error = "Invalid status: " + statusStr };
