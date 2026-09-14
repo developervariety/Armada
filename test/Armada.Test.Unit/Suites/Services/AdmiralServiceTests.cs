@@ -97,15 +97,20 @@ namespace Armada.Test.Unit.Suites.Services
 
         private sealed class CrashLoopExcludedFailureCase
         {
-            public CrashLoopExcludedFailureCase(string name, string logText)
+            public CrashLoopExcludedFailureCase(string name, string logText, bool benchesCaptain)
             {
                 Name = name;
                 LogText = logText;
+                BenchesCaptain = benchesCaptain;
             }
 
             public string Name { get; }
 
             public string LogText { get; }
+
+            // Quota and credential failures bench the captain. A provider safeguard block does not: it follows
+            // the refusal rule, which excludes the blocking runtime for that mission only.
+            public bool BenchesCaptain { get; }
         }
 
         protected override async Task RunTestsAsync()
@@ -1717,13 +1722,16 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     new CrashLoopExcludedFailureCase(
                         "quota",
-                        "[stderr] You've hit your usage limit. try again at 11:57 PM\nAgent exited with code 1"),
+                        "[stderr] You've hit your usage limit. try again at 11:57 PM\nAgent exited with code 1",
+                        benchesCaptain: true),
                     new CrashLoopExcludedFailureCase(
                         "auth",
-                        "[stderr] invalid_api_key\nAgent exited with code 1"),
+                        "[stderr] invalid_api_key\nAgent exited with code 1",
+                        benchesCaptain: true),
                     new CrashLoopExcludedFailureCase(
                         "safeguard",
-                        "[stderr] Safety measures that flagged this message for a cybersecurity topic\nAgent exited with code 1")
+                        "[stderr] Safety measures that flagged this message for a cybersecurity topic\nAgent exited with code 1",
+                        benchesCaptain: false)
                 };
 
                 foreach (CrashLoopExcludedFailureCase testCase in cases)
@@ -1757,10 +1765,26 @@ namespace Armada.Test.Unit.Suites.Services
                             providerFailure.Id).ConfigureAwait(false);
 
                         Captain? providerAfter = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
-                        AssertEqual(
-                            CaptainStateEnum.Quarantined,
-                            providerAfter!.State,
-                            testCase.Name + " provider failure must use the quarantine path before reassignment.");
+                        if (testCase.BenchesCaptain)
+                        {
+                            AssertEqual(
+                                CaptainStateEnum.Quarantined,
+                                providerAfter!.State,
+                                testCase.Name + " provider failure must use the quarantine path before reassignment.");
+                        }
+                        else
+                        {
+                            // With no captain on another runtime, the refusal rule stops the mission with the reason
+                            // and releases the captain instead of benching it.
+                            AssertNotEqual(
+                                CaptainStateEnum.Quarantined,
+                                providerAfter!.State,
+                                testCase.Name + " provider failure must not bench the captain.");
+                            Mission? blocked = await db.Missions.ReadAsync(providerFailure.Id).ConfigureAwait(false);
+                            AssertTrue(
+                                (blocked!.FailureReason ?? "").StartsWith(PolicyRefusalContinuationService.StoppedReasonPrefix, StringComparison.Ordinal),
+                                testCase.Name + " provider failure must stop with the refusal reason: " + blocked.FailureReason);
+                        }
 
                         Mission genericCrash = await CreateExitMissionAsync(db, captain, 9501).ConfigureAwait(false);
                         await service.HandleProcessExitAsync(

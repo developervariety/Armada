@@ -110,6 +110,12 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   excludes every captain on the refusing runtime with no fall-back. A second
   refusal, or no approved alternate, fails the mission with the reason instead
   of retrying the blocked path.
+- A provider safeguard block that ends the captain process follows the same
+  rule, with or without an owner policy. It replaces the previous safeguard
+  re-route, which benched the captain and retried up to five times on any
+  peer, including the runtime that blocked.
+- Autonomous recovery does not rescue a mission that failed with a
+  `policy_refusal:` reason, because a rescue would repeat the blocked path.
 
 ### Execution environment requirements in dispatch preflight
 

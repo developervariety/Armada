@@ -422,13 +422,17 @@ and decision.
 
 | Condition | Outcome |
 | --- | --- |
-| No owner policy applies to the vessel | Normal completion handling |
-| First refusal, an approved captain exists on another runtime | Requeued once as `mission.policy_refusal_continued`; every captain on the refusing runtime is excluded, with no fall-back |
-| Refused again after the continuation | Mission fails with `policy_refusal:` and the reason |
+| A model declined and no owner policy applies to the vessel | Normal completion handling |
+| First refusal or provider safeguard block, an approved captain exists on another runtime | Requeued once as `mission.policy_refusal_continued`; every captain on the refusing runtime is excluded, with no fall-back |
+| Refused or blocked again after the continuation | Mission fails with `policy_refusal:` and the reason |
 | No approved captain on another runtime | Mission fails with `policy_refusal:` and the reason |
 
-The continuation never weakens provider safety policy and never repeats the
-blocked path.
+A provider safeguard block follows the same rule whether it appears in a
+completed run's output or ends the captain process, and with or without an
+owner policy. There is no other safeguard re-route: the captain is not benched,
+and the blocked runtime is never retried. Autonomous recovery does not rescue a
+`policy_refusal:` failure, because a rescue would repeat the blocked path; route
+it by hand. The continuation never weakens provider safety policy.
 
 ### A readable file is not a runnable one
 
@@ -440,8 +444,7 @@ and `licensedContext` (a name listed in the settings
 them against the environment captains launch in, not only against a path the
 Admiral can read, and blocks with one `execution_*` finding per missing
 requirement. Preview never runs a declared executable; it only resolves it on
-the captain PATH. The scheduler and manual dispatch read the same preview. A provider safeguard block that ends the captain process is
-still re-routed by the existing safeguard path.
+the captain PATH. The scheduler and manual dispatch read the same preview.
 
 ### A quiet-host gate must enumerate TERMINAL states, not guess at active ones
 

@@ -120,6 +120,11 @@ namespace Armada.Core.Services
         /// </summary>
         private System.Collections.Concurrent.ConcurrentDictionary<string, Task> _InFlightCompletions = new System.Collections.Concurrent.ConcurrentDictionary<string, Task>();
 
+        // Missions a completion handler returned to Pending for a new assignment. Their in-flight guard is
+        // released at once: the next captain's completion is a new event, not a late duplicate of this one,
+        // and a captain that refuses within seconds would otherwise have its completion silently skipped.
+        private System.Collections.Concurrent.ConcurrentDictionary<string, bool> _RequeuedCompletions = new System.Collections.Concurrent.ConcurrentDictionary<string, bool>();
+
         /// <summary>
         /// Test-only accessor for the in-flight completion gate. Exposed so a unit test
         /// can simulate a sweep tick landing inside the DoD gate window without having
@@ -1017,6 +1022,10 @@ namespace Armada.Core.Services
                 {
                     _InFlightCompletions.TryRemove(missionId, out _);
                 }
+                else if (_RequeuedCompletions.TryRemove(missionId, out _))
+                {
+                    _InFlightCompletions.TryRemove(new KeyValuePair<string, Task>(missionId, gate.Task));
+                }
                 else
                 {
                     // Remove after a delay so late-arriving duplicate calls still see the entry.
@@ -1652,6 +1661,7 @@ namespace Armada.Core.Services
 
                     if (refusalDecision.Outcome == PolicyRefusalContinuationOutcomeEnum.Continue)
                     {
+                        _RequeuedCompletions[mission.Id] = true;
                         if (dock != null)
                         {
                             try

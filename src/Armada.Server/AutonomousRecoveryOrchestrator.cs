@@ -1064,6 +1064,8 @@ namespace Armada.Server
                 return RecoveryDecision.Blocked("read-only mode " + mission.Mode + "; autonomous recovery preserves audit-only scope");
             if (IsAutoRescueMission(mission))
                 return RecoveryDecision.Blocked("failed mission is already an autonomous rescue");
+            if (IsPolicyRefusalFailure(reason))
+                return RecoveryDecision.Blocked("captain refusal already had its one continuation or has no approved alternate runtime; a rescue would repeat the blocked path: " + reason);
             if (IsEnvironmentalFailure(reason))
                 return RecoveryDecision.Blocked("environmental or provisioning fault, which no captain can repair: " + reason);
             if (HasSeriousFailureReason(reason))
@@ -2582,6 +2584,19 @@ namespace Armada.Server
             if (String.IsNullOrWhiteSpace(failedMission.CaptainId)) return false;
             Captain? captain = await _Database.Captains.ReadAsync(failedMission.CaptainId, token).ConfigureAwait(false);
             return captain != null && captain.Runtime == AgentRuntimeEnum.ClaudeCode;
+        }
+
+        /// <summary>
+        /// Determine whether a mission failed because its captain refusal was stopped: its one continuation on an
+        /// alternate runtime was already spent, or no approved alternate runtime exists. A rescue would repeat the
+        /// blocked path, so such a failure is routed to the operator instead.
+        /// </summary>
+        /// <param name="reason">Recorded mission failure reason.</param>
+        /// <returns>True when the failure opens with the stopped-refusal prefix.</returns>
+        public static bool IsPolicyRefusalFailure(string? reason)
+        {
+            return !String.IsNullOrWhiteSpace(reason)
+                && reason.TrimStart().StartsWith(PolicyRefusalContinuationService.StoppedReasonPrefix, StringComparison.Ordinal);
         }
 
         /// <summary>

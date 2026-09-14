@@ -7,6 +7,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
@@ -147,6 +148,90 @@ namespace Armada.Test.Unit.Suites.Services
                     events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id, 50);
                     AssertEqual(2, events.Count(evt => evt.EventType == PolicyRefusalContinuationService.RefusalEventType), "both refusals are recorded");
                     AssertEqual(1, events.Count(evt => evt.EventType == PolicyRefusalContinuationService.ContinuedEventType), "there is never a second continuation");
+                }
+            });
+
+            await RunTest("A provider safeguard block continues even when no owner policy was supplied", () =>
+            {
+                Captain refusing = MakeCaptain("refusing", AgentRuntimeEnum.ClaudeCode);
+                List<Captain> captains = new List<Captain> { refusing, MakeCaptain("alternate", AgentRuntimeEnum.Codex) };
+                CaptainRefusal block = CaptainRefusalClassifier.Classify("API Error: example-model has safety measures that flagged this message for a cybersecurity topic");
+
+                PolicyRefusalContinuationDecision decision = PolicyRefusalContinuationService.Decide(
+                    MakeMission(), refusing, block, policyPresent: false, continuationAlreadyUsed: false, captains, null);
+
+                AssertEqual(PolicyRefusalContinuationOutcomeEnum.Continue, decision.Outcome, "the provider gate takes the one continuation without a policy");
+            });
+
+            await RunTest("A refusal driven through completion handling continues once and fails with the reason the second time", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_refusal_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada_refusal_repos_" + Guid.NewGuid().ToString("N"));
+                    StubGitService git = new StubGitService();
+                    IDockService docks = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, docks);
+                    MissionService missions = new MissionService(logging, testDb.Driver, settings, docks, captainService, git: git);
+                    missions.OnGetMissionOutput = _ => "Read the brief.\n" + CaptainRefusalClassifier.RefusalMarker + ": I will not inspect the sample binary";
+
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("ExampleVessel", "https://github.com/test/repo.git"));
+                    ProjectProfile profile = new ProjectProfile();
+                    profile.Name = "example-profile";
+                    profile.Scope = ProjectProfileScopeEnum.Vessel;
+                    profile.VesselId = vessel.Id;
+                    profile.AuthorizationPolicy = "Interoperability work on the ExampleFormat sample binary is authorized.";
+                    await testDb.Driver.ProjectProfiles.CreateAsync(profile);
+
+                    Captain refusing = await testDb.Driver.Captains.CreateAsync(MakeCaptain("refusing", AgentRuntimeEnum.ClaudeCode));
+                    Captain alternate = await testDb.Driver.Captains.CreateAsync(MakeCaptain("alternate", AgentRuntimeEnum.Codex));
+
+                    Mission mission = MakeMission();
+                    mission.VesselId = vessel.Id;
+                    mission = await testDb.Driver.Missions.CreateAsync(mission);
+
+                    // A refusal is a short run with no diff and no completion marker: the exact shape the no-op
+                    // guard fails. The refusal must be classified first, or its reason is lost to that guard.
+                    async Task RunOnAsync(Captain captain)
+                    {
+                        Mission current = (await testDb.Driver.Missions.ReadAsync(mission.Id))!;
+                        current.Status = MissionStatusEnum.InProgress;
+                        current.AssignmentState = MissionAssignmentStateEnum.Assigned;
+                        current.CaptainId = captain.Id;
+                        current.StartedUtc = DateTime.UtcNow.AddSeconds(-10);
+                        await testDb.Driver.Missions.UpdateAsync(current);
+                        captain.State = CaptainStateEnum.Working;
+                        captain.CurrentMissionId = current.Id;
+                        await testDb.Driver.Captains.UpdateAsync(captain);
+                    }
+
+                    await RunOnAsync(refusing);
+                    await missions.HandleCompletionAsync(refusing, mission.Id);
+
+                    Mission? afterFirst = await testDb.Driver.Missions.ReadAsync(mission.Id);
+                    AssertEqual(MissionStatusEnum.Pending, afterFirst!.Status, "the first refusal requeues the mission");
+                    AssertTrue(PolicyRefusalContinuationService.IsContinuation(afterFirst), "the mission waits as a continuation");
+                    AssertFalse((afterFirst.FailureReason ?? "").Contains("no_op_completion_detected"), "the refusal is not recorded as a false complete");
+                    AssertTrue(MissionService.IsExcludedForAssignment(afterFirst, refusing), "the refusing runtime is excluded");
+
+                    // The alternate captain refuses within seconds of the first completion. Its completion must
+                    // still be handled: a requeued mission is a new assignment, not a duplicate call.
+                    await RunOnAsync(alternate);
+                    await missions.HandleCompletionAsync(alternate, mission.Id);
+
+                    Mission? afterSecond = await testDb.Driver.Missions.ReadAsync(mission.Id);
+                    AssertEqual(MissionStatusEnum.Failed, afterSecond!.Status, "the second refusal fails the mission");
+                    AssertTrue((afterSecond.FailureReason ?? "").StartsWith(PolicyRefusalContinuationService.StoppedReasonPrefix, StringComparison.Ordinal),
+                        "the failure carries the refusal reason: " + afterSecond.FailureReason);
+                    AssertContains("I will not inspect the sample binary", afterSecond.FailureReason ?? "", "the captain's own reason is preserved");
+                    AssertFalse((afterSecond.FailureReason ?? "").Contains("no_op_completion_detected"), "the second refusal is not a false complete either");
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByMissionAsync(mission.Id, 50);
+                    AssertEqual(2, events.Count(evt => evt.EventType == PolicyRefusalContinuationService.RefusalEventType), "both refusals are recorded");
+                    AssertEqual(1, events.Count(evt => evt.EventType == PolicyRefusalContinuationService.ContinuedEventType), "exactly one continuation ran");
                 }
             });
 

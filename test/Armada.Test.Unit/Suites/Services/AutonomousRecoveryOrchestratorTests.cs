@@ -70,6 +70,26 @@ namespace Armada.Test.Unit.Suites.Services
                     "A substantive rejection of the work is still rescuable.");
             }).ConfigureAwait(false);
 
+            await RunTest("IsPolicyRefusalFailure blocks a rescue only for a stopped captain refusal", () =>
+            {
+                AssertTrue(
+                    AutonomousRecoveryOrchestrator.IsPolicyRefusalFailure(
+                        PolicyRefusalContinuationService.StoppedReasonPrefix + "ProviderSafeguardBlock on ClaudeCode: flagged. The mission already had its one continuation."),
+                    "A stopped refusal would repeat the blocked path, so it is not rescued.");
+                AssertTrue(
+                    AutonomousRecoveryOrchestrator.IsPolicyRefusalFailure(
+                        PolicyRefusalContinuationService.StoppedReasonPrefix + "DeclaredRefusal on Codex: out of scope [recoverable work preserved on mission branch x]"),
+                    "The terminal path's preserved-work suffix does not hide the refusal.");
+                AssertFalse(
+                    AutonomousRecoveryOrchestrator.IsPolicyRefusalFailure(
+                        PolicyRefusalContinuationService.ContinuationReasonPrefix + "DeclaredRefusal on Codex: out of scope"),
+                    "A pending continuation is not a stopped refusal.");
+                AssertFalse(
+                    AutonomousRecoveryOrchestrator.IsPolicyRefusalFailure("Judge verdict: NEEDS_REVISION (the captain wrote policy_refusal: in a quote)"),
+                    "Only a failure reason that opens with the stop prefix matches.");
+                AssertFalse(AutonomousRecoveryOrchestrator.IsPolicyRefusalFailure(null), "No reason is not a refusal.");
+            }).ConfigureAwait(false);
+
             await RunTest("An environmental failure is routed to the operator instead of rescued", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

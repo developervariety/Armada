@@ -114,7 +114,6 @@ namespace Armada.Core.Services
         // How long a captain that hit a provider safeguard block is benched. The window only needs to outlast the
         // re-dispatch so a same-provider sibling is not immediately reselected; the block itself is content-
         // deterministic, not transient, so the exact duration is not load-bearing.
-        private static readonly TimeSpan _SafeguardRerouteWindow = TimeSpan.FromMinutes(30);
 
         #endregion
 
@@ -2661,13 +2660,42 @@ namespace Armada.Core.Services
             string failureReason,
             CancellationToken token)
         {
-            // A PROVIDER SAFEGUARD BLOCK (the provider's content/cyber safety gate refused the request) is not a
-            // defect and not tied to any one provider. Bench the captain that blocked and re-route the mission to a
-            // different-provider peer instead of cascade-cancelling the voyage. Model-neutral by construction.
+            // A PROVIDER SAFEGUARD BLOCK (the provider's content/cyber safety gate refused the request) follows the
+            // one refusal rule: it is recorded, and the mission gets at most one continuation on an approved captain
+            // of a different runtime. It is never retried on the runtime that blocked. When the continuation is
+            // spent or no alternate exists, the mission fails through the terminal path below with the reason.
             if (mission != null && ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal(failureReason))
             {
-                await HandleSafeguardBlockRerouteAsync(captain, mission, missionId, failureReason, token).ConfigureAwait(false);
-                return;
+                CaptainRefusal refusal = CaptainRefusalClassifier.Classify(failureReason);
+                if (refusal.Kind != CaptainRefusalKindEnum.ProviderSafeguardBlock)
+                {
+                    refusal = new CaptainRefusal
+                    {
+                        Kind = CaptainRefusalKindEnum.ProviderSafeguardBlock,
+                        Reason = failureReason.Length <= CaptainRefusalClassifier.MaxReasonChars ? failureReason : failureReason.Substring(0, CaptainRefusalClassifier.MaxReasonChars),
+                        Evidence = failureReason.Length <= CaptainRefusalClassifier.MaxReasonChars ? failureReason : failureReason.Substring(0, CaptainRefusalClassifier.MaxReasonChars)
+                    };
+                }
+
+                PolicyRefusalContinuationDecision decision = await new PolicyRefusalContinuationService(_Database, _Settings, _Logging)
+                    .HandleAsync(mission, captain, refusal, policyPresent: false, token).ConfigureAwait(false);
+                if (decision.Outcome == PolicyRefusalContinuationOutcomeEnum.Continue)
+                {
+                    await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
+                    await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+                    if (!String.IsNullOrEmpty(mission.VesselId))
+                    {
+                        QueueVoyageAssignments(mission.VoyageId, mission.VesselId!, new List<string> { mission.Id });
+                    }
+                    else
+                    {
+                        _Logging.Warn(_Header + "mission " + missionId + " continued after a provider safeguard block but has no vessel id; relying on health-check retry sweep");
+                        _RetryDispatchNeeded = true;
+                    }
+                    return;
+                }
+
+                failureReason = mission.FailureReason ?? failureReason;
             }
 
             // A provider QUOTA / CREDIT / BALANCE limit (usage cap, insufficient balance, billing/auth) is
@@ -2970,30 +2998,6 @@ namespace Armada.Core.Services
                 _RetryDispatchNeeded = true;
             }
         }
-
-        /// <summary>
-        /// Handles a PROVIDER SAFEGUARD BLOCK (a provider content/cyber safety gate that refused the request) on a
-        /// mission. The blocking captain is quarantined so the mission re-dispatches to a different-provider
-        /// tier-peer, and the mission is requeued while the voyage stays alive. This is model-neutral: whichever
-        /// provider blocks is the one benched -- no model name is hardcoded, so it survives another provider later
-        /// adopting the same safeguard. Bounded by <see cref="Mission.RecoveryAttempts"/>: once re-routes are
-        /// exhausted (every eligible provider has blocked), the mission FAILS with an operator-actionable reason
-        /// rather than looping. Callers must have confirmed <see cref="ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal"/>.
-        /// </summary>
-        // A provider content/cyber SAFEGUARD block: bench the blocking captain (windowed) and re-route to a
-        // non-blocked provider. Thin wrapper over the shared recoverable-failure re-route.
-        private Task HandleSafeguardBlockRerouteAsync(
-            Captain captain, Mission mission, string missionId, string failureReason, CancellationToken token)
-            => RerouteRecoverableFailureAsync(captain, mission, missionId, failureReason,
-                label: "provider safeguard block",
-                benchReason: "provider safeguard block (content/cyber gate) -- benched so mission " + missionId +
-                    " re-routes to a non-blocked provider",
-                benchUntilUtc: DateTime.UtcNow.Add(_SafeguardRerouteWindow),
-                rerouteEventKind: "mission.safeguard_rerouted",
-                exhaustedReason: "Provider safeguard block persisted after re-routes across providers; an operator " +
-                    "routing decision is required (route this vessel's seed-key / security-review stage to a " +
-                    "non-blocked provider, or use a Worker-only + Judge pipeline so no specialist reads the gated source).",
-                token);
 
         // A provider QUOTA / CREDIT / BALANCE limit (usage cap, insufficient balance, billing/auth): bench the
         // out-of-quota captain until its retry window and re-route to a compatible peer that still has quota. Thin

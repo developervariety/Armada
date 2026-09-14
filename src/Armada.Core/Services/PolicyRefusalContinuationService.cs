@@ -110,7 +110,10 @@ namespace Armada.Core.Services
                 return decision;
             }
 
-            if (!policyPresent)
+            // A model that declines only conflicts with an owner policy that was actually supplied. A provider
+            // safeguard block is the provider's own gate refusing the request whatever the brief says, so it
+            // takes the same bounded continuation with or without a policy.
+            if (!policyPresent && refusal.Kind != CaptainRefusalKindEnum.ProviderSafeguardBlock)
             {
                 decision.Reason = "No owner authorization policy was supplied, so the refusal does not conflict with policy.";
                 return decision;
