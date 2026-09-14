@@ -5874,16 +5874,13 @@ namespace Armada.Core.Services
         private async Task<VoyageCheckGate> EvaluateVoyageChecksAsync(
             string voyageId, List<Mission> missions, CancellationToken token)
         {
-            Dictionary<string, CheckRun> checks = new Dictionary<string, CheckRun>();
-            EnumerationResult<CheckRun> byVoyage = await _Database.CheckRuns
-                .EnumerateAsync(new CheckRunQuery { VoyageId = voyageId }, token).ConfigureAwait(false);
-            foreach (CheckRun c in byVoyage.Objects) checks[c.Id] = c;
-            foreach (Mission m in missions)
+            List<CheckRunQuery> queries = new List<CheckRunQuery>
             {
-                EnumerationResult<CheckRun> byMission = await _Database.CheckRuns
-                    .EnumerateAsync(new CheckRunQuery { MissionId = m.Id }, token).ConfigureAwait(false);
-                foreach (CheckRun c in byMission.Objects) checks[c.Id] = c;
-            }
+                new CheckRunQuery { VoyageId = voyageId }
+            };
+            foreach (Mission m in missions) queries.Add(new CheckRunQuery { MissionId = m.Id });
+            Dictionary<string, CheckRun> checks = await CheckRunEnumeration
+                .ReadAllAsync(_Database, queries, token).ConfigureAwait(false);
 
             // An armed record on a voyage that has committed work is queued work the executor will
             // run, so it holds completion; before any commit it is an inert marker and is ignored.
@@ -5916,17 +5913,14 @@ namespace Armada.Core.Services
                 }
             }
 
-            Dictionary<string, CheckRun> checks = new Dictionary<string, CheckRun>();
+            List<CheckRunQuery> queries = new List<CheckRunQuery>();
             if (!String.IsNullOrEmpty(judgeMission.VoyageId))
             {
-                EnumerationResult<CheckRun> byVoyage = await _Database.CheckRuns
-                    .EnumerateAsync(new CheckRunQuery { VoyageId = judgeMission.VoyageId }, token).ConfigureAwait(false);
-                foreach (CheckRun c in byVoyage.Objects) checks[c.Id] = c;
+                queries.Add(new CheckRunQuery { VoyageId = judgeMission.VoyageId });
             }
-
-            EnumerationResult<CheckRun> byMission = await _Database.CheckRuns
-                .EnumerateAsync(new CheckRunQuery { MissionId = judgeMission.Id }, token).ConfigureAwait(false);
-            foreach (CheckRun c in byMission.Objects) checks[c.Id] = c;
+            queries.Add(new CheckRunQuery { MissionId = judgeMission.Id });
+            Dictionary<string, CheckRun> checks = await CheckRunEnumeration
+                .ReadAllAsync(_Database, queries, token).ConfigureAwait(false);
 
             List<CheckRun> collected = checks.Values.ToList();
             await StampArmedChecksAtReviewedCommitAsync(collected, judgeMission, token).ConfigureAwait(false);

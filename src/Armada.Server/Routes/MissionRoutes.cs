@@ -6,6 +6,8 @@ namespace Armada.Server.Routes
     using System.IO;
     using System.Linq;
     using System.Text.Json;
+    using System.Threading;
+    using System.Threading.Tasks;
     using WatsonWebserver;
     using WatsonWebserver.Core;
     using WatsonWebserver.Core.OpenApi;
@@ -29,6 +31,8 @@ namespace Armada.Server.Routes
         private readonly DatabaseDriver _database;
         private readonly IAdmiralService _admiral;
         private readonly IMissionService _missionService;
+        private readonly ManualCompletionProofService _manualCompletionProof;
+        private readonly Func<Mission, CancellationToken, Task<bool>> _isMissionProcessActive;
         private readonly ArmadaSettings _settings;
         private readonly IGitService _git;
         private readonly ILandingService _landingService;
@@ -65,6 +69,7 @@ namespace Armada.Server.Routes
         /// <param name="webSocketHub">WebSocket hub for real-time notifications.</param>
         /// <param name="logging">Logging module.</param>
         /// <param name="jsonOptions">JSON serializer options.</param>
+        /// <param name="isMissionProcessActive">Authoritative captain process ownership probe.</param>
         public MissionRoutes(
             DatabaseDriver database,
             IAdmiralService admiral,
@@ -78,11 +83,14 @@ namespace Armada.Server.Routes
             Func<Mission, Dock, Task> handleMissionComplete,
             ArmadaWebSocketHub? webSocketHub,
             LoggingModule logging,
-            JsonSerializerOptions jsonOptions)
+            JsonSerializerOptions jsonOptions,
+            Func<Mission, CancellationToken, Task<bool>> isMissionProcessActive)
         {
             _database = database;
             _admiral = admiral;
             _missionService = missionService;
+            _manualCompletionProof = new ManualCompletionProofService(database, git);
+            _isMissionProcessActive = isMissionProcessActive ?? throw new ArgumentNullException(nameof(isMissionProcessActive));
             _settings = settings;
             _git = git;
             _landingService = landingService;
@@ -99,6 +107,43 @@ namespace Armada.Server.Routes
             _webSocketHub = webSocketHub;
             _logging = logging;
             _jsonOptions = jsonOptions;
+        }
+
+        private async Task<ManualCompletionProofResult> EvaluateManualCompletionAsync(
+            Mission mission,
+            bool activeLandingPipeline,
+            CancellationToken token)
+        {
+            bool processActive;
+            try
+            {
+                processActive = await _isMissionProcessActive(mission, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                return ManualCompletionProofResult.Fail("manual_completion_process_liveness_unknown");
+            }
+            if (processActive)
+            {
+                return ManualCompletionProofResult.Fail("manual_completion_process_active");
+            }
+
+            return await _manualCompletionProof
+                .EvaluateAsync(mission, activeLandingPipeline, token).ConfigureAwait(false);
+        }
+
+        private async Task<Captain?> ReadMissionCaptainAsync(AuthContext ctx, Mission mission)
+        {
+            if (String.IsNullOrWhiteSpace(mission.CaptainId)) return null;
+            return ctx.IsAdmin
+                ? await _database.Captains.ReadAsync(mission.CaptainId).ConfigureAwait(false)
+                : ctx.IsTenantAdmin
+                    ? await _database.Captains.ReadAsync(ctx.TenantId!, mission.CaptainId).ConfigureAwait(false)
+                    : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, mission.CaptainId).ConfigureAwait(false);
         }
 
         private async Task<string> ReadFileSharedAsync(string path)
@@ -824,39 +869,91 @@ namespace Armada.Server.Routes
                             : await _database.Docks.ReadAsync(ctx.TenantId!, ctx.UserId!, mission.DockId).ConfigureAwait(false);
                     if (landingDock != null && landingDock.Active)
                     {
-                        // Capture diff before landing
-                        if (_admiral.OnCaptureDiff != null)
+                        ManualCompletionProofResult preflight = await EvaluateManualCompletionAsync(
+                            mission, true, CancellationToken.None).ConfigureAwait(false);
+                        if (!preflight.Allowed)
                         {
-                            try
+                            req.Http.Response.StatusCode = 409;
+                            return new ApiErrorResponse
                             {
-                                await _admiral.OnCaptureDiff.Invoke(mission, landingDock).ConfigureAwait(false);
-                            }
-                            catch (Exception diffEx)
-                            {
-                                _logging.Warn(_Header + "error capturing diff during manual completion of " + id + ": " + diffEx.Message);
-                            }
+                                Error = ApiResultEnum.Conflict,
+                                Message = "Manual completion blocked: " + preflight.Reason
+                            };
                         }
 
-                        // Set to WorkProduced first so the landing handler can process it
-                        mission.Status = MissionStatusEnum.WorkProduced;
-                        mission.LastUpdateUtc = DateTime.UtcNow;
-                        await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                        List<Mission> voyageMissions = String.IsNullOrWhiteSpace(mission.VoyageId)
+                            ? new List<Mission>()
+                            : await _database.Missions.EnumerateByVoyageAsync(mission.VoyageId).ConfigureAwait(false);
+                        bool hasDependentPipelineStage = voyageMissions.Any(candidate =>
+                            String.Equals(candidate.DependsOnMissionId, mission.Id, StringComparison.Ordinal));
+                        if (hasDependentPipelineStage)
+                        {
+                            Captain? completionCaptain = await ReadMissionCaptainAsync(ctx, mission).ConfigureAwait(false);
+                            if (completionCaptain == null
+                                || !String.Equals(completionCaptain.CurrentMissionId, mission.Id, StringComparison.Ordinal))
+                            {
+                                req.Http.Response.StatusCode = 409;
+                                return new ApiErrorResponse
+                                {
+                                    Error = ApiResultEnum.Conflict,
+                                    Message = "Manual completion blocked: manual_completion_captain_unavailable"
+                                };
+                            }
 
-                        _logging.Info(_Header + "manual Complete transition for " + id + " — routing through landing pipeline");
+                            // Intermediate stages use the same shared completion service as an agent
+                            // exit. It captures the diff, prepares the downstream stage, and does
+                            // not call the landing handler while a dependent stage remains.
+                            await _missionService.HandleCompletionAsync(completionCaptain, mission.Id).ConfigureAwait(false);
+                            mission = await _database.Missions.ReadAsync(id).ConfigureAwait(false)
+                                ?? throw new InvalidOperationException("Mission disappeared during manual pipeline handoff.");
+                        }
+                        else
+                        {
+                            // Capture diff before landing
+                            if (_admiral.OnCaptureDiff != null)
+                            {
+                                try
+                                {
+                                    await _admiral.OnCaptureDiff.Invoke(mission, landingDock).ConfigureAwait(false);
+                                }
+                                catch (Exception diffEx)
+                                {
+                                    _logging.Warn(_Header + "error capturing diff during manual completion of " + id + ": " + diffEx.Message);
+                                }
+                            }
 
-                        // Invoke the full landing pipeline (same as agent-driven completion)
-                        await _handleMissionComplete(mission, landingDock).ConfigureAwait(false);
+                            // Set to WorkProduced first so the landing handler can process it
+                            mission.Status = MissionStatusEnum.WorkProduced;
+                            mission.LastUpdateUtc = DateTime.UtcNow;
+                            await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
 
-                        // Re-read the mission to get the final state after landing
-                        mission = await _database.Missions.ReadAsync(id).ConfigureAwait(false);
-                        if (mission == null)
-                            return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found after landing" };
+                            _logging.Info(_Header + "manual Complete transition for " + id + " — routing through landing pipeline");
 
-                        Signal landingSignal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " manual completion — landed as " + mission.Status);
+                            // Invoke the full landing pipeline (same as agent-driven completion)
+                            // Use the Admiral callback seam so the route and agent completion share
+                            // one landing handler, while isolated tests can prove this callback is
+                            // not reached for an intermediate handoff.
+                            Func<Mission, Dock, Task> completionHandler =
+                                _admiral.OnMissionComplete ?? _handleMissionComplete;
+                            await completionHandler(mission, landingDock).ConfigureAwait(false);
+
+                            // Re-read the mission to get the final state after landing. The immutable
+                            // proof ran before capture and landing; a post-landing downgrade cannot
+                            // undo a merge that was allowed without that proof.
+                            mission = await _database.Missions.ReadAsync(id).ConfigureAwait(false);
+                            if (mission == null)
+                                return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found after landing" };
+                        }
+
+                        Signal landingSignal = new Signal(SignalTypeEnum.Progress, hasDependentPipelineStage
+                            ? "Mission " + id + " manual completion — handed off as " + mission.Status
+                            : "Mission " + id + " manual completion — landed as " + mission.Status);
                         if (!String.IsNullOrEmpty(mission.CaptainId)) landingSignal.FromCaptainId = mission.CaptainId;
                         await _database.Signals.CreateAsync(landingSignal).ConfigureAwait(false);
 
-                        await _emitEvent("mission.status_changed", "Mission " + id + " manually completed — landed as " + mission.Status,
+                        await _emitEvent("mission.status_changed", hasDependentPipelineStage
+                            ? "Mission " + id + " manually completed — handed off as " + mission.Status
+                            : "Mission " + id + " manually completed — landed as " + mission.Status,
                             "mission", id, mission.CaptainId, id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
 
                         if (_webSocketHub != null)
@@ -867,30 +964,68 @@ namespace Armada.Server.Routes
                 }
 
                 // Standard transition: no dock available or not transitioning to Complete
-                mission.Status = newStatus;
-                mission.LastUpdateUtc = DateTime.UtcNow;
-
-                if (newStatus == MissionStatusEnum.InProgress && mission.StartedUtc == null)
-                {
-                    mission.StartedUtc = DateTime.UtcNow;
-                }
-
-                if (newStatus == MissionStatusEnum.Complete || newStatus == MissionStatusEnum.Failed ||
-                    newStatus == MissionStatusEnum.LandingFailed || newStatus == MissionStatusEnum.Cancelled)
-                {
-                    mission.CompletedUtc = DateTime.UtcNow;
-                }
-
-                await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
-
-                // Audit event: manual Complete without an active dock bypasses the landing pipeline.
-                // This is allowed (operators may need it after restarts/cleanup) but should be visible.
+                bool intermediateCompletionHandled = false;
                 if (newStatus == MissionStatusEnum.Complete)
                 {
-                    _logging.Warn(_Header + "mission " + id + " manually completed without active dock — landing pipeline was skipped");
-                    await _emitEvent("mission.manual_complete_no_dock",
-                        "Mission " + id + " manually marked Complete without an active dock (landing pipeline skipped)",
-                        "mission", id, mission.CaptainId, id, mission.VesselId, mission.VoyageId).ConfigureAwait(false);
+                    ManualCompletionProofResult proof = await EvaluateManualCompletionAsync(
+                        mission, false, CancellationToken.None).ConfigureAwait(false);
+                    if (!proof.Allowed)
+                    {
+                        req.Http.Response.StatusCode = 409;
+                        return new ApiErrorResponse
+                        {
+                            Error = ApiResultEnum.Conflict,
+                            Message = "Manual completion blocked: " + proof.Reason
+                        };
+                    }
+
+                    List<Mission> voyageMissions = String.IsNullOrWhiteSpace(mission.VoyageId)
+                        ? new List<Mission>()
+                        : await _database.Missions.EnumerateByVoyageAsync(mission.VoyageId).ConfigureAwait(false);
+                    bool hasDependentPipelineStage = voyageMissions.Any(candidate =>
+                        String.Equals(candidate.DependsOnMissionId, mission.Id, StringComparison.Ordinal));
+                    if (hasDependentPipelineStage)
+                    {
+                        Captain? completionCaptain = await ReadMissionCaptainAsync(ctx, mission).ConfigureAwait(false);
+                        if (completionCaptain == null
+                            || !String.Equals(completionCaptain.CurrentMissionId, mission.Id, StringComparison.Ordinal))
+                        {
+                            req.Http.Response.StatusCode = 409;
+                            return new ApiErrorResponse
+                            {
+                                Error = ApiResultEnum.Conflict,
+                                Message = "Manual completion blocked: manual_completion_captain_unavailable"
+                            };
+                        }
+
+                        await _missionService.HandleCompletionAsync(completionCaptain, mission.Id).ConfigureAwait(false);
+                        mission = await _database.Missions.ReadAsync(id).ConfigureAwait(false)
+                            ?? throw new InvalidOperationException("Mission disappeared during manual pipeline handoff.");
+                        intermediateCompletionHandled = true;
+                        // Report the durable handoff result in the REST signal and event. The
+                        // requested Complete status was only the operator trigger; it was not the
+                        // persisted outcome for an intermediate stage.
+                        newStatus = mission.Status;
+                    }
+                }
+
+                if (!intermediateCompletionHandled)
+                {
+                    mission.Status = newStatus;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+
+                    if (newStatus == MissionStatusEnum.InProgress && mission.StartedUtc == null)
+                    {
+                        mission.StartedUtc = DateTime.UtcNow;
+                    }
+
+                    if (newStatus == MissionStatusEnum.Complete || newStatus == MissionStatusEnum.Failed ||
+                        newStatus == MissionStatusEnum.LandingFailed || newStatus == MissionStatusEnum.Cancelled)
+                    {
+                        mission.CompletedUtc = DateTime.UtcNow;
+                    }
+
+                    await _database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                 }
 
                 Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + id + " transitioned to " + newStatus);

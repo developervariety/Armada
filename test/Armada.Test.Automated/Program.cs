@@ -140,7 +140,7 @@ namespace Armada.Test.Automated
                 runner.AddSuite(new PlanningSessionTests(authClient, unauthClient));
                 runner.AddSuite(new PlanningWebSocketTests(authClient, unauthClient, restPort, apiKey));
                 runner.AddSuite(new WorkflowTests(authClient, unauthClient));
-                runner.AddSuite(new LandingPipelineTests(authClient, unauthClient));
+                runner.AddSuite(new LandingPipelineTests(authClient, unauthClient, server));
 
                 runner.VerifyRegistration(typeof(Program).Assembly);
 

@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System.Collections.Concurrent;
     using System.Diagnostics;
     using System.IO;
     using System.Reflection;
@@ -858,6 +859,97 @@ namespace Armada.Test.Unit.Suites.Services
                         "A tool-activity signal must refresh provider progress, or an actively-working captain is nudged mid-work");
                 }
             });
+
+            await RunTest("MissionProcessOwnership_RequiresRegisteredCaptainGeneration", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    Captain captain = new Captain("manual-proof-captain", AgentRuntimeEnum.ClaudeCode)
+                    {
+                        State = CaptainStateEnum.Working,
+                        ProcessId = Environment.ProcessId
+                    };
+                    Mission mission = new Mission("manual-proof-process")
+                    {
+                        CaptainId = captain.Id,
+                        Status = MissionStatusEnum.InProgress,
+                        ProcessId = Environment.ProcessId,
+                        StartedUtc = DateTime.UtcNow
+                    };
+                    captain.CurrentMissionId = mission.Id;
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    AssertFalse(await handler.IsMissionProcessActiveAsync(mission).ConfigureAwait(false),
+                        "An unregistered process generation must fail closed");
+                    RegisterTrackedProcess(handler, Environment.ProcessId, captain.Id, mission.Id);
+                    AssertTrue(await handler.IsMissionProcessActiveAsync(mission).ConfigureAwait(false),
+                        "A live process must be active only with matching captain and mission ownership");
+
+                    captain.State = CaptainStateEnum.Quarantined;
+                    await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                    AssertTrue(await handler.IsMissionProcessActiveAsync(mission).ConfigureAwait(false),
+                        "A live owned process remains active while its captain is quarantined");
+
+                    mission.ProcessId = null;
+                    captain.ProcessId = null;
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                    AssertTrue(await handler.IsMissionProcessActiveAsync(mission).ConfigureAwait(false),
+                        "A registered live process remains active when persistence has not recorded its PID");
+
+                    mission.ProcessId = Environment.ProcessId + 1;
+                    captain.ProcessId = Environment.ProcessId + 1;
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+                    AssertTrue(await handler.IsMissionProcessActiveAsync(mission).ConfigureAwait(false),
+                        "A registered live process remains active when persisted PIDs are stale");
+
+                    int handledProcessId = Environment.ProcessId + 100000;
+                    RegisterTrackedProcess(handler, handledProcessId, captain.Id, mission.Id);
+                    MarkProcessExitHandled(handler, handledProcessId);
+                    AssertTrue(await handler.IsMissionProcessActiveAsync(mission).ConfigureAwait(false),
+                        "A handled stale mapping must not hide a second live mapping for the mission");
+                }
+            });
+
+            await RunTest("MissionProcessOwnership_UnknownRuntimeLivenessFailsClosed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    Captain captain = new Captain("manual-unknown-runtime", AgentRuntimeEnum.Custom)
+                    {
+                        State = CaptainStateEnum.Working,
+                        ProcessId = Environment.ProcessId
+                    };
+                    Mission mission = new Mission("manual-unknown-runtime-process")
+                    {
+                        CaptainId = captain.Id,
+                        Status = MissionStatusEnum.InProgress,
+                        ProcessId = Environment.ProcessId,
+                        StartedUtc = DateTime.UtcNow
+                    };
+                    captain.CurrentMissionId = mission.Id;
+                    await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                    RegisterTrackedProcess(handler, Environment.ProcessId, captain.Id, mission.Id);
+
+                    InvalidOperationException? captured = null;
+                    try
+                    {
+                        await handler.IsMissionProcessActiveAsync(mission).ConfigureAwait(false);
+                    }
+                    catch (InvalidOperationException ex)
+                    {
+                        captured = ex;
+                    }
+                    AssertNotNull(captured, "unsupported runtime liveness must be observable");
+                    AssertEqual("manual_completion_process_liveness_unknown", captured!.Message,
+                        "unsupported runtime has a stable fail-closed reason");
+                }
+            });
         }
 
         private AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings, TimeSpan? modelValidationTimeout = null, IAdmiralService? admiralOverride = null)
@@ -984,6 +1076,15 @@ namespace Armada.Test.Unit.Suites.Services
                 captainMap[processId] = captainId;
                 missionMap[processId] = missionId;
             }
+        }
+
+        private static void MarkProcessExitHandled(AgentLifecycleHandler handler, int processId)
+        {
+            FieldInfo handledField = typeof(AgentLifecycleHandler).GetField("_HandledProcessExits", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?? throw new InvalidOperationException("Could not find handled process map");
+            ConcurrentDictionary<int, DateTime> handled = (ConcurrentDictionary<int, DateTime>)(handledField.GetValue(handler)
+                ?? throw new InvalidOperationException("Handled process map was null"));
+            handled[processId] = DateTime.UtcNow;
         }
 
         private static void RegisterPendingLaunch(AgentLifecycleHandler handler, string launchKey, string captainId, string missionId)

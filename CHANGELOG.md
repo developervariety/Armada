@@ -90,6 +90,13 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   an incident. The default provider refuses cutover until implemented.
 - Exclude raw provider exception text from persisted failures.
 
+### Manual mission completion safety
+
+- Route manual Complete transitions through immutable ancestry, Check, Judge,
+  and captain-process ownership proof before landing or status mutation. Read
+  all scoped Checks across pages, preserve intermediate pipeline handoffs, and
+  keep failed or pending REST Check results blocking.
+
 ### Ask MCP launch and discovery
 
 - Configure each temporary chat runtime with its Armada MCP connection. Preserve
@@ -1001,6 +1008,7 @@ Skipped from upstream (already equal or richer here): captain-map, token-usage c
 - A consumer that fails to compile fails the gate; a consumer that cannot be prepared is reported and the gate passes, since a missing profile or repository is a fault in the verification rather than evidence about the change. `DefinitionOfDone.FailOnConsumerVerificationError` reverses that, and `DefinitionOfDone.VerifyDeclaredConsumers` disables the step
 
 ### Pipeline
+- Manual `Complete` status transitions now use immutable Check and target ancestry proof. An Implementation mission with no active landing dock stays unchanged when its commit is unlanded, its ancestry cannot be verified, or its participating Checks are failed, pending, running, or stale. Review and Judge authority cannot be bypassed. Audit and Research report-only completion remains available.
 - A downstream pipeline stage now PROVES its checkout contains the commit its predecessor produced, before a captain is allowed to work in it. Inheriting a branch name is not inheriting its commit: a local ref can predate the upstream stage's push, and the worktree then looks correct while missing the work. One Worker's dock was cut without the preceding stage's commit, rebuilt on a base still carrying errors that stage had already fixed, failed on them, and took ten downstream missions with it - and every symptom pointed at the Worker's own code
 - A stage whose checkout demonstrably lacks the upstream commit fails with `stage_base_missing`, naming the commit, the branch, and the upstream mission, and stating that this is a provisioning fault rather than a defect in the stage's work
 - A base that cannot be PROVED is not treated as one that was: an unresolvable ancestry probe or an upstream that produced no commit is recorded as unverified and the stage proceeds. Cross-vessel dependencies are exempt, since commits are not shared across repositories

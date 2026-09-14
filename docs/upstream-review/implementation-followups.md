@@ -97,7 +97,7 @@ these areas. Do not duplicate its changes.
 | FOLLOWUP-013 | Closed | Captured OpenCode errors now fail chat and persist planning/refinement failure |
 | FOLLOWUP-014 | Verify | WebSocket exposure blocked by admin-only subscription; scoped delivery remains open |
 | FOLLOWUP-015 | Open | Persona, pipeline and prompt-template read visibility remains unscoped |
-| FOLLOWUP-016 | Open | Manual Complete without an active dock bypasses landing proof |
+| FOLLOWUP-016 | Closed | Manual Complete uses immutable Check and target ancestry proof; report-only completion remains allowed |
 
 ## FOLLOWUP-001 — Landing retry event
 
@@ -479,25 +479,35 @@ remain the authority for assignment and operational status.
 
 ## FOLLOWUP-016 — Manual completion without landing proof
 
-At `0152653c`, the mission status route writes `Complete` directly when no
-active dock is available. It logs `mission.manual_complete_no_dock` but checks
-neither target ancestry nor immutable Checks. The existing automated test
-`ManualComplete_NoDock_EmitsAuditEvent` accepts this behavior. This does not meet
-the held Review acceptance rule. Add a regression for unlanded held work and
-route completion through the shared proof gates. Keep valid report-only stage
-completion distinct from code landing. Also audit active-dock manual completion,
-which calls the landing handler directly rather than the Judge completion path.
+The manual Complete route now calls `ManualCompletionProofService` before any
+status write. Implementation missions require a true target ancestry proof when
+no active dock can land them. A false or unknown ancestry answer, missing vessel
+or commit, and any participating failed, pending, running or stale Check return
+Conflict and leave the mission unchanged. Review and Judge missions remain under
+their shared approval authority. A live captain process must also prove it has
+released the mission through the lifecycle ownership and runtime liveness seam
+before either the landing handler or a no-dock status write can run. Active-dock
+proof is complete before capture and landing, so a later handler result cannot
+undo a gate bypass after a merge. Intermediate pipeline stages may complete
+while a downstream Judge is pending; a terminal stage still requires Judge
+authority. Audit and Research missions keep their report-only completion
+contract, except mixed voyages still enforce real Check gates. Check reads are
+fully paginated. Regression coverage uses real local Git fixtures for unlanded,
+landed and missing refs, an injected unknown ancestry answer, Judge authority,
+failed/pending/stale Checks, paginated Checks, intermediate stages, and REST
+status paths.
 No production mission was changed during this review.
 
-The candidate remains under review. It must load every page of relevant Checks,
-preserve valid intermediate-stage completion, use the shared immutable gate,
-and protect active process ownership before any landing action. A post-landing
-status correction does not substitute for a pre-landing gate. The latest
-candidate uses shared stage handoff and shared Check pagination. Actual HTTP
-regressions must still prove that intermediate completion does not invoke
-landing, active process ownership blocks mutation, and a later-page Check
-blocks completion. Events must report the resulting status, not only the
-requested status.
+Source acceptance: the combined tree passed 34 unit tests, 55 shared
+service/HTTP/lifecycle tests, and 17 actual REST landing tests, with no failures
+or skips. The later-page fixtures now insert the blocking Check first, then
+101 newer passing Checks, and prove its absence from page one and presence on
+page two before requesting completion. Active-dock handoff proves that the
+landing callback does not run. Unknown runtime state returns Conflict without
+mutation. Events use the resulting stored status. The earlier review found
+post-landing status correction, incomplete page coverage and insufficient
+process ownership checks; these are corrected, not waived. Deployment and
+combined final-image validation remain pending.
 
 ## FOLLOWUP-017 — Pending integration review findings
 
@@ -577,13 +587,13 @@ tables, restart, persistence and conditional writes on all four providers.
 
 ## FOLLOWUP-021 — Unknown process state must block manual completion
 
-The manual completion candidate returns inactive when a registered process
-liveness check fails. Its Custom runtime branch always takes that failure path.
-An unknown result must block completion with a stated reason. A captain state
-label alone must not permit mutation while the captain still owns a live
-process. Prove the failure path through HTTP with no mission mutation.
+Closed in source after independent review. Unknown or failed runtime liveness
+checks now block manual completion. The check scans all registered process
+mappings, including a live mapping behind an already handled one, and does not
+rely on the captain state label or only the mission's stored PID.
 
-The intermediate-stage test must include an active dock and a produced commit.
-A test without a dock cannot reproduce the former direct-landing bypass. Assert
-that no landing callback runs and that shared downstream handoff occurs. Keep
-final Check and Judge gates intact.
+The active-dock regression includes a produced commit and proves shared stage
+handoff without a landing callback. Actual HTTP tests cover active ownership
+and unknown state with no mission mutation. Final Check and Judge gates remain
+in force. The combined acceptance counts are recorded in FOLLOWUP-016.
+Deployment remains pending.
