@@ -32,14 +32,17 @@ namespace Armada.Core.Database
                 "SELECT name FROM pragma_table_info('captains') WHERE name='model_endpoint_id';", token).ConfigureAwait(false);
             if (columns.Count == 0) return;
 
-            List<Dictionary<string, string?>> keys = await QueryAsync(connection, transaction,
-                "SELECT \"table\", \"from\", \"to\", \"on_delete\", \"on_update\", \"seq\" FROM pragma_foreign_key_list('captains') WHERE \"from\"='model_endpoint_id';", token).ConfigureAwait(false);
+            List<Dictionary<string, string?>> allKeys = await QueryAsync(connection, transaction,
+                "SELECT id, \"table\", \"from\", \"to\", \"on_delete\", \"on_update\", \"seq\" FROM pragma_foreign_key_list('captains');", token).ConfigureAwait(false);
+            List<Dictionary<string, string?>> keys = allKeys.FindAll(row => String.Equals(row.GetValueOrDefault("from"), "model_endpoint_id", StringComparison.OrdinalIgnoreCase));
             if (keys.Count == 0)
             {
                 if (requireForeignKey) throw Incompatible("SQLite", "captains.model_endpoint_id foreign key");
                 return;
             }
-            if (keys.Count != 1 || !Matches(keys[0], "model_endpoints", "model_endpoint_id", "id", "RESTRICT", "NO ACTION", null))
+            string keyId = keys[0].GetValueOrDefault("id") ?? String.Empty;
+            if (keys.Count != 1 || allKeys.FindAll(row => String.Equals(row.GetValueOrDefault("id"), keyId, StringComparison.Ordinal)).Count != 1
+                || !Matches(keys[0], "model_endpoints", "model_endpoint_id", "id", "RESTRICT", "NO ACTION", null))
                 throw Incompatible("SQLite", "captains.model_endpoint_id foreign key");
         }
 
@@ -48,15 +51,22 @@ namespace Armada.Core.Database
         {
             string query = provider switch
             {
-                DatabaseTypeEnum.Postgresql => @"SELECT kcu.column_name, ccu.table_name AS target_table, ccu.column_name AS target_column,
-                    ccu.table_schema AS target_schema, rc.delete_rule, rc.update_rule,
-                    tc.is_deferrable, tc.initially_deferred,
-                    (SELECT COUNT(*) FROM information_schema.key_column_usage allk WHERE allk.constraint_schema=kcu.constraint_schema AND allk.constraint_name=kcu.constraint_name) AS key_count
-                    FROM information_schema.key_column_usage kcu
-                    JOIN information_schema.constraint_column_usage ccu ON ccu.constraint_schema=kcu.constraint_schema AND ccu.constraint_name=kcu.constraint_name
-                    JOIN information_schema.referential_constraints rc ON rc.constraint_schema=kcu.constraint_schema AND rc.constraint_name=kcu.constraint_name
-                    JOIN information_schema.table_constraints tc ON tc.constraint_schema=kcu.constraint_schema AND tc.constraint_name=kcu.constraint_name AND tc.table_name=kcu.table_name
-                    WHERE kcu.table_schema=current_schema() AND kcu.table_name='captains' AND kcu.column_name='model_endpoint_id';",
+                DatabaseTypeEnum.Postgresql => @"SELECT child_att.attname AS column_name, target.relname AS target_table,
+                    target_att.attname AS target_column, target_ns.nspname AS target_schema,
+                    CASE fk.confdeltype WHEN 'r' THEN 'RESTRICT' WHEN 'a' THEN 'NO ACTION' ELSE fk.confdeltype::text END AS delete_rule,
+                    CASE fk.confupdtype WHEN 'r' THEN 'RESTRICT' WHEN 'a' THEN 'NO ACTION' ELSE fk.confupdtype::text END AS update_rule,
+                    CASE WHEN fk.condeferrable THEN 'YES' ELSE 'NO' END AS is_deferrable,
+                    CASE WHEN fk.condeferred THEN 'YES' ELSE 'NO' END AS initially_deferred,
+                    CASE WHEN fk.convalidated THEN 'YES' ELSE 'NO' END AS validated,
+                    array_length(fk.conkey, 1)::text AS key_count
+                    FROM pg_constraint fk
+                    JOIN pg_class child ON child.oid=fk.conrelid
+                    JOIN pg_namespace child_ns ON child_ns.oid=child.relnamespace
+                    JOIN pg_class target ON target.oid=fk.confrelid
+                    JOIN pg_namespace target_ns ON target_ns.oid=target.relnamespace
+                    JOIN pg_attribute child_att ON child_att.attrelid=child.oid AND child_att.attnum=ANY(fk.conkey)
+                    JOIN pg_attribute target_att ON target_att.attrelid=target.oid AND target_att.attnum=ANY(fk.confkey)
+                    WHERE fk.contype='f' AND child_ns.nspname=current_schema() AND child.relname='captains' AND child_att.attname='model_endpoint_id';",
                 DatabaseTypeEnum.Mysql => @"SELECT kcu.column_name, kcu.referenced_table_name AS target_table,
                     kcu.referenced_column_name AS target_column, kcu.referenced_table_schema AS target_schema,
                     rc.delete_rule, rc.update_rule,
@@ -85,9 +95,7 @@ namespace Armada.Core.Database
                 if (requireForeignKey) throw Incompatible(provider.ToString(), "captains.model_endpoint_id foreign key");
                 return;
             }
-            string expectedTargetSchema = provider == DatabaseTypeEnum.Mysql
-                ? String.Empty
-                : await CurrentSchemaAsync(connection, transaction, provider, token).ConfigureAwait(false);
+            string expectedTargetSchema = await CurrentSchemaAsync(connection, transaction, provider, token).ConfigureAwait(false);
             if (keys.Count != 1 || !Matches(keys[0], "model_endpoints", "model_endpoint_id", "id",
                 provider == DatabaseTypeEnum.SqlServer ? "NO ACTION" : "RESTRICT",
                 provider == DatabaseTypeEnum.Mysql ? "RESTRICT" : "NO ACTION",
@@ -106,6 +114,7 @@ namespace Armada.Core.Database
                 && (targetSchema == null || targetSchema == String.Empty || String.Equals(row.GetValueOrDefault("target_schema"), targetSchema, StringComparison.OrdinalIgnoreCase))
                 && (!row.ContainsKey("is_deferrable") || String.Equals(row.GetValueOrDefault("is_deferrable"), "NO", StringComparison.OrdinalIgnoreCase))
                 && (!row.ContainsKey("initially_deferred") || String.Equals(row.GetValueOrDefault("initially_deferred"), "NO", StringComparison.OrdinalIgnoreCase))
+                && (!row.ContainsKey("validated") || String.Equals(row.GetValueOrDefault("validated"), "YES", StringComparison.OrdinalIgnoreCase))
                 && (!row.ContainsKey("key_count") || String.Equals(row.GetValueOrDefault("key_count"), "1", StringComparison.OrdinalIgnoreCase))
                 && (enforced == null || String.Equals(row.GetValueOrDefault("enforced"), enforced, StringComparison.OrdinalIgnoreCase));
         }
@@ -114,7 +123,9 @@ namespace Armada.Core.Database
             DatabaseTypeEnum provider, CancellationToken token)
         {
             List<Dictionary<string, string?>> rows = await QueryAsync(connection, transaction,
-                provider == DatabaseTypeEnum.Postgresql ? "SELECT current_schema() AS schema_name;" : "SELECT SCHEMA_NAME() AS schema_name;", token).ConfigureAwait(false);
+                provider == DatabaseTypeEnum.Postgresql ? "SELECT current_schema() AS schema_name;"
+                    : provider == DatabaseTypeEnum.Mysql ? "SELECT DATABASE() AS schema_name;"
+                    : "SELECT SCHEMA_NAME() AS schema_name;", token).ConfigureAwait(false);
             return rows.Count == 1 ? rows[0].GetValueOrDefault("schema_name") ?? String.Empty : String.Empty;
         }
 
