@@ -2321,23 +2321,19 @@ namespace Armada.Core.Services
                 ? null
                 : await ResolvePersonaOverrideAsync(vessel, mission.Persona, token).ConfigureAwait(false);
 
+            // Every module that embeds the mission description reads this one bounded copy. The
+            // metadata module embeds it, and so do the persona templates that restate the objective,
+            // so bounding only one of them leaves the other free to carry an arbitrarily long
+            // persisted description into the brief. The full description stays in the mission record.
+            string boundedDescription = BoundMetadataDescription(mission.Description);
+            templateParams["MissionDescription"] = boundedDescription;
+
             string personaPrompt = mission.IsReadOnlyMode
                 ? MissionPromptBuilder.GetPersonaOutputContract(mission.Persona, mission.Mode, judgePrimaryLens)
                 : await ResolvePersonaPromptAsync(mission.Persona, templateParams, personaOverride, token).ConfigureAwait(false);
             templateParams["PersonaPrompt"] = personaPrompt;
 
-            // The metadata module embeds the mission description verbatim. A long accumulated
-            // handoff chain (base brief plus a persona preamble plus prior-stage agent output
-            // plus scoped diff per stage) once rendered a 53 KB metadata module against a
-            // 32 KiB brief budget on a rescue Judge. Bound the embedded copy here so the
-            // module fits the budget regardless of what the persisted description holds; the
-            // full description stays in the mission record for reference. Rendering with a
-            // private parameter copy keeps every later module on the unbound description.
-            Dictionary<string, string> metadataParams = new Dictionary<string, string>(templateParams)
-            {
-                ["MissionDescription"] = BoundMetadataDescription(mission.Description)
-            };
-            content += ledger.Track("mission.metadata", await ResolveSectionAsync("mission.metadata", metadataParams, token).ConfigureAwait(false));
+            content += ledger.Track("mission.metadata", await ResolveSectionAsync("mission.metadata", templateParams, token).ConfigureAwait(false));
             content += "\n";
 
             // Objective scope, supplied once when the voyage links an objective: the objective's own
@@ -2463,7 +2459,7 @@ namespace Armada.Core.Services
             // budget after every per-module cap, elide the largest content modules in place so no
             // mission ships an over-budget brief. The persona prompt, rules, and metadata skeleton are
             // never elided -- only the content-bearing modules that repeat vessel or mission context.
-            content = EnforceTotalBriefBudget(content, ledger, _Settings.CaptainInstructionByteBudget);
+            content = EnforceTotalBriefBudget(content, ledger, _Settings.CaptainInstructionByteBudget, boundedDescription);
 
             Directory.CreateDirectory(Path.GetDirectoryName(instructionsPath)!);
             await File.WriteAllTextAsync(instructionsPath, content).ConfigureAwait(false);
@@ -5407,7 +5403,7 @@ namespace Armada.Core.Services
         /// <param name="ledger">Ledger holding the assembled module texts and sizes.</param>
         /// <param name="budgetBytes">Captain instruction byte budget; 0 or negative disables the backstop.</param>
         /// <returns>The bounded content, identical when already within budget.</returns>
-        internal static string EnforceTotalBriefBudget(string content, PromptModuleLedger ledger, int budgetBytes)
+        internal static string EnforceTotalBriefBudget(string content, PromptModuleLedger ledger, int budgetBytes, string? embeddedDescription = null)
         {
             if (String.IsNullOrEmpty(content)) return content ?? "";
             if (budgetBytes <= 0) return content;
@@ -5415,6 +5411,37 @@ namespace Armada.Core.Services
             int currentBytes = System.Text.Encoding.UTF8.GetByteCount(content);
             if (currentBytes <= budgetBytes) return content;
 
+            // First the modules that repeat vessel or mission context, then the reference-only modules
+            // (skills, git anchors, code-index guidance) that a captain can re-derive from the checkout.
+            string working = ElideModules(content, ledger, budgetBytes, _ElidableBriefModules);
+            if (System.Text.Encoding.UTF8.GetByteCount(working) <= budgetBytes) return working;
+
+            // The embedded mission description is the one unbounded input left in the brief's skeleton:
+            // the metadata module carries it, and a persona template that restates the objective carries
+            // it again. Its character cap cannot bound bytes (multi-byte text) or the sum of its copies,
+            // so shrink every copy together, keeping the head brief and the newest handoff block.
+            working = ShrinkEmbeddedDescription(working, ledger, budgetBytes, embeddedDescription);
+            if (System.Text.Encoding.UTF8.GetByteCount(working) <= budgetBytes) return working;
+
+            return ElideModules(working, ledger, budgetBytes, _ReferenceBriefModules);
+        }
+
+        // Reference-only modules elided after the content modules and the embedded description. They
+        // point at material the captain can read from the checkout; losing them costs a lookup, never
+        // the mission's rules or its output contract.
+        private static readonly string[] _ReferenceBriefModules =
+        {
+            "mission.skills",
+            "mission.git_anchors",
+            "mission.code_index"
+        };
+
+        // Smallest embedded description the budget backstop will shrink to, in characters. Below this
+        // the head brief and the newest handoff block cannot both survive.
+        internal const int _MinEmbeddedDescriptionChars = 2000;
+
+        private static string ElideModules(string content, PromptModuleLedger ledger, int budgetBytes, string[] moduleNames)
+        {
             string working = content;
             bool changed = true;
 
@@ -5428,7 +5455,7 @@ namespace Armada.Core.Services
                     if (System.Text.Encoding.UTF8.GetByteCount(working) <= budgetBytes) break;
 
                     string name = entry.Key;
-                    if (!IsElidableBriefModule(name)) continue;
+                    if (Array.IndexOf(moduleNames, name) < 0) continue;
                     if (entry.Value <= _MinElidedModuleChars) continue;
 
                     string? moduleText = ledger.GetModuleText(name);
@@ -5455,6 +5482,59 @@ namespace Armada.Core.Services
             }
 
             return working;
+        }
+
+        private static string ShrinkEmbeddedDescription(string content, PromptModuleLedger ledger, int budgetBytes, string? embeddedDescription)
+        {
+            if (String.IsNullOrEmpty(embeddedDescription) || embeddedDescription.Length <= _MinEmbeddedDescriptionChars) return content;
+
+            string? metadata = ledger.GetModuleText("mission.metadata");
+            if (String.IsNullOrEmpty(metadata) || !metadata.Contains(embeddedDescription, StringComparison.Ordinal)) return content;
+
+            string current = embeddedDescription;
+            string working = content;
+
+            while (System.Text.Encoding.UTF8.GetByteCount(working) > budgetBytes && current.Length > _MinEmbeddedDescriptionChars)
+            {
+                int copies = CountOrdinal(metadata, current);
+                if (copies == 0) break;
+
+                // Bytes per character of the description, so a multi-byte description shrinks by enough
+                // characters to remove the excess bytes from every copy at once.
+                int currentBytesPerCopy = System.Text.Encoding.UTF8.GetByteCount(current);
+                double bytesPerChar = Math.Max(1.0, (double)currentBytesPerCopy / current.Length);
+                int overBytes = System.Text.Encoding.UTF8.GetByteCount(working) - budgetBytes;
+                int dropChars = (int)Math.Ceiling((overBytes + 256) / bytesPerChar / copies);
+                int targetChars = Math.Max(_MinEmbeddedDescriptionChars, current.Length - dropChars);
+                if (targetChars >= current.Length) break;
+
+                const string marker = "\n\n...(middle of the mission description elided to fit the captain brief budget; the full description is in the mission record)\n";
+                string shrunk = BuildBoundedDescription(current, targetChars, Math.Min(_MaxMetadataDescriptionHeadChars, targetChars / 3), marker);
+                if (shrunk.Length >= current.Length) break;
+
+                string newMetadata = metadata.Replace(current, shrunk, StringComparison.Ordinal);
+                int idx = working.IndexOf(metadata, StringComparison.Ordinal);
+                if (idx < 0) break;
+
+                working = working.Substring(0, idx) + newMetadata + working.Substring(idx + metadata.Length);
+                ledger.ReplaceModuleText("mission.metadata", newMetadata);
+                metadata = newMetadata;
+                current = shrunk;
+            }
+
+            return working;
+        }
+
+        private static int CountOrdinal(string haystack, string needle)
+        {
+            int count = 0;
+            int index = 0;
+            while ((index = haystack.IndexOf(needle, index, StringComparison.Ordinal)) >= 0)
+            {
+                count++;
+                index += needle.Length;
+            }
+            return count;
         }
 
         /// <summary>

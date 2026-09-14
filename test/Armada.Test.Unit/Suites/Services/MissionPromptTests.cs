@@ -747,6 +747,114 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A worst-case stage and rescue chain renders every persona brief within the instruction budget", async () =>
+            {
+                // The brief a captain receives is bounded by the rendered file, not by any one cap on the
+                // persisted description. This builds the largest realistic chain: a full objective brief,
+                // a doubled prior-stage handoff with long agent output and a large diff, a rescue whose
+                // failure reason is a whole gate log, a second handoff onto that rescue, operator captain
+                // instructions and multi-byte text. Every persona must still receive a brief within the
+                // byte budget, and must still see the head of its brief and the newest handoff block.
+                foreach (string persona in new[] { "Judge", "Architect", "Worker", "TestEngineer" })
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                    {
+                        LoggingModule logging = CreateLogging();
+                        ArmadaSettings settings = CreateSettings();
+                        StubGitService git = new StubGitService();
+                        IPromptTemplateService templateService;
+                        MissionService service = CreateMissionServiceWithTemplates(logging, testDb.Driver, settings, git, out templateService);
+                        await templateService.SeedDefaultsAsync();
+
+                        string tempDir = Path.Combine(Path.GetTempPath(), "armada_prompt_test_" + Guid.NewGuid().ToString("N"));
+                        Directory.CreateDirectory(tempDir);
+
+                        try
+                        {
+                            Vessel vessel = new Vessel("BudgetChainVessel", "https://github.com/test/repo");
+                            vessel.ProjectContext = "Synthetic context for the budget chain. " + new string('c', 2000);
+
+                            Objective objective = new Objective();
+                            objective.Title = "Synthetic worst-case objective";
+                            objective.Description = "Objective head sentence. " + string.Concat(Enumerable.Repeat("Scope line with multi-byte text éè中文.\n", 400));
+                            for (int i = 0; i < 40; i++) objective.AcceptanceCriteria.Add("Criterion " + i + " " + new string('a', 300));
+                            string objectiveBrief = ObjectiveBriefRenderer.Render(objective);
+
+                            string handoffBlock =
+                                "\n\n---\n" + MissionService.BuildHandoffMarker("msn_budget_worker") + "\n" +
+                                "## Prior Stage Output\nThe previous pipeline stage (Worker) completed mission.\nBranch: armada/budget\n" +
+                                "\n### Agent Output (from Worker stage)\n```\n" + new string('o', 8000) + "\n```\n" +
+                                "\n### Diff from prior stage\n```diff\n" +
+                                string.Concat(Enumerable.Repeat("diff --git a/f.cs b/f.cs\n+" + new string('d', 1500) + "\n", 40)) +
+                                "NEWEST-STAGE-DIFF-TAIL\n```\n";
+
+                            // A handoff that ran twice with no idempotency guard: the persisted description
+                            // is far over any persisted cap.
+                            string stageDescription = objectiveBrief + handoffBlock + handoffBlock;
+
+                            Mission failed = new Mission();
+                            failed.Title = "Failed stage";
+                            failed.Persona = "Judge";
+                            failed.Description = stageDescription;
+                            failed.FailureReason = "gate failed: " + string.Concat(Enumerable.Repeat("warning CS0618: obsolete member used in generated code\n", 1200));
+                            failed.ReviewComment = "## Completeness\n" + new string('r', 12000) + "\n## Verdict\nNEEDS_REVISION";
+                            Incident incident = new Incident();
+                            string rescueDescription = Armada.Server.AutonomousRecoveryOrchestrator.BuildRescueDescription(failed, incident, 1);
+
+                            string rescueJudgeHandoff =
+                                "\n\n---\n" + MissionService.BuildHandoffMarker("msn_budget_rescue") + "\n" +
+                                "## Prior Stage Output\nBranch: armada/budget\n" +
+                                "\n### Diff from prior stage\n```diff\n" + new string('z', 60000) + "\nNEWEST-RESCUE-DIFF-TAIL\n```\n";
+
+                            Mission mission = new Mission();
+                            mission.Title = "Worst-case chain " + persona;
+                            mission.Persona = persona;
+                            mission.Description = rescueDescription + rescueJudgeHandoff;
+
+                            Captain captain = new Captain("budget-captain");
+                            captain.Runtime = Armada.Core.Enums.AgentRuntimeEnum.ClaudeCode;
+                            captain.SystemInstructions = "Operator captain instructions. " + new string('i', 3500);
+
+                            await service.GenerateClaudeMdAsync(tempDir, mission, vessel, captain);
+
+                            string content = await File.ReadAllTextAsync(Path.Combine(tempDir, "CLAUDE.md"));
+                            int fileBytes = System.Text.Encoding.UTF8.GetByteCount(content);
+
+                            AssertTrue(fileBytes <= settings.CaptainInstructionByteBudget,
+                                persona + " brief is " + fileBytes + " bytes, over the " + settings.CaptainInstructionByteBudget + " byte budget");
+                            AssertContains("Autonomous rescue attempt 1", content, persona + " brief must keep the head of its description");
+                            AssertContains("NEWEST-RESCUE-DIFF-TAIL", content, persona + " brief must keep the newest handoff block");
+                            AssertContains("Operator captain instructions", content, persona + " brief must keep the captain instructions");
+
+                            List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync("mission.prompt_budget", 10);
+                            AssertEqual(1, events.Count, "exactly one prompt-budget event must be recorded");
+                            AssertContains("\"OverBudget\":false", events[0].Payload ?? "", persona + " telemetry must report the brief within budget");
+                        }
+                        finally
+                        {
+                            try { Directory.Delete(tempDir, true); } catch { }
+                        }
+                    }
+                }
+            });
+
+            await RunTest("A rescue description stays bounded when the failure reason is a whole gate log", async () =>
+            {
+                Mission failed = new Mission();
+                failed.Title = "Failed stage";
+                failed.Description = "Short scope.";
+                failed.FailureReason = "gate failed: " + string.Concat(Enumerable.Repeat("warning CS0618: obsolete member used in generated code\n", 1200));
+                string rescue = Armada.Server.AutonomousRecoveryOrchestrator.BuildRescueDescription(failed, new Incident(), 1);
+
+                int ceiling = Armada.Server.AutonomousRecoveryOrchestrator._MaxRescueDescriptionChars
+                    + Armada.Server.AutonomousRecoveryOrchestrator._MaxRescueDiagnosticsChars
+                    + Armada.Server.AutonomousRecoveryOrchestrator._MaxRescueReviewerFeedbackChars
+                    + 2000;
+                AssertTrue(rescue.Length <= ceiling, "rescue description is " + rescue.Length + " chars, over the " + ceiling + " char ceiling");
+                AssertContains("gate failed: warning CS0618", rescue, "the leading failure line must survive");
+                await Task.CompletedTask;
+            });
+
             await RunTest("GenerateClaudeMdAsync writes runtime-specific instruction file", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

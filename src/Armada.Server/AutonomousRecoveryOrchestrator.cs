@@ -2205,7 +2205,9 @@ namespace Armada.Server
             sb.AppendLine("Incident: " + incident.Id);
             sb.AppendLine("Original title: " + failedMission.Title);
             sb.AppendLine("Failure status: " + failedMission.Status);
-            sb.AppendLine("Failure reason: " + (failedMission.FailureReason ?? "not recorded"));
+            sb.AppendLine("Failure reason: " + (failedMission.FailureReason == null
+                ? "not recorded"
+                : TruncateForBrief(failedMission.FailureReason, _MaxRescueDiagnosticsChars)));
             if (!String.IsNullOrWhiteSpace(failedMission.BranchName))
                 sb.AppendLine("Original branch: " + failedMission.BranchName);
             if (!String.IsNullOrWhiteSpace(failedMission.ReviewComment))

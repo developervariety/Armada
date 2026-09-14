@@ -79,6 +79,18 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   rescue, including failures older than the sweep lookback window. A hold
   refusal is a typed `DispatchHoldActiveException`, so callers can defer the
   work instead of failing it.
+### Captain brief budget
+
+- Every module that embeds the mission description now reads one bounded copy.
+  Persona templates that restate the objective previously embedded the full
+  persisted description, so an Architect brief could exceed the captain
+  instruction budget several times over.
+- The total-budget backstop now shrinks the embedded description (every copy,
+  by bytes, keeping the head brief and the newest handoff block) and then the
+  reference-only modules (skills, git anchors, code-index guidance) when content
+  modules alone cannot bring a brief under budget.
+- A rescue brief bounds the failed mission's failure reason, so a failure reason
+  that holds a whole gate log no longer multiplies the rescue description.
 
 ### Native self-deploy preflight
 

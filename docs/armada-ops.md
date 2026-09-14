@@ -379,6 +379,28 @@ ancestry probe answers true, false, or UNKNOWN, and its default for any
 implementation that does not consult a real repository is unknown - so a stub
 can never manufacture a passing verification.
 
+### The captain brief is bounded as a whole
+
+A persisted mission description can grow through handoffs, rescues, mailbox
+notes and board notes. The brief a captain receives is bounded where it is
+rendered, so no persisted description can push it over
+`CaptainInstructionByteBudget`:
+
+1. One bounded copy of the description feeds every module that embeds it: the
+   metadata module and any persona template that restates the objective.
+2. When the assembled brief is still over budget, the backstop elides, in
+   order: content modules (objective scope, project context, style guide,
+   playbooks, existing instructions); then every embedded copy of the
+   description, measured in bytes, keeping the head brief and the newest
+   handoff block; then reference modules (skills, git anchors, code-index
+   guidance). The persona prompt, rules and output contract are never elided.
+3. A rescue description caps the scope, the reviewer feedback and the failure
+   reason separately, so a gate log in the failure reason cannot dominate it.
+
+The `mission.prompt_budget` event records the bytes actually written. A brief
+reporting `OverBudget=true` after this backstop means the protected skeleton
+alone exceeds the budget; read its module sizes before raising the budget.
+
 ### A quiet-host gate must enumerate TERMINAL states, not guess at active ones
 
 Before any action that interrupts running work - restarting the Admiral,
