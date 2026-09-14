@@ -227,6 +227,8 @@ namespace Armada.Core.Database.Sqlite
                         }
                         if (migration.Version == 88)
                             await ModelEndpointSchemaGuard.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
+                        if (migration.Version == 89)
+                            await CaptainModelEndpointSchemaGuard.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, true, token).ConfigureAwait(false);
                         for (int statementOrdinal = 0; statementOrdinal < migration.Statements.Count; statementOrdinal++)
                         {
                             string sql = migration.Statements[statementOrdinal];

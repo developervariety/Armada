@@ -154,6 +154,8 @@ namespace Armada.Core.Database.SqlServer
                         {
                             if (migration.Version == 83)
                                 await ModelEndpointSchemaGuard.EnsureAsync(conn, tx, DatabaseTypeEnum.SqlServer, token).ConfigureAwait(false);
+                            if (migration.Version == 84)
+                                await CaptainModelEndpointSchemaGuard.EnsureAsync(conn, tx, DatabaseTypeEnum.SqlServer, false, token).ConfigureAwait(false);
                             for (int statementOrdinal = 0; statementOrdinal < migration.Statements.Count; statementOrdinal++)
                             {
                                 string sql = migration.Statements[statementOrdinal];

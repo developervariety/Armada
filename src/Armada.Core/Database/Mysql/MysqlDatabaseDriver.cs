@@ -144,6 +144,8 @@ namespace Armada.Core.Database.Mysql
                         _Logging.Info(_Header + "applying migration v" + migration.Version + ": " + migration.Description);
                         if (migration.Version == 80)
                             await ModelEndpointSchemaGuard.EnsureAsync(conn, null, DatabaseTypeEnum.Mysql, token).ConfigureAwait(false);
+                        if (migration.Version == 81)
+                            await CaptainModelEndpointSchemaGuard.EnsureAsync(conn, null, DatabaseTypeEnum.Mysql, false, token).ConfigureAwait(false);
                         await runner.ApplyAsync(migration, token).ConfigureAwait(false);
                         applied++;
                     }

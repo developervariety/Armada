@@ -132,6 +132,8 @@ namespace Armada.Core.Database.Postgresql
                         {
                             if (migration.Version == 89)
                                 await ModelEndpointSchemaGuard.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Postgresql, token).ConfigureAwait(false);
+                            if (migration.Version == 90)
+                                await CaptainModelEndpointSchemaGuard.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Postgresql, false, token).ConfigureAwait(false);
                             for (int statementOrdinal = 0; statementOrdinal < migration.Statements.Count; statementOrdinal++)
                             {
                                 string sql = migration.Statements[statementOrdinal];
