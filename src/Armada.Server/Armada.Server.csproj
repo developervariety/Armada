@@ -15,6 +15,7 @@
     <!-- Lets the unit suite exercise internal dispatch-path guards (CodeIndexDispatchGuard)
          directly instead of only through a full dispatch integration path. -->
     <InternalsVisibleTo Include="Test.Unit" />
+    <InternalsVisibleTo Include="Test.Shared" />
   </ItemGroup>
 
   <ItemGroup>

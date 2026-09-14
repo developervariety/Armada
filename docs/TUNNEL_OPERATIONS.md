@@ -120,8 +120,8 @@ dotnet run --project src/Armada.Proxy/Armada.Proxy.csproj --framework net10.0
 
 Default endpoints:
 
-- health: `http://localhost:7893/api/v1/status/health`
-- instance list: `http://localhost:7893/api/v1/instances`
+- health: `http://localhost:7893/proxy-api/v1/status/health`
+- instance list (after proxy login): `http://localhost:7893/proxy-api/v1/instances`
 - remote shell: `http://localhost:7893/`
 - tunnel websocket: `ws://localhost:7893/tunnel`
 

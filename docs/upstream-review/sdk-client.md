@@ -93,3 +93,23 @@ in-process Admiral:
 The fork keeps `Authorization: Bearer` for Helm REST calls. Admiral startup does
 not generate or write a key, so Helm does not reload settings after embedded
 startup; both sides read the same file with the same loader.
+
+## Route contracts for the client and the API collection
+
+Both contracts read the routing tables of a live in-process Admiral and proxy,
+so a route list is never maintained by hand.
+
+- `E2E.SdkRouteContract` invokes every public async `ArmadaApiClient` method
+  through a recording handler. Every request must match a served Admiral route
+  and method. A misspelled route fails with the method name and path.
+- `E2E.PostmanCollection` checks `Armada.postman_collection.json` in both
+  directions. Every request must match a served route and method, and every
+  served `/api/` and `/proxy-api/` route must have a request. `{{proxyBaseUrl}}`
+  requests under `/api/` are matched against the Admiral table, because the
+  proxy relays them unchanged. The suite also requires parseable JSON bodies,
+  defined collection variables, the `X-Armada-Proxy-Session` header on relayed
+  proxy requests, and no authentication refusal for Admiral examples marked
+  no-auth.
+
+The collection does not include the tenant, user and credential enumerate routes
+that `docs/REST_API.md` still lists. The Admiral does not register them.

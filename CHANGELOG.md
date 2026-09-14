@@ -272,7 +272,6 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   window before failing closed. A candidate that exits at once is therefore
   recorded as exited rather than as unverifiable.
 
-
 ### Helm configuration and branch client
 
 - Add grouped help and help aliases, with detected OpenCode and Mux MCP setup.
@@ -308,6 +307,25 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   branches with Push and Merge controls only when available, a confirmation
   dialog stating source, target, strategy or remote, and busy and refusal
   states.
+
+### API collection and client route contracts
+
+- The Postman collection now covers every served Admiral `/api/` route and every
+  proxy `/proxy-api/` route, with request bodies taken from the fork request
+  models, admin and destructive-action notes, and new Ask, Coordination, Jobs,
+  Model Endpoints, Project Profiles, Skills, Token Usage and Code Index folders.
+- Removed examples for tenant, user and credential enumerate routes the Admiral
+  does not serve, and rebuilt eight request bodies that had been truncated to
+  invalid JSON.
+- Replaced the retired proxy instance-management examples with the proxy login,
+  deployment selection and logout routes plus relayed Armada requests that send
+  the proxy session header and keep the Armada bearer credential.
+- A contract suite reads the live Admiral and proxy routing tables and fails when
+  a collection request has no served route and method, a served API route has no
+  request, a JSON body does not parse, a relayed proxy request lacks its session
+  header, a variable is undefined, or a no-auth Admiral example is refused.
+- A client route contract invokes every public `ArmadaApiClient` method and fails
+  when a call reaches a route the Admiral does not serve.
 
 ### Model endpoint health persistence
 
@@ -1080,7 +1098,6 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   SQL Server corrections, and prevent concurrent SQLite migration replay.
 - Keep tied-time tenant pages stable and restore MySQL captain provider reads.
 - Build shared test dependencies in sequence before parallel suite execution.
-
 
 - Add a fixed four-provider migration manifest and a source check that rejects
   changed history, reused numbers and altered initial SQL inputs.

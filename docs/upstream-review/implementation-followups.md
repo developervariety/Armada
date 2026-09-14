@@ -20,8 +20,9 @@ inspection, JSONC-preserving MCP setup and help aliases passed 101 combined
 client/Helm checks, including actual isolated HTTP calls. Helm per-command help,
 named enum request and response bodies, and embedded settings loading now have
 behavioral tests; the embedded Admiral previously ignored camelCase settings and
-started on default ports. Postman updates remain open. These changes are not
-deployed.
+started on default ports. The Postman collection now matches the served Admiral
+and proxy routes in both directions, and a live route-table contract guards it
+and every typed client method. These changes are not deployed.
 
 Harbor and self-rebuild require hardened implementations. Harbor must validate
 credentials; self-rebuild must stop after backup failure. Keep existing deployment

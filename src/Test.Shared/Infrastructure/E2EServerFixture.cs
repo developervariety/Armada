@@ -62,6 +62,14 @@ namespace Test.Shared.Infrastructure
         public int McpPort { get; private set; }
 
         /// <summary>
+        /// The running in-process Admiral.
+        /// </summary>
+        public ArmadaServer Server
+        {
+            get { return _Server; }
+        }
+
+        /// <summary>
         /// Temp directory holding the server's database, logs, docks, and repos.
         /// </summary>
         public string TempDir { get; private set; } = "";

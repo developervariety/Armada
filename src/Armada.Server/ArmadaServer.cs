@@ -63,6 +63,12 @@ namespace Armada.Server
         private SettingsFileWatcher? _SettingsWatcher;
 
         private Webserver _App = null!;
+
+        /// <summary>
+        /// Routes registered on the REST listener after start. Contract tests read this table so
+        /// published examples are checked against what the Admiral actually serves.
+        /// </summary>
+        internal WatsonWebserver.Core.Routing.WebserverRoutes RestRoutes => _App.Routes;
         private ArmadaMcpHttpServer _McpServer = null!;
         private ArmadaWebSocketHub _WebSocketHub = null!;
 

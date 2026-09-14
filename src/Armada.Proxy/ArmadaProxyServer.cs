@@ -40,6 +40,12 @@ namespace Armada.Proxy
         private const string DashboardWebSocketRelayCapability = "dashboard.websocket.relay";
 
         private Webserver _Server = null!;
+
+        /// <summary>
+        /// Routes registered on the proxy listener after start. Contract tests read this table so
+        /// published examples are checked against what the proxy actually serves.
+        /// </summary>
+        internal WatsonWebserver.Core.Routing.WebserverRoutes Routes => _Server.Routes;
         private bool _Started = false;
         private bool _Disposed = false;
 
