@@ -1090,7 +1090,7 @@ namespace Armada.Test.Database
 
                 Captain claimed = await CreateIdleCaptainAsync(fixture, tenantId, userId, "quarantine-claimed", token).ConfigureAwait(false);
                 Dock claimedDock = await fixture.CreateDockAsync(tenantId, userId, graph.Vessel.Id, claimed.Id, token).ConfigureAwait(false);
-                DatabaseAssert.True(await _Driver.Captains.TryClaimAsync(claimed.Id, graph.Mission.Id, claimedDock.Id, token).ConfigureAwait(false), "Claim the captain");
+                DatabaseAssert.True(await _Driver.Captains.TryClaimAsync(tenantId, claimed.Id, graph.Mission.Id, claimedDock.Id, token).ConfigureAwait(false), "Claim the captain");
                 DatabaseAssert.True(!await _Driver.Captains.TryQuarantineIdleAsync(claimed.Id, "must refuse", null, token).ConfigureAwait(false), "A claimed captain is not quarantined");
                 Captain stillWorking = DatabaseAssert.NotNull(await _Driver.Captains.ReadAsync(claimed.Id, token).ConfigureAwait(false), "Claimed captain");
                 DatabaseAssert.Equal(CaptainStateEnum.Working, stillWorking.State, "Claimed state is unchanged");

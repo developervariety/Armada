@@ -250,6 +250,12 @@ voyage and mission rows exist. Assignment, dock provisioning, and captain
 launch continue asynchronously. Save the voyage ID. Do not redispatch only
 because the first status call shows `Pending`.
 
+Assignment selects and claims only an idle captain of the mission's own tenant.
+A mission or captain with no tenant belongs to the default tenant. A Pending
+mission whose tenant has no idle captain stays Pending and waits for one; an
+idle captain of another tenant never takes it. The dispatch sweep, the
+scheduler, rescues and restarts all use this one claim.
+
 An objective can have only one normal nonterminal voyage. Scheduler, operator,
 bare REST, and remote-control dispatch paths take the same tenant-scoped
 database admission lease before they create a voyage and hold it until the

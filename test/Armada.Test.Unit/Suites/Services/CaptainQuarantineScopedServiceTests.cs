@@ -188,7 +188,7 @@ namespace Armada.Test.Unit.Suites.Services
                         dock.BranchName = "armada/race/" + round;
                         await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
 
-                        Task<bool> claim = Task.Run(() => testDb.Driver.Captains.TryClaimAsync(captain.Id, mission.Id, dock.Id));
+                        Task<bool> claim = Task.Run(() => testDb.Driver.Captains.TryClaimAsync(_Tenant, captain.Id, mission.Id, dock.Id));
                         Task<CaptainQuarantineResult> bench = Task.Run(() => service.QuarantineCaptainAsync(_Admin, captain.Id, "race hold", null));
                         await Task.WhenAll(claim, bench).ConfigureAwait(false);
 

@@ -242,7 +242,7 @@ namespace Armada.Test.Unit.Suites.Database
                     await db.Captains.CreateAsync(captain);
                     AssertEqual(CaptainStateEnum.Idle, captain.State);
 
-                    bool claimed = await db.Captains.TryClaimAsync(captain.Id, "msn_claim_test", "dck_claim_test");
+                    bool claimed = await db.Captains.TryClaimAsync(Armada.Core.Constants.DefaultTenantId, captain.Id, "msn_claim_test", "dck_claim_test");
                     AssertTrue(claimed);
 
                     Captain? result = await db.Captains.ReadAsync(captain.Id);
@@ -264,7 +264,7 @@ namespace Armada.Test.Unit.Suites.Database
                     captain.CurrentDockId = "dck_existing";
                     await db.Captains.CreateAsync(captain);
 
-                    bool claimed = await db.Captains.TryClaimAsync(captain.Id, "msn_new", "dck_new");
+                    bool claimed = await db.Captains.TryClaimAsync(Armada.Core.Constants.DefaultTenantId, captain.Id, "msn_new", "dck_new");
                     AssertFalse(claimed);
 
                     Captain? result = await db.Captains.ReadAsync(captain.Id);

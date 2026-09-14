@@ -549,51 +549,6 @@ namespace Armada.Core.Database.Sqlite.Implementations
         }
 
         /// <inheritdoc />
-        public async Task<bool> TryClaimAsync(string captainId, string missionId, string dockId, CancellationToken token = default)
-        {
-            if (string.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
-            if (string.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
-            if (string.IsNullOrEmpty(dockId)) throw new ArgumentNullException(nameof(dockId));
-
-            DateTime now = DateTime.UtcNow;
-
-            SqliteTransaction? transaction = _Driver.CurrentTransaction;
-            if (transaction != null)
-            {
-                return await TryClaimAsync(transaction.Connection!, transaction).ConfigureAwait(false);
-            }
-
-            using (SqliteConnection conn = new SqliteConnection(_Driver.ConnectionString))
-            {
-                await conn.OpenAsync(token).ConfigureAwait(false);
-                return await TryClaimAsync(conn, null).ConfigureAwait(false);
-            }
-
-            async Task<bool> TryClaimAsync(SqliteConnection conn, SqliteTransaction? tx)
-            {
-                using (SqliteCommand cmd = conn.CreateCommand())
-                {
-                    cmd.Transaction = tx;
-                    cmd.CommandText = @"UPDATE captains SET
-                            state = @state,
-                            current_mission_id = @current_mission_id,
-                            current_dock_id = @current_dock_id,
-                            last_heartbeat_utc = @last_heartbeat_utc,
-                            last_update_utc = @last_update_utc
-                            WHERE id = @id AND state = 'Idle';";
-                    cmd.Parameters.AddWithValue("@id", captainId);
-                    cmd.Parameters.AddWithValue("@state", CaptainStateEnum.Working.ToString());
-                    cmd.Parameters.AddWithValue("@current_mission_id", missionId);
-                    cmd.Parameters.AddWithValue("@current_dock_id", dockId);
-                    cmd.Parameters.AddWithValue("@last_heartbeat_utc", SqliteDatabaseDriver.ToIso8601(now));
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(now));
-                    int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                    return rowsAffected > 0;
-                }
-            }
-        }
-
-        /// <inheritdoc />
         public async Task<Captain?> ReadAsync(string tenantId, string id, CancellationToken token = default)
         {
             if (string.IsNullOrEmpty(tenantId)) throw new ArgumentNullException(nameof(tenantId));
@@ -838,8 +793,9 @@ namespace Armada.Core.Database.Sqlite.Implementations
                             current_dock_id = @current_dock_id,
                             last_heartbeat_utc = @last_heartbeat_utc,
                             last_update_utc = @last_update_utc
-                            WHERE tenant_id = @tenantId AND id = @id AND state = 'Idle';";
+                            WHERE (tenant_id = @tenantId OR (@unownedIsDefault = 1 AND tenant_id IS NULL)) AND id = @id AND state = 'Idle';";
                     cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    cmd.Parameters.AddWithValue("@unownedIsDefault", String.Equals(tenantId, Constants.DefaultTenantId, StringComparison.Ordinal) ? 1 : 0);
                     cmd.Parameters.AddWithValue("@id", captainId);
                     cmd.Parameters.AddWithValue("@state", CaptainStateEnum.Working.ToString());
                     cmd.Parameters.AddWithValue("@current_mission_id", missionId);

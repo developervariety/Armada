@@ -473,49 +473,6 @@ namespace Armada.Core.Database.Postgresql.Implementations
             }
         }
 
-        /// <summary>
-        /// Atomically claim a captain for a mission. Sets state to Working and assigns
-        /// mission/dock IDs, but only if the captain is currently Idle.
-        /// Returns true if the claim succeeded, false if the captain was no longer Idle.
-        /// </summary>
-        /// <param name="captainId">Captain identifier.</param>
-        /// <param name="missionId">Mission identifier to assign.</param>
-        /// <param name="dockId">Dock identifier to assign.</param>
-        /// <param name="token">Cancellation token.</param>
-        /// <returns>True if the claim succeeded.</returns>
-        public async Task<bool> TryClaimAsync(string captainId, string missionId, string dockId, CancellationToken token = default)
-        {
-            if (string.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
-            if (string.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
-            if (string.IsNullOrEmpty(dockId)) throw new ArgumentNullException(nameof(dockId));
-
-            DateTime now = DateTime.UtcNow;
-
-            using (NpgsqlConnection conn = new NpgsqlConnection(_Settings.GetConnectionString()))
-            {
-                await conn.OpenAsync(token).ConfigureAwait(false);
-                using (NpgsqlCommand cmd = new NpgsqlCommand())
-                {
-                    cmd.Connection = conn;
-                    cmd.CommandText = @"UPDATE captains SET
-                        state = @state,
-                        current_mission_id = @current_mission_id,
-                        current_dock_id = @current_dock_id,
-                        last_heartbeat_utc = @last_heartbeat_utc,
-                        last_update_utc = @last_update_utc
-                        WHERE id = @id AND state = 'Idle';";
-                    cmd.Parameters.AddWithValue("@id", captainId);
-                    cmd.Parameters.AddWithValue("@state", CaptainStateEnum.Working.ToString());
-                    cmd.Parameters.AddWithValue("@current_mission_id", missionId);
-                    cmd.Parameters.AddWithValue("@current_dock_id", dockId);
-                    cmd.Parameters.AddWithValue("@last_heartbeat_utc", now);
-                    cmd.Parameters.AddWithValue("@last_update_utc", now);
-                    int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                    return rowsAffected > 0;
-                }
-            }
-        }
-
         /// <inheritdoc />
         public async Task<bool> TryQuarantineIdleAsync(string captainId, string reason, DateTime? untilUtc, CancellationToken token = default, bool preserveStrongerHold = false)
         {
@@ -856,8 +813,9 @@ namespace Armada.Core.Database.Postgresql.Implementations
                         current_dock_id = @current_dock_id,
                         last_heartbeat_utc = @last_heartbeat_utc,
                         last_update_utc = @last_update_utc
-                        WHERE tenant_id = @tenantId AND id = @id AND state = 'Idle';";
+                        WHERE (tenant_id = @tenantId OR (@unownedIsDefault = TRUE AND tenant_id IS NULL)) AND id = @id AND state = 'Idle';";
                     cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    cmd.Parameters.AddWithValue("@unownedIsDefault", String.Equals(tenantId, Armada.Core.Constants.DefaultTenantId, StringComparison.Ordinal));
                     cmd.Parameters.AddWithValue("@id", captainId);
                     cmd.Parameters.AddWithValue("@state", CaptainStateEnum.Working.ToString());
                     cmd.Parameters.AddWithValue("@current_mission_id", missionId);

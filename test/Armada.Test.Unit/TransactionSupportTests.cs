@@ -55,7 +55,7 @@ namespace Armada.Test.Unit
                             mission.DockId = dock.Id;
                             await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
 
-                            bool claimed = await testDb.Driver.Captains.TryClaimAsync(captain.Id, mission.Id, dock.Id).ConfigureAwait(false);
+                            bool claimed = await testDb.Driver.Captains.TryClaimAsync(Armada.Core.Constants.DefaultTenantId, captain.Id, mission.Id, dock.Id).ConfigureAwait(false);
                             AssertTrue(claimed, "Captain claim inside transaction should succeed");
 
                             await testDb.Driver.Docks.DeleteAsync(dock.Id).ConfigureAwait(false);

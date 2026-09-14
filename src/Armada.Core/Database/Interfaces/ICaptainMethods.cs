@@ -73,13 +73,6 @@ namespace Armada.Core.Database.Interfaces
         Task<bool> ExistsAsync(string id, CancellationToken token = default);
 
         /// <summary>
-        /// Atomically claim a captain for a mission. Sets state to Working and assigns
-        /// mission/dock IDs, but only if the captain is currently Idle.
-        /// Returns true if the claim succeeded, false if the captain was no longer Idle.
-        /// </summary>
-        Task<bool> TryClaimAsync(string captainId, string missionId, string dockId, CancellationToken token = default);
-
-        /// <summary>
         /// Atomically quarantine a captain that owns no work. Sets state to Quarantined with the reason and expiry
         /// (null expiry is an indefinite hold), but only while the captain is Idle or already Quarantined and has no
         /// current mission, dock or process. Returns false when that condition no longer holds, so a captain that
@@ -147,9 +140,11 @@ namespace Armada.Core.Database.Interfaces
         Task<bool> ExistsAsync(string tenantId, string id, CancellationToken token = default);
 
         /// <summary>
-        /// Atomically claim a captain for a mission (tenant-scoped). Sets state to Working
-        /// and assigns mission/dock IDs, but only if the captain is currently Idle and belongs
-        /// to the specified tenant. Returns true if the claim succeeded.
+        /// Atomically claim a captain for a mission. Sets state to Working and assigns mission/dock IDs,
+        /// but only if the captain is currently Idle and belongs to the specified tenant. A captain with
+        /// no tenant belongs to the default tenant, so only a claim for the default tenant takes it.
+        /// Returns true if the claim succeeded. This is the only claim: assignment never takes a captain
+        /// from another tenant.
         /// </summary>
         Task<bool> TryClaimAsync(string tenantId, string captainId, string missionId, string dockId, CancellationToken token = default);
 

@@ -257,7 +257,7 @@ namespace Test.Shared.Suites.Database
                     await db.Captains.CreateAsync(captain);
                     AssertEqual(CaptainStateEnum.Idle, captain.State);
 
-                    bool claimed = await db.Captains.TryClaimAsync(captain.Id, "msn_claim_test", "dck_claim_test");
+                    bool claimed = await db.Captains.TryClaimAsync(Armada.Core.Constants.DefaultTenantId, captain.Id, "msn_claim_test", "dck_claim_test");
                     AssertTrue(claimed);
 
                     Captain? result = await db.Captains.ReadAsync(captain.Id);
@@ -279,13 +279,38 @@ namespace Test.Shared.Suites.Database
                     captain.CurrentDockId = "dck_existing";
                     await db.Captains.CreateAsync(captain);
 
-                    bool claimed = await db.Captains.TryClaimAsync(captain.Id, "msn_new", "dck_new");
+                    bool claimed = await db.Captains.TryClaimAsync(Armada.Core.Constants.DefaultTenantId, captain.Id, "msn_new", "dck_new");
                     AssertFalse(claimed);
 
                     Captain? result = await db.Captains.ReadAsync(captain.Id);
                     AssertEqual(CaptainStateEnum.Working, result!.State);
                     AssertEqual("msn_existing", result.CurrentMissionId);
                     AssertEqual("dck_existing", result.CurrentDockId);
+                }
+            }));
+
+            cases.Add(CaseAsync("captain_try_claim_is_tenant_bound", "Captain_TryClaim_IsTenantBound", TestTags.Negative, async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    DatabaseDriver db = testDb.Driver;
+                    TenantMetadata other = await db.Tenants.CreateAsync(new TenantMetadata("claim-other-tenant"));
+                    Captain foreign = new Captain("claim-foreign");
+                    foreign.TenantId = other.Id;
+                    await db.Captains.CreateAsync(foreign);
+
+                    AssertFalse(await db.Captains.TryClaimAsync(Armada.Core.Constants.DefaultTenantId, foreign.Id, "msn_default", "dck_default"),
+                        "a claim for the default tenant must not take another tenant's captain");
+                    AssertEqual(CaptainStateEnum.Idle, (await db.Captains.ReadAsync(foreign.Id))!.State, "the refused captain stays Idle");
+                    AssertTrue(await db.Captains.TryClaimAsync(other.Id, foreign.Id, "msn_other", "dck_other"),
+                        "a claim for the captain's own tenant takes it");
+
+                    Captain unowned = new Captain("claim-unowned");
+                    await db.Captains.CreateAsync(unowned);
+                    AssertFalse(await db.Captains.TryClaimAsync(other.Id, unowned.Id, "msn_other2", "dck_other2"),
+                        "a captain with no tenant belongs to the default tenant, not to another tenant");
+                    AssertTrue(await db.Captains.TryClaimAsync(Armada.Core.Constants.DefaultTenantId, unowned.Id, "msn_default2", "dck_default2"),
+                        "a claim for the default tenant takes a captain with no tenant");
                 }
             }));
 

@@ -557,6 +557,82 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(highCaptain.Id, readBack.CaptainId, "Specialist work defaults to the high captain even when a mid captain is idle");
                 }
             });
+
+            await RunTest("TryAssign_TwoTenantsIdle_AssignsOnlyTheMissionTenantsCaptain", async () =>
+            {
+                // The other tenant's captain sorts first in the idle enumeration, so a tenant-blind
+                // selection lands on it and the assertions below fail.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    TenantMetadata tenantA = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("assignment-tenant-a")).ConfigureAwait(false);
+                    TenantMetadata tenantB = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("assignment-tenant-b")).ConfigureAwait(false);
+                    Vessel vessel = await CreateTenantVesselAsync(testDb.Driver, settings, tenantA.Id).ConfigureAwait(false);
+                    Captain foreign = await CreateTenantCaptainAsync(testDb.Driver, "aaa-tenant-b-captain", tenantB.Id).ConfigureAwait(false);
+                    Captain own = await CreateTenantCaptainAsync(testDb.Driver, "zzz-tenant-a-captain", tenantA.Id).ConfigureAwait(false);
+                    Mission mission = await CreateTenantMissionAsync(testDb.Driver, vessel, "tenant a work", tenantA.Id).ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    Captain? foreignAfter = await testDb.Driver.Captains.ReadAsync(foreign.Id).ConfigureAwait(false);
+                    AssertTrue(assigned, "the mission's own tenant has an idle captain");
+                    AssertEqual(own.Id, readBack!.CaptainId, "a mission is assigned only to a captain of its own tenant");
+                    AssertEqual(CaptainStateEnum.Idle, foreignAfter!.State, "the other tenant's captain is never claimed");
+                    AssertNull(foreignAfter.CurrentMissionId, "the other tenant's captain holds no mission");
+                }
+            });
+
+            await RunTest("TryAssign_OnlyOtherTenantIdle_LeavesMissionPending", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    MissionService missions = CreateMissionService(testDb.Driver, settings);
+                    TenantMetadata tenantA = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("assignment-tenant-a")).ConfigureAwait(false);
+                    TenantMetadata tenantB = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("assignment-tenant-b")).ConfigureAwait(false);
+                    Vessel vessel = await CreateTenantVesselAsync(testDb.Driver, settings, tenantA.Id).ConfigureAwait(false);
+                    Captain foreign = await CreateTenantCaptainAsync(testDb.Driver, "tenant-b-captain", tenantB.Id).ConfigureAwait(false);
+                    Mission mission = await CreateTenantMissionAsync(testDb.Driver, vessel, "tenant a work", tenantA.Id).ConfigureAwait(false);
+
+                    bool assigned = await missions.TryAssignAsync(mission, vessel).ConfigureAwait(false);
+
+                    Mission? readBack = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    Captain? foreignAfter = await testDb.Driver.Captains.ReadAsync(foreign.Id).ConfigureAwait(false);
+                    AssertFalse(assigned, "no captain of the mission's tenant is idle");
+                    AssertEqual(MissionStatusEnum.Pending, readBack!.Status, "the mission waits for its own tenant's captain");
+                    AssertNull(readBack.CaptainId, "the mission is not assigned across tenants");
+                    AssertEqual(CaptainStateEnum.Idle, foreignAfter!.State, "the other tenant's captain is never claimed");
+                }
+            });
+        }
+
+        private async Task<Vessel> CreateTenantVesselAsync(SqliteDatabaseDriver db, ArmadaSettings settings, string tenantId)
+        {
+            Vessel vessel = new Vessel("tenant-vessel-" + Guid.NewGuid().ToString("N"), "https://github.com/test/tenant-routing.git");
+            vessel.TenantId = tenantId;
+            vessel.LocalPath = Path.Combine(settings.ReposDirectory, vessel.Name + ".git");
+            vessel.DefaultBranch = "main";
+            return await db.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+        }
+
+        private async Task<Captain> CreateTenantCaptainAsync(SqliteDatabaseDriver db, string name, string tenantId)
+        {
+            Captain captain = new Captain(name);
+            captain.TenantId = tenantId;
+            captain.Model = "gpt-5.6-luna";
+            captain.State = CaptainStateEnum.Idle;
+            return await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+        }
+
+        private async Task<Mission> CreateTenantMissionAsync(SqliteDatabaseDriver db, Vessel vessel, string title, string tenantId)
+        {
+            Mission mission = new Mission(title, "Route within the mission's tenant.");
+            mission.TenantId = tenantId;
+            mission.VesselId = vessel.Id;
+            mission.Status = MissionStatusEnum.Pending;
+            return await db.Missions.CreateAsync(mission).ConfigureAwait(false);
         }
 
     }

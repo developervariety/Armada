@@ -622,8 +622,9 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         current_dock_id = @current_dock_id,
                         last_heartbeat_utc = @last_heartbeat_utc,
                         last_update_utc = @last_update_utc
-                        WHERE tenant_id = @tenantId AND id = @id AND state = 'Idle';";
+                        WHERE (tenant_id = @tenantId OR (@unownedIsDefault = 1 AND tenant_id IS NULL)) AND id = @id AND state = 'Idle';";
                     cmd.Parameters.AddWithValue("@tenantId", tenantId);
+                    cmd.Parameters.AddWithValue("@unownedIsDefault", String.Equals(tenantId, Armada.Core.Constants.DefaultTenantId, StringComparison.Ordinal) ? 1 : 0);
                     cmd.Parameters.AddWithValue("@id", captainId);
                     cmd.Parameters.AddWithValue("@state", CaptainStateEnum.Working.ToString());
                     cmd.Parameters.AddWithValue("@current_mission_id", missionId);
@@ -906,39 +907,6 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(now));
                     if (expiredAtOrBeforeUtc.HasValue)
                         cmd.Parameters.AddWithValue("@cutoff", SqlServerDatabaseDriver.ToIso8601(expiredAtOrBeforeUtc.Value));
-                    int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                    return rowsAffected > 0;
-                }
-            }
-        }
-
-        /// <inheritdoc />
-        public async Task<bool> TryClaimAsync(string captainId, string missionId, string dockId, CancellationToken token = default)
-        {
-            if (string.IsNullOrEmpty(captainId)) throw new ArgumentNullException(nameof(captainId));
-            if (string.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
-            if (string.IsNullOrEmpty(dockId)) throw new ArgumentNullException(nameof(dockId));
-
-            DateTime now = DateTime.UtcNow;
-
-            using (SqlConnection conn = new SqlConnection(_Driver.ConnectionString))
-            {
-                await conn.OpenAsync(token).ConfigureAwait(false);
-                using (SqlCommand cmd = conn.CreateCommand())
-                {
-                    cmd.CommandText = @"UPDATE captains SET
-                        state = @state,
-                        current_mission_id = @current_mission_id,
-                        current_dock_id = @current_dock_id,
-                        last_heartbeat_utc = @last_heartbeat_utc,
-                        last_update_utc = @last_update_utc
-                        WHERE id = @id AND state = 'Idle';";
-                    cmd.Parameters.AddWithValue("@id", captainId);
-                    cmd.Parameters.AddWithValue("@state", CaptainStateEnum.Working.ToString());
-                    cmd.Parameters.AddWithValue("@current_mission_id", missionId);
-                    cmd.Parameters.AddWithValue("@current_dock_id", dockId);
-                    cmd.Parameters.AddWithValue("@last_heartbeat_utc", SqlServerDatabaseDriver.ToIso8601(now));
-                    cmd.Parameters.AddWithValue("@last_update_utc", SqlServerDatabaseDriver.ToIso8601(now));
                     int rowsAffected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                     return rowsAffected > 0;
                 }

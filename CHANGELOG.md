@@ -14,6 +14,18 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Mission assignment stays inside the mission's tenant
+
+- Mission assignment now selects and claims only a captain of the mission's own
+  tenant. Selection read every idle captain and the claim matched the captain
+  id alone, so a Pending mission could be assigned to another tenant's idle
+  captain, and was assigned when that captain was the only one idle.
+- Every assignment path (dispatch sweep, scheduler, rescue and restart) runs
+  through the one assignment claim, which now names the tenant. The claim that
+  ignored tenants is removed from the database interface and all four
+  providers. A mission or captain with no tenant belongs to the default tenant,
+  matching how older rows were backfilled.
+
 ### Data expiry on every provider
 
 - Data expiry now purges through a provider-neutral database driver method set,

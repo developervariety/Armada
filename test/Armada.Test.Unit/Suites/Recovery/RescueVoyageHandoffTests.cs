@@ -74,7 +74,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     BranchName = null
                 }).ConfigureAwait(false);
 
-                await CreateIdleCaptainAsync(testDb, "rescue-idle-captain").ConfigureAwait(false);
+                await CreateIdleCaptainAsync(testDb, vessel.TenantId!, "rescue-idle-captain").ConfigureAwait(false);
 
                 ArmadaSettings settings = CreateSettings();
                 MissionService missionSvc = CreateMissionService(testDb.Driver, settings, new LoggingModule(), new StubGitService());
@@ -133,7 +133,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     BranchName = null
                 }).ConfigureAwait(false);
 
-                await CreateIdleCaptainAsync(testDb, "rescue-idle-captain-strand").ConfigureAwait(false);
+                await CreateIdleCaptainAsync(testDb, vessel.TenantId!, "rescue-idle-captain-strand").ConfigureAwait(false);
                 MissionService missionSvc = CreateMissionService(testDb.Driver, CreateSettings(), new LoggingModule(), new StubGitService());
 
                 // Stranded shape: the dependent carries no branch while its WorkProduced same-vessel
@@ -185,7 +185,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     BranchName = null
                 }).ConfigureAwait(false);
 
-                await CreateIdleCaptainAsync(testDb, "rescue-idle-judge-captain").ConfigureAwait(false);
+                await CreateIdleCaptainAsync(testDb, vessel.TenantId!, "rescue-idle-judge-captain").ConfigureAwait(false);
                 MissionService missionSvc = CreateMissionService(testDb.Driver, CreateSettings(), new LoggingModule(), new StubGitService());
 
                 // The Judge depends on a WorkProduced TestEngineer whose branch was never propagated
@@ -369,7 +369,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     BranchName = worker.BranchName
                 }).ConfigureAwait(false);
 
-                await CreateIdleCaptainAsync(testDb, "normal-pipe-captain").ConfigureAwait(false);
+                await CreateIdleCaptainAsync(testDb, vessel.TenantId!, "normal-pipe-captain").ConfigureAwait(false);
                 MissionService missionSvc = CreateMissionService(testDb.Driver, CreateSettings(), new LoggingModule(), new StubGitService());
 
                 // The dependency gate must be clear immediately (no stamp needed).
@@ -465,7 +465,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     DependsOnMissionId = worker.Id
                 }).ConfigureAwait(false);
 
-                await CreateIdleCaptainAsync(testDb, "pending-dep-captain").ConfigureAwait(false);
+                await CreateIdleCaptainAsync(testDb, vessel.TenantId!, "pending-dep-captain").ConfigureAwait(false);
                 MissionService missionSvc = CreateMissionService(testDb.Driver, CreateSettings(), new LoggingModule(), new StubGitService());
 
                 bool result = await missionSvc.TryAssignAsync(testEngineer, vessel).ConfigureAwait(false);
@@ -528,7 +528,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     BranchName = upstream.BranchName
                 }).ConfigureAwait(false);
 
-                await CreateIdleCaptainAsync(testDb, "xvessel-captain").ConfigureAwait(false);
+                await CreateIdleCaptainAsync(testDb, "ten_xvessel", "xvessel-captain").ConfigureAwait(false);
                 MissionService missionSvc = CreateMissionService(testDb.Driver, CreateSettings(), new LoggingModule(), new StubGitService());
 
                 bool result = await missionSvc.TryAssignAsync(downstream, vesselB).ConfigureAwait(false);
@@ -624,7 +624,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     BranchName = null
                 }).ConfigureAwait(false);
 
-                await CreateIdleCaptainAsync(testDb, "struct-idle-captain").ConfigureAwait(false);
+                await CreateIdleCaptainAsync(testDb, vessel.TenantId!, "struct-idle-captain").ConfigureAwait(false);
 
                 IncidentService incidents = new IncidentService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestratorWithLandingDrain(
@@ -689,7 +689,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     BranchName = null
                 }).ConfigureAwait(false);
 
-                await CreateIdleCaptainAsync(testDb, "pr-idle-captain").ConfigureAwait(false);
+                await CreateIdleCaptainAsync(testDb, vessel.TenantId!, "pr-idle-captain").ConfigureAwait(false);
 
                 IncidentService incidents = new IncidentService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestratorWithLandingDrain(
@@ -757,7 +757,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     BranchName = null
                 }).ConfigureAwait(false);
 
-                await CreateIdleCaptainAsync(testDb, "arch-idle-captain").ConfigureAwait(false);
+                await CreateIdleCaptainAsync(testDb, vessel.TenantId!, "arch-idle-captain").ConfigureAwait(false);
 
                 IncidentService incidents = new IncidentService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestratorWithLandingDrain(
@@ -817,7 +817,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     BranchName = null
                 }).ConfigureAwait(false);
 
-                await CreateIdleCaptainAsync(testDb, "nullb-idle-captain").ConfigureAwait(false);
+                await CreateIdleCaptainAsync(testDb, vessel.TenantId!, "nullb-idle-captain").ConfigureAwait(false);
 
                 IncidentService incidents = new IncidentService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestratorWithLandingDrain(
@@ -876,7 +876,7 @@ namespace Armada.Test.Unit.Suites.Recovery
                     BranchName = "armada/rescue-worker/msn_carry"
                 }).ConfigureAwait(false);
 
-                await CreateIdleCaptainAsync(testDb, "carry-idle-captain").ConfigureAwait(false);
+                await CreateIdleCaptainAsync(testDb, vessel.TenantId!, "carry-idle-captain").ConfigureAwait(false);
 
                 IncidentService incidents = new IncidentService(testDb.Driver);
                 AutonomousRecoveryOrchestrator orchestrator = CreateOrchestratorWithLandingDrain(
@@ -1091,10 +1091,12 @@ namespace Armada.Test.Unit.Suites.Recovery
             }).ConfigureAwait(false);
         }
 
-        private static async Task<Captain> CreateIdleCaptainAsync(TestDatabase testDb, string name)
+        private static async Task<Captain> CreateIdleCaptainAsync(TestDatabase testDb, string tenantId, string name)
         {
+            // Assignment claims only a captain of the mission's own tenant, so the idle captain shares it.
             return await testDb.Driver.Captains.CreateAsync(new Captain(name)
             {
+                TenantId = tenantId,
                 State = CaptainStateEnum.Idle
             }).ConfigureAwait(false);
         }

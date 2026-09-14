@@ -382,7 +382,7 @@ namespace Test.Shared.Suites.Database
                     Task<bool>[] claimTasks = new Task<bool>[parallelCount];
                     for (int i = 0; i < parallelCount; i++)
                     {
-                        claimTasks[i] = db.Captains.TryClaimAsync(captain.Id, mission.Id, dock.Id);
+                        claimTasks[i] = db.Captains.TryClaimAsync(Armada.Core.Constants.DefaultTenantId, captain.Id, mission.Id, dock.Id);
                     }
 
                     bool[] results = await Task.WhenAll(claimTasks);

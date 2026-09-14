@@ -822,7 +822,7 @@ namespace Armada.Core.Services
                 {
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
 
-                    bool claimed = await _Database.Captains.TryClaimAsync(captain.Id, mission.Id, dock.Id, token).ConfigureAwait(false);
+                    bool claimed = await _Database.Captains.TryClaimAsync(AssignmentTenantOf(mission), captain.Id, mission.Id, dock.Id, token).ConfigureAwait(false);
                     if (!claimed)
                     {
                         throw new InvalidOperationException("Captain " + captain.Id + " was claimed by another mission.");
@@ -7993,6 +7993,15 @@ namespace Armada.Core.Services
                 || captain.AllowedPersonas.Contains("\"" + normalized + "\"", StringComparison.OrdinalIgnoreCase);
         }
 
+        /// <summary>
+        /// The tenant whose captains may work a mission. A mission with no tenant belongs to the default
+        /// tenant, matching how a captain with no tenant is claimed.
+        /// </summary>
+        private static string AssignmentTenantOf(Mission mission)
+        {
+            return Armada.Core.Authorization.OwnershipPolicy.TenantOfRecord(mission.TenantId);
+        }
+
         private async Task<Captain?> FindAvailableCaptainAsync(Mission mission, CancellationToken token)
         {
             string? persona = mission?.Persona;
@@ -8007,9 +8016,13 @@ namespace Armada.Core.Services
             if (idleCaptains.Count == 0)
                 return null;
 
+            string assignmentTenant = AssignmentTenantOf(mission!);
             List<Captain> assignableCaptains = new List<Captain>();
             foreach (Captain idleCaptain in idleCaptains)
             {
+                // A mission is worked only by a captain of its own tenant. The claim enforces the same
+                // rule, so a captain of another tenant is never provisioned a dock it could not claim.
+                if (!String.Equals(Armada.Core.Authorization.OwnershipPolicy.TenantOfRecord(idleCaptain.TenantId), assignmentTenant, StringComparison.Ordinal)) continue;
                 if (_CaptainQuarantine.IsQuarantined(idleCaptain)) continue;
                 if (IsExcludedForAssignment(mission, idleCaptain)) continue;
                 // Reserved by another mission's in-flight assignment: still Idle in the database,
