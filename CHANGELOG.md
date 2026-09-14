@@ -246,6 +246,19 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   existed are reported as historical with explicit coverage instead of being
   classified from parent links or titles.
 
+### Lane time and host-slot wait
+
+- Armada-executed Checks persist the host command-slot request time,
+  separate from creation and start, on all four database providers. The
+  production summary reports preparation delay and pure host-slot wait
+  separately from execution, with unknown coverage for Checks started
+  without a recorded request.
+- Each scheduler sweep records shared-lane eligibility, occupancy, capacity
+  and fleet-wide block reason as append-only transitions with a trust
+  window. The production summary reports eligible idle lane-minutes
+  separately from fleet-capacity and dispatch-hold time, with unobserved
+  lane-minutes and incomplete intervals stated explicitly.
+
 ### Preparation claim observations
 
 - Objective preparation writes and dispatch links append durable claim

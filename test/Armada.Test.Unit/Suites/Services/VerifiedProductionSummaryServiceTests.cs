@@ -438,6 +438,83 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(2, family.Reused);
             }).ConfigureAwait(false);
 
+            await RunTest("HostSlotWaitIsSeparateFromPreparationAndExecution", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DateTime start = new DateTime(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc);
+                Mission mission = await CreateVerifiedSliceAsync(testDb, start, "slot").ConfigureAwait(false);
+                await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    MissionId = mission.Id,
+                    VoyageId = mission.VoyageId,
+                    Status = CheckRunStatusEnum.Passed,
+                    Command = "dotnet test",
+                    CommitHash = CommitFor("slot"),
+                    CreatedUtc = start.AddMinutes(31),
+                    SlotRequestedUtc = start.AddMinutes(36),
+                    StartedUtc = start.AddMinutes(38),
+                    CompletedUtc = start.AddMinutes(39),
+                    DurationMs = 60000
+                }).ConfigureAwait(false);
+                await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    MissionId = mission.Id,
+                    VoyageId = mission.VoyageId,
+                    Source = CheckRunSourceEnum.External,
+                    Status = CheckRunStatusEnum.Passed,
+                    Command = "external",
+                    CommitHash = CommitFor("slot"),
+                    CreatedUtc = start.AddMinutes(31),
+                    StartedUtc = start.AddMinutes(32),
+                    DurationMs = 1000
+                }).ConfigureAwait(false);
+
+                ProductionSummaryResult result = await new VerifiedProductionSummaryService(testDb.Driver).SummarizeAsync(
+                    AuthContext.Authenticated("default", "default", true, true, "UnitTest"),
+                    new ProductionSummaryQuery { FromUtc = start, ToUtc = start.AddDays(7) }).ConfigureAwait(false);
+
+                ProductionCheckTimingMetric timing = result.Groups.Single().CheckTiming;
+                AssertEqual(120000L, timing.HostQueueMs.P50!.Value, "host-slot wait runs from the slot request to start");
+                AssertEqual(1, timing.HostQueueMs.Observed);
+                AssertEqual(1, timing.HostQueueMs.Unknown, "an Armada Check started without a recorded slot request is unknown");
+                AssertEqual("partial", timing.HostQueueMs.Availability);
+                AssertEqual(300000L, timing.PreparationDelayMs.P50!.Value, "preparation runs from creation to the slot request");
+                AssertEqual(1, timing.PreparationDelayMs.Observed);
+                AssertEqual(3, timing.ExecutionMs.Observed, "execution still covers every timed Check");
+            }).ConfigureAwait(false);
+
+            await RunTest("EligibleIdleLaneMinutesUseObservedIntervalsWithCoverage", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DateTime start = new DateTime(2026, 8, 1, 0, 0, 0, DateTimeKind.Utc);
+                await CreateVerifiedSliceAsync(testDb, start, "lane").ConfigureAwait(false);
+                Objective laneObjective = await ObjectiveTitledAsync(testDb, "lane").ConfigureAwait(false);
+                laneObjective.Tags = new List<string> { "port:ecu" };
+                await testDb.Driver.Objectives.UpdateAsync(laneObjective).ConfigureAwait(false);
+
+                await AddLaneRowAsync(testDb, "vsl_a", start.AddMinutes(-10), 1, 0, 1, LaneBlockReasonEnum.None, "ecu", 1800).ConfigureAwait(false);
+                await AddLaneRowAsync(testDb, "vsl_a", start.AddMinutes(30), 1, 0, 1, LaneBlockReasonEnum.None, "ecu", 3600).ConfigureAwait(false);
+                await AddLaneRowAsync(testDb, "vsl_a", start.AddMinutes(90), 1, 1, 1, LaneBlockReasonEnum.None, "ecu", 3600).ConfigureAwait(false);
+                await AddLaneRowAsync(testDb, "vsl_b+vsl_c", start.AddMinutes(60), 2, 0, 1, LaneBlockReasonEnum.FleetCapacity, "dxp", 7200).ConfigureAwait(false);
+
+                ProductionSummaryResult result = await new VerifiedProductionSummaryService(testDb.Driver).SummarizeAsync(
+                    AuthContext.Authenticated("default", "default", true, true, "UnitTest"),
+                    new ProductionSummaryQuery { FromUtc = start, ToUtc = start.AddHours(2) }).ConfigureAwait(false);
+
+                ProductionLaneTimeSummary lanes = result.LaneTime;
+                AssertEqual(2, lanes.Lanes);
+                AssertEqual(240.0, lanes.ExpectedLaneMinutes);
+                AssertEqual(170.0, lanes.ObservedLaneMinutes, "observations count only inside their trust windows");
+                AssertEqual(70.0, lanes.UnobservedLaneMinutes);
+                AssertEqual(2, lanes.IncompleteIntervals, "a trust-window gap and a lane first seen mid-window are incomplete");
+                AssertEqual(80.0, lanes.EligibleIdleMinutes);
+                AssertEqual(60.0, lanes.FleetBlockedMinutes, "fleet-capacity time is not lane idleness");
+                AssertEqual("partial", lanes.Availability);
+                ProductionIdleLaneMetric group = result.Groups.Single().EligibleIdleLaneMinutes;
+                AssertEqual(80L, group.ObservedMinutes!.Value, "idle minutes are attributed by eligible source family");
+                AssertEqual("partial", group.Availability);
+            }).ConfigureAwait(false);
+
             await RunTest("WindowOverNinetyDaysIsRejected", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -531,6 +608,21 @@ namespace Armada.Test.Unit.Suites.Services
                 EvidenceFingerprint = new string('a', 64),
                 Observation = observation,
                 CreatedUtc = start.AddMinutes(10)
+            }).ConfigureAwait(false);
+        }
+
+        private static async Task AddLaneRowAsync(TestDatabase testDb, string laneKey, DateTime createdUtc, int eligible, int occupied, int capacity, LaneBlockReasonEnum block, string families, int validForSeconds)
+        {
+            await testDb.Driver.LaneStateTransitions.CreateAsync(new LaneStateTransition
+            {
+                LaneKey = laneKey,
+                EligibleCount = eligible,
+                Occupied = occupied,
+                Capacity = capacity,
+                BlockReason = block,
+                EligibleSourceFamilies = families,
+                ValidForSeconds = validForSeconds,
+                CreatedUtc = createdUtc
             }).ConfigureAwait(false);
         }
 

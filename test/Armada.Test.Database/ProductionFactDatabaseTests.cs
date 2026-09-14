@@ -152,6 +152,55 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyLaneStateAndSlotRequestAsync(CancellationToken token)
+        {
+            DateTime baseUtc = new DateTime(2033, 3, 4, 5, 6, 7, 250, DateTimeKind.Utc);
+            string lane = "vsl_lane_" + Guid.NewGuid().ToString("N").Substring(0, 8) + "+vsl_sibling";
+            await _Driver.LaneStateTransitions.CreateAsync(new LaneStateTransition
+            {
+                LaneKey = lane,
+                EligibleCount = 2,
+                Occupied = 1,
+                Capacity = 3,
+                BlockReason = LaneBlockReasonEnum.DispatchHold,
+                EligibleSourceFamilies = "dxp,ecu",
+                Checkpoint = true,
+                ValidForSeconds = 900,
+                CreatedUtc = baseUtc
+            }, token).ConfigureAwait(false);
+            CheckRun slotted = await _Driver.CheckRuns.CreateAsync(new CheckRun
+            {
+                Command = "dotnet test",
+                SlotRequestedUtc = baseUtc,
+                StartedUtc = baseUtc.AddSeconds(30)
+            }, token).ConfigureAwait(false);
+
+            using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+            {
+                ProductionFactPage<LaneStateTransition> page = await reopened.LaneStateTransitions.EnumerateAsync(new ProductionFactQuery
+                {
+                    FromUtc = baseUtc,
+                    ToUtc = baseUtc.AddSeconds(1)
+                }, token).ConfigureAwait(false);
+                LaneStateTransition stored = page.Items.Single(item => item.LaneKey == lane);
+                DatabaseAssert.Equal(2, stored.EligibleCount, "Eligible count round-trips");
+                DatabaseAssert.Equal(1, stored.Occupied, "Occupancy round-trips");
+                DatabaseAssert.Equal(3, stored.Capacity, "Capacity round-trips");
+                DatabaseAssert.Equal(LaneBlockReasonEnum.DispatchHold, stored.BlockReason, "Block reason round-trips");
+                DatabaseAssert.Equal("dxp,ecu", stored.EligibleSourceFamilies, "Eligible families round-trip");
+                DatabaseAssert.True(stored.Checkpoint, "Checkpoint flag round-trips");
+                DatabaseAssert.Equal(900, stored.ValidForSeconds, "Trust window round-trips");
+
+                CheckRun? check = await reopened.CheckRuns.ReadAsync(slotted.Id, null, token).ConfigureAwait(false);
+                DatabaseAssert.True(check!.SlotRequestedUtc.HasValue, "Slot request time round-trips");
+                DatabaseAssert.True(Math.Abs((check.SlotRequestedUtc!.Value - baseUtc).TotalSeconds) < 1.0, "Slot request time keeps its value");
+                check.SlotRequestedUtc = null;
+                await reopened.CheckRuns.UpdateAsync(check, token).ConfigureAwait(false);
+                CheckRun? cleared = await reopened.CheckRuns.ReadAsync(slotted.Id, null, token).ConfigureAwait(false);
+                DatabaseAssert.True(!cleared!.SlotRequestedUtc.HasValue, "Update clears the slot request time");
+            }
+        }
+
         private static MissionAttemptFact NewFact(string tenant, string missionId, MissionAttemptFactTypeEnum type, bool rescue, string? reason, DateTime createdUtc)
         {
             return new MissionAttemptFact

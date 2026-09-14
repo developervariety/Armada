@@ -150,6 +150,11 @@ namespace Armada.Core.Database
         public IPreparationClaimObservationMethods PreparationClaimObservations { get; protected set; } = null!;
 
         /// <summary>
+        /// Append-only lane state transitions used by production metrics.
+        /// </summary>
+        public ILaneStateTransitionMethods LaneStateTransitions { get; protected set; } = null!;
+
+        /// <summary>
         /// Prompt template operations.
         /// </summary>
         public IPromptTemplateMethods PromptTemplates { get; protected set; } = null!;
@@ -268,6 +273,7 @@ namespace Armada.Core.Database
             if (HarborRunnerEnrollments == null) missing.Add(nameof(HarborRunnerEnrollments));
             if (MissionAttemptFacts == null) missing.Add(nameof(MissionAttemptFacts));
             if (PreparationClaimObservations == null) missing.Add(nameof(PreparationClaimObservations));
+            if (LaneStateTransitions == null) missing.Add(nameof(LaneStateTransitions));
 
             return missing;
         }

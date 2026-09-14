@@ -177,6 +177,7 @@ namespace Armada.Server
         private readonly IMergeQueueService _MergeQueue;
         private readonly ArmadaSettings _Settings;
         private readonly LoggingModule _Logging;
+        private readonly LaneStateRecorder _LaneStates;
         private readonly ICodeIndexService? _CodeIndex;
         private readonly IObjectiveDispatchPreviewService? _ObjectiveDispatchPreview;
         private readonly SemaphoreSlim _SweepLock = new SemaphoreSlim(1, 1);
@@ -234,6 +235,7 @@ namespace Armada.Server
             _MergeQueue = mergeQueue ?? throw new ArgumentNullException(nameof(mergeQueue));
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _LaneStates = new LaneStateRecorder(database, logging);
             _CodeIndex = codeIndex;
             _ObjectiveDispatchPreview = objectiveDispatchPreview;
             _RefillDebounceDelay = refillDebounceDelay ?? TimeSpan.FromSeconds(1);
@@ -546,6 +548,8 @@ namespace Armada.Server
                 ActiveVoyageSummary active = await CountActiveDispatchedAsync(token).ConfigureAwait(false);
                 ActiveDispatchedCount = active.Total;
                 int capacity = MaxConcurrentVoyages - active.Total;
+                VesselLaneMap lanes = await BuildLanesAsync(token).ConfigureAwait(false);
+                await ObserveLaneStateAsync(lanes, eligible, active, capacity, token).ConfigureAwait(false);
 
                 if (capacity <= 0)
                 {
@@ -599,7 +603,6 @@ namespace Armada.Server
                 // Every skip is counted by reason. A sweep that dispatches nothing must be
                 // able to say why; reporting dispatched=0 with no reason reads as an idle
                 // fleet, and hid two permanently undispatchable objectives for days.
-                VesselLaneMap lanes = await BuildLanesAsync(token).ConfigureAwait(false);
                 List<MergeEntry> mergeQueue = await _MergeQueue.ListAsync(token: token).ConfigureAwait(false);
                 Stopwatch candidateTimer = Stopwatch.StartNew();
                 Objective? lastExamined = null;
@@ -1146,6 +1149,25 @@ namespace Armada.Server
             }
             return VesselLaneMap.Build(vessels,
                 message => _Logging.Warn(_Header + message));
+        }
+
+        /// <summary>
+        /// Record each lane's declared eligibility, occupancy, and capacity for this sweep. The block
+        /// reason is the fleet-wide condition that stops dispatch before any lane is considered.
+        /// </summary>
+        private async Task ObserveLaneStateAsync(VesselLaneMap lanes, List<Objective> eligible, ActiveVoyageSummary active, int fleetCapacity, CancellationToken token)
+        {
+            LaneBlockReasonEnum block = fleetCapacity <= 0
+                ? LaneBlockReasonEnum.FleetCapacity
+                : _DispatchHold?.Snapshot() != null ? LaneBlockReasonEnum.DispatchHold : LaneBlockReasonEnum.None;
+            List<LaneStateTransition> samples = LaneStateRecorder.BuildSamples(
+                lanes,
+                eligible,
+                members => CountActiveInLane(active, members),
+                MaxConcurrentVoyagesPerVessel,
+                block,
+                active.VoyageIdsByVessel.Keys);
+            await _LaneStates.ObserveAsync(samples, LaneStateRecorder.TrustWindowSeconds(TimeSpan.FromMinutes(IntervalMinutes)), token).ConfigureAwait(false);
         }
 
         private static int CountActiveInLane(ActiveVoyageSummary active, IReadOnlySet<string> lane)

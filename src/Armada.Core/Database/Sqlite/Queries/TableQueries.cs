@@ -1615,6 +1615,11 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"CREATE TABLE IF NOT EXISTS preparation_claim_observations (id TEXT NOT NULL PRIMARY KEY, tenant_id TEXT, user_id TEXT, objective_id TEXT NOT NULL, claim_id TEXT NOT NULL, claim_kind TEXT NOT NULL, source_family TEXT NOT NULL, voyage_id TEXT, source_commit TEXT, target_commit TEXT, evidence_fingerprint TEXT NOT NULL, observation TEXT NOT NULL, created_utc TEXT NOT NULL);",
                     @"CREATE INDEX IF NOT EXISTS idx_preparation_claim_observations_objective ON preparation_claim_observations(objective_id);",
                     @"CREATE INDEX IF NOT EXISTS idx_preparation_claim_observations_created ON preparation_claim_observations(created_utc);"
+                ),
+                new SchemaMigration(97, "Persist lane state transitions and Check slot requests",
+                    @"ALTER TABLE check_runs ADD COLUMN slot_requested_utc TEXT NULL;",
+                    @"CREATE TABLE IF NOT EXISTS lane_state_transitions (id TEXT NOT NULL PRIMARY KEY, lane_key TEXT NOT NULL, eligible_count INTEGER NOT NULL, occupied INTEGER NOT NULL, capacity INTEGER NOT NULL, block_reason TEXT NOT NULL, eligible_source_families TEXT NOT NULL DEFAULT '', is_checkpoint INTEGER NOT NULL DEFAULT 0, valid_for_seconds INTEGER NOT NULL, created_utc TEXT NOT NULL);",
+                    @"CREATE INDEX IF NOT EXISTS idx_lane_state_transitions_created ON lane_state_transitions(created_utc);"
                 )
             };
         }

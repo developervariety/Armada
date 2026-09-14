@@ -45,11 +45,11 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.CommandText = @"INSERT INTO check_runs
                 (id, tenant_id, user_id, workflow_profile_id, vessel_id, mission_id, voyage_id, deployment_id, label, check_type, status,
                  source, provider_name, external_id, external_url, environment_name, command, working_directory, branch_name, commit_hash, exit_code, output, summary,
-                 test_summary_json, coverage_summary_json, artifacts_json, duration_ms, started_utc, completed_utc, created_utc, last_update_utc, regression_purpose, regression_objective_id, regression_landed_commit)
+                 test_summary_json, coverage_summary_json, artifacts_json, duration_ms, started_utc, completed_utc, created_utc, last_update_utc, regression_purpose, regression_objective_id, regression_landed_commit, slot_requested_utc)
                 VALUES
                 (@id, @tenant_id, @user_id, @workflow_profile_id, @vessel_id, @mission_id, @voyage_id, @deployment_id, @label, @check_type, @status,
                  @source, @provider_name, @external_id, @external_url, @environment_name, @command, @working_directory, @branch_name, @commit_hash, @exit_code, @output, @summary,
-                 @test_summary_json, @coverage_summary_json, @artifacts_json, @duration_ms, @started_utc, @completed_utc, @created_utc, @last_update_utc, @regression_purpose, @regression_objective_id, @regression_landed_commit);";
+                 @test_summary_json, @coverage_summary_json, @artifacts_json, @duration_ms, @started_utc, @completed_utc, @created_utc, @last_update_utc, @regression_purpose, @regression_objective_id, @regression_landed_commit, @slot_requested_utc);";
             AddParameters(cmd, checkRun);
             await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
             return checkRun;
@@ -116,6 +116,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 regression_purpose = @regression_purpose,
                 regression_objective_id = @regression_objective_id,
                 regression_landed_commit = @regression_landed_commit,
+                slot_requested_utc = @slot_requested_utc,
                 last_update_utc = @last_update_utc
                 WHERE id = @id;";
             AddParameters(cmd, checkRun);
@@ -292,6 +293,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
             cmd.Parameters.AddWithValue("@artifacts_json", JsonSerializer.Serialize(checkRun.Artifacts ?? new List<CheckRunArtifact>(), _Json));
             cmd.Parameters.AddWithValue("@duration_ms", checkRun.DurationMs.HasValue ? checkRun.DurationMs.Value : DBNull.Value);
             cmd.Parameters.AddWithValue("@started_utc", checkRun.StartedUtc.HasValue ? SqliteDatabaseDriver.ToIso8601(checkRun.StartedUtc.Value) : DBNull.Value);
+            cmd.Parameters.AddWithValue("@slot_requested_utc", checkRun.SlotRequestedUtc.HasValue ? SqliteDatabaseDriver.ToIso8601(checkRun.SlotRequestedUtc.Value) : DBNull.Value);
             cmd.Parameters.AddWithValue("@completed_utc", checkRun.CompletedUtc.HasValue ? SqliteDatabaseDriver.ToIso8601(checkRun.CompletedUtc.Value) : DBNull.Value);
             cmd.Parameters.AddWithValue("@created_utc", SqliteDatabaseDriver.ToIso8601(checkRun.CreatedUtc));
             cmd.Parameters.AddWithValue("@last_update_utc", SqliteDatabaseDriver.ToIso8601(checkRun.LastUpdateUtc));
@@ -326,6 +328,7 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 Summary = SqliteDatabaseDriver.NullableString(reader["summary"]),
                 DurationMs = SqliteDatabaseDriver.NullableLong(reader["duration_ms"]),
                 StartedUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["started_utc"]),
+                SlotRequestedUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["slot_requested_utc"]),
                 CompletedUtc = SqliteDatabaseDriver.FromIso8601Nullable(reader["completed_utc"]),
                 CreatedUtc = SqliteDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
                 RegressionPurpose = CheckRunRegressionColumns.ReadPurpose(reader["regression_purpose"]),

@@ -127,6 +127,9 @@ namespace Armada.Core.Services
                 List<long> closeoutDelays = new List<long>();
                 List<long> armedDelays = new List<long>();
                 List<long> executionDurations = new List<long>();
+                List<long> hostQueueDelays = new List<long>();
+                List<long> preparationDelays = new List<long>();
+                int slotRequestUnknown = 0;
                 HashSet<string> timedCheckIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 HashSet<string> runtimeMissionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 Dictionary<DateTime, int> daily = new Dictionary<DateTime, int>();
@@ -200,6 +203,18 @@ namespace Armada.Core.Services
                             armedDelays.Add((long)(check.StartedUtc.Value - check.CreatedUtc).TotalMilliseconds);
                         if (check.DurationMs.HasValue && check.DurationMs.Value >= 0)
                             executionDurations.Add(check.DurationMs.Value);
+                        // Only Armada-executed Checks wait for the host command slot; imported
+                        // external results never request it and are outside both denominators.
+                        if (check.Source == CheckRunSourceEnum.Armada && check.StartedUtc.HasValue)
+                        {
+                            if (check.SlotRequestedUtc.HasValue && check.StartedUtc.Value >= check.SlotRequestedUtc.Value
+                                && check.SlotRequestedUtc.Value >= check.CreatedUtc)
+                            {
+                                hostQueueDelays.Add((long)(check.StartedUtc.Value - check.SlotRequestedUtc.Value).TotalMilliseconds);
+                                preparationDelays.Add((long)(check.SlotRequestedUtc.Value - check.CreatedUtc).TotalMilliseconds);
+                            }
+                            else slotRequestUnknown++;
+                        }
                     }
 
                     DateTime? dispatchUtc = objective.VoyageIds
@@ -227,8 +242,8 @@ namespace Armada.Core.Services
                 group.LandedToVerifiedCloseoutMs = Distribution(closeoutDelays, group.VerifiedLandedSlices.Count - closeoutDelays.Count, null);
                 int totalChecks = timedCheckIds.Count;
                 group.CheckTiming.ArmedToStartMs = Distribution(armedDelays, Math.Max(0, totalChecks - armedDelays.Count), null);
-                group.CheckTiming.HostQueueMs = ProductionDistributionMetric.Unavailable();
-                group.CheckTiming.HostQueueMs.Unknown = totalChecks;
+                group.CheckTiming.HostQueueMs = Distribution(hostQueueDelays, slotRequestUnknown, hostQueueDelays.Count == 0 ? "unavailable" : null);
+                group.CheckTiming.PreparationDelayMs = Distribution(preparationDelays, slotRequestUnknown, preparationDelays.Count == 0 ? "unavailable" : null);
                 group.CheckTiming.ExecutionMs = Distribution(executionDurations, Math.Max(0, totalChecks - executionDurations.Count), null);
                 group.RescueRuntime.Share = group.RescueRuntime.TotalMissionMs > 0
                     ? (double)group.RescueRuntime.RescueMs / group.RescueRuntime.TotalMissionMs
@@ -241,6 +256,15 @@ namespace Armada.Core.Services
 
             AttributeRegressions(result, regressionTargets, incidents, checks, fromUtc, toUtc);
             CountClaimObservationsBySourceFamily(result, claimObservations, query, fromUtc, toUtc);
+            await BuildLaneTimeAsync(auth, fromUtc, toUtc, result, token).ConfigureAwait(false);
+            int slotUnknown = result.Groups.Sum(item => item.CheckTiming.HostQueueMs.Unknown);
+            if (slotUnknown > 0)
+                result.Warnings.Add("host_slot_queue_partial: " + slotUnknown + " Armada Check(s) started without a recorded slot request");
+            if (result.LaneTime.Availability == "unavailable")
+                result.Warnings.Add("eligible_idle_lane_minutes_unavailable: " + result.LaneTime.UnavailableReason);
+            else if (result.LaneTime.Availability == "partial")
+                result.Warnings.Add("eligible_idle_lane_minutes_partial: " + Math.Round(result.LaneTime.UnobservedLaneMinutes, 1) + " of "
+                    + Math.Round(result.LaneTime.ExpectedLaneMinutes, 1) + " lane-minutes are unobserved in " + result.LaneTime.IncompleteIntervals + " interval(s)");
             int researchUnknown = result.Groups.Sum(item => item.RepeatedResearch.Unknown);
             if (researchUnknown > 0)
                 result.Warnings.Add("repeated_research_partial: " + researchUnknown + " slice(s) have no recorded preparation claim observations");
@@ -533,6 +557,92 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// Reconstruct lane time from append-only lane state rows. Each row is trusted only until the
+        /// next row or the end of its trust window; time outside every trust window is unobserved,
+        /// never assumed to continue the last state.
+        /// </summary>
+        private async Task BuildLaneTimeAsync(AuthContext auth, DateTime fromUtc, DateTime toUtc, ProductionSummaryResult result, CancellationToken token)
+        {
+            ProductionLaneTimeSummary laneTime = result.LaneTime;
+            DateTime effectiveEnd = toUtc < DateTime.UtcNow ? toUtc : DateTime.UtcNow;
+            if (!auth.IsAdmin && !auth.IsTenantAdmin) laneTime.UnavailableReason = "lane_state_requires_administrator";
+            else if (effectiveEnd <= fromUtc) laneTime.UnavailableReason = "window_not_elapsed";
+            if (laneTime.UnavailableReason != null)
+            {
+                ApplyLaneTimeToGroups(result, new Dictionary<ProductionSummaryGroup, double>());
+                return;
+            }
+
+            ProductionFactPage<LaneStateTransition> page = await _Database.LaneStateTransitions.EnumerateAsync(new ProductionFactQuery
+            {
+                FromUtc = fromUtc.AddDays(-1),
+                ToUtc = effectiveEnd,
+                Limit = _RecordLimit
+            }, token).ConfigureAwait(false);
+            CompleteScan(page.Items.Count, page.Items.Count + (page.Truncated ? 1 : 0), page.Truncated, "lane_state_transitions", result);
+
+            Dictionary<ProductionSummaryGroup, double> idleByGroup = new Dictionary<ProductionSummaryGroup, double>();
+            foreach (IGrouping<string, LaneStateTransition> lane in page.Items.GroupBy(item => item.LaneKey, StringComparer.Ordinal))
+            {
+                List<LaneStateTransition> rows = lane.OrderBy(item => item.CreatedUtc).ThenBy(item => item.Id, StringComparer.Ordinal).ToList();
+                if (!rows.Any(item => item.CreatedUtc < effectiveEnd && item.CreatedUtc.AddSeconds(item.ValidForSeconds) > fromUtc)) continue;
+                laneTime.Lanes++;
+                DateTime cursor = fromUtc;
+                for (int i = 0; i < rows.Count; i++)
+                {
+                    LaneStateTransition row = rows[i];
+                    DateTime next = i + 1 < rows.Count ? rows[i + 1].CreatedUtc : effectiveEnd;
+                    DateTime segmentStart = row.CreatedUtc > fromUtc ? row.CreatedUtc : fromUtc;
+                    DateTime segmentEnd = Earliest(next, row.CreatedUtc.AddSeconds(row.ValidForSeconds), effectiveEnd);
+                    if (segmentEnd <= segmentStart) continue;
+                    if (segmentStart > cursor) laneTime.IncompleteIntervals++;
+                    double minutes = (segmentEnd - segmentStart).TotalMinutes;
+                    laneTime.ObservedLaneMinutes += minutes;
+                    cursor = segmentEnd > cursor ? segmentEnd : cursor;
+                    if (row.EligibleCount <= 0 || row.Occupied >= row.Capacity) continue;
+                    if (row.BlockReason == LaneBlockReasonEnum.FleetCapacity) { laneTime.FleetBlockedMinutes += minutes; continue; }
+                    if (row.BlockReason == LaneBlockReasonEnum.DispatchHold) { laneTime.HoldBlockedMinutes += minutes; continue; }
+                    laneTime.EligibleIdleMinutes += minutes;
+                    HashSet<string> families = row.EligibleSourceFamilies
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    foreach (ProductionSummaryGroup group in result.Groups.Where(item => families.Contains(item.SourceFamily)))
+                        idleByGroup[group] = idleByGroup.GetValueOrDefault(group) + minutes;
+                }
+                if (cursor < effectiveEnd) laneTime.IncompleteIntervals++;
+            }
+
+            laneTime.ExpectedLaneMinutes = laneTime.Lanes * (effectiveEnd - fromUtc).TotalMinutes;
+            laneTime.UnobservedLaneMinutes = Math.Max(0, laneTime.ExpectedLaneMinutes - laneTime.ObservedLaneMinutes);
+            laneTime.Coverage = laneTime.ExpectedLaneMinutes > 0 ? laneTime.ObservedLaneMinutes / laneTime.ExpectedLaneMinutes : null;
+            if (laneTime.Lanes == 0) laneTime.UnavailableReason = "lane_state_not_recorded";
+            laneTime.Availability = laneTime.Lanes == 0 ? "unavailable"
+                : laneTime.UnobservedLaneMinutes > 0.0001 || page.Truncated ? "partial" : "available";
+            ApplyLaneTimeToGroups(result, idleByGroup);
+        }
+
+        private static void ApplyLaneTimeToGroups(ProductionSummaryResult result, Dictionary<ProductionSummaryGroup, double> idleByGroup)
+        {
+            ProductionLaneTimeSummary laneTime = result.LaneTime;
+            foreach (ProductionSummaryGroup group in result.Groups)
+            {
+                group.EligibleIdleLaneMinutes = new ProductionIdleLaneMetric
+                {
+                    Availability = laneTime.Availability,
+                    ObservedMinutes = laneTime.Availability == "unavailable" ? null : (long)Math.Round(idleByGroup.GetValueOrDefault(group)),
+                    ExpectedSampleMinutes = laneTime.Availability == "unavailable" ? null : (long)Math.Round(laneTime.ExpectedLaneMinutes),
+                    Coverage = laneTime.Coverage
+                };
+            }
+        }
+
+        private static DateTime Earliest(DateTime first, DateTime second, DateTime third)
+        {
+            DateTime earliest = first < second ? first : second;
+            return earliest < third ? earliest : third;
+        }
+
         private static void FinishRate(ProductionRateMetric metric)
         {
             metric.Rate = metric.Eligible > 0 ? (double)metric.Accepted / metric.Eligible : null;
@@ -571,8 +681,6 @@ namespace Armada.Core.Services
         private static void AddAvailabilityWarnings(ProductionSummaryResult result)
         {
             result.Warnings.Add("ready_to_dispatch_delay_partial: historical snapshots do not prove full dispatch-preflight readiness");
-            result.Warnings.Add("host_slot_queue_unavailable: command-slot request time is not recorded");
-            result.Warnings.Add("eligible_idle_lane_minutes_unavailable: historical lane eligibility intervals are not recorded");
         }
 
         private async Task<List<Objective>> ReadObjectivesAsync(AuthContext auth, ProductionSummaryResult report, CancellationToken token)

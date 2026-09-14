@@ -1253,6 +1253,16 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration 89: lane state transitions and Check slot request time.
+        /// </summary>
+        public static readonly string[] MigrationV89Statements = new string[]
+        {
+            @"ALTER TABLE check_runs ADD COLUMN slot_requested_utc DATETIME(6) NULL;",
+            @"CREATE TABLE IF NOT EXISTS lane_state_transitions (id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, lane_key VARCHAR(1024) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, eligible_count INT NOT NULL, occupied INT NOT NULL, capacity INT NOT NULL, block_reason VARCHAR(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, eligible_source_families VARCHAR(512) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL DEFAULT '', is_checkpoint TINYINT(1) NOT NULL DEFAULT 0, valid_for_seconds INT NOT NULL, created_utc DATETIME(6) NOT NULL, PRIMARY KEY (id));",
+            @"CREATE INDEX idx_lane_state_transitions_created ON lane_state_transitions(created_utc);"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

@@ -86,19 +86,23 @@ is absent, and report that exclusion.
 - Armed-to-start time is `StartedUtc - CreatedUtc`, or the durable
   `QueueDurationMs` projection. This includes time before an automatic Check is
   eligible to run, so it is not host-slot queue time.
-- Host-slot queue time is unavailable until Armada records when a Check starts
-  to wait for `HostWideCommandLock`. The `check.auto_queued` event occurs before
-  profile resolution and isolated-checkout preparation, so it is not a pure
-  host-slot queue timestamp.
+- An Armada-executed Check stores `SlotRequestedUtc` when it asks for
+  `HostWideCommandLock`, after profile resolution and isolated-checkout
+  preparation and before the wait. The value is persisted before the wait
+  and cleared if the run returns to Pending.
+- Preparation delay (`preparationDelayMs`) is `SlotRequestedUtc - CreatedUtc`.
+- Host-slot queue time (`hostQueueMs`) is `StartedUtc - SlotRequestedUtc`.
 - Execution time is `DurationMs`.
 
-Do not add the two values and call the result execution time. Report the
-median, p90, p95, count, and coverage. The current surface groups these values
-by source family and work type. A later surface can add Check-type and vessel
-dimensions without changing the timing definitions.
+Imported external Checks never request the slot and are outside both slot
+denominators. An Armada Check that started without a recorded slot request is
+counted in `unknown` for both measures. The `check.auto_queued` event is not a
+slot request and is never substituted.
 
-Report host-slot queue coverage separately. Do not substitute armed-to-start
-or `check.auto_queued` time for this value.
+Do not add the values and call the result execution time. Report the median,
+p90, p95, count, and coverage. The current surface groups these values by
+source family and work type. A later surface can add Check-type and vessel
+dimensions without changing the timing definitions.
 
 ## Report Surfaces
 
@@ -264,11 +268,38 @@ observation type in the window by source family.
 
 ### Eligible idle lane-minutes
 
-This measure needs time-series samples or state-change intervals that combine
-dispatch preflight eligibility, shared-lane occupancy, and capacity. Current
-entity end states cannot reconstruct those intervals. Until Armada records
-them, return `unavailable` with reason
-`lane_eligibility_intervals_not_recorded`.
+Each scheduler sweep records one sample per shared lane in
+`lane_state_transitions`. A lane is the set of vessels joined by
+build-participating sibling declarations. A sample stores:
+
+- `EligibleCount`: objectives the sweep selected as dispatch candidates for
+  the lane. A multi-vessel objective belongs to no lane. This is declared
+  eligibility before the per-objective dispatch preview.
+- `Occupied`: active voyages that touch the lane.
+- `Capacity`: the per-lane concurrent voyage limit.
+- `BlockReason`: `FleetCapacity` when the fleet-wide limit is reached,
+  `DispatchHold` when a hold is engaged, otherwise `None`.
+- `EligibleSourceFamilies` and `ValidForSeconds`.
+
+A row is written when any of these values change, and as a checkpoint before
+half of the last row's trust window has passed. The trust window is twice the
+longer of the sweep interval and one minute. A lane that stops appearing is
+written once as empty.
+
+The summary reconstructs time per lane. A row counts from its creation until
+the next row, the end of its trust window, or the window end, whichever is
+first. Time outside every trust window is unobserved and counted in
+`incompleteIntervals`; the last state is never assumed to continue.
+
+Observed time with eligible work and `Occupied < Capacity` is split three
+ways: `eligibleIdleMinutes` (no block), `fleetBlockedMinutes`, and
+`holdBlockedMinutes`. The report-wide `laneTime` states `lanes`,
+`expectedLaneMinutes` (lanes multiplied by elapsed window minutes),
+`observedLaneMinutes`, `unobservedLaneMinutes`, and `coverage`. Each group's
+`eligibleIdleLaneMinutes` attributes idle minutes by the eligible source
+families and carries the fleet-wide expected minutes and coverage. The lane
+summary is fleet-wide and needs an administrator or tenant administrator;
+otherwise it is `unavailable` with reason `lane_state_requires_administrator`.
 
 ## Grouping
 

@@ -465,6 +465,10 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNotNull(whileQueued);
                     AssertEqual(CheckRunStatusEnum.Pending, whileQueued!.Status, "A run that waits for the host slot must stay pending.");
                     AssertNull(whileQueued.StartedUtc, "StartedUtc must identify command start, not queue admission.");
+                    AssertTrue(whileQueued.SlotRequestedUtc.HasValue, "A run waiting for the host slot must record when it asked for the slot.");
+                    AssertTrue(whileQueued.SlotRequestedUtc!.Value >= pending.CreatedUtc, "The slot request follows creation.");
+                    AssertTrue(completed.StartedUtc!.Value >= completed.SlotRequestedUtc!.Value.AddMilliseconds(700),
+                        "Command start must follow the slot request by the measured host-slot wait.");
                     AssertFalse(completedWhileQueued, "The command must not execute while another caller holds the host slot.");
                     AssertEqual(CheckRunStatusEnum.Passed, completed.Status);
                     AssertTrue(queueDurationMs >= 700,

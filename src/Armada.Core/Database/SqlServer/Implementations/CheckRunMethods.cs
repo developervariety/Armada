@@ -43,11 +43,11 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.CommandText = @"INSERT INTO check_runs
                         (id, tenant_id, user_id, workflow_profile_id, vessel_id, mission_id, voyage_id, deployment_id, label, check_type, status,
                          source, provider_name, external_id, external_url, environment_name, command, working_directory, branch_name, commit_hash, exit_code, output, summary,
-                         test_summary_json, coverage_summary_json, artifacts_json, duration_ms, started_utc, completed_utc, created_utc, last_update_utc, regression_purpose, regression_objective_id, regression_landed_commit)
+                         test_summary_json, coverage_summary_json, artifacts_json, duration_ms, started_utc, completed_utc, created_utc, last_update_utc, regression_purpose, regression_objective_id, regression_landed_commit, slot_requested_utc)
                         VALUES
                         (@id, @tenant_id, @user_id, @workflow_profile_id, @vessel_id, @mission_id, @voyage_id, @deployment_id, @label, @check_type, @status,
                          @source, @provider_name, @external_id, @external_url, @environment_name, @command, @working_directory, @branch_name, @commit_hash, @exit_code, @output, @summary,
-                         @test_summary_json, @coverage_summary_json, @artifacts_json, @duration_ms, @started_utc, @completed_utc, @created_utc, @last_update_utc, @regression_purpose, @regression_objective_id, @regression_landed_commit);";
+                         @test_summary_json, @coverage_summary_json, @artifacts_json, @duration_ms, @started_utc, @completed_utc, @created_utc, @last_update_utc, @regression_purpose, @regression_objective_id, @regression_landed_commit, @slot_requested_utc);";
                     AddParameters(cmd, checkRun);
                     await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
                 }
@@ -125,6 +125,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         regression_purpose = @regression_purpose,
                         regression_objective_id = @regression_objective_id,
                         regression_landed_commit = @regression_landed_commit,
+                        slot_requested_utc = @slot_requested_utc,
                         last_update_utc = @last_update_utc
                         WHERE id = @id;";
                     AddParameters(cmd, checkRun);
@@ -318,6 +319,10 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 checkRun.StartedUtc.HasValue
                     ? SqlServerDatabaseDriver.ToIso8601(checkRun.StartedUtc.Value)
                     : DBNull.Value);
+            cmd.Parameters.AddWithValue("@slot_requested_utc",
+                checkRun.SlotRequestedUtc.HasValue
+                    ? SqlServerDatabaseDriver.ToIso8601(checkRun.SlotRequestedUtc.Value)
+                    : DBNull.Value);
             cmd.Parameters.AddWithValue("@completed_utc",
                 checkRun.CompletedUtc.HasValue
                     ? SqlServerDatabaseDriver.ToIso8601(checkRun.CompletedUtc.Value)
@@ -355,6 +360,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 Summary = SqlServerDatabaseDriver.NullableString(reader["summary"]),
                 DurationMs = reader["duration_ms"] == DBNull.Value ? null : Convert.ToInt64(reader["duration_ms"]),
                 StartedUtc = SqlServerDatabaseDriver.FromIso8601Nullable(reader["started_utc"]),
+                SlotRequestedUtc = SqlServerDatabaseDriver.FromIso8601Nullable(reader["slot_requested_utc"]),
                 CompletedUtc = SqlServerDatabaseDriver.FromIso8601Nullable(reader["completed_utc"]),
                 CreatedUtc = SqlServerDatabaseDriver.FromIso8601(reader["created_utc"].ToString()!),
                 RegressionPurpose = CheckRunRegressionColumns.ReadPurpose(reader["regression_purpose"]),

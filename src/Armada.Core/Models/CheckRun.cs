@@ -176,6 +176,12 @@ namespace Armada.Core.Models
         public long? DurationMs { get; set; } = null;
 
         /// <summary>
+        /// UTC time the run asked for the host-wide command slot, after preparation and before the
+        /// wait. Distinct from creation (armed) time and from <see cref="StartedUtc"/>.
+        /// </summary>
+        public DateTime? SlotRequestedUtc { get; set; } = null;
+
+        /// <summary>
         /// Time from durable record creation until the command acquired the shared host slot.
         /// </summary>
         public long? QueueDurationMs => StartedUtc.HasValue

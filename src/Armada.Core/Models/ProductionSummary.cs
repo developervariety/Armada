@@ -55,6 +55,9 @@ namespace Armada.Core.Models
         /// <summary>Raw completed leaf counts for every UTC day in the window.</summary>
         public List<ProductionDailyCount> RawByDay { get; set; } = new List<ProductionDailyCount>();
 
+        /// <summary>Fleet-wide lane eligibility, occupancy, and capacity time with coverage.</summary>
+        public ProductionLaneTimeSummary LaneTime { get; set; } = new ProductionLaneTimeSummary();
+
         /// <summary>Preparation claim observations in the window grouped by the objective source family.</summary>
         public Dictionary<string, ProductionClaimObservationCounts> ClaimObservationsBySourceFamily { get; set; } = new Dictionary<string, ProductionClaimObservationCounts>(StringComparer.Ordinal);
 
@@ -187,7 +190,10 @@ namespace Armada.Core.Models
         /// <summary>Time from durable creation to command start.</summary>
         public ProductionDistributionMetric ArmedToStartMs { get; set; } = new ProductionDistributionMetric();
 
-        /// <summary>Host command-slot wait. Unavailable until slot-request time is durable.</summary>
+        /// <summary>Time from durable creation to the host command-slot request: preparation and eligibility.</summary>
+        public ProductionDistributionMetric PreparationDelayMs { get; set; } = ProductionDistributionMetric.Unavailable();
+
+        /// <summary>Pure host command-slot wait: from the slot request to command start.</summary>
         public ProductionDistributionMetric HostQueueMs { get; set; } = ProductionDistributionMetric.Unavailable();
 
         /// <summary>Measured command execution duration.</summary>
@@ -383,19 +389,56 @@ namespace Armada.Core.Models
         public int Reused { get; set; }
     }
 
-    /// <summary>Unavailable sampled lane metric.</summary>
+    /// <summary>Eligible idle lane-minutes attributed to a group by the eligible objectives' source family.</summary>
     public sealed class ProductionIdleLaneMetric
     {
         /// <summary>Availability.</summary>
         public string Availability { get; set; } = "unavailable";
 
-        /// <summary>Observed eligible idle minutes, when sampled.</summary>
+        /// <summary>Observed eligible idle lane-minutes where this group's source family was eligible.</summary>
         public long? ObservedMinutes { get; set; }
 
-        /// <summary>Expected samples, when sampled.</summary>
+        /// <summary>Fleet-wide expected lane-minutes in the window.</summary>
         public long? ExpectedSampleMinutes { get; set; }
 
-        /// <summary>Observed sample coverage, when sampled.</summary>
+        /// <summary>Fleet-wide observed lane-minutes divided by expected lane-minutes.</summary>
+        public double? Coverage { get; set; }
+    }
+
+    /// <summary>Fleet-wide lane time reconstructed from durable lane state transitions.</summary>
+    public sealed class ProductionLaneTimeSummary
+    {
+        /// <summary>Availability: available, partial, or unavailable.</summary>
+        public string Availability { get; set; } = "unavailable";
+
+        /// <summary>Reason the summary is unavailable, when it is.</summary>
+        public string? UnavailableReason { get; set; }
+
+        /// <summary>Lanes with at least one observation that reaches the window.</summary>
+        public int Lanes { get; set; }
+
+        /// <summary>Lanes multiplied by the window minutes that have already elapsed.</summary>
+        public double ExpectedLaneMinutes { get; set; }
+
+        /// <summary>Lane-minutes covered by a trusted observation.</summary>
+        public double ObservedLaneMinutes { get; set; }
+
+        /// <summary>Expected lane-minutes without a trusted observation.</summary>
+        public double UnobservedLaneMinutes { get; set; }
+
+        /// <summary>Unobserved intervals: before a lane's first observation or after an observation's trust window.</summary>
+        public int IncompleteIntervals { get; set; }
+
+        /// <summary>Observed minutes when a lane had eligible work and spare lane capacity and nothing fleet-wide blocked it.</summary>
+        public double EligibleIdleMinutes { get; set; }
+
+        /// <summary>Observed minutes with eligible work and spare lane capacity while the fleet-wide limit was reached.</summary>
+        public double FleetBlockedMinutes { get; set; }
+
+        /// <summary>Observed minutes with eligible work and spare lane capacity while a dispatch hold was engaged.</summary>
+        public double HoldBlockedMinutes { get; set; }
+
+        /// <summary>Observed lane-minutes divided by expected lane-minutes.</summary>
         public double? Coverage { get; set; }
     }
 

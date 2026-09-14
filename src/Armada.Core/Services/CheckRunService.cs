@@ -160,6 +160,9 @@ namespace Armada.Core.Services
 
                     // Share the host-wide slot with DoD gates and merge-queue test runs so two full
                     // build+test suites never run on one host at once. See HostWideCommandLock.
+                    run.SlotRequestedUtc = DateTime.UtcNow;
+                    run.LastUpdateUtc = run.SlotRequestedUtc.Value;
+                    run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
                     using (await HostWideCommandLock.AcquireAsync(token).ConfigureAwait(false))
                     {
                         run.Status = CheckRunStatusEnum.Running;
@@ -179,6 +182,7 @@ namespace Armada.Core.Services
                     await CleanupIsolatedCheckoutAsync(isolatedCheckout, CancellationToken.None).ConfigureAwait(false);
                     run.Status = CheckRunStatusEnum.Pending;
                     run.StartedUtc = null;
+                    run.SlotRequestedUtc = null;
                     run.LastUpdateUtc = DateTime.UtcNow;
                     run = await _Database.CheckRuns.UpdateAsync(run, CancellationToken.None).ConfigureAwait(false);
                     OnCheckRunChanged?.Invoke(run);
@@ -719,6 +723,9 @@ namespace Armada.Core.Services
 
             try
             {
+                run.SlotRequestedUtc = DateTime.UtcNow;
+                run.LastUpdateUtc = run.SlotRequestedUtc.Value;
+                run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
                 using (await HostWideCommandLock.AcquireAsync(token).ConfigureAwait(false))
                 {
                     run.Status = CheckRunStatusEnum.Running;
@@ -738,6 +745,7 @@ namespace Armada.Core.Services
                 await CleanupIsolatedCheckoutAsync(isolatedCheckout, CancellationToken.None).ConfigureAwait(false);
                 run.Status = CheckRunStatusEnum.Pending;
                 run.StartedUtc = null;
+                run.SlotRequestedUtc = null;
                 run.LastUpdateUtc = DateTime.UtcNow;
                 run = await _Database.CheckRuns.UpdateAsync(run, CancellationToken.None).ConfigureAwait(false);
                 OnCheckRunChanged?.Invoke(run);
