@@ -1565,108 +1565,38 @@ namespace Armada.Server
                 _Logging.Warn(_Header + "startup health check error: " + ex.Message);
             }
 
+            List<HealthLoopMaintenanceStep> maintenanceSteps = BuildHealthLoopMaintenanceSteps();
             while (!token.IsCancellationRequested)
             {
                 try
                 {
                     await Task.Delay(_Settings.HeartbeatIntervalSeconds * 1000, token).ConfigureAwait(false);
-                    await _Admiral.HealthCheckAsync(token).ConfigureAwait(false);
-                    _AutomaticCheckRuns.TriggerBackgroundSweep(token);
-                    _AutonomousRecovery.TriggerBackgroundSweep(token);
-                    _IncidentLifecycle.TriggerBackgroundSweep(token);
-                    _ObjectiveScheduler.TriggerBackgroundSweep(token);
 
-                    // Reap background jobs whose worker died so they do not hang in Running.
-                    try { await _JobService.MaintainAsync(token).ConfigureAwait(false); }
-                    catch (Exception jobEx) { _Logging.Warn(_Header + "job maintenance error: " + jobEx.Message); }
-
-                    // Close objective dispatch attempts whose process stopped between voyage creation and linking.
+                    // The health check is isolated from maintenance: a health check that throws on
+                    // every tick must not stop the cycle count, or no periodic step would ever run.
                     try
                     {
-                        ObjectiveDispatchAttemptReconciliationResult attempts = await _ObjectiveService
-                            .ReconcileDispatchAttemptsAsync(_Admiral.RecallCaptainAsync, token).ConfigureAwait(false);
-                        if (attempts.Kept > 0 || attempts.CancelledOrphans > 0 || attempts.Unresolved.Count > 0)
-                        {
-                            _Logging.Warn(_Header + "dispatch attempt reconciliation kept=" + attempts.Kept
-                                + " cancelledOrphans=" + attempts.CancelledOrphans
-                                + " unresolved=" + String.Join("; ", attempts.Unresolved));
-                        }
+                        await _Admiral.HealthCheckAsync(token).ConfigureAwait(false);
+                        _AutomaticCheckRuns.TriggerBackgroundSweep(token);
+                        _AutonomousRecovery.TriggerBackgroundSweep(token);
+                        _IncidentLifecycle.TriggerBackgroundSweep(token);
+                        _ObjectiveScheduler.TriggerBackgroundSweep(token);
                     }
-                    catch (Exception attemptEx)
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
                     {
-                        _Logging.Warn(_Header + "dispatch attempt reconciliation error: " + attemptEx.Message);
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "health check error: " + ex.Message);
                     }
 
-                    // Run log rotation every 10 health check cycles
                     _HealthCheckCycles++;
-                    if (_HealthCheckCycles % 10 == 0)
-                    {
-                        string captainLogDir = Path.Combine(_Settings.LogDirectory, "captains");
-                        _LogRotation.RotateAllInDirectory(captainLogDir);
-                        _LogRotation.RotateIfNeeded(Path.Combine(_Settings.LogDirectory, "admiral.log"));
-                        await _PlanningSessions.MaintainSessionsAsync(token).ConfigureAwait(false);
-                    }
-
-            // Run data expiry every 100 health check cycles (~50 min at default interval)
-            if (_HealthCheckCycles % 100 == 0)
-            {
-                await _DataExpiry.PurgeExpiredDataAsync(token).ConfigureAwait(false);
-            }
-
-            // Reap background jobs stuck in Accepted or Running past the stale threshold, so a hung
-            // or dead background worker reaches a terminal status instead of reading as in-flight
-            // forever.
-            try
-            {
-                int reaped = await _LongRunningJobs.ReapStaleJobsAsync(token: token).ConfigureAwait(false);
-                if (reaped > 0)
-                {
-                    _Logging.Warn(_Header + "reaped " + reaped + " stale background job" + (reaped == 1 ? "" : "s"));
-                }
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "background job stale reap error: " + ex.Message);
-            }
-
-            // Run disk lifecycle reconciliation on its configured cadence. Observability and
-            // stale-lease purging always run; deletion is gated by diskLifecycle settings.
-            if (_HealthCheckCycles % _Settings.DiskLifecycle.ReconcileIntervalCycles == 0)
-            {
-                await _DiskLifecycle.ReconcileAsync(token).ConfigureAwait(false);
-            }
-
-            // Detect HEAD changes that did not go through an Armada landing (direct pushes,
-            // manual merges, reconciliations) and schedule a reindex so the dispatch guard
-            // does not silently block on a stale index.
-            if (_CodeIndex != null
-                && _Settings.CodeIndex.Enabled
-                && _HealthCheckCycles % _Settings.CodeIndex.StalenessSweepIntervalCycles == 0)
-            {
-                try
-                {
-                    await _CodeIndex.SweepStalenessAsync(token).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Warn(_Header + "code index staleness sweep failed: " + ex.Message);
-                }
-            }
-
-            // Self-healing branch-cleanup sweep: prune armada/* branches already merged into the
-            // default branch so landings that skipped cleanup on some path do not accumulate
-            // hundreds of dead branches. Unmerged branches are never touched.
-            if (_HealthCheckCycles % _Settings.BranchCleanupSweepIntervalCycles == 0)
-            {
-                try
-                {
-                    await _BranchCleanupSweep.SweepAsync(token).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Warn(_Header + "branch cleanup sweep failed: " + ex.Message);
-                }
-            }
+                    await HealthLoopMaintenanceRunner.RunDueStepsAsync(
+                        _HealthCheckCycles,
+                        maintenanceSteps,
+                        (name, ex) => _Logging.Warn(_Header + name + " failed: " + ex.Message),
+                        token).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {
@@ -1674,9 +1604,76 @@ namespace Armada.Server
                 }
                 catch (Exception ex)
                 {
-                    _Logging.Warn(_Header + "health check error: " + ex.Message);
+                    _Logging.Warn(_Header + "health loop error: " + ex.Message);
                 }
             }
+        }
+
+        /// <summary>
+        /// Periodic maintenance steps of the health loop, in execution order. Intervals are read on
+        /// each cycle, so a settings change applies without a restart.
+        /// </summary>
+        private List<HealthLoopMaintenanceStep> BuildHealthLoopMaintenanceSteps()
+        {
+            return new List<HealthLoopMaintenanceStep>
+            {
+                // Reap background jobs whose worker died so they do not hang in Running.
+                HealthLoopMaintenanceStep.EveryCycles("job maintenance", () => 1,
+                    async stepToken => await _JobService.MaintainAsync(stepToken).ConfigureAwait(false)),
+
+                // Close objective dispatch attempts whose process stopped between voyage creation and linking.
+                HealthLoopMaintenanceStep.EveryCycles("dispatch attempt reconciliation", () => 1, async stepToken =>
+                {
+                    ObjectiveDispatchAttemptReconciliationResult attempts = await _ObjectiveService
+                        .ReconcileDispatchAttemptsAsync(_Admiral.RecallCaptainAsync, stepToken).ConfigureAwait(false);
+                    if (attempts.Kept > 0 || attempts.CancelledOrphans > 0 || attempts.Unresolved.Count > 0)
+                    {
+                        _Logging.Warn(_Header + "dispatch attempt reconciliation kept=" + attempts.Kept
+                            + " cancelledOrphans=" + attempts.CancelledOrphans
+                            + " unresolved=" + String.Join("; ", attempts.Unresolved));
+                    }
+                }),
+
+                HealthLoopMaintenanceStep.EveryCycles("log rotation", () => 10, stepToken =>
+                {
+                    _LogRotation.RotateAllInDirectory(Path.Combine(_Settings.LogDirectory, "captains"));
+                    _LogRotation.RotateIfNeeded(Path.Combine(_Settings.LogDirectory, "admiral.log"));
+                    return Task.CompletedTask;
+                }),
+
+                HealthLoopMaintenanceStep.EveryCycles("planning session maintenance", () => 10,
+                    async stepToken => await _PlanningSessions.MaintainSessionsAsync(stepToken).ConfigureAwait(false)),
+
+                HealthLoopMaintenanceStep.EveryCycles("data expiry", () => 100,
+                    async stepToken => await _DataExpiry.PurgeExpiredDataAsync(stepToken).ConfigureAwait(false)),
+
+                // Reap background jobs stuck in Accepted or Running past the stale threshold, so a hung
+                // or dead background worker reaches a terminal status instead of reading as in-flight.
+                HealthLoopMaintenanceStep.EveryCycles("background job stale reap", () => 1, async stepToken =>
+                {
+                    int reaped = await _LongRunningJobs.ReapStaleJobsAsync(token: stepToken).ConfigureAwait(false);
+                    if (reaped > 0)
+                    {
+                        _Logging.Warn(_Header + "reaped " + reaped + " stale background job" + (reaped == 1 ? "" : "s"));
+                    }
+                }),
+
+                // Observability and stale-lease purging always run; deletion is gated by diskLifecycle settings.
+                HealthLoopMaintenanceStep.EveryCycles("disk lifecycle reconciliation", () => _Settings.DiskLifecycle.ReconcileIntervalCycles,
+                    async stepToken => await _DiskLifecycle.ReconcileAsync(stepToken).ConfigureAwait(false)),
+
+                // Detect HEAD changes that did not go through an Armada landing and schedule a reindex,
+                // so the dispatch guard does not silently block on a stale index.
+                new HealthLoopMaintenanceStep("code index staleness sweep",
+                    cycle => _CodeIndex != null
+                        && _Settings.CodeIndex.Enabled
+                        && cycle % Math.Max(1, _Settings.CodeIndex.StalenessSweepIntervalCycles) == 0,
+                    async stepToken => await _CodeIndex!.SweepStalenessAsync(stepToken).ConfigureAwait(false)),
+
+                // Remove landed Armada branches and expired landed preserved refs; the sweep logs its own summary.
+                HealthLoopMaintenanceStep.EveryCycles("branch cleanup sweep", () => _Settings.BranchCleanupSweepIntervalCycles,
+                    async stepToken => await _BranchCleanupSweep.SweepAsync(stepToken).ConfigureAwait(false))
+            };
         }
 
         private async Task ModelEndpointHealthLoopAsync(CancellationToken token)

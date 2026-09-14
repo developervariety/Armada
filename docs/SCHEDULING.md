@@ -58,6 +58,8 @@ The Admiral runs a health-check loop on a configurable interval controlled by `H
 3. **Checks for stalled captains** -- captains that have not reported progress within the `StallThresholdMinutes` window (default: 10 minutes).
 4. **Runs escalation rules** -- triggers recovery or alerts for stalled or failed missions.
 
+After those steps the Admiral runs its periodic maintenance, each step on its own cadence in health-loop cycles: job maintenance, objective dispatch attempt reconciliation and stale background-job reaping every cycle, log rotation and planning-session maintenance every 10, data expiry every 100, disk lifecycle reconciliation every `diskLifecycle.reconcileIntervalCycles`, the code-index staleness sweep every `codeIndex.stalenessSweepIntervalCycles`, and the branch cleanup sweep every `branchCleanupSweepIntervalCycles` (default 200). Each step runs in isolation. A failing step logs `<step> failed: <reason>` and the steps after it still run. A failing health check does not stop the cycle count, so maintenance keeps its cadence.
+
 ## Manual Priority Override
 
 You can set mission priority at creation time or update it later to reprioritize work.

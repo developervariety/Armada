@@ -209,6 +209,27 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - A settings file that still carries the removed learned-facts keys loads,
   and saving it drops those keys.
 
+### Health-loop maintenance and branch cleanup sweep
+
+- Health-loop maintenance steps now run in isolation. A step that failed on
+  every run of a short cadence aborted every longer cadence sharing its cycle
+  numbers: data expiry failing on PostgreSQL every 100 cycles meant the branch
+  cleanup sweep (200) never ran, and disk reconciliation and the code-index
+  staleness sweep lost every run on those cycles. A failing health check no
+  longer stops the cycle count. Each failure logs as `<step> failed: <reason>`.
+- The branch cleanup sweep logs one summary line on every run, with its counts
+  and the reason for each skipped vessel, including runs that removed nothing.
+- Under `LocalAndRemote` the sweep lists origin itself, so a landed mission
+  branch that exists only on origin is removed. Origin deletions carry a lease
+  on the measured tip.
+- Landed preserved refs (`refs/armada-preserved/`) are removed from the vessel
+  bare and, under `LocalAndRemote`, from origin once their tip is older than
+  `branchCleanupPreservedRefRetentionDays` (default 14; `0` keeps every
+  preserved ref). Unlanded preserved refs are always kept and counted.
+- The sweep keeps a landed branch that a non-terminal mission still names, and
+  it reports a vessel whose default branch is missing as an error instead of a
+  clean run. `recover/` refs and human branches remain outside its scope.
+
 ### Native self-deploy preflight
 
 - Added provider-native backup, owned isolated restore and candidate database

@@ -2175,6 +2175,44 @@ telling the agent to read the vessel model context and search memory before it
 acts. Startup adds that section once to a built-in persona template that lacks
 it and changes nothing else, so an operator edit is kept.
 
+### 8.25 Branch Cleanup Sweep
+
+The health loop runs the branch cleanup sweep every
+`branchCleanupSweepIntervalCycles` cycles (default 200, about 100 minutes at a
+30-second heartbeat). Every run writes one line to the admiral log
+(`admiral.log` under `logDirectory`, dated by day), starting
+`[BranchCleanupSweepService] sweep complete:`. The line gives vessels swept,
+skipped and in error; branch candidates in the vessel bare and on origin;
+landed, kept unlanded, kept for active missions, removed local and removed
+origin; the same counts for preserved refs; failed operations; and the reason
+for each skip. A run that removed nothing still writes the line, so a missing
+line means the sweep did not run. A maintenance step failure on the loop logs
+as `[ArmadaServer] <step> failed: <reason>`. Each removal also records a
+`branch_cleanup.swept` event.
+
+The sweep follows these rules:
+
+- Candidates are `armada/` and `armada-landing/` branches and
+  `refs/armada-preserved/` refs. `recover/` refs, human branches and other ref
+  families are never touched.
+- A ref is landed when its tip is an ancestor of the default branch in the
+  vessel bare. A tip that the bare does not hold reads as unlanded and is kept.
+- A branch that a non-terminal mission names is kept, even when it reads as
+  landed.
+- `LocalOnly` removes landed refs from the vessel bare. `LocalAndRemote` also
+  lists origin through the vessel working checkout and removes landed refs
+  there, with a lease on the tip it measured. `None` skips the vessel.
+- A landed preserved ref is removed once its tip commit is older than
+  `branchCleanupPreservedRefRetentionDays` (default 14). `0` keeps every
+  preserved ref. An unlanded preserved ref is always kept.
+- A missing default branch, an unreachable origin or a missing working checkout
+  appears as an error or skip in the summary, never as a clean run.
+
+To confirm the sweep on a running admiral, read the next summary line. Then
+compare `git for-each-ref refs/heads/armada-landing refs/heads/armada
+refs/armada-preserved` in the vessel bare and `git ls-remote origin` before and
+after that run.
+
 ## 9. Safety Rules
 
 - Read before write.

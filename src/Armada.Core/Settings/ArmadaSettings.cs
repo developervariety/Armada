@@ -284,14 +284,26 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// Number of health-check cycles between maintenance sweeps that prune armada/* branches
-        /// already merged into each vessel's default branch (self-healing branch accumulation).
-        /// Defaults to 200 (~100 minutes at the default heartbeat).
+        /// Number of health-check cycles between maintenance sweeps that prune Armada-owned branches
+        /// and preserved refs already landed on each vessel's default branch (self-healing ref
+        /// accumulation). Defaults to 200 (~100 minutes at the default heartbeat).
         /// </summary>
         public int BranchCleanupSweepIntervalCycles
         {
             get => _BranchCleanupSweepIntervalCycles;
             set => _BranchCleanupSweepIntervalCycles = Math.Max(10, Math.Min(10080, value));
+        }
+
+        /// <summary>
+        /// Days the branch cleanup sweep keeps a landed preserved ref (refs/armada-preserved/...),
+        /// measured from the committer time of its tip. A preserved ref whose tip is not an ancestor
+        /// of the default branch is never removed. Zero keeps every preserved ref. Defaults to 14;
+        /// clamped to 0-3650.
+        /// </summary>
+        public int BranchCleanupPreservedRefRetentionDays
+        {
+            get => _BranchCleanupPreservedRefRetentionDays;
+            set => _BranchCleanupPreservedRefRetentionDays = Math.Max(0, Math.Min(3650, value));
         }
 
         /// <summary>
@@ -887,6 +899,7 @@ namespace Armada.Core.Settings
         private int _MaxLogFileCount = Constants.DefaultMaxLogFileCount;
         private int _DataRetentionDays = Constants.DefaultDataRetentionDays;
         private int _BranchCleanupSweepIntervalCycles = 200;
+        private int _BranchCleanupPreservedRefRetentionDays = 14;
         private int _RequestHistoryRetentionDays = Constants.DefaultRequestHistoryRetentionDays;
         private int _RequestHistoryMaxBodyBytes = Constants.DefaultRequestHistoryMaxBodyBytes;
         private int _PlanningSessionRetentionDays = 0;

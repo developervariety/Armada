@@ -1113,6 +1113,107 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<IReadOnlyList<GitRefTip>> EnumerateRefTipsAsync(string repoPath, string refPrefix, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(refPrefix)) throw new ArgumentNullException(nameof(refPrefix));
+
+            string format = "%(refname)\x1f%(objectname)\x1f%(committerdate:unix)";
+            string output = await RunGitAsync(repoPath, token, "for-each-ref", "--format=" + format, refPrefix).ConfigureAwait(false);
+
+            List<GitRefTip> tips = new List<GitRefTip>();
+            foreach (string line in output.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                string[] parts = line.Split('\x1f');
+                if (parts.Length < 2) continue;
+                string refName = parts[0].Trim();
+                if (!refName.StartsWith(refPrefix, StringComparison.Ordinal)) continue;
+
+                GitRefTip tip = new GitRefTip { RefName = refName, CommitSha = parts[1].Trim() };
+                if (parts.Length > 2 && Int64.TryParse(parts[2].Trim(), out long seconds))
+                {
+                    tip.CommitUtc = DateTimeOffset.FromUnixTimeSeconds(seconds).UtcDateTime;
+                }
+                tips.Add(tip);
+            }
+
+            return tips;
+        }
+
+        /// <inheritdoc />
+        public async Task<IReadOnlyList<GitRefTip>> EnumerateRemoteRefTipsAsync(string repoPath, string remoteName = "origin", CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(remoteName)) throw new ArgumentNullException(nameof(remoteName));
+
+            string output = await RunGitAsync(repoPath, token, "ls-remote", "--refs", remoteName).ConfigureAwait(false);
+
+            List<GitRefTip> tips = new List<GitRefTip>();
+            foreach (string line in output.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            {
+                string[] parts = line.Split('\t');
+                if (parts.Length < 2) continue;
+                string sha = parts[0].Trim();
+                string refName = parts[1].Trim();
+                if (sha.Length == 0 || !refName.StartsWith("refs/", StringComparison.Ordinal)) continue;
+                tips.Add(new GitRefTip { RefName = refName, CommitSha = sha });
+            }
+
+            return tips;
+        }
+
+        /// <inheritdoc />
+        public async Task<DateTime?> TryGetCommitTimeUtcAsync(string repoPath, string commitSha, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(commitSha)) throw new ArgumentNullException(nameof(commitSha));
+
+            try
+            {
+                string output = await RunGitAsync(repoPath, token, "log", "-1", "--format=%ct", commitSha + "^{commit}").ConfigureAwait(false);
+                if (Int64.TryParse(output.Trim(), out long seconds))
+                {
+                    return DateTimeOffset.FromUnixTimeSeconds(seconds).UtcDateTime;
+                }
+                _Logging.Debug(_Header + "unreadable commit time for " + commitSha + " in " + repoPath + ": '" + output.Trim() + "'");
+                return null;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                // A commit the repository does not hold has no readable time; callers keep such refs.
+                _Logging.Debug(_Header + "no commit time for " + commitSha + " in " + repoPath + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task DeleteRefIfAtAsync(string repoPath, string refName, string expectedSha, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(refName)) throw new ArgumentNullException(nameof(refName));
+            if (String.IsNullOrEmpty(expectedSha)) throw new ArgumentNullException(nameof(expectedSha));
+
+            _Logging.Debug(_Header + "deleting ref " + refName + " at " + expectedSha + " from " + repoPath);
+            await RunGitAsync(repoPath, token, "update-ref", "-d", refName, expectedSha).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task DeleteRemoteRefIfAtAsync(string repoPath, string remoteName, string refName, string expectedSha, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(remoteName)) throw new ArgumentNullException(nameof(remoteName));
+            if (String.IsNullOrEmpty(refName)) throw new ArgumentNullException(nameof(refName));
+            if (String.IsNullOrEmpty(expectedSha)) throw new ArgumentNullException(nameof(expectedSha));
+
+            _Logging.Debug(_Header + "deleting remote ref " + refName + " at " + expectedSha + " from " + remoteName);
+            await RunGitAsync(repoPath, token, "push", "--force-with-lease=" + refName + ":" + expectedSha, remoteName, ":" + refName).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
         public async Task<IReadOnlyList<string>> EnumerateLocalBranchesAsync(string repoPath, string? branchPrefix = null, CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
