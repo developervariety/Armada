@@ -271,7 +271,7 @@ namespace Armada.Test.Database
             return _Settings.Type switch
             {
                 DatabaseTypeEnum.Sqlite => "ALTER TABLE captains ADD COLUMN model_endpoint_id TEXT;",
-                DatabaseTypeEnum.Postgresql => "ALTER TABLE captains ADD COLUMN model_endpoint_id TEXT; ALTER TABLE captains ADD CONSTRAINT fk_partial_wrong FOREIGN KEY (model_endpoint_id) REFERENCES tenants(id) ON DELETE CASCADE;",
+                DatabaseTypeEnum.Postgresql => "ALTER TABLE captains ADD COLUMN model_endpoint_id TEXT; ALTER TABLE captains ADD CONSTRAINT fk_partial_wrong FOREIGN KEY (model_endpoint_id) REFERENCES tenants(id) ON DELETE CASCADE NOT VALID;",
                 DatabaseTypeEnum.Mysql => "ALTER TABLE captains ADD COLUMN model_endpoint_id VARCHAR(450) CHARACTER SET utf8mb4 NULL; ALTER TABLE captains ADD CONSTRAINT fk_partial_wrong FOREIGN KEY (model_endpoint_id) REFERENCES tenants(id) ON DELETE CASCADE;",
                 DatabaseTypeEnum.SqlServer => "ALTER TABLE captains ADD model_endpoint_id NVARCHAR(450) NULL; ALTER TABLE captains ADD CONSTRAINT fk_partial_wrong FOREIGN KEY (model_endpoint_id) REFERENCES tenants(id) ON DELETE CASCADE;",
                 _ => throw new NotSupportedException()
