@@ -1407,6 +1407,54 @@ follows a symlink. A pruning failure is reported as
 Current limits: supervised processes inherit the supervisor's standard streams,
 and Windows storage fails closed.
 
+### Self-deploy rehearsal
+
+`scripts/common/rehearse-self-deploy-cutover.sh` rehearses the supervised cutover
+on an isolated process host. It uses real server binaries and disposable
+SQLite copies. Run it only on a workstation or disposable host, never against a
+production data directory, database or container host. It refuses to run
+inside a container.
+
+```bash
+scripts/common/rehearse-self-deploy-cutover.sh \
+  --rollback-dll <build>/Armada.Server.dll \
+  --candidate-dll <candidate build>/Armada.Server.dll \
+  --sqlite-source <copy of a real database>.db
+```
+
+Each scenario gets its own private data directory, database copy and free
+ports. The script starts the rollback binary with
+`--self-deploy-rehearse <candidate dll>`. That mode is refused unless
+`ARMADA_SELF_DEPLOY_REHEARSAL=isolated-disposable` and `ARMADA_DATA_DIRECTORY`
+are both set. It runs the real cutover (container check, rollback capture,
+native preflight, candidate capture, retention, restart record and supervisor
+handshake) and skips only the git sync and the Release build. The script
+requires `dotnet`, `python3` and `curl`.
+
+1. **Preflight refusal.** The candidate is not an assembly. The rehearsing
+   admiral prints `candidate_database_validation_failed` and exits 1, and no
+   restart record exists.
+2. **Commit.** The record ends `Committed`, the previous admiral exits 0, and
+   the candidate answers health.
+3. **Supervisor kill.** `ARMADA_SELF_DEPLOY_REHEARSAL_HOLD_SECONDS` holds the
+   supervisor after the candidate launch is recorded. The script sends
+   `kill -9` to the supervisor while the record reads `CandidateStarting`. A
+   normal start then exits 3 with `restart_in_progress`. `--self-deploy-recover`
+   exits 0 at `Committed` or `RolledBack`, with exactly one recorded owner
+   running and healthy.
+
+The script stops every recorded process on exit. It removes the work
+directory after success and keeps it after a failure. Scenarios the unit suite
+covers with real processes, but not with the server binary, are not rehearsed
+here:
+
+- an unhealthy candidate rolled back after health;
+- a schema advance blocking rollback;
+- a hung admiral stopped by identity.
+
+Rehearse a server database provider on a disposable database separately before
+enabling self-deploy there.
+
 The real utility checks are separate and disabled by default; the default guard
 performs no database work. To run them against disposable provider databases, set
 `ARMADA_SELF_DEPLOY_INTEGRATION=1`,

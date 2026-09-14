@@ -39,6 +39,11 @@ namespace Armada.Server
         /// </summary>
         public Action? OnStopping { get; set; }
 
+        /// <summary>
+        /// Self-deploy service, available after <see cref="StartAsync"/> wires it.
+        /// </summary>
+        public SelfDeployService? SelfDeploy { get; private set; }
+
         #endregion
 
         #region Private-Members
@@ -251,6 +256,7 @@ namespace Armada.Server
                     Environment.Exit(0);
                 });
             ((MergeQueueService)_MergeQueue).SetSelfDeployService(selfDeployService);
+            SelfDeploy = selfDeployService;
             _AutoLandEvaluator = new AutoLandEvaluator();
             _ConventionChecker = new ConventionChecker();
             _CriticalTriggerEvaluator = new CriticalTriggerEvaluator();

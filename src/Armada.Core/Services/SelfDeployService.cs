@@ -151,7 +151,7 @@ namespace Armada.Core.Services
 
             if (_Cutover.Environment.IsContainer)
             {
-                await BlockAsync(selfVessel, mergeEntryId, "container_host_requires_external_deploy",
+                await BlockAsync(selfVessel.Id, mergeEntryId, "container_host_requires_external_deploy",
                     "Self-deploy is disabled inside a container; the container runtime owns the admiral process", token).ConfigureAwait(false);
                 return false;
             }
@@ -174,23 +174,14 @@ namespace Armada.Core.Services
             string? syncReason = await SyncWorkingDirectoryAsync(selfVessel, workingDirectory, defaultBranch, mergeEntryId, token).ConfigureAwait(false);
             if (!String.IsNullOrEmpty(syncReason))
             {
-                await OpenBuildIncidentAsync(selfVessel, mergeEntryId, "WorkingDirectory sync blocked: " + syncReason, syncReason, token).ConfigureAwait(false);
+                await OpenBuildIncidentAsync(selfVessel.Id, mergeEntryId, "WorkingDirectory sync blocked: " + syncReason, syncReason, token).ConfigureAwait(false);
                 return false;
             }
 
             // The running server may execute from the build output the Release build overwrites, so the
             // rollback artifact is captured before building.
-            SelfDeployReleaseArtifact rollback;
-            try
-            {
-                rollback = await _Cutover.Artifacts.CaptureAsync(_Cutover.Environment.CurrentServerDirectory, ServerEntryAssembly, token).ConfigureAwait(false);
-            }
-            catch (SelfDeployCutoverException ex)
-            {
-                await BlockAsync(selfVessel, mergeEntryId, "rollback_" + ex.FailureReason,
-                    "Rollback artifact capture failed; admiral restart aborted", token).ConfigureAwait(false);
-                return false;
-            }
+            SelfDeployReleaseArtifact? rollback = await CaptureRollbackAsync(selfVessel.Id, mergeEntryId, token).ConfigureAwait(false);
+            if (rollback == null) return false;
 
             await EmitEventAsync("self_deploy.build_started", selfVessel.Id, mergeEntryId,
                 "Release build started for self-deploy after " + reason, new { vesselId = selfVessel.Id, mergeEntryId, reason }, token).ConfigureAwait(false);
@@ -201,24 +192,91 @@ namespace Armada.Core.Services
                 await EmitEventAsync("self_deploy.build_failed", selfVessel.Id, mergeEntryId,
                     "Release build failed; admiral restart aborted",
                     new { vesselId = selfVessel.Id, mergeEntryId, buildResult.ExitCode, buildResult.OutputTail }, token).ConfigureAwait(false);
-                await OpenBuildIncidentAsync(selfVessel, mergeEntryId,
+                await OpenBuildIncidentAsync(selfVessel.Id, mergeEntryId,
                     "Self-deploy Release build failed with exit code " + buildResult.ExitCode,
                     buildResult.OutputTail, token).ConfigureAwait(false);
                 return false;
             }
 
             string serverDllPath = Path.GetFullPath(Path.Combine(workingDirectory, settings.ServerDllRelativePath));
+            return await PreflightAndPrepareAsync(selfVessel.Id, mergeEntryId, rollback, workingDirectory, serverDllPath, settings, buildResult, token).ConfigureAwait(false);
+        }
 
-            await EmitEventAsync("self_deploy.preflight_started", selfVessel.Id, mergeEntryId,
+        /// <summary>
+        /// Stable reason for the most recent refused cutover, for operator output.
+        /// </summary>
+        public string? LastCutoverBlockReason { get; private set; }
+
+        /// <summary>
+        /// Run the cutover for an already-built candidate on an isolated rehearsal host: the same container
+        /// check, rollback capture, native preflight, candidate capture, release retention, restart record and
+        /// supervisor handshake as a real self-deploy run, without the git sync and Release build.
+        /// Refused unless <see cref="SelfDeployRehearsal.IsAuthorized"/> holds.
+        /// </summary>
+        /// <param name="candidateServerDllPath">Prebuilt candidate server assembly.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the supervisor armed and the admiral committed to exit.</returns>
+        public async Task<bool> RehearseCutoverAsync(string candidateServerDllPath, CancellationToken token = default)
+        {
+            if (!SelfDeployRehearsal.IsAuthorized()) throw new InvalidOperationException("self_deploy_rehearsal_not_authorized");
+            if (String.IsNullOrWhiteSpace(candidateServerDllPath)) throw new ArgumentNullException(nameof(candidateServerDllPath));
+            string serverDllPath = Path.GetFullPath(candidateServerDllPath);
+            string workingDirectory = Path.GetDirectoryName(serverDllPath) ?? String.Empty;
+
+            if (_Cutover.Environment.IsContainer)
+            {
+                await BlockAsync(null, null, "container_host_requires_external_deploy",
+                    "Self-deploy is disabled inside a container; the container runtime owns the admiral process", token).ConfigureAwait(false);
+                return false;
+            }
+
+            SelfDeployReleaseArtifact? rollback = await CaptureRollbackAsync(null, null, token).ConfigureAwait(false);
+            if (rollback == null) return false;
+
+            SelfDeployBuildResult prebuilt = new SelfDeployBuildResult
+            {
+                Succeeded = true,
+                ExitCode = 0,
+                OutputTail = "Rehearsal uses a prebuilt candidate."
+            };
+            return await PreflightAndPrepareAsync(null, null, rollback, workingDirectory, serverDllPath, _Settings.SelfDeploy, prebuilt, token).ConfigureAwait(false);
+        }
+
+        private async Task<SelfDeployReleaseArtifact?> CaptureRollbackAsync(string? vesselId, string? mergeEntryId, CancellationToken token)
+        {
+            try
+            {
+                return await _Cutover.Artifacts.CaptureAsync(_Cutover.Environment.CurrentServerDirectory, ServerEntryAssembly, token).ConfigureAwait(false);
+            }
+            catch (SelfDeployCutoverException ex)
+            {
+                await BlockAsync(vesselId, mergeEntryId, "rollback_" + ex.FailureReason,
+                    "Rollback artifact capture failed; admiral restart aborted", token).ConfigureAwait(false);
+                return null;
+            }
+        }
+
+        private async Task<bool> PreflightAndPrepareAsync(
+            string? vesselId,
+            string? mergeEntryId,
+            SelfDeployReleaseArtifact rollback,
+            string workingDirectory,
+            string serverDllPath,
+            SelfDeploySettings settings,
+            SelfDeployBuildResult buildResult,
+            CancellationToken token)
+        {
+
+            await EmitEventAsync("self_deploy.preflight_started", vesselId, mergeEntryId,
                 "Self-deploy safety preflight started",
-                new { vesselId = selfVessel.Id, mergeEntryId, serverDllPath }, token).ConfigureAwait(false);
+                new { vesselId = vesselId, mergeEntryId, serverDllPath }, token).ConfigureAwait(false);
 
             SelfDeployPreflightResult? preflightResult;
             try
             {
                 preflightResult = await _Preflight.ValidateAsync(new SelfDeployPreflightRequest
                 {
-                    VesselId = selfVessel.Id,
+                    VesselId = vesselId,
                     WorkingDirectory = workingDirectory,
                     CandidateServerDllPath = serverDllPath,
                     Settings = settings,
@@ -240,11 +298,12 @@ namespace Armada.Core.Services
             if (preflightResult == null || !preflightResult.IsSafeToCutover)
             {
                 string preflightFailure = DescribePreflightFailure(preflightResult);
-                await EmitEventAsync("self_deploy.preflight_failed", selfVessel.Id, mergeEntryId,
+                LastCutoverBlockReason = preflightFailure;
+                await EmitEventAsync("self_deploy.preflight_failed", vesselId, mergeEntryId,
                     "Self-deploy preflight failed; admiral restart aborted",
                     new
                     {
-                        vesselId = selfVessel.Id,
+                        vesselId = vesselId,
                         mergeEntryId,
                         reason = preflightFailure,
                         backupValidated = preflightResult?.BackupValidated ?? false,
@@ -252,7 +311,7 @@ namespace Armada.Core.Services
                         candidateValidated = preflightResult?.CandidateValidated ?? false,
                         outputTail = preflightResult?.OutputTail ?? String.Empty
                     }, token).ConfigureAwait(false);
-                await OpenBuildIncidentAsync(selfVessel, mergeEntryId,
+                await OpenBuildIncidentAsync(vesselId, mergeEntryId,
                     "Self-deploy preflight failed; admiral restart aborted",
                     preflightFailure + (String.IsNullOrWhiteSpace(preflightResult?.OutputTail)
                         ? String.Empty
@@ -260,15 +319,15 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            await EmitEventAsync("self_deploy.preflight_succeeded", selfVessel.Id, mergeEntryId,
+            await EmitEventAsync("self_deploy.preflight_succeeded", vesselId, mergeEntryId,
                 "Self-deploy preflight passed; preparing supervised cutover",
-                new { vesselId = selfVessel.Id, mergeEntryId }, token).ConfigureAwait(false);
+                new { vesselId = vesselId, mergeEntryId }, token).ConfigureAwait(false);
 
-            return await PrepareCutoverAsync(selfVessel, mergeEntryId, rollback, serverDllPath, token).ConfigureAwait(false);
+            return await PrepareCutoverAsync(vesselId, mergeEntryId, rollback, serverDllPath, token).ConfigureAwait(false);
         }
 
         private async Task<bool> PrepareCutoverAsync(
-            Vessel selfVessel,
+            string? vesselId,
             string? mergeEntryId,
             SelfDeployReleaseArtifact rollback,
             string serverDllPath,
@@ -282,7 +341,7 @@ namespace Armada.Core.Services
             }
             catch (SelfDeployCutoverException ex)
             {
-                await BlockAsync(selfVessel, mergeEntryId, "candidate_" + ex.FailureReason,
+                await BlockAsync(vesselId, mergeEntryId, "candidate_" + ex.FailureReason,
                     "Candidate artifact capture failed; admiral restart aborted", token).ConfigureAwait(false);
                 return false;
             }
@@ -296,15 +355,15 @@ namespace Armada.Core.Services
             if (!String.IsNullOrWhiteSpace(pruned.FailureReason))
             {
                 // Retention bounds disk use; it is not a safety precondition, so a failure is reported, not blocking.
-                await EmitEventAsync("self_deploy.release_prune_failed", selfVessel.Id, mergeEntryId,
+                await EmitEventAsync("self_deploy.release_prune_failed", vesselId, mergeEntryId,
                     "Self-deploy release store could not be fully pruned",
-                    new { vesselId = selfVessel.Id, mergeEntryId, reason = pruned.FailureReason, removed = pruned.Removed }, token).ConfigureAwait(false);
+                    new { vesselId = vesselId, mergeEntryId, reason = pruned.FailureReason, removed = pruned.Removed }, token).ConfigureAwait(false);
             }
             else if (pruned.Removed.Count > 0)
             {
-                await EmitEventAsync("self_deploy.releases_pruned", selfVessel.Id, mergeEntryId,
+                await EmitEventAsync("self_deploy.releases_pruned", vesselId, mergeEntryId,
                     "Removed " + pruned.Removed.Count + " previous self-deploy release(s)",
-                    new { vesselId = selfVessel.Id, mergeEntryId, removed = pruned.Removed, retained = pruned.RetainedPrevious }, token).ConfigureAwait(false);
+                    new { vesselId = vesselId, mergeEntryId, removed = pruned.Removed, retained = pruned.RetainedPrevious }, token).ConfigureAwait(false);
             }
 
             int schemaVersion;
@@ -318,7 +377,7 @@ namespace Armada.Core.Services
             }
             catch (Exception)
             {
-                await BlockAsync(selfVessel, mergeEntryId, "schema_version_unreadable",
+                await BlockAsync(vesselId, mergeEntryId, "schema_version_unreadable",
                     "Schema version could not be read before cutover; admiral restart aborted", token).ConfigureAwait(false);
                 return false;
             }
@@ -326,7 +385,7 @@ namespace Armada.Core.Services
             SelfDeployProcessIdentity? admiral = _Cutover.ProcessHost.Capture(_Cutover.Environment.CurrentProcessId);
             if (admiral == null)
             {
-                await BlockAsync(selfVessel, mergeEntryId, "admiral_identity_unverified",
+                await BlockAsync(vesselId, mergeEntryId, "admiral_identity_unverified",
                     "Running admiral identity could not be verified; admiral restart aborted", token).ConfigureAwait(false);
                 return false;
             }
@@ -351,13 +410,13 @@ namespace Armada.Core.Services
             }
             catch (SelfDeployCutoverException ex)
             {
-                await BlockAsync(selfVessel, mergeEntryId, ex.FailureReason,
+                await BlockAsync(vesselId, mergeEntryId, ex.FailureReason,
                     "Restart record could not be written; admiral restart aborted", token).ConfigureAwait(false);
                 return false;
             }
             if (!created.Applied)
             {
-                await BlockAsync(selfVessel, mergeEntryId, created.FailureReason,
+                await BlockAsync(vesselId, mergeEntryId, created.FailureReason,
                     "Restart record is not available for a new cutover; admiral restart aborted", token).ConfigureAwait(false);
                 return false;
             }
@@ -370,7 +429,7 @@ namespace Armada.Core.Services
             catch (SelfDeployCutoverException ex)
             {
                 await AbortPreparedAsync(operationId, "supervisor_" + ex.FailureReason, token).ConfigureAwait(false);
-                await BlockAsync(selfVessel, mergeEntryId, "supervisor_" + ex.FailureReason,
+                await BlockAsync(vesselId, mergeEntryId, "supervisor_" + ex.FailureReason,
                     "Self-deploy supervisor failed to start; admiral restart aborted", token).ConfigureAwait(false);
                 return false;
             }
@@ -378,7 +437,7 @@ namespace Armada.Core.Services
             string? armFailure = await WaitForSupervisorArmAsync(operationId, supervisor, token).ConfigureAwait(false);
             if (armFailure != null)
             {
-                await BlockAsync(selfVessel, mergeEntryId, armFailure,
+                await BlockAsync(vesselId, mergeEntryId, armFailure,
                     "Self-deploy supervisor did not arm; admiral restart aborted", token).ConfigureAwait(false);
                 return false;
             }
@@ -388,16 +447,16 @@ namespace Armada.Core.Services
                 r => r.MoveTo(SelfDeployRestartStateEnum.ExitRequested, "admiral_exit_requested"), token).ConfigureAwait(false);
             if (!exitRequested.Applied)
             {
-                await BlockAsync(selfVessel, mergeEntryId, "exit_request_rejected_" + exitRequested.FailureReason,
+                await BlockAsync(vesselId, mergeEntryId, "exit_request_rejected_" + exitRequested.FailureReason,
                     "Self-deploy supervisor ended the handshake; admiral restart aborted", token).ConfigureAwait(false);
                 return false;
             }
 
-            await EmitEventAsync("self_deploy.restart_requested", selfVessel.Id, mergeEntryId,
+            await EmitEventAsync("self_deploy.restart_requested", vesselId, mergeEntryId,
                 "Supervised cutover armed; admiral " + admiral.ProcessId + " is exiting",
                 new
                 {
-                    vesselId = selfVessel.Id,
+                    vesselId = vesselId,
                     mergeEntryId,
                     operationId,
                     admiralPid = admiral.ProcessId,
@@ -461,11 +520,12 @@ namespace Armada.Core.Services
                 r => r.MoveTo(SelfDeployRestartStateEnum.Aborted, reason), token).ConfigureAwait(false);
         }
 
-        private async Task BlockAsync(Vessel vessel, string? mergeEntryId, string reason, string summary, CancellationToken token)
+        private async Task BlockAsync(string? vesselId, string? mergeEntryId, string reason, string summary, CancellationToken token)
         {
-            await EmitEventAsync("self_deploy.cutover_blocked", vessel.Id, mergeEntryId, summary,
-                new { vesselId = vessel.Id, mergeEntryId, reason }, token).ConfigureAwait(false);
-            await OpenBuildIncidentAsync(vessel, mergeEntryId, summary, reason, token).ConfigureAwait(false);
+            LastCutoverBlockReason = reason;
+            await EmitEventAsync("self_deploy.cutover_blocked", vesselId, mergeEntryId, summary,
+                new { vesselId, mergeEntryId, reason }, token).ConfigureAwait(false);
+            await OpenBuildIncidentAsync(vesselId, mergeEntryId, summary, reason, token).ConfigureAwait(false);
         }
 
         private async Task RunScheduledWorkerAsync()
@@ -665,7 +725,7 @@ namespace Armada.Core.Services
         }
 
         private async Task OpenBuildIncidentAsync(
-            Vessel vessel,
+            string? vesselId,
             string? mergeEntryId,
             string summary,
             string detail,
@@ -687,16 +747,16 @@ namespace Armada.Core.Services
                     Summary = summary,
                     Status = IncidentStatusEnum.Open,
                     Severity = IncidentSeverityEnum.High,
-                    VesselId = vessel.Id,
+                    VesselId = vesselId,
                     Impact = "Admiral self-deploy did not restart the running server.",
                     RootCause = detail,
                     RecoveryNotes = "Inspect WorkingDirectory sync state, Release build output, preflight result and the self-deploy restart record. The running admiral was left online.",
                     DetectedUtc = DateTime.UtcNow
                 }, token).ConfigureAwait(false);
 
-                await EmitEventAsync("self_deploy.incident_opened", vessel.Id, mergeEntryId,
+                await EmitEventAsync("self_deploy.incident_opened", vesselId, mergeEntryId,
                     "Opened incident " + created.Id + " for self-deploy failure",
-                    new { vesselId = vessel.Id, mergeEntryId, incidentId = created.Id, summary }, token).ConfigureAwait(false);
+                    new { vesselId, mergeEntryId, incidentId = created.Id, summary }, token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

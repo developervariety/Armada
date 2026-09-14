@@ -234,6 +234,16 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   running and rollback releases, every release an unresolved restart record
   names, and the newest `selfDeploy.retainedPreviousReleases` others (default
   2). It removes nothing while the restart record is unreadable.
+- Added `scripts/common/rehearse-self-deploy-cutover.sh` and a gated server
+  `--self-deploy-rehearse` mode. With real binaries and disposable SQLite
+  copies, the rehearsal proves three things: a preflight refusal leaves no
+  record, a healthy candidate commits, and a `kill -9` of the supervisor makes a
+  normal start refuse and recovery end with one healthy owner. The mode is
+  refused unless `ARMADA_SELF_DEPLOY_REHEARSAL=isolated-disposable` and a data
+  directory override are set.
+- Cutover decisions re-read a briefly unverifiable process state for a bounded
+  window before failing closed. A candidate that exits at once is therefore
+  recorded as exited rather than as unverifiable.
 
 
 ### Helm configuration and branch client

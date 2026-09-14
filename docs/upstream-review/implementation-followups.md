@@ -699,6 +699,39 @@ entries left untouched, releases named by an unresolved record kept while a
 terminal record's releases can be pruned, and an unreadable record removing
 nothing.
 
+### Runnable rehearsal
+
+`scripts/common/rehearse-self-deploy-cutover.sh` automates the SQLite part of
+the rehearsal above. It runs three scenarios with real binaries and disposable
+database copies: a preflight refusal with no record, a commit, and a `kill -9`
+of the supervisor followed by a refused normal start and recovery to one owner.
+`docs/armada-ops.md` ("Self-deploy rehearsal") gives the procedure and what it
+does not cover.
+
+The script passed all three scenarios on a local workstation, using a Debug
+server build as both the rollback and the candidate binary and a freshly
+migrated disposable SQLite database. The results were:
+
+- The broken candidate was refused with `candidate_database_validation_failed`,
+  exit 1, and no record.
+- The cutover ended `Committed`, with the previous admiral exiting 0 and the
+  candidate healthy.
+- After the supervisor was killed at `CandidateStarting`, a normal start
+  exited 3, and recovery reached `Committed` (`recovery_candidate_healthy`)
+  with one healthy owner.
+
+Its first run passed every scenario but exited 1 because cleanup could not
+remove the read-only artifacts. Cleanup now restores owner write access first,
+and the re-run exited 0. It was not run against any server.
+
+A full self-deploy suite run then exposed a second form of the exit race. A
+candidate that exited at once briefly read as unverifiable. The coordinator
+recorded `candidate_process_state_unverified` instead of
+`candidate_process_exited_before_healthy`, although it still rolled back. Every
+coordinator state decision now re-reads an unverifiable state for a bounded
+two-second window before failing closed. After the fix, the coordinator suite
+passed 19 of 19 in five consecutive runs.
+
 Keep this entry at Verify until the rehearsal passes on a process-owned host.
 
 ## FOLLOWUP-019 — API runtime workspace tools remain unaccepted

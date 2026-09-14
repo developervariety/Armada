@@ -28,6 +28,12 @@ namespace Armada.Core.Models
         public TimeSpan HealthTimeout { get; set; } = TimeSpan.FromSeconds(120);
 
         /// <summary>
+        /// Hold after the launched candidate identity is recorded. Zero except in an authorized rehearsal,
+        /// where it opens a window for injecting a supervisor interruption.
+        /// </summary>
+        public TimeSpan HoldAfterCandidateLaunch { get; set; } = TimeSpan.Zero;
+
+        /// <summary>
         /// Delay between state polls.
         /// </summary>
         public TimeSpan PollInterval { get; set; } = TimeSpan.FromMilliseconds(500);

@@ -28,6 +28,11 @@ namespace Armada.Core.Services
             SelfDeployRestartStateEnum.RollbackStarting
         };
 
+        /// <summary>
+        /// Bounded window in which an unverifiable process state is re-read before it is treated as unverified.
+        /// </summary>
+        public static readonly TimeSpan UnverifiedSettleWindow = TimeSpan.FromSeconds(2);
+
         private readonly ISelfDeployProcessHost _Host;
         private readonly ISelfDeployHealthProbe _Probe;
         private readonly ISelfDeployArtifactStore _Artifacts;
@@ -96,7 +101,7 @@ namespace Armada.Core.Services
                     ? "rollback_" + rollbackFailure
                     : candidateFailure != null ? "candidate_" + candidateFailure : null;
                 if (armFailure == null && (record.OldProcess == null
-                    || _Host.GetState(record.OldProcess) != SelfDeployProcessStateEnum.Running))
+                    || await SettledStateAsync(record.OldProcess, token).ConfigureAwait(false) != SelfDeployProcessStateEnum.Running))
                     armFailure = "old_process_not_verified_running";
                 if (armFailure != null)
                     return await FinishAsync(operationId, new[] { SelfDeployRestartStateEnum.Prepared },
@@ -147,9 +152,9 @@ namespace Armada.Core.Services
                 SelfDeployRestartRecord record = read.Record!;
                 if (SelfDeployRestartRecord.IsTerminal(record.State)) return Outcome(record.State, "restart_record_terminal");
 
-                SelfDeployProcessStateEnum oldState = StateOf(record.OldProcess);
-                SelfDeployProcessStateEnum candidateState = StateOf(record.CandidateProcess);
-                SelfDeployProcessStateEnum rollbackState = StateOf(record.RollbackProcess);
+                SelfDeployProcessStateEnum oldState = await StateOfAsync(record.OldProcess, token).ConfigureAwait(false);
+                SelfDeployProcessStateEnum candidateState = await StateOfAsync(record.CandidateProcess, token).ConfigureAwait(false);
+                SelfDeployProcessStateEnum rollbackState = await StateOfAsync(record.RollbackProcess, token).ConfigureAwait(false);
                 if (oldState == SelfDeployProcessStateEnum.Unverified
                     || candidateState == SelfDeployProcessStateEnum.Unverified
                     || rollbackState == SelfDeployProcessStateEnum.Unverified)
@@ -284,6 +289,9 @@ namespace Armada.Core.Services
             if (!launched.Applied) return Outcome(launched.Record?.State, launched.FailureReason);
             record = launched.Record!;
 
+            if (_Options.HoldAfterCandidateLaunch > TimeSpan.Zero)
+                await Task.Delay(_Options.HoldAfterCandidateLaunch, token).ConfigureAwait(false);
+
             SelfDeployHealthResult health = await WaitForHealthAsync(record.HealthUrl, candidate, token).ConfigureAwait(false);
             if (health.Healthy)
                 return await FinishAsync(record.OperationId, new[] { SelfDeployRestartStateEnum.CandidateStarting },
@@ -300,7 +308,7 @@ namespace Armada.Core.Services
 
             if (record.CandidateProcess != null)
             {
-                SelfDeployProcessStateEnum candidateState = _Host.GetState(record.CandidateProcess);
+                SelfDeployProcessStateEnum candidateState = await SettledStateAsync(record.CandidateProcess, token).ConfigureAwait(false);
                 if (candidateState == SelfDeployProcessStateEnum.Unverified)
                     return await FailAsync(record, "candidate_state_unverified", token).ConfigureAwait(false);
                 if (candidateState == SelfDeployProcessStateEnum.Running)
@@ -380,7 +388,7 @@ namespace Armada.Core.Services
         private async Task<SelfDeployCutoverResult> StopFailedRollbackAsync(SelfDeployRestartRecord record, string reason, CancellationToken token)
         {
             if (record.RollbackProcess != null
-                && _Host.GetState(record.RollbackProcess) == SelfDeployProcessStateEnum.Running)
+                && await SettledStateAsync(record.RollbackProcess, token).ConfigureAwait(false) == SelfDeployProcessStateEnum.Running)
             {
                 bool stopped = await _Host.TerminateAsync(record.RollbackProcess, true, _Options.TerminationTimeout, token).ConfigureAwait(false);
                 if (!stopped) reason += "_exit_unconfirmed";
@@ -397,7 +405,7 @@ namespace Armada.Core.Services
             string lastFailure = "health_not_checked";
             while (DateTime.UtcNow < deadline)
             {
-                SelfDeployProcessStateEnum state = _Host.GetState(process);
+                SelfDeployProcessStateEnum state = await SettledStateAsync(process, token).ConfigureAwait(false);
                 if (state == SelfDeployProcessStateEnum.Exited)
                     return new SelfDeployHealthResult { FailureReason = "process_exited_before_healthy" };
                 if (state == SelfDeployProcessStateEnum.Unverified)
@@ -405,7 +413,7 @@ namespace Armada.Core.Services
                 SelfDeployHealthResult attempt = await _Probe.CheckAsync(healthUrl, process, token).ConfigureAwait(false);
                 if (attempt.Healthy)
                 {
-                    if (_Host.GetState(process) == SelfDeployProcessStateEnum.Running) return attempt;
+                    if (await SettledStateAsync(process, token).ConfigureAwait(false) == SelfDeployProcessStateEnum.Running) return attempt;
                     return new SelfDeployHealthResult { FailureReason = "process_exited_before_healthy" };
                 }
                 lastFailure = String.IsNullOrWhiteSpace(attempt.FailureReason) ? "health_failed" : attempt.FailureReason;
@@ -432,9 +440,28 @@ namespace Armada.Core.Services
             return Outcome(result.Record?.State, result.FailureReason);
         }
 
-        private SelfDeployProcessStateEnum StateOf(SelfDeployProcessIdentity? identity)
+        private async Task<SelfDeployProcessStateEnum> StateOfAsync(SelfDeployProcessIdentity? identity, CancellationToken token)
         {
-            return identity == null ? SelfDeployProcessStateEnum.Exited : _Host.GetState(identity);
+            return identity == null
+                ? SelfDeployProcessStateEnum.Exited
+                : await SettledStateAsync(identity, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// A process that is exiting can be briefly unreadable. Every coordinator decision reads state through
+        /// this helper, which re-reads an unverifiable state for a bounded window and fails closed only when
+        /// the state is still unverifiable after it.
+        /// </summary>
+        private async Task<SelfDeployProcessStateEnum> SettledStateAsync(SelfDeployProcessIdentity identity, CancellationToken token)
+        {
+            DateTime deadline = DateTime.UtcNow + UnverifiedSettleWindow;
+            SelfDeployProcessStateEnum state = _Host.GetState(identity);
+            while (state == SelfDeployProcessStateEnum.Unverified && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(50), token).ConfigureAwait(false);
+                state = _Host.GetState(identity);
+            }
+            return state;
         }
 
         private static SelfDeployCutoverResult Outcome(SelfDeployRestartStateEnum? state, string reason)

@@ -341,6 +341,33 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("RehearseCutoverAsync_WithoutRehearsalGate_IsRefusedBeforeAnyWork", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                using (SelfDeployTestContext context = await CreateContextAsync(testDb, enabled: true))
+                {
+                    string? previousGate = Environment.GetEnvironmentVariable(SelfDeployRehearsal.GateVariable);
+                    string? previousHold = Environment.GetEnvironmentVariable(SelfDeployRehearsal.HoldVariable);
+                    try
+                    {
+                        Environment.SetEnvironmentVariable(SelfDeployRehearsal.GateVariable, "yes");
+                        Environment.SetEnvironmentVariable(SelfDeployRehearsal.HoldVariable, "30");
+                        AssertFalse(SelfDeployRehearsal.IsAuthorized(), "a value other than the gate value is not authorized");
+                        AssertEqual(TimeSpan.Zero, SelfDeployRehearsal.HoldAfterCandidateLaunch(), "hold ignored outside an authorized rehearsal");
+                        await AssertThrowsAsync<InvalidOperationException>(
+                            () => context.Service.RehearseCutoverAsync(Path.Combine(context.Root, "candidate", "Armada.Server.dll")),
+                            "rehearsal refused without the gate");
+                        AssertEqual(0, context.Artifacts.CaptureOrder.Count, "nothing captured");
+                        AssertEqual(0, context.Host.Starts.Count, "nothing launched");
+                    }
+                    finally
+                    {
+                        Environment.SetEnvironmentVariable(SelfDeployRehearsal.GateVariable, previousGate);
+                        Environment.SetEnvironmentVariable(SelfDeployRehearsal.HoldVariable, previousHold);
+                    }
+                }
+            });
+
             await RunTest("ExecuteAsync_UnpushedLocalCommits_SkipsRestart", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

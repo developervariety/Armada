@@ -35,6 +35,7 @@ namespace Armada.Server
             try
             {
                 SelfDeployCutoverComponents components = SelfDeployCutoverComponents.CreateDefault(_Settings.DataDirectory, _Settings.SelfDeploy);
+                components.Options.HoldAfterCandidateLaunch = SelfDeployRehearsal.HoldAfterCandidateLaunch();
                 using (HttpClient client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan })
                 {
                     SelfDeployCutoverCoordinator coordinator = new SelfDeployCutoverCoordinator(
@@ -163,6 +164,23 @@ namespace Armada.Server
                 return;
             }
 
+            string? rehearsalCandidate = null;
+            if (Array.IndexOf(args, SelfDeployRehearsal.RehearseArgument) >= 0)
+            {
+                if (args.Length != 2 || args[0] != SelfDeployRehearsal.RehearseArgument)
+                    throw new ArgumentException(SelfDeployRehearsal.RehearseArgument + " requires exactly one candidate server assembly path.");
+                if (!SelfDeployRehearsal.IsAuthorized())
+                {
+                    string denied = "[Program] self-deploy rehearsal refused: set " + SelfDeployRehearsal.GateVariable + "="
+                        + SelfDeployRehearsal.GateValue + " and " + Constants.DataDirectoryOverrideVariable
+                        + " to a disposable data directory.";
+                    Console.Error.WriteLine(denied);
+                    Environment.ExitCode = 2;
+                    return;
+                }
+                rehearsalCandidate = args[1];
+            }
+
             SelfDeployRestartRecordStore restartRecords = new SelfDeployRestartRecordStore(
                 SelfDeployRestartRecordStore.DirectoryFor(_Settings.DataDirectory));
             SelfDeployStartupDecision startup = SelfDeployStartupGuard.Evaluate(
@@ -192,6 +210,23 @@ namespace Armada.Server
             Console.WriteLine("MCP server on port " + _Settings.McpPort);
             Console.WriteLine("WebSocket endpoint at /ws");
             Console.WriteLine("Dashboard: http://localhost:" + _Settings.AdmiralPort + "/dashboard");
+
+            if (rehearsalCandidate != null)
+            {
+                SelfDeployService? selfDeploy = _Server.SelfDeploy;
+                bool exitRequested = selfDeploy != null
+                    && await selfDeploy.RehearseCutoverAsync(rehearsalCandidate).ConfigureAwait(false);
+                if (exitRequested)
+                {
+                    Console.WriteLine("SELF-DEPLOY REHEARSAL EXIT REQUESTED");
+                }
+                else
+                {
+                    Console.WriteLine("SELF-DEPLOY REHEARSAL BLOCKED: " + (selfDeploy?.LastCutoverBlockReason ?? "self_deploy_service_unavailable"));
+                    Environment.ExitCode = 1;
+                    waitHandle.Set();
+                }
+            }
 
             // Wait for shutdown signal (Ctrl+C, SIGTERM, API stop, or assembly unload)
             AssemblyLoadContext.Default.Unloading += (ctx) => waitHandle.Set();
