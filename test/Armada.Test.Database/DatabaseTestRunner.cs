@@ -151,6 +151,7 @@ namespace Armada.Test.Database
             Console.WriteLine();
             Console.WriteLine("--- Data Expiry ---");
             await RunTest("DataExpiry_Purges_Expired_Rows_And_Keeps_Retained_Rows", "Retention", () => new DataExpiryDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyRetentionPurgeAsync(token), token);
+            await RunTest("DataExpiry_Purges_Production_Facts_Older_Than_Fact_Retention", "Retention", () => new DataExpiryDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyProductionFactRetentionAsync(token), token);
 
             return _Results;
         }

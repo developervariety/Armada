@@ -515,6 +515,41 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("partial", group.Availability);
             }).ConfigureAwait(false);
 
+            await RunTest("WindowOlderThanFactRetentionReportsUnobservedNotWrong", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DateTime start = DateTime.UtcNow.Date.AddDays(-400);
+                Mission denied = await CreateVerifiedSliceAsync(testDb, start, "expired").ConfigureAwait(false);
+                Objective objective = await ObjectiveTitledAsync(testDb, "expired").ConfigureAwait(false);
+                await AddFactAsync(testDb, denied, MissionAttemptFactTypeEnum.AttemptStarted, null, start).ConfigureAwait(false);
+                await AddFactAsync(testDb, denied, MissionAttemptFactTypeEnum.ReviewDenied, "review_denied_retrystage", start).ConfigureAwait(false);
+                await AddObservationAsync(testDb, objective, "opc_expired", PreparationClaimObservationEnum.Reestablished, start).ConfigureAwait(false);
+                await AddLaneRowAsync(testDb, "vsl_expired", start.AddMinutes(-10), 1, 0, 1, LaneBlockReasonEnum.None, "unknown", 7200).ConfigureAwait(false);
+                AuthContext auth = AuthContext.Authenticated("default", "default", true, true, "UnitTest");
+                ProductionSummaryQuery window = new ProductionSummaryQuery { FromUtc = start, ToUtc = start.AddHours(2) };
+
+                ProductionSummaryResult before = await new VerifiedProductionSummaryService(testDb.Driver).SummarizeAsync(auth, window).ConfigureAwait(false);
+                AssertEqual(1, before.Groups.Single().FirstPassAcceptance.Eligible, "the facts are counted while they exist");
+                AssertEqual(0, before.Groups.Single().FirstPassAcceptance.Accepted);
+                AssertEqual(1, before.Groups.Single().RepeatedResearch.RepeatedClaims!.Value);
+                AssertEqual(110.0, before.LaneTime.ObservedLaneMinutes, "the lane row is trusted until ten minutes before the window ends");
+
+                SyslogLogging.LoggingModule logging = new SyslogLogging.LoggingModule();
+                logging.Settings.EnableConsole = false;
+                await new DataExpiryService(logging, testDb.Driver, 0, 365).PurgeExpiredDataAsync().ConfigureAwait(false);
+
+                ProductionSummaryResult after = await new VerifiedProductionSummaryService(testDb.Driver).SummarizeAsync(auth, window).ConfigureAwait(false);
+                ProductionSummaryGroup group = after.Groups.Single();
+                AssertEqual(1, group.VerifiedLandedSlices.Count, "operational evidence outlives the facts");
+                AssertEqual(0, group.FirstPassAcceptance.Eligible, "a slice whose facts expired is not eligible");
+                AssertEqual(0, group.FirstPassAcceptance.Accepted, "an expired review denial never turns into an acceptance");
+                AssertTrue(group.FirstPassAcceptance.Rate == null, "no rate is reported from expired facts");
+                AssertEqual(1, group.FirstPassAcceptance.UnknownByReason["attempt_facts_not_recorded"]);
+                AssertEqual(1, group.RepeatedResearch.UnknownByReason["no_preparation_claims_recorded"]);
+                AssertTrue(group.RepeatedResearch.RepeatedClaims == null || group.RepeatedResearch.RepeatedClaims == 0, "expired repeats are not reported");
+                AssertEqual(0.0, after.LaneTime.ObservedLaneMinutes, "expired lane rows are not observed time");
+            }).ConfigureAwait(false);
+
             await RunTest("WindowOverNinetyDaysIsRejected", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

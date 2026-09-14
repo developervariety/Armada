@@ -284,11 +284,19 @@ default is 30), a run deletes rows older than that many days:
 - Inactive docks with no captain, by `created_utc`.
 - Landed, Cancelled or Failed merge entries, by `completed_utc`.
 
+The same run deletes production metric facts (`mission_attempt_facts`,
+`preparation_claim_observations` and `lane_state_transitions`) older than
+`productionFactRetentionDays`, by `created_utc`. The default is 365; `0` keeps
+facts forever. A production summary window before that cutoff reports the
+fact-based measures as unobserved or unknown, never as a value
+(`docs/production-metrics.md`).
+
 Each run logs one line, `data expiry summary: dataRetentionDays=<n>
-cutoff=<utc> deleted=<total> voyages=<n> missions=<n> signals=<n> events=<n>
-docks=<n> merge_entries=<n>`, including runs that delete nothing. With
-`dataRetentionDays` set to 0 the run logs `data expiry skipped` and deletes
-nothing. A failed statement names its table and provider in the
+cutoff=<utc> productionFactRetentionDays=<n> factCutoff=<utc> deleted=<total>`
+followed by `<table>=<count>` for every table the run purged, including runs
+that delete nothing. A retention set to 0 shows its cutoff as `disabled` and
+its tables are not listed. With both retentions set to 0 the run logs
+`data expiry skipped` and deletes nothing. A failed statement names its table and provider in the
 `data expiry failed:` line. The first run on a database that never expired
 data can delete many rows; take a backup before the first deployment that
 enables it.

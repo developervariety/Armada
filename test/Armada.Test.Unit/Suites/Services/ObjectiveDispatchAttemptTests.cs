@@ -183,7 +183,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 SyslogLogging.LoggingModule logging = new SyslogLogging.LoggingModule();
                 logging.Settings.EnableConsole = false;
-                await new DataExpiryService(logging, testDb.Driver, 1).PurgeExpiredDataAsync().ConfigureAwait(false);
+                await new DataExpiryService(logging, testDb.Driver, 1, 0).PurgeExpiredDataAsync().ConfigureAwait(false);
 
                 AssertNotNull(await testDb.Driver.Events.ReadAsync(openInsideLookBack.Id).ConfigureAwait(false),
                     "An attempt record inside the look-back must survive a shorter retention period.");

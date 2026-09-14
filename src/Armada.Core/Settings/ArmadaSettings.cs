@@ -284,6 +284,22 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Retention period in days for the append-only production metric facts: mission attempt
+        /// facts, preparation claim observations and lane state transitions. Facts older than this
+        /// are purged by the background expiry task, and production summary windows before it report
+        /// those measures as unobserved. Defaults to 365. Set to 0 to keep facts forever. Must be >= 0.
+        /// </summary>
+        public int ProductionFactRetentionDays
+        {
+            get => _ProductionFactRetentionDays;
+            set
+            {
+                if (value < 0) throw new ArgumentOutOfRangeException(nameof(ProductionFactRetentionDays), "Must be >= 0");
+                _ProductionFactRetentionDays = value;
+            }
+        }
+
+        /// <summary>
         /// Number of health-check cycles between maintenance sweeps that prune Armada-owned branches
         /// and preserved refs already landed on each vessel's default branch (self-healing ref
         /// accumulation). Defaults to 200 (~100 minutes at the default heartbeat).
@@ -898,6 +914,7 @@ namespace Armada.Core.Settings
         private long _MaxLogFileSizeBytes = Constants.DefaultMaxLogFileSizeBytes;
         private int _MaxLogFileCount = Constants.DefaultMaxLogFileCount;
         private int _DataRetentionDays = Constants.DefaultDataRetentionDays;
+        private int _ProductionFactRetentionDays = Constants.DefaultProductionFactRetentionDays;
         private int _BranchCleanupSweepIntervalCycles = 200;
         private int _BranchCleanupPreservedRefRetentionDays = 14;
         private int _RequestHistoryRetentionDays = Constants.DefaultRequestHistoryRetentionDays;

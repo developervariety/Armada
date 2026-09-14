@@ -345,7 +345,7 @@ namespace Armada.Server
 
             // Initialize log rotation and data expiry
             _LogRotation = new LogRotationService(_Logging, _Settings.MaxLogFileSizeBytes, _Settings.MaxLogFileCount);
-            _DataExpiry = new DataExpiryService(_Logging, _Database, _Settings.DataRetentionDays);
+            _DataExpiry = new DataExpiryService(_Logging, _Database, _Settings.DataRetentionDays, _Settings.ProductionFactRetentionDays);
             _DiskLifecycle = new DiskLifecycleService(_Database, _Settings, _Logging);
 
             // Telemetry export. ArmadaMetrics already emits the meters; without this host nothing

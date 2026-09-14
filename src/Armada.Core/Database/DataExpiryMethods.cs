@@ -60,12 +60,35 @@ namespace Armada.Core.Database
         {
             if (cutoffs == null) throw new ArgumentNullException(nameof(cutoffs));
             DataExpiryResult result = new DataExpiryResult();
-            if (!cutoffs.RecordCutoffUtc.HasValue) return result;
+            if (!cutoffs.RecordCutoffUtc.HasValue && !cutoffs.ProductionFactCutoffUtc.HasValue) return result;
 
-            DateTime cutoff = cutoffs.RecordCutoffUtc.Value;
             using (DbConnection connection = _ConnectionFactory())
             {
                 await connection.OpenAsync(token).ConfigureAwait(false);
+                if (cutoffs.RecordCutoffUtc.HasValue)
+                    await PurgeOperationalRecordsAsync(connection, cutoffs.RecordCutoffUtc.Value, cutoffs, result, token).ConfigureAwait(false);
+
+                // Production metric facts are append-only and age out by creation time only, so a
+                // summary window before the fact cutoff sees no facts and reports them as unobserved.
+                if (cutoffs.ProductionFactCutoffUtc.HasValue)
+                {
+                    foreach (string table in DataExpiryCutoffs.ProductionFactTables)
+                    {
+                        await ExecuteAsync(connection, table, result, "DELETE FROM " + table + " WHERE created_utc < @cutoff;",
+                            table, cutoffs.ProductionFactCutoffUtc.Value, cutoffs, token).ConfigureAwait(false);
+                    }
+                }
+            }
+            return result;
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private async Task PurgeOperationalRecordsAsync(DbConnection connection, DateTime cutoff, DataExpiryCutoffs cutoffs, DataExpiryResult result, CancellationToken token)
+        {
+            {
 
                 string expiredVoyageIds = "SELECT id FROM voyages WHERE status IN (" + Literals(ExpiringVoyageStatuses) + ")"
                     + " AND completed_utc IS NOT NULL AND completed_utc < @cutoff";
@@ -97,12 +120,7 @@ namespace Armada.Core.Database
                 await ExecuteAsync(connection, "merge_entries", result, "DELETE FROM merge_entries WHERE status IN (" + Literals(ExpiringMergeStatuses) + ")"
                     + " AND completed_utc IS NOT NULL AND completed_utc < @cutoff;", "merge_entries", cutoff, cutoffs, token).ConfigureAwait(false);
             }
-            return result;
         }
-
-        #endregion
-
-        #region Private-Methods
 
         private static string ClearParentSql(string expiredMissionPredicate)
         {

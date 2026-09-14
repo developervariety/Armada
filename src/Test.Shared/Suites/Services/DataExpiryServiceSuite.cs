@@ -38,7 +38,7 @@ namespace Test.Shared.Suites.Services
                     LoggingModule logging = new LoggingModule();
                     logging.Settings.EnableConsole = false;
 
-                    DataExpiryService service = new DataExpiryService(logging, testDb.Driver, 0);
+                    DataExpiryService service = new DataExpiryService(logging, testDb.Driver, 0, 0);
                     DataExpiryResult result = await service.PurgeExpiredDataAsync();
                     AssertEqual(0, result.Total);
                 }
@@ -68,7 +68,7 @@ namespace Test.Shared.Suites.Services
                     recentVoyage.CompletedUtc = DateTime.UtcNow.AddDays(-5);
                     await db.Voyages.CreateAsync(recentVoyage);
 
-                    DataExpiryService service = new DataExpiryService(logging, db, 30);
+                    DataExpiryService service = new DataExpiryService(logging, db, 30, 0);
                     DataExpiryResult result = await service.PurgeExpiredDataAsync();
 
                     AssertTrue(result.Total > 0);
@@ -96,7 +96,7 @@ namespace Test.Shared.Suites.Services
                     Signal recentSignal = new Signal(SignalTypeEnum.Nudge, "recent");
                     await db.Signals.CreateAsync(recentSignal);
 
-                    DataExpiryService service = new DataExpiryService(logging, db, 30);
+                    DataExpiryService service = new DataExpiryService(logging, db, 30, 0);
                     await service.PurgeExpiredDataAsync();
 
                     AssertNull(await db.Signals.ReadAsync(oldSignal.Id));
@@ -119,7 +119,7 @@ namespace Test.Shared.Suites.Services
                     ArmadaEvent recentEvent = new ArmadaEvent("test.event", "Recent event");
                     await db.Events.CreateAsync(recentEvent);
 
-                    DataExpiryService service = new DataExpiryService(logging, db, 30);
+                    DataExpiryService service = new DataExpiryService(logging, db, 30, 0);
                     await service.PurgeExpiredDataAsync();
 
                     AssertNull(await db.Events.ReadAsync(oldEvent.Id));

@@ -11,8 +11,9 @@ namespace Armada.Core.Services
     /// <summary>
     /// Background service that purges expired records through the database driver, so it runs on
     /// every provider. Removes completed voyages and their missions, completed standalone missions,
-    /// read signals, events, released docks and finished merge entries older than the retention
-    /// period, and logs one summary line with per-table counts on every run.
+    /// read signals, events, released docks and finished merge entries older than the data retention
+    /// period, and append-only production metric facts older than their own retention period. Logs
+    /// one summary line with per-table counts on every run.
     /// </summary>
     public class DataExpiryService
     {
@@ -22,6 +23,7 @@ namespace Armada.Core.Services
         private readonly LoggingModule _Logging;
         private readonly DatabaseDriver _Database;
         private readonly int _RetentionDays;
+        private readonly int _ProductionFactRetentionDays;
 
         #endregion
 
@@ -33,12 +35,15 @@ namespace Armada.Core.Services
         /// <param name="logging">Logging module.</param>
         /// <param name="database">Database driver.</param>
         /// <param name="retentionDays">Number of days to retain completed data. Set to 0 to disable.</param>
-        public DataExpiryService(LoggingModule logging, DatabaseDriver database, int retentionDays)
+        /// <param name="productionFactRetentionDays">Number of days to retain production metric facts. Set to 0 to keep them forever.</param>
+        public DataExpiryService(LoggingModule logging, DatabaseDriver database, int retentionDays, int productionFactRetentionDays)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             if (retentionDays < 0) throw new ArgumentOutOfRangeException(nameof(retentionDays), "Must be >= 0");
+            if (productionFactRetentionDays < 0) throw new ArgumentOutOfRangeException(nameof(productionFactRetentionDays), "Must be >= 0");
             _RetentionDays = retentionDays;
+            _ProductionFactRetentionDays = productionFactRetentionDays;
         }
 
         #endregion
@@ -52,18 +57,28 @@ namespace Armada.Core.Services
         /// <returns>Rows deleted per table.</returns>
         public async Task<DataExpiryResult> PurgeExpiredDataAsync(CancellationToken token = default)
         {
-            DataExpiryCutoffs cutoffs = DataExpiryCutoffs.FromRetention(DateTime.UtcNow, _RetentionDays);
-            if (!cutoffs.RecordCutoffUtc.HasValue)
+            DataExpiryCutoffs cutoffs = DataExpiryCutoffs.FromRetention(DateTime.UtcNow, _RetentionDays, _ProductionFactRetentionDays);
+            if (!cutoffs.RecordCutoffUtc.HasValue && !cutoffs.ProductionFactCutoffUtc.HasValue)
             {
-                _Logging.Info(_Header + "data expiry skipped: dataRetentionDays=0 disables it");
+                _Logging.Info(_Header + "data expiry skipped: dataRetentionDays=0 and productionFactRetentionDays=0 disable it");
                 return new DataExpiryResult();
             }
 
             DataExpiryResult result = await _Database.DataExpiry.PurgeExpiredAsync(cutoffs, token).ConfigureAwait(false);
-            _Logging.Info(_Header + "data expiry summary: dataRetentionDays=" + _RetentionDays
-                + " cutoff=" + cutoffs.RecordCutoffUtc.Value.ToString("o", CultureInfo.InvariantCulture)
+            _Logging.Info(_Header + "data expiry summary:"
+                + " dataRetentionDays=" + _RetentionDays + " cutoff=" + Describe(cutoffs.RecordCutoffUtc)
+                + " productionFactRetentionDays=" + _ProductionFactRetentionDays + " factCutoff=" + Describe(cutoffs.ProductionFactCutoffUtc)
                 + " deleted=" + result.Total + " " + result);
             return result;
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        private static string Describe(DateTime? cutoff)
+        {
+            return cutoff.HasValue ? cutoff.Value.ToString("o", CultureInfo.InvariantCulture) : "disabled";
         }
 
         #endregion

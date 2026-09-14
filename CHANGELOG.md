@@ -29,6 +29,11 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Each run logs one `data expiry summary:` line with the cutoff and per-table
   deleted counts, including runs that delete nothing. A failed statement names
   its table and provider.
+- Production metric facts (mission attempt facts, preparation claim
+  observations and lane state transitions) are now retained for
+  `productionFactRetentionDays`, default 365, and purged by the same run; `0`
+  keeps them forever. A production summary window older than the retention
+  reports those measures as unobserved or unknown instead of a value.
 
 ### API endpoint runtime lifecycle
 

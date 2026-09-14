@@ -113,6 +113,27 @@ Both surfaces use a seven-day default window and reject windows longer than 90
 days. Optional `sourceFamily` and `workType` filters use the grouping rules in
 this document.
 
+### Fact retention
+
+The fact tables `mission_attempt_facts`, `preparation_claim_observations` and
+`lane_state_transitions` are kept for `productionFactRetentionDays` (default
+365; `0` keeps them forever). Data expiry deletes facts older than that by
+creation time. Objectives, voyages, missions, merge entries and Checks follow
+`dataRetentionDays` instead.
+
+A fact-based measure over a window before the retention cutoff sees no facts.
+It reports them the same way as facts that were never recorded, not as a
+value:
+
+- First-pass acceptance counts the slice in `unknown` with reason
+  `attempt_facts_not_recorded`, and gives no rate when no slice is eligible.
+- Rescue share counts the runs as historical.
+- Repeated research counts the slice in `unknown` with reason
+  `no_preparation_claims_recorded`.
+- Eligible idle lane-minutes count the time as unobserved.
+
+Record a baseline before its window passes the retention cutoff.
+
 ### Attempt facts
 
 Armada appends one mission attempt fact at each attempt transition. The

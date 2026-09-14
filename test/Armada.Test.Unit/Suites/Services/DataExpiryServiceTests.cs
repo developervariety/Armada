@@ -26,7 +26,7 @@ namespace Armada.Test.Unit.Suites.Services
                     oldVoyage.CompletedUtc = DateTime.UtcNow.AddDays(-60);
                     await testDb.Driver.Voyages.CreateAsync(oldVoyage);
 
-                    DataExpiryService service = new DataExpiryService(logging, testDb.Driver, 0);
+                    DataExpiryService service = new DataExpiryService(logging, testDb.Driver, 0, 0);
                     DataExpiryResult result = await service.PurgeExpiredDataAsync();
 
                     AssertEqual(0, result.Total);
@@ -59,7 +59,7 @@ namespace Armada.Test.Unit.Suites.Services
                     recentVoyage.CompletedUtc = DateTime.UtcNow.AddDays(-5);
                     await db.Voyages.CreateAsync(recentVoyage);
 
-                    DataExpiryService service = new DataExpiryService(logging, db, 30);
+                    DataExpiryService service = new DataExpiryService(logging, db, 30, 0);
                     DataExpiryResult result = await service.PurgeExpiredDataAsync();
 
                     AssertEqual(1, result.Deleted("voyages"));
@@ -88,7 +88,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Signal recentSignal = new Signal(SignalTypeEnum.Nudge, "recent");
                     await db.Signals.CreateAsync(recentSignal);
 
-                    DataExpiryService service = new DataExpiryService(logging, db, 30);
+                    DataExpiryService service = new DataExpiryService(logging, db, 30, 0);
                     DataExpiryResult result = await service.PurgeExpiredDataAsync();
 
                     AssertEqual(1, result.Deleted("signals"));
@@ -112,11 +112,44 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaEvent recentEvent = new ArmadaEvent("test.event", "Recent event");
                     await db.Events.CreateAsync(recentEvent);
 
-                    DataExpiryService service = new DataExpiryService(logging, db, 30);
+                    DataExpiryService service = new DataExpiryService(logging, db, 30, 0);
                     await service.PurgeExpiredDataAsync();
 
                     AssertNull(await db.Events.ReadAsync(oldEvent.Id));
                     AssertNotNull(await db.Events.ReadAsync(recentEvent.Id));
+                }
+            });
+
+            await RunTest("PurgeExpiredDataAsync RemovesProductionFactsOlderThanTheirRetention", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    DateTime expired = DateTime.UtcNow.AddDays(-400);
+                    DateTime retained = DateTime.UtcNow.AddDays(-300);
+
+                    await db.MissionAttemptFacts.CreateAsync(new MissionAttemptFact { MissionId = "msn_old", RootMissionId = "msn_old", CreatedUtc = expired });
+                    await db.MissionAttemptFacts.CreateAsync(new MissionAttemptFact { MissionId = "msn_new", RootMissionId = "msn_new", CreatedUtc = retained });
+                    await db.PreparationClaimObservations.CreateAsync(new PreparationClaimObservation { ObjectiveId = "obj_x", ClaimId = "old", EvidenceFingerprint = new string('a', 64), CreatedUtc = expired });
+                    await db.PreparationClaimObservations.CreateAsync(new PreparationClaimObservation { ObjectiveId = "obj_x", ClaimId = "new", EvidenceFingerprint = new string('a', 64), CreatedUtc = retained });
+                    await db.LaneStateTransitions.CreateAsync(new LaneStateTransition { LaneKey = "old", Capacity = 1, ValidForSeconds = 60, CreatedUtc = expired });
+                    await db.LaneStateTransitions.CreateAsync(new LaneStateTransition { LaneKey = "new", Capacity = 1, ValidForSeconds = 60, CreatedUtc = retained });
+
+                    DataExpiryResult result = await new DataExpiryService(logging, db, 30, 365).PurgeExpiredDataAsync();
+
+                    AssertEqual(1, result.Deleted("mission_attempt_facts"));
+                    AssertEqual(1, result.Deleted("preparation_claim_observations"));
+                    AssertEqual(1, result.Deleted("lane_state_transitions"));
+                    ProductionFactQuery all = new ProductionFactQuery();
+                    AssertEqual("msn_new", (await db.MissionAttemptFacts.EnumerateAsync(all)).Items.Single().MissionId);
+                    AssertEqual("new", (await db.PreparationClaimObservations.EnumerateAsync(all)).Items.Single().ClaimId);
+                    AssertEqual("new", (await db.LaneStateTransitions.EnumerateAsync(all)).Items.Single().LaneKey);
+
+                    DataExpiryResult kept = await new DataExpiryService(logging, db, 30, 0).PurgeExpiredDataAsync();
+                    AssertTrue(kept.Deleted("mission_attempt_facts") == null, "fact retention 0 keeps facts forever");
+                    AssertEqual(1, (await db.MissionAttemptFacts.EnumerateAsync(all)).Items.Count);
                 }
             });
 
@@ -131,7 +164,7 @@ namespace Armada.Test.Unit.Suites.Services
                         using (LoggingModule logging = new LoggingModule(logPath, FileLoggingMode.SingleLogFile, false))
                         {
                             logging.Settings.EnableConsole = false;
-                            DataExpiryService service = new DataExpiryService(logging, testDb.Driver, 30);
+                            DataExpiryService service = new DataExpiryService(logging, testDb.Driver, 30, 0);
                             await service.PurgeExpiredDataAsync();
                             await logging.FlushAsync(CancellationToken.None).ConfigureAwait(false);
                         }

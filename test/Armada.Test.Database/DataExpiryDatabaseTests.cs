@@ -75,11 +75,13 @@ namespace Armada.Test.Database
 
                 LoggingModule logging = new LoggingModule();
                 logging.Settings.EnableConsole = false;
-                DataExpiryService service = CreateService(logging, 1);
+                DataExpiryService service = CreateService(logging, 1, 0);
                 DataExpiryResult purged = await service.PurgeExpiredDataAsync(token).ConfigureAwait(false);
                 DatabaseAssert.True(purged.Total >= 10, "Expiry deletes at least the seeded expired rows, deleted " + purged);
                 foreach (string table in new[] { "missions", "voyages", "signals", "events", "docks", "merge_entries" })
                     DatabaseAssert.True(purged.Deleted(table) >= 1, "The summary counts rows deleted from " + table + ": " + purged);
+                foreach (string table in DataExpiryCutoffs.ProductionFactTables)
+                    DatabaseAssert.True(purged.Deleted(table) == null, "Fact retention 0 leaves " + table + " unpurged: " + purged);
 
                 DatabaseAssert.True(await _Driver.Voyages.ReadAsync(oldComplete.Id, token).ConfigureAwait(false) == null, "An expired Complete voyage is purged");
                 DatabaseAssert.True(await _Driver.Voyages.ReadAsync(oldCancelled.Id, token).ConfigureAwait(false) == null, "An expired Cancelled voyage is purged");
@@ -119,9 +121,77 @@ namespace Armada.Test.Database
             }
         }
 
-        private DataExpiryService CreateService(LoggingModule logging, int retentionDays)
+        internal async Task VerifyProductionFactRetentionAsync(CancellationToken token)
         {
-            return new DataExpiryService(logging, _Driver, retentionDays);
+            string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+            DateTime now = DateTime.UtcNow;
+            DateTime expired = now.AddDays(-400);
+            DateTime retained = now.AddDays(-300);
+
+            MissionAttemptFact oldFact = await _Driver.MissionAttemptFacts.CreateAsync(NewFact("msn_old_" + suffix, expired), token).ConfigureAwait(false);
+            MissionAttemptFact newFact = await _Driver.MissionAttemptFacts.CreateAsync(NewFact("msn_new_" + suffix, retained), token).ConfigureAwait(false);
+            PreparationClaimObservation oldObservation = await _Driver.PreparationClaimObservations.CreateAsync(NewObservation("opc_old_" + suffix, expired), token).ConfigureAwait(false);
+            PreparationClaimObservation newObservation = await _Driver.PreparationClaimObservations.CreateAsync(NewObservation("opc_new_" + suffix, retained), token).ConfigureAwait(false);
+            LaneStateTransition oldLane = await _Driver.LaneStateTransitions.CreateAsync(NewLane("lane_old_" + suffix, expired), token).ConfigureAwait(false);
+            LaneStateTransition newLane = await _Driver.LaneStateTransitions.CreateAsync(NewLane("lane_new_" + suffix, retained), token).ConfigureAwait(false);
+
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            DataExpiryResult purged = await CreateService(logging, 0, 365).PurgeExpiredDataAsync(token).ConfigureAwait(false);
+
+            foreach (string table in DataExpiryCutoffs.ProductionFactTables)
+                DatabaseAssert.True(purged.Deleted(table) >= 1, "The summary counts rows deleted from " + table + ": " + purged);
+            DatabaseAssert.True(purged.Deleted("events") == null, "Data retention 0 leaves operational tables unpurged: " + purged);
+
+            DatabaseAssert.True(!await FactExistsAsync(oldFact.MissionId, expired, token).ConfigureAwait(false), "A mission attempt fact older than the fact retention is purged");
+            DatabaseAssert.True(await FactExistsAsync(newFact.MissionId, retained, token).ConfigureAwait(false), "A mission attempt fact inside the fact retention is kept");
+            DatabaseAssert.True(!await ObservationExistsAsync(oldObservation.ClaimId, expired, token).ConfigureAwait(false), "A claim observation older than the fact retention is purged");
+            DatabaseAssert.True(await ObservationExistsAsync(newObservation.ClaimId, retained, token).ConfigureAwait(false), "A claim observation inside the fact retention is kept");
+            DatabaseAssert.True(!await LaneExistsAsync(oldLane.LaneKey, expired, token).ConfigureAwait(false), "A lane state transition older than the fact retention is purged");
+            DatabaseAssert.True(await LaneExistsAsync(newLane.LaneKey, retained, token).ConfigureAwait(false), "A lane state transition inside the fact retention is kept");
+        }
+
+        private static ProductionFactQuery Around(DateTime createdUtc)
+        {
+            return new ProductionFactQuery { FromUtc = createdUtc.AddMinutes(-1), ToUtc = createdUtc.AddMinutes(1), Limit = 1000 };
+        }
+
+        private async Task<bool> FactExistsAsync(string missionId, DateTime createdUtc, CancellationToken token)
+        {
+            ProductionFactPage<MissionAttemptFact> page = await _Driver.MissionAttemptFacts.EnumerateAsync(Around(createdUtc), token).ConfigureAwait(false);
+            return page.Items.Exists(item => item.MissionId == missionId);
+        }
+
+        private async Task<bool> ObservationExistsAsync(string claimId, DateTime createdUtc, CancellationToken token)
+        {
+            ProductionFactPage<PreparationClaimObservation> page = await _Driver.PreparationClaimObservations.EnumerateAsync(Around(createdUtc), token).ConfigureAwait(false);
+            return page.Items.Exists(item => item.ClaimId == claimId);
+        }
+
+        private async Task<bool> LaneExistsAsync(string laneKey, DateTime createdUtc, CancellationToken token)
+        {
+            ProductionFactPage<LaneStateTransition> page = await _Driver.LaneStateTransitions.EnumerateAsync(Around(createdUtc), token).ConfigureAwait(false);
+            return page.Items.Exists(item => item.LaneKey == laneKey);
+        }
+
+        private static MissionAttemptFact NewFact(string missionId, DateTime createdUtc)
+        {
+            return new MissionAttemptFact { MissionId = missionId, RootMissionId = missionId, FactType = MissionAttemptFactTypeEnum.AttemptStarted, CreatedUtc = createdUtc };
+        }
+
+        private static PreparationClaimObservation NewObservation(string claimId, DateTime createdUtc)
+        {
+            return new PreparationClaimObservation { ObjectiveId = "obj_expiry", ClaimId = claimId, EvidenceFingerprint = new string('a', 64), CreatedUtc = createdUtc };
+        }
+
+        private static LaneStateTransition NewLane(string laneKey, DateTime createdUtc)
+        {
+            return new LaneStateTransition { LaneKey = laneKey, EligibleCount = 1, Occupied = 0, Capacity = 1, ValidForSeconds = 120, CreatedUtc = createdUtc };
+        }
+
+        private DataExpiryService CreateService(LoggingModule logging, int retentionDays, int productionFactRetentionDays)
+        {
+            return new DataExpiryService(logging, _Driver, retentionDays, productionFactRetentionDays);
         }
 
         private async Task<Signal> CreateSignalAsync(string tenantId, string userId, bool read, DateTime createdUtc, CancellationToken token)

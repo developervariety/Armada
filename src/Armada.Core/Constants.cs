@@ -290,6 +290,11 @@ namespace Armada.Core
         public static readonly int DefaultDataRetentionDays = 30;
 
         /// <summary>
+        /// Default retention period in days for append-only production metric facts.
+        /// </summary>
+        public static readonly int DefaultProductionFactRetentionDays = 365;
+
+        /// <summary>
         /// Default request-history retention period in days.
         /// </summary>
         public static readonly int DefaultRequestHistoryRetentionDays = 30;
