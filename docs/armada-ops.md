@@ -1391,8 +1391,21 @@ interruption, run the server with `--self-deploy-recover`:
 
 Exit code 0 means the record proves a healthy owner or no record exists.
 
-Current limits: the release store is not pruned; supervised processes inherit
-the supervisor's standard streams; and Windows storage fails closed.
+The release store is bounded on every cutover, after the candidate capture. It
+keeps:
+
+- the running release and the rollback release;
+- every release named by an unresolved restart record;
+- the newest `selfDeploy.retainedPreviousReleases` other releases (default 2,
+  range 0 to 20).
+
+Pruning holds the record lock and removes nothing when the record is
+unreadable. It ignores entries that are not digest directories and never
+follows a symlink. A pruning failure is reported as
+`self_deploy.release_prune_failed`, and it does not block the cutover.
+
+Current limits: supervised processes inherit the supervisor's standard streams,
+and Windows storage fails closed.
 
 The real utility checks are separate and disabled by default; the default guard
 performs no database work. To run them against disposable provider databases, set

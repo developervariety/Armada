@@ -1,8 +1,10 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System;
+    using System.Collections.Generic;
     using System.IO;
     using System.Threading.Tasks;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Test.Common;
@@ -113,6 +115,105 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("PruneAsync_KeepsProtectedAndNewestPrevious_RemovesOlder", async () =>
+            {
+                if (SkipWindows("PruneAsync_KeepsProtectedAndNewestPrevious_RemovesOlder")) return;
+                using (SelfDeployTestDirectory directory = new SelfDeployTestDirectory())
+                {
+                    SelfDeployArtifactStore store = CreateStore(directory);
+                    List<SelfDeployReleaseArtifact> releases = await CaptureAgedAsync(store, directory, 5);
+                    SelfDeployReleaseArtifact rollback = releases[0];
+                    SelfDeployReleaseArtifact running = releases[1];
+
+                    SelfDeployReleasePruneResult result = await store.PruneAsync(new[] { running.Digest, rollback.Digest }, 2);
+
+                    AssertTrue(String.IsNullOrEmpty(result.FailureReason), "prune reason: " + result.FailureReason);
+                    AssertTrue(Directory.Exists(rollback.Directory), "oldest release kept because it is the rollback release");
+                    AssertTrue(Directory.Exists(running.Directory), "running release kept");
+                    AssertTrue(Directory.Exists(releases[4].Directory), "newest previous release kept");
+                    AssertTrue(Directory.Exists(releases[3].Directory), "second newest previous release kept");
+                    AssertFalse(Directory.Exists(releases[2].Directory), "older previous release removed");
+                    AssertEqual(1, result.Removed.Count, "one release removed");
+                    AssertEqual(releases[2].Digest, result.Removed[0], "removed digest");
+                }
+            });
+
+            await RunTest("PruneAsync_RetainZero_KeepsOnlyProtectedAndIgnoresOtherEntries", async () =>
+            {
+                if (SkipWindows("PruneAsync_RetainZero_KeepsOnlyProtectedAndIgnoresOtherEntries")) return;
+                using (SelfDeployTestDirectory directory = new SelfDeployTestDirectory())
+                {
+                    SelfDeployArtifactStore store = CreateStore(directory);
+                    List<SelfDeployReleaseArtifact> releases = await CaptureAgedAsync(store, directory, 3);
+                    string root = Path.Combine(directory.Root, "state", "releases");
+                    Directory.CreateDirectory(Path.Combine(root, ".staging-inflight"));
+                    Directory.CreateDirectory(Path.Combine(root, "operator-notes"));
+
+                    SelfDeployReleasePruneResult result = await store.PruneAsync(new[] { releases[1].Digest }, 0);
+
+                    AssertEqual(2, result.Removed.Count, "every unprotected release removed");
+                    AssertTrue(Directory.Exists(releases[1].Directory), "protected release kept");
+                    AssertTrue(Directory.Exists(Path.Combine(root, ".staging-inflight")), "staging entry untouched");
+                    AssertTrue(Directory.Exists(Path.Combine(root, "operator-notes")), "non-release entry untouched");
+                }
+            });
+
+            await RunTest("Retention_UnresolvedRestartRecordReleases_AreNeverRemoved", async () =>
+            {
+                if (SkipWindows("Retention_UnresolvedRestartRecordReleases_AreNeverRemoved")) return;
+                using (SelfDeployTestDirectory directory = new SelfDeployTestDirectory())
+                {
+                    SelfDeployArtifactStore store = CreateStore(directory);
+                    SelfDeployRestartRecordStore records = new SelfDeployRestartRecordStore(Path.Combine(directory.Root, "state"));
+                    List<SelfDeployReleaseArtifact> releases = await CaptureAgedAsync(store, directory, 4);
+                    await records.CreateAsync(Record(SelfDeployRestartStateEnum.RollingBack, releases[0], releases[1]));
+
+                    SelfDeployReleasePruneResult result = await SelfDeployReleaseRetention.PruneAsync(store, records, new[] { releases[3].Digest }, 0);
+
+                    AssertTrue(Directory.Exists(releases[0].Directory), "unresolved record candidate kept");
+                    AssertTrue(Directory.Exists(releases[1].Directory), "unresolved record rollback kept");
+                    AssertTrue(Directory.Exists(releases[3].Directory), "protected release kept");
+                    AssertFalse(Directory.Exists(releases[2].Directory), "unreferenced release removed");
+                    AssertEqual(1, result.Removed.Count, "one release removed");
+                }
+            });
+
+            await RunTest("Retention_TerminalRestartRecordReleases_ArePrunable", async () =>
+            {
+                if (SkipWindows("Retention_TerminalRestartRecordReleases_ArePrunable")) return;
+                using (SelfDeployTestDirectory directory = new SelfDeployTestDirectory())
+                {
+                    SelfDeployArtifactStore store = CreateStore(directory);
+                    SelfDeployRestartRecordStore records = new SelfDeployRestartRecordStore(Path.Combine(directory.Root, "state"));
+                    List<SelfDeployReleaseArtifact> releases = await CaptureAgedAsync(store, directory, 3);
+                    await records.CreateAsync(Record(SelfDeployRestartStateEnum.Committed, releases[0], releases[1]));
+
+                    SelfDeployReleasePruneResult result = await SelfDeployReleaseRetention.PruneAsync(store, records, new[] { releases[2].Digest }, 0);
+
+                    AssertEqual(2, result.Removed.Count, "a finished restart no longer protects its releases");
+                    AssertTrue(Directory.Exists(releases[2].Directory), "protected release kept");
+                }
+            });
+
+            await RunTest("Retention_UnreadableRestartRecord_RemovesNothing", async () =>
+            {
+                if (SkipWindows("Retention_UnreadableRestartRecord_RemovesNothing")) return;
+                using (SelfDeployTestDirectory directory = new SelfDeployTestDirectory())
+                {
+                    SelfDeployArtifactStore store = CreateStore(directory);
+                    SelfDeployRestartRecordStore records = new SelfDeployRestartRecordStore(Path.Combine(directory.Root, "state"));
+                    List<SelfDeployReleaseArtifact> releases = await CaptureAgedAsync(store, directory, 3);
+                    await records.CreateAsync(Record(SelfDeployRestartStateEnum.Committed, releases[0], releases[1]));
+                    File.WriteAllText(records.RecordPath, "{ corrupt");
+
+                    SelfDeployReleasePruneResult result = await SelfDeployReleaseRetention.PruneAsync(store, records, Array.Empty<string>(), 0);
+
+                    AssertEqual(0, result.Removed.Count, "nothing removed while restart state is unknown");
+                    AssertEqual("release_prune_skipped_restart_record_unreadable", result.FailureReason, "skip reason");
+                    foreach (SelfDeployReleaseArtifact release in releases) AssertTrue(Directory.Exists(release.Directory), "release kept");
+                }
+            });
+
             await RunTest("CaptureAsync_PublicStoreRoot_FailsClosed", async () =>
             {
                 if (SkipWindows("CaptureAsync_PublicStoreRoot_FailsClosed")) return;
@@ -149,6 +250,32 @@ namespace Armada.Test.Unit.Suites.Services
             File.WriteAllText(Path.Combine(source, "Armada.Core.dll"), "core " + label);
             File.WriteAllText(Path.Combine(source, "runtimes", "native.so"), "native " + label);
             return source;
+        }
+
+        private static async Task<List<SelfDeployReleaseArtifact>> CaptureAgedAsync(SelfDeployArtifactStore store, SelfDeployTestDirectory directory, int count)
+        {
+            List<SelfDeployReleaseArtifact> releases = new List<SelfDeployReleaseArtifact>();
+            DateTime oldest = DateTime.UtcNow.AddHours(-count);
+            for (int i = 0; i < count; i++)
+            {
+                SelfDeployReleaseArtifact release = await store.CaptureAsync(CreateSource(directory, "aged-" + i), "Armada.Server.dll");
+                Directory.SetLastWriteTimeUtc(release.Directory, oldest.AddHours(i));
+                releases.Add(release);
+            }
+            return releases;
+        }
+
+        private static SelfDeployRestartRecord Record(SelfDeployRestartStateEnum state, SelfDeployReleaseArtifact candidate, SelfDeployReleaseArtifact rollback)
+        {
+            SelfDeployRestartRecord record = new SelfDeployRestartRecord
+            {
+                OperationId = "sdo_" + Guid.NewGuid().ToString("N"),
+                CreatedUtc = DateTime.UtcNow,
+                Candidate = candidate,
+                Rollback = rollback
+            };
+            record.MoveTo(state, "test");
+            return record;
         }
 
         private static async Task<string> CaptureFailureAsync(SelfDeployArtifactStore store, string source, string entry)

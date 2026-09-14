@@ -27,5 +27,19 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>Null when the artifact is intact; otherwise a stable failure reason.</returns>
         Task<string?> VerifyAsync(SelfDeployReleaseArtifact artifact, CancellationToken token = default);
+
+        /// <summary>
+        /// Remove releases that are neither protected nor among the newest previous releases. Use
+        /// <see cref="Armada.Core.Services.SelfDeployReleaseRetention"/>, which adds the releases named by an
+        /// unresolved restart record to the protected set.
+        /// </summary>
+        /// <param name="protectedDigests">Digests that must never be removed.</param>
+        /// <param name="retainPrevious">Number of newest unprotected releases to keep.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Removed and retained digests with any failure reason.</returns>
+        Task<SelfDeployReleasePruneResult> PruneAsync(
+            IReadOnlyCollection<string> protectedDigests,
+            int retainPrevious,
+            CancellationToken token = default);
     }
 }

@@ -287,6 +287,26 @@ namespace Armada.Core.Services
                 return false;
             }
 
+            SelfDeployReleasePruneResult pruned = await SelfDeployReleaseRetention.PruneAsync(
+                _Cutover.Artifacts,
+                _Cutover.Records,
+                new[] { rollback.Digest, candidate.Digest },
+                _Settings.SelfDeploy.RetainedPreviousReleases,
+                token).ConfigureAwait(false);
+            if (!String.IsNullOrWhiteSpace(pruned.FailureReason))
+            {
+                // Retention bounds disk use; it is not a safety precondition, so a failure is reported, not blocking.
+                await EmitEventAsync("self_deploy.release_prune_failed", selfVessel.Id, mergeEntryId,
+                    "Self-deploy release store could not be fully pruned",
+                    new { vesselId = selfVessel.Id, mergeEntryId, reason = pruned.FailureReason, removed = pruned.Removed }, token).ConfigureAwait(false);
+            }
+            else if (pruned.Removed.Count > 0)
+            {
+                await EmitEventAsync("self_deploy.releases_pruned", selfVessel.Id, mergeEntryId,
+                    "Removed " + pruned.Removed.Count + " previous self-deploy release(s)",
+                    new { vesselId = selfVessel.Id, mergeEntryId, removed = pruned.Removed, retained = pruned.RetainedPrevious }, token).ConfigureAwait(false);
+            }
+
             int schemaVersion;
             try
             {

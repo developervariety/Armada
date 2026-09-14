@@ -162,6 +162,93 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <inheritdoc />
+        public Task<SelfDeployReleasePruneResult> PruneAsync(
+            IReadOnlyCollection<string> protectedDigests,
+            int retainPrevious,
+            CancellationToken token = default)
+        {
+            if (protectedDigests == null) throw new ArgumentNullException(nameof(protectedDigests));
+            SelfDeployReleasePruneResult result = new SelfDeployReleasePruneResult();
+            if (!Directory.Exists(_Root)) return Task.FromResult(result);
+
+            HashSet<string> keep = new HashSet<string>(StringComparer.Ordinal);
+            foreach (string digest in protectedDigests)
+            {
+                if (!String.IsNullOrWhiteSpace(digest)) keep.Add(digest);
+            }
+
+            List<DirectoryInfo> previous = new List<DirectoryInfo>();
+            foreach (string entry in Directory.EnumerateDirectories(_Root))
+            {
+                DirectoryInfo directory = new DirectoryInfo(entry);
+                if (!IsDigestName(directory.Name) || keep.Contains(directory.Name)) continue;
+                if ((directory.Attributes & FileAttributes.ReparsePoint) != 0)
+                {
+                    // A symlink is never followed or deleted through; it is reported instead.
+                    result.FailureReason = "release_symlink_skipped";
+                    continue;
+                }
+                previous.Add(directory);
+            }
+
+            previous.Sort((left, right) =>
+            {
+                int byTime = right.LastWriteTimeUtc.CompareTo(left.LastWriteTimeUtc);
+                return byTime != 0 ? byTime : String.CompareOrdinal(left.Name, right.Name);
+            });
+
+            int retain = Math.Max(0, retainPrevious);
+            for (int i = 0; i < previous.Count; i++)
+            {
+                token.ThrowIfCancellationRequested();
+                if (i < retain)
+                {
+                    result.RetainedPrevious.Add(previous[i].Name);
+                    continue;
+                }
+                try
+                {
+                    MakeWritable(previous[i].FullName);
+                    Directory.Delete(previous[i].FullName, true);
+                    result.Removed.Add(previous[i].Name);
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                {
+                    result.FailureReason = "release_delete_failed";
+                }
+            }
+
+            return Task.FromResult(result);
+        }
+
+        private static bool IsDigestName(string name)
+        {
+            if (name.Length != 64) return false;
+            foreach (char character in name)
+            {
+                bool hex = (character >= '0' && character <= '9') || (character >= 'a' && character <= 'f');
+                if (!hex) return false;
+            }
+            return true;
+        }
+
+        private static void MakeWritable(string root)
+        {
+            if (OperatingSystem.IsWindows()) return;
+            Stack<string> pending = new Stack<string>();
+            pending.Push(root);
+            while (pending.Count > 0)
+            {
+                string directory = pending.Pop();
+                File.SetUnixFileMode(directory, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+                foreach (string child in Directory.EnumerateDirectories(directory))
+                {
+                    if ((File.GetAttributes(child) & FileAttributes.ReparsePoint) == 0) pending.Push(child);
+                }
+            }
+        }
+
         private async Task<SelfDeployReleaseArtifact> ReuseExistingAsync(
             string target,
             string digest,

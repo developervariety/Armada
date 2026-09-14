@@ -689,6 +689,16 @@ a disposable SQLite source and a real `dotnet` candidate invocation:
 In each case no process starts, no restart record is written, and the isolated
 target is cleaned up.
 
+### Bounded release store
+
+Each cutover prunes the release store under the record lock. It keeps the
+running and rollback releases, every release an unresolved restart record
+names, and the newest `selfDeploy.retainedPreviousReleases` others (default 2).
+Tests cover four cases: newest-previous retention, retain zero with non-release
+entries left untouched, releases named by an unresolved record kept while a
+terminal record's releases can be pruned, and an unreadable record removing
+nothing.
+
 Keep this entry at Verify until the rehearsal passes on a process-owned host.
 
 ## FOLLOWUP-019 — API runtime workspace tools remain unaccepted

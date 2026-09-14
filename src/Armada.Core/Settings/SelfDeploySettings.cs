@@ -77,6 +77,16 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Number of previous releases kept in the release store beyond the running release, the rollback
+        /// release, and every release named by an unresolved restart record.
+        /// </summary>
+        public int RetainedPreviousReleases
+        {
+            get => _RetainedPreviousReleases;
+            set => _RetainedPreviousReleases = Math.Clamp(value, 0, 20);
+        }
+
+        /// <summary>
         /// Backup directory visible to the SQL Server host, required when the admiral uses SQL Server.
         /// Without it the default preflight fails and no cutover runs.
         /// </summary>
@@ -122,5 +132,6 @@ namespace Armada.Core.Settings
         private int _HandshakeTimeoutSeconds = 30;
         private int _OldProcessExitTimeoutSeconds = 120;
         private int _HealthTimeoutSeconds = 120;
+        private int _RetainedPreviousReleases = 2;
     }
 }

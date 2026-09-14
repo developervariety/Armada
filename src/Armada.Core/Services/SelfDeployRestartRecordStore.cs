@@ -153,6 +153,27 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Read the record and run an action while holding the record lock, so no record can be created or
+        /// changed until the action finishes.
+        /// </summary>
+        /// <typeparam name="T">Action result type.</typeparam>
+        /// <param name="action">Action given the current read result.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>Action result.</returns>
+        public async Task<T> ReadUnderRecordLockAsync<T>(
+            Func<SelfDeployRestartRecordReadResult, Task<T>> action,
+            CancellationToken token = default)
+        {
+            if (action == null) throw new ArgumentNullException(nameof(action));
+            EnsureDirectory();
+            using (FileStream recordLock = await AcquireRecordLockAsync(token).ConfigureAwait(false))
+            {
+                SelfDeployRestartRecordReadResult current = await ReadAsync(token).ConfigureAwait(false);
+                return await action(current).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
         /// Try to take the long-lived supervisor lock without waiting.
         /// </summary>
         /// <returns>Held lock, or null when another supervisor or recovery run holds it.</returns>

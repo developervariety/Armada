@@ -230,6 +230,10 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   `selfDeploy.oldProcessExitTimeoutSeconds`.
 - Private self-deploy directories now create every missing parent with
   owner-only permissions, and process termination is confirmed by observed exit.
+- The self-deploy release store is bounded on each cutover. It keeps the
+  running and rollback releases, every release an unresolved restart record
+  names, and the newest `selfDeploy.retainedPreviousReleases` others (default
+  2). It removes nothing while the restart record is unreadable.
 
 
 ### Helm configuration and branch client

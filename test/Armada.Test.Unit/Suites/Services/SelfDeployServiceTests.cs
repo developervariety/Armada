@@ -76,10 +76,15 @@ namespace Armada.Test.Unit.Suites.Services
                 using (SelfDeployTestContext context = await CreateContextAsync(testDb, enabled: true))
                 {
                     context.Host.SupervisorBehavior = SupervisorBehaviorEnum.Arm;
+                    context.Settings.SelfDeploy.RetainedPreviousReleases = 3;
 
                     bool restarted = await context.Service.ExecuteAsync(context.Vessel.Id, "mrg_test", "test land");
 
                     AssertTrue(restarted, "restarted");
+                    AssertEqual(1, context.Artifacts.PruneProtected.Count, "release store pruned once per cutover");
+                    AssertTrue(context.Artifacts.PruneProtected[0].Contains(context.Artifacts.Rollback.Digest), "running rollback release protected");
+                    AssertTrue(context.Artifacts.PruneProtected[0].Contains(context.Artifacts.Candidate.Digest), "candidate release protected");
+                    AssertEqual(3, context.Artifacts.PruneRetain[0], "retention count comes from settings");
                     AssertEqual(1, context.Preflight.Calls.Count, "preflight calls");
                     AssertEqual(1, context.Host.Starts.Count, "only the supervisor launched");
                     AssertEqual(context.Artifacts.Rollback.Digest, context.Planner.SupervisorArtifacts[0], "supervisor runs from the immutable rollback artifact");
@@ -605,6 +610,16 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<string?> VerifyAsync(SelfDeployReleaseArtifact artifact, CancellationToken token = default)
             {
                 return Task.FromResult<string?>(null);
+            }
+
+            public List<List<string>> PruneProtected { get; } = new List<List<string>>();
+            public List<int> PruneRetain { get; } = new List<int>();
+
+            public Task<SelfDeployReleasePruneResult> PruneAsync(IReadOnlyCollection<string> protectedDigests, int retainPrevious, CancellationToken token = default)
+            {
+                PruneProtected.Add(new List<string>(protectedDigests));
+                PruneRetain.Add(retainPrevious);
+                return Task.FromResult(new SelfDeployReleasePruneResult());
             }
 
             private SelfDeployReleaseArtifact Artifact(string role)
