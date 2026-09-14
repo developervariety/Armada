@@ -59,6 +59,15 @@ namespace Armada.Test.Common
         protected abstract Task RunTestsAsync();
 
         /// <summary>
+        /// Runs after every test case, whether it passed or failed, so a suite can release state the
+        /// case created. A thrown exception fails that case with the cleanup reason.
+        /// </summary>
+        protected virtual Task AfterTestAsync()
+        {
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
         /// Wraps a test in try/catch with timing. Prints PASS/FAIL with elapsed milliseconds.
         /// </summary>
         protected async Task RunTest(string name, Func<Task> action, [CallerFilePath] string sourcePath = "", [CallerLineNumber] int sourceLine = 0)
@@ -75,9 +84,31 @@ namespace Armada.Test.Common
                 SourceLine = sourceLine
             };
 
+            Exception? failure = null;
             try
             {
                 await action().ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+
+            // Release state the case left behind whether it passed or failed; a failed case is the
+            // one most likely to leave active work that would otherwise starve later cases.
+            try
+            {
+                await AfterTestAsync().ConfigureAwait(false);
+            }
+            catch (Exception cleanupEx)
+            {
+                failure = failure == null
+                    ? new InvalidOperationException("Test cleanup failed: " + cleanupEx.Message, cleanupEx)
+                    : new InvalidOperationException(failure.Message + " | test cleanup also failed: " + cleanupEx.Message, failure);
+            }
+
+            if (failure == null)
+            {
                 sw.Stop();
                 result.Passed = true;
                 result.ElapsedMs = sw.ElapsedMilliseconds;
@@ -87,8 +118,9 @@ namespace Armada.Test.Common
                 Console.ResetColor();
                 Console.WriteLine(name + " (" + result.ElapsedMs + "ms)");
             }
-            catch (Exception ex)
+            else
             {
+                Exception ex = failure;
                 sw.Stop();
                 result.Passed = false;
                 result.ElapsedMs = sw.ElapsedMilliseconds;

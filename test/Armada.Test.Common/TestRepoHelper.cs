@@ -63,6 +63,49 @@ namespace Armada.Test.Common
             }
         }
 
+        /// <summary>
+        /// Creates a new bare repository whose main branch holds one commit, for a vessel whose
+        /// LocalPath the server may read or delete. The shared fixture repository is never exposed
+        /// as a LocalPath because deleting such a vessel removes that directory.
+        /// </summary>
+        /// <returns>The bare repository path and the commit at its main branch.</returns>
+        public static DedicatedBareRepo CreateDedicatedBareRepo()
+        {
+            string tempBase = Path.Combine(Path.GetTempPath(), "armada_test_dedicated_" + Guid.NewGuid().ToString("N"));
+            string workDir = Path.Combine(tempBase, "work");
+            string barePath = Path.Combine(tempBase, "bare.git");
+            Directory.CreateDirectory(workDir);
+
+            RunGitChecked(workDir, "init", "-b", "main");
+            RunGitChecked(workDir, "config", "user.email", "test@test.com");
+            RunGitChecked(workDir, "config", "user.name", "Test");
+            File.WriteAllText(Path.Combine(workDir, "README.md"), "dedicated");
+            RunGitChecked(workDir, "add", ".");
+            RunGitChecked(workDir, "commit", "-m", "init");
+            RunGitChecked(tempBase, "clone", "--bare", workDir, barePath);
+            string head = RunGitOutput(barePath, "rev-parse", "refs/heads/main");
+            return new DedicatedBareRepo(barePath, head);
+        }
+
+        private static void RunGitChecked(string workingDirectory, params string[] arguments)
+        {
+            Process process = new Process();
+            process.StartInfo.FileName = "git";
+            process.StartInfo.WorkingDirectory = workingDirectory;
+            process.StartInfo.UseShellExecute = false;
+            process.StartInfo.RedirectStandardOutput = true;
+            process.StartInfo.RedirectStandardError = true;
+            foreach (string argument in arguments) process.StartInfo.ArgumentList.Add(argument);
+            process.Start();
+            process.StandardOutput.ReadToEnd();
+            string error = process.StandardError.ReadToEnd().Trim();
+            if (!process.WaitForExit(30000))
+                throw new InvalidOperationException("git " + String.Join(" ", arguments) + " did not exit within 30 seconds.");
+            if (process.ExitCode != 0)
+                throw new InvalidOperationException("git " + String.Join(" ", arguments) + " failed with exit code "
+                    + process.ExitCode + ": " + error);
+        }
+
         #endregion
 
         #region Private-Methods

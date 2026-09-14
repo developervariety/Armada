@@ -59,27 +59,42 @@ namespace Armada.Test.Automated.Suites
                 string fleetId = fleet.Id!;
                 AssertStartsWith("flt_", fleetId);
 
-                // Step 2: Register a vessel
-                Vessel vessel = await CreateVesselAsync("IntegrationRepo", TestRepoHelper.GetLocalBareRepoUrl(), fleetId).ConfigureAwait(false);
+                // Step 2: Register a vessel backed by its own repository, whose main branch already
+                // holds the commit the mission produced
+                DedicatedBareRepo repo = TestRepoHelper.CreateDedicatedBareRepo();
+                HttpResponseMessage vesselResp = await _AuthClient.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                {
+                    Name = "IntegrationRepo-" + Guid.NewGuid().ToString("N").Substring(0, 8),
+                    RepoUrl = repo.Url,
+                    LocalPath = repo.Path,
+                    DefaultBranch = "main",
+                    FleetId = fleetId
+                })).ConfigureAwait(false);
+                AssertStatusCode(HttpStatusCode.Created, vesselResp);
+                Vessel vessel = await JsonHelper.DeserializeAsync<Vessel>(vesselResp).ConfigureAwait(false);
                 string vesselId = vessel.Id!;
                 AssertStartsWith("vsl_", vesselId);
 
-                // Step 3: Create a captain
-                Captain captain = await CreateCaptainAsync("int-captain-1").ConfigureAwait(false);
-                string captainId = captain.Id!;
-                AssertStartsWith("cpt_", captainId);
-
-                // Step 4: Create a mission (without vesselId to avoid git operations)
-                Mission mission = await CreateMissionAsync("Fix login bug").ConfigureAwait(false);
+                // Step 3: Create a mission on the vessel with its landed commit. Manual completion
+                // without an active dock requires that commit to be on the vessel target. The
+                // mission is created before the captain so no idle captain can claim it on create.
+                Mission mission = await CreateMissionAsync("Fix login bug", vesselId, repo.HeadCommit).ConfigureAwait(false);
                 string missionId = mission.Id!;
                 AssertStartsWith("msn_", missionId);
                 AssertEqual("Pending", mission.Status.ToString());
 
-                // Step 5: Transition mission through full lifecycle
+                // Step 4: Create a captain
+                Captain captain = await CreateCaptainAsync("int-captain-1").ConfigureAwait(false);
+                string captainId = captain.Id!;
+                AssertStartsWith("cpt_", captainId);
+
+                // Step 5: Transition mission through its lifecycle. A mission in Review completes only
+                // through review approval, so rework returns it to InProgress before completion.
                 await TransitionMissionStatusAsync(missionId, "Assigned").ConfigureAwait(false);
                 await TransitionMissionStatusAsync(missionId, "InProgress").ConfigureAwait(false);
                 await TransitionMissionStatusAsync(missionId, "Testing").ConfigureAwait(false);
                 await TransitionMissionStatusAsync(missionId, "Review").ConfigureAwait(false);
+                await TransitionMissionStatusAsync(missionId, "InProgress").ConfigureAwait(false);
                 HttpResponseMessage completeResp = await TransitionMissionStatusAsync(missionId, "Complete").ConfigureAwait(false);
                 AssertStatusCode(HttpStatusCode.OK, completeResp);
 
@@ -332,10 +347,12 @@ namespace Armada.Test.Automated.Suites
             return await JsonHelper.DeserializeAsync<Captain>(resp).ConfigureAwait(false);
         }
 
-        private async Task<Mission> CreateMissionAsync(string title, string? vesselId = null)
+        private async Task<Mission> CreateMissionAsync(string title, string? vesselId = null, string? commitHash = null)
         {
             object payload = vesselId != null
-                ? (object)new { Title = title, VesselId = vesselId }
+                ? (commitHash != null
+                    ? (object)new { Title = title, VesselId = vesselId, CommitHash = commitHash }
+                    : new { Title = title, VesselId = vesselId })
                 : new { Title = title };
             HttpResponseMessage resp = await _AuthClient.PostAsync("/api/v1/missions", JsonHelper.ToJsonContent(payload)).ConfigureAwait(false);
             resp.EnsureSuccessStatusCode();
