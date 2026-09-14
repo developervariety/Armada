@@ -2114,7 +2114,10 @@ historical in each metric's `unknown`, `coverage`, and historical fields.
 Post-land consumer and ledger regression rates come only from incidents and
 Checks that carry a typed regression purpose; set the purpose, cause,
 objective and landed commit on the incident or Check, and read
-`regressionCoverage` for unlinked and unattributed records. Use
+`regressionCoverage` for unlinked and unattributed records. Repeated research
+counts only preparation claims re-established with unchanged evidence and
+anchors; revalidation and reuse are separate counts, and slices without claim
+observations are reported as uncovered. Use
 `sourceFamily` and `workType` to select one cohort. Read
 `scan.truncated`, `isComplete`, and each metric's availability before you use a
 rate. The equivalent REST route is `GET /api/v1/production/summary`.

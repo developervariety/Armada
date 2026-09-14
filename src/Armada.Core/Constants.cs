@@ -275,6 +275,11 @@ namespace Armada.Core
         public static readonly string MissionAttemptFactIdPrefix = "maf_";
 
         /// <summary>
+        /// Preparation claim observation ID prefix.
+        /// </summary>
+        public static readonly string PreparationClaimObservationIdPrefix = "pco_";
+
+        /// <summary>
         /// Default data retention period in days for completed records.
         /// </summary>
         public static readonly int DefaultDataRetentionDays = 30;

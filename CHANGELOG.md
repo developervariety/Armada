@@ -246,6 +246,16 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   existed are reported as historical with explicit coverage instead of being
   classified from parent links or titles.
 
+### Preparation claim observations
+
+- Objective preparation writes and dispatch links append durable claim
+  observations (established, re-established, revalidated, reused) with the
+  claim id, immutable anchors and a one-way fingerprint, on all four database
+  providers. Claim text, evidence paths and search queries are never stored.
+- The production summary reports repeated research as re-established claims
+  only, separates stale-claim revalidation and reuse, and states slice
+  coverage and per-source-family observation counts.
+
 ### Post-land regression links
 
 - Incidents carry a typed regression purpose (consumer or ledger), cause, and

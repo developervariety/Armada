@@ -145,6 +145,11 @@ namespace Armada.Core.Database
         public IMissionAttemptFactMethods MissionAttemptFacts { get; protected set; } = null!;
 
         /// <summary>
+        /// Append-only preparation claim observations used by production metrics.
+        /// </summary>
+        public IPreparationClaimObservationMethods PreparationClaimObservations { get; protected set; } = null!;
+
+        /// <summary>
         /// Prompt template operations.
         /// </summary>
         public IPromptTemplateMethods PromptTemplates { get; protected set; } = null!;
@@ -262,6 +267,7 @@ namespace Armada.Core.Database
             if (JudgeFollowUps == null) missing.Add(nameof(JudgeFollowUps));
             if (HarborRunnerEnrollments == null) missing.Add(nameof(HarborRunnerEnrollments));
             if (MissionAttemptFacts == null) missing.Add(nameof(MissionAttemptFacts));
+            if (PreparationClaimObservations == null) missing.Add(nameof(PreparationClaimObservations));
 
             return missing;
         }

@@ -55,6 +55,9 @@ namespace Armada.Core.Models
         /// <summary>Raw completed leaf counts for every UTC day in the window.</summary>
         public List<ProductionDailyCount> RawByDay { get; set; } = new List<ProductionDailyCount>();
 
+        /// <summary>Preparation claim observations in the window grouped by the objective source family.</summary>
+        public Dictionary<string, ProductionClaimObservationCounts> ClaimObservationsBySourceFamily { get; set; } = new Dictionary<string, ProductionClaimObservationCounts>(StringComparer.Ordinal);
+
         /// <summary>Coverage of typed post-land regression records.</summary>
         public ProductionRegressionCoverage RegressionCoverage { get; set; } = new ProductionRegressionCoverage();
 
@@ -321,23 +324,63 @@ namespace Armada.Core.Models
         public int UnreadableRecords { get; set; }
     }
 
-    /// <summary>Unavailable repeated-research metric.</summary>
+    /// <summary>Repeated research measured from durable preparation claim observations.</summary>
     public sealed class ProductionRepeatedResearchMetric
     {
         /// <summary>Availability.</summary>
         public string Availability { get; set; } = "unavailable";
 
-        /// <summary>Affected slices, when instrumented.</summary>
+        /// <summary>Completed slices in the group.</summary>
+        public int Slices { get; set; }
+
+        /// <summary>Completed slices with at least one recorded claim observation.</summary>
+        public int CoveredSlices { get; set; }
+
+        /// <summary>Covered slices divided by slices.</summary>
+        public double? Coverage { get; set; }
+
+        /// <summary>Covered slices with at least one re-established claim.</summary>
         public int? AffectedSlices { get; set; }
 
-        /// <summary>Repeated claim count, when instrumented.</summary>
+        /// <summary>Distinct claims that were re-established with unchanged statement, evidence, and anchors.</summary>
         public int? RepeatedClaims { get; set; }
 
-        /// <summary>Repeated research duration, when instrumented.</summary>
+        /// <summary>Re-establishment observations, counting each repeat.</summary>
+        public int ReestablishedObservations { get; set; }
+
+        /// <summary>Distinct claims established or changed.</summary>
+        public int EstablishedClaims { get; set; }
+
+        /// <summary>Distinct stale claims that were revalidated. This is not repeated research.</summary>
+        public int RevalidatedClaims { get; set; }
+
+        /// <summary>Distinct verified claims delivered to dispatched work.</summary>
+        public int ReusedClaims { get; set; }
+
+        /// <summary>Repeated research duration. Always null: research duration is not recorded.</summary>
         public long? RepeatedMinutes { get; set; }
 
-        /// <summary>Uninstrumented verified slices.</summary>
+        /// <summary>Slices without claim observations.</summary>
         public int Unknown { get; set; }
+
+        /// <summary>Uncovered slices by stable reason code.</summary>
+        public Dictionary<string, int> UnknownByReason { get; set; } = new Dictionary<string, int>(StringComparer.Ordinal);
+    }
+
+    /// <summary>Claim observation counts for one source family.</summary>
+    public sealed class ProductionClaimObservationCounts
+    {
+        /// <summary>Established observations.</summary>
+        public int Established { get; set; }
+
+        /// <summary>Re-established observations.</summary>
+        public int Reestablished { get; set; }
+
+        /// <summary>Revalidated observations.</summary>
+        public int Revalidated { get; set; }
+
+        /// <summary>Reused observations.</summary>
+        public int Reused { get; set; }
     }
 
     /// <summary>Unavailable sampled lane metric.</summary>

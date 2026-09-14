@@ -1243,6 +1243,16 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration 88: append-only preparation claim observations.
+        /// </summary>
+        public static readonly string[] MigrationV88Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS preparation_claim_observations (id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, tenant_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL, user_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL, objective_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, claim_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, claim_kind VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, source_family VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, voyage_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL, source_commit VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL, target_commit VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL, evidence_fingerprint VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, observation VARCHAR(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, created_utc DATETIME(6) NOT NULL, PRIMARY KEY (id));",
+            @"CREATE INDEX idx_preparation_claim_observations_objective ON preparation_claim_observations(objective_id);",
+            @"CREATE INDEX idx_preparation_claim_observations_created ON preparation_claim_observations(created_utc);"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

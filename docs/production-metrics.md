@@ -230,10 +230,37 @@ incident snapshots. The rates count recorded typed regressions only.
 ### Repeated research per slice
 
 Search counts and context-pack use do not prove that a captain repeated
-prepared research. This measure needs durable research claims or evidence
-anchors that can be compared with the dispatched preparation. Until that data
-exists, return `unavailable` with reason
-`repeated_research_not_classifiable`.
+prepared research. This measure uses durable preparation claim observations.
+
+Armada appends one observation to `preparation_claim_observations` for each
+bounded preparation claim at these points:
+
+- **Established**: a verified claim is new, or its statement, evidence, kind,
+  or dependency changed. Recorded when an objective is created or its
+  preparation is updated, including updates applied from refinement.
+- **Reestablished**: the same claim is verified again with a later
+  `VerifiedUtc`, an unchanged fingerprint, and unmoved anchors that it depends
+  on. This is repeated research.
+- **Revalidated**: a claim that needed a recheck, or whose own source or
+  target anchor moved, is verified again. This is stale-claim revalidation,
+  not repetition.
+- **Reused**: each verified claim is delivered to a newly linked voyage.
+  Re-linking the same voyage records nothing.
+
+Each observation stores the claim id and kind, the objective, the source
+family, the voyage for reuse, the immutable source and target commits, and a
+SHA-256 fingerprint of the claim kind, dependency, statement, and sorted
+evidence. Claim text, evidence paths, and search queries are never stored.
+
+Per group, `repeatedClaims` counts distinct re-established claims and
+`reestablishedObservations` counts every repeat. `revalidatedClaims`,
+`reusedClaims`, and `establishedClaims` are reported separately.
+`affectedSlices` counts slices with a re-established claim. A slice with no
+observation is counted in `unknown` with reason
+`no_preparation_claims_recorded`, and `coverage` is covered slices divided by
+slices. `repeatedMinutes` stays null because research duration is not
+recorded. The report-wide `claimObservationsBySourceFamily` counts every
+observation type in the window by source family.
 
 ### Eligible idle lane-minutes
 

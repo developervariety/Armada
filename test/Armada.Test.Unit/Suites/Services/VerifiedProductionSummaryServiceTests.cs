@@ -397,6 +397,47 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(7, result.RegressionCoverage.RecordsRead, "The Check classified by an incident is one record, not two");
             }).ConfigureAwait(false);
 
+            await RunTest("RepeatedResearchCountsOnlyReestablishedClaimsWithCoverage", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                DateTime start = new DateTime(2026, 6, 1, 0, 0, 0, DateTimeKind.Utc);
+                await CreateVerifiedSliceAsync(testDb, start, "alpha").ConfigureAwait(false);
+                await CreateVerifiedSliceAsync(testDb, start, "bravo").ConfigureAwait(false);
+                await CreateVerifiedSliceAsync(testDb, start, "charlie").ConfigureAwait(false);
+                Objective alpha = await ObjectiveTitledAsync(testDb, "alpha").ConfigureAwait(false);
+                Objective bravo = await ObjectiveTitledAsync(testDb, "bravo").ConfigureAwait(false);
+                await AddObservationAsync(testDb, alpha, "opc_a1", PreparationClaimObservationEnum.Established, start).ConfigureAwait(false);
+                await AddObservationAsync(testDb, alpha, "opc_a1", PreparationClaimObservationEnum.Reestablished, start).ConfigureAwait(false);
+                await AddObservationAsync(testDb, alpha, "opc_a1", PreparationClaimObservationEnum.Reestablished, start).ConfigureAwait(false);
+                await AddObservationAsync(testDb, alpha, "opc_a1", PreparationClaimObservationEnum.Reused, start).ConfigureAwait(false);
+                await AddObservationAsync(testDb, alpha, "opc_a2", PreparationClaimObservationEnum.Revalidated, start).ConfigureAwait(false);
+                await AddObservationAsync(testDb, bravo, "opc_b1", PreparationClaimObservationEnum.Established, start).ConfigureAwait(false);
+                await AddObservationAsync(testDb, bravo, "opc_b1", PreparationClaimObservationEnum.Reused, start).ConfigureAwait(false);
+
+                ProductionSummaryResult result = await new VerifiedProductionSummaryService(testDb.Driver).SummarizeAsync(
+                    AuthContext.Authenticated("default", "default", true, true, "UnitTest"),
+                    new ProductionSummaryQuery { FromUtc = start, ToUtc = start.AddDays(7) }).ConfigureAwait(false);
+
+                ProductionRepeatedResearchMetric research = result.Groups.Single().RepeatedResearch;
+                AssertEqual(3, research.Slices);
+                AssertEqual(2, research.CoveredSlices);
+                AssertEqual(1, research.RepeatedClaims!.Value, "Only the re-established claim is repeated research");
+                AssertEqual(2, research.ReestablishedObservations);
+                AssertEqual(1, research.AffectedSlices!.Value);
+                AssertEqual(1, research.RevalidatedClaims, "Stale-claim revalidation is separate from repetition");
+                AssertEqual(2, research.ReusedClaims);
+                AssertEqual(2, research.EstablishedClaims);
+                AssertEqual(1, research.Unknown);
+                AssertEqual(1, research.UnknownByReason["no_preparation_claims_recorded"]);
+                AssertEqual("partial", research.Availability);
+                AssertTrue(research.RepeatedMinutes == null, "Research duration is not recorded");
+                ProductionClaimObservationCounts family = result.ClaimObservationsBySourceFamily["unknown"];
+                AssertEqual(2, family.Established);
+                AssertEqual(2, family.Reestablished);
+                AssertEqual(1, family.Revalidated);
+                AssertEqual(2, family.Reused);
+            }).ConfigureAwait(false);
+
             await RunTest("WindowOverNinetyDaysIsRejected", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -476,6 +517,20 @@ namespace Armada.Test.Unit.Suites.Services
                 RegressionCause = cause,
                 RegressionObjectiveId = objectiveId,
                 RegressionLandedCommit = commit
+            }).ConfigureAwait(false);
+        }
+
+        private static async Task AddObservationAsync(TestDatabase testDb, Objective objective, string claimId, PreparationClaimObservationEnum observation, DateTime start)
+        {
+            await testDb.Driver.PreparationClaimObservations.CreateAsync(new PreparationClaimObservation
+            {
+                TenantId = objective.TenantId,
+                UserId = objective.UserId,
+                ObjectiveId = objective.Id,
+                ClaimId = claimId,
+                EvidenceFingerprint = new string('a', 64),
+                Observation = observation,
+                CreatedUtc = start.AddMinutes(10)
             }).ConfigureAwait(false);
         }
 

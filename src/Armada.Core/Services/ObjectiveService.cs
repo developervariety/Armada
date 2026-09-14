@@ -733,6 +733,7 @@ namespace Armada.Core.Services
                     await ValidateDependencyCycleAsync(auth, objective, token).ConfigureAwait(false);
                 ApplyLifecycleTimestamps(objective);
                 await PersistObjectiveAsync(auth, objective, token).ConfigureAwait(false);
+                await PreparationClaimObservationRecorder.RecordChangesAsync(_Database, new PreparationClaimSnapshot(), objective, _Logging, token).ConfigureAwait(false);
             }
             finally
             {
@@ -763,6 +764,7 @@ namespace Armada.Core.Services
                 .Where(claim => claim != null && !String.IsNullOrWhiteSpace(claim.Id))
                 .GroupBy(claim => claim.Id, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => group.First().VerifiedUtc, StringComparer.OrdinalIgnoreCase);
+            PreparationClaimSnapshot priorClaims = PreparationClaimObservationRecorder.Capture(objective);
 
             objective.Title = Normalize(request.Title) ?? objective.Title;
             objective.Description = request.Description != null ? Normalize(request.Description) : objective.Description;
@@ -835,6 +837,8 @@ namespace Armada.Core.Services
                     await ValidateDependencyCycleAsync(auth, objective, token).ConfigureAwait(false);
                 ApplyLifecycleTimestamps(objective);
                 await PersistObjectiveAsync(auth, objective, token).ConfigureAwait(false);
+                if (request.Preparation != null || request.StartFromRef != null || request.VesselIds != null)
+                    await PreparationClaimObservationRecorder.RecordChangesAsync(_Database, priorClaims, objective, _Logging, token).ConfigureAwait(false);
             }
             finally
             {
@@ -1102,6 +1106,7 @@ namespace Armada.Core.Services
                     }
                 }
 
+                bool newlyLinked = !objective.VoyageIds.Contains(voyage.Id, StringComparer.OrdinalIgnoreCase);
                 AddIfMissing(objective.VoyageIds, voyage.Id);
 
                 List<Mission> missions = await ReadAccessibleMissionsForVoyageAsync(auth, voyage.Id, token).ConfigureAwait(false);
@@ -1118,7 +1123,10 @@ namespace Armada.Core.Services
                 // Fence the write: an admitted dispatch links only while it still owns every lease.
                 if (admission != null)
                     await admission.ConfirmOwnershipAsync(token).ConfigureAwait(false);
-                return await PersistLinkedObjectiveAsync(auth, objective, token).ConfigureAwait(false);
+                Objective linked = await PersistLinkedObjectiveAsync(auth, objective, token).ConfigureAwait(false);
+                if (newlyLinked)
+                    await PreparationClaimObservationRecorder.RecordReuseAsync(_Database, linked, voyage.Id, _Logging, token).ConfigureAwait(false);
+                return linked;
             }
         }
 

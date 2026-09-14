@@ -89,6 +89,10 @@ namespace Armada.Core.Services
             List<CheckRun> checks = await ReadChecksAsync(auth, result, token).ConfigureAwait(false);
             List<ArmadaEvent> events = await ReadEventsAsync(auth, fromUtc.Subtract(_MaximumWindow), toUtc, result, token).ConfigureAwait(false);
             List<Incident> incidents = await ReadIncidentsAsync(auth, result, token).ConfigureAwait(false);
+            List<PreparationClaimObservation> claimObservations = await ReadClaimObservationsAsync(auth, fromUtc.Subtract(_MaximumWindow), toUtc, result, token).ConfigureAwait(false);
+            Dictionary<string, List<PreparationClaimObservation>> observationsByObjective = claimObservations
+                .GroupBy(item => item.ObjectiveId, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
             Dictionary<string, RegressionSliceTarget> regressionTargets = new Dictionary<string, RegressionSliceTarget>(StringComparer.OrdinalIgnoreCase);
             AttemptFactIndex attemptFacts = new AttemptFactIndex(await ReadAttemptFactsAsync(auth, fromUtc.Subtract(_MaximumWindow), toUtc, result, token).ConfigureAwait(false));
             bool verificationSourcesComplete = !result.Scan.Truncated;
@@ -110,7 +114,7 @@ namespace Armada.Core.Services
 
             foreach (IGrouping<(string SourceFamily, string WorkType, string Category, string Kind), Objective> grouping in cohort
                 .Where(item => MatchesFilter(item, query))
-                .GroupBy(item => (SourceFamily(item), WorkType(item), Category(item), item.Kind.ToString())))
+                .GroupBy(item => (ProductionSourceFamily.Resolve(item), WorkType(item), Category(item), item.Kind.ToString())))
             {
                 ProductionSummaryGroup group = new ProductionSummaryGroup
                 {
@@ -133,6 +137,7 @@ namespace Armada.Core.Services
                         ? EvaluateSlice(objective, missionById, voyageById, mergesByMission, checksByMission, checksByVoyage)
                         : SliceEvidence.Failed("incomplete_source_scan");
                     regressionTargets[objective.Id] = new RegressionSliceTarget(group, evidence);
+                    AddRepeatedResearch(group.RepeatedResearch, observationsByObjective.GetValueOrDefault(objective.Id));
                     if (!evidence.Verified)
                     {
                         group.VerifiedLandedSlices.Unknown++;
@@ -230,11 +235,15 @@ namespace Armada.Core.Services
                     : null;
                 FinishRescueRuntime(group.RescueRuntime);
                 FinishRate(group.FirstPassAcceptance);
-                group.RepeatedResearch.Unknown = group.VerifiedLandedSlices.Count;
+                FinishRepeatedResearch(group.RepeatedResearch);
                 result.Groups.Add(group);
             }
 
             AttributeRegressions(result, regressionTargets, incidents, checks, fromUtc, toUtc);
+            CountClaimObservationsBySourceFamily(result, claimObservations, query, fromUtc, toUtc);
+            int researchUnknown = result.Groups.Sum(item => item.RepeatedResearch.Unknown);
+            if (researchUnknown > 0)
+                result.Warnings.Add("repeated_research_partial: " + researchUnknown + " slice(s) have no recorded preparation claim observations");
             int verified = result.Groups.Sum(group => group.VerifiedLandedSlices.Count);
             result.VerifiedLandedSlicesPerDay = result.CompleteDayCount > 0
                 ? (double)verified / result.CompleteDayCount
@@ -465,6 +474,65 @@ namespace Armada.Core.Services
             }
         }
 
+        private static void AddRepeatedResearch(ProductionRepeatedResearchMetric metric, List<PreparationClaimObservation>? observations)
+        {
+            metric.Slices++;
+            if (observations == null || observations.Count == 0)
+            {
+                metric.Unknown++;
+                Increment(metric.UnknownByReason, "no_preparation_claims_recorded");
+                return;
+            }
+            metric.CoveredSlices++;
+            int repeated = DistinctClaims(observations, PreparationClaimObservationEnum.Reestablished);
+            metric.RepeatedClaims = (metric.RepeatedClaims ?? 0) + repeated;
+            metric.AffectedSlices = (metric.AffectedSlices ?? 0) + (repeated > 0 ? 1 : 0);
+            metric.ReestablishedObservations += observations.Count(item => item.Observation == PreparationClaimObservationEnum.Reestablished);
+            metric.EstablishedClaims += DistinctClaims(observations, PreparationClaimObservationEnum.Established);
+            metric.RevalidatedClaims += DistinctClaims(observations, PreparationClaimObservationEnum.Revalidated);
+            metric.ReusedClaims += DistinctClaims(observations, PreparationClaimObservationEnum.Reused);
+        }
+
+        private static int DistinctClaims(List<PreparationClaimObservation> observations, PreparationClaimObservationEnum type) =>
+            observations.Where(item => item.Observation == type).Select(item => item.ClaimId).Distinct(StringComparer.OrdinalIgnoreCase).Count();
+
+        private static void FinishRepeatedResearch(ProductionRepeatedResearchMetric metric)
+        {
+            metric.RepeatedClaims ??= 0;
+            metric.AffectedSlices ??= 0;
+            metric.RepeatedMinutes = null;
+            metric.Coverage = metric.Slices > 0 ? (double)metric.CoveredSlices / metric.Slices : null;
+            metric.Availability = metric.CoveredSlices == 0 ? "unavailable" : metric.Unknown > 0 ? "partial" : "available";
+        }
+
+        private static void CountClaimObservationsBySourceFamily(
+            ProductionSummaryResult result,
+            List<PreparationClaimObservation> observations,
+            ProductionSummaryQuery query,
+            DateTime fromUtc,
+            DateTime toUtc)
+        {
+            foreach (PreparationClaimObservation observation in observations.Where(item => item.CreatedUtc >= fromUtc && item.CreatedUtc < toUtc))
+            {
+                if (!String.IsNullOrWhiteSpace(query.SourceFamily)
+                    && !String.Equals(observation.SourceFamily, query.SourceFamily, StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (!result.ClaimObservationsBySourceFamily.TryGetValue(observation.SourceFamily, out ProductionClaimObservationCounts? counts))
+                {
+                    counts = new ProductionClaimObservationCounts();
+                    result.ClaimObservationsBySourceFamily[observation.SourceFamily] = counts;
+                }
+                switch (observation.Observation)
+                {
+                    case PreparationClaimObservationEnum.Established: counts.Established++; break;
+                    case PreparationClaimObservationEnum.Reestablished: counts.Reestablished++; break;
+                    case PreparationClaimObservationEnum.Revalidated: counts.Revalidated++; break;
+                    case PreparationClaimObservationEnum.Reused: counts.Reused++; break;
+                    default: throw new InvalidOperationException("Unhandled claim observation type: " + observation.Observation);
+                }
+            }
+        }
+
         private static void FinishRate(ProductionRateMetric metric)
         {
             metric.Rate = metric.Eligible > 0 ? (double)metric.Accepted / metric.Eligible : null;
@@ -484,13 +552,6 @@ namespace Armada.Core.Services
             else metric.Availability = "available";
         }
 
-        private static string SourceFamily(Objective objective)
-        {
-            List<string> tags = objective.Tags.Where(item => item.StartsWith("port:", StringComparison.OrdinalIgnoreCase)).ToList();
-            return tags.Count == 1 ? tags[0].Substring("port:".Length).Trim().ToLowerInvariant()
-                : tags.Count > 1 ? "invalid" : "unknown";
-        }
-
         private static string WorkType(Objective objective)
         {
             return !String.IsNullOrWhiteSpace(objective.Category) ? objective.Category.Trim() : objective.Kind.ToString();
@@ -501,7 +562,7 @@ namespace Armada.Core.Services
 
         private static bool MatchesFilter(Objective objective, ProductionSummaryQuery query)
         {
-            return (String.IsNullOrWhiteSpace(query.SourceFamily) || String.Equals(SourceFamily(objective), query.SourceFamily, StringComparison.OrdinalIgnoreCase))
+            return (String.IsNullOrWhiteSpace(query.SourceFamily) || String.Equals(ProductionSourceFamily.Resolve(objective), query.SourceFamily, StringComparison.OrdinalIgnoreCase))
                 && (String.IsNullOrWhiteSpace(query.WorkType) || String.Equals(WorkType(objective), query.WorkType, StringComparison.OrdinalIgnoreCase));
         }
 
@@ -511,7 +572,6 @@ namespace Armada.Core.Services
         {
             result.Warnings.Add("ready_to_dispatch_delay_partial: historical snapshots do not prove full dispatch-preflight readiness");
             result.Warnings.Add("host_slot_queue_unavailable: command-slot request time is not recorded");
-            result.Warnings.Add("repeated_research_unavailable: research activity is not linked to preparation claims");
             result.Warnings.Add("eligible_idle_lane_minutes_unavailable: historical lane eligibility intervals are not recorded");
         }
 
@@ -553,6 +613,20 @@ namespace Armada.Core.Services
                 else incidents.Add(incident);
             }
             return incidents;
+        }
+
+        private async Task<List<PreparationClaimObservation>> ReadClaimObservationsAsync(AuthContext auth, DateTime fromUtc, DateTime toUtc, ProductionSummaryResult report, CancellationToken token)
+        {
+            ProductionFactPage<PreparationClaimObservation> page = await _Database.PreparationClaimObservations.EnumerateAsync(new ProductionFactQuery
+            {
+                TenantId = auth.IsAdmin ? null : auth.TenantId,
+                UserId = auth.IsAdmin || auth.IsTenantAdmin ? null : auth.UserId,
+                FromUtc = fromUtc,
+                ToUtc = toUtc,
+                Limit = _RecordLimit
+            }, token).ConfigureAwait(false);
+            CompleteScan(page.Items.Count, page.Items.Count + (page.Truncated ? 1 : 0), page.Truncated, "preparation_claim_observations", report);
+            return page.Items;
         }
 
         private async Task<List<MissionAttemptFact>> ReadAttemptFactsAsync(AuthContext auth, DateTime fromUtc, DateTime toUtc, ProductionSummaryResult report, CancellationToken token)

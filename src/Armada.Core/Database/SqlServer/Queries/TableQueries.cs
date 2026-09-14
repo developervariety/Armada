@@ -948,6 +948,11 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF COL_LENGTH('check_runs','regression_objective_id') IS NULL ALTER TABLE check_runs ADD regression_objective_id NVARCHAR(128) NULL;",
                     @"IF COL_LENGTH('check_runs','regression_landed_commit') IS NULL ALTER TABLE check_runs ADD regression_landed_commit NVARCHAR(64) NULL;",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_check_runs_regression_objective' AND object_id=OBJECT_ID('check_runs')) CREATE INDEX idx_check_runs_regression_objective ON check_runs(regression_objective_id);"
+                ),
+                new SchemaMigration(91, "Persist preparation claim observations",
+                    @"IF OBJECT_ID('preparation_claim_observations','U') IS NULL CREATE TABLE preparation_claim_observations (id NVARCHAR(128) NOT NULL PRIMARY KEY, tenant_id NVARCHAR(128) NULL, user_id NVARCHAR(128) NULL, objective_id NVARCHAR(128) NOT NULL, claim_id NVARCHAR(128) NOT NULL, claim_kind NVARCHAR(64) NOT NULL, source_family NVARCHAR(64) NOT NULL, voyage_id NVARCHAR(128) NULL, source_commit NVARCHAR(64) NULL, target_commit NVARCHAR(64) NULL, evidence_fingerprint NVARCHAR(64) NOT NULL, observation NVARCHAR(32) NOT NULL, created_utc DATETIME2 NOT NULL);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_preparation_claim_observations_objective' AND object_id=OBJECT_ID('preparation_claim_observations')) CREATE INDEX idx_preparation_claim_observations_objective ON preparation_claim_observations(objective_id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_preparation_claim_observations_created' AND object_id=OBJECT_ID('preparation_claim_observations')) CREATE INDEX idx_preparation_claim_observations_created ON preparation_claim_observations(created_utc);"
                 )
             };
         }

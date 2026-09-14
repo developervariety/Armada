@@ -98,6 +98,60 @@ namespace Armada.Test.Database
             }
         }
 
+        internal async Task VerifyPreparationClaimObservationsAsync(CancellationToken token)
+        {
+            string suffix = Guid.NewGuid().ToString("N").Substring(0, 12);
+            string tenant = "ten_claim_" + suffix;
+            DateTime baseUtc = new DateTime(2032, 2, 3, 4, 5, 6, 789, DateTimeKind.Utc);
+            string fingerprint = new string('b', 64);
+            foreach (PreparationClaimObservationEnum observation in new[] { PreparationClaimObservationEnum.Established, PreparationClaimObservationEnum.Reestablished, PreparationClaimObservationEnum.Reused })
+            {
+                await _Driver.PreparationClaimObservations.CreateAsync(new PreparationClaimObservation
+                {
+                    TenantId = tenant,
+                    UserId = "usr_claim",
+                    ObjectiveId = "obj_claim_" + suffix,
+                    ClaimId = "opc_claim",
+                    ClaimKind = ObjectivePreparationClaimKindEnum.ResponseRule,
+                    SourceFamily = "Port Family",
+                    VoyageId = observation == PreparationClaimObservationEnum.Reused ? "vyg_claim" : null,
+                    SourceCommit = "0123abcd",
+                    TargetCommit = null,
+                    EvidenceFingerprint = fingerprint,
+                    Observation = observation,
+                    CreatedUtc = baseUtc.AddMinutes((int)observation)
+                }, token).ConfigureAwait(false);
+            }
+
+            using (DatabaseDriver reopened = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
+            {
+                ProductionFactPage<PreparationClaimObservation> page = await reopened.PreparationClaimObservations.EnumerateAsync(new ProductionFactQuery
+                {
+                    TenantId = tenant,
+                    FromUtc = baseUtc,
+                    ToUtc = baseUtc.AddHours(1)
+                }, token).ConfigureAwait(false);
+                DatabaseAssert.Equal(3, page.Items.Count, "Observations are scoped and windowed");
+                PreparationClaimObservation reused = page.Items[2];
+                DatabaseAssert.Equal(PreparationClaimObservationEnum.Reused, reused.Observation, "Observation type round-trips in creation order");
+                DatabaseAssert.Equal(ObjectivePreparationClaimKindEnum.ResponseRule, reused.ClaimKind, "Claim kind round-trips");
+                DatabaseAssert.Equal("port_family", reused.SourceFamily, "Source family is stored in bounded form");
+                DatabaseAssert.Equal("vyg_claim", reused.VoyageId, "Voyage link round-trips");
+                DatabaseAssert.Equal("0123abcd", reused.SourceCommit, "Source anchor round-trips");
+                DatabaseAssert.True(reused.TargetCommit == null, "A missing target anchor stays null");
+                DatabaseAssert.Equal(fingerprint, reused.EvidenceFingerprint, "Fingerprint round-trips");
+
+                ProductionFactPage<PreparationClaimObservation> bounded = await reopened.PreparationClaimObservations.EnumerateAsync(new ProductionFactQuery
+                {
+                    TenantId = tenant,
+                    FromUtc = baseUtc,
+                    ToUtc = baseUtc.AddHours(1),
+                    Limit = 1
+                }, token).ConfigureAwait(false);
+                DatabaseAssert.True(bounded.Truncated && bounded.Items.Count == 1, "A bounded observation page reports truncation");
+            }
+        }
+
         private static MissionAttemptFact NewFact(string tenant, string missionId, MissionAttemptFactTypeEnum type, bool rescue, string? reason, DateTime createdUtc)
         {
             return new MissionAttemptFact

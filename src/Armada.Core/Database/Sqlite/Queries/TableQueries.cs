@@ -1610,6 +1610,11 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"ALTER TABLE check_runs ADD COLUMN regression_objective_id TEXT NULL;",
                     @"ALTER TABLE check_runs ADD COLUMN regression_landed_commit TEXT NULL;",
                     @"CREATE INDEX IF NOT EXISTS idx_check_runs_regression_objective ON check_runs(regression_objective_id);"
+                ),
+                new SchemaMigration(96, "Persist preparation claim observations",
+                    @"CREATE TABLE IF NOT EXISTS preparation_claim_observations (id TEXT NOT NULL PRIMARY KEY, tenant_id TEXT, user_id TEXT, objective_id TEXT NOT NULL, claim_id TEXT NOT NULL, claim_kind TEXT NOT NULL, source_family TEXT NOT NULL, voyage_id TEXT, source_commit TEXT, target_commit TEXT, evidence_fingerprint TEXT NOT NULL, observation TEXT NOT NULL, created_utc TEXT NOT NULL);",
+                    @"CREATE INDEX IF NOT EXISTS idx_preparation_claim_observations_objective ON preparation_claim_observations(objective_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_preparation_claim_observations_created ON preparation_claim_observations(created_utc);"
                 )
             };
         }

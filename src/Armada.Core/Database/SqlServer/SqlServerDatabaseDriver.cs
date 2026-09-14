@@ -81,6 +81,7 @@ namespace Armada.Core.Database.SqlServer
             Credentials = new CredentialMethods(this, _Settings, _Logging);
             HarborRunnerEnrollments = new HarborRunnerEnrollmentMethods(this);
             MissionAttemptFacts = new MissionAttemptFactMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
+            PreparationClaimObservations = new PreparationClaimObservationMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             PromptTemplates = new PromptTemplateMethods(this, _Settings, _Logging);
             Playbooks = new PlaybookMethods(this, _Settings, _Logging);
             Memories = new MemoryMethods(this, _Settings, _Logging);

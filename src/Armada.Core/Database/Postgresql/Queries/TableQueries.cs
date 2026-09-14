@@ -1081,6 +1081,11 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"ALTER TABLE check_runs ADD COLUMN IF NOT EXISTS regression_objective_id TEXT;",
                     @"ALTER TABLE check_runs ADD COLUMN IF NOT EXISTS regression_landed_commit TEXT;",
                     @"CREATE INDEX IF NOT EXISTS idx_check_runs_regression_objective ON check_runs(regression_objective_id);"
+                ),
+                new SchemaMigration(97, "Persist preparation claim observations",
+                    @"CREATE TABLE IF NOT EXISTS preparation_claim_observations (id TEXT PRIMARY KEY, tenant_id TEXT, user_id TEXT, objective_id TEXT NOT NULL, claim_id TEXT NOT NULL, claim_kind TEXT NOT NULL, source_family TEXT NOT NULL, voyage_id TEXT, source_commit TEXT, target_commit TEXT, evidence_fingerprint TEXT NOT NULL, observation TEXT NOT NULL, created_utc TIMESTAMPTZ NOT NULL);",
+                    @"CREATE INDEX IF NOT EXISTS idx_preparation_claim_observations_objective ON preparation_claim_observations(objective_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_preparation_claim_observations_created ON preparation_claim_observations(created_utc);"
                 )
             };
         }

@@ -86,6 +86,7 @@ namespace Armada.Test.Database
             await RunTest("Objective_Terminal_Backlog_Migration_Repairs_Only_Terminal_Rows", "Operational", () => TestObjectiveTerminalBacklogMigrationAsync(token), token);
             await RunTest("MissionAttemptFacts_Window_Scope_Bound_Reopen", "Operational", () => new ProductionFactDatabaseTests(_Driver, _Settings).VerifyMissionAttemptFactsAsync(token), token);
             await RunTest("CheckRun_Regression_Links_Create_Update_Reopen", "Operational", () => new ProductionFactDatabaseTests(_Driver, _Settings).VerifyCheckRegressionLinksAsync(token), token);
+            await RunTest("PreparationClaimObservations_Window_Scope_Bound_Reopen", "Operational", () => new ProductionFactDatabaseTests(_Driver, _Settings).VerifyPreparationClaimObservationsAsync(token), token);
 
             Console.WriteLine("--- Tenant/User/Credential ---");
             await RunTest("Tenant_Create_Read_Update_Enumerate", "Auth", () => TestTenantCrudAsync(token), token);
