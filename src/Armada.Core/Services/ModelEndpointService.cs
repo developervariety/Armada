@@ -445,13 +445,18 @@ namespace Armada.Core.Services
         {
             for (Exception? current = exception; current != null; current = current.InnerException)
             {
-                string type = current.GetType().Name;
-                string message = current.Message;
-                bool knownProvider = type is "SqliteException" or "PostgresException" or "MySqlException" or "SqlException";
-                if (knownProvider && (message.Contains("foreign key", StringComparison.OrdinalIgnoreCase)
-                    || message.Contains("reference constraint", StringComparison.OrdinalIgnoreCase)
-                    || message.Contains("parent row", StringComparison.OrdinalIgnoreCase)
-                    || message.Contains("23503", StringComparison.OrdinalIgnoreCase)))
+                // Match provider error codes. Provider messages are localized and can contain
+                // unrelated text, so they are not a reliable deletion-in-use signal.
+                if (current is Microsoft.Data.Sqlite.SqliteException sqlite
+                    && sqlite.SqliteErrorCode == 19
+                    && (sqlite.SqliteExtendedErrorCode == 787 || sqlite.SqliteExtendedErrorCode == 19))
+                    return true;
+                if (current is Npgsql.PostgresException postgres && postgres.SqlState == "23503")
+                    return true;
+                if (current is MySqlConnector.MySqlException mysql && mysql.Number == 1451)
+                    return true;
+                if (current is Microsoft.Data.SqlClient.SqlException sqlServer
+                    && sqlServer.Number == 547)
                     return true;
             }
 

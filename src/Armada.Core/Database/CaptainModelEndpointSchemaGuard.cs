@@ -106,17 +106,20 @@ namespace Armada.Core.Database
         private static bool Matches(Dictionary<string, string?> row, string targetTable, string sourceColumn,
             string targetColumn, string deleteRule, string updateRule, string? enforced, string? targetSchema = null)
         {
-            return String.Equals(row.GetValueOrDefault("table") ?? row.GetValueOrDefault("target_table"), targetTable, StringComparison.OrdinalIgnoreCase)
-                && String.Equals(row.GetValueOrDefault("from") ?? row.GetValueOrDefault("column_name"), sourceColumn, StringComparison.OrdinalIgnoreCase)
-                && String.Equals(row.GetValueOrDefault("to") ?? row.GetValueOrDefault("target_column"), targetColumn, StringComparison.OrdinalIgnoreCase)
-                && String.Equals(row.GetValueOrDefault("on_delete") ?? row.GetValueOrDefault("delete_rule"), deleteRule, StringComparison.OrdinalIgnoreCase)
-                && String.Equals(row.GetValueOrDefault("on_update") ?? row.GetValueOrDefault("update_rule"), updateRule, StringComparison.OrdinalIgnoreCase)
-                && (targetSchema == null || targetSchema == String.Empty || String.Equals(row.GetValueOrDefault("target_schema"), targetSchema, StringComparison.OrdinalIgnoreCase))
-                && (!row.ContainsKey("is_deferrable") || String.Equals(row.GetValueOrDefault("is_deferrable"), "NO", StringComparison.OrdinalIgnoreCase))
-                && (!row.ContainsKey("initially_deferred") || String.Equals(row.GetValueOrDefault("initially_deferred"), "NO", StringComparison.OrdinalIgnoreCase))
-                && (!row.ContainsKey("validated") || String.Equals(row.GetValueOrDefault("validated"), "YES", StringComparison.OrdinalIgnoreCase))
-                && (!row.ContainsKey("key_count") || String.Equals(row.GetValueOrDefault("key_count"), "1", StringComparison.OrdinalIgnoreCase))
-                && (enforced == null || String.Equals(row.GetValueOrDefault("enforced"), enforced, StringComparison.OrdinalIgnoreCase));
+            // Identifier equality is provider metadata equality. Case-folding here can accept a
+            // quoted PostgreSQL object or a case-sensitive MySQL database with a different target.
+            // Rule values are normalized by each provider query, so those are exact too.
+            return String.Equals(row.GetValueOrDefault("table") ?? row.GetValueOrDefault("target_table"), targetTable, StringComparison.Ordinal)
+                && String.Equals(row.GetValueOrDefault("from") ?? row.GetValueOrDefault("column_name"), sourceColumn, StringComparison.Ordinal)
+                && String.Equals(row.GetValueOrDefault("to") ?? row.GetValueOrDefault("target_column"), targetColumn, StringComparison.Ordinal)
+                && String.Equals(row.GetValueOrDefault("on_delete") ?? row.GetValueOrDefault("delete_rule"), deleteRule, StringComparison.Ordinal)
+                && String.Equals(row.GetValueOrDefault("on_update") ?? row.GetValueOrDefault("update_rule"), updateRule, StringComparison.Ordinal)
+                && (targetSchema == null || targetSchema == String.Empty || String.Equals(row.GetValueOrDefault("target_schema"), targetSchema, StringComparison.Ordinal))
+                && (!row.ContainsKey("is_deferrable") || String.Equals(row.GetValueOrDefault("is_deferrable"), "NO", StringComparison.Ordinal))
+                && (!row.ContainsKey("initially_deferred") || String.Equals(row.GetValueOrDefault("initially_deferred"), "NO", StringComparison.Ordinal))
+                && (!row.ContainsKey("validated") || String.Equals(row.GetValueOrDefault("validated"), "YES", StringComparison.Ordinal))
+                && (!row.ContainsKey("key_count") || String.Equals(row.GetValueOrDefault("key_count"), "1", StringComparison.Ordinal))
+                && (enforced == null || String.Equals(row.GetValueOrDefault("enforced"), enforced, StringComparison.Ordinal));
         }
 
         private static async Task<string> CurrentSchemaAsync(DbConnection connection, DbTransaction? transaction,

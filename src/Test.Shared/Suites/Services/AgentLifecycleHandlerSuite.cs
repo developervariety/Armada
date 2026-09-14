@@ -88,7 +88,7 @@ namespace Test.Shared.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 using (CursorShimScope shim = CursorShimScope.Create())
                 {
-                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _);
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out _, TimeSpan.FromSeconds(2));
                     Captain captain = new Captain("timeout-captain", AgentRuntimeEnum.Cursor)
                     {
                         Model = "hang-model"
@@ -568,7 +568,7 @@ namespace Test.Shared.Suites.Services
 
         #region Private-Methods
 
-        private static AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings)
+        private static AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings, TimeSpan? modelValidationTimeout = null)
         {
             LoggingModule logging = CreateLogging();
             settings = CreateSettings();
@@ -585,7 +585,8 @@ namespace Test.Shared.Suites.Services
                 templateService,
                 null,
                 null,
-                (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) => Task.CompletedTask);
+                (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) => Task.CompletedTask,
+                modelValidationTimeout);
         }
 
         private static LoggingModule CreateLogging()

@@ -34,6 +34,9 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   the version check.
 - Run endpoint health sweeps in a separate cancellable loop so a slow provider
   cannot delay the core captain and dispatch health loop.
+- Require exact provider metadata for captain endpoint foreign keys, classify
+  deletion conflicts by provider error code, and enforce the named Mux endpoint
+  validation contract.
 
 ### Harbor identity core
 

@@ -128,6 +128,7 @@ namespace Armada.Server
         /// <param name="promptTemplateService">Prompt template service (optional).</param>
         /// <param name="webSocketHub">WebSocket hub (nullable).</param>
         /// <param name="emitEventAsync">Delegate to emit events.</param>
+        /// <param name="modelValidationTimeout">Optional validation timeout override.</param>
         public AgentLifecycleHandler(
             LoggingModule logging,
             DatabaseDriver database,
@@ -1373,6 +1374,9 @@ namespace Armada.Server
             {
                 options = new MuxCaptainOptions();
             }
+
+            if (String.IsNullOrWhiteSpace(options.Endpoint))
+                return "Mux validation requires a named endpoint.";
 
             try
             {

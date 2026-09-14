@@ -331,6 +331,8 @@ namespace Test.Shared.Suites.Services
                     Task<CapturedHttpRequest> requestTask = CaptureAndRespondAsync(listener, fixture.Kind == ModelEndpointKindEnum.Embedding
                         ? fixture.Provider == ModelProviderEnum.Gemini
                             ? "{\"embedding\":{\"values\":[0.1,0.2]}}"
+                            : fixture.Provider == ModelProviderEnum.Ollama
+                                ? "{\"embedding\":[0.1,0.2]}"
                             : "{\"data\":[{\"embedding\":[0.1,0.2]}]}"
                         : fixture.Provider == ModelProviderEnum.Anthropic
                             ? "{\"content\":[{\"type\":\"text\",\"text\":\"pong\"}]}"
@@ -366,6 +368,20 @@ namespace Test.Shared.Suites.Services
                         }
                         else
                             AssertContains("\"model\":\"fixture-model\"", request.Body, fixture.Provider + " request model");
+                        if (fixture.Provider == ModelProviderEnum.Ollama && fixture.Kind == ModelEndpointKindEnum.Embedding)
+                            AssertContains("\"prompt\":\"Armada model endpoint validation\"", request.Body, "Ollama embedding prompt");
+                        if (fixture.Provider == ModelProviderEnum.Ollama && fixture.Kind == ModelEndpointKindEnum.Inference)
+                        {
+                            AssertContains("\"messages\"", request.Body, "Ollama chat messages");
+                            AssertContains("\"stream\":false", request.Body, "Ollama non-streaming chat request");
+                        }
+                        if ((fixture.Provider == ModelProviderEnum.OpenAI || fixture.Provider == ModelProviderEnum.OpenAICompatible)
+                            && fixture.Kind == ModelEndpointKindEnum.Embedding)
+                            AssertContains("\"input\"", request.Body, fixture.Provider + " embedding input");
+                        if (fixture.Provider == ModelProviderEnum.VoyageAI)
+                            AssertContains("\"input\"", request.Body, "Voyage embedding input");
+                        if (fixture.Provider == ModelProviderEnum.Anthropic)
+                            AssertContains("\"messages\"", request.Body, "Anthropic messages");
                         if (fixture.Header == null)
                             AssertFalse(request.Headers.Contains("authorization:", StringComparison.OrdinalIgnoreCase), "Ollama must not receive an Authorization header.");
                         else

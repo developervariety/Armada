@@ -1624,30 +1624,11 @@ namespace Armada.Server
 
         private async Task ModelEndpointHealthLoopAsync(CancellationToken token)
         {
-            while (!token.IsCancellationRequested)
-            {
-                try
-                {
-                    await _ModelEndpointService.CheckHealthAllAsync(token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (token.IsCancellationRequested)
-                {
-                    break;
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Warn(_Header + "model endpoint health sweep error: " + ex.Message);
-                }
-
-                try
-                {
-                    await Task.Delay(Math.Max(1, _Settings.HeartbeatIntervalSeconds) * 1000, token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (token.IsCancellationRequested)
-                {
-                    break;
-                }
-            }
+            await ModelEndpointHealthSweepRunner.RunAsync(
+                async sweepToken => await _ModelEndpointService.CheckHealthAllAsync(sweepToken).ConfigureAwait(false),
+                TimeSpan.FromMilliseconds(Math.Max(1, _Settings.HeartbeatIntervalSeconds) * 1000),
+                ex => _Logging.Warn(_Header + "model endpoint health sweep error: " + ex.Message),
+                token).ConfigureAwait(false);
         }
 
         private async Task<RemoteTunnelRequestResult> HandleRemoteTunnelRequestAsync(RemoteTunnelEnvelope envelope, CancellationToken token)

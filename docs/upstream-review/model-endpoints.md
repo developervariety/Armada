@@ -51,3 +51,9 @@ migration for each provider. A database foreign key is the atomic delete
 backstop when a captain link races endpoint deletion; the service reports a
 safe in-use conflict. API runtime execution remains a separate acceptance
 step.
+
+Foreign-key guards compare provider metadata with exact identifier and rule
+values, including the target schema. They reject composite, unvalidated,
+deferred, or differently targeted links before the migration version is
+recorded. Deletion conflict handling uses provider error codes and does not
+depend on localized database messages.
