@@ -4,28 +4,24 @@ namespace Armada.Core.Services
     using System.Globalization;
     using System.Threading;
     using System.Threading.Tasks;
-    using Microsoft.Data.Sqlite;
+    using Armada.Core.Database;
+    using Armada.Core.Models;
     using SyslogLogging;
 
     /// <summary>
-    /// Background service that purges old completed data from the database.
-    /// Removes completed voyages, their missions, old signals, and old events
-    /// that exceed the configured retention period.
+    /// Background service that purges expired records through the database driver, so it runs on
+    /// every provider. Removes completed voyages and their missions, completed standalone missions,
+    /// read signals, events, released docks and finished merge entries older than the retention
+    /// period, and logs one summary line with per-table counts on every run.
     /// </summary>
     public class DataExpiryService
     {
-        #region Public-Members
-
-        #endregion
-
         #region Private-Members
 
-        private string _Header = "[DataExpiryService] ";
-        private LoggingModule _Logging;
-        private string _ConnectionString;
-        private int _RetentionDays;
-
-        private static readonly string _Iso8601Format = "yyyy-MM-ddTHH:mm:ss.fffffffZ";
+        private readonly string _Header = "[DataExpiryService] ";
+        private readonly LoggingModule _Logging;
+        private readonly DatabaseDriver _Database;
+        private readonly int _RetentionDays;
 
         #endregion
 
@@ -35,12 +31,13 @@ namespace Armada.Core.Services
         /// Instantiate.
         /// </summary>
         /// <param name="logging">Logging module.</param>
-        /// <param name="connectionString">SQLite connection string.</param>
+        /// <param name="database">Database driver.</param>
         /// <param name="retentionDays">Number of days to retain completed data. Set to 0 to disable.</param>
-        public DataExpiryService(LoggingModule logging, string connectionString, int retentionDays)
+        public DataExpiryService(LoggingModule logging, DatabaseDriver database, int retentionDays)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
-            _ConnectionString = connectionString ?? throw new ArgumentNullException(nameof(connectionString));
+            _Database = database ?? throw new ArgumentNullException(nameof(database));
+            if (retentionDays < 0) throw new ArgumentOutOfRangeException(nameof(retentionDays), "Must be >= 0");
             _RetentionDays = retentionDays;
         }
 
@@ -49,117 +46,24 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
-        /// Run the data expiry process. Deletes completed voyages (and their missions),
-        /// old signals, and old events that are older than the retention period.
+        /// Run the data expiry process once.
         /// </summary>
         /// <param name="token">Cancellation token.</param>
-        /// <returns>Total number of rows deleted.</returns>
-        public async Task<int> PurgeExpiredDataAsync(CancellationToken token = default)
+        /// <returns>Rows deleted per table.</returns>
+        public async Task<DataExpiryResult> PurgeExpiredDataAsync(CancellationToken token = default)
         {
-            if (_RetentionDays <= 0)
+            DataExpiryCutoffs cutoffs = DataExpiryCutoffs.FromRetention(DateTime.UtcNow, _RetentionDays);
+            if (!cutoffs.RecordCutoffUtc.HasValue)
             {
-                return 0;
+                _Logging.Info(_Header + "data expiry skipped: dataRetentionDays=0 disables it");
+                return new DataExpiryResult();
             }
 
-            DateTime cutoff = DateTime.UtcNow.AddDays(-_RetentionDays);
-            string cutoffStr = cutoff.ToString(_Iso8601Format, CultureInfo.InvariantCulture);
-            int totalDeleted = 0;
-
-            _Logging.Info(_Header + "purging data older than " + cutoffStr);
-
-            using (SqliteConnection conn = new SqliteConnection(_ConnectionString))
-            {
-                await conn.OpenAsync(token).ConfigureAwait(false);
-
-                // Delete missions belonging to completed/cancelled voyages older than retention
-                totalDeleted += await ExecuteDeleteAsync(conn,
-                    @"DELETE FROM missions WHERE voyage_id IN (
-                        SELECT id FROM voyages
-                        WHERE status IN ('Complete', 'Cancelled')
-                        AND completed_utc IS NOT NULL
-                        AND completed_utc < @cutoff
-                    );",
-                    cutoffStr, token).ConfigureAwait(false);
-
-                // Delete completed/cancelled voyages older than retention
-                totalDeleted += await ExecuteDeleteAsync(conn,
-                    @"DELETE FROM voyages
-                    WHERE status IN ('Complete', 'Cancelled')
-                    AND completed_utc IS NOT NULL
-                    AND completed_utc < @cutoff;",
-                    cutoffStr, token).ConfigureAwait(false);
-
-                // Delete standalone completed/failed/cancelled missions older than retention (no voyage)
-                totalDeleted += await ExecuteDeleteAsync(conn,
-                    @"DELETE FROM missions
-                    WHERE voyage_id IS NULL
-                    AND status IN ('Complete', 'Failed', 'Cancelled')
-                    AND completed_utc IS NOT NULL
-                    AND completed_utc < @cutoff;",
-                    cutoffStr, token).ConfigureAwait(false);
-
-                // Delete old read signals
-                totalDeleted += await ExecuteDeleteAsync(conn,
-                    @"DELETE FROM signals
-                    WHERE read = 1
-                    AND created_utc < @cutoff;",
-                    cutoffStr, token).ConfigureAwait(false);
-
-                // Delete old events. Objective dispatch attempt records younger than the reconciliation
-                // look-back are kept whatever the retention period, so an attempt whose process stopped
-                // before closing it is still visible to reconciliation.
-                string attemptCutoffStr = (DateTime.UtcNow - ObjectiveDispatchAdmission.ReconciliationLookBack)
-                    .ToString(_Iso8601Format, CultureInfo.InvariantCulture);
-                using (SqliteCommand eventCmd = conn.CreateCommand())
-                {
-                    eventCmd.CommandText =
-                        @"DELETE FROM events
-                        WHERE created_utc < @cutoff
-                        AND NOT (COALESCE(entity_type, '') = @attempt_entity_type AND created_utc >= @attempt_cutoff);";
-                    eventCmd.Parameters.AddWithValue("@cutoff", cutoffStr);
-                    eventCmd.Parameters.AddWithValue("@attempt_entity_type", ObjectiveDispatchAdmission.AttemptEntityType);
-                    eventCmd.Parameters.AddWithValue("@attempt_cutoff", attemptCutoffStr);
-                    totalDeleted += await eventCmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                }
-
-                // Delete inactive docks with no captain older than retention
-                totalDeleted += await ExecuteDeleteAsync(conn,
-                    @"DELETE FROM docks
-                    WHERE active = 0
-                    AND captain_id IS NULL
-                    AND created_utc < @cutoff;",
-                    cutoffStr, token).ConfigureAwait(false);
-
-                // Delete old merge entries that are Landed, Cancelled, or Failed
-                totalDeleted += await ExecuteDeleteAsync(conn,
-                    @"DELETE FROM merge_entries
-                    WHERE status IN ('Landed', 'Cancelled', 'Failed')
-                    AND completed_utc IS NOT NULL
-                    AND completed_utc < @cutoff;",
-                    cutoffStr, token).ConfigureAwait(false);
-            }
-
-            if (totalDeleted > 0)
-            {
-                _Logging.Info(_Header + "purged " + totalDeleted + " expired records");
-            }
-
-            return totalDeleted;
-        }
-
-        #endregion
-
-        #region Private-Methods
-
-        private async Task<int> ExecuteDeleteAsync(SqliteConnection conn, string sql, string cutoff, CancellationToken token)
-        {
-            using (SqliteCommand cmd = conn.CreateCommand())
-            {
-                cmd.CommandText = sql;
-                cmd.Parameters.AddWithValue("@cutoff", cutoff);
-                int affected = await cmd.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                return affected;
-            }
+            DataExpiryResult result = await _Database.DataExpiry.PurgeExpiredAsync(cutoffs, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "data expiry summary: dataRetentionDays=" + _RetentionDays
+                + " cutoff=" + cutoffs.RecordCutoffUtc.Value.ToString("o", CultureInfo.InvariantCulture)
+                + " deleted=" + result.Total + " " + result);
+            return result;
         }
 
         #endregion

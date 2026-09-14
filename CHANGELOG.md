@@ -14,6 +14,22 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Data expiry on every provider
+
+- Data expiry now purges through a provider-neutral database driver method set,
+  so it runs on PostgreSQL, MySQL and SQL Server as well as SQLite. The service
+  opened a SQLite connection with the configured connection string, so on every
+  other provider it failed each run with an unsupported connection-string
+  keyword and never expired anything.
+- The retention rules are defined once and cover the same tables as before:
+  completed voyages and their missions, completed standalone missions, read
+  signals, events, released docks and finished merge entries. Objective
+  dispatch attempt events inside the reconciliation look-back are still kept.
+  A mission whose expired parent is deleted loses the link on every provider.
+- Each run logs one `data expiry summary:` line with the cutoff and per-table
+  deleted counts, including runs that delete nothing. A failed statement names
+  its table and provider.
+
 ### API endpoint runtime lifecycle
 
 - Preserve synthetic API captain liveness until the loop exits, reject pre-cancelled

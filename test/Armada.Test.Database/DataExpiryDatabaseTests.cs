@@ -1,0 +1,159 @@
+namespace Armada.Test.Database
+{
+    using System;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using Armada.Core.Database;
+    using Armada.Core.Enums;
+    using Armada.Core.Models;
+    using Armada.Core.Services;
+    using Armada.Core.Settings;
+    using SyslogLogging;
+
+    /// <summary>
+    /// Provider-backed data expiry: every expired table is purged by the retention rules on the live
+    /// provider, and every row the rules keep survives. Runs last because a one-day retention purges
+    /// any older row in the shared test database.
+    /// </summary>
+    internal sealed class DataExpiryDatabaseTests
+    {
+        private readonly DatabaseDriver _Driver;
+        private readonly DatabaseSettings _Settings;
+        private readonly bool _NoCleanup;
+
+        internal DataExpiryDatabaseTests(DatabaseDriver driver, DatabaseSettings settings, bool noCleanup)
+        {
+            _Driver = driver ?? throw new ArgumentNullException(nameof(driver));
+            _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
+            _NoCleanup = noCleanup;
+        }
+
+        internal async Task VerifyRetentionPurgeAsync(CancellationToken token)
+        {
+            DatabaseFixture fixture = new DatabaseFixture(_Driver, _NoCleanup);
+            try
+            {
+                DateTime now = DateTime.UtcNow;
+                DateTime old = now.AddDays(-3);
+                TenantMetadata tenant = await fixture.CreateTenantAsync("expiry", token: token).ConfigureAwait(false);
+                UserMaster user = await fixture.CreateUserAsync(tenant.Id, "expiry", token: token).ConfigureAwait(false);
+                Fleet fleet = await fixture.CreateFleetAsync(tenant.Id, user.Id, "expiry", token).ConfigureAwait(false);
+                Vessel vessel = await fixture.CreateVesselAsync(tenant.Id, user.Id, fleet.Id, "expiry", token).ConfigureAwait(false);
+                Captain captain = await fixture.CreateCaptainAsync(tenant.Id, user.Id, "expiry", token).ConfigureAwait(false);
+
+                Voyage oldComplete = await fixture.CreateVoyageAsync(tenant.Id, user.Id, "expiry-old-complete", token, v => { v.Status = VoyageStatusEnum.Complete; v.CompletedUtc = old; }).ConfigureAwait(false);
+                Voyage oldCancelled = await fixture.CreateVoyageAsync(tenant.Id, user.Id, "expiry-old-cancelled", token, v => { v.Status = VoyageStatusEnum.Cancelled; v.CompletedUtc = old; }).ConfigureAwait(false);
+                Voyage oldFailed = await fixture.CreateVoyageAsync(tenant.Id, user.Id, "expiry-old-failed", token, v => { v.Status = VoyageStatusEnum.Failed; v.CompletedUtc = old; }).ConfigureAwait(false);
+                Voyage recentComplete = await fixture.CreateVoyageAsync(tenant.Id, user.Id, "expiry-recent", token, v => { v.Status = VoyageStatusEnum.Complete; v.CompletedUtc = now; }).ConfigureAwait(false);
+
+                Mission inOldVoyage = await fixture.CreateMissionAsync(tenant.Id, user.Id, oldComplete.Id, vessel.Id, captain.Id, "expiry-in-old-voyage", token, configure: m => m.Status = MissionStatusEnum.InProgress).ConfigureAwait(false);
+                Mission inRecentVoyage = await fixture.CreateMissionAsync(tenant.Id, user.Id, recentComplete.Id, vessel.Id, captain.Id, "expiry-in-recent-voyage", token, completedUtc: old, configure: m => m.Status = MissionStatusEnum.Complete).ConfigureAwait(false);
+                Mission standaloneOldFailed = await fixture.CreateMissionAsync(tenant.Id, user.Id, null!, vessel.Id, captain.Id, "expiry-standalone-old", token, completedUtc: old, configure: m => m.Status = MissionStatusEnum.Failed).ConfigureAwait(false);
+                Mission childOfExpired = await fixture.CreateMissionAsync(tenant.Id, user.Id, null!, vessel.Id, captain.Id, "expiry-child", token, configure: m => { m.Status = MissionStatusEnum.Pending; m.ParentMissionId = standaloneOldFailed.Id; }).ConfigureAwait(false);
+                Mission standaloneOldPending = await fixture.CreateMissionAsync(tenant.Id, user.Id, null!, vessel.Id, captain.Id, "expiry-standalone-pending", token, completedUtc: old, configure: m => m.Status = MissionStatusEnum.Pending).ConfigureAwait(false);
+                Mission standaloneRecent = await fixture.CreateMissionAsync(tenant.Id, user.Id, null!, vessel.Id, captain.Id, "expiry-standalone-recent", token, completedUtc: now, configure: m => m.Status = MissionStatusEnum.Complete).ConfigureAwait(false);
+
+                Signal oldRead = await CreateSignalAsync(tenant.Id, user.Id, true, old, token).ConfigureAwait(false);
+                Signal oldUnread = await CreateSignalAsync(tenant.Id, user.Id, false, old, token).ConfigureAwait(false);
+                Signal recentRead = await CreateSignalAsync(tenant.Id, user.Id, true, now, token).ConfigureAwait(false);
+
+                ArmadaEvent oldEvent = await CreateEventAsync(tenant.Id, "mission.created", null, old, token).ConfigureAwait(false);
+                ArmadaEvent recentEvent = await CreateEventAsync(tenant.Id, "mission.created", null, now, token).ConfigureAwait(false);
+                ArmadaEvent attemptInsideLookBack = await CreateEventAsync(tenant.Id, ObjectiveDispatchAdmission.StartedEventType, ObjectiveDispatchAdmission.AttemptEntityType, old, token).ConfigureAwait(false);
+                ArmadaEvent attemptBeyondLookBack = await CreateEventAsync(tenant.Id, ObjectiveDispatchAdmission.StartedEventType, ObjectiveDispatchAdmission.AttemptEntityType,
+                    now - ObjectiveDispatchAdmission.ReconciliationLookBack - TimeSpan.FromDays(1), token).ConfigureAwait(false);
+
+                Dock oldInactive = await fixture.CreateDockAsync(tenant.Id, user.Id, vessel.Id, null!, token, d => { d.Active = false; d.CaptainId = null; d.CreatedUtc = old; }).ConfigureAwait(false);
+                Dock oldActive = await fixture.CreateDockAsync(tenant.Id, user.Id, vessel.Id, null!, token, d => { d.Active = true; d.CaptainId = null; d.CreatedUtc = old; }).ConfigureAwait(false);
+                Dock oldInactiveHeld = await fixture.CreateDockAsync(tenant.Id, user.Id, vessel.Id, captain.Id, token, d => { d.Active = false; d.CreatedUtc = old; }).ConfigureAwait(false);
+                Dock recentInactive = await fixture.CreateDockAsync(tenant.Id, user.Id, vessel.Id, null!, token, d => { d.Active = false; d.CaptainId = null; d.CreatedUtc = now; }).ConfigureAwait(false);
+
+                MergeEntry oldLanded = await CreateMergeEntryAsync(tenant.Id, user.Id, vessel.Id, MergeStatusEnum.Landed, old, token).ConfigureAwait(false);
+                MergeEntry oldFailedEntry = await CreateMergeEntryAsync(tenant.Id, user.Id, vessel.Id, MergeStatusEnum.Failed, old, token).ConfigureAwait(false);
+                MergeEntry oldQueued = await CreateMergeEntryAsync(tenant.Id, user.Id, vessel.Id, MergeStatusEnum.Queued, old, token).ConfigureAwait(false);
+                MergeEntry recentLanded = await CreateMergeEntryAsync(tenant.Id, user.Id, vessel.Id, MergeStatusEnum.Landed, now, token).ConfigureAwait(false);
+
+                LoggingModule logging = new LoggingModule();
+                logging.Settings.EnableConsole = false;
+                DataExpiryService service = CreateService(logging, 1);
+                DataExpiryResult purged = await service.PurgeExpiredDataAsync(token).ConfigureAwait(false);
+                DatabaseAssert.True(purged.Total >= 10, "Expiry deletes at least the seeded expired rows, deleted " + purged);
+                foreach (string table in new[] { "missions", "voyages", "signals", "events", "docks", "merge_entries" })
+                    DatabaseAssert.True(purged.Deleted(table) >= 1, "The summary counts rows deleted from " + table + ": " + purged);
+
+                DatabaseAssert.True(await _Driver.Voyages.ReadAsync(oldComplete.Id, token).ConfigureAwait(false) == null, "An expired Complete voyage is purged");
+                DatabaseAssert.True(await _Driver.Voyages.ReadAsync(oldCancelled.Id, token).ConfigureAwait(false) == null, "An expired Cancelled voyage is purged");
+                DatabaseAssert.NotNull(await _Driver.Voyages.ReadAsync(oldFailed.Id, token).ConfigureAwait(false), "A Failed voyage is kept");
+                DatabaseAssert.NotNull(await _Driver.Voyages.ReadAsync(recentComplete.Id, token).ConfigureAwait(false), "A recent voyage is kept");
+
+                DatabaseAssert.True(await _Driver.Missions.ReadAsync(inOldVoyage.Id, token).ConfigureAwait(false) == null, "Every mission of an expired voyage is purged");
+                DatabaseAssert.NotNull(await _Driver.Missions.ReadAsync(inRecentVoyage.Id, token).ConfigureAwait(false), "A mission of a retained voyage is kept");
+                DatabaseAssert.True(await _Driver.Missions.ReadAsync(standaloneOldFailed.Id, token).ConfigureAwait(false) == null, "An expired terminal standalone mission is purged");
+                Mission child = DatabaseAssert.NotNull(await _Driver.Missions.ReadAsync(childOfExpired.Id, token).ConfigureAwait(false), "A child of a purged mission is kept");
+                DatabaseAssert.True(child.ParentMissionId == null, "A child of a purged mission loses its parent link");
+                DatabaseAssert.NotNull(await _Driver.Missions.ReadAsync(standaloneOldPending.Id, token).ConfigureAwait(false), "A nonterminal standalone mission is kept");
+                DatabaseAssert.NotNull(await _Driver.Missions.ReadAsync(standaloneRecent.Id, token).ConfigureAwait(false), "A recent standalone mission is kept");
+
+                DatabaseAssert.True(await _Driver.Signals.ReadAsync(oldRead.Id, token).ConfigureAwait(false) == null, "An expired read signal is purged");
+                DatabaseAssert.NotNull(await _Driver.Signals.ReadAsync(oldUnread.Id, token).ConfigureAwait(false), "An unread signal is kept");
+                DatabaseAssert.NotNull(await _Driver.Signals.ReadAsync(recentRead.Id, token).ConfigureAwait(false), "A recent read signal is kept");
+
+                DatabaseAssert.True(await _Driver.Events.ReadAsync(oldEvent.Id, token).ConfigureAwait(false) == null, "An expired event is purged");
+                DatabaseAssert.NotNull(await _Driver.Events.ReadAsync(recentEvent.Id, token).ConfigureAwait(false), "A recent event is kept");
+                DatabaseAssert.NotNull(await _Driver.Events.ReadAsync(attemptInsideLookBack.Id, token).ConfigureAwait(false), "A dispatch attempt record inside the reconciliation look-back is kept");
+                DatabaseAssert.True(await _Driver.Events.ReadAsync(attemptBeyondLookBack.Id, token).ConfigureAwait(false) == null, "A dispatch attempt record beyond the look-back follows retention");
+
+                DatabaseAssert.True(await _Driver.Docks.ReadAsync(oldInactive.Id, token).ConfigureAwait(false) == null, "An expired inactive unheld dock is purged");
+                DatabaseAssert.NotNull(await _Driver.Docks.ReadAsync(oldActive.Id, token).ConfigureAwait(false), "An active dock is kept");
+                DatabaseAssert.NotNull(await _Driver.Docks.ReadAsync(oldInactiveHeld.Id, token).ConfigureAwait(false), "A dock with a captain is kept");
+                DatabaseAssert.NotNull(await _Driver.Docks.ReadAsync(recentInactive.Id, token).ConfigureAwait(false), "A recent inactive dock is kept");
+
+                DatabaseAssert.True(await _Driver.MergeEntries.ReadAsync(oldLanded.Id, token).ConfigureAwait(false) == null, "An expired Landed merge entry is purged");
+                DatabaseAssert.True(await _Driver.MergeEntries.ReadAsync(oldFailedEntry.Id, token).ConfigureAwait(false) == null, "An expired Failed merge entry is purged");
+                DatabaseAssert.NotNull(await _Driver.MergeEntries.ReadAsync(oldQueued.Id, token).ConfigureAwait(false), "A queued merge entry is kept");
+                DatabaseAssert.NotNull(await _Driver.MergeEntries.ReadAsync(recentLanded.Id, token).ConfigureAwait(false), "A recent Landed merge entry is kept");
+            }
+            finally
+            {
+                await fixture.CleanupAsync(token).ConfigureAwait(false);
+            }
+        }
+
+        private DataExpiryService CreateService(LoggingModule logging, int retentionDays)
+        {
+            return new DataExpiryService(logging, _Driver, retentionDays);
+        }
+
+        private async Task<Signal> CreateSignalAsync(string tenantId, string userId, bool read, DateTime createdUtc, CancellationToken token)
+        {
+            Signal signal = new Signal(SignalTypeEnum.Nudge, "expiry") { TenantId = tenantId, UserId = userId, Read = read, CreatedUtc = createdUtc };
+            return await _Driver.Signals.CreateAsync(signal, token).ConfigureAwait(false);
+        }
+
+        private async Task<ArmadaEvent> CreateEventAsync(string tenantId, string eventType, string? entityType, DateTime createdUtc, CancellationToken token)
+        {
+            ArmadaEvent evt = new ArmadaEvent(eventType, "expiry")
+            {
+                TenantId = tenantId,
+                EntityType = entityType,
+                EntityId = entityType == null ? null : "attempt-" + Guid.NewGuid().ToString("N"),
+                CreatedUtc = createdUtc
+            };
+            return await _Driver.Events.CreateAsync(evt, token).ConfigureAwait(false);
+        }
+
+        private async Task<MergeEntry> CreateMergeEntryAsync(string tenantId, string userId, string vesselId, MergeStatusEnum status, DateTime completedUtc, CancellationToken token)
+        {
+            MergeEntry entry = new MergeEntry("expiry/" + Guid.NewGuid().ToString("N"))
+            {
+                TenantId = tenantId,
+                UserId = userId,
+                VesselId = vesselId,
+                Status = status,
+                CreatedUtc = completedUtc,
+                CompletedUtc = completedUtc
+            };
+            return await _Driver.MergeEntries.CreateAsync(entry, token).ConfigureAwait(false);
+        }
+    }
+}

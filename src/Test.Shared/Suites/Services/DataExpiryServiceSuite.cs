@@ -5,7 +5,6 @@ namespace Test.Shared.Suites.Services
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
-    using Armada.Core.Database.Sqlite;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -16,9 +15,9 @@ namespace Test.Shared.Suites.Services
 
     /// <summary>
     /// Descriptors for <see cref="DataExpiryService"/>: retention-driven purge of old completed
-    /// voyages, missions, read signals, and events over a live SQLite store. The disabled-retention
-    /// case asserts the no-op guard; positive cases assert removal of aged records while sparing
-    /// recent ones.
+    /// voyages, missions, read signals, and events through the configured database driver. The
+    /// disabled-retention case asserts the no-op guard; positive cases assert removal of aged records
+    /// while sparing recent ones.
     /// </summary>
     public sealed class DataExpiryServiceSuite : IArmadaTestSuite
     {
@@ -39,9 +38,9 @@ namespace Test.Shared.Suites.Services
                     LoggingModule logging = new LoggingModule();
                     logging.Settings.EnableConsole = false;
 
-                    DataExpiryService service = new DataExpiryService(logging, "Data Source=dummy;Mode=Memory;Cache=Shared", 0);
-                    int deleted = await service.PurgeExpiredDataAsync();
-                    AssertEqual(0, deleted);
+                    DataExpiryService service = new DataExpiryService(logging, testDb.Driver, 0);
+                    DataExpiryResult result = await service.PurgeExpiredDataAsync();
+                    AssertEqual(0, result.Total);
                 }
             }));
 
@@ -69,10 +68,10 @@ namespace Test.Shared.Suites.Services
                     recentVoyage.CompletedUtc = DateTime.UtcNow.AddDays(-5);
                     await db.Voyages.CreateAsync(recentVoyage);
 
-                    DataExpiryService service = new DataExpiryService(logging, testDb.ConnectionString, 30);
-                    int deleted = await service.PurgeExpiredDataAsync();
+                    DataExpiryService service = new DataExpiryService(logging, db, 30);
+                    DataExpiryResult result = await service.PurgeExpiredDataAsync();
 
-                    AssertTrue(deleted > 0);
+                    AssertTrue(result.Total > 0);
 
                     AssertNull(await db.Voyages.ReadAsync(oldVoyage.Id));
                     AssertNull(await db.Missions.ReadAsync(oldMission.Id));
@@ -97,9 +96,10 @@ namespace Test.Shared.Suites.Services
                     Signal recentSignal = new Signal(SignalTypeEnum.Nudge, "recent");
                     await db.Signals.CreateAsync(recentSignal);
 
-                    DataExpiryService service = new DataExpiryService(logging, testDb.ConnectionString, 30);
+                    DataExpiryService service = new DataExpiryService(logging, db, 30);
                     await service.PurgeExpiredDataAsync();
 
+                    AssertNull(await db.Signals.ReadAsync(oldSignal.Id));
                     AssertNotNull(await db.Signals.ReadAsync(recentSignal.Id));
                 }
             }));
@@ -119,11 +119,11 @@ namespace Test.Shared.Suites.Services
                     ArmadaEvent recentEvent = new ArmadaEvent("test.event", "Recent event");
                     await db.Events.CreateAsync(recentEvent);
 
-                    DataExpiryService service = new DataExpiryService(logging, testDb.ConnectionString, 30);
+                    DataExpiryService service = new DataExpiryService(logging, db, 30);
                     await service.PurgeExpiredDataAsync();
 
-                    List<ArmadaEvent> remaining = await db.Events.EnumerateRecentAsync();
-                    AssertTrue(remaining.Count >= 1);
+                    AssertNull(await db.Events.ReadAsync(oldEvent.Id));
+                    AssertNotNull(await db.Events.ReadAsync(recentEvent.Id));
                 }
             }));
 

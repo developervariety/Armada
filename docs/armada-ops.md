@@ -272,6 +272,27 @@ id was recorded, the voyage is matched by the recorded title, vessel and start
 time. If more than one voyage matches, nothing is cancelled and the attempt is
 closed as unresolved with a warning.
 
+Data expiry runs on the health loop every 100 cycles, on every database
+provider. It purges through the database driver, so SQLite, PostgreSQL, MySQL
+and SQL Server apply the same rules. With `dataRetentionDays` set above 0 (the
+default is 30), a run deletes rows older than that many days:
+
+- Complete or Cancelled voyages by `completed_utc`, with every mission in them.
+- Complete, Failed or Cancelled missions without a voyage, by `completed_utc`.
+  A mission whose parent is deleted is kept and loses the parent link.
+- Read signals and events, by `created_utc`.
+- Inactive docks with no captain, by `created_utc`.
+- Landed, Cancelled or Failed merge entries, by `completed_utc`.
+
+Each run logs one line, `data expiry summary: dataRetentionDays=<n>
+cutoff=<utc> deleted=<total> voyages=<n> missions=<n> signals=<n> events=<n>
+docks=<n> merge_entries=<n>`, including runs that delete nothing. With
+`dataRetentionDays` set to 0 the run logs `data expiry skipped` and deletes
+nothing. A failed statement names its table and provider in the
+`data expiry failed:` line. The first run on a database that never expired
+data can delete many rows; take a backup before the first deployment that
+enables it.
+
 Reconciliation looks back seven days. Automatic event retention
 (`dataRetentionDays`) never deletes an attempt record younger than that, even
 when the retention period is shorter. Cascade cleanup cannot reach attempt

@@ -148,6 +148,10 @@ namespace Armada.Test.Database
             List<TestResult> scopingResults = await scopingTests.RunAllAsync(token).ConfigureAwait(false);
             _Results.AddRange(scopingResults);
 
+            Console.WriteLine();
+            Console.WriteLine("--- Data Expiry ---");
+            await RunTest("DataExpiry_Purges_Expired_Rows_And_Keeps_Retained_Rows", "Retention", () => new DataExpiryDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyRetentionPurgeAsync(token), token);
+
             return _Results;
         }
 

@@ -155,6 +155,11 @@ namespace Armada.Core.Database
         public ILaneStateTransitionMethods LaneStateTransitions { get; protected set; } = null!;
 
         /// <summary>
+        /// Provider-neutral retention purge of expired records.
+        /// </summary>
+        public IDataExpiryMethods DataExpiry { get; protected set; } = null!;
+
+        /// <summary>
         /// Prompt template operations.
         /// </summary>
         public IPromptTemplateMethods PromptTemplates { get; protected set; } = null!;
@@ -274,6 +279,7 @@ namespace Armada.Core.Database
             if (MissionAttemptFacts == null) missing.Add(nameof(MissionAttemptFacts));
             if (PreparationClaimObservations == null) missing.Add(nameof(PreparationClaimObservations));
             if (LaneStateTransitions == null) missing.Add(nameof(LaneStateTransitions));
+            if (DataExpiry == null) missing.Add(nameof(DataExpiry));
 
             return missing;
         }
