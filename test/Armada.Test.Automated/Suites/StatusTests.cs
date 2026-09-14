@@ -128,6 +128,36 @@ namespace Armada.Test.Automated.Suites
             return await JsonHelper.DeserializeAsync<Signal>(resp).ConfigureAwait(false);
         }
 
+        private async Task<string> CreateTenantCredentialAsync(string tenantId, string label, bool isTenantAdmin)
+        {
+            HttpResponseMessage userResponse = await _AuthClient.PostAsync("/api/v1/users",
+                JsonHelper.ToJsonContent(new
+                {
+                    TenantId = tenantId,
+                    Email = label + "@status.armada",
+                    PasswordSha256 = UserMaster.ComputePasswordHash("testpass"),
+                    IsTenantAdmin = isTenantAdmin
+                })).ConfigureAwait(false);
+            userResponse.EnsureSuccessStatusCode();
+            UserMaster user = await JsonHelper.DeserializeAsync<UserMaster>(userResponse).ConfigureAwait(false);
+
+            HttpResponseMessage credentialResponse = await _AuthClient.PostAsync("/api/v1/credentials",
+                JsonHelper.ToJsonContent(new { TenantId = tenantId, UserId = user.Id, Name = label + "-cred" })).ConfigureAwait(false);
+            credentialResponse.EnsureSuccessStatusCode();
+            Credential credential = await JsonHelper.DeserializeAsync<Credential>(credentialResponse).ConfigureAwait(false);
+            return credential.BearerToken;
+        }
+
+        private async Task<HttpStatusCode> GetStatusCodeWithBearerAsync(string bearerToken)
+        {
+            using (HttpClient client = new HttpClient { BaseAddress = _AuthClient.BaseAddress })
+            {
+                client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
+                using (HttpResponseMessage response = await client.GetAsync("/api/v1/status").ConfigureAwait(false))
+                    return response.StatusCode;
+            }
+        }
+
         private async Task<ArmadaStatus> GetStatusAsync()
         {
             HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/status").ConfigureAwait(false);
@@ -142,6 +172,25 @@ namespace Armada.Test.Automated.Suites
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Status_AuthorizationMatrix_OnlyGlobalAdministratorReadsFleetStatus", async () =>
+            {
+                string suffix = Guid.NewGuid().ToString("N").Substring(0, 8);
+                HttpResponseMessage tenantResponse = await _AuthClient.PostAsync("/api/v1/tenants",
+                    JsonHelper.ToJsonContent(new { Name = "status-matrix-" + suffix })).ConfigureAwait(false);
+                tenantResponse.EnsureSuccessStatusCode();
+                TenantMetadata tenant = await JsonHelper.DeserializeAsync<TenantMetadata>(tenantResponse).ConfigureAwait(false);
+
+                string userToken = await CreateTenantCredentialAsync(tenant.Id, "status-user-" + suffix, false).ConfigureAwait(false);
+                string tenantAdminToken = await CreateTenantCredentialAsync(tenant.Id, "status-admin-" + suffix, true).ConfigureAwait(false);
+
+                using (HttpResponseMessage anonymous = await _UnauthClient.GetAsync("/api/v1/status").ConfigureAwait(false))
+                    AssertEqual(HttpStatusCode.Unauthorized, anonymous.StatusCode, "anonymous caller");
+                AssertEqual(HttpStatusCode.Forbidden, await GetStatusCodeWithBearerAsync(userToken).ConfigureAwait(false), "tenant user");
+                AssertEqual(HttpStatusCode.Forbidden, await GetStatusCodeWithBearerAsync(tenantAdminToken).ConfigureAwait(false), "tenant administrator");
+                using (HttpResponseMessage global = await _AuthClient.GetAsync("/api/v1/status").ConfigureAwait(false))
+                    AssertEqual(HttpStatusCode.OK, global.StatusCode, "global administrator");
+            }).ConfigureAwait(false);
+
             await RunTest("UsagePreview_RequiresAuthentication", async () =>
             {
                 using (StringContent content = JsonHelper.ToJsonContent(new { persona = "Worker" }))

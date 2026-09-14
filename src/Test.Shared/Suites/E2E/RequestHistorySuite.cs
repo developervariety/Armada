@@ -117,11 +117,11 @@ namespace Test.Shared.Suites.E2E
                 await E2EServerFixture.AcquireAsync(this);
 
                 _TenantAdminTrace = "tenant-admin-" + Guid.NewGuid().ToString("N").Substring(0, 10);
-                await InvokeStatusAsync(_TenantAAdminClient!, _TenantAdminTrace).ConfigureAwait(false);
+                await InvokeCapturedRequestAsync(_TenantAAdminClient!, _TenantAdminTrace).ConfigureAwait(false);
 
                 RequestHistoryEntry? entry = await FindEntryByTraceAsync(
                     _TenantAAdminClient!,
-                    "/api/v1/status",
+                    "/api/v1/whoami",
                     _TenantAdminTrace,
                     "GET").ConfigureAwait(false);
 
@@ -130,7 +130,7 @@ namespace Test.Shared.Suites.E2E
                 AssertEqual(_TenantAAdminUserId, entry.UserId);
                 AssertEqual(_TenantAAdminCredentialId, entry.CredentialId);
                 AssertEqual("GET", entry.Method);
-                AssertEqual("/api/v1/status", entry.Route);
+                AssertEqual("/api/v1/whoami", entry.Route);
                 AssertEqual(200, entry.StatusCode);
 
                 RequestHistoryRecord record = await ReadEntryAsync(_TenantAAdminClient!, entry.Id).ConfigureAwait(false);
@@ -181,7 +181,7 @@ namespace Test.Shared.Suites.E2E
                 string toUtc = DateTime.UtcNow.AddMinutes(10).ToString("o");
 
                 HttpResponseMessage response = await _TenantAAdminClient!.GetAsync(
-                    "/api/v1/request-history/summary?route=/api/v1/status&fromUtc="
+                    "/api/v1/request-history/summary?route=/api/v1/whoami&fromUtc="
                     + Uri.EscapeDataString(fromUtc)
                     + "&toUtc=" + Uri.EscapeDataString(toUtc)
                     + "&bucketMinutes=5").ConfigureAwait(false);
@@ -354,19 +354,19 @@ namespace Test.Shared.Suites.E2E
                 _TenantUserTrace = "tenant-user-" + Guid.NewGuid().ToString("N").Substring(0, 10);
                 _OtherTenantTrace = "other-tenant-" + Guid.NewGuid().ToString("N").Substring(0, 10);
 
-                await InvokeStatusAsync(_TenantAUserClient!, _TenantUserTrace).ConfigureAwait(false);
-                await InvokeStatusAsync(_TenantBAdminClient!, _OtherTenantTrace).ConfigureAwait(false);
+                await InvokeCapturedRequestAsync(_TenantAUserClient!, _TenantUserTrace).ConfigureAwait(false);
+                await InvokeCapturedRequestAsync(_TenantBAdminClient!, _OtherTenantTrace).ConfigureAwait(false);
 
                 RequestHistoryEntry? otherTenantEntry = await FindEntryByTraceAsync(
                     _TenantBAdminClient!,
-                    "/api/v1/status",
+                    "/api/v1/whoami",
                     _OtherTenantTrace,
                     "GET").ConfigureAwait(false);
                 AssertNotNull(otherTenantEntry, "Other-tenant entry");
                 _OtherTenantEntryId = otherTenantEntry!.Id;
 
                 HttpResponseMessage response = await _TenantAUserClient!.GetAsync(
-                    "/api/v1/request-history?route=/api/v1/status&pageSize=250").ConfigureAwait(false);
+                    "/api/v1/request-history?route=/api/v1/whoami&pageSize=250").ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.OK, response.StatusCode);
 
                 EnumerationResult<RequestHistoryEntry> result =
@@ -385,7 +385,7 @@ namespace Test.Shared.Suites.E2E
                 await E2EServerFixture.AcquireAsync(this);
 
                 HttpResponseMessage response = await _TenantAAdminClient!.GetAsync(
-                    "/api/v1/request-history?route=/api/v1/status&pageSize=250").ConfigureAwait(false);
+                    "/api/v1/request-history?route=/api/v1/whoami&pageSize=250").ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.OK, response.StatusCode);
 
                 EnumerationResult<RequestHistoryEntry> result =
@@ -413,7 +413,7 @@ namespace Test.Shared.Suites.E2E
                 HttpClient adminClient = fx.AuthClient;
 
                 HttpResponseMessage response = await adminClient.GetAsync(
-                    "/api/v1/request-history?route=/api/v1/status&tenantId=" + Uri.EscapeDataString(_TenantAId!) + "&pageSize=250").ConfigureAwait(false);
+                    "/api/v1/request-history?route=/api/v1/whoami&tenantId=" + Uri.EscapeDataString(_TenantAId!) + "&pageSize=250").ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.OK, response.StatusCode);
 
                 EnumerationResult<RequestHistoryEntry> result =
@@ -428,11 +428,11 @@ namespace Test.Shared.Suites.E2E
                 await E2EServerFixture.AcquireAsync(this);
 
                 string trace = "delete-single-" + Guid.NewGuid().ToString("N").Substring(0, 10);
-                await InvokeStatusAsync(_TenantAAdminClient!, trace).ConfigureAwait(false);
+                await InvokeCapturedRequestAsync(_TenantAAdminClient!, trace).ConfigureAwait(false);
 
                 RequestHistoryEntry? entry = await FindEntryByTraceAsync(
                     _TenantAAdminClient!,
-                    "/api/v1/status",
+                    "/api/v1/whoami",
                     trace,
                     "GET").ConfigureAwait(false);
                 AssertNotNull(entry, "Delete-single entry");
@@ -451,11 +451,11 @@ namespace Test.Shared.Suites.E2E
                 string traceOne = "delete-multi-a-" + Guid.NewGuid().ToString("N").Substring(0, 10);
                 string traceTwo = "delete-multi-b-" + Guid.NewGuid().ToString("N").Substring(0, 10);
 
-                await InvokeStatusAsync(_TenantAAdminClient!, traceOne).ConfigureAwait(false);
-                await InvokeStatusAsync(_TenantAAdminClient!, traceTwo).ConfigureAwait(false);
+                await InvokeCapturedRequestAsync(_TenantAAdminClient!, traceOne).ConfigureAwait(false);
+                await InvokeCapturedRequestAsync(_TenantAAdminClient!, traceTwo).ConfigureAwait(false);
 
-                RequestHistoryEntry? entryOne = await FindEntryByTraceAsync(_TenantAAdminClient!, "/api/v1/status", traceOne, "GET").ConfigureAwait(false);
-                RequestHistoryEntry? entryTwo = await FindEntryByTraceAsync(_TenantAAdminClient!, "/api/v1/status", traceTwo, "GET").ConfigureAwait(false);
+                RequestHistoryEntry? entryOne = await FindEntryByTraceAsync(_TenantAAdminClient!, "/api/v1/whoami", traceOne, "GET").ConfigureAwait(false);
+                RequestHistoryEntry? entryTwo = await FindEntryByTraceAsync(_TenantAAdminClient!, "/api/v1/whoami", traceTwo, "GET").ConfigureAwait(false);
                 AssertNotNull(entryOne, "Delete-multiple entry one");
                 AssertNotNull(entryTwo, "Delete-multiple entry two");
 
@@ -485,8 +485,8 @@ namespace Test.Shared.Suites.E2E
                 string traceTwo = "delete-filter-b-" + Guid.NewGuid().ToString("N").Substring(0, 10);
                 string fromUtc = DateTime.UtcNow.AddMinutes(-1).ToString("o");
 
-                await InvokeStatusAsync(_TenantAUserClient!, traceOne).ConfigureAwait(false);
-                await InvokeStatusAsync(_TenantAUserClient!, traceTwo).ConfigureAwait(false);
+                await InvokeCapturedRequestAsync(_TenantAUserClient!, traceOne).ConfigureAwait(false);
+                await InvokeCapturedRequestAsync(_TenantAUserClient!, traceTwo).ConfigureAwait(false);
                 string toUtc = DateTime.UtcNow.AddMinutes(1).ToString("o");
 
                 HttpResponseMessage response = await _TenantAAdminClient!.PostAsync(
@@ -494,7 +494,7 @@ namespace Test.Shared.Suites.E2E
                     JsonHelper.ToJsonContent(new
                     {
                         UserId = _TenantAUserId,
-                        Route = "/api/v1/status",
+                        Route = "/api/v1/whoami",
                         FromUtc = fromUtc,
                         ToUtc = toUtc
                     })).ConfigureAwait(false);
@@ -504,7 +504,7 @@ namespace Test.Shared.Suites.E2E
                 AssertTrue(result.Deleted >= 2, "Expected at least the two scoped user requests to be deleted");
 
                 HttpResponseMessage listResponse = await _TenantAUserClient!.GetAsync(
-                    "/api/v1/request-history?route=/api/v1/status&pageSize=250").ConfigureAwait(false);
+                    "/api/v1/request-history?route=/api/v1/whoami&pageSize=250").ConfigureAwait(false);
                 AssertEqual(HttpStatusCode.OK, listResponse.StatusCode);
 
                 EnumerationResult<RequestHistoryEntry> remaining =
@@ -614,9 +614,10 @@ namespace Test.Shared.Suites.E2E
             return client;
         }
 
-        private static async Task InvokeStatusAsync(HttpClient client, string trace)
+        private static async Task InvokeCapturedRequestAsync(HttpClient client, string trace)
         {
-            HttpResponseMessage response = await client.GetAsync("/api/v1/status?trace=" + Uri.EscapeDataString(trace)).ConfigureAwait(false);
+            // Capture needs a route every role may read; fleet status is a global-administrator read.
+            HttpResponseMessage response = await client.GetAsync("/api/v1/whoami?trace=" + Uri.EscapeDataString(trace)).ConfigureAwait(false);
             AssertEqual(HttpStatusCode.OK, response.StatusCode);
         }
 

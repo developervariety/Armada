@@ -135,9 +135,10 @@ namespace Armada.Test.Automated.Suites
             return client;
         }
 
-        private async Task InvokeStatusAsync(HttpClient client, string trace)
+        private async Task InvokeCapturedRequestAsync(HttpClient client, string trace)
         {
-            HttpResponseMessage response = await client.GetAsync("/api/v1/status?trace=" + Uri.EscapeDataString(trace)).ConfigureAwait(false);
+            // Capture needs a route every role may read; fleet status is a global-administrator read.
+            HttpResponseMessage response = await client.GetAsync("/api/v1/whoami?trace=" + Uri.EscapeDataString(trace)).ConfigureAwait(false);
             await AssertStatusCodeAsync(HttpStatusCode.OK, response).ConfigureAwait(false);
         }
 
@@ -255,11 +256,11 @@ namespace Armada.Test.Automated.Suites
             await RunTest("RequestHistory_CapturesStatusRequest_AndRedactsAuthorizationHeader", async () =>
             {
                 _TenantAdminTrace = "tenant-admin-" + Guid.NewGuid().ToString("N").Substring(0, 10);
-                await InvokeStatusAsync(_TenantAAdminClient!, _TenantAdminTrace).ConfigureAwait(false);
+                await InvokeCapturedRequestAsync(_TenantAAdminClient!, _TenantAdminTrace).ConfigureAwait(false);
 
                 RequestHistoryEntry? entry = await FindEntryByTraceAsync(
                     _TenantAAdminClient!,
-                    "/api/v1/status",
+                    "/api/v1/whoami",
                     _TenantAdminTrace,
                     "GET").ConfigureAwait(false);
 
@@ -268,7 +269,7 @@ namespace Armada.Test.Automated.Suites
                 AssertEqual(_TenantAAdminUserId, entry.UserId);
                 AssertEqual(_TenantAAdminCredentialId, entry.CredentialId);
                 AssertEqual("GET", entry.Method);
-                AssertEqual("/api/v1/status", entry.Route);
+                AssertEqual("/api/v1/whoami", entry.Route);
                 AssertEqual(200, entry.StatusCode);
 
                 RequestHistoryRecord record = await ReadEntryAsync(_TenantAAdminClient!, entry.Id).ConfigureAwait(false);
@@ -313,7 +314,7 @@ namespace Armada.Test.Automated.Suites
                 string toUtc = DateTime.UtcNow.AddMinutes(10).ToString("o");
 
                 HttpResponseMessage response = await _TenantAAdminClient!.GetAsync(
-                    "/api/v1/request-history/summary?route=/api/v1/status&fromUtc="
+                    "/api/v1/request-history/summary?route=/api/v1/whoami&fromUtc="
                     + Uri.EscapeDataString(fromUtc)
                     + "&toUtc=" + Uri.EscapeDataString(toUtc)
                     + "&bucketMinutes=5").ConfigureAwait(false);
@@ -483,20 +484,20 @@ namespace Armada.Test.Automated.Suites
                 _TenantUserTrace = "tenant-user-" + Guid.NewGuid().ToString("N").Substring(0, 10);
                 _OtherTenantTrace = "other-tenant-" + Guid.NewGuid().ToString("N").Substring(0, 10);
 
-                await InvokeStatusAsync(_TenantAUserClient!, _TenantUserTrace).ConfigureAwait(false);
-                await InvokeStatusAsync(_TenantBAdminClient!, _OtherTenantTrace).ConfigureAwait(false);
+                await InvokeCapturedRequestAsync(_TenantAUserClient!, _TenantUserTrace).ConfigureAwait(false);
+                await InvokeCapturedRequestAsync(_TenantBAdminClient!, _OtherTenantTrace).ConfigureAwait(false);
 
                 RequestHistoryEntry? otherTenantEntry = await FindEntryByTraceAsync(
                     _TenantBAdminClient!,
-                    "/api/v1/status",
+                    "/api/v1/whoami",
                     _OtherTenantTrace,
                     "GET").ConfigureAwait(false);
                 AssertNotNull(otherTenantEntry, "Other-tenant entry");
                 _OtherTenantEntryId = otherTenantEntry!.Id;
-                AssertNotNull(await FindEntryByTraceAsync(_TenantAUserClient!, "/api/v1/status", _TenantUserTrace, "GET").ConfigureAwait(false), "Own-user capture must finish");
+                AssertNotNull(await FindEntryByTraceAsync(_TenantAUserClient!, "/api/v1/whoami", _TenantUserTrace, "GET").ConfigureAwait(false), "Own-user capture must finish");
 
                 HttpResponseMessage response = await _TenantAUserClient!.GetAsync(
-                    "/api/v1/request-history?route=/api/v1/status&pageSize=250").ConfigureAwait(false);
+                    "/api/v1/request-history?route=/api/v1/whoami&pageSize=250").ConfigureAwait(false);
                 await AssertStatusCodeAsync(HttpStatusCode.OK, response).ConfigureAwait(false);
 
                 EnumerationResult<RequestHistoryEntry> result =
@@ -513,7 +514,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("RequestHistory_Scope_TenantAdmin_SeesTenantNotOtherTenant", async () =>
             {
                 HttpResponseMessage response = await _TenantAAdminClient!.GetAsync(
-                    "/api/v1/request-history?route=/api/v1/status&pageSize=250").ConfigureAwait(false);
+                    "/api/v1/request-history?route=/api/v1/whoami&pageSize=250").ConfigureAwait(false);
                 await AssertStatusCodeAsync(HttpStatusCode.OK, response).ConfigureAwait(false);
 
                 EnumerationResult<RequestHistoryEntry> result =
@@ -536,7 +537,7 @@ namespace Armada.Test.Automated.Suites
             await RunTest("RequestHistory_Scope_GlobalAdmin_CanFilterByTenant", async () =>
             {
                 HttpResponseMessage response = await _AdminClient.GetAsync(
-                    "/api/v1/request-history?route=/api/v1/status&tenantId=" + Uri.EscapeDataString(_TenantAId!) + "&pageSize=250").ConfigureAwait(false);
+                    "/api/v1/request-history?route=/api/v1/whoami&tenantId=" + Uri.EscapeDataString(_TenantAId!) + "&pageSize=250").ConfigureAwait(false);
                 await AssertStatusCodeAsync(HttpStatusCode.OK, response).ConfigureAwait(false);
 
                 EnumerationResult<RequestHistoryEntry> result =
@@ -553,11 +554,11 @@ namespace Armada.Test.Automated.Suites
             await RunTest("RequestHistory_DeleteSingle_RemovesEntry", async () =>
             {
                 string trace = "delete-single-" + Guid.NewGuid().ToString("N").Substring(0, 10);
-                await InvokeStatusAsync(_TenantAAdminClient!, trace).ConfigureAwait(false);
+                await InvokeCapturedRequestAsync(_TenantAAdminClient!, trace).ConfigureAwait(false);
 
                 RequestHistoryEntry? entry = await FindEntryByTraceAsync(
                     _TenantAAdminClient!,
-                    "/api/v1/status",
+                    "/api/v1/whoami",
                     trace,
                     "GET").ConfigureAwait(false);
                 AssertNotNull(entry, "Delete-single entry");
@@ -574,11 +575,11 @@ namespace Armada.Test.Automated.Suites
                 string traceOne = "delete-multi-a-" + Guid.NewGuid().ToString("N").Substring(0, 10);
                 string traceTwo = "delete-multi-b-" + Guid.NewGuid().ToString("N").Substring(0, 10);
 
-                await InvokeStatusAsync(_TenantAAdminClient!, traceOne).ConfigureAwait(false);
-                await InvokeStatusAsync(_TenantAAdminClient!, traceTwo).ConfigureAwait(false);
+                await InvokeCapturedRequestAsync(_TenantAAdminClient!, traceOne).ConfigureAwait(false);
+                await InvokeCapturedRequestAsync(_TenantAAdminClient!, traceTwo).ConfigureAwait(false);
 
-                RequestHistoryEntry? entryOne = await FindEntryByTraceAsync(_TenantAAdminClient!, "/api/v1/status", traceOne, "GET").ConfigureAwait(false);
-                RequestHistoryEntry? entryTwo = await FindEntryByTraceAsync(_TenantAAdminClient!, "/api/v1/status", traceTwo, "GET").ConfigureAwait(false);
+                RequestHistoryEntry? entryOne = await FindEntryByTraceAsync(_TenantAAdminClient!, "/api/v1/whoami", traceOne, "GET").ConfigureAwait(false);
+                RequestHistoryEntry? entryTwo = await FindEntryByTraceAsync(_TenantAAdminClient!, "/api/v1/whoami", traceTwo, "GET").ConfigureAwait(false);
                 AssertNotNull(entryOne, "Delete-multiple entry one");
                 AssertNotNull(entryTwo, "Delete-multiple entry two");
 
@@ -606,10 +607,10 @@ namespace Armada.Test.Automated.Suites
                 string traceTwo = "delete-filter-b-" + Guid.NewGuid().ToString("N").Substring(0, 10);
                 string fromUtc = DateTime.UtcNow.AddMinutes(-1).ToString("o");
 
-                await InvokeStatusAsync(_TenantAUserClient!, traceOne).ConfigureAwait(false);
-                await InvokeStatusAsync(_TenantAUserClient!, traceTwo).ConfigureAwait(false);
-                AssertNotNull(await FindEntryByTraceAsync(_TenantAUserClient!, "/api/v1/status", traceOne, "GET").ConfigureAwait(false), "First filtered capture");
-                AssertNotNull(await FindEntryByTraceAsync(_TenantAUserClient!, "/api/v1/status", traceTwo, "GET").ConfigureAwait(false), "Second filtered capture");
+                await InvokeCapturedRequestAsync(_TenantAUserClient!, traceOne).ConfigureAwait(false);
+                await InvokeCapturedRequestAsync(_TenantAUserClient!, traceTwo).ConfigureAwait(false);
+                AssertNotNull(await FindEntryByTraceAsync(_TenantAUserClient!, "/api/v1/whoami", traceOne, "GET").ConfigureAwait(false), "First filtered capture");
+                AssertNotNull(await FindEntryByTraceAsync(_TenantAUserClient!, "/api/v1/whoami", traceTwo, "GET").ConfigureAwait(false), "Second filtered capture");
                 string toUtc = DateTime.UtcNow.AddMinutes(1).ToString("o");
 
                 HttpResponseMessage response = await _TenantAAdminClient!.PostAsync(
@@ -617,7 +618,7 @@ namespace Armada.Test.Automated.Suites
                     JsonHelper.ToJsonContent(new
                     {
                         UserId = _TenantAUserId,
-                        Route = "/api/v1/status",
+                        Route = "/api/v1/whoami",
                         FromUtc = fromUtc,
                         ToUtc = toUtc
                     })).ConfigureAwait(false);
@@ -627,7 +628,7 @@ namespace Armada.Test.Automated.Suites
                 AssertTrue(result.Deleted >= 2, "Expected at least the two scoped user requests to be deleted");
 
                 HttpResponseMessage listResponse = await _TenantAUserClient!.GetAsync(
-                    "/api/v1/request-history?route=/api/v1/status&pageSize=250").ConfigureAwait(false);
+                    "/api/v1/request-history?route=/api/v1/whoami&pageSize=250").ConfigureAwait(false);
                 await AssertStatusCodeAsync(HttpStatusCode.OK, listResponse).ConfigureAwait(false);
 
                 EnumerationResult<RequestHistoryEntry> remaining =

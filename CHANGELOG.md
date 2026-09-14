@@ -14,6 +14,17 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Fleet status is a global-administrator read
+
+- `GET /api/v1/status` now requires a global administrator. It returned
+  fleet-wide captain, mission, voyage and signal state to any authenticated
+  caller. An anonymous caller receives `401`, and a tenant user or tenant
+  administrator receives `403`, matching the WebSocket `status.snapshot`,
+  which already withheld fleet status from narrower sessions.
+  `GET /api/v1/status/health` stays unauthenticated.
+- The request-history suites use `GET /api/v1/whoami` as their captured
+  request, because every role may read it.
+
 ### Mission assignment stays inside the mission's tenant
 
 - Mission assignment now selects and claims only a captain of the mission's own

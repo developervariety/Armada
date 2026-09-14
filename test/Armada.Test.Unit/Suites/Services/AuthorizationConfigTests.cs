@@ -55,6 +55,15 @@ namespace Armada.Test.Unit.Suites.Services
 
             // --- AdminOnly endpoints ---
 
+            await RunTest("Status GET IsAdminOnly", () =>
+            {
+                // Fleet status aggregates every tenant, so it is a global-administrator read like the
+                // WebSocket status snapshot. The unauthenticated health route stays open.
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/status"));
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/status/"));
+                AssertEqual(PermissionLevel.NoAuthRequired, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/status/health"));
+            });
+
             await RunTest("Tenants GET IsAdminOnly", () =>
             {
                 PermissionLevel level = AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/tenants");

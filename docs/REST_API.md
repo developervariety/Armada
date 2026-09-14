@@ -723,7 +723,13 @@ lacks authority over the owner.
 
 Returns aggregate status including captain counts, mission breakdown, active voyages, and recent signals.
 
-**Response:** `200 OK` - [ArmadaStatus](#armadastatus)
+**Requires a global administrator.** The status aggregates every tenant, so it
+follows the same rule as the WebSocket `status.snapshot`: an anonymous caller
+receives `401`, and a tenant user or tenant administrator receives `403`. A
+narrower caller reads its own records through the scoped list routes. The
+unauthenticated health check is [`GET /api/v1/status/health`](#get-apiv1statushealth).
+
+**Response:** `200 OK` - [ArmadaStatus](#armadastatus); `401 Unauthorized`; `403 Forbidden`
 
 ```json
 {
