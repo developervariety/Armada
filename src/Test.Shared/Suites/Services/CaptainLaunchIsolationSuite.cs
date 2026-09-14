@@ -72,15 +72,32 @@ namespace Test.Shared.Suites.Services
             }));
 
             // ---- Planner: Codex ----
-            cases.Add(Case("plan_codex_injects_http_override", "Codex plan injects the local MCP URL without replacing CODEX_HOME", TestTags.Positive, () =>
+            cases.Add(Case("plan_codex_injects_http_override", "Codex plan injects the local MCP URL and sets CODEX_HOME only to the account home", TestTags.Positive, () =>
             {
                 CaptainLaunchIsolationPlan plan = CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.Codex, 7891, scoped);
                 AssertFalse(plan.IsEmpty, "expected a non-empty plan");
                 AssertEqual(2, plan.ExtraArguments.Count);
                 AssertEqual("-c", plan.ExtraArguments[0]);
                 AssertTrue(plan.ExtraArguments[1].Contains("http://localhost:7891/mcp"), "expected local MCP URL override");
-                AssertFalse(plan.EnvironmentOverrides.ContainsKey("CODEX_HOME"), "must preserve captain authentication and provider profiles");
+                AssertFalse(plan.EnvironmentOverrides.ContainsKey("CODEX_HOME"), "a captain with no account keeps the shared login");
                 AssertEqual(0, plan.FilesToWrite.Count);
+
+                string home = Path.Combine(Path.GetTempPath(), "armada-isolation-codex-home-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(home);
+                try
+                {
+                    File.WriteAllText(Path.Combine(home, "auth.json"), "{}");
+                    Armada.Core.Models.Captain captain = new Armada.Core.Models.Captain("codex-account", AgentRuntimeEnum.Codex);
+                    Armada.Core.Settings.UsageAccountSettings account = new Armada.Core.Settings.UsageAccountSettings { Id = "codex-second", Runtime = AgentRuntimeEnum.Codex, HomeDirectory = home };
+                    CaptainLaunchIsolationPlanner.ApplyAccount(plan, captain, account);
+                    AssertEqual(home, plan.EnvironmentOverrides["CODEX_HOME"], "an account captain launches in the account home");
+                    AssertFalse(String.Equals(scoped, plan.EnvironmentOverrides["CODEX_HOME"], StringComparison.Ordinal), "CODEX_HOME must never be the empty scoped directory");
+                    AssertEqual(2, plan.ExtraArguments.Count);
+                }
+                finally
+                {
+                    Directory.Delete(home, true);
+                }
             }));
 
             // ---- Planner: Gemini / Cursor (HOME override) ----

@@ -1621,6 +1621,16 @@ the Dashboard Settings page:
 | `modelProviders` | No (startup) | empty | modelProviders JSON |
 | `additionalPromptTemplates` / `additionalPersonas` / `additionalPipelines` | No (startup) | empty | Additional-asset JSON |
 
+A `modelTier.usageRouting` account can also own a separate captain login.
+Set `runtime` plus `homeDirectory` (ClaudeCode `CLAUDE_CONFIG_DIR`, Codex
+`CODEX_HOME`, OpenCode `XDG_DATA_HOME`), or `launchCredentialEnv` for Cursor
+(`CURSOR_API_KEY`). An account without those fields launches its captains on
+the shared login, as before. A missing login blocks the account with a named
+reason. A quota, billing, or authentication failure on one captain holds the
+whole account Exhausted and quarantines its idle captains until the retry time.
+Rollout of any second subscription account needs an owner decision under the
+provider's terms. See [Account logins](USAGE_ROUTING.md#account-logins).
+
 When both tier lists and family rules are empty, every idle
 persona-eligible captain is an equal peer. That is the vanilla dispatch
 path. Low still maps to mid: that is the platform two-tier architecture,

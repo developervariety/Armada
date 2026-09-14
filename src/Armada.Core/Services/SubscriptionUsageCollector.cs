@@ -148,6 +148,9 @@ namespace Armada.Core.Services
             string? credential = String.IsNullOrWhiteSpace(account.CredentialEnv) ? null : Environment.GetEnvironmentVariable(account.CredentialEnv);
             if (!String.IsNullOrWhiteSpace(credential)) return credential.Trim();
             string? path = account.CredentialFilePath;
+            // An account login home owns its own login file; the shared default applies only without a home.
+            if (String.IsNullOrWhiteSpace(path) && (account.Collector == "Claude" || account.Collector == "OpenCodeGo"))
+                path = CaptainAccountLaunch.LoginFilePath(account);
             if (String.IsNullOrWhiteSpace(path) && account.Collector == "Claude")
                 path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", ".credentials.json");
             if (String.IsNullOrWhiteSpace(path)) throw new UsageCollectionException("usage_credentials_not_configured");

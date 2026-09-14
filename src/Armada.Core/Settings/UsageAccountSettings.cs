@@ -2,6 +2,7 @@ namespace Armada.Core.Settings
 {
     using System;
     using System.Collections.Generic;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
 
     /// <summary>One shared subscription or prepaid allowance account.</summary>
@@ -21,7 +22,23 @@ namespace Armada.Core.Settings
         /// <summary>Exact collector window names mapped to model IDs. Unmapped windows conservatively apply to all models.</summary>
         public Dictionary<string, List<string>> WindowModels { get; set; } = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
 
+        /// <summary>
+        /// Captain runtime whose login this account owns: ClaudeCode, Codex, OpenCode, or Cursor. Null keeps the
+        /// account usage-only, and every captain launches with the shared login.
+        /// </summary>
+        public AgentRuntimeEnum? Runtime { get; set; }
 
+        /// <summary>
+        /// Absolute login home for ClaudeCode (CLAUDE_CONFIG_DIR), Codex (CODEX_HOME), or OpenCode (XDG_DATA_HOME).
+        /// Holds a path only; the owner logs in inside it. Null keeps the shared login.
+        /// </summary>
+        public string? HomeDirectory { get; set; }
+
+        /// <summary>
+        /// Cursor only: the NAME of the server environment variable holding this account's API key, passed to the
+        /// captain as CURSOR_API_KEY. The value is read at launch and never stored.
+        /// </summary>
+        public string? LaunchCredentialEnv { get; set; }
 
         /// <summary>Unique operator-defined account identifier.</summary>
         public string Id { get; set; } = String.Empty;

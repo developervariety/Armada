@@ -34,6 +34,30 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   `productionFactRetentionDays`, default 365, and purged by the same run; `0`
   keeps them forever. A production summary window older than the retention
   reports those measures as unobserved or unknown instead of a value.
+### Per-account captain logins
+
+- A usage account can name its captain `runtime` and a login `homeDirectory`,
+  or for Cursor the name of a key variable. Its captains launch with
+  `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `XDG_DATA_HOME`, or `CURSOR_API_KEY`.
+  Accounts without these fields launch on the shared login, as before.
+  Settings hold paths and variable names only.
+- Validation rejects an unsupported account runtime, a collector for another
+  runtime, a captain whose runtime differs from its account, and a login on an
+  account that lists a captain with its own provider key or base URL.
+- A missing home, login file, or Cursor key makes the account Exhausted with a
+  named reason in settings status and the usage preview. A launch on such an
+  account fails with that reason instead of using the shared login.
+- Codex external-provider profiles are written into the account `CODEX_HOME`.
+  The Codex usage collector measures each account through its own home, so two
+  Codex accounts report separate windows. Claude and OpenCode Go collectors
+  read the login file inside the account home.
+- A quota, billing, or authentication failure on one captain holds its whole
+  account Exhausted until the retry time and quarantines the account's idle
+  captains, so the re-routed mission goes to a different account.
+- The Routing V2 account template and status table show the runtime and the
+  hold expiry. Rollout of a second subscription account needs an owner
+  decision under the provider's terms. See
+  [account logins](docs/USAGE_ROUTING.md#account-logins).
 
 ### API endpoint runtime lifecycle
 

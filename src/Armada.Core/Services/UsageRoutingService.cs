@@ -25,6 +25,7 @@ namespace Armada.Core.Services
         private readonly Dictionary<string, bool> _Conserving = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, DateTime> _RetryAfter = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, string> _AccountSources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, DateTime> _ExhaustedUntil = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
         private UsageRoutingSettings? _LastSettings;
         private DateTime _NextRefreshUtc;
 
@@ -62,6 +63,8 @@ namespace Armada.Core.Services
                 if (account.WindowModels == null || account.WindowModels.Any(p => String.IsNullOrWhiteSpace(p.Key) || p.Value == null || p.Value.Any(String.IsNullOrWhiteSpace))) throw new ArgumentException("Usage window model mappings are invalid.");
                 if (account.Collector == "File" && String.IsNullOrWhiteSpace(account.UsageFilePath)) throw new ArgumentException("File collector requires a usage snapshot path.");
                 if (account.ManualSnapshot != null) ValidateSnapshot(account.ManualSnapshot);
+                CaptainAccountLaunch.ValidateAccount(account);
+                if (account.Runtime.HasValue && !CollectorMatchesRuntime(account.Collector, account.Runtime.Value)) throw new ArgumentException("Usage account " + account.Id + " collector " + account.Collector + " does not measure runtime " + account.Runtime.Value + ".");
             }
             HashSet<string> personas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (KeyValuePair<string, List<UsageRouteSettings>> pair in settings.PersonaRoutes)
@@ -101,10 +104,11 @@ namespace Armada.Core.Services
                     lock (_StateLock)
                     {
                         HashSet<string> retained = new HashSet<string>(settings.Accounts.Select(a => a.Id), StringComparer.OrdinalIgnoreCase);
-                        foreach (string id in _AccountSources.Keys.Where(id => !retained.Contains(id)).ToList()) ForgetAccount(id);
+                        foreach (string id in _AccountSources.Keys.Where(id => !retained.Contains(id)).ToList()) { ForgetAccount(id); _ExhaustedUntil.Remove(id); }
                         foreach (UsageAccountSettings account in settings.Accounts)
                         {
                             string source = account.Collector + "\n" + account.CredentialEnv + "\n" + account.CredentialFilePath + "\n" + account.UsageFilePath
+                                + "\n" + account.Runtime + "\n" + account.HomeDirectory + "\n" + account.LaunchCredentialEnv
                                 + "\n" + String.Join(",", account.CaptainIds) + "\n" + JsonSerializer.Serialize(account.WindowModels);
                             if (!_AccountSources.TryGetValue(account.Id, out string? previous) || source != previous) ForgetAccount(account.Id);
                             _AccountSources[account.Id] = source;
@@ -123,7 +127,7 @@ namespace Armada.Core.Services
                         if (account.Collector != "File")
                         {
                             ProviderUsageSnapshot measured = account.Collector == "Codex"
-                                ? await CodexUsageCollector.CollectAsync(token).ConfigureAwait(false)
+                                ? await CodexUsageCollector.CollectAsync(account, token).ConfigureAwait(false)
                                 : await SubscriptionUsageCollector.CollectAsync(account, token).ConfigureAwait(false);
                             ApplyWindowModels(account, measured);
                             lock (_StateLock) { _Snapshots[account.Id] = measured; _Errors.Remove(account.Id); }
@@ -170,6 +174,18 @@ namespace Armada.Core.Services
             foreach (string key in _Conserving.Keys.Where(key => key.StartsWith(id + "\n", StringComparison.OrdinalIgnoreCase)).ToList()) _Conserving.Remove(key);
         }
 
+        private static bool CollectorMatchesRuntime(string collector, Armada.Core.Enums.AgentRuntimeEnum runtime)
+        {
+            return collector switch
+            {
+                "Codex" => runtime == Armada.Core.Enums.AgentRuntimeEnum.Codex,
+                "Claude" => runtime == Armada.Core.Enums.AgentRuntimeEnum.ClaudeCode,
+                "Cursor" => runtime == Armada.Core.Enums.AgentRuntimeEnum.Cursor,
+                "OpenCodeGo" => runtime == Armada.Core.Enums.AgentRuntimeEnum.OpenCode,
+                _ => true
+            };
+        }
+
         private static void ApplyWindowModels(UsageAccountSettings account, ProviderUsageSnapshot snapshot)
         {
             foreach (ProviderUsageWindow window in snapshot.Windows)
@@ -183,19 +199,48 @@ namespace Armada.Core.Services
             return window.Models;
         }
 
+        /// <summary>
+        /// Mark a whole account Exhausted until the provider's retry time, after one of its captains failed on a quota,
+        /// billing, or authentication signal. Every captain on the account shares the same allowance and login, so the
+        /// next one would fail the same way. An operator override still wins; a later mark never shortens an earlier one.
+        /// </summary>
+        public void MarkAccountExhausted(string accountId, DateTime untilUtc)
+        {
+            if (String.IsNullOrWhiteSpace(accountId)) throw new ArgumentException("Account ID is required.", nameof(accountId));
+            DateTime until = untilUtc.Kind == DateTimeKind.Utc ? untilUtc : DateTime.SpecifyKind(untilUtc.ToUniversalTime(), DateTimeKind.Utc);
+            lock (_StateLock)
+                if (!_ExhaustedUntil.TryGetValue(accountId, out DateTime existing) || existing < until) _ExhaustedUntil[accountId] = until;
+        }
+
         /// <summary>Evaluate the applicable windows. A reset invalidates the old observation; it never invents a full allowance.</summary>
         public ProviderUsageStatus GetStatus(UsageAccountSettings account, string? model, DateTime now)
         {
+            // A missing login blocks before any allowance question: the captain cannot run at all.
+            string? loginProblem = CaptainAccountLaunch.CheckReadiness(account);
             lock (_StateLock)
             {
                 ProviderUsageSnapshot? snapshot = account.ManualSnapshot;
                 if (account.Collector != "Manual") _Snapshots.TryGetValue(account.Id, out snapshot);
                 ProviderUsageStatus result = new ProviderUsageStatus { AccountId = account.Id, ObservedUtc = snapshot?.ObservedUtc, Source = snapshot?.Source ?? "none", Windows = snapshot?.Windows ?? new List<ProviderUsageWindow>() };
+                result.Runtime = account.Runtime?.ToString();
                 if (_Errors.TryGetValue(account.Id, out string? error)) result.CollectionError = error;
+                if (loginProblem != null)
+                {
+                    result.State = "Exhausted";
+                    result.Reason = loginProblem;
+                    return result;
+                }
                 if (account.OverrideState != null && account.OverrideUntilUtc > now)
                 {
                     result.State = account.OverrideState;
                     result.Reason = "operator_override";
+                    return result;
+                }
+                if (_ExhaustedUntil.TryGetValue(account.Id, out DateTime exhaustedUntil) && exhaustedUntil > now)
+                {
+                    result.State = "Exhausted";
+                    result.Reason = "account_provider_failure";
+                    result.ExhaustedUntilUtc = exhaustedUntil;
                     return result;
                 }
                 bool stale = snapshot == null || snapshot.ObservedUtc > now || snapshot.ObservedUtc.AddMinutes(account.MaxAgeMinutes) <= now;

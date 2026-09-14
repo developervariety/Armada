@@ -369,6 +369,12 @@ namespace Armada.Server.Routes
                 UsageRoutingService usage = body.UsageRouting == null ? UsageRoutingService.For(_settings) : new UsageRoutingService();
                 await usage.RefreshAsync(policy).ConfigureAwait(false);
                 List<Captain> captains = await _database.Captains.EnumerateAsync().ConfigureAwait(false);
+                try { CaptainAccountLaunch.ValidateCaptainBindings(policy, captains); }
+                catch (ArgumentException ex)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
+                }
                 Mission mission = new Mission { Persona = body.Persona, Priority = body.Priority, PreferredModel = body.PreferredModel };
                 List<Captain> idle = captains.Where(c => c.State == CaptainStateEnum.Idle && (!c.QuarantineUntilUtc.HasValue || c.QuarantineUntilUtc <= DateTime.UtcNow)).ToList();
                 List<Captain> eligible = UsageRoutingService.Eligible(_settings.ModelTier, mission, idle);
@@ -416,7 +422,12 @@ namespace Armada.Server.Routes
 
                 if (body.ModelTier?.UsageRouting != null)
                 {
-                    try { UsageRoutingService.Validate(body.ModelTier.UsageRouting); }
+                    List<Captain> boundCaptains = await _database.Captains.EnumerateAsync().ConfigureAwait(false);
+                    try
+                    {
+                        UsageRoutingService.Validate(body.ModelTier.UsageRouting);
+                        CaptainAccountLaunch.ValidateCaptainBindings(body.ModelTier.UsageRouting, boundCaptains);
+                    }
                     catch (ArgumentException ex)
                     {
                         req.Http.Response.StatusCode = 400;

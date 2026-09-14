@@ -2733,6 +2733,7 @@ namespace Armada.Core.Services
                             benchUntil, token).ConfigureAwait(false);
                     }
 
+                    await HoldUsageAccountAsync(captain, retryAfterUtc, token).ConfigureAwait(false);
                     await HandleQuotaFailureRerouteAsync(captain, mission, missionId, failureReason, isCreditAuth, retryAfterUtc, token).ConfigureAwait(false);
                     return;
                 }
@@ -3062,6 +3063,52 @@ namespace Armada.Core.Services
                 model + "' until " + untilUtc.ToString("o", System.Globalization.CultureInfo.InvariantCulture) +
                 "; " + skippedBusy + " busy sibling(s) keep running and bench when their own run returns the cap" +
                 "; other models on this provider stay available until they hit the cap themselves");
+        }
+
+        /// <summary>
+        /// Hold the failing captain's whole usage account Exhausted until the provider's retry time. Every captain on
+        /// one account shares its allowance and login, so benching only the failed captain lets the re-route land on a
+        /// sibling that fails the same way. Idle siblings are held now; a busy sibling keeps its running mission and
+        /// routing refuses it new work while the account is Exhausted. A captain on no account is unaffected.
+        /// </summary>
+        private async Task HoldUsageAccountAsync(Captain failingCaptain, DateTime? retryAfterUtc, CancellationToken token)
+        {
+            UsageAccountSettings? account = CaptainAccountLaunch.FindAccount(_Settings.ModelTier.UsageRouting, failingCaptain.Id);
+            if (account == null) return;
+
+            DateTime nowUtc = DateTime.UtcNow;
+            DateTime untilUtc = retryAfterUtc.HasValue && retryAfterUtc.Value.ToUniversalTime() > nowUtc
+                ? retryAfterUtc.Value.ToUniversalTime()
+                : nowUtc.AddSeconds(_Settings.CaptainQuarantine.DefaultBackoffSeconds);
+            UsageRoutingService.For(_Settings).MarkAccountExhausted(account.Id, untilUtc);
+
+            string reason = "Usage account " + account.Id + " is exhausted: captain " + failingCaptain.Id +
+                " hit a provider quota, billing, or authentication limit.";
+            AuthContext siblingScope = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, true, true, "Internal");
+            int held = 0;
+            int busy = 0;
+            foreach (string siblingId in account.CaptainIds)
+            {
+                if (String.Equals(siblingId, failingCaptain.Id, StringComparison.OrdinalIgnoreCase)) continue;
+                try
+                {
+                    CaptainQuarantineResult result = await _CaptainQuarantine.QuarantineCaptainAsync(siblingScope, siblingId, reason, untilUtc, token).ConfigureAwait(false);
+                    if (result.Outcome == CaptainQuarantineOutcomeEnum.Quarantined) held++;
+                    else if (result.Outcome == CaptainQuarantineOutcomeEnum.Busy) busy++;
+                    else _Logging.Warn(_Header + "usage account hold: captain " + siblingId + " not held (" + result.Outcome + "): " + result.Message);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "usage account hold: could not hold captain " + siblingId + ": " + ex.Message);
+                }
+            }
+            _Logging.Warn(_Header + "usage account " + account.Id + " held Exhausted until " +
+                untilUtc.ToString("o", System.Globalization.CultureInfo.InvariantCulture) + " after captain " + failingCaptain.Id +
+                " failed; held " + held + " idle sibling(s), " + busy + " busy sibling(s) keep their running mission");
         }
 
         private Task HandleQuotaFailureRerouteAsync(

@@ -19,6 +19,9 @@ namespace Armada.Core.Services
     ///   physically cannot read the host user's configuration.
     /// - Mux: a scoped MUX_CONFIG_DIR containing mcp-servers.json.
     ///
+    /// A captain on a subscription account also receives that account's login switch through
+    /// <see cref="ApplyAccount"/>, independent of MCP isolation.
+    ///
     /// Side-effect free (writes nothing) so it can be unit tested in isolation; the caller materializes the
     /// returned files and applies the environment/arguments.
     /// </summary>
@@ -86,6 +89,31 @@ namespace Armada.Core.Services
                     break;
             }
 
+            return plan;
+        }
+
+        /// <summary>
+        /// Add a captain's subscription account login switch to a launch plan: CLAUDE_CONFIG_DIR, CODEX_HOME,
+        /// XDG_DATA_HOME, or CURSOR_API_KEY. The switch is always the account's own home or key, never a scoped
+        /// directory, so the runtime keeps that account's login and provider profiles. A captain with no account, or an
+        /// account with no login binding, leaves the plan unchanged.
+        /// </summary>
+        /// <param name="plan">Plan to extend; returned for chaining.</param>
+        /// <param name="captain">Captain being launched.</param>
+        /// <param name="account">The captain's account, or null.</param>
+        /// <param name="readEnvironment">Reads a server environment variable; defaults to the process environment.</param>
+        /// <returns>The same plan.</returns>
+        /// <exception cref="CaptainAccountLaunchException">The account cannot supply its login.</exception>
+        public static CaptainLaunchIsolationPlan ApplyAccount(CaptainLaunchIsolationPlan plan, Armada.Core.Models.Captain captain, Armada.Core.Settings.UsageAccountSettings? account, Func<string, string?>? readEnvironment = null)
+        {
+            if (plan == null) throw new ArgumentNullException(nameof(plan));
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            if (!CaptainAccountLaunch.HasLaunchIdentity(account)) return plan;
+            // Captains that carry their own provider key or endpoint keep their launch unchanged.
+            if (!String.IsNullOrWhiteSpace(captain.ApiKey) || !String.IsNullOrWhiteSpace(captain.ApiBaseUrl))
+                throw new CaptainAccountLaunchException(CaptainAccountLaunch.ReasonProviderCaptain, account!.Id);
+            foreach (System.Collections.Generic.KeyValuePair<string, string> pair in CaptainAccountLaunch.BuildEnvironment(captain.Runtime, account, readEnvironment))
+                plan.EnvironmentOverrides[pair.Key] = pair.Value;
             return plan;
         }
 

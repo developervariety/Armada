@@ -27,6 +27,12 @@ namespace Armada.Core.Models
         /// <summary>Safe collection error code; never raw provider output.</summary>
         public string? CollectionError { get; set; }
 
+        /// <summary>Captain runtime whose login the account owns, or null for a usage-only account.</summary>
+        public string? Runtime { get; set; }
+
+        /// <summary>When a quota, billing, or authentication failure on one captain holds the whole account Exhausted.</summary>
+        public DateTime? ExhaustedUntilUtc { get; set; }
+
         /// <summary>Last known usage windows; inspect measurement time before use.</summary>
         public List<ProviderUsageWindow> Windows { get; set; } = new List<ProviderUsageWindow>();
 

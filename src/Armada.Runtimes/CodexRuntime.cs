@@ -121,12 +121,17 @@ namespace Armada.Runtimes
         /// its base URL, and the environment variable holding the credential.
         /// </summary>
         /// <param name="resolved">Resolved provider for the captain being launched.</param>
-        private void EnsureProviderProfile(ResolvedModelProvider resolved)
+        /// <param name="isolationPlan">Launch plan; when it carries an account CODEX_HOME the profile is written there, because Codex reads profiles only from its own home.</param>
+        private void EnsureProviderProfile(ResolvedModelProvider resolved, CaptainLaunchIsolationPlan? isolationPlan)
         {
             if (resolved == null) return;
 
             string profileName = ProviderProfileName(resolved);
-            string codexDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
+            string codexDir = isolationPlan != null
+                && isolationPlan.EnvironmentOverrides.TryGetValue(CaptainAccountLaunch.CodexHomeVariable, out string? accountHome)
+                && !String.IsNullOrWhiteSpace(accountHome)
+                ? accountHome
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
             Directory.CreateDirectory(codexDir);
 
             string path = Path.Combine(codexDir, profileName + ".config.toml");
@@ -209,7 +214,7 @@ namespace Armada.Runtimes
             ResolvedModelProvider? resolved = ModelProviderResolver.Resolve(captain, captain?.Model ?? model, _ModelProviders);
             if (resolved != null)
             {
-                EnsureProviderProfile(resolved);
+                EnsureProviderProfile(resolved, isolationPlan);
             }
 
             return await base.StartAsync(

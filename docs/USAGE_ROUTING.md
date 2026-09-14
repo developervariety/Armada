@@ -61,7 +61,7 @@ retries without treating this wait as an assignment failure.
 
 | Collector | Read source | Credential reference |
 | --- | --- | --- |
-| `Codex` | `codex app-server` JSON-RPC `account/rateLimits/read` | Existing login of the Admiral service user |
+| `Codex` | `codex app-server` JSON-RPC `account/rateLimits/read` | The account's `homeDirectory` as `CODEX_HOME`, or the Admiral service user's login when no home is set |
 | `Claude` | `https://api.anthropic.com/api/oauth/usage` | `credentialEnv` names an OAuth token variable, or `credentialFilePath` points to Claude's credentials JSON |
 | `Cursor` | `https://cursor.com/api/usage-summary` | Environment variable or file containing the Cookie header value |
 | `OpenCodeGo` | `https://opencode.ai/zen/go/v1/usage` | Environment variable or file containing an API key; an OpenCode auth JSON file with an `opencode-go` API entry also works |
@@ -85,9 +85,12 @@ An HTTP 429 honors Retry-After, or uses a 15-minute retry delay. It means the
 usage endpoint is rate limited; it does not prove model allowance exhaustion.
 
 Use one account per actual shared allowance, with every associated captain ID.
-The Codex collector uses one server-user login; do not represent that same login
-as independent accounts. Claude defaults to `~/.claude/.credentials.json` when
-no reference is supplied. OAuth needs access to account usage. Armada does not
+An account without `homeDirectory` shares the server-user login; do not represent
+that one login as independent accounts. A Codex account with its own
+`homeDirectory` is measured through that home, so two Codex accounts report
+separate windows. Claude reads `<homeDirectory>/.credentials.json` and OpenCodeGo
+reads `<homeDirectory>/opencode/auth.json` when no reference is supplied. Without
+a home, Claude defaults to `~/.claude/.credentials.json`. OAuth needs access to account usage. Armada does not
 refresh or modify login files. Cursor needs an explicit session cookie reference;
 Armada does not import browser cookies. OpenCodeGo measures the Go subscription,
 not every model or third-party provider that the OpenCode runtime can run.
@@ -105,6 +108,58 @@ additional limit. Go keeps rolling, weekly, and monthly windows separate.
 Configure `windowModels` after inspecting reported names and confirming which
 captain models consume each pool. Unknown fields remain Unknown; local token
 counts are not treated as subscription allowance.
+
+## Account logins
+
+By default every subscription captain of one runtime uses the one login of the
+Admiral service user. An account can own a separate login instead. This is
+disabled by default: an account with no `runtime`, or no `homeDirectory` or
+`launchCredentialEnv`, launches its captains exactly as before.
+
+**Owner decision required before rollout.** Confirm that each additional
+subscription account is permitted for this use under the provider's terms
+(Anthropic, OpenAI, Cursor, OpenCode) before you add a second-account captain.
+Armada does not create accounts, sign in, copy login files, refresh tokens, or
+accept billing terms.
+
+| `runtime` | Launch switch | Login check |
+| --- | --- | --- |
+| `ClaudeCode` | `CLAUDE_CONFIG_DIR=<homeDirectory>` | `<homeDirectory>/.credentials.json` exists |
+| `Codex` | `CODEX_HOME=<homeDirectory>` | `<homeDirectory>/auth.json` exists |
+| `OpenCode` | `XDG_DATA_HOME=<homeDirectory>` | `<homeDirectory>/opencode/auth.json` exists |
+| `Cursor` | `CURSOR_API_KEY` from the variable named by `launchCredentialEnv` | That variable is set on the server |
+
+- `homeDirectory` is an absolute path, and it holds only a path. Keep one home
+  per login, for example under the Admiral's `accounts/<id>/` folder, mode
+  0700. Log in inside the home (`CODEX_HOME=<home> codex login --device-auth`).
+  Do not copy `auth.json` or `.credentials.json` between homes; token rotation
+  invalidates copies.
+- Cursor keeps its normal `HOME`, so git, gh, and ssh configuration stay
+  visible. `launchCredentialEnv` is a variable **name**; Armada reads the value
+  at launch and never stores it. The Cursor usage collector still needs its own
+  session-cookie reference in `credentialEnv` or `credentialFilePath`.
+  `XDG_DATA_HOME` also moves OpenCode session storage into the home.
+- Codex external-provider profiles for a captain on an account are written into
+  that account's `CODEX_HOME`.
+- Validation rejects an account whose `runtime` is not one of the four above,
+  whose collector measures a different runtime, or whose listed captain uses a
+  different runtime. It also rejects a login on an account that lists a captain
+  carrying its own `apiKey` or `apiBaseUrl`; such captains keep their launch.
+- A missing home, missing login file, or unset Cursor key variable makes the
+  account `Exhausted` with reason `account_home_missing`,
+  `account_login_missing`, or `account_launch_credential_unavailable`. This is
+  visible in settings status and the usage preview, and blocks assignment when
+  routing is enabled. A launch that still reaches such an account fails with
+  the same reason; it never falls back to the shared login. The check tests
+  that the login is present, not that the provider accepts it.
+
+When a captain fails on a quota, billing, or authentication signal, Armada holds
+its **whole account** Exhausted until the provider's retry time (reason
+`account_provider_failure`, with `exhaustedUntilUtc`). Idle captains on the same
+account are quarantined until then, so the re-routed mission cannot land on
+them. A busy captain on the account keeps its running mission, and routing gives
+it no new work while the hold lasts. The hold is kept in memory and ends at a
+restart. An operator override replaces it.
 
 ## Unknown data and overrides
 

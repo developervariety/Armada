@@ -212,7 +212,7 @@ off). A deployment applies fleet policy from settings, not from C#.
   configured specialist and Judge stages stay `high`. Preview reports separate
   requirements when mission descriptions use different literal model pins.
 - Specialist reservation, family classification, within-tier preference order, non-native-first, reserved high-tier slots, and the stage-persona title-prefix guard live in `ArmadaSettings` (`factory/settings.fleet.example.json` is the overlay that restores the former hardcoded fleet).
-- Optional [Routing V2](docs/USAGE_ROUTING.md) replaces legacy preference overrides when enabled. It preserves persona preferences and moves routine work to approved fallback accounts when allowance runs low. The Dashboard Server hub’s Routing V2 tab supports account usage, reserve thresholds, budget planning, and draft previews. Collectors support Codex, Claude, Cursor, OpenCode Go, and normalized local snapshots.
+- Optional [Routing V2](docs/USAGE_ROUTING.md) replaces legacy preference overrides when enabled. It preserves persona preferences and moves routine work to approved fallback accounts when allowance runs low. The Dashboard Server hub’s Routing V2 tab supports account usage, reserve thresholds, budget planning, and draft previews. Collectors support Codex, Claude, Cursor, OpenCode Go, and normalized local snapshots. An account can own a separate captain login for Claude Code, Codex, OpenCode, or Cursor; it is off unless configured, and a provider limit on one captain holds its whole account.
 - Dashboard Settings edits those fields. `modelTier` and `voyageDispatch` hot-reload; `modelProviders` and additional personas/pipelines/templates load at startup.
 
 ### Code Index, Context Packs, and Graph Search

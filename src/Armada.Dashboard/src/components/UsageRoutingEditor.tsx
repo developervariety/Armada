@@ -38,7 +38,8 @@ export default function UsageRoutingEditor({ value, onChange, statuses }: Props)
   const addAccount = () => {
     const accounts = Array.isArray(policy?.accounts) ? policy.accounts : [];
     update({ accounts: [...accounts, {
-      id: `account-${accounts.length + 1}`, captainIds: [], collector: 'Manual', credentialEnv: null, credentialFilePath: null, windowModels: {}, monthlyCost: 0,
+      id: `account-${accounts.length + 1}`, captainIds: [], collector: 'Manual', credentialEnv: null, credentialFilePath: null,
+      runtime: null, homeDirectory: null, launchCredentialEnv: null, windowModels: {}, monthlyCost: 0,
       lowRemainingPercent: 25, reserveRemainingPercent: 10, recoveryRemainingPercent: 35,
       resetGraceMinutes: 0, maxAgeMinutes: 15, unknownUsagePolicy: 'Allow',
       maxConcurrentMissions: 0, reservedPersonas: [], reservedPriorityAtOrAbove: null,
@@ -63,6 +64,7 @@ export default function UsageRoutingEditor({ value, onChange, statuses }: Props)
       {Number(policy?.monthlyBudget) > 0 && cost > Number(policy?.monthlyBudget) && <strong> — {t('Above budget')}</strong>}</p>
     <details><summary>{t('Policy fields and data sources')}</summary>
       <p>{t('Accounts map captainIds to one shared allowance. collector supports Manual, File, Codex, Claude, Cursor, and OpenCodeGo. Codex queries the server user’s existing login without starting a task. Claude uses OAuth credentials, Cursor uses a cookie header, and OpenCodeGo uses an API key. Set credentialEnv or credentialFilePath; enter only the reference, never the secret.')}</p>
+      <p>{t('To give captains their own login, set runtime (ClaudeCode, Codex, OpenCode, or Cursor) and homeDirectory, an absolute login home the owner signed in to. Cursor uses launchCredentialEnv, the name of a server variable holding its API key, instead of a home. Every listed captain must use that runtime. A missing login blocks the account with a named reason. A quota, billing, or authentication failure on one captain holds the whole account Exhausted. Adding a second subscription account needs an owner decision under the provider terms.')}</p>
       <p>{t('Set reserveRemainingPercent ≤ lowRemainingPercent < recoveryRemainingPercent. reservedPersonas and reservedPriorityAtOrAbove can use the reserve; lower priority numbers mean more important work. Exhausted accounts block all work. unknownUsagePolicy is Allow, Conserve, or Block.')}</p>
       <p>{t('personaRoutes maps each persona to an ordered list of {accountId, models}. An empty models list accepts all eligible models on that account. Unlisted routes are not used for that persona. A missing persona route waits unless a * default route exists. Captain IDs are available on the Captains page.')}</p>
       <p>{t('windowModels maps exact usage window names to model IDs. Map Cursor pools and model-specific Claude windows before enabling. Unmapped windows apply to every model conservatively.')}</p>
@@ -74,9 +76,10 @@ export default function UsageRoutingEditor({ value, onChange, statuses }: Props)
     <button type="button" className="btn btn-secondary" onClick={addAccount} disabled={!policy}>{t('Add account template')}</button>
     <h4>{t('Saved account usage')}</h4>
     {statuses.length === 0 ? <p className="text-muted">{t('No usage accounts configured.')}</p> :
-      <table className="data-table"><thead><tr>{['Account', 'State', 'Observed', 'Source', 'Details'].map(x => <th key={x}>{t(x)}</th>)}</tr></thead>
+      <table className="data-table"><thead><tr>{['Account', 'Runtime', 'State', 'Observed', 'Source', 'Details'].map(x => <th key={x}>{t(x)}</th>)}</tr></thead>
         <tbody>{statuses.map(s => <tr key={String(s.accountId)}>
-          <td>{String(s.accountId)}</td><td>{String(s.state)}</td><td>{s.observedUtc ? new Date(String(s.observedUtc)).toLocaleString() : t('Unknown')}</td>
+          <td>{String(s.accountId)}</td><td>{s.runtime ? String(s.runtime) : t('Shared login')}</td>
+          <td>{String(s.state)}{s.exhaustedUntilUtc ? ` — ${t('until')} ${new Date(String(s.exhaustedUntilUtc)).toLocaleString()}` : ''}</td><td>{s.observedUtc ? new Date(String(s.observedUtc)).toLocaleString() : t('Unknown')}</td>
           <td>{String(s.source)}</td><td>{String(s.reason)}{s.collectionError ? ` — ${String(s.collectionError)}` : ''}
             <details><summary>{t('Usage windows')}</summary><pre>{JSON.stringify(s.windows, null, 2)}</pre></details></td>
         </tr>)}</tbody></table>}

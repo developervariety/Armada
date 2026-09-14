@@ -8,6 +8,7 @@ namespace Armada.Core.Services
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Models;
+    using Armada.Core.Settings;
 
     /// <summary>Read subscription allowance through the supported Codex app-server RPC. Never starts a model turn.</summary>
     public static class CodexUsageCollector
@@ -20,17 +21,37 @@ namespace Armada.Core.Services
 
         #region Public-Methods
 
-        /// <summary>Query the server user's authenticated Codex account with a bounded process lifetime.</summary>
-        public static async Task<ProviderUsageSnapshot> CollectAsync(CancellationToken token = default)
+        /// <summary>
+        /// Query a Codex account with a bounded process lifetime. An account with a login home is measured through its
+        /// own CODEX_HOME, so separate Codex accounts report separate windows; otherwise the server user's login is used.
+        /// </summary>
+        public static Task<ProviderUsageSnapshot> CollectAsync(UsageAccountSettings? account, CancellationToken token = default)
+        {
+            return CollectAsync(account, "codex", token);
+        }
+
+        internal static ProcessStartInfo BuildStartInfo(UsageAccountSettings? account, string command)
+        {
+            ProcessStartInfo info = new ProcessStartInfo(command) { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
+            info.ArgumentList.Add("app-server");
+            info.ArgumentList.Add("--listen");
+            info.ArgumentList.Add("stdio://");
+            if (account != null && !String.IsNullOrWhiteSpace(account.HomeDirectory))
+            {
+                // A missing home would let Codex create an empty one and report an unauthenticated account as a provider error.
+                if (!Directory.Exists(account.HomeDirectory)) throw new UsageCollectionException(CaptainAccountLaunch.ReasonHomeMissing);
+                info.Environment[CaptainAccountLaunch.CodexHomeVariable] = account.HomeDirectory;
+            }
+            return info;
+        }
+
+        internal static async Task<ProviderUsageSnapshot> CollectAsync(UsageAccountSettings? account, string command, CancellationToken token)
         {
             using (CancellationTokenSource timeout = CancellationTokenSource.CreateLinkedTokenSource(token))
             using (Process process = new Process())
             {
                 timeout.CancelAfter(TimeSpan.FromSeconds(15));
-                process.StartInfo = new ProcessStartInfo("codex") { UseShellExecute = false, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
-                process.StartInfo.ArgumentList.Add("app-server");
-                process.StartInfo.ArgumentList.Add("--listen");
-                process.StartInfo.ArgumentList.Add("stdio://");
+                process.StartInfo = BuildStartInfo(account, command);
                 if (!process.Start()) throw new IOException("usage_collector_start_failed");
                 Task drain = DrainAsync(process.StandardError, timeout.Token);
                 try
