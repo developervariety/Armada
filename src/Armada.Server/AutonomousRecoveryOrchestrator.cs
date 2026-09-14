@@ -728,16 +728,7 @@ namespace Armada.Server
         private static bool IsMissionProcessAlive(int? processId)
         {
             if (!processId.HasValue) return false;
-
-            try
-            {
-                using Process process = Process.GetProcessById(processId.Value);
-                return !process.HasExited;
-            }
-            catch
-            {
-                return false;
-            }
+            return ProcessSupervisor.IsTrackedProcessAlive(processId.Value);
         }
 
         // True when a mission is actively executing: InProgress/Testing/Review/WaitingForInput,

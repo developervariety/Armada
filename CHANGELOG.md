@@ -14,6 +14,15 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### API endpoint runtime lifecycle
+
+- Preserve synthetic API captain liveness until the loop exits, reject pre-cancelled
+  starts, and clean registrations when lifecycle callbacks fail.
+- Record provider-reported streaming token usage and fail closed for unsuccessful,
+  oversized, or iteration-exhausted responses.
+- Resolve tenant-owned endpoints for captain chat and stop routes without creating
+  an unconfigured API runtime.
+
 ### Native self-deploy preflight
 
 - Added provider-native backup, owned isolated restore and candidate database

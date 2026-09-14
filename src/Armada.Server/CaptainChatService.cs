@@ -20,10 +20,9 @@ namespace Armada.Server
 
     /// <summary>
     /// Runs an interactive chat turn with a captain by launching its agent runtime headlessly, the same
-    /// way missions and planning sessions drive the CLI. Every runtime (Mux, Claude Code, Codex, Gemini,
-    /// Cursor) is invoked through its <see cref="IAgentRuntime"/> adapter in a throwaway working directory;
-    /// the agent's final response is read from the runtime's final-message artifact. There is no separate
-    /// model-endpoint (PolyPrompt) path: Mux, like the others, is a CLI that runs headless.
+    /// way missions and planning sessions drive the CLI. CLI runtimes are invoked through their
+    /// <see cref="IAgentRuntime"/> adapter in a throwaway working directory; API-endpoint captains use
+    /// their already authorized tenant-owned model endpoint.
     /// </summary>
     public class CaptainChatService
     {
@@ -142,7 +141,23 @@ namespace Armada.Server
 
                 try
                 {
-                    runtime = _RuntimeFactory.Create(captain.Runtime);
+                    if (captain.Runtime == AgentRuntimeEnum.ApiEndpoint)
+                    {
+                        if (String.IsNullOrWhiteSpace(captain.TenantId) || String.IsNullOrWhiteSpace(captain.ModelEndpointId))
+                            return Fail("This captain has no authorized model endpoint.");
+
+                        ModelEndpoint? endpoint = await _Database.ModelEndpoints.ReadAsync(
+                            captain.TenantId!,
+                            captain.ModelEndpointId!,
+                            token).ConfigureAwait(false);
+                        if (endpoint == null)
+                            return Fail("This captain's model endpoint is not available.");
+                        runtime = _RuntimeFactory.Create(endpoint);
+                    }
+                    else
+                    {
+                        runtime = _RuntimeFactory.Create(captain.Runtime);
+                    }
                 }
                 catch (Exception e)
                 {

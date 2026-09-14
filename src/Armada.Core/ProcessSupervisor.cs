@@ -1,6 +1,7 @@
 namespace Armada.Core
 {
     using System;
+    using System.Collections.Concurrent;
     using System.Diagnostics;
 
     /// <summary>
@@ -16,6 +17,25 @@ namespace Armada.Core
         /// absorb clock skew and launch latency.
         /// </summary>
         private static readonly TimeSpan _StartTimeTolerance = TimeSpan.FromMinutes(5);
+        private static readonly ConcurrentDictionary<int, byte> _SyntheticProcesses = new ConcurrentDictionary<int, byte>();
+
+        /// <summary>
+        /// Register a process identifier that is owned by an in-process runtime.
+        /// </summary>
+        /// <param name="processId">Synthetic process identifier.</param>
+        public static void RegisterSyntheticProcess(int processId)
+        {
+            _SyntheticProcesses[processId] = 0;
+        }
+
+        /// <summary>
+        /// Remove a process identifier that is owned by an in-process runtime.
+        /// </summary>
+        /// <param name="processId">Synthetic process identifier.</param>
+        public static void UnregisterSyntheticProcess(int processId)
+        {
+            _SyntheticProcesses.TryRemove(processId, out _);
+        }
 
         /// <summary>
         /// Determine whether the process with the given identifier is alive AND is plausibly the
@@ -29,6 +49,7 @@ namespace Armada.Core
         /// <returns>True if the process exists, has not exited, and matches the launch reference.</returns>
         public static bool IsTrackedProcessAlive(int processId, DateTime? launchedBeforeUtc = null)
         {
+            if (_SyntheticProcesses.ContainsKey(processId)) return true;
             try
             {
                 using Process process = Process.GetProcessById(processId);

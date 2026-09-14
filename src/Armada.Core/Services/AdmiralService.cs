@@ -1748,7 +1748,11 @@ namespace Armada.Core.Services
 
             bool isAlive = false;
             int exitCode = -1;
-            try
+            if (ProcessSupervisor.IsTrackedProcessAlive(processId.Value))
+            {
+                isAlive = true;
+            }
+            else try
             {
                 System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById(processId.Value);
                 if (process.HasExited)
@@ -2178,7 +2182,8 @@ namespace Armada.Core.Services
                     bool processAlive = false;
                     if (mission.ProcessId.HasValue)
                     {
-                        try
+                        processAlive = ProcessSupervisor.IsTrackedProcessAlive(mission.ProcessId.Value);
+                        if (!processAlive) try
                         {
                             System.Diagnostics.Process process = System.Diagnostics.Process.GetProcessById(mission.ProcessId.Value);
                             processAlive = !process.HasExited;

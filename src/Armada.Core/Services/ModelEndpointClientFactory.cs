@@ -1,10 +1,15 @@
 namespace Armada.Core.Services
 {
     using System;
+    using System.Collections.Generic;
+    using System.IO;
+    using System.Net;
     using System.Net.Http;
     using System.Net.Http.Headers;
     using System.Text;
     using System.Text.Json;
+    using System.Threading;
+    using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
 
@@ -66,7 +71,7 @@ namespace Armada.Core.Services
                 throw new ArgumentException("Endpoint base URL must be an absolute HTTP(S) URL without user information.");
 
             HttpClientHandler handler = new HttpClientHandler { AllowAutoRedirect = false };
-            HttpClient client = new HttpClient(handler);
+            HttpClient client = new HttpClient(new BoundedResponseHandler(handler));
             client.Timeout = TimeSpan.FromMilliseconds(endpoint.TimeoutMs);
             if (!String.IsNullOrWhiteSpace(endpoint.ApiKey))
             {
@@ -206,6 +211,130 @@ namespace Armada.Core.Services
             path += "/" + leaf.TrimStart('/');
             UriBuilder builder = new UriBuilder(baseUri) { Path = path, Query = String.Empty };
             return builder.Uri;
+        }
+
+        private sealed class BoundedResponseHandler : DelegatingHandler
+        {
+            private const int MaximumResponseBytes = 4 * 1024 * 1024;
+
+            public BoundedResponseHandler(HttpMessageHandler innerHandler) : base(innerHandler)
+            {
+            }
+
+            protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+            {
+                HttpResponseMessage response = await base.SendAsync(request, token).ConfigureAwait(false);
+                if (response.Content != null)
+                    response.Content = new BoundedHttpContent(response.Content, MaximumResponseBytes);
+                return response;
+            }
+        }
+
+        private sealed class BoundedHttpContent : HttpContent
+        {
+            private readonly HttpContent _Inner;
+            private readonly int _MaximumBytes;
+
+            public BoundedHttpContent(HttpContent inner, int maximumBytes)
+            {
+                _Inner = inner;
+                _MaximumBytes = maximumBytes;
+                foreach (KeyValuePair<string, IEnumerable<string>> header in inner.Headers)
+                    Headers.TryAddWithoutValidation(header.Key, header.Value);
+            }
+
+            protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+            {
+                return SerializeToStreamAsync(stream, context, CancellationToken.None);
+            }
+
+            protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context, CancellationToken token)
+            {
+                using Stream source = await _Inner.ReadAsStreamAsync(token).ConfigureAwait(false);
+                await CopyBoundedAsync(source, stream, token).ConfigureAwait(false);
+            }
+
+            protected override async Task<Stream> CreateContentReadStreamAsync()
+            {
+                Stream source = await _Inner.ReadAsStreamAsync().ConfigureAwait(false);
+                return new BoundedReadStream(source, _MaximumBytes);
+            }
+
+            protected override bool TryComputeLength(out long length)
+            {
+                if (_Inner.Headers.ContentLength.HasValue && _Inner.Headers.ContentLength.Value > _MaximumBytes)
+                    throw new InvalidDataException("The model endpoint response is larger than the allowed response limit.");
+                length = _Inner.Headers.ContentLength ?? -1;
+                return _Inner.Headers.ContentLength.HasValue;
+            }
+
+            protected override void Dispose(bool disposing)
+            {
+                if (disposing) _Inner.Dispose();
+                base.Dispose(disposing);
+            }
+
+            private static async Task CopyBoundedAsync(Stream source, Stream destination, CancellationToken token)
+            {
+                byte[] buffer = new byte[81920];
+                int total = 0;
+                while (true)
+                {
+                    int count = await source.ReadAsync(buffer.AsMemory(), token).ConfigureAwait(false);
+                    if (count == 0) break;
+                    total += count;
+                    if (total > 4 * 1024 * 1024)
+                        throw new InvalidDataException("The model endpoint response is larger than the allowed response limit.");
+                    await destination.WriteAsync(buffer.AsMemory(0, count), token).ConfigureAwait(false);
+                }
+            }
+        }
+
+        private sealed class BoundedReadStream : Stream
+        {
+            private readonly Stream _Inner;
+            private readonly int _MaximumBytes;
+            private int _ReadBytes;
+
+            public BoundedReadStream(Stream inner, int maximumBytes)
+            {
+                _Inner = inner;
+                _MaximumBytes = maximumBytes;
+            }
+
+            public override bool CanRead => _Inner.CanRead;
+            public override bool CanSeek => false;
+            public override bool CanWrite => false;
+            public override long Length => _Inner.Length;
+            public override long Position { get => _ReadBytes; set => throw new NotSupportedException(); }
+            public override void Flush() => throw new NotSupportedException();
+            public override int Read(byte[] buffer, int offset, int count) => ReadAsync(buffer.AsMemory(offset, count), CancellationToken.None).GetAwaiter().GetResult();
+            public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken token = default)
+            {
+                return ReadBoundedAsync(buffer, token);
+            }
+            public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken token)
+            {
+                return ReadBoundedAsync(buffer.AsMemory(offset, count), token).AsTask();
+            }
+            public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+            public override void SetLength(long value) => throw new NotSupportedException();
+            public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+            protected override void Dispose(bool disposing)
+            {
+                if (disposing) _Inner.Dispose();
+                base.Dispose(disposing);
+            }
+
+            private async ValueTask<int> ReadBoundedAsync(Memory<byte> buffer, CancellationToken token)
+            {
+                int count = await _Inner.ReadAsync(buffer, token).ConfigureAwait(false);
+                _ReadBytes += count;
+                if (_ReadBytes > _MaximumBytes)
+                    throw new InvalidDataException("The model endpoint response is larger than the allowed response limit.");
+                return count;
+            }
         }
 
         #endregion

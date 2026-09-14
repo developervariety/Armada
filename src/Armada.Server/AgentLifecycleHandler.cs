@@ -12,7 +12,6 @@ namespace Armada.Server
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Runtimes;
-    using Armada.Runtimes.Interfaces;
     using Armada.Server.WebSocket;
 
     /// <summary>
@@ -249,69 +248,6 @@ namespace Armada.Server
         }
 
         /// <summary>
-        /// Prove whether a mission still owns a live captain process. The persisted mission and
-        /// captain bindings, the registered process mapping, and the runtime liveness probe must
-        /// all agree. The registered mapping is authoritative when a persisted PID is missing or
-        /// stale during launch recovery. A PID by itself is not sufficient because the operating
-        /// system can reuse it.
-        /// </summary>
-        /// <param name="mission">Mission whose process ownership is checked.</param>
-        /// <param name="token">Cancellation token.</param>
-        /// <returns>True only for a live process still registered for this mission.</returns>
-        public async Task<bool> IsMissionProcessActiveAsync(Mission mission, CancellationToken token = default)
-        {
-            if (mission == null || String.IsNullOrWhiteSpace(mission.CaptainId))
-            {
-                return false;
-            }
-
-            Captain? captain = await _Database.Captains.ReadAsync(mission.CaptainId, token).ConfigureAwait(false);
-            if (captain == null
-                || !String.Equals(captain.CurrentMissionId, mission.Id, StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            List<int> processIds = new List<int>();
-            lock (_ProcessToCaptain)
-            {
-                foreach (System.Collections.Generic.KeyValuePair<int, string> mapping in _ProcessToMission)
-                {
-                    if (mapping.Key <= 0 || !String.Equals(mapping.Value, mission.Id, StringComparison.Ordinal)) continue;
-                    if (_ProcessToCaptain.TryGetValue(mapping.Key, out string? mappedCaptainId)
-                        && String.Equals(mappedCaptainId, captain.Id, StringComparison.Ordinal))
-                    {
-                        processIds.Add(mapping.Key);
-                    }
-                }
-            }
-            if (processIds.Count == 0) return false;
-
-            if (captain.Runtime == AgentRuntimeEnum.Custom)
-                throw new InvalidOperationException("manual_completion_process_liveness_unknown");
-
-            IAgentRuntime runtime;
-            try
-            {
-                runtime = _RuntimeFactory.Create(captain.Runtime);
-                foreach (int processId in processIds)
-                {
-                    if (IsProcessExitHandled(processId)) continue;
-                    if (await runtime.IsRunningAsync(processId, token).ConfigureAwait(false)) return true;
-                }
-                return false;
-            }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException("manual_completion_process_liveness_unknown", ex);
-            }
-        }
-
-        /// <summary>
         /// Set or update the WebSocket hub reference (created after this handler).
         /// </summary>
         /// <param name="hub">WebSocket hub instance, or null.</param>
@@ -357,6 +293,11 @@ namespace Armada.Server
                 return "API-endpoint captain credentials must be configured on the model endpoint.";
 
             ModelEndpoint? endpoint = await _Database.ModelEndpoints.ReadAsync(captain.TenantId!, captain.ModelEndpointId!, token).ConfigureAwait(false);
+            return ValidateApiEndpointCaptain(captain, endpoint);
+        }
+
+        private static string? ValidateApiEndpointCaptain(Captain captain, ModelEndpoint? endpoint)
+        {
             if (endpoint == null)
                 return "The referenced model endpoint is not available to this captain.";
             if (endpoint.Scope == ScopeEnum.UserSpecific
@@ -525,7 +466,7 @@ namespace Armada.Server
         public async Task<int> HandleLaunchAgentAsync(Captain captain, Mission mission, Dock dock)
         {
             _Logging.Info(_Header + "launching " + captain.Runtime + " agent for captain " + captain.Id);
-            Armada.Runtimes.Interfaces.IAgentRuntime runtime = _RuntimeFactory.Create(captain.Runtime);
+            Armada.Runtimes.Interfaces.IAgentRuntime runtime = await CreateRuntimeAsync(captain).ConfigureAwait(false);
             string launchKey = captain.Id + ":" + mission.Id;
             _PendingLaunches[launchKey] = (captain.Id, mission.Id);
             runtime.OnProcessStarted += processId => HandleProcessStarted(processId, launchKey);
@@ -766,15 +707,7 @@ namespace Armada.Server
         /// </summary>
         private static bool IsTrackedProcessAlive(int processId)
         {
-            try
-            {
-                using Process process = Process.GetProcessById(processId);
-                return !process.HasExited;
-            }
-            catch
-            {
-                return false;
-            }
+            return ProcessSupervisor.IsTrackedProcessAlive(processId);
         }
 
         /// <summary>
@@ -1322,11 +1255,19 @@ namespace Armada.Server
         {
             if (!captain.ProcessId.HasValue) return;
             _Logging.Info(_Header + "stopping agent process " + captain.ProcessId.Value + " for captain " + captain.Id);
-            lock (_ProcessToCaptain)
+            if (captain.Runtime == AgentRuntimeEnum.ApiEndpoint)
             {
-                _ProcessToCaptain.Remove(captain.ProcessId.Value);
-                _ProcessToMission.Remove(captain.ProcessId.Value);
+                if (!ApiAgentRuntime.CancelTracked(captain.ProcessId.Value))
+                {
+                    lock (_ProcessToCaptain)
+                    {
+                        _ProcessToCaptain.Remove(captain.ProcessId.Value);
+                        _ProcessToMission.Remove(captain.ProcessId.Value);
+                    }
+                }
+                return;
             }
+
             Armada.Runtimes.Interfaces.IAgentRuntime runtime = _RuntimeFactory.Create(captain.Runtime);
             await runtime.StopAsync(captain.ProcessId.Value).ConfigureAwait(false);
         }
@@ -1334,6 +1275,28 @@ namespace Armada.Server
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// Creates a runtime for a captain after resolving and rechecking its endpoint admission.
+        /// </summary>
+        /// <param name="captain">Captain to launch.</param>
+        /// <returns>An authorized runtime instance.</returns>
+        private async Task<Armada.Runtimes.Interfaces.IAgentRuntime> CreateRuntimeAsync(Captain captain)
+        {
+            if (captain.Runtime != AgentRuntimeEnum.ApiEndpoint)
+                return _RuntimeFactory.Create(captain.Runtime);
+            if (String.IsNullOrWhiteSpace(captain.TenantId) || String.IsNullOrWhiteSpace(captain.ModelEndpointId))
+                throw new InvalidOperationException("An API-endpoint captain must reference an authorized tenant-owned model endpoint.");
+            ModelEndpoint? endpoint = await _Database.ModelEndpoints.ReadAsync(
+                captain.TenantId!,
+                captain.ModelEndpointId!,
+                CancellationToken.None).ConfigureAwait(false);
+            string? validationError = ValidateApiEndpointCaptain(captain, endpoint);
+            if (!String.IsNullOrEmpty(validationError))
+                throw new InvalidOperationException(validationError);
+
+            return _RuntimeFactory.Create(captain.Runtime, endpoint);
+        }
 
         /// <summary>
         /// Records the launch-prompt size the admiral handed to the runtime, as a

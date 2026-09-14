@@ -404,8 +404,15 @@ namespace Armada.Server.Routes
                 // Kill the process if running
                 if (captain.ProcessId.HasValue)
                 {
-                    Armada.Runtimes.Interfaces.IAgentRuntime runtime = _runtimeFactory.Create(captain.Runtime);
-                    await runtime.StopAsync(captain.ProcessId.Value).ConfigureAwait(false);
+                    if (captain.Runtime == AgentRuntimeEnum.ApiEndpoint)
+                    {
+                        ApiAgentRuntime.CancelTracked(captain.ProcessId.Value);
+                    }
+                    else
+                    {
+                        Armada.Runtimes.Interfaces.IAgentRuntime runtime = _runtimeFactory.Create(captain.Runtime);
+                        await runtime.StopAsync(captain.ProcessId.Value).ConfigureAwait(false);
+                    }
                 }
 
                 await _admiral.RecallCaptainAsync(id).ConfigureAwait(false);
