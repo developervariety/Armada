@@ -151,6 +151,22 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   keeps the existing fallback to the runtime's `[verdict]` echo or a labelled
   verdict.
 
+### A completion is de-duplicated per launch, not per mission
+
+- The completion handler still skips a repeat completion for the same launch
+  of a mission for 30 seconds, because the process-exit callback and the
+  health check can both report one exit. A completion for a later launch is now
+  processed inside that window, whichever path returned the mission for another
+  attempt: a Judge Check-hold or missing-verdict re-run, a refusal or safeguard
+  continuation, a transient requeue or quota re-route, an operator restart, a
+  review denial, a merge-recovery redispatch, a stale-captain reset, or a stall
+  relaunch. Before, a requeued mission that completed again inside the window
+  stayed InProgress with its completion silently dropped.
+- A launch is identified by the mission's start time and agent process. One
+  rule decides it for every path, and the refusal continuation's private
+  release of the guard is removed. A late duplicate for a mission that has not
+  been launched again is still skipped.
+
 ### Rescue effectiveness follows the objective's declared deliverable
 
 - The ineffective-rescue rule now reads what the linked objective kind

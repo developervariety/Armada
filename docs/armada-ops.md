@@ -1214,6 +1214,39 @@ The recorded Judge verdict is the first canonical `[ARMADA:VERDICT]` line. A
 later verdict from a re-review cannot replace it. Output with no canonical
 line falls back to the runtime's `[verdict]` echo or a labelled verdict.
 
+### A completion is de-duplicated per launch
+
+The process-exit callback and the health check can both report the same
+agent exit. The completion handler therefore skips a repeat completion for
+the same launch of a mission for 30 seconds after it handled the first one.
+
+A launch is the mission's start time plus its agent process. A completion for
+a later launch is processed even inside the 30 seconds. That holds for every
+path that returns a mission for another attempt, because each one ends in a
+new launch:
+
+| Path | Where it requeues | Guard |
+| --- | --- | --- |
+| Judge PASS held while Checks resolve | completion handler, in-place re-run | released by the next launch |
+| Judge exited with no verdict | completion handler, in-place re-run | released by the next launch |
+| Refusal in the captain output | completion handler, continuation on another runtime | released by the next launch |
+| Provider safeguard block on exit | process-exit failure, continuation | released by the next launch |
+| Probable resource kill or captain unavailable | process-exit failure, transient requeue | released by the next launch |
+| Provider quota, credit or spend limit | process-exit failure, re-route | released by the next launch |
+| Operator restart | restart of a Failed, Cancelled or LandingFailed mission | released by the next launch |
+| Review denied with retry | review decision | released by the next launch |
+| Merge failure routed to redispatch | merge recovery | released by the next launch |
+| Captain process gone | stale-captain cleanup | released by the next launch |
+| Stall recovery | relaunch in place (same start time, new process) | released by the new process |
+
+Assignment rollbacks (Assigned back to Pending when a launch fails) and the
+orphan reset of a mission that never started a process return a mission that
+was never launched, so no completion for it exists to de-duplicate.
+
+A completion for a requeued mission that has not been launched again is a
+late duplicate and is still skipped. Look for the handler's log line naming
+the new launch when a completion inside the window is processed.
+
 ### A rescue brief keeps the reviewer's instructions, not only its diagnosis
 
 The rescue brief embeds the failed mission's reviewer feedback under a size cap.

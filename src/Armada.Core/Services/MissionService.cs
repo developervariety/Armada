@@ -116,21 +116,39 @@ namespace Armada.Core.Services
             new System.Collections.Concurrent.ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
 
         /// <summary>
-        /// Tracks in-flight mission complete handler operations by mission ID.
+        /// Tracks in-flight and recently handled mission completions by mission ID, with the launch
+        /// attempt each one belonged to.
         /// </summary>
-        private System.Collections.Concurrent.ConcurrentDictionary<string, Task> _InFlightCompletions = new System.Collections.Concurrent.ConcurrentDictionary<string, Task>();
+        private System.Collections.Concurrent.ConcurrentDictionary<string, CompletionGuardEntry> _InFlightCompletions = new System.Collections.Concurrent.ConcurrentDictionary<string, CompletionGuardEntry>();
 
-        // Missions a completion handler returned to Pending for a new assignment. Their in-flight guard is
-        // released at once: the next captain's completion is a new event, not a late duplicate of this one,
-        // and a captain that refuses within seconds would otherwise have its completion silently skipped.
-        private System.Collections.Concurrent.ConcurrentDictionary<string, bool> _RequeuedCompletions = new System.Collections.Concurrent.ConcurrentDictionary<string, bool>();
+        /// <summary>How long a handled completion keeps de-duplicating late calls for the same launch.</summary>
+        internal static readonly TimeSpan CompletionDuplicateWindow = TimeSpan.FromSeconds(30);
+
+        /// <summary>
+        /// One completion-guard entry: the handler's gate and the launch attempt it handled.
+        /// </summary>
+        internal sealed class CompletionGuardEntry
+        {
+            /// <summary>Completes when the handler finishes.</summary>
+            public Task Gate { get; }
+
+            /// <summary>Launch attempt the handler ran for, or null when the mission was not launched.</summary>
+            public MissionCompletionAttempt? Attempt { get; }
+
+            /// <summary>Instantiate.</summary>
+            public CompletionGuardEntry(Task gate, MissionCompletionAttempt? attempt)
+            {
+                Gate = gate ?? throw new ArgumentNullException(nameof(gate));
+                Attempt = attempt;
+            }
+        }
 
         /// <summary>
         /// Test-only accessor for the in-flight completion gate. Exposed so a unit test
         /// can simulate a sweep tick landing inside the DoD gate window without having
         /// to drive a real completion handler.
         /// </summary>
-        internal System.Collections.Concurrent.ConcurrentDictionary<string, Task> InFlightCompletionsForTests => _InFlightCompletions;
+        internal System.Collections.Concurrent.ConcurrentDictionary<string, CompletionGuardEntry> InFlightCompletionsForTests => _InFlightCompletions;
 
         /// <summary>
         /// Parsed mission definition extracted from an architect's output.
@@ -999,14 +1017,16 @@ namespace Armada.Core.Services
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             if (String.IsNullOrEmpty(missionId)) return;
 
-            // In-flight deduplication: ensure only one completion handler runs per mission.
-            // Both the process exit callback and the health check can trigger completion
-            // concurrently for the same mission. TryAdd returns false if another caller
-            // is already processing this mission.
+            // De-duplication: only one completion handler runs per launch of a mission. The process
+            // exit callback and the health check can both report the same exit, concurrently or a few
+            // seconds apart. A completion for a LATER launch is a new event whichever path requeued
+            // the mission, so MissionCompletionAttempt decides that once for every requeue path.
+            Mission? launched = await ReadMissionForCompletionAsync(captain, missionId, token).ConfigureAwait(false);
+            MissionCompletionAttempt? attempt = MissionCompletionAttempt.Of(launched);
             TaskCompletionSource<bool> gate = new TaskCompletionSource<bool>();
-            if (!_InFlightCompletions.TryAdd(missionId, gate.Task))
+            CompletionGuardEntry entry = new CompletionGuardEntry(gate.Task, attempt);
+            if (!TryEnterCompletionGuard(missionId, entry))
             {
-                _Logging.Debug(_Header + "mission " + missionId + " completion already in flight -- skipping duplicate");
                 return;
             }
 
@@ -1021,22 +1041,64 @@ namespace Armada.Core.Services
                 gate.TrySetResult(true);
                 if (!handledSuccessfully)
                 {
-                    _InFlightCompletions.TryRemove(missionId, out _);
-                }
-                else if (_RequeuedCompletions.TryRemove(missionId, out _))
-                {
-                    _InFlightCompletions.TryRemove(new KeyValuePair<string, Task>(missionId, gate.Task));
+                    _InFlightCompletions.TryRemove(new KeyValuePair<string, CompletionGuardEntry>(missionId, entry));
                 }
                 else
                 {
-                    // Remove after a delay so late-arriving duplicate calls still see the entry.
+                    // Keep the entry for the window so late duplicates of this launch still see it. A
+                    // later launch may have replaced it meanwhile; remove only this handler's own entry.
                     _ = Task.Run(async () =>
                     {
-                        await Task.Delay(TimeSpan.FromSeconds(30)).ConfigureAwait(false);
-                        _InFlightCompletions.TryRemove(missionId, out _);
+                        await Task.Delay(CompletionDuplicateWindow).ConfigureAwait(false);
+                        _InFlightCompletions.TryRemove(new KeyValuePair<string, CompletionGuardEntry>(missionId, entry));
                     });
                 }
             }
+        }
+
+        private bool TryEnterCompletionGuard(string missionId, CompletionGuardEntry entry)
+        {
+            while (true)
+            {
+                if (_InFlightCompletions.TryAdd(missionId, entry)) return true;
+                if (!_InFlightCompletions.TryGetValue(missionId, out CompletionGuardEntry? existing) || existing == null) continue;
+
+                if (!existing.Gate.IsCompleted)
+                {
+                    _Logging.Debug(_Header + "mission " + missionId + " completion already in flight -- skipping duplicate");
+                    return false;
+                }
+
+                if (!MissionCompletionAttempt.IsNewAttempt(existing.Attempt, entry.Attempt))
+                {
+                    _Logging.Debug(_Header + "mission " + missionId + " completion for "
+                        + (entry.Attempt != null ? entry.Attempt.ToString() : "a mission that has not been launched again")
+                        + " was already handled inside the duplicate window -- skipping duplicate");
+                    return false;
+                }
+
+                if (_InFlightCompletions.TryUpdate(missionId, entry, existing))
+                {
+                    _Logging.Info(_Header + "mission " + missionId + " completion for new " + entry.Attempt
+                        + " is processed inside the duplicate window of the handled "
+                        + (existing.Attempt != null ? existing.Attempt.ToString() : "unlaunched completion"));
+                    return true;
+                }
+            }
+        }
+
+        private async Task<Mission?> ReadMissionForCompletionAsync(Captain captain, string missionId, CancellationToken token)
+        {
+            Mission? mission = null;
+            if (!String.IsNullOrEmpty(captain.TenantId))
+            {
+                mission = await _Database.Missions.ReadAsync(captain.TenantId, missionId, token).ConfigureAwait(false);
+            }
+            if (mission == null)
+            {
+                mission = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
+            }
+            return mission;
         }
 
         /// <inheritdoc />
@@ -1664,7 +1726,6 @@ namespace Armada.Core.Services
 
                     if (refusalDecision.Outcome == PolicyRefusalContinuationOutcomeEnum.Continue)
                     {
-                        _RequeuedCompletions[mission.Id] = true;
                         if (dock != null)
                         {
                             try

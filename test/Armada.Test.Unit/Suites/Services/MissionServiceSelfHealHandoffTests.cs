@@ -307,7 +307,7 @@ namespace Armada.Test.Unit.Suites.Services
                     // in-flight gate. Without the defer, the sweep tick would self-heal here and
                     // race the batch handoff that runs after the gate -- producing the double
                     // "pipeline handoff: prepared mission" the objective measured.
-                    missions.InFlightCompletionsForTests.TryAdd(worker.Id, Task.CompletedTask);
+                    missions.InFlightCompletionsForTests.TryAdd(worker.Id, new MissionService.CompletionGuardEntry(Task.CompletedTask, null));
 
                     bool firstAssigned = await missions.TryAssignAsync(testEngineer, vessel).ConfigureAwait(false);
                     Mission afterFirst = (await testDb.Driver.Missions.ReadAsync(testEngineer.Id).ConfigureAwait(false))!;
