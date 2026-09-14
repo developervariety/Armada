@@ -723,6 +723,7 @@ namespace Armada.Server
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                     _Logging.Info(_Header + "mission " + mission.Id + " landed successfully, status set to Complete");
+                    await Armada.Core.Services.MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Landed, "landed", _Logging).ConfigureAwait(false);
                     FireIndexRefreshForVessel(mission.VesselId, "mission " + mission.Id + " landed successfully");
 
                     // Emit mission.completed event
@@ -756,6 +757,7 @@ namespace Armada.Server
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                     _Logging.Warn(_Header + "mission " + mission.Id + " produced no commits (" + noCommitsReason + "), status set to Failed");
+                    await Armada.Core.Services.MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed, noCommitsReason, _Logging).ConfigureAwait(false);
 
                     // Emit no-commits event
                     try
@@ -784,6 +786,7 @@ namespace Armada.Server
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                     _Logging.Warn(_Header + "mission " + mission.Id + " landing failed, status set to LandingFailed");
+                    await Armada.Core.Services.MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed, "landing_failed", _Logging).ConfigureAwait(false);
 
                     // Emit mission.landing_failed event
                     try
@@ -973,6 +976,7 @@ namespace Armada.Server
                                 mission.LastUpdateUtc = DateTime.UtcNow;
                                 await _Database.Missions.UpdateAsync(mission).ConfigureAwait(false);
                                 _Logging.Info(_Header + "mission " + missionId + " PR merged, status set to Complete");
+                                await Armada.Core.Services.MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Landed, "pull_request_merged", _Logging).ConfigureAwait(false);
                                 FireIndexRefreshForVessel(mission.VesselId, "PR poller completed mission " + missionId);
 
                                 // Emit mission.completed event

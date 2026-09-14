@@ -936,7 +936,13 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(87, "Move terminal objectives out of dispatchable backlog states",
                     @"UPDATE objectives SET backlog_state = 'Inbox' WHERE status IN ('Completed', 'Cancelled') AND (backlog_state IS NULL OR backlog_state <> 'Inbox');"
                 ),
-                new SchemaMigration(88, "Remove learned-facts data, pack hints and reflection columns", LearnedFactsRemovalSchema.SqlServerStatements)
+                new SchemaMigration(88, "Remove learned-facts data, pack hints and reflection columns", LearnedFactsRemovalSchema.SqlServerStatements),
+                new SchemaMigration(89, "Persist mission attempt facts",
+                    @"IF OBJECT_ID('mission_attempt_facts','U') IS NULL CREATE TABLE mission_attempt_facts (id NVARCHAR(128) NOT NULL PRIMARY KEY, tenant_id NVARCHAR(128) NULL, user_id NVARCHAR(128) NULL, mission_id NVARCHAR(128) NOT NULL, voyage_id NVARCHAR(128) NULL, vessel_id NVARCHAR(128) NULL, root_mission_id NVARCHAR(128) NOT NULL, parent_mission_id NVARCHAR(128) NULL, fact_type NVARCHAR(32) NOT NULL, is_rescue BIT NOT NULL DEFAULT 0, reason_code NVARCHAR(96) NULL, created_utc DATETIME2 NOT NULL);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_mission_attempt_facts_mission' AND object_id=OBJECT_ID('mission_attempt_facts')) CREATE INDEX idx_mission_attempt_facts_mission ON mission_attempt_facts(mission_id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_mission_attempt_facts_root' AND object_id=OBJECT_ID('mission_attempt_facts')) CREATE INDEX idx_mission_attempt_facts_root ON mission_attempt_facts(root_mission_id);",
+                    @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_mission_attempt_facts_created' AND object_id=OBJECT_ID('mission_attempt_facts')) CREATE INDEX idx_mission_attempt_facts_created ON mission_attempt_facts(created_utc);"
+                )
             };
         }
 

@@ -206,6 +206,12 @@ namespace Armada.Core.Models
         /// <summary>Accepted divided by eligible.</summary>
         public double? Rate { get; set; }
 
+        /// <summary>Eligible divided by eligible plus unknown records.</summary>
+        public double? Coverage { get; set; }
+
+        /// <summary>Unknown records by stable reason code.</summary>
+        public Dictionary<string, int> UnknownByReason { get; set; } = new Dictionary<string, int>(StringComparer.Ordinal);
+
         /// <summary>Create an unavailable metric.</summary>
         public static ProductionRateMetric Unavailable() => new ProductionRateMetric { Availability = "unavailable" };
     }
@@ -227,6 +233,33 @@ namespace Armada.Core.Models
 
         /// <summary>Rescue runtime divided by total runtime.</summary>
         public double? Share { get; set; }
+
+        /// <summary>Missions whose runs are covered by durable attempt facts.</summary>
+        public int ClassifiedMissionCount { get; set; }
+
+        /// <summary>Missions classified as rescue work by the durable rescue marker.</summary>
+        public int RescueMissionCount { get; set; }
+
+        /// <summary>Missions that ran before attempt facts were recorded. They are excluded from the share.</summary>
+        public int HistoricalUnclassifiedMissionCount { get; set; }
+
+        /// <summary>Runtime of missions that ran before attempt facts were recorded.</summary>
+        public long HistoricalUnclassifiedMs { get; set; }
+
+        /// <summary>Classified missions divided by classified plus historical unclassified missions.</summary>
+        public double? Coverage { get; set; }
+
+        /// <summary>Completed slices in the group.</summary>
+        public int CompletedSlices { get; set; }
+
+        /// <summary>Completed slices whose attempt chain contains rescue work.</summary>
+        public int RescuedSlices { get; set; }
+
+        /// <summary>Completed slices without rescue facts that also contain historical runs.</summary>
+        public int RescueUnknownSlices { get; set; }
+
+        /// <summary>Rescued slices divided by completed slices.</summary>
+        public double? RescuedSliceRate { get; set; }
     }
 
     /// <summary>Unavailable post-land regression metric.</summary>

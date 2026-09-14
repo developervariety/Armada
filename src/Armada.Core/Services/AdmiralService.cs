@@ -1881,6 +1881,7 @@ namespace Armada.Core.Services
                                 _Logging.Warn(_Header + "mission " + mission.Id + " marked failed (captain stalled, recovery exhausted)");
 
                                 // Emit mission.failed event
+                                await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed, "mission_failed", _Logging, token).ConfigureAwait(false);
                                 await EmitEventAsync("mission.failed", "Mission failed: " + mission.Title + " (captain stalled, recovery exhausted)",
                                     entityType: "mission", entityId: mission.Id,
                                     captainId: captain.Id, missionId: mission.Id, token: token).ConfigureAwait(false);
@@ -2245,6 +2246,7 @@ namespace Armada.Core.Services
                     CreatedUtc = DateTime.UtcNow
                 }, token).ConfigureAwait(false);
 
+                await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed, "mission_failed", _Logging, token).ConfigureAwait(false);
                 await EmitEventAsync("mission.failed",
                     "Mission failed by stage watchdog: " + mission.Title,
                     entityType: "mission", entityId: mission.Id,
@@ -2788,6 +2790,7 @@ namespace Armada.Core.Services
                     // implementation to clean up the captain branch (honoring policy + rescue guard).
                     await _Missions.ReapTerminalMissionBranchAsync(mission, token).ConfigureAwait(false);
 
+                    await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed, "mission_failed", _Logging, token).ConfigureAwait(false);
                     await EmitEventAsync("mission.failed", "Mission failed: " + mission.Title + " (" + failureReason + ")",
                         entityType: "mission", entityId: mission.Id,
                         captainId: captain.Id, missionId: mission.Id,
@@ -2959,6 +2962,7 @@ namespace Armada.Core.Services
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
             _Logging.Warn(_Header + "mission " + missionId + " requeued after transient captain failure: " + failureReason);
+            await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Retried, "transient_captain_failure", _Logging, token).ConfigureAwait(false);
 
             // Non-terminal event so the retry is visible without emitting mission.failed.
             await EmitEventAsync("mission.retry_requeued", "Mission requeued after transient captain failure: " + mission.Title + " (" + failureReason + ")",
@@ -3111,6 +3115,7 @@ namespace Armada.Core.Services
                 await _Missions.ReapTerminalMissionBranchAsync(mission, token).ConfigureAwait(false);
                 await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
                 await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+                await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed, "mission_failed", _Logging, token).ConfigureAwait(false);
                 await EmitEventAsync("mission.failed",
                     "Mission failed (" + label + ", all compatible captains exhausted): " + mission.Title,
                     entityType: "mission", entityId: mission.Id, captainId: captain.Id, missionId: mission.Id,

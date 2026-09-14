@@ -40,6 +40,7 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   OpenAI-compatible endpoints need no opt-in. Loopback fixtures verify each hosted
   provider's request path, credential header, model and workspace tool catalog.
   Azure OpenAI, Vertex AI and Bedrock remain unavailable.
+
 ### A captain's first terminal marker ends its stage
 
 - The first `[ARMADA:VERDICT] PASS|FAIL|NEEDS_REVISION` or
@@ -79,6 +80,7 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   rescue, including failures older than the sweep lookback window. A hold
   refusal is a typed `DispatchHoldActiveException`, so callers can defer the
   work instead of failing it.
+
 ### Captain brief budget
 
 - Every module that embeds the mission description now reads one bounded copy.
@@ -129,6 +131,7 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   unavailable one as a blocking `execution` finding. The objective scheduler and
   manual dispatch share this preview. `AvailableLicensedContexts` in settings
   lists the licensed context names captains can use.
+
 ### Objective dispatch admission
 
 - The in-process objective link lock no longer keeps one entry for every
@@ -166,6 +169,7 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   says, so an unclosed attempt cannot be purged before it is reconciled. Manual
   event deletion remains an explicit operator action and is documented as a
   risk.
+
 ### Slop Check for .NET vessels
 
 - Added a `Slop` Check type. Dispatch arms it beside Build and UnitTest on
@@ -181,6 +185,7 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   fails the Check with its reason; none passes it.
 - The dispatch preview lists the Slop Check when dispatch would arm it, and the
   dashboard offers the type for .NET workflow profiles.
+
 ### Learned-facts data and schema deletion
 
 - A new migration on all four providers deletes the remaining learned-facts
@@ -229,6 +234,17 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - The sweep keeps a landed branch that a non-terminal mission still names, and
   it reports a vessel whose default branch is missing as an error instead of a
   clean run. `recover/` refs and human branches remain outside its scope.
+### Production attempt facts
+
+- Mission launches, automatic re-runs, restarts, review denials, failures and
+  landings now append durable attempt facts with the original mission of the
+  chain and the typed autonomous-rescue marker, on all four database
+  providers.
+- The production summary calculates first-pass acceptance and rescue runtime
+  share from these facts across the whole attempt chain, including recovery
+  voyages that are not linked to the objective. Missions that ran before facts
+  existed are reported as historical with explicit coverage instead of being
+  classified from parent links or titles.
 
 ### Native self-deploy preflight
 
@@ -921,6 +937,7 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   details and summaries. Reads do not run admission checks. Revision checks
   reject stale writes; a refusal and its waiting state are written together.
   Preserve Unicode IDs, existing policy limits and process ownership.
+
 ### Removed the learned-facts / Reflections implementation
 
 - Removed the fork learned-facts and Reflections memory feature. Native captain
@@ -960,6 +977,7 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   once per vessel per process (Info for no matching folder, Warn for an
   ambiguous match or a memory root that cannot be probed). An unreadable root
   still does not fail the dispatch.
+
 ### Native captain memory: store
 
 - Added a native captain memory store: a `Memory` record (`mem_` prefix) with a type

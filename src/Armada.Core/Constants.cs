@@ -270,6 +270,11 @@ namespace Armada.Core
         public static readonly string JudgeFollowUpIdPrefix = "jfu_";
 
         /// <summary>
+        /// Mission attempt fact ID prefix.
+        /// </summary>
+        public static readonly string MissionAttemptFactIdPrefix = "maf_";
+
+        /// <summary>
         /// Default data retention period in days for completed records.
         /// </summary>
         public static readonly int DefaultDataRetentionDays = 30;

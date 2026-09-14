@@ -1598,7 +1598,13 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(92, "Move terminal objectives out of dispatchable backlog states",
                     @"UPDATE objectives SET backlog_state = 'Inbox' WHERE status IN ('Completed', 'Cancelled') AND (backlog_state IS NULL OR backlog_state <> 'Inbox');"
                 ),
-                new SchemaMigration(93, "Remove learned-facts data, pack hints and reflection columns", LearnedFactsRemovalSchema.SqliteStatements)
+                new SchemaMigration(93, "Remove learned-facts data, pack hints and reflection columns", LearnedFactsRemovalSchema.SqliteStatements),
+                new SchemaMigration(94, "Persist mission attempt facts",
+                    @"CREATE TABLE IF NOT EXISTS mission_attempt_facts (id TEXT NOT NULL PRIMARY KEY, tenant_id TEXT, user_id TEXT, mission_id TEXT NOT NULL, voyage_id TEXT, vessel_id TEXT, root_mission_id TEXT NOT NULL, parent_mission_id TEXT, fact_type TEXT NOT NULL, is_rescue INTEGER NOT NULL DEFAULT 0, reason_code TEXT, created_utc TEXT NOT NULL);",
+                    @"CREATE INDEX IF NOT EXISTS idx_mission_attempt_facts_mission ON mission_attempt_facts(mission_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_mission_attempt_facts_root ON mission_attempt_facts(root_mission_id);",
+                    @"CREATE INDEX IF NOT EXISTS idx_mission_attempt_facts_created ON mission_attempt_facts(created_utc);"
+                )
             };
         }
 

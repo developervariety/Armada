@@ -43,6 +43,17 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Whether a description carries the autonomous-rescue marker. Durable rescue facts use only
+        /// this marker; the legacy title prefix is never a typed classification.
+        /// </summary>
+        /// <param name="description">Mission description.</param>
+        /// <returns>True when the marker is present.</returns>
+        public static bool CarriesDescriptionMarker(string? description)
+        {
+            return (description ?? String.Empty).Contains(Marker, StringComparison.Ordinal);
+        }
+
+        /// <summary>
         /// Whether a description and title identify an autonomous rescue.
         /// </summary>
         /// <param name="description">Mission description.</param>

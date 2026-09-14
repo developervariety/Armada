@@ -2108,7 +2108,10 @@ that is comparable across runtimes.
 `armada_production_summary` reports verified landed slices for a bounded UTC
 window. It also reports raw completed leaf objectives, evidence exclusions,
 Check timing, rescue share, and the measures that current records cannot
-calculate. Use `sourceFamily` and `workType` to select one cohort. Read
+calculate. First-pass acceptance and rescue share come from durable mission
+attempt facts; runs that happened before those facts existed are reported as
+historical in each metric's `unknown`, `coverage`, and historical fields. Use
+`sourceFamily` and `workType` to select one cohort. Read
 `scan.truncated`, `isComplete`, and each metric's availability before you use a
 rate. The equivalent REST route is `GET /api/v1/production/summary`.
 

@@ -365,6 +365,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new DispatchCodeContextBoundedTests());
             runner.AddSuite(new McpObjectiveSchedulerToolsTests());
             runner.AddSuite(new VerifiedProductionSummaryServiceTests());
+            runner.AddSuite(new MissionAttemptFactRecorderTests());
             runner.AddSuite(new McpProductionToolsTests());
             runner.AddSuite(new McpResultPreviewTests());
             runner.AddSuite(new DefinitionOfDoneGateTests());

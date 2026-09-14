@@ -902,6 +902,7 @@ namespace Armada.Core.Services
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                     _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
+                    await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.AttemptStarted, null, _Logging, token).ConfigureAwait(false);
 
                     _Logging.Info(_Header + "launched agent process " + processId + " for captain " + captain.Id);
                 }
@@ -1164,6 +1165,8 @@ namespace Armada.Core.Services
             // "More Work Required" and "Deny" surface as an explicit action from the reviewer; fall back to the
             // mission's configured deny action when the caller does not specify one.
             ReviewDenyActionEnum effectiveAction = actionOverride ?? mission.ReviewDenyAction;
+            await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.ReviewDenied,
+                "review_denied_" + effectiveAction.ToString(), _Logging, token).ConfigureAwait(false);
 
             if (effectiveAction == ReviewDenyActionEnum.FailPipeline)
             {
@@ -1883,7 +1886,7 @@ namespace Armada.Core.Services
                             case JudgeCheckGate.HasPending:
                                 if (mission.RecoveryAttempts < _MaxJudgeCheckWaitRetries)
                                 {
-                                    await ResetMissionForReRunAsync(mission, token).ConfigureAwait(false);
+                                    await ResetMissionForReRunAsync(mission, MissionAttemptFactRules.JudgeCheckWaitReason, token).ConfigureAwait(false);
                                     retryingMissingVerdict = true;
                                     string holding = DescribeUnresolvedChecks(_LastJudgeGateChecks, _LastJudgeReviewedCommit);
                                     _Logging.Info(_Header + "judge mission " + mission.Id +
@@ -1948,7 +1951,7 @@ namespace Armada.Core.Services
                     // persisted list so it does NOT consume the autonomous-rescue budget
                     // (RecoveryAttempts). An intermittent Judge provider must never block the rescue.
                     AppendRetrySkipCaptain(mission, captain != null ? captain.Id : mission.CaptainId);
-                    await ResetMissionForReRunAsync(mission, token, countRecoveryBudget: false).ConfigureAwait(false);
+                    await ResetMissionForReRunAsync(mission, "missing_judge_verdict", token, countRecoveryBudget: false).ConfigureAwait(false);
                     retryingMissingVerdict = true;
                     _Logging.Warn(_Header + "judge mission " + mission.Id +
                         " produced no verdict line; re-running in place on a different captain (re-run " +
@@ -6234,8 +6237,9 @@ namespace Armada.Core.Services
         /// path so an intermittent provider (a Judge that exits with empty output) never blocks the
         /// rescue that a genuinely failed mission still needs.
         /// </summary>
-        private async Task ResetMissionForReRunAsync(Mission mission, CancellationToken token, bool countRecoveryBudget = true)
+        private async Task ResetMissionForReRunAsync(Mission mission, string reasonCode, CancellationToken token, bool countRecoveryBudget = true)
         {
+            await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Retried, reasonCode, _Logging, token).ConfigureAwait(false);
             if (countRecoveryBudget)
             {
                 mission.RecoveryAttempts++;
@@ -7728,6 +7732,9 @@ namespace Armada.Core.Services
             if (captain == null) throw new ArgumentNullException(nameof(captain));
 
             (string eventType, string eventMessage) = BuildMissionOutcomeEvent(mission);
+            if (mission.Status == MissionStatusEnum.Failed || mission.Status == MissionStatusEnum.LandingFailed)
+                await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Failed,
+                    mission.Status == MissionStatusEnum.LandingFailed ? "landing_failed" : "mission_failed", _Logging, token).ConfigureAwait(false);
 
             try
             {

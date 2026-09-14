@@ -73,6 +73,7 @@ namespace Armada.Core.Database.Mysql
             Users = new UserMethods(_ConnectionString);
             Credentials = new CredentialMethods(_ConnectionString);
             HarborRunnerEnrollments = new HarborRunnerEnrollmentMethods(_ConnectionString);
+            MissionAttemptFacts = new MissionAttemptFactMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             PromptTemplates = new PromptTemplateMethods(_ConnectionString);
             Playbooks = new PlaybookMethods(_ConnectionString);
             Memories = new MemoryMethods(_ConnectionString);
@@ -664,7 +665,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(82, "Persist Harbor runner enrollments", TableQueries.MigrationV82Statements),
                 new SchemaMigration(83, "Persist project authorization policy", TableQueries.MigrationV83Statements),
                 new SchemaMigration(84, "Move terminal objectives out of dispatchable backlog states", TableQueries.MigrationV84Statements),
-                new SchemaMigration(85, "Remove learned-facts data, pack hints and reflection columns", LearnedFactsRemovalSchema.MysqlStatements)
+                new SchemaMigration(85, "Remove learned-facts data, pack hints and reflection columns", LearnedFactsRemovalSchema.MysqlStatements),
+                new SchemaMigration(86, "Persist mission attempt facts", TableQueries.MigrationV86Statements)
             };
         }
 

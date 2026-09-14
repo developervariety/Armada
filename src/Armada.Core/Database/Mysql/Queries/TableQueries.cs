@@ -1223,6 +1223,17 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration 86: append-only mission attempt facts.
+        /// </summary>
+        public static readonly string[] MigrationV86Statements = new string[]
+        {
+            @"CREATE TABLE IF NOT EXISTS mission_attempt_facts (id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, tenant_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL, user_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL, mission_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, voyage_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL, vessel_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL, root_mission_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, parent_mission_id VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL, fact_type VARCHAR(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL, is_rescue TINYINT(1) NOT NULL DEFAULT 0, reason_code VARCHAR(96) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL, created_utc DATETIME(6) NOT NULL, PRIMARY KEY (id));",
+            @"CREATE INDEX idx_mission_attempt_facts_mission ON mission_attempt_facts(mission_id);",
+            @"CREATE INDEX idx_mission_attempt_facts_root ON mission_attempt_facts(root_mission_id);",
+            @"CREATE INDEX idx_mission_attempt_facts_created ON mission_attempt_facts(created_utc);"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

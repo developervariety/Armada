@@ -13,11 +13,13 @@ namespace Armada.Core.Services
     {
         private readonly DatabaseDriver _Database;
         private readonly FleetCapacityAdmission _Capacity;
+        private readonly LoggingModule? _Logging;
 
         /// <summary>Instantiate.</summary>
         public MissionRestartService(DatabaseDriver database, ArmadaSettings settings, LoggingModule? logging = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
+            _Logging = logging;
             _Capacity = new FleetCapacityAdmission(database, settings ?? throw new ArgumentNullException(nameof(settings)), logging);
         }
 
@@ -73,6 +75,7 @@ namespace Armada.Core.Services
                 throw;
             }
 
+            await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Restarted, "restarted", _Logging, token).ConfigureAwait(false);
             return mission;
         }
     }

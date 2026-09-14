@@ -260,6 +260,7 @@ namespace Armada.Core.Services
                         mission.Status = MissionStatusEnum.InProgress;
                         mission.LastUpdateUtc = DateTime.UtcNow;
                         await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                        await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Retried, "captain_recovery_relaunch", _Logging, token).ConfigureAwait(false);
 
                         Signal signal = new Signal(SignalTypeEnum.Assignment, "Auto-recovery attempt " + captain.RecoveryAttempts + " for mission: " + mission.Title);
                         signal.ToCaptainId = captain.Id;

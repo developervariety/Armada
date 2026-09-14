@@ -109,29 +109,65 @@ Both surfaces use a seven-day default window and reject windows longer than 90
 days. Optional `sourceFamily` and `workType` filters use the grouping rules in
 this document.
 
+### Attempt facts
+
+Armada appends one mission attempt fact at each attempt transition. The
+`mission_attempt_facts` table is append-only and is not an event, so event
+cleanup does not remove it. Each fact stores:
+
+- the mission, voyage, vessel, tenant, and user
+- the root mission: the original mission of the attempt chain. A rescue
+  follows its parent. A chained rescue review stage follows the rescue stage
+  it depends on.
+- the fact type: `AttemptStarted`, `Retried`, `Restarted`, `ReviewDenied`,
+  `Failed`, or `Landed`. `Landed` resolves the chain as delivered.
+- `IsRescue`: true only when the mission description carries the
+  autonomous-rescue marker. A title prefix is never a rescue classification.
+- a bounded machine reason code. Free-text failure messages are not stored.
+
+Facts are recorded when a captain process launches, when a transient captain
+failure or captain recovery relaunch runs the mission again, when a Judge is
+re-run in place, when a mission is restarted from any client, when a review is
+denied, when a mission fails or its landing fails, and when work lands.
+
+A mission that ran before facts existed has no `AttemptStarted` fact. The
+summary classifies it as historical and does not guess its history.
+
 ### First-pass acceptance
 
-The denominator is a verified slice with an original voyage. The numerator is
-a slice whose original voyage reached verified completion without any of these
-records in its chain:
+The denominator is a verified slice whose every run in the attempt chain has
+an `AttemptStarted` fact. The numerator is an eligible slice whose chain has
+none of these facts:
 
-- `mission.failed` or `mission.landing_failed`
-- `mission.review_denied`
-- a mission restart or retry event
-- an autonomous rescue mission
+- `Failed`
+- `ReviewDenied`
+- `Restarted`
+- `Retried`, except a Judge re-run that only waited for Checks
+  (`judge_check_wait`)
+- any fact with `IsRescue`
+- a repeated `AttemptStarted` that no `Retried` fact explains
 
-Use event history and durable rescue lineage. Do not use the final mission
-status alone because a restart can replace the earlier state.
+A verified slice with a run that has no attempt fact is counted in `unknown`
+with reason `attempt_facts_not_recorded`. The metric reports `rate`,
+`coverage` (eligible divided by eligible plus unknown), and `unknownByReason`.
 
 ### Rescue share
 
-Identify rescue missions from the durable autonomous-rescue marker and parent
-lineage. Do not classify a rescue from its title alone.
+Rescue missions are the missions whose attempt facts carry `IsRescue`. The
+chain includes every mission whose facts name the same root mission, so a
+recovery voyage that is not linked to the objective still counts.
 
-`rescue share = rescue mission runtime / all mission runtime`
+`rescue share = rescue mission runtime / classified mission runtime`
 
-Report missing runtime separately. Also report rescued slices divided by all
-completed slices. This count shows frequency while runtime share shows cost.
+Missions that ran before facts existed are counted in
+`historicalUnclassifiedMissionCount` and `historicalUnclassifiedMs`. They are
+not part of the share. `coverage` is classified missions divided by classified
+plus historical missions. Missions without a runtime are counted in
+`unknownMissionCount`.
+
+Also report `rescuedSlices / completedSlices` as `rescuedSliceRate`. A slice
+with historical runs and no rescue fact is counted in `rescueUnknownSlices`.
+This count shows frequency while runtime share shows cost.
 
 ### Landed-to-verified-closeout delay
 

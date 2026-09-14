@@ -82,6 +82,7 @@ namespace Armada.Core.Services
             List<MergeEntry> merges = await ReadMergeEntriesAsync(auth, result, token).ConfigureAwait(false);
             List<CheckRun> checks = await ReadChecksAsync(auth, result, token).ConfigureAwait(false);
             List<ArmadaEvent> events = await ReadEventsAsync(auth, fromUtc.Subtract(_MaximumWindow), toUtc, result, token).ConfigureAwait(false);
+            AttemptFactIndex attemptFacts = new AttemptFactIndex(await ReadAttemptFactsAsync(auth, fromUtc.Subtract(_MaximumWindow), toUtc, result, token).ConfigureAwait(false));
             bool verificationSourcesComplete = !result.Scan.Truncated;
 
             Dictionary<string, MissionSummary> missionById = missions.ToDictionary(item => item.Id, StringComparer.OrdinalIgnoreCase);
@@ -115,6 +116,7 @@ namespace Armada.Core.Services
                 List<long> armedDelays = new List<long>();
                 List<long> executionDurations = new List<long>();
                 HashSet<string> timedCheckIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                HashSet<string> runtimeMissionIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 Dictionary<DateTime, int> daily = new Dictionary<DateTime, int>();
 
                 foreach (Objective objective in grouping)
@@ -137,13 +139,41 @@ namespace Armada.Core.Services
                     }
 
                     List<MissionSummary> sliceMissions = ResolveMissions(objective, missions);
-                    foreach (MissionSummary mission in sliceMissions)
+                    List<MissionSummary> chainMissions = attemptFacts.ResolveChain(sliceMissions, missionById);
+                    AttemptChainClassification chain = attemptFacts.Classify(chainMissions);
+                    group.RescueRuntime.CompletedSlices++;
+                    if (chain.Rescued) group.RescueRuntime.RescuedSlices++;
+                    else if (chain.HistoricalRuns > 0) group.RescueRuntime.RescueUnknownSlices++;
+                    if (evidence.Verified)
                     {
+                        if (chain.HistoricalRuns > 0)
+                        {
+                            group.FirstPassAcceptance.Unknown++;
+                            Increment(group.FirstPassAcceptance.UnknownByReason, "attempt_facts_not_recorded");
+                        }
+                        else
+                        {
+                            group.FirstPassAcceptance.Eligible++;
+                            if (!chain.FirstPassDisqualified) group.FirstPassAcceptance.Accepted++;
+                        }
+                    }
+                    foreach (MissionSummary mission in chainMissions)
+                    {
+                        if (!runtimeMissionIds.Add(mission.Id)) continue;
+                        if (!attemptFacts.HasAttempt(mission.Id))
+                        {
+                            if (!AttemptFactIndex.Ran(mission)) continue;
+                            group.RescueRuntime.HistoricalUnclassifiedMissionCount++;
+                            group.RescueRuntime.HistoricalUnclassifiedMs += mission.TotalRuntimeMs ?? 0;
+                            continue;
+                        }
+                        group.RescueRuntime.ClassifiedMissionCount++;
+                        bool isRescue = attemptFacts.IsRescue(mission.Id);
+                        if (isRescue) group.RescueRuntime.RescueMissionCount++;
                         if (mission.TotalRuntimeMs.HasValue)
                         {
                             group.RescueRuntime.TotalMissionMs += mission.TotalRuntimeMs.Value;
-                            if (!String.IsNullOrWhiteSpace(mission.ParentMissionId))
-                                group.RescueRuntime.RescueMs += mission.TotalRuntimeMs.Value;
+                            if (isRescue) group.RescueRuntime.RescueMs += mission.TotalRuntimeMs.Value;
                         }
                         else group.RescueRuntime.UnknownMissionCount++;
                     }
@@ -189,8 +219,8 @@ namespace Armada.Core.Services
                 group.RescueRuntime.Share = group.RescueRuntime.TotalMissionMs > 0
                     ? (double)group.RescueRuntime.RescueMs / group.RescueRuntime.TotalMissionMs
                     : null;
-                if (group.RescueRuntime.UnknownMissionCount > 0) group.RescueRuntime.Availability = "partial";
-                group.FirstPassAcceptance.Unknown = group.VerifiedLandedSlices.Count;
+                FinishRescueRuntime(group.RescueRuntime);
+                FinishRate(group.FirstPassAcceptance);
                 group.PostLandRegressions.Unknown = group.VerifiedLandedSlices.Count;
                 group.RepeatedResearch.Unknown = group.VerifiedLandedSlices.Count;
                 result.Groups.Add(group);
@@ -202,6 +232,12 @@ namespace Armada.Core.Services
                 : null;
 
             AddAvailabilityWarnings(result);
+            int firstPassUnknown = result.Groups.Sum(item => item.FirstPassAcceptance.Unknown);
+            if (firstPassUnknown > 0)
+                result.Warnings.Add("first_pass_acceptance_partial: " + firstPassUnknown + " verified slice(s) ran before attempt facts were recorded");
+            int historicalMissions = result.Groups.Sum(item => item.RescueRuntime.HistoricalUnclassifiedMissionCount);
+            if (historicalMissions > 0)
+                result.Warnings.Add("rescue_classification_partial: " + historicalMissions + " mission(s) ran before attempt facts were recorded and are excluded from rescue share");
             return result;
         }
 
@@ -341,6 +377,25 @@ namespace Armada.Core.Services
             return values[Math.Clamp(index, 0, values.Count - 1)];
         }
 
+        private static void FinishRate(ProductionRateMetric metric)
+        {
+            metric.Rate = metric.Eligible > 0 ? (double)metric.Accepted / metric.Eligible : null;
+            int total = metric.Eligible + metric.Unknown;
+            metric.Coverage = total > 0 ? (double)metric.Eligible / total : null;
+            metric.Availability = metric.Eligible == 0 ? "unavailable" : metric.Unknown > 0 ? "partial" : "available";
+        }
+
+        private static void FinishRescueRuntime(ProductionRescueRuntimeMetric metric)
+        {
+            metric.Share = metric.TotalMissionMs > 0 ? (double)metric.RescueMs / metric.TotalMissionMs : null;
+            int observed = metric.ClassifiedMissionCount + metric.HistoricalUnclassifiedMissionCount;
+            metric.Coverage = observed > 0 ? (double)metric.ClassifiedMissionCount / observed : null;
+            metric.RescuedSliceRate = metric.CompletedSlices > 0 ? (double)metric.RescuedSlices / metric.CompletedSlices : null;
+            if (metric.ClassifiedMissionCount == 0) metric.Availability = "unavailable";
+            else if (metric.UnknownMissionCount > 0 || metric.HistoricalUnclassifiedMissionCount > 0 || metric.RescueUnknownSlices > 0) metric.Availability = "partial";
+            else metric.Availability = "available";
+        }
+
         private static string SourceFamily(Objective objective)
         {
             List<string> tags = objective.Tags.Where(item => item.StartsWith("port:", StringComparison.OrdinalIgnoreCase)).ToList();
@@ -368,8 +423,6 @@ namespace Armada.Core.Services
         {
             result.Warnings.Add("ready_to_dispatch_delay_partial: historical snapshots do not prove full dispatch-preflight readiness");
             result.Warnings.Add("host_slot_queue_unavailable: command-slot request time is not recorded");
-            result.Warnings.Add("first_pass_acceptance_unavailable: stable attempt and chain facts are not recorded");
-            result.Warnings.Add("rescue_classification_partial: lightweight history uses ParentMissionId recovery lineage and does not project the rescue marker");
             result.Warnings.Add("post_land_regressions_unavailable: regression purpose and originating slice are not recorded");
             result.Warnings.Add("repeated_research_unavailable: research activity is not linked to preparation claims");
             result.Warnings.Add("eligible_idle_lane_minutes_unavailable: historical lane eligibility intervals are not recorded");
@@ -383,6 +436,20 @@ namespace Armada.Core.Services
                     ? await _Database.Objectives.EnumerateAsync(auth.TenantId!, token).ConfigureAwait(false)
                     : await _Database.Objectives.EnumerateAsync(auth.TenantId!, auth.UserId!, token).ConfigureAwait(false);
             return Bound(values, "objectives", report);
+        }
+
+        private async Task<List<MissionAttemptFact>> ReadAttemptFactsAsync(AuthContext auth, DateTime fromUtc, DateTime toUtc, ProductionSummaryResult report, CancellationToken token)
+        {
+            ProductionFactPage<MissionAttemptFact> page = await _Database.MissionAttemptFacts.EnumerateAsync(new ProductionFactQuery
+            {
+                TenantId = auth.IsAdmin ? null : auth.TenantId,
+                UserId = auth.IsAdmin || auth.IsTenantAdmin ? null : auth.UserId,
+                FromUtc = fromUtc,
+                ToUtc = toUtc,
+                Limit = _RecordLimit
+            }, token).ConfigureAwait(false);
+            CompleteScan(page.Items.Count, page.Items.Count + (page.Truncated ? 1 : 0), page.Truncated, "mission_attempt_facts", report);
+            return page.Items;
         }
 
         private async Task<List<MissionSummary>> ReadMissionSummariesAsync(AuthContext auth, ProductionSummaryResult report, CancellationToken token)
@@ -501,6 +568,94 @@ namespace Armada.Core.Services
             report.Scan.Truncated = true;
             report.IsComplete = false;
             report.Warnings.Add(source + "_scan_truncated");
+        }
+
+        private sealed class AttemptChainClassification
+        {
+            internal int HistoricalRuns { get; set; }
+
+            internal bool Rescued { get; set; }
+
+            internal bool FirstPassDisqualified { get; set; }
+        }
+
+        /// <summary>
+        /// Index of durable attempt facts. Chain identity, rescue classification, and first-pass
+        /// disqualification come only from these facts, never from titles or final mission state.
+        /// </summary>
+        private sealed class AttemptFactIndex
+        {
+            private readonly Dictionary<string, List<MissionAttemptFact>> _ByMission;
+            private readonly Dictionary<string, HashSet<string>> _MissionIdsByRoot;
+
+            internal AttemptFactIndex(List<MissionAttemptFact> facts)
+            {
+                _ByMission = facts
+                    .GroupBy(item => item.MissionId, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(group => group.Key, group => group.ToList(), StringComparer.OrdinalIgnoreCase);
+                _MissionIdsByRoot = facts
+                    .GroupBy(item => item.RootMissionId, StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(group => group.Key, group => group.Select(item => item.MissionId).ToHashSet(StringComparer.OrdinalIgnoreCase), StringComparer.OrdinalIgnoreCase);
+            }
+
+            internal static bool Ran(MissionSummary mission)
+            {
+                if (mission.StartedUtc.HasValue || mission.TotalRuntimeMs.HasValue) return true;
+                return mission.Status == MissionStatusEnum.InProgress
+                    || mission.Status == MissionStatusEnum.WorkProduced
+                    || mission.Status == MissionStatusEnum.PullRequestOpen
+                    || mission.Status == MissionStatusEnum.Complete
+                    || mission.Status == MissionStatusEnum.Failed
+                    || mission.Status == MissionStatusEnum.LandingFailed;
+            }
+
+            internal bool HasAttempt(string missionId) =>
+                _ByMission.TryGetValue(missionId, out List<MissionAttemptFact>? facts)
+                && facts.Any(item => item.FactType == MissionAttemptFactTypeEnum.AttemptStarted);
+
+            internal bool IsRescue(string missionId) =>
+                _ByMission.TryGetValue(missionId, out List<MissionAttemptFact>? facts) && facts.Any(item => item.IsRescue);
+
+            internal List<MissionSummary> ResolveChain(List<MissionSummary> sliceMissions, Dictionary<string, MissionSummary> missionById)
+            {
+                Dictionary<string, MissionSummary> chain = sliceMissions.ToDictionary(item => item.Id, StringComparer.OrdinalIgnoreCase);
+                HashSet<string> roots = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (MissionSummary mission in sliceMissions)
+                {
+                    roots.Add(mission.Id);
+                    if (_ByMission.TryGetValue(mission.Id, out List<MissionAttemptFact>? facts))
+                        foreach (MissionAttemptFact fact in facts) roots.Add(fact.RootMissionId);
+                }
+                foreach (string root in roots)
+                {
+                    if (missionById.TryGetValue(root, out MissionSummary? rootMission)) chain.TryAdd(rootMission.Id, rootMission);
+                    if (!_MissionIdsByRoot.TryGetValue(root, out HashSet<string>? members)) continue;
+                    foreach (string memberId in members)
+                        if (missionById.TryGetValue(memberId, out MissionSummary? member)) chain.TryAdd(member.Id, member);
+                }
+                return chain.Values.ToList();
+            }
+
+            internal AttemptChainClassification Classify(List<MissionSummary> chainMissions)
+            {
+                AttemptChainClassification result = new AttemptChainClassification();
+                foreach (MissionSummary mission in chainMissions)
+                {
+                    if (!HasAttempt(mission.Id))
+                    {
+                        if (Ran(mission)) result.HistoricalRuns++;
+                        continue;
+                    }
+                    List<MissionAttemptFact> facts = _ByMission[mission.Id];
+                    if (facts.Any(item => item.IsRescue)) result.Rescued = true;
+                    if (facts.Any(MissionAttemptFactRules.DisqualifiesFirstPass)) result.FirstPassDisqualified = true;
+                    int attempts = facts.Count(item => item.FactType == MissionAttemptFactTypeEnum.AttemptStarted);
+                    int explainedReRuns = facts.Count(item => item.FactType == MissionAttemptFactTypeEnum.Retried);
+                    // A second launch with no recorded reason is still a second attempt.
+                    if (attempts - 1 > explainedReRuns) result.FirstPassDisqualified = true;
+                }
+                return result;
+            }
         }
 
         private sealed record SliceEvidence(bool Verified, string Reason, DateTime? LastLandingUtc)

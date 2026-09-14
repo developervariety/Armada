@@ -302,6 +302,7 @@ namespace Armada.Core.Database.Postgresql
             Users = new UserMethods(this, _Settings, _Logging);
             Credentials = new CredentialMethods(this, _Settings, _Logging);
             HarborRunnerEnrollments = new HarborRunnerEnrollmentMethods(_DataSource);
+            MissionAttemptFacts = new MissionAttemptFactMethods(() => _DataSource.CreateConnection(), DatabaseTypeEnum.Postgresql);
             PromptTemplates = new PromptTemplateMethods(this, _Settings, _Logging);
             Playbooks = new PlaybookMethods(this, _Settings, _Logging);
             Memories = new MemoryMethods(this, _Settings, _Logging);
