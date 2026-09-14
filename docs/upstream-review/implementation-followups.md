@@ -492,7 +492,12 @@ No production mission was changed during this review.
 The candidate remains under review. It must load every page of relevant Checks,
 preserve valid intermediate-stage completion, use the shared immutable gate,
 and protect active process ownership before any landing action. A post-landing
-status correction does not substitute for a pre-landing gate.
+status correction does not substitute for a pre-landing gate. The latest
+candidate uses shared stage handoff and shared Check pagination. Actual HTTP
+regressions must still prove that intermediate completion does not invoke
+landing, active process ownership blocks mutation, and a later-page Check
+blocks completion. Events must report the resulting status, not only the
+requested status.
 
 ## FOLLOWUP-017 — Pending integration review findings
 
@@ -510,7 +515,12 @@ These findings apply to unaccepted candidates, not the deployed image:
 - Provider request fixtures must use each provider's actual response shape.
 - Native self-rebuild backup, isolated restore, candidate validation and cleanup
   passed on all four providers after the SQL Server restore-command fix.
-  Quoted paths, process cutover, health verification and rollback still need
-  acceptance. Self-rebuild remains disabled.
+  A second four-provider run also passed with a SQL Server path that contains
+  an apostrophe and a literal template token. Private storage and bounded
+  process cleanup still need final combined proof. The latest cleanup candidate
+  accesses standard input even when no input pipe was configured; add a test
+  that asserts the exact inherited-pipe timeout reason and correct that access.
+  Process cutover, health verification and rollback still need acceptance.
+  Self-rebuild remains disabled.
 
 Keep these entries open until the corrected combined tree has independent proof.
