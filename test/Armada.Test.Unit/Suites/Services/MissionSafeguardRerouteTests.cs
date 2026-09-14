@@ -128,18 +128,29 @@ namespace Armada.Test.Unit.Suites.Services
                     await RunOnAsync(db, mission, blocked, 9201).ConfigureAwait(false);
                     await WriteMissionLogAsync(settings, mission.Id, SafeguardLine).ConfigureAwait(false);
 
+                    int launches = 0;
+                    admiral.OnLaunchAgent = (_, _, _) => Task.FromResult(9300 + Interlocked.Increment(ref launches));
+
                     await admiral.HandleProcessExitAsync(9201, 1, blocked.Id, mission.Id).ConfigureAwait(false);
+
+                    // The continuation requeues the mission and queues its assignment in background work.
+                    // Reading the row while that work runs observes whichever step it has reached, so wait
+                    // for it to settle and assert where the continuation actually ran.
+                    await admiral.WhenQueuedAssignmentsDrainedAsync().ConfigureAwait(false);
 
                     Mission? m = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
                     Captain? c = await db.Captains.ReadAsync(blocked.Id).ConfigureAwait(false);
+                    Captain? same = await db.Captains.ReadAsync(sameRuntime.Id).ConfigureAwait(false);
                     Voyage? v = await db.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
 
-                    AssertEqual(MissionStatusEnum.Pending, m!.Status, "a safeguard block continues the mission, not fails it");
-                    AssertNull(m.CaptainId, "the continuation is unbound from the blocking captain");
+                    AssertEqual(MissionStatusEnum.InProgress, m!.Status, "a safeguard block continues the mission, not fails it");
+                    AssertEqual(alternate.Id, m.CaptainId, "the continuation runs on the alternate-runtime captain");
+                    AssertEqual(1, launches, "the continuation launches exactly once");
                     AssertTrue(PolicyRefusalContinuationService.IsContinuation(m), "the mission is marked as a refusal continuation");
                     AssertTrue(MissionService.IsExcludedForAssignment(m, blocked), "the blocking captain is excluded");
                     AssertTrue(MissionService.IsExcludedForAssignment(m, sameRuntime), "every captain on the blocking runtime is excluded");
                     AssertFalse(MissionService.IsExcludedForAssignment(m, alternate), "the alternate-runtime captain stays eligible");
+                    AssertNull(same!.CurrentMissionId, "no captain on the blocking runtime takes the continuation");
                     AssertTrue(c!.State != CaptainStateEnum.Quarantined, "the blocking captain is not benched for unrelated missions");
                     AssertTrue(v!.Status != VoyageStatusEnum.Failed && v.Status != VoyageStatusEnum.Cancelled,
                         "the voyage is NOT cascade-cancelled by a provider safeguard block");

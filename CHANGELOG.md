@@ -509,6 +509,12 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   the sibling-lane lease or the mission row to that work and left the mission
   Pending. Those fixtures now wait for the queue to drain and assert the settled
   state, including captain release.
+- The refusal-continuation safeguard test read the mission row while the queued
+  assignment for the continuation was still running, so under load it saw
+  `Assigned` where it expected `Pending`. It now waits for queued assignment
+  work to drain and asserts the settled result: the continuation runs exactly
+  once, on the alternate-runtime captain, and no captain on the blocking runtime
+  takes it.
 
 ### Helm configuration and branch client
 
