@@ -36,6 +36,11 @@ namespace Armada.Server
         private readonly TimeSpan _ModelValidationTimeout;
         private readonly TimeSpan _MissionHeartbeatPersistInterval = TimeSpan.FromSeconds(15);
         private ProviderProgressTracker? _ProviderProgress;
+        private TerminalMarkerTracker? _TerminalMarkers;
+
+        // Processes this handler stopped because they outlived their terminal marker. Their exit
+        // is a completion, not a crash, whatever exit code the stop produced.
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<int, byte> _TerminalMarkerStops = new System.Collections.Concurrent.ConcurrentDictionary<int, byte>();
 
         /// <summary>
         /// Maximum characters retained per mission for streamed agent output.
@@ -181,6 +186,71 @@ namespace Armada.Server
         public void SetProviderProgress(ProviderProgressTracker tracker)
         {
             _ProviderProgress = tracker ?? throw new ArgumentNullException(nameof(tracker));
+        }
+
+        /// <summary>
+        /// Wire the shared terminal-marker tracker. The handler records each mission's first
+        /// terminal marker into it and completes the stage once the grace period has passed.
+        /// </summary>
+        /// <param name="tracker">Shared tracker, also read by the recovery orchestrator.</param>
+        public void SetTerminalMarkers(TerminalMarkerTracker tracker)
+        {
+            _TerminalMarkers = tracker ?? throw new ArgumentNullException(nameof(tracker));
+        }
+
+        /// <summary>
+        /// Stop a process that has outlived its terminal marker by the configured grace period.
+        /// Called on every process-liveness tick. The stop is owned here: the process is marked
+        /// before it is stopped, so its exit completes the stage from the recorded output instead
+        /// of reading as a crash.
+        /// </summary>
+        /// <param name="processId">Tracked process identifier.</param>
+        /// <param name="captainId">Captain that owns the process.</param>
+        /// <param name="missionId">Mission the process is running.</param>
+        /// <param name="nowUtc">Current UTC time.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the process was stopped.</returns>
+        public async Task<bool> EnforceTerminalMarkerGraceAsync(int processId, string captainId, string missionId, DateTime nowUtc, CancellationToken token = default)
+        {
+            if (_TerminalMarkers == null) return false;
+            if (!_TerminalMarkers.TryGet(missionId, out TerminalMarkerRecord? marker) || marker == null) return false;
+
+            double graceSeconds = _Settings.AutonomousRecovery.TerminalMarkerGraceSeconds;
+            if ((nowUtc - marker.FirstSeenUtc).TotalSeconds < graceSeconds) return false;
+            if (!_TerminalMarkerStops.TryAdd(processId, 0)) return false;
+
+            try
+            {
+                Captain? captain = await _Database.Captains.ReadAsync(captainId, token).ConfigureAwait(false);
+                if (captain == null)
+                {
+                    _TerminalMarkerStops.TryRemove(processId, out _);
+                    _Logging.Warn(_Header + "cannot stop process " + processId + " after terminal marker: captain " + captainId + " not found");
+                    return false;
+                }
+
+                string detail = "process " + processId + " kept running " + Math.Round((nowUtc - marker.FirstSeenUtc).TotalSeconds)
+                    + "s after its first terminal marker [" + marker.MarkerType + "] " + marker.Value
+                    + " (grace " + graceSeconds + "s); stopping it and completing mission " + missionId + " from the recorded output";
+                _Logging.Info(_Header + detail);
+                await _EmitEventAsync("captain.terminal_marker_stop", "Captain " + captainId + " " + detail,
+                    "mission", missionId, captainId, missionId, null, null).ConfigureAwait(false);
+
+                Armada.Runtimes.Interfaces.IAgentRuntime runtime = _RuntimeFactory.Create(captain.Runtime);
+                await runtime.StopAsync(processId, token).ConfigureAwait(false);
+                return true;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                _TerminalMarkerStops.TryRemove(processId, out _);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _TerminalMarkerStops.TryRemove(processId, out _);
+                _Logging.Warn(_Header + "failed to stop process " + processId + " after its terminal marker for mission " + missionId + ": " + ex.Message);
+                return false;
+            }
         }
 
         /// <summary>
@@ -782,6 +852,9 @@ namespace Armada.Server
                         // It does not feed stall detection, so it is not part of the masking above.
                         try { await _Database.Missions.UpdateHeartbeatAsync(missionId).ConfigureAwait(false); }
                         catch { }
+
+                        if (await EnforceTerminalMarkerGraceAsync(processId, captainId, missionId, DateTime.UtcNow, token).ConfigureAwait(false))
+                            break;
                     }
                 }
                 catch (OperationCanceledException)
@@ -983,6 +1056,14 @@ namespace Armada.Server
             // (OnProviderProgressReceived) refreshed the tracker, which goes silent during a tool
             // call, so a Judge running `dotnet test` for ninety seconds looked stalled.
             _ProviderProgress?.Record(captainId, DateTime.UtcNow);
+
+            // The first terminal marker ends the stage even if the process keeps running; later
+            // markers (a re-review) never replace it.
+            if (_TerminalMarkers != null && !String.IsNullOrEmpty(missionId) && TerminalMarkerTracker.IsTerminalMarker(signal)
+                && _TerminalMarkers.TryRecordFirst(missionId, signal, DateTime.UtcNow))
+            {
+                _Logging.Info(_Header + "mission " + missionId + " emitted its first terminal marker [" + signal.Type + "] " + signal.Value);
+            }
 
             // A papercut is a report about the work, not a report of progress. It takes its own path so
             // it never transitions a mission and never lands in the progress signal stream.
@@ -1278,6 +1359,13 @@ namespace Armada.Server
             }
 
             _Logging.Info(_Header + "process " + processId + " exited (code " + (exitCode?.ToString() ?? "unknown") + ") for captain " + captainId + " mission " + missionId);
+
+            if (_TerminalMarkerStops.TryRemove(processId, out _))
+            {
+                _Logging.Info(_Header + "process " + processId + " was stopped after its terminal marker; completing mission " + missionId + " from the recorded output");
+                exitCode = 0;
+            }
+            _TerminalMarkers?.Clear(missionId);
 
             lock (_ProcessToCaptain)
             {

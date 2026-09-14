@@ -7311,6 +7311,21 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(agentOutput)) return JudgeVerdict.None;
 
             string[] lines = agentOutput.Replace("\r\n", "\n").Split('\n');
+
+            // The FIRST canonical [ARMADA:VERDICT] line is the verdict. A reviewer whose process
+            // outlives its verdict can be prompted into reviewing again, and a later verdict produced
+            // that way must never replace the one it already delivered.
+            foreach (string rawLine in lines)
+            {
+                string line = rawLine.Trim().Trim('\r');
+                if (!line.StartsWith(VerdictMarker, StringComparison.OrdinalIgnoreCase)) continue;
+
+                JudgeVerdict? canonicalVerdict = ParseStructuredJudgeVerdictSignal(line);
+                if (canonicalVerdict.HasValue) return canonicalVerdict.Value;
+            }
+
+            // Fallback when no canonical line exists: the runtime's [verdict] echo or a labelled
+            // prose verdict, read from the end so the concluding statement wins.
             for (int i = lines.Length - 1; i >= 0; i--)
             {
                 string line = lines[i].Trim().Trim('\r');

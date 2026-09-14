@@ -40,6 +40,22 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   OpenAI-compatible endpoints need no opt-in. Loopback fixtures verify each hosted
   provider's request path, credential header, model and workspace tool catalog.
   Azure OpenAI, Vertex AI and Bedrock remain unavailable.
+### A captain's first terminal marker ends its stage
+
+- The first `[ARMADA:VERDICT] PASS|FAIL|NEEDS_REVISION` or
+  `[ARMADA:RESULT] COMPLETE` line in a captain's streamed output is recorded
+  as the stage's terminal marker. When the process is still running
+  `autonomousRecovery.terminalMarkerGraceSeconds` later (default 60, 5-3600),
+  Armada stops it, records `captain.terminal_marker_stop`, and completes the
+  stage from the recorded output as a clean exit.
+- No stall Mail nudge is sent to a mission whose output already carries its
+  terminal marker. Each withheld nudge is logged and counted, and one
+  `autonomous_recovery.mail_nudge_suppressed` event names the marker.
+- The recorded Judge verdict is the first canonical `[ARMADA:VERDICT]` line;
+  a later re-review verdict cannot replace it. Output with no canonical line
+  keeps the existing fallback to the runtime's `[verdict]` echo or a labelled
+  verdict.
+
 ### Rescue effectiveness follows the objective's declared deliverable
 
 - The ineffective-rescue rule now reads what the linked objective kind

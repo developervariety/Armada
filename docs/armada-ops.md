@@ -977,6 +977,29 @@ mission that passed its own gate and landed through `LocalMerge` with no
 reviewer ever reading the final code. A standalone mission that has no voyage
 never had review stages and keeps a standalone rescue.
 
+### A captain's first terminal marker ends its stage
+
+A captain that prints its terminal marker and keeps its process running has
+finished. Before this rule it looked exactly like a captain still working,
+because Armada read the verdict only at process exit. The stall nudge then
+asked the finished reviewer to continue, and each nudge started a full new
+review.
+
+The first `[ARMADA:VERDICT] PASS|FAIL|NEEDS_REVISION` or
+`[ARMADA:RESULT] COMPLETE` line in the streamed output is now recorded. If the
+process has not exited `autonomousRecovery.terminalMarkerGraceSeconds` after
+that line (default 60, clamped to 5-3600), the lifecycle handler stops it and
+records `captain.terminal_marker_stop`. The handler owns that stop, so the
+exit completes the stage from the recorded output as a clean exit, whatever
+exit code the stop produced.
+
+While the marker is recorded, the recovery sweep sends no stall Mail nudge to
+that mission. It logs and counts every withheld nudge and records one
+`autonomous_recovery.mail_nudge_suppressed` event that names the marker.
+The recorded Judge verdict is the first canonical `[ARMADA:VERDICT]` line. A
+later verdict from a re-review cannot replace it. Output with no canonical
+line falls back to the runtime's `[verdict]` echo or a labelled verdict.
+
 ### A rescue brief keeps the reviewer's instructions, not only its diagnosis
 
 The rescue brief embeds the failed mission's reviewer feedback under a size cap.

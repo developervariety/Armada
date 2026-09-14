@@ -52,6 +52,12 @@ namespace Armada.Server
         private readonly CheckRunService? _CheckRuns;
         private readonly Func<Mission, string, string?, CancellationToken, Task<JudgeFollowUp>> _CaptureJudgeFollowUp;
         private readonly DispatchHold? _DispatchHold;
+        private readonly TerminalMarkerTracker? _TerminalMarkers;
+
+        // Missions whose withheld nudge already produced an event, so a finished captain yields one
+        // event rather than one per sweep tick; every withheld nudge is still counted and logged.
+        private readonly ConcurrentDictionary<string, byte> _NudgeSuppressedMissions =
+            new ConcurrentDictionary<string, byte>(StringComparer.Ordinal);
 
         // Rescues refused by an engaged dispatch hold, keyed by failed mission id. Each entry
         // records which hold engagement refused it, so the refusal is written to the incident once
@@ -120,9 +126,11 @@ namespace Armada.Server
             ProviderProgressTracker? providerProgress,
             CheckRunService? checkRuns = null,
             Func<Mission, string, string?, CancellationToken, Task<JudgeFollowUp>>? captureJudgeFollowUp = null,
-            DispatchHold? dispatchHold = null)
+            DispatchHold? dispatchHold = null,
+            TerminalMarkerTracker? terminalMarkers = null)
         {
             _DispatchHold = dispatchHold;
+            _TerminalMarkers = terminalMarkers;
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Admiral = admiral ?? throw new ArgumentNullException(nameof(admiral));
             _Incidents = incidents ?? throw new ArgumentNullException(nameof(incidents));
@@ -2036,6 +2044,29 @@ namespace Armada.Server
                 // seconds (probe run 2026-08-10: healthy captain nudged 12s after launch).
                 if (ProviderStallClassifier.IsWithinStartupGrace(mission.StartedUtc, nowUtc, thresholdMinutes))
                     continue;
+
+                // A captain whose output already carries its terminal marker is finished, not stalled.
+                // A nudge asks it to continue the mission, and a finished reviewer answers by reviewing
+                // again; the lifecycle handler completes the stage after its grace period instead.
+                if (_TerminalMarkers != null
+                    && _TerminalMarkers.TryGet(mission.Id, out TerminalMarkerRecord? marker)
+                    && marker != null)
+                {
+                    long suppressedTotal = _TerminalMarkers.RecordSuppressedNudge();
+                    string markerText = "[" + marker.MarkerType + "] " + marker.Value;
+                    _Logging.Info(_Header + "stall nudge withheld for captain " + captain.Id + " on mission " + mission.Id
+                        + ": its output already carries terminal marker " + markerText
+                        + " (withheld nudges this process: " + suppressedTotal + ")");
+                    if (_NudgeSuppressedMissions.TryAdd(mission.Id, 0))
+                    {
+                        await EmitEventAsync("autonomous_recovery.mail_nudge_suppressed",
+                            "Autonomous Mail nudge withheld for captain " + captain.Id + " on mission " + mission.Id
+                            + " (stall kind: " + stallKind + "): output already carries terminal marker " + markerText
+                            + " seen at " + marker.FirstSeenUtc.ToString("u") + ".",
+                            mission, null, token).ConfigureAwait(false);
+                    }
+                    continue;
+                }
 
                 if (await HasRecentAutoNudgeAsync(captain, token).ConfigureAwait(false))
                     continue;

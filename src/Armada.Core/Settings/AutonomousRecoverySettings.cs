@@ -57,6 +57,17 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Seconds a captain process may keep running after its first terminal marker
+        /// (<c>[ARMADA:VERDICT]</c> or <c>[ARMADA:RESULT] COMPLETE</c>) before Armada stops it and
+        /// completes the stage from the recorded output. Clamped to 5-3600; default 60.
+        /// </summary>
+        public int TerminalMarkerGraceSeconds
+        {
+            get => _TerminalMarkerGraceSeconds;
+            set => _TerminalMarkerGraceSeconds = Math.Max(5, Math.Min(3600, value));
+        }
+
+        /// <summary>
         /// Whether the periodic sweep should drain judge-passed WorkProduced branches on idle voyages.
         /// </summary>
         public bool LandingDrainEnabled { get; set; } = true;
@@ -94,6 +105,7 @@ namespace Armada.Core.Settings
         private int _FailedMissionLookbackHours = 24;
         private int _StallMailNudgeCooldownMinutes = 15;
         private double _StallMailNudgeThresholdRatio = 0.5;
+        private int _TerminalMarkerGraceSeconds = 60;
         private int _StuckOpenVoyageMinutes = 60;
         private int _LandingDrainMaxVoyagesPerSweep = 10;
         private int _RecoverySweepMaxFailedMissionAgeHours = 6;

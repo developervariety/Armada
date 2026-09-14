@@ -1240,6 +1240,80 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("ARMADA_AUTO_NUDGE", signals.Objects[0].Payload ?? "", "Expected autonomous nudge marker.");
             }).ConfigureAwait(false);
 
+            await RunTest("Stall nudge is withheld, logged and counted when the mission already emitted its terminal marker", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_marker", "usr_auto_marker").ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_marker", "usr_auto_marker").ConfigureAwait(false);
+                Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    VesselId = vessel.Id,
+                    Title = "Finished judge",
+                    Description = "Judge that printed its verdict and kept running",
+                    Persona = "Judge",
+                    Status = MissionStatusEnum.InProgress,
+                    StartedUtc = DateTime.UtcNow.AddMinutes(-30),
+                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-30)
+                }).ConfigureAwait(false);
+
+                Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Name = "finished-judge",
+                    State = CaptainStateEnum.Working,
+                    CurrentMissionId = mission.Id,
+                    LastHeartbeatUtc = DateTime.UtcNow.AddMinutes(-10)
+                }).ConfigureAwait(false);
+
+                TerminalMarkerTracker markers = new TerminalMarkerTracker();
+                AssertTrue(markers.TryRecordFirst(mission.Id,
+                    new ProgressParser.ProgressSignal { Type = "verdict", Value = "PASS" },
+                    DateTime.UtcNow.AddMinutes(-9)), "The verdict is recorded.");
+
+                ArmadaSettings settings = new ArmadaSettings
+                {
+                    StallThresholdMinutes = 10,
+                    AutonomousRecovery = new AutonomousRecoverySettings
+                    {
+                        SendStallMailNudges = true,
+                        StallMailNudgeThresholdRatio = 0.5,
+                        StallMailNudgeCooldownMinutes = 30
+                    }
+                };
+                AutonomousRecoveryOrchestrator orchestrator = new AutonomousRecoveryOrchestrator(
+                    testDb.Driver,
+                    new RecordingAdmiralService(testDb.Driver),
+                    new IncidentService(testDb.Driver),
+                    new RunbookService(testDb.Driver, new LoggingModule()),
+                    settings,
+                    new LoggingModule(),
+                    null, null, null, null, null, null, null, null, null,
+                    markers);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                EnumerationResult<Signal> signals = await testDb.Driver.Signals.EnumerateAsync(vessel.TenantId!, new EnumerationQuery
+                {
+                    SignalType = SignalTypeEnum.Mail.ToString(),
+                    ToCaptainId = captain.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(0, signals.Objects.Count, "A finished captain must not be asked to continue its mission.");
+                AssertEqual(2L, markers.SuppressedNudgeCount, "Every withheld nudge is counted.");
+
+                List<ArmadaEvent> suppressed = await testDb.Driver.Events
+                    .EnumerateByTypeAsync("autonomous_recovery.mail_nudge_suppressed")
+                    .ConfigureAwait(false);
+                AssertEqual(1, suppressed.Count, "The suppression is recorded once per mission, not once per sweep.");
+                AssertContains("[verdict] PASS", suppressed[0].Message ?? String.Empty, "The event names the marker that finished the mission.");
+            }).ConfigureAwait(false);
+
             await RunTest("ReviewerFeedback_JudgeStageFailure_InlinedIntoWorkerRescueBrief", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

@@ -154,6 +154,21 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            // A Judge whose process outlives its verdict can be prompted into reviewing again. The
+            // first canonical verdict line is the verdict; a later re-review cannot replace it.
+            await RunTest("ParseJudgeVerdict_FirstCanonicalVerdictWinsOverLaterReReview", () =>
+            {
+                string output =
+                    "## Completeness\nCovered.\n## Correctness\nSound.\n## Tests\nGood.\n## Failure Modes\nNone.\n" +
+                    "## Verdict\nPASS\n" +
+                    "[ARMADA:VERDICT] PASS\n" +
+                    "reviewing again after a status request\n" +
+                    "## Verdict\nNEEDS_REVISION\n" +
+                    "[ARMADA:VERDICT] NEEDS_REVISION\n";
+                AssertEqual("Pass", InvokeParseVerdict(output));
+                return Task.CompletedTask;
+            });
+
             // Windows runtime output uses CRLF line endings; the parser normalizes \r\n before
             // splitting. Pin that a verdict on a CRLF line is still extracted.
             await RunTest("ParseJudgeVerdict_CrlfLineEndings_StillExtractsPass", () =>

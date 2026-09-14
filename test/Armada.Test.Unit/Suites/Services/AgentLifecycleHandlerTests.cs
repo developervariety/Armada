@@ -860,6 +860,58 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A process that outlives its first terminal marker is stopped after the grace period and completes cleanly", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    StopRecordingRuntime runtime = new StopRecordingRuntime();
+                    TaskCompletionSource<int?> exitSeen = new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    StubAdmiralService admiral = new StubAdmiralService();
+                    admiral.OnHandleProcessExit = (pid, code, cpt, msn) =>
+                    {
+                        exitSeen.TrySetResult(code);
+                        return Task.CompletedTask;
+                    };
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings, null, admiral,
+                        new StopRecordingRuntimeFactory(CreateLogging(), runtime));
+                    settings.AutonomousRecovery.TerminalMarkerGraceSeconds = 60;
+                    TerminalMarkerTracker markers = new TerminalMarkerTracker();
+                    handler.SetTerminalMarkers(markers);
+
+                    Captain captain = await testDb.Driver.Captains.CreateAsync(new Captain("verdict-captain", AgentRuntimeEnum.ClaudeCode)).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("Judge mission") { Persona = "Judge", CaptainId = captain.Id }).ConfigureAwait(false);
+
+                    int processId = 939393;
+                    RegisterTrackedProcess(handler, processId, captain.Id, mission.Id);
+
+                    handler.HandleAgentOutput(processId, "## Verdict");
+                    AssertFalse(markers.TryGet(mission.Id, out _), "Prose is not a terminal marker.");
+
+                    handler.HandleAgentOutput(processId, "[ARMADA:VERDICT] PASS");
+                    handler.HandleAgentOutput(processId, "[ARMADA:VERDICT] NEEDS_REVISION");
+                    AssertTrue(markers.TryGet(mission.Id, out TerminalMarkerRecord? first), "The verdict line is recorded.");
+                    AssertEqual("PASS", first!.Value, "A later re-review never replaces the first verdict.");
+
+                    bool stoppedEarly = await handler.EnforceTerminalMarkerGraceAsync(
+                        processId, captain.Id, mission.Id, first.FirstSeenUtc.AddSeconds(30)).ConfigureAwait(false);
+                    AssertFalse(stoppedEarly, "Inside the grace period the process may still exit on its own.");
+                    AssertEqual(0, runtime.StopCalls.Count);
+
+                    bool stopped = await handler.EnforceTerminalMarkerGraceAsync(
+                        processId, captain.Id, mission.Id, first.FirstSeenUtc.AddSeconds(61)).ConfigureAwait(false);
+                    AssertTrue(stopped, "After the grace period the handler stops the process.");
+                    AssertEqual(1, runtime.StopCalls.Count);
+                    AssertEqual(processId, runtime.StopCalls[0]);
+
+                    // The stop kills the process, which reports a non-zero exit. It must still complete.
+                    handler.HandleAgentProcessExited(processId, 137);
+                    Task finished = await Task.WhenAny(exitSeen.Task, Task.Delay(TimeSpan.FromSeconds(10))).ConfigureAwait(false);
+                    AssertTrue(finished == exitSeen.Task, "The exit reaches the admiral.");
+                    AssertEqual(0, exitSeen.Task.Result, "A process stopped after its terminal marker completes as a clean exit.");
+                    AssertFalse(markers.TryGet(mission.Id, out _), "The marker is cleared once the process has exited.");
+                }
+            });
+
             await RunTest("MissionProcessOwnership_RequiresRegisteredCaptainGeneration", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -989,11 +1041,11 @@ namespace Armada.Test.Unit.Suites.Services
             });
         }
 
-        private AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings, TimeSpan? modelValidationTimeout = null, IAdmiralService? admiralOverride = null)
+        private AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings, TimeSpan? modelValidationTimeout = null, IAdmiralService? admiralOverride = null, AgentRuntimeFactory? runtimeFactoryOverride = null)
         {
             LoggingModule logging = CreateLogging();
             settings = CreateSettings();
-            AgentRuntimeFactory runtimeFactory = new AgentRuntimeFactory(logging);
+            AgentRuntimeFactory runtimeFactory = runtimeFactoryOverride ?? new AgentRuntimeFactory(logging);
             IAdmiralService admiral = admiralOverride ?? new StubAdmiralService();
             IMessageTemplateService templateService = new MessageTemplateService(logging);
 
@@ -1008,6 +1060,63 @@ namespace Armada.Test.Unit.Suites.Services
                 null,
                 (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) => Task.CompletedTask,
                 modelValidationTimeout);
+        }
+
+        private sealed class StopRecordingRuntimeFactory : AgentRuntimeFactory
+        {
+            private readonly Armada.Runtimes.Interfaces.IAgentRuntime _Runtime;
+
+            public StopRecordingRuntimeFactory(LoggingModule logging, Armada.Runtimes.Interfaces.IAgentRuntime runtime)
+                : base(logging)
+            {
+                _Runtime = runtime;
+            }
+
+            public override Armada.Runtimes.Interfaces.IAgentRuntime Create(AgentRuntimeEnum runtimeType) => _Runtime;
+        }
+
+        private sealed class StopRecordingRuntime : Armada.Runtimes.Interfaces.IAgentRuntime
+        {
+            public List<int> StopCalls { get; } = new List<int>();
+
+            public string Name => "StopRecording";
+
+            public bool SupportsResume => false;
+
+            public bool SupportsPlanningSessions => false;
+
+            public event Action<int, string>? OnOutputReceived { add { } remove { } }
+
+            public event Action<int, string>? OnStdoutReceived { add { } remove { } }
+
+            public event Action<int, RuntimeTokenUsage>? OnTokenUsageReceived { add { } remove { } }
+
+            public event Action<int, RuntimeTokenUsage>? OnProviderProgressReceived { add { } remove { } }
+
+            public event Action<int>? OnProcessStarted { add { } remove { } }
+
+            public event Action<int, int?>? OnProcessExited { add { } remove { } }
+
+            public Task<int> StartAsync(
+                string workingDirectory,
+                string prompt,
+                Dictionary<string, string>? environment = null,
+                string? logFilePath = null,
+                string? finalMessageFilePath = null,
+                string? model = null,
+                Captain? captain = null,
+                bool showThinking = false,
+                CancellationToken token = default,
+                CaptainLaunchIsolationPlan? isolationPlan = null)
+                => throw new NotSupportedException("This runtime only records stops.");
+
+            public Task StopAsync(int processId, CancellationToken token = default)
+            {
+                lock (StopCalls) StopCalls.Add(processId);
+                return Task.CompletedTask;
+            }
+
+            public Task<bool> IsRunningAsync(int processId, CancellationToken token = default) => Task.FromResult(true);
         }
 
         private static LoggingModule CreateLogging()
