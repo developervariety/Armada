@@ -22,6 +22,10 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Windows storage fails closed until owner-only ACL verification is available.
   The default preflight stays disabled; supervised cutover and rollback remain
   separate acceptance work.
+- Added a local Docker rebuild helper that retains the running image and the
+  current mutable tag under unique dated tags before the build. Retention
+  collisions and Docker inspection or tag failures stop the build, and failed
+  builds keep both rollback references.
 
 
 ### Helm configuration and branch client

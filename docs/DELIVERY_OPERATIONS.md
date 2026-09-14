@@ -134,6 +134,22 @@ After rollback:
 3. Confirm the actual target state.
 4. Link the evidence to the incident and objective.
 
+### 6.1 Retain local Docker images before a rebuild
+
+For a local Docker deployment, run
+`scripts/common/rebuild-local-image.sh` before rebuilding a mutable image tag.
+Give it the running container name, the mutable image tag, the Dockerfile, and
+the build context. It inspects the running container and the existing tag,
+creates two unique dated retention tags, and starts the local build only after
+both tags exist. Read and record the printed retention tags with the deployment
+evidence.
+
+The helper fails closed when the container is absent or stopped, the mutable
+tag cannot be inspected, a retention tag already exists, or either tag command
+fails. It never pushes an image. If the build fails, the two retention tags
+remain available for rollback. Use the exact retained tag recorded by the
+helper; do not rebuild or overwrite it.
+
 ## 7. Incidents
 
 Use `armada_create_incident` when a delivery failure has operational impact.
