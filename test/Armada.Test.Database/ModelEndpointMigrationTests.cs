@@ -197,27 +197,58 @@ namespace Armada.Test.Database
         private async Task AssertSqliteCompositeCaptainLinkRejectedAsync(MigrationScenarioRunner scenarioRunner,
             Dictionary<int, string> before, CancellationToken token)
         {
-            if (!await CaptainTableExistsAsync(token).ConfigureAwait(false))
-                return;
-
             string originalSql = await ReadScalarStringAsync(
                 "SELECT sql FROM sqlite_master WHERE type='table' AND name='captains';", token).ConfigureAwait(false);
             DatabaseAssert.True(!String.IsNullOrWhiteSpace(originalSql), "SQLite captain table DDL is available for composite-FK fixture");
             string compositeSql = originalSql.Trim().TrimEnd(';');
+            int firstConstraint = compositeSql.IndexOf("FOREIGN KEY", StringComparison.OrdinalIgnoreCase);
+            DatabaseAssert.True(firstConstraint > 0, "SQLite captain table DDL has a table constraint boundary");
+            compositeSql = compositeSql.Substring(0, firstConstraint)
+                + "model_endpoint_guard_marker TEXT, "
+                + compositeSql.Substring(firstConstraint);
             int close = compositeSql.LastIndexOf(')');
             DatabaseAssert.True(close > 0, "SQLite captain table DDL has a closing column list");
             compositeSql = compositeSql.Substring(0, close)
-                + ", model_endpoint_guard_marker TEXT, FOREIGN KEY (model_endpoint_id, model_endpoint_guard_marker) REFERENCES model_endpoints(id, tenant_id))";
+                + ", FOREIGN KEY (model_endpoint_id, model_endpoint_guard_marker) REFERENCES model_endpoints(id, tenant_id))";
 
-            await ExecuteStatementsAsync("PRAGMA foreign_keys=OFF; ALTER TABLE captains RENAME TO captains_guard_original;", token).ConfigureAwait(false);
+            bool originalRenamed = false;
+            bool replacementCreated = false;
+            bool parentCompositeIndexCreated = false;
+            Exception? testFailure = null;
             try
             {
+                await ExecuteStatementsAsync("PRAGMA foreign_keys=OFF; ALTER TABLE captains RENAME TO captains_guard_original;", token).ConfigureAwait(false);
+                originalRenamed = true;
+                await ExecuteAsync("CREATE UNIQUE INDEX idx_model_endpoints_guard_composite ON model_endpoints(id, tenant_id);", token).ConfigureAwait(false);
+                parentCompositeIndexCreated = true;
                 await ExecuteAsync(compositeSql + ";", token).ConfigureAwait(false);
+                replacementCreated = true;
+                DatabaseAssert.True(replacementCreated, "SQLite composite captain-link fixture was created");
                 await AssertCaptainLinkRejectedAsync(scenarioRunner, before, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                testFailure = ex;
+                throw;
             }
             finally
             {
-                await ExecuteStatementsAsync("DROP TABLE captains; ALTER TABLE captains_guard_original RENAME TO captains; PRAGMA foreign_keys=ON;", token).ConfigureAwait(false);
+                try
+                {
+                    if (replacementCreated)
+                        await ExecuteAsync("DROP TABLE captains;", token).ConfigureAwait(false);
+                    if (originalRenamed)
+                        await ExecuteAsync("ALTER TABLE captains_guard_original RENAME TO captains;", token).ConfigureAwait(false);
+                    if (parentCompositeIndexCreated)
+                        await ExecuteAsync("DROP INDEX idx_model_endpoints_guard_composite;", token).ConfigureAwait(false);
+                    await ExecuteAsync("PRAGMA foreign_keys=ON;", token).ConfigureAwait(false);
+                }
+                catch (Exception cleanupFailure)
+                {
+                    if (testFailure != null)
+                        throw new AggregateException(testFailure, cleanupFailure);
+                    throw;
+                }
             }
         }
 
@@ -398,19 +429,6 @@ namespace Armada.Test.Database
                     return value == null || value == DBNull.Value ? String.Empty : Convert.ToString(value) ?? String.Empty;
                 }
             }
-        }
-
-        private async Task<bool> CaptainTableExistsAsync(CancellationToken token)
-        {
-            string sql = _Settings.Type switch
-            {
-                DatabaseTypeEnum.Sqlite => "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='captains';",
-                DatabaseTypeEnum.Postgresql => "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=current_schema() AND table_name='captains';",
-                DatabaseTypeEnum.Mysql => "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name='captains';",
-                DatabaseTypeEnum.SqlServer => "SELECT COUNT(*) FROM sys.tables WHERE schema_id=SCHEMA_ID() AND name='captains';",
-                _ => throw new NotSupportedException()
-            };
-            return String.Equals(await ReadScalarStringAsync(sql, token).ConfigureAwait(false), "1", StringComparison.Ordinal);
         }
 
         private async Task ExecuteStatementsAsync(string sql, CancellationToken token)
