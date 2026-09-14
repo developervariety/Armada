@@ -426,7 +426,7 @@ namespace Armada.Test.Unit.Suites.Services
         private bool SkipWindows(string testName)
         {
             if (!OperatingSystem.IsWindows()) return false;
-            SkipTest(testName, "Self-deploy private storage fails closed on Windows and the fixture uses a Unix shell.");
+            SkipTest(testName, "The process fixtures use a Unix shell.");
             return true;
         }
 

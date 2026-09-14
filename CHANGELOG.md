@@ -379,7 +379,12 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Added provider-native backup, owned isolated restore and candidate database
   validation for all four providers. Native process output and cancellation are
   bounded, and Unix settings and backup directories use private permissions.
-- Windows storage fails closed until owner-only ACL verification is available.
+- Private self-deploy and backup storage on Windows now uses verified owner-only
+  ACLs: a protected descriptor owned by the current user with a single
+  full-control rule for that user, read back after every change. Anything else
+  fails closed with `private_storage_acl_unverified`, and an existing directory
+  is verified but never modified. The real Windows ACL test runs only on
+  Windows and has not yet been run on a Windows host.
 - The native preflight is now the default for every self-deploy cutover: backup,
   owned isolated restore, candidate `--validate-database` and cleanup against
   the running admiral's database. A failed step, a missing native utility, or

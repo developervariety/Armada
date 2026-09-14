@@ -1335,11 +1335,14 @@ copy only; the running database and migration history are not modified by this
 provider. A build success or a backup proof alone never permits cutover.
 On Unix, the operation directory and settings file are created with owner-only
 permissions (`0700` and `0600`); an existing directory with public permission
-bits or a symlink is rejected. On Windows, native self-deploy storage is
-disabled until the provider has a platform ACL implementation that verifies
-owner-only ACLs for both new and existing paths; it fails closed with
-`private_storage_acl_unverified`. A path name or temp-root location is not
-treated as proof. The rollback artifact remains
+bits or a symlink is rejected. On Windows, private storage uses owner-only ACLs: each new directory and file
+gets a protected descriptor (inheritance removed) owned by the current user,
+with one rule granting that user full control, inherited by children. SYSTEM
+and Administrators are not granted. The descriptor is read back after every
+change; anything else fails closed with `private_storage_acl_unverified`
+(`private_storage_acl_apply_failed` when it cannot be applied). An existing
+directory is verified, never modified. A path name or temp-root location is
+not treated as proof. The rollback artifact remains
 inside that private directory. The native runner bounds each captured output
 stream and observes every pipe task after a bounded timeout. It closes standard
 input only when the request redirected it. A truncation marker fails candidate
@@ -1433,8 +1436,9 @@ unreadable. It ignores entries that are not digest directories and never
 follows a symlink. A pruning failure is reported as
 `self_deploy.release_prune_failed`, and it does not block the cutover.
 
-Current limits: supervised processes inherit the supervisor's standard streams,
-and Windows storage fails closed.
+Current limits: supervised processes inherit the supervisor's standard streams.
+The Windows ACL path has a Windows-only test that has not yet been run on a
+Windows host.
 
 ### Self-deploy rehearsal
 

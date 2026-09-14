@@ -131,9 +131,7 @@ namespace Armada.Test.Unit.Suites.Services
 
         private bool SkipWindows(string testName)
         {
-            if (!OperatingSystem.IsWindows()) return false;
-            SkipTest(testName, "Native backup storage fails closed on Windows until owner-only ACL verification exists.");
-            return true;
+            return false;
         }
 
         private static DatabaseSettings ServerSettings(DatabaseTypeEnum type)

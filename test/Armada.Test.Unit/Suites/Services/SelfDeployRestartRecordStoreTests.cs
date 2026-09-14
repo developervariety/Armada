@@ -210,7 +210,7 @@ namespace Armada.Test.Unit.Suites.Services
         private bool SkipWindows(string testName)
         {
             if (!OperatingSystem.IsWindows()) return false;
-            SkipTest(testName, "Self-deploy private storage fails closed on Windows.");
+            SkipTest(testName, "These cases assert Unix permission bits; Windows ACLs are covered by the Private Storage Backend suite.");
             return true;
         }
 
