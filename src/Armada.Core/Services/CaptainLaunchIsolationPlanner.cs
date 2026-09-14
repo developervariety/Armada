@@ -17,8 +17,8 @@ namespace Armada.Core.Services
     ///   captain's existing authentication and provider profiles behind a replacement CODEX_HOME.
     /// - Gemini / Cursor: a scoped HOME/USERPROFILE containing the client's settings file, so they
     ///   physically cannot read the host user's configuration.
-    /// - Mux: a scoped MUX_CONFIG_DIR containing mcp-servers.json. Its server file has no headers
-    ///   field, so a Mux captain cannot present the launch credential and the endpoint refuses it.
+    /// - Mux: a scoped MUX_CONFIG_DIR containing mcp-servers.json, whose auth object presents the launch
+    ///   credential as a bearer token referenced by variable name.
     ///
     /// Every plan puts the admiral's launch credential in the captain's environment, and each client
     /// references it by variable name, so the token never lands in a scoped configuration file.

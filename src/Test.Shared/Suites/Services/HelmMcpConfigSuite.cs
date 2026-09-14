@@ -192,6 +192,30 @@ namespace Test.Shared.Suites.Services
                         if (Directory.Exists(root)) Directory.Delete(root, true);
                     }
                 }),
+                CaseAsync("mux_install_entry_references_the_api_key_variable", "Helm Mux MCP entry authenticates by variable reference", TestTags.Positive, () =>
+                {
+                    string root = Path.Combine(Path.GetTempPath(), "armada-helm-mux-auth-" + Guid.NewGuid().ToString("N"));
+                    string? prior = Environment.GetEnvironmentVariable("MUX_CONFIG_DIR");
+                    Environment.SetEnvironmentVariable("MUX_CONFIG_DIR", root);
+                    try
+                    {
+                        Directory.CreateDirectory(root);
+                        McpConfigHelper.ConfigTarget? mux = null;
+                        foreach (McpConfigHelper.ConfigTarget target in McpConfigHelper.BuildTargets(7891))
+                            if (target.ClientName == "Mux") mux = target;
+                        AssertNotNull(mux, "A present Mux config directory offers the Mux target.");
+                        JsonNode? auth = mux!.ArmadaConfig!["auth"];
+                        AssertEqual("api_key", auth?["scheme"]?.GetValue<string>(), "Mux sends the API key in a header.");
+                        AssertEqual(McpConfigHelper.ApiKeyHeaderName, auth?["headerName"]?.GetValue<string>(), "Mux names the Armada API key header.");
+                        AssertEqual("${" + McpConfigHelper.ApiKeyEnvironmentVariable + "}", auth?["key"]?.GetValue<string>(), "Mux references the API key variable, never a value.");
+                    }
+                    finally
+                    {
+                        Environment.SetEnvironmentVariable("MUX_CONFIG_DIR", prior);
+                        if (Directory.Exists(root)) Directory.Delete(root, true);
+                    }
+                    return System.Threading.Tasks.Task.CompletedTask;
+                }),
                 CaseAsync("generic_jsonc_scoped_edit_has_exact_fixture_output", "Helm generic JSONC scoped edit", TestTags.Positive, async () =>
                 {
                     string root = Path.Combine(Path.GetTempPath(), "armada-helm-generic-" + Guid.NewGuid().ToString("N"));

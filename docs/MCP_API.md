@@ -62,8 +62,16 @@ registers the endpoint for Claude Code and the other supported runtimes. Each
 HTTP entry carries an `X-Api-Key` header that references `ARMADA_API_KEY` in the
 client's own syntax (`${ARMADA_API_KEY}` for Claude Code and Gemini CLI,
 `${env:ARMADA_API_KEY}` for Cursor, `{env:ARMADA_API_KEY}` for OpenCode), so set
-that variable in the client's environment. Codex uses the stdio bridge. Mux has
-no header field, so a Mux entry cannot authenticate.
+that variable in the client's environment. Codex uses the stdio bridge. The Mux
+entry authenticates through Mux's `auth` object:
+`"auth": { "scheme": "api_key", "key": "${ARMADA_API_KEY}", "headerName": "X-Api-Key" }`.
+
+The Gemini CLI entry is registered with
+`gemini mcp add --scope user --transport http --header 'X-Api-Key: ${ARMADA_API_KEY}' armada http://localhost:7891/mcp`.
+That header form is unverified against an installed Gemini CLI. On a host with
+Gemini CLI, run that command, start `gemini` with `ARMADA_API_KEY` set, run
+`/mcp`, and confirm the `armada` server lists its tools. A `401` means the
+header value was not expanded.
 
 **Enterprise-managed Claude Code.** If the add is rejected with
 `Cannot add MCP server 'armada': not allowed by enterprise policy`, your
@@ -303,7 +311,10 @@ client's own syntax:
 | Cursor | `"headers": { "Authorization": "Bearer ${env:ARMADA_MCP_TOKEN}" }` |
 | OpenCode | `"headers": { "Authorization": "Bearer {env:ARMADA_MCP_TOKEN}" }` |
 | Codex | `bearer_token_env_var = "ARMADA_MCP_TOKEN"` |
-| Mux | Not supported. Its server file has no headers field, so the endpoint refuses a Mux captain |
+| Mux | `"auth": { "scheme": "bearer_token", "token": "${ARMADA_MCP_TOKEN}" }` |
+
+The captain tool inventory probes a Mux captain's configured HTTP servers with
+the same credential its `auth` object declares.
 
 The launch credential maps to a named captain identity with operator tool
 access, because captains use the operator catalog. Captain prompts must still

@@ -159,6 +159,12 @@ namespace Test.Shared.Suites.Services
                 AssertTrue(CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.Gemini, 7891, scoped).FilesToWrite[0].Contents.Contains("${" + McpLaunchCredential.EnvironmentVariable + "}", StringComparison.Ordinal), "Gemini references the variable");
                 AssertTrue(CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.Cursor, 7891, scoped).FilesToWrite[0].Contents.Contains("${env:" + McpLaunchCredential.EnvironmentVariable + "}", StringComparison.Ordinal), "Cursor references the variable");
                 AssertTrue(CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.OpenCode, 7891, scoped).FilesToWrite[0].Contents.Contains("{env:" + McpLaunchCredential.EnvironmentVariable + "}", StringComparison.Ordinal), "OpenCode references the variable");
+
+                // Mux reads an HTTP server's credential from its auth object and expands ${VAR} in the token.
+                System.Text.Json.Nodes.JsonObject muxServer = System.Text.Json.Nodes.JsonNode.Parse(
+                    CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.Mux, 7891, scoped).FilesToWrite[0].Contents)!["servers"]!.AsArray()[0]!.AsObject();
+                AssertEqual("bearer_token", muxServer["auth"]?["scheme"]?.GetValue<string>(), "Mux presents the launch credential as a bearer token");
+                AssertEqual("${" + McpLaunchCredential.EnvironmentVariable + "}", muxServer["auth"]?["token"]?.GetValue<string>(), "Mux references the variable");
             }));
 
             cases.Add(Case("launch_plan_carries_credential_for_dock_config_runtimes", "With dock MCP delivery enabled every runtime launches with the credential its dock configuration references", TestTags.Positive, () =>
@@ -208,6 +214,34 @@ namespace Test.Shared.Suites.Services
             {
                 AssertTrue(CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.ClaudeCode, 7891, "").IsEmpty, "empty scoped dir should be empty");
                 AssertTrue(CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.ClaudeCode, 7891, "   ").IsEmpty, "whitespace scoped dir should be empty");
+            }));
+
+            cases.Add(Case("mux_tool_probe_sends_the_declared_credential", "The Mux tool probe sends the credential the Mux server file declares", TestTags.Positive, () =>
+            {
+                const string variable = "ARMADA_ISOLATION_PROBE_KEY";
+                string? prior = Environment.GetEnvironmentVariable(variable);
+                Environment.SetEnvironmentVariable(variable, "probe-secret");
+                try
+                {
+                    string file = "{\"servers\":["
+                        + "{\"name\":\"bearer\",\"transport\":\"http\",\"url\":\"http://localhost:7891\",\"mcpPath\":\"/mcp\",\"auth\":{\"scheme\":\"bearer_token\",\"token\":\"${" + variable + "}\"}},"
+                        + "{\"name\":\"keyed\",\"transport\":\"http\",\"url\":\"http://localhost:7891\",\"auth\":{\"scheme\":\"api_key\",\"key\":\"${" + variable + "}\",\"headerName\":\"X-Api-Key\"}},"
+                        + "{\"name\":\"open\",\"transport\":\"http\",\"url\":\"http://localhost:7891\",\"auth\":{\"scheme\":\"none\"}}]}";
+
+                    IReadOnlyDictionary<string, string> bearer = Armada.Server.CaptainRuntimeToolCatalogService.BuildMuxProbeHeaders(file, "bearer");
+                    AssertTrue(bearer.TryGetValue("Authorization", out string? authorization), "a bearer_token server probes with an Authorization header");
+                    AssertEqual("Bearer probe-secret", authorization, "the token reference expands from the environment");
+
+                    IReadOnlyDictionary<string, string> keyed = Armada.Server.CaptainRuntimeToolCatalogService.BuildMuxProbeHeaders(file, "keyed");
+                    AssertTrue(keyed.TryGetValue("X-Api-Key", out string? key), "an api_key server probes with its named header");
+                    AssertEqual("probe-secret", key, "the key reference expands from the environment");
+
+                    AssertEqual(0, Armada.Server.CaptainRuntimeToolCatalogService.BuildMuxProbeHeaders(file, "open").Count, "a server without auth sends no credential");
+                }
+                finally
+                {
+                    Environment.SetEnvironmentVariable(variable, prior);
+                }
             }));
 
             return new TestSuiteDescriptor(

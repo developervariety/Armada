@@ -307,6 +307,17 @@ namespace Test.Shared.Suites.Services
                     foreach (KeyValuePair<string, JsonNode?> header in declared)
                         headers.Add(new KeyValuePair<string, string>(header.Key, header.Value?.GetValue<string>() ?? String.Empty));
                 }
+
+                // Mux declares an HTTP server's credential in an auth object instead of a headers map: an
+                // api_key scheme sends the key in the named header, a bearer_token scheme in Authorization.
+                if (target.ArmadaConfig["auth"] is JsonObject auth)
+                {
+                    string scheme = auth["scheme"]?.GetValue<string>() ?? String.Empty;
+                    if (scheme == "api_key")
+                        headers.Add(new KeyValuePair<string, string>(auth["headerName"]?.GetValue<string>() ?? "X-API-Key", auth["key"]?.GetValue<string>() ?? String.Empty));
+                    else if (scheme == "bearer_token")
+                        headers.Add(new KeyValuePair<string, string>("Authorization", auth["token"]?.GetValue<string>() ?? String.Empty));
+                }
             }
             else if (target.InstallArgs != null)
             {

@@ -146,7 +146,7 @@ namespace Armada.Helm.Commands
             }
             if (target.ClientName == "Mux")
             {
-                AnsiConsole.MarkupLine("[dim]Or add it interactively:[/] start [green]mux[/], run [green]/mcp[/], choose [green]+ Add MCP server[/], then set transport [green]http[/], url [green]http://localhost:" + mcpPort + "[/], mcp path [green]/mcp[/], auth [green]none[/].");
+                AnsiConsole.MarkupLine("[dim]Or add it interactively:[/] start [green]mux[/], run [green]/mcp[/], choose [green]+ Add MCP server[/], then set transport [green]http[/], url [green]http://localhost:" + mcpPort + "[/], mcp path [green]/mcp[/], auth [green]API key[/] with header [green]" + McpConfigHelper.ApiKeyHeaderName + "[/] and key [green]${" + McpConfigHelper.ApiKeyEnvironmentVariable + "}[/].");
             }
             AnsiConsole.WriteLine();
         }

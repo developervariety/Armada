@@ -97,12 +97,19 @@ namespace Armada.Core.Services
         /// <returns>An indented JSON document string.</returns>
         public static string BuildMuxServersJson(int mcpPort)
         {
+            // Mux sends an HTTP server's credential from its auth object and expands ${NAME} in the token,
+            // so the launch credential is referenced by variable name and never written into the file.
             JsonObject server = new JsonObject
             {
                 ["name"] = "armada",
                 ["transport"] = "http",
                 ["url"] = "http://localhost:" + mcpPort.ToString(System.Globalization.CultureInfo.InvariantCulture),
                 ["mcpPath"] = "/mcp",
+                ["auth"] = new JsonObject
+                {
+                    ["scheme"] = "bearer_token",
+                    ["token"] = "${" + McpLaunchCredential.EnvironmentVariable + "}",
+                },
             };
             JsonObject root = new JsonObject
             {

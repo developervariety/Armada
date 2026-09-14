@@ -257,6 +257,13 @@ namespace Armada.Helm.Commands
                         ["transport"] = "http",
                         ["url"] = $"http://localhost:{mcpPort}",
                         ["mcpPath"] = "/mcp",
+                        // Mux reads an HTTP server's credential from its auth object and expands ${VAR}.
+                        ["auth"] = new JsonObject
+                        {
+                            ["scheme"] = "api_key",
+                            ["key"] = ApiKeyForDollarBraceExpansion,
+                            ["headerName"] = ApiKeyHeaderName,
+                        },
                     },
                     IsMuxServers: true));
             }

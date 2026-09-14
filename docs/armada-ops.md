@@ -89,7 +89,8 @@ Operator migration when an Admiral with MCP authentication is deployed:
 4. Refresh the Helm CLI with the Admiral image, then prove a read-only tool call
    through each client. Expect `401` from any client you did not update.
 5. Captains need no change on supported runtimes; they receive the launch
-   credential at launch. Mux captains cannot authenticate.
+   credential at launch. A Mux entry written by an earlier install has no
+   `auth` object; re-run `armada mcp install` to add it.
 
 Start each operator session with:
 

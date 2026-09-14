@@ -620,7 +620,7 @@ namespace Armada.Server
                         kvp => kvp.Key,
                         kvp => ExpandEnvironmentReference(kvp.Value),
                         StringComparer.OrdinalIgnoreCase),
-                    Headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+                    Headers = BuildMuxHeaders(muxServer),
                     EnabledTools = new List<string>(),
                     DisabledTools = new List<string>(),
                     StartupTimeout = TimeSpan.FromSeconds(15),
@@ -631,6 +631,41 @@ namespace Armada.Server
             }
 
             return servers;
+        }
+
+        /// <summary>
+        /// The request headers the tool probe sends to one server named in a Mux mcp-servers.json document,
+        /// built the same way as a live probe. Returns an empty map when the server is absent.
+        /// </summary>
+        /// <param name="mcpServersJson">Contents of a Mux mcp-servers.json file.</param>
+        /// <param name="serverName">Server name.</param>
+        /// <returns>Header names and values.</returns>
+        internal static IReadOnlyDictionary<string, string> BuildMuxProbeHeaders(string mcpServersJson, string serverName)
+        {
+            MuxMcpServersFile? file = JsonSerializer.Deserialize<MuxMcpServersFile>(mcpServersJson, JsonDefaults.Insensitive);
+            MuxMcpServerConfig? server = file?.Servers?.FirstOrDefault(s => String.Equals(s.Name, serverName, StringComparison.OrdinalIgnoreCase));
+            return server == null ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) : BuildMuxHeaders(server);
+        }
+
+        private static Dictionary<string, string> BuildMuxHeaders(MuxMcpServerConfig server)
+        {
+            // The probe presents the same credential Mux would: an api_key scheme sends the key in its named
+            // header (X-API-Key by default), a bearer_token scheme sends an Authorization bearer header.
+            Dictionary<string, string> headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            string scheme = server.Auth?.Scheme?.Trim() ?? String.Empty;
+            if (String.Equals(scheme, "api_key", StringComparison.OrdinalIgnoreCase))
+            {
+                string key = ExpandEnvironmentReference(server.Auth!.Key);
+                if (key.Length > 0)
+                    headers[String.IsNullOrWhiteSpace(server.Auth.HeaderName) ? "X-API-Key" : server.Auth.HeaderName.Trim()] = key;
+            }
+            else if (String.Equals(scheme, "bearer_token", StringComparison.OrdinalIgnoreCase))
+            {
+                string token = ExpandEnvironmentReference(server.Auth!.Token);
+                if (token.Length > 0)
+                    headers["Authorization"] = "Bearer " + token;
+            }
+            return headers;
         }
 
         private async Task<List<CaptainToolSummary>> ProbeServerToolsAsync(RuntimeMcpServerDefinition server, CancellationToken token)
@@ -2064,6 +2099,24 @@ namespace Armada.Server
 
             [JsonPropertyName("mcpPath")]
             public string? McpPath { get; set; } = null;
+
+            [JsonPropertyName("auth")]
+            public MuxMcpServerAuth? Auth { get; set; } = null;
+        }
+
+        private sealed class MuxMcpServerAuth
+        {
+            [JsonPropertyName("scheme")]
+            public string? Scheme { get; set; } = null;
+
+            [JsonPropertyName("token")]
+            public string? Token { get; set; } = null;
+
+            [JsonPropertyName("key")]
+            public string? Key { get; set; } = null;
+
+            [JsonPropertyName("headerName")]
+            public string? HeaderName { get; set; } = null;
         }
 
         private sealed class CodexMcpServerListEntry

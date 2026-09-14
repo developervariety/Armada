@@ -14,6 +14,24 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Mux authenticates to the Armada MCP endpoint
+
+- Mux captains and Mux entries written by `armada mcp install` now carry a
+  credential, so the authenticated MCP endpoint no longer refuses them. The
+  captain's scoped `mcp-servers.json` uses Mux's `auth` object with a
+  `bearer_token` scheme that references `ARMADA_MCP_TOKEN`, and the install
+  entry uses an `api_key` scheme that sends `X-Api-Key` from
+  `ARMADA_API_KEY`. No credential value is written to either file.
+- The captain tool inventory probes a Mux captain's configured HTTP servers
+  with the credential each server's `auth` object declares, so an
+  authenticated server no longer reads as unreachable.
+- The Helm client-payload check reads a Mux entry's `auth` object and proves it
+  reaches the served endpoint instead of failing the entry as uncredentialed.
+- The Gemini CLI install command form
+  `gemini mcp add --scope user --transport http --header 'X-Api-Key: ${ARMADA_API_KEY}' armada <url>`
+  is not yet verified against an installed Gemini CLI; `docs/MCP_API.md` names
+  the check to run on a host that has one.
+
 ### Fleet status is a global-administrator read
 
 - `GET /api/v1/status` now requires a global administrator. It returned

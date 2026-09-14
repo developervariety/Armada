@@ -412,8 +412,9 @@ MCP requests now authenticate through the REST authentication service; missing
 or invalid credentials get 401 and no default administrative context remains.
 Only global administrators see the operator catalog; narrower roles get the
 caller-scoped persona, pipeline, prompt template and memory tools. Captains use
-a per-start launch credential referenced by environment variable; Mux cannot
-present it. The SSH bridge reads a protected server-side header file. Operator
+a per-start launch credential referenced by environment variable; Mux presents
+it through its `auth` object. The Gemini CLI `--header` install form remains
+unverified against an installed Gemini CLI. The SSH bridge reads a protected server-side header file. Operator
 migration steps are in `docs/armada-ops.md`. Coordination rooms remain shared by
 key behind global-admin access. Deployment remains FOLLOWUP-007.
 
