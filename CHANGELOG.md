@@ -137,6 +137,20 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   operator input` ahead of any earlier failure reason. Other missions do not
   change.
 - The voyage nudge tool and the orchestrator-notes handoff drain do not change.
+### Autonomous recovery reads the gate's failure class
+
+- The rescue decision now reads the failure class that the definition-of-done
+  gate records in the failure reason (`classification=`). An `Infra` or
+  `Timeout` gate failure does not dispatch a rescue. Recovery opens the
+  incident with a blocked policy that names the class, because a rescue re-runs
+  the same commands on the same host. `Compile` and `TestFail` keep the rescue.
+  A reason with no recorded class keeps the earlier rules.
+- Before, a gate failure with no configured workflow commands, or a timed-out
+  suite, still bought a rescue that failed the same way.
+- The gate classifier reads a missing .NET runtime ("You must install or update
+  .NET to run this application", a framework that "was not found") and a
+  testhost process that exited with an error as `Infra`. Before, a test command
+  with that output read as `TestFail`.
 
 ### Incident lifecycle sweep reaches every open incident
 

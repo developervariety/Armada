@@ -1125,6 +1125,13 @@ namespace Armada.Server
                 return RecoveryDecision.Blocked("failed mission is already an autonomous rescue");
             if (IsPolicyRefusalFailure(reason))
                 return RecoveryDecision.Blocked("captain refusal already had its one continuation or has no approved alternate runtime; a rescue would repeat the blocked path: " + reason);
+            // Infra and Timeout name the host, not the work: a rescue re-runs the same gate commands on
+            // the same host and fails the same way. Compile and TestFail keep the rescue, and a reason
+            // with no recorded class keeps the marker rules below.
+            if (DefinitionOfDoneFailureClassifier.TryReadRecordedClass(reason, out DefinitionOfDoneFailureClassEnum gateClass)
+                && (gateClass == DefinitionOfDoneFailureClassEnum.Infra || gateClass == DefinitionOfDoneFailureClassEnum.Timeout))
+                return RecoveryDecision.Blocked("definition-of-done gate failure class " + gateClass
+                    + " is a host fault that a rescue on the same host would repeat: " + reason);
             if (IsEnvironmentalFailure(reason))
                 return RecoveryDecision.Blocked("environmental or provisioning fault, which no captain can repair: " + reason);
             if (HasSeriousFailureReason(reason))

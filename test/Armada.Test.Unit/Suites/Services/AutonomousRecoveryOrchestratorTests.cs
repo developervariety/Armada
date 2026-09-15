@@ -133,6 +133,57 @@ namespace Armada.Test.Unit.Suites.Services
                     "A fault that stops autonomous recovery is High: it waits for a human.");
             }).ConfigureAwait(false);
 
+            // The gate writes its failure class into the reason. Infra and Timeout name the host, not
+            // the work: a rescue re-runs the same commands on the same host and fails the same way.
+            await RunTest("Gate failure class Infra from missing workflow commands blocks the rescue and names the class", async () =>
+            {
+                string reason = BuildGateFailureReason("Infra", "missing-commands", -1,
+                    "No BuildCommand or UnitTestCommand is configured on the vessel's workflow profile. " +
+                    "Add a workflow profile for this vessel, or add '[DOD:DOC-ONLY]' to the mission description to opt out of in-dock verification.");
+                string summary = await AssertGateFailureBlocksRescueAsync("ten_gate_infra", reason).ConfigureAwait(false);
+                AssertTrue(summary.Contains("Infra", StringComparison.Ordinal), "The blocked policy must name the gate class. Summary: " + summary);
+            }).ConfigureAwait(false);
+
+            await RunTest("Gate failure class Timeout blocks the rescue and names the class", async () =>
+            {
+                string reason = BuildGateFailureReason("Timeout", "unit-test", -1,
+                    "unit-test command timed out after 1800 seconds.");
+                string summary = await AssertGateFailureBlocksRescueAsync("ten_gate_timeout", reason).ConfigureAwait(false);
+                AssertTrue(summary.Contains("Timeout", StringComparison.Ordinal), "The blocked policy must name the gate class. Summary: " + summary);
+            }).ConfigureAwait(false);
+
+            await RunTest("Gate failure on a missing .NET runtime or testhost exit blocks the rescue", async () =>
+            {
+                DefinitionOfDoneFailureClassifier classifier = new DefinitionOfDoneFailureClassifier();
+                string runtimeReason = BuildGateFailureReason(
+                    classifier.Classify("unit-test", 150, DefinitionOfDoneFailureClassifierTests.MissingRuntimeInstallOutput).ToString(),
+                    "unit-test", 150, DefinitionOfDoneFailureClassifierTests.MissingRuntimeInstallOutput);
+                await AssertGateFailureBlocksRescueAsync("ten_gate_runtime", runtimeReason).ConfigureAwait(false);
+
+                string testhostReason = BuildGateFailureReason(
+                    classifier.Classify("unit-test", 1, DefinitionOfDoneFailureClassifierTests.TesthostExitOutput).ToString(),
+                    "unit-test", 1, DefinitionOfDoneFailureClassifierTests.TesthostExitOutput);
+                await AssertGateFailureBlocksRescueAsync("ten_gate_testhost", testhostReason).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+
+            await RunTest("Gate failure class Compile still dispatches a rescue", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_gate_compile", "usr_gate_compile").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_gate_compile", "usr_gate_compile").ConfigureAwait(false);
+                Mission failed = await CreateFailedMissionAsync(testDb, vessel,
+                    BuildGateFailureReason("Compile", "build", 1, "Parser.cs(12,5): error CS0103: The name 'x' does not exist in the current context")).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "A compile failure is the work's own defect; a rescue can fix it.");
+            }).ConfigureAwait(false);
+
             await RunTest("Recoverable failed mission creates incident, runbook execution, and rescue mission", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -2656,6 +2707,48 @@ namespace Armada.Test.Unit.Suites.Services
                 DefaultBranch = "main"
             };
             return await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+        }
+
+        // Same shape the definition-of-done gate writes: the class, the command label and exit code,
+        // then the bounded diagnostic block.
+        private static string BuildGateFailureReason(string failureClass, string label, int exitCode, string output)
+        {
+            return "DoD gate failed: classification=" + failureClass + "; " + label + " command exited " + exitCode +
+                "\n--- ACTIONABLE DIAGNOSTICS ---\n(none recognized)\n--- OUTPUT TAIL ---\n" + output.Trim();
+        }
+
+        // Runs recovery for one gate failure and asserts no rescue was dispatched and one incident
+        // holds the blocked policy. Returns the incident summary for class assertions.
+        private async Task<string> AssertGateFailureBlocksRescueAsync(string tenantId, string failureReason)
+        {
+            string userId = "usr" + tenantId.Substring(3);
+            using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+            await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+            Vessel vessel = await CreateVesselAsync(testDb, tenantId, userId).ConfigureAwait(false);
+            Mission failed = await CreateFailedMissionAsync(testDb, vessel, failureReason).ConfigureAwait(false);
+            failed.Persona = "Worker";
+            await testDb.Driver.Missions.UpdateAsync(failed).ConfigureAwait(false);
+
+            IncidentService incidents = new IncidentService(testDb.Driver);
+            RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+            RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+            AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+            await orchestrator.HandleMissionOutcomeAsync(failed, false).ConfigureAwait(false);
+
+            AssertEqual(0, admiral.DispatchedMissions.Count, "A host-side gate failure must not dispatch a rescue. Reason: " + failureReason);
+
+            AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+            EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
+            {
+                MissionId = failed.Id,
+                PageNumber = 1,
+                PageSize = 10
+            }).ConfigureAwait(false);
+            AssertEqual(1, incidentPage.Objects.Count, "The operator still needs an incident to act on.");
+            string summary = incidentPage.Objects[0].Summary ?? String.Empty;
+            AssertTrue(summary.Contains("Policy: block", StringComparison.Ordinal), "The incident must record the blocked policy. Summary: " + summary);
+            return summary;
         }
 
         private static async Task<Mission> CreateFailedMissionAsync(TestDatabase testDb, Vessel vessel, string failureReason)

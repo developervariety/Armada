@@ -20,14 +20,18 @@ namespace Armada.Core.Services
             @"(?:\btests?\s+failed\b|\btest run failed\b|\bfailed:\s*\d+\b|\b\d+\s+failed\b|\bfailures?:\s*\d+\b|\[FAIL\]|\bFAIL(?:ED)?\b.*\b(?:test|assert))",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-        // Signatures that can only come from the environment: a restore ERROR, a missing SDK, a
-        // shell that cannot find the command. These outrank test evidence, because a dead
-        // environment also prints failed tests. A NuGet WARNING (NU1510 on every pruned
+        // Signatures that can only come from the environment: a restore ERROR, a missing SDK or
+        // runtime, a shell that cannot find the command. These outrank test evidence, because a
+        // dead environment also prints failed tests. A NuGet WARNING (NU1510 on every pruned
         // reference, for one) is not among them: read as a signature it labelled a single
         // deterministic assertion in an 8,000-test run as host trouble.
         private static readonly Regex _InfrastructurePattern = new Regex(
-            @"(?:\brestore failed\b|\bfailed to restore\b|\bunable to load the service index\b|\berror\s+NU\d{4}\b|\bpackage\s+[^\r\n]+\s+not found\b|\bcould not resolve\b|\bcommand not found\b|\bis not recognized as an internal or external command\b|\bSDK\s+[^\r\n]+\s+not found\b|\bMSB4236\b)",
+            @"(?:\brestore failed\b|\bfailed to restore\b|\bunable to load the service index\b|\berror\s+NU\d{4}\b|\bpackage\s+[^\r\n]+\s+not found\b|\bcould not resolve\b|\bcommand not found\b|\bis not recognized as an internal or external command\b|\bSDK\s+[^\r\n]+\s+not found\b|\bMSB4236\b|\bYou must install (?:or update )?\.NET to run this application\b|\bframework\s+'[^'\r\n]+',\s*version\s+'[^'\r\n]+'[^\r\n]*\bwas not found\b)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        private static readonly Regex _RecordedClassPattern = new Regex(
+            @"\Aclassification=(?<class>[A-Za-z]+)(?:;|\s|\z)",
+            RegexOptions.Compiled);
 
         // Words that a healthy test run can print too -- a test named for dependency injection, a
         // fixture that probes an optional file, a build step that continues on error. They point
@@ -40,7 +44,7 @@ namespace Armada.Core.Services
         // A test-host crash: many failures land at once with a process-level signature, and the
         // failed tests are victims rather than evidence.
         private static readonly Regex _TestHostCrashPattern = new Regex(
-            @"(?:\bOutOfProcNode\b|\bCleanupForBuild\b|\btest host process crashed\b|\bThe active test run was aborted\b|\bhost process exited\b)",
+            @"(?:\bOutOfProcNode\b|\bCleanupForBuild\b|\btest host process crashed\b|\bThe active test run was aborted\b|\bhost process exited\b|\btesthost process\b[^\r\n]*\bexited with error\b)",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         /// <summary>
@@ -55,7 +59,49 @@ namespace Armada.Core.Services
 
         #endregion
 
+        #region Public-Members
+
+        /// <summary>
+        /// Opening of the failure reason a mission records when its definition-of-done gate fails.
+        /// The failure class name follows it, then a semicolon.
+        /// </summary>
+        public const string RecordedReasonPrefix = "DoD gate failed: ";
+
+        #endregion
+
         #region Public-Methods
+
+        /// <summary>
+        /// Read the failure class a definition-of-done gate recorded in a mission failure reason.
+        /// Only a reason that opens with the gate prefix counts, so a gate reason quoted inside
+        /// another failure is not read as this mission's class.
+        /// </summary>
+        /// <param name="failureReason">Recorded mission failure reason.</param>
+        /// <param name="failureClass">The recorded class when one is found.</param>
+        /// <returns>True when the reason is a gate failure with a known class.</returns>
+        public static bool TryReadRecordedClass(string? failureReason, out DefinitionOfDoneFailureClassEnum failureClass)
+        {
+            failureClass = DefinitionOfDoneFailureClassEnum.Infra;
+            if (String.IsNullOrWhiteSpace(failureReason)) return false;
+
+            string trimmed = failureReason.TrimStart();
+            if (!trimmed.StartsWith(RecordedReasonPrefix, StringComparison.Ordinal)) return false;
+
+            Match match = _RecordedClassPattern.Match(trimmed.Substring(RecordedReasonPrefix.Length));
+            if (!match.Success) return false;
+
+            string name = match.Groups["class"].Value;
+            foreach (DefinitionOfDoneFailureClassEnum candidate in Enum.GetValues<DefinitionOfDoneFailureClassEnum>())
+            {
+                if (String.Equals(candidate.ToString(), name, StringComparison.Ordinal))
+                {
+                    failureClass = candidate;
+                    return true;
+                }
+            }
+
+            return false;
+        }
 
         /// <summary>
         /// Classify a failed definition-of-done command. An explicit timeout takes

@@ -1213,6 +1213,15 @@ and exhausted-recovery failures remain for operator action. While the dispatch
 hold is engaged, a rescue is deferred and named on the incident, not
 dispatched (section 8.18).
 
+A definition-of-done gate failure records its class in the failure reason
+(`DoD gate failed: classification=<Class>; ...`). Recovery reads that class.
+`Infra` (no workflow commands, restore errors, a missing SDK or .NET runtime, a
+dead container runtime, a crashed or exited test host) and `Timeout` do not
+dispatch a rescue: a rescue re-runs the same commands on the same host. The
+incident records a blocked policy that names the class. `Compile` and
+`TestFail` dispatch a rescue as before. A failure reason with no recorded class
+follows the other rules in this section.
+
 Recovery never selects a mission whose voyage is `Cancelled`. When a captain
 process exits with a genuine, non-recoverable failure and no committed work,
 the admiral halts (cancels) the voyage, so the process-exit path itself opens
