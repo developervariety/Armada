@@ -28,6 +28,77 @@ namespace Armada.Test.Unit.Suites.Services
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Deleting a remote branch that origin never held succeeds as already absent", async () =>
+            {
+                string rootDir = NewTempDir();
+                try
+                {
+                    SweepRepo repo = await CreateSweepRepoAsync(rootDir, remote: true).ConfigureAwait(false);
+                    LoggingModule logging = CreateLogging();
+                    string neverPushed = "armada/claude-1/msn_neverpushed001";
+
+                    string before = await RunGitAsync(repo.Remote!, "for-each-ref", "refs/heads/" + neverPushed).ConfigureAwait(false);
+                    AssertTrue(String.IsNullOrWhiteSpace(before), "precondition: origin does not hold the mission branch");
+
+                    string? failure = null;
+                    try
+                    {
+                        await new GitService(logging).DeleteRemoteBranchAsync(repo.Working, neverPushed, CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        failure = ex.Message;
+                    }
+
+                    AssertNull(failure, "a branch origin never held is already deleted, not a cleanup failure");
+                }
+                finally
+                {
+                    TryDelete(rootDir);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("The absent-remote-ref rule matches only git's absent-ref text", () =>
+            {
+                AssertTrue(GitRemoteRefRule.IsRemoteRefAbsent(
+                    "git failed (exit 1): error: unable to delete 'armada/claude-1/msn_x': remote ref does not exist\nerror: failed to push some refs to 'origin'"),
+                    "git's absent-ref delete outcome");
+                AssertFalse(GitRemoteRefRule.IsRemoteRefAbsent("fatal: Could not read from remote repository. Please make sure you have the correct access rights"), "authentication failure");
+                AssertFalse(GitRemoteRefRule.IsRemoteRefAbsent("! [remote rejected] armada/x (protected branch hook declined)"), "rejected push");
+                AssertFalse(GitRemoteRefRule.IsRemoteRefAbsent(null), "no message");
+                AssertTrue(BranchCleanupSweepService.BuildSummary(new BranchCleanupSweepResult { RemoteAlreadyAbsent = 3 }).Contains("origin refs already absent 3"),
+                    "the sweep summary counts absent origin refs apart from removals and failures");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("Deleting a remote branch from an unreachable origin still reports the failure", async () =>
+            {
+                string rootDir = NewTempDir();
+                try
+                {
+                    SweepRepo repo = await CreateSweepRepoAsync(rootDir, remote: true).ConfigureAwait(false);
+                    LoggingModule logging = CreateLogging();
+                    await RunGitAsync(repo.Working, "remote", "set-url", "origin", Path.Combine(rootDir, "gone.git")).ConfigureAwait(false);
+
+                    string? failure = null;
+                    try
+                    {
+                        await new GitService(logging).DeleteRemoteBranchAsync(repo.Working, "armada/claude-1/msn_merged001", CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        failure = ex.Message;
+                    }
+
+                    AssertNotNull(failure, "an origin that cannot be reached is a genuine failure and must still throw");
+                    AssertFalse(GitRemoteRefRule.IsRemoteRefAbsent(failure), "an unreachable origin must not be classified as an absent ref");
+                }
+                finally
+                {
+                    TryDelete(rootDir);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Sweeps merged branches and preserves unmerged ones under LocalOnly", async () =>
             {
                 string rootDir = NewTempDir();

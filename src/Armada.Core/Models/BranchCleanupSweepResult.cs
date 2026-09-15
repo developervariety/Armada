@@ -103,6 +103,12 @@ namespace Armada.Core.Models
         public BranchCleanupAnchorFamilyCounts MissionAnchors { get; set; } = new BranchCleanupAnchorFamilyCounts();
 
         /// <summary>
+        /// Origin deletions that found the ref already gone. Counted apart from removals and failures:
+        /// the ref is in the desired state, but this run did not remove it.
+        /// </summary>
+        public int RemoteAlreadyAbsent { get; set; } = 0;
+
+        /// <summary>
         /// Deletions or ancestry checks that failed; each is logged.
         /// </summary>
         public int Failed { get; set; } = 0;

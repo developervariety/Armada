@@ -269,6 +269,17 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - `PUT /api/v1/settings` applies each supplied field and keeps absent fields as
   stored. `modelTier.usageRouting`, `modelProviders`, and each additional asset
   list replace the stored value whole when supplied.
+### Silent failures name themselves
+
+- Deleting a remote branch that origin does not hold counts as already deleted.
+  Armada never pushes mission branches, so landing cleanup no longer records
+  `merge_queue.branch_cleanup_failed` for them. One rule reads git's
+  "remote ref does not exist" outcome for landing cleanup, the merge-queue
+  purge, terminal reaping, dock reclaim and the branch cleanup sweep. The sweep
+  summary counts `origin refs already absent` apart from removals and failures.
+  An unreachable origin, a rejected push or an authentication failure is still
+  reported with git's reason, and the merge-queue purge now logs it at Warn
+  instead of Debug.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 

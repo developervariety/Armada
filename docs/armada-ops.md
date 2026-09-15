@@ -2478,7 +2478,20 @@ landed, kept unlanded, kept for active missions, removed local and removed
 origin; the same counts for preserved refs; for each anchor family (`dock
 anchors`, `mission anchors`) candidates, kept for active missions, kept for
 recover pointers, kept unlanded, kept in retention, removed local and removed
-origin; failed operations; and the reason for each skip. A run that removed
+origin; origin refs already absent; failed operations; and the reason for each
+skip.
+
+Deleting a remote branch or ref that origin does not hold is not a failure.
+Armada never pushes mission branches, so on most vessels the remote half of
+cleanup finds nothing to delete. Every cleanup path (landing cleanup, the
+merge-queue purge, terminal reaping, dock reclaim and this sweep) reads git's
+"remote ref does not exist" outcome through one rule and treats the ref as
+already deleted. Landing cleanup records no
+`merge_queue.branch_cleanup_failed` event for it, and the sweep counts it as
+`origin refs already absent`, not as a removal or a failure. An unreachable
+origin, a rejected push or an authentication failure still records
+`merge_queue.branch_cleanup_failed` (or a failed operation in the sweep) with
+git's reason. A run that removed
 nothing still writes the line, so a missing
 line means the sweep did not run. A maintenance step failure on the loop logs
 as `[ArmadaServer] <step> failed: <reason>`. Each removal also records a

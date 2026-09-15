@@ -615,6 +615,11 @@ namespace Armada.Core.Services
             {
                 throw;
             }
+            catch (Exception ex) when (GitRemoteRefRule.IsRemoteRefAbsent(ex.Message))
+            {
+                result.RemoteAlreadyAbsent++;
+                _Logging.Info(_Header + tip.RefName + " was already absent from origin for vessel " + vessel.Id + "; nothing to delete");
+            }
             catch (Exception ex)
             {
                 result.Failed++;
@@ -699,6 +704,7 @@ namespace Armada.Core.Services
                 + ", removed origin " + result.SweptPreservedRemote
                 + DescribeAnchorFamily("dock anchors", result.DockAnchors)
                 + DescribeAnchorFamily("mission anchors", result.MissionAnchors)
+                + "; origin refs already absent " + result.RemoteAlreadyAbsent
                 + "; failed operations " + result.Failed;
 
             if (result.SkipReasons.Count > 0)

@@ -415,9 +415,13 @@ namespace Armada.Core.Services
                         await RunGitAsync(repoPath, token, "push", "origin", "--delete", entry.BranchName).ConfigureAwait(false);
                         _Logging.Info(_Header + "deleted remote branch " + entry.BranchName);
                     }
+                    catch (Exception ex) when (GitRemoteRefRule.IsRemoteRefAbsent(ex.Message))
+                    {
+                        _Logging.Debug(_Header + "remote branch " + entry.BranchName + " already absent from origin; nothing to delete");
+                    }
                     catch (Exception ex)
                     {
-                        _Logging.Debug(_Header + "remote branch delete for " + entry.BranchName + " skipped: " + ex.Message);
+                        _Logging.Warn(_Header + "remote branch delete for " + entry.BranchName + " failed: " + ex.Message);
                     }
 
                     // Delete local branch

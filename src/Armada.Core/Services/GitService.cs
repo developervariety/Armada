@@ -1102,7 +1102,16 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(branchName)) throw new ArgumentNullException(nameof(branchName));
 
             _Logging.Debug(_Header + "deleting remote branch " + branchName + " from origin");
-            await RunGitAsync(repoPath, "push", "origin", "--delete", branchName).ConfigureAwait(false);
+            try
+            {
+                await RunGitAsync(repoPath, "push", "origin", "--delete", branchName).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (GitRemoteRefRule.IsRemoteRefAbsent(ex.Message))
+            {
+                // A branch origin does not hold is already in the state the delete asks for. Any other
+                // failure (unreachable origin, rejected push, authentication) still propagates.
+                _Logging.Info(_Header + "remote branch " + branchName + " is already absent from origin; nothing to delete");
+            }
         }
 
         /// <summary>
@@ -1997,6 +2006,7 @@ namespace Armada.Core.Services
                 bool isExpectedFailure =
                     stderr.Contains("not a working tree", StringComparison.OrdinalIgnoreCase) ||
                     stderr.Contains("not found", StringComparison.OrdinalIgnoreCase) ||
+                    GitRemoteRefRule.IsRemoteRefAbsent(stderr) ||
                     stderr.Contains("is not a git repository", StringComparison.OrdinalIgnoreCase);
 
                 if (isExpectedFailure)
