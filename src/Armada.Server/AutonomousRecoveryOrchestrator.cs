@@ -2484,10 +2484,7 @@ namespace Armada.Server
             "usabilityengineer",
             "diagnosticprotocolreviewer",
             "tenantsecurityreviewer",
-            "migrationdatareviewer",
-            "performancememoryreviewer",
-            "portingreferenceanalyst",
-            "frontendworkflowreviewer"
+            "portingreferenceanalyst"
         };
 
         private static string ResolveRescuePersona(string? failedPersona)

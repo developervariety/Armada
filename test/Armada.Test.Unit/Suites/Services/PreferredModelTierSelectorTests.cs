@@ -128,7 +128,7 @@ namespace Armada.Test.Unit.Suites.Services
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("opencode-go/qwen3.8-max"),
+                    MakeCaptain("example/mid-audit"),
                     MakeCaptain("gpt-5.6-luna")
                 };
 
@@ -146,11 +146,11 @@ namespace Armada.Test.Unit.Suites.Services
                 // When an external-provider captain is idle for a model, that model wins the
                 // selection over native-only models: the external luna captains (Codex runtime,
                 // own base URL) make gpt-5.6-luna the first worker model. OpenCode-runtime
-                // captains (deepseek, qwen) are treated as native.
+                // captains (deepseek, mid-audit) are treated as native.
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("opencode-go/qwen3.8-max"),
+                    MakeCaptain("example/mid-audit"),
                     MakeCaptain("gpt-5.6-luna"),
                     MakeCaptain("gpt-5.6-luna")
                 };
@@ -171,7 +171,7 @@ namespace Armada.Test.Unit.Suites.Services
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("opencode-go/qwen3.8-max"),
+                    MakeCaptain("example/mid-audit"),
                     MakeCaptain("gpt-5.6-luna")
                 };
 
@@ -190,7 +190,7 @@ namespace Armada.Test.Unit.Suites.Services
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("opencode-go/qwen3.8-max"),
+                    MakeCaptain("example/mid-audit"),
                     MakeCaptain("gpt-5.6-luna")
                 };
                 captains[0].Runtime = Armada.Core.Enums.AgentRuntimeEnum.OpenCode;
@@ -205,7 +205,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("ConfiguredTierModels_ClassifyIntoTheirTiers", () =>
             {
                 AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna", Fleet()), "gpt-5.6-luna must participate in mid-tier routing");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/qwen3.8-max", Fleet()), "grok-4.5 must participate in mid-tier routing");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("example/mid-audit", Fleet()), "example/mid-audit must participate in mid-tier routing");
                 AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash", Fleet()), "deepseek-v4-flash must participate in mid-tier routing");
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("gpt-5.6-sol", Fleet()), "gpt-5.6-sol must participate in high-tier routing");
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-5", Fleet()), "claude-opus-5 must participate in high-tier routing");
@@ -237,7 +237,7 @@ namespace Armada.Test.Unit.Suites.Services
                     MakeCaptain("opencode-go/deepseek-v4-flash"),
                     MakeCaptain("opencode-go/deepseek-v4-flash"),
                     MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("opencode-go/qwen3.8-max"),
+                    MakeCaptain("example/mid-audit"),
                     MakeCaptain("gpt-5.6-luna")
                 };
 
@@ -268,7 +268,7 @@ namespace Armada.Test.Unit.Suites.Services
                 // No low-tier captains, but mid-tier captains are available
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("opencode-go/qwen3.8-max"),
+                    MakeCaptain("example/mid-audit"),
                     MakeCaptain("opencode-go/deepseek-v4-flash")
                 };
 
@@ -419,16 +419,16 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("SelectModel_Mid_SelectsQwen", () =>
+            await RunTest("SelectModel_Mid_SelectsExactMidModel", () =>
             {
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("opencode-go/qwen3.8-max")
+                    MakeCaptain("example/mid-audit")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, null, _ => 0, null, null, Fleet());
-                AssertNotNull(selected, "Mid tier should match the qwen captain");
-                AssertEqual("opencode-go/qwen3.8-max", selected, "Exact model string should round-trip");
+                AssertNotNull(selected, "Mid tier should match the mid-audit captain");
+                AssertEqual("example/mid-audit", selected, "Exact model string should round-trip");
                 return Task.CompletedTask;
             });
 
@@ -524,7 +524,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-5", Fleet()), "canonical opus bump is high");
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-fable-5", Fleet()), "canonical fable is high");
                 AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna", Fleet()), "curated gpt-5.6-luna is mid");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/qwen3.8-max", Fleet()), "curated grok-4.5 is mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("example/mid-audit", Fleet()), "curated example/mid-audit is mid");
                 AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/deepseek-v4-flash", Fleet()), "curated deepseek-v4-flash is mid");
                 return Task.CompletedTask;
             });
@@ -683,7 +683,7 @@ namespace Armada.Test.Unit.Suites.Services
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("opencode-go/qwen3.8-max"),
+                    MakeCaptain("example/mid-audit"),
                     MakeCaptain("gpt-5.6-luna")
                 };
 
@@ -699,7 +699,7 @@ namespace Armada.Test.Unit.Suites.Services
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("opencode-go/qwen3.8-max")
+                    MakeCaptain("example/mid-audit")
                 };
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
@@ -710,17 +710,17 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("SelectModel_MidTier_RandomPick_HonorsTheRandomIndex", () =>
             {
-                // Only grok and composer are idle; the random index decides which equal model
+                // Only mid-audit and composer are idle; the random index decides which equal model
                 // wins. Stub 0 picks the first eligible in captain order.
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("opencode-go/qwen3.8-max"),
+                    MakeCaptain("example/mid-audit"),
                     MakeCaptain("opencode-go/deepseek-v4-flash")
                 };
 
                 IReadOnlyDictionary<string, List<string>> defaultOrder = new ModelTierSettings().WithinTierPreferenceOrder;
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, defaultOrder, Fleet());
-                AssertEqual("opencode-go/qwen3.8-max", selected, "random stub 0 selects the first eligible model (qwen)");
+                AssertEqual("example/mid-audit", selected, "random stub 0 selects the first eligible model (mid-audit)");
                 return Task.CompletedTask;
             });
 
@@ -729,12 +729,12 @@ namespace Armada.Test.Unit.Suites.Services
                 // Operator-configurable preference order flips the default so composer is first.
                 Dictionary<string, List<string>> customOrder = new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
                 {
-                    { "mid", new List<string> { "opencode-go/deepseek-v4-flash", "gpt-5.6-luna", "opencode-go/qwen3.8-max" } }
+                    { "mid", new List<string> { "opencode-go/deepseek-v4-flash", "gpt-5.6-luna", "example/mid-audit" } }
                 };
 
                 List<Captain> captains = new List<Captain>
                 {
-                    MakeCaptain("opencode-go/qwen3.8-max"),
+                    MakeCaptain("example/mid-audit"),
                     MakeCaptain("gpt-5.6-luna"),
                     MakeCaptain("opencode-go/deepseek-v4-flash")
                 };
@@ -750,7 +750,7 @@ namespace Armada.Test.Unit.Suites.Services
                 // skipped and the first idle preferred model is selected.
                 Dictionary<string, List<string>> customOrder = new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
                 {
-                    { "mid", new List<string> { "gpt-5.6-luna", "opencode-go/qwen3.8-max", "opencode-go/deepseek-v4-flash" } }
+                    { "mid", new List<string> { "gpt-5.6-luna", "example/mid-audit", "opencode-go/deepseek-v4-flash" } }
                 };
 
                 List<Captain> captains = new List<Captain>
@@ -759,7 +759,7 @@ namespace Armada.Test.Unit.Suites.Services
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel("mid", captains, "Worker", _ => 0, null, customOrder, Fleet());
-                AssertEqual("opencode-go/deepseek-v4-flash", selected, "Should skip missing luna and grok captains and land on composer");
+                AssertEqual("opencode-go/deepseek-v4-flash", selected, "Should skip missing luna and mid-audit captains and land on composer");
                 return Task.CompletedTask;
             });
 
@@ -793,7 +793,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ModelTierSettings fleet = Fleet();
                 AssertTrue(fleet.IsSpecialistPersona("Judge"), "fleet overlay treats Judge as a specialist");
                 AssertTrue(fleet.IsSpecialistPersona("architect"), "specialist match is case-insensitive");
-                AssertEqual(9, fleet.SpecialistPersonas.Count, "fleet specialist set has the 9 reserved personas");
+                AssertEqual(6, fleet.SpecialistPersonas.Count, "fleet specialist set has the 6 reserved personas");
 
                 ModelTierSettings custom = new ModelTierSettings();
                 custom.SpecialistPersonas = new List<string> { "Curator" };
@@ -945,7 +945,7 @@ namespace Armada.Test.Unit.Suites.Services
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("opencode-go/qwen3.8-max"),
+                    MakeCaptain("example/mid-audit"),
                     MakeCaptain("gpt-5.6-luna")
                 };
 

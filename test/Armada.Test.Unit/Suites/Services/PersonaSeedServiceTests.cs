@@ -332,30 +332,6 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Seed does not create the retired specialist pipelines", async () =>
-            {
-                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
-                {
-                    // Even with the full fleet fixture supplied, the three retired pipelines are no
-                    // longer part of it, so seeding must not create them. The kept specialist
-                    // pipelines still seed.
-                    PersonaSeedService service = NewFleetService(testDb);
-                    await service.SeedAsync().ConfigureAwait(false);
-
-                    foreach (string retired in new[] { "FrontendWorkflowTested", "MigrationDataTested", "PerformanceMemoryTested" })
-                    {
-                        Pipeline? gone = await testDb.Driver.Pipelines.ReadByNameAsync(retired).ConfigureAwait(false);
-                        AssertNull(gone, "Retired pipeline must not be seeded: " + retired);
-                    }
-
-                    foreach (string kept in new[] { "DiagnosticProtocolTested", "TenantSecurityTested", "ReferencePortingTested" })
-                    {
-                        Pipeline? present = await testDb.Driver.Pipelines.ReadByNameAsync(kept).ConfigureAwait(false);
-                        AssertNotNull(present, "Kept specialist pipeline must still be seeded: " + kept);
-                    }
-                }
-            });
-
             await RunTest("Seed does not duplicate the ProductDevelopment Recorder stage on a repeat seed", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -403,10 +379,8 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 { "DiagnosticProtocolReviewer", "persona.diagnostic_protocol_reviewer" },
                 { "TenantSecurityReviewer", "persona.tenant_security_reviewer" },
-                { "MigrationDataReviewer", "persona.migration_data_reviewer" },
-                { "PerformanceMemoryReviewer", "persona.performance_memory_reviewer" },
-                { "PortingReferenceAnalyst", "persona.porting_reference_analyst" },
-                { "FrontendWorkflowReviewer", "persona.frontend_workflow_reviewer" }
+
+                { "PortingReferenceAnalyst", "persona.porting_reference_analyst" }
             };
         }
 

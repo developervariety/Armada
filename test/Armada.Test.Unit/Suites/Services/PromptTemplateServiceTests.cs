@@ -70,10 +70,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         "persona.diagnostic_protocol_reviewer",
                         "persona.tenant_security_reviewer",
-                        "persona.migration_data_reviewer",
-                        "persona.performance_memory_reviewer",
-                        "persona.porting_reference_analyst",
-                        "persona.frontend_workflow_reviewer"
+                        "persona.porting_reference_analyst"
                     };
 
                     foreach (string name in specialistNames)
@@ -101,10 +98,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         { "persona.diagnostic_protocol_reviewer", "DiagnosticProtocolReviewer" },
                         { "persona.tenant_security_reviewer", "TenantSecurityReviewer" },
-                        { "persona.migration_data_reviewer", "MigrationDataReviewer" },
-                        { "persona.performance_memory_reviewer", "PerformanceMemoryReviewer" },
-                        { "persona.porting_reference_analyst", "PortingReferenceAnalyst" },
-                        { "persona.frontend_workflow_reviewer", "FrontendWorkflowReviewer" }
+                        { "persona.porting_reference_analyst", "PortingReferenceAnalyst" }
                     };
 
                     foreach (KeyValuePair<string, string> kvp in expectedRoleNames)

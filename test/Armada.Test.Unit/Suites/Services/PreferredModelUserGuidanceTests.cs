@@ -129,8 +129,7 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     "Worker", "Architect", "Product Manager", "Usability Engineer", "Judge",
                     "TestEngineer", "DiagnosticProtocolReviewer", "TenantSecurityReviewer",
-                    "MigrationDataReviewer", "PerformanceMemoryReviewer", "PortingReferenceAnalyst",
-                    "FrontendWorkflowReviewer", "WorkerOnly", "Reviewed",
+                    "PortingReferenceAnalyst", "WorkerOnly", "Reviewed",
                     "Tested", "FullPipeline", "ProductDevelopment", "DiagnosticProtocolTested",
                     "TenantSecurityTested", "ReferencePortingTested", "Recorder", "Recorded"
                 };

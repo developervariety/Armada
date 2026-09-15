@@ -22,10 +22,7 @@ namespace Test.Shared.Infrastructure
             "TestEngineer",
             "DiagnosticProtocolReviewer",
             "TenantSecurityReviewer",
-            "MigrationDataReviewer",
-            "PerformanceMemoryReviewer",
-            "PortingReferenceAnalyst",
-            "FrontendWorkflowReviewer"
+            "PortingReferenceAnalyst"
         };
 
         /// <summary>
@@ -45,7 +42,7 @@ namespace Test.Shared.Infrastructure
                 {
                     "gpt-5.6-luna",
                     "opencode-go/deepseek-v4-flash",
-                    "opencode-go/qwen3.8-max"
+                    "example/mid-audit"
                 },
                 HighTierModels = new List<string>
                 {
@@ -66,7 +63,7 @@ namespace Test.Shared.Infrastructure
                     { "gpt-5.6-sol", new ModelCapabilityProfile { TelemetryRichness = 96, AuditReasoningFit = 96, MechanicalThroughput = 55, Cost = 95 } },
                     { "gpt-5.6-luna", new ModelCapabilityProfile { TelemetryRichness = 75, AuditReasoningFit = 78, MechanicalThroughput = 70, Cost = 55 } },
                     { "opencode-go/deepseek-v4-flash", new ModelCapabilityProfile { TelemetryRichness = 30, AuditReasoningFit = 30, MechanicalThroughput = 75, Cost = 15 } },
-                    { "opencode-go/qwen3.8-max", new ModelCapabilityProfile { TelemetryRichness = 60, AuditReasoningFit = 65, MechanicalThroughput = 68, Cost = 55 } }
+                    { "example/mid-audit", new ModelCapabilityProfile { TelemetryRichness = 60, AuditReasoningFit = 65, MechanicalThroughput = 68, Cost = 55 } }
                 },
                 FamilyClassificationRules = new List<ModelFamilyClassificationRule>
                 {
@@ -104,7 +101,7 @@ namespace Test.Shared.Infrastructure
         /// <summary>
         /// Build the former baked specialist-reviewer prompt templates.
         /// </summary>
-        /// <returns>The six specialist templates that used to live in PromptTemplateService.</returns>
+        /// <returns>The three specialist reviewer and analyst templates.</returns>
         public static List<AdditionalPromptTemplateSettings> CreateAdditionalPromptTemplates()
         {
             return new List<AdditionalPromptTemplateSettings>
@@ -134,30 +131,6 @@ namespace Test.Shared.Infrastructure
                 },
                 new AdditionalPromptTemplateSettings
                 {
-                    Name = "persona.migration_data_reviewer",
-                    Description = "Migration and data reviewer persona for schema, provider parity, and data-loss risk.",
-                    RoleName = "MigrationDataReviewer",
-                    Focus = "migrations, schema/provider parity, indexes, backfills, rollback/restart safety, and data-loss risk.",
-                    Checklist =
-                        "- Verify every supported provider has equivalent schema, index, nullability, default, and reader/writer behavior.\n" +
-                        "- Check backfills and migrations for idempotency, restart safety, ordering, and large-data behavior.\n" +
-                        "- Look for data-loss, truncation, casing, collation, timestamp, and enum/string compatibility risks.\n" +
-                        "- Confirm rollback or failure behavior is documented or contained when a migration cannot be reversed.\n"
-                },
-                new AdditionalPromptTemplateSettings
-                {
-                    Name = "persona.performance_memory_reviewer",
-                    Description = "Performance and memory reviewer persona for allocation, retention, throughput, and lifetime risks.",
-                    RoleName = "PerformanceMemoryReviewer",
-                    Focus = "memory/allocations, retained object graphs, process output/log growth, DB materialization, throughput, and resource lifetime.",
-                    Checklist =
-                        "- Look for unbounded collections, retained object graphs, large string accumulation, and process output/log growth.\n" +
-                        "- Check database materialization, pagination, projection size, streaming, and repeated query patterns.\n" +
-                        "- Review allocation-heavy loops, async lifetime, timer/task cleanup, disposal, cancellation, and retry behavior.\n" +
-                        "- Validate that throughput-sensitive paths keep resource usage bounded under repeated orchestration operations.\n"
-                },
-                new AdditionalPromptTemplateSettings
-                {
                     Name = "persona.porting_reference_analyst",
                     Description = "Porting reference analyst persona for evidence-based parity work against known references.",
                     RoleName = "PortingReferenceAnalyst",
@@ -167,18 +140,6 @@ namespace Test.Shared.Infrastructure
                         "- Distinguish evidence-backed parity from guesses, and flag missing references or assumptions explicitly.\n" +
                         "- Check naming, constants, byte layouts, state transitions, error mapping, and edge-case behavior against the cited evidence.\n" +
                         "- Keep changes traceable to the referenced behavior without copying unrelated implementation structure.\n"
-                },
-                new AdditionalPromptTemplateSettings
-                {
-                    Name = "persona.frontend_workflow_reviewer",
-                    Description = "Frontend workflow reviewer persona for UX, accessibility, responsive states, and design consistency.",
-                    RoleName = "FrontendWorkflowReviewer",
-                    Focus = "frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency.",
-                    Checklist =
-                        "- Walk the affected user workflow end to end, including empty, loading, error, disabled, success, and permission states.\n" +
-                        "- Check accessibility semantics, keyboard flow, focus management, contrast, labels, and screen-reader impact.\n" +
-                        "- Review responsive layout, text fit, i18n-ready copy, validation messages, and recoverability from failures.\n" +
-                        "- Keep visual changes consistent with the existing design system and avoid introducing workflow dead ends.\n"
                 }
             };
         }
@@ -186,30 +147,23 @@ namespace Test.Shared.Infrastructure
         /// <summary>
         /// Build the former baked specialist personas.
         /// </summary>
-        /// <returns>The six specialist personas that used to be seeded in code.</returns>
+        /// <returns>The three specialist reviewer and analyst personas.</returns>
         public static List<AdditionalPersonaSettings> CreateAdditionalPersonas()
         {
             return new List<AdditionalPersonaSettings>
             {
                 new AdditionalPersonaSettings { Name = "DiagnosticProtocolReviewer", Description = "Specialist reviewer for binary/wire protocol parsing, security-sensitive access paths, and high-risk hardware-affecting operations.", PromptTemplateName = "persona.diagnostic_protocol_reviewer" },
                 new AdditionalPersonaSettings { Name = "TenantSecurityReviewer", Description = "Specialist reviewer for multi-tenant authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk.", PromptTemplateName = "persona.tenant_security_reviewer" },
-                new AdditionalPersonaSettings { Name = "MigrationDataReviewer", Description = "Specialist reviewer for migrations, schema/provider parity, indexes, backfills, rollback/restart safety, and data-loss risk.", PromptTemplateName = "persona.migration_data_reviewer" },
-                new AdditionalPersonaSettings { Name = "PerformanceMemoryReviewer", Description = "Specialist reviewer for memory/allocations, retained object graphs, process output/log growth, DB materialization, throughput, and resource lifetime.", PromptTemplateName = "persona.performance_memory_reviewer" },
-                new AdditionalPersonaSettings { Name = "PortingReferenceAnalyst", Description = "Specialist analyst for approved reference material, decompiler-derived notes, vendor traces, protocol captures, and semantic parity evidence for porting work.", PromptTemplateName = "persona.porting_reference_analyst" },
-                new AdditionalPersonaSettings { Name = "FrontendWorkflowReviewer", Description = "Specialist reviewer for frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency.", PromptTemplateName = "persona.frontend_workflow_reviewer" }
+                new AdditionalPersonaSettings { Name = "PortingReferenceAnalyst", Description = "Specialist analyst for approved reference material, decompiler-derived notes, vendor traces, protocol captures, and semantic parity evidence for porting work.", PromptTemplateName = "persona.porting_reference_analyst" }
             };
         }
 
         /// <summary>
         /// Build the former baked specialist pipelines.
         /// </summary>
-        /// <returns>The six specialist-tested pipelines that used to be seeded in code.</returns>
+        /// <returns>The three specialist-tested pipelines.</returns>
         public static List<AdditionalPipelineSettings> CreateAdditionalPipelines()
         {
-            // FrontendWorkflowTested, MigrationDataTested, and PerformanceMemoryTested were retired
-            // by owner decision: they had no vessel default and no use. Their reviewer personas and
-            // prompt templates stay defined, so an operator may still compose an ad-hoc pipeline
-            // from them, but no built-in pipeline seeds them.
             return new List<AdditionalPipelineSettings>
             {
                 SpecialistTestedPipeline("DiagnosticProtocolTested", "Worker then DiagnosticProtocolReviewer then TestEngineer then Judge.", "DiagnosticProtocolReviewer"),
