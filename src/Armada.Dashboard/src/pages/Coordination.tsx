@@ -15,6 +15,8 @@ import { getDashboardParticipantKey, sortMessages, upsertMessage } from './coord
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const POLL_FALLBACK_INTERVAL_MS = 20_000;
+/** The messages route returns the newest `limit` notes and has no bound for reading older ones. */
+const NOTE_LIMIT = 200;
 
 /**
  * Shared coordination board: one chatroom where every operator session and the
@@ -41,6 +43,9 @@ export default function Coordination() {
   const initialTranscriptScrollRef = useRef(true);
 
   const roomKey = selectedRoomKey || 'fleet';
+  // Read results for a room the user has since left must not land in the selected room.
+  const roomKeyRef = useRef(roomKey);
+  roomKeyRef.current = roomKey;
   const currentRoom = useMemo(
     () => rooms.find((r) => r.key === roomKey) || null,
     [rooms, roomKey],
@@ -59,21 +64,26 @@ export default function Coordination() {
   }, [t]);
 
   const loadMessages = useCallback(async () => {
+    const requestedRoom = roomKey;
     try {
       setLoading(true);
-      const result = await listCoordinationMessages(roomKey, { limit: 200 });
+      const result = await listCoordinationMessages(requestedRoom, { limit: NOTE_LIMIT });
+      if (roomKeyRef.current !== requestedRoom) return;
       setMessages(sortMessages(result));
       setError('');
     } catch (err: unknown) {
+      if (roomKeyRef.current !== requestedRoom) return;
       setError(err instanceof Error ? err.message : t('Failed to load board notes.'));
     } finally {
-      setLoading(false);
+      if (roomKeyRef.current === requestedRoom) setLoading(false);
     }
   }, [roomKey, t]);
 
   const loadParticipants = useCallback(async () => {
+    const requestedRoom = roomKey;
     try {
-      const result = await listCoordinationParticipants(roomKey, 15);
+      const result = await listCoordinationParticipants(requestedRoom, 15);
+      if (roomKeyRef.current !== requestedRoom) return;
       setParticipants(result);
     } catch {
       // presence is best-effort
@@ -136,6 +146,9 @@ export default function Coordination() {
   useEffect(() => {
     transcriptNearBottomRef.current = true;
     initialTranscriptScrollRef.current = true;
+    // Do not show the previous room's notes while the new room loads.
+    setMessages([]);
+    setParticipants([]);
   }, [roomKey]);
 
   useEffect(() => {
@@ -222,6 +235,7 @@ export default function Coordination() {
             transcriptRef={transcriptRef}
             roomName={currentRoom?.name || 'Fleet'}
             messages={messages}
+            noteLimit={NOTE_LIMIT}
             participants={participants}
             claims={claims}
             composer={composer}

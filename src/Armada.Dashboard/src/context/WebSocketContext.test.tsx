@@ -5,7 +5,70 @@ vi.mock('./AuthContext', () => ({
   useAuth: () => ({ isAuthenticated: true, sessionToken: 'session-1' }),
 }));
 
-import { WebSocketProvider } from './WebSocketContext';
+import { RESYNC_MESSAGE_TYPE, WebSocketProvider, useWebSocket } from './WebSocketContext';
+import type { WebSocketMessage } from '../types/models';
+import { useEffect } from 'react';
+
+function Recorder({ received }: { received: WebSocketMessage[] }) {
+  const { subscribe } = useWebSocket();
+  useEffect(() => subscribe((msg) => { received.push(msg); }), [subscribe, received]);
+  return null;
+}
+
+function deliver(socket: FakeSocket, frame: unknown) {
+  socket.onmessage?.({ data: JSON.stringify(frame) });
+}
+
+test('broadcasts a resync message when the server reports a gap', () => {
+  vi.stubGlobal('WebSocket', FakeSocket);
+  const received: WebSocketMessage[] = [];
+  render(
+    <WebSocketProvider>
+      <Recorder received={received} />
+    </WebSocketProvider>,
+  );
+  const socket = FakeSocket.instances[0];
+  act(() => {
+    socket.onopen?.();
+    deliver(socket, { type: 'stream.ready', data: { replayed: 0, gapDetected: false } });
+  });
+  expect(received.filter((msg) => msg.type === RESYNC_MESSAGE_TYPE)).toHaveLength(0);
+
+  act(() => {
+    deliver(socket, { type: 'event.gap', data: { reason: 'replay_overflow' } });
+  });
+  expect(received.filter((msg) => msg.type === RESYNC_MESSAGE_TYPE)).toHaveLength(1);
+});
+
+test('broadcasts a resync message after a reconnect', () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('WebSocket', FakeSocket);
+  const received: WebSocketMessage[] = [];
+  render(
+    <WebSocketProvider>
+      <Recorder received={received} />
+    </WebSocketProvider>,
+  );
+  const first = FakeSocket.instances[0];
+  act(() => {
+    first.onopen?.();
+    deliver(first, { type: 'stream.ready', data: { replayed: 0, gapDetected: false } });
+    first.onclose?.();
+    vi.advanceTimersByTime(3500);
+  });
+  const second = FakeSocket.instances[1];
+  expect(second).toBeDefined();
+  act(() => {
+    second.onopen?.();
+    deliver(second, { type: 'stream.ready', data: { replayed: 0, gapDetected: false } });
+  });
+  expect(second.sent.map((frame) => JSON.parse(frame))).toEqual([
+    { Route: 'authenticate', token: 'session-1' },
+    { Route: 'subscribe' },
+  ]);
+  expect(received.filter((msg) => msg.type === RESYNC_MESSAGE_TYPE)).toHaveLength(1);
+  vi.useRealTimers();
+});
 
 class FakeSocket {
   static OPEN = 1;

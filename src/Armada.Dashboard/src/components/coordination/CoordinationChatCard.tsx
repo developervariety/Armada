@@ -5,6 +5,8 @@ interface CoordinationChatCardProps {
   transcriptRef: RefObject<HTMLDivElement | null>;
   roomName: string;
   messages: CoordinationMessage[];
+  /** Page size the board reads; when the board holds that many notes, older notes exist that it cannot show. */
+  noteLimit?: number;
   participants: CoordinationParticipant[];
   claims: CoordinationClaim[];
   composer: string;
@@ -24,6 +26,7 @@ export default function CoordinationChatCard({
   transcriptRef,
   roomName,
   messages,
+  noteLimit,
   participants,
   claims,
   composer,
@@ -77,6 +80,12 @@ export default function CoordinationChatCard({
         </div>
       )}
 
+      {noteLimit !== undefined && messages.length >= noteLimit && (
+        <div className="text-dim coordination-truncation-note">
+          {`Showing the newest ${noteLimit} notes. Older notes are not shown on this board.`}
+        </div>
+      )}
+
       <div ref={transcriptRef} className="planning-chat-window coordination-chat-window">
         {messages.length === 0 ? (
           <div className="planning-chat-empty text-muted">
@@ -94,6 +103,9 @@ export default function CoordinationChatCard({
               >
                 <div className="planning-chat-message-meta">
                   <span className="planning-chat-role">{message.authorName}</span>
+                  {message.toParticipantKey && (
+                    <span className="text-dim coordination-recipient" title="Directed note">{`to ${message.toParticipantKey}`}</span>
+                  )}
                   <span className="text-dim" title={formatDateTime(message.createdUtc)}>
                     {formatRelativeTime(message.createdUtc)}
                   </span>

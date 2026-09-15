@@ -95,6 +95,8 @@ export interface Fleet {
   tenantId: string | null;
   description: string | null;
   defaultPipelineId: string | null;
+  /** Default playbook selections as the server stores them (a JSON string); a full PUT must send it back. */
+  defaultPlaybooks?: string | null;
   active: boolean;
   createdUtc: string;
   lastUpdateUtc: string;
@@ -2600,6 +2602,8 @@ export interface CoordinationMessage {
   missionId: string | null;
   vesselId: string | null;
   incidentId: string | null;
+  /** Participant key a directed note is addressed to; null for a broadcast note. */
+  toParticipantKey?: string | null;
   createdUtc: string;
   lastUpdateUtc: string;
 }

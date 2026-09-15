@@ -15,6 +15,7 @@ function makeMessage(id: string, createdUtc: string): CoordinationMessage {
     missionId: null,
     vesselId: null,
     incidentId: null,
+    toParticipantKey: null,
     createdUtc,
     lastUpdateUtc: createdUtc,
   };

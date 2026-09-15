@@ -14,6 +14,17 @@ const WebSocketContext = createContext<WebSocketState | null>(null);
 
 const RECONNECT_DELAY = 3000;
 
+/**
+ * Synthetic message broadcast to subscribers when live events may have been missed: after a
+ * reconnect, or when the server reports a replay gap (`event.gap`, or `stream.ready` with
+ * `gapDetected`). A page that keeps state from live events reloads from the REST API on it.
+ */
+export const RESYNC_MESSAGE_TYPE = 'client.resync';
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
 export function WebSocketProvider({ children }: { children: ReactNode }) {
   const { isAuthenticated, sessionToken } = useAuth();
   const sessionTokenRef = useRef<string | null>(sessionToken);
@@ -23,6 +34,8 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
   const handlersRef = useRef<Set<MessageHandler>>(new Set());
   const reconnectTimerRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
+  // True once any connection has reached stream.ready; a later stream.ready is a reconnect.
+  const hadStreamRef = useRef(false);
 
   const subscribe = useCallback((handler: MessageHandler) => {
     handlersRef.current.add(handler);
@@ -35,6 +48,10 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(data));
     }
+  }, []);
+
+  const dispatch = useCallback((data: WebSocketMessage) => {
+    handlersRef.current.forEach(handler => handler(data));
   }, []);
 
   const connectWs = useCallback(() => {
@@ -54,11 +71,27 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
       };
 
       ws.onmessage = (evt) => {
+        let data: WebSocketMessage;
         try {
-          const data = JSON.parse(evt.data) as WebSocketMessage;
-          handlersRef.current.forEach(handler => handler(data));
+          data = JSON.parse(evt.data) as WebSocketMessage;
         } catch {
-          // ignore parse errors
+          return;
+        }
+        dispatch(data);
+
+        // Events sent while disconnected, or dropped by the server's replay buffer, never arrive.
+        // Tell subscribers so they reload instead of showing state that silently went stale.
+        let resyncReason: string | null = null;
+        if (data.type === 'event.gap') {
+          resyncReason = isRecord(data.data) && typeof data.data.reason === 'string' ? data.data.reason : 'gap';
+        } else if (data.type === 'stream.ready') {
+          const gapDetected = isRecord(data.data) && data.data.gapDetected === true;
+          if (gapDetected) resyncReason = 'gap';
+          else if (hadStreamRef.current) resyncReason = 'reconnect';
+          hadStreamRef.current = true;
+        }
+        if (resyncReason) {
+          dispatch({ type: RESYNC_MESSAGE_TYPE, data: { reason: resyncReason }, timestamp: new Date().toISOString() });
         }
       };
 
@@ -82,7 +115,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
         if (mountedRef.current) connectWs();
       }, RECONNECT_DELAY);
     }
-  }, []);
+  }, [dispatch]);
 
   useEffect(() => {
     mountedRef.current = true;

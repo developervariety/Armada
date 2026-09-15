@@ -12,8 +12,7 @@ import NotificationBell from './shared/NotificationBell';
 import CommandPalette from './shared/CommandPalette';
 import { dashboardItem, askArmadaItem, navSections, DEFAULT_EXPANDED_SECTIONS, type NavItem } from './navConfig';
 import { useInboxCount } from '../lib/useInboxCount';
-
-type HealthStatus = 'healthy' | 'warning' | 'error' | 'unknown';
+import { classifyHealth, type HealthStatus } from '../lib/healthStatus';
 
 export default function Layout() {
   const location = useLocation();
@@ -21,7 +20,8 @@ export default function Layout() {
   const { t } = useLocale();
   const { darkMode, toggleTheme } = useTheme();
   const { connected } = useWebSocket();
-  const inboxAttention = useInboxCount();
+  // The inbox route is administrator-only; other roles would receive 403 on every poll.
+  const inboxAttention = useInboxCount(isAdmin);
   const { toasts, dismissToast } = useNotifications();
   const [showWizard, setShowWizard] = useState(false);
   const [wizardHighlights, setWizardHighlights] = useState<string[]>([]);
@@ -34,6 +34,7 @@ export default function Layout() {
   });
   const [sections, setSections] = useState<Record<string, boolean>>({ ...DEFAULT_EXPANDED_SECTIONS });
   const [healthStatus, setHealthStatus] = useState<HealthStatus>('unknown');
+  const [driftWarning, setDriftWarning] = useState<string | null>(null);
   const [proxyContext, setProxyContext] = useState<ProxySessionContext | null>(null);
 
   useEffect(() => {
@@ -55,13 +56,16 @@ export default function Layout() {
       getHealth()
         .then((data) => {
           if (!mounted) return;
-          const status = String(data.status || data.Status || '').toLowerCase();
-          if (status === 'healthy' || status === 'ok') setHealthStatus('healthy');
-          else if (status === 'degraded' || status === 'warning') setHealthStatus('warning');
-          else setHealthStatus('error');
+          // The server always reports "healthy"; build drift is what can make it a warning.
+          const classified = classifyHealth(data);
+          setHealthStatus(classified.status);
+          setDriftWarning(classified.driftWarning);
         })
         .catch(() => {
-          if (mounted) setHealthStatus('error');
+          if (mounted) {
+            setHealthStatus('error');
+            setDriftWarning(null);
+          }
         });
     };
 
@@ -335,7 +339,7 @@ export default function Layout() {
               <span aria-hidden="true">{collapsed ? '»' : '«'}</span>
             </button>
 
-            <NavLink to="/server?tab=diagnostics" className="top-bar-health" title={t('Health: {{status}}', { status: t(healthStatus === 'healthy' ? 'Healthy' : healthStatus === 'warning' ? 'Degraded' : healthStatus === 'unknown' ? 'Checking...' : 'Unhealthy') })}>
+            <NavLink to="/server?tab=diagnostics" className="top-bar-health" title={`${t('Health: {{status}}', { status: t(healthStatus === 'healthy' ? 'Healthy' : healthStatus === 'warning' ? 'Degraded' : healthStatus === 'unknown' ? 'Checking...' : 'Unhealthy') })}${driftWarning ? ` - ${driftWarning}` : ''}`}>
               <span
                 className={`status-dot ${
                   healthStatus === 'healthy' ? 'healthy' : healthStatus === 'warning' ? 'warning' : 'error'

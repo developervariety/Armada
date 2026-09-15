@@ -16,7 +16,30 @@ export interface Notification {
   missionId: string | null;
   voyageId: string | null;
   captainId: string | null;
+  /** Source record id for every asset type, so notifications about any record can be opened. */
+  entityId?: string | null;
+  /** Source asset type (Mission, Voyage, Captain, Deployment, Objective, Incident). */
+  entityType?: string | null;
   read: boolean;
+}
+
+const ENTITY_TYPE_ROUTES: Record<string, string> = {
+  Mission: '/missions',
+  Voyage: '/voyages',
+  Captain: '/captains',
+  Deployment: '/deployments',
+  Objective: '/objectives',
+  Incident: '/incidents',
+};
+
+/** Dashboard route for the record a notification is about, or null when it names no record. */
+export function notificationRoute(notification: Notification): string | null {
+  const id = notification.entityId || notification.missionId || notification.voyageId || notification.captainId;
+  if (!id) return null;
+  const type = notification.entityType
+    || (notification.missionId ? 'Mission' : notification.voyageId ? 'Voyage' : notification.captainId ? 'Captain' : null);
+  const base = type ? ENTITY_TYPE_ROUTES[type] : undefined;
+  return base ? `${base}/${encodeURIComponent(id)}` : null;
 }
 
 export interface Toast {
@@ -105,6 +128,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     id: string,
     name: string,
     status: string,
+    timestampUtc?: string,
   ) => {
     const key = `${assetType}:${id}`;
     if (lastSeenRef.current.get(key) === status) return;
@@ -120,10 +144,13 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
       severity,
       title,
       message,
-      timestampUtc: new Date().toISOString(),
+      // The server stamps each event; the browser clock can be skewed or the event replayed late.
+      timestampUtc: timestampUtc || new Date().toISOString(),
       missionId: assetType === 'Mission' ? id : null,
       voyageId: assetType === 'Voyage' ? id : null,
       captainId: assetType === 'Captain' ? id : null,
+      entityId: id || null,
+      entityType: assetType,
       read: false,
     };
 
@@ -148,63 +175,36 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     const unsubscribe = subscribe((msg: WebSocketMessage) => {
       const data = msg.data;
       if (!isRecord(data)) return;
+      const stamp = typeof msg.timestamp === 'string' && msg.timestamp ? msg.timestamp : undefined;
+      const notify = (assetType: string, name: string, status: string) =>
+        pushNotification(assetType, String(data.id || ''), name, status, stamp);
 
       // Mission state changes (matches legacy: data.type === 'mission.changed')
       if (msg.type === 'mission.changed' && data.status) {
-        pushNotification(
-          'Mission',
-          String(data.id || ''),
-          String(data.title || data.id || ''),
-          String(data.status),
-        );
+        notify('Mission', String(data.title || data.id || ''), String(data.status));
       }
 
       // Voyage state changes
       if (msg.type === 'voyage.changed' && data.status) {
-        pushNotification(
-          'Voyage',
-          String(data.id || ''),
-          String(data.title || data.id || ''),
-          String(data.status),
-        );
+        notify('Voyage', String(data.title || data.id || ''), String(data.status));
       }
 
       // Captain state changes (legacy uses c.state, not c.status)
       if (msg.type === 'captain.changed' && (data.state || data.status)) {
-        pushNotification(
-          'Captain',
-          String(data.id || ''),
-          String(data.name || data.id || ''),
-          String(data.state || data.status),
-        );
+        notify('Captain', String(data.name || data.id || ''), String(data.state || data.status));
       }
 
       if (msg.type === 'deployment.changed' && data.status) {
         const verificationStatus = typeof data.verificationStatus === 'string' ? ` / ${String(data.verificationStatus)}` : '';
-        pushNotification(
-          'Deployment',
-          String(data.id || ''),
-          String(data.title || data.id || ''),
-          `${String(data.status)}${verificationStatus}`,
-        );
+        notify('Deployment', String(data.title || data.id || ''), `${String(data.status)}${verificationStatus}`);
       }
 
       if (msg.type === 'objective.changed' && data.status) {
-        pushNotification(
-          'Objective',
-          String(data.id || ''),
-          String(data.title || data.id || ''),
-          String(data.status),
-        );
+        notify('Objective', String(data.title || data.id || ''), String(data.status));
       }
 
       if (msg.type === 'incident.changed' && data.status) {
-        pushNotification(
-          'Incident',
-          String(data.id || ''),
-          String(data.title || data.id || ''),
-          String(data.status),
-        );
+        notify('Incident', String(data.title || data.id || ''), String(data.status));
       }
     });
     return unsubscribe;

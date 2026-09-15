@@ -139,6 +139,21 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - `armada_get_vessel` and `armada_update_vessel_context` read the vessel within
   the caller's scope, so a caller outside the owning tenant or user gets
   "Vessel not found" and changes nothing.
+### Dashboard pages show complete and current data
+
+- The sidebar "Needs You" count requests the administrator-only inbox only
+  for administrators. It runs at most one request at a time, and a refused or
+  slow request no longer causes another request on every live event.
+- The top-bar health indicator shows a warning, with its reason, when the
+  running build is behind the landed commit. Before, it always read healthy.
+- Notifications carry the time the server recorded the event. Deployment,
+  objective and incident notifications open their record, like mission,
+  voyage and captain notifications.
+- After the live-update connection reconnects, or the server reports missed
+  events, open pages receive a resync message so they can reload.
+- The chatroom ignores a slow read for a room the operator has left, shows the
+  recipient of a directed note, and says when it shows only the newest 200
+  notes.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 
