@@ -214,6 +214,18 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - A command named by a shell variable is resolved at run time, so it is not
   probed. A genuinely missing binary, inside a loop body or outside one, is
   still reported as a blocking readiness error.
+### A Judge is told to write the sections its verdict is judged against
+
+- The review sections a Judge must emit now come from one mode-aware source
+  that the verdict validator reads as well, so a brief, a launch prompt and the
+  validator can no longer name different sets.
+- A read-only (Audit or Research) Judge launch prompt now names the report
+  sections, Evidence and Residual Risks, instead of the implementation ones.
+  Before, that prompt asked for Tests and Failure Modes while the validator
+  required the report set, so a Judge that followed its prompt had its PASS
+  rejected for missing sections.
+- Implementation briefs, prompts and contracts are unchanged.
+
 ### A claimed completion with no change is a no-op, however long it ran
 
 - The no-op completion gate now fails an Implementation mission whose persona

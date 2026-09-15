@@ -4965,7 +4965,7 @@ namespace Armada.Core.Services
                             "Do not edit, commit, or push, and do not order or run implementation tests. Examine the prior stage output " +
                             "against the current mission description only, not sibling missions in the same voyage. " +
                             "Verify that every claim is backed by exact evidence and that cited paths resolve. " +
-                            "Your response must include `## Completeness`, `## Correctness`, `## Evidence`, `## Residual Risks`, and `## Verdict` sections. " +
+                            "Your response must include " + JudgeReviewSections.Headings(true) + " sections. " +
                             "End with a standalone line `[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`.\n\n";
                     }
 
@@ -4973,8 +4973,8 @@ namespace Armada.Core.Services
                         "You are reviewing the completed work for correctness, completeness, scope compliance, " +
                         "test adequacy, and failure-mode safety. Examine the diff below against the current mission " +
                         "description only, not sibling missions in the same voyage. Assume there may be at least " +
-                        "one hidden bug. Your response must include `## Completeness`, `## Correctness`, `## Tests`, " +
-                        "`## Failure Modes`, and `## Verdict` sections. A PASS is only allowed when tests are adequate, " +
+                        "one hidden bug. Your response must include " + JudgeReviewSections.Headings(false) +
+                        " sections. A PASS is only allowed when tests are adequate, " +
                         "negative-path coverage for validation, timeout, cancellation, retry, cleanup, and error-handling " +
                         "changes is present or justified, and failure modes were explicitly reviewed. End with a standalone line " +
                         "`[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`.\n\n";
@@ -7763,18 +7763,12 @@ namespace Armada.Core.Services
                 return false;
             }
 
+            // The required set comes from the same source the briefs and prompts render, so a Judge
+            // that follows its instructions can never fail this validation for the wrong section set.
             List<string> missingSections = new List<string>();
-            if (!ContainsJudgeReviewSection(agentOutput, "Completeness")) missingSections.Add("Completeness");
-            if (!ContainsJudgeReviewSection(agentOutput, "Correctness")) missingSections.Add("Correctness");
-            if (reportOnly)
+            foreach (string section in JudgeReviewSections.Required(reportOnly))
             {
-                if (!ContainsJudgeReviewSection(agentOutput, "Evidence")) missingSections.Add("Evidence");
-                if (!ContainsJudgeReviewSection(agentOutput, "Residual Risks")) missingSections.Add("Residual Risks");
-            }
-            else
-            {
-                if (!ContainsJudgeReviewSection(agentOutput, "Tests")) missingSections.Add("Tests");
-                if (!ContainsJudgeReviewSection(agentOutput, "Failure Modes")) missingSections.Add("Failure Modes");
+                if (!ContainsJudgeReviewSection(agentOutput, section)) missingSections.Add(section);
             }
 
             if (missingSections.Count > 0)

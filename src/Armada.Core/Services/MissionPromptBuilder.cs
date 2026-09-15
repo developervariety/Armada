@@ -326,6 +326,17 @@ namespace Armada.Core.Services
             if (readOnly)
             {
                 string normalized = PersonaCatalog.NormalizeName(persona);
+                // A read-only Judge is validated against the report sections, so the launch prompt
+                // must name those and never the implementation ones: a captain that obeys a prompt
+                // naming the other set fails its own verdict validation.
+                if (normalized == PersonaCatalog.Judge)
+                {
+                    return "You are an Armada judge agent on a " + mode + " mission. Validate the report and its evidence, not a code change. " +
+                        "Include " + JudgeReviewSections.Headings(true) + " sections, and end with exactly one standalone " +
+                        "[ARMADA:VERDICT] PASS, [ARMADA:VERDICT] FAIL, or [ARMADA:VERDICT] NEEDS_REVISION line. " +
+                        "Emit that verdict line before any completion signal or exit; a review without it is discarded and re-run.";
+                }
+
                 if (normalized == PersonaCatalog.Worker || normalized == PersonaCatalog.TestEngineer || normalized == PersonaCatalog.Linter)
                 {
                     string role = normalized == PersonaCatalog.TestEngineer ? "test engineer" : (normalized == PersonaCatalog.Linter ? "linter" : "worker");
@@ -343,7 +354,7 @@ namespace Armada.Core.Services
                 PersonaCatalog.Worker => "You are an Armada worker agent. End with a standalone [ARMADA:RESULT] COMPLETE line followed by a brief plain-text summary.",
                 PersonaCatalog.TestEngineer => "You are an Armada test engineer agent. Include `## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections before a standalone [ARMADA:RESULT] COMPLETE line.",
                 PersonaCatalog.Linter => "You are an Armada linter agent. Evaluate the changed code and documentation for style and correctness, fix clear in-scope violations, and include `## Code Style`, `## Code Correctness`, `## Documentation`, `## Fixes Applied`, and `## Residual Issues` sections before a standalone [ARMADA:RESULT] COMPLETE line.",
-                PersonaCatalog.Judge => "You are an Armada judge agent. Include `## Completeness`, `## Correctness`, `## Tests`, `## Failure Modes`, and `## Verdict` sections, and end with exactly one standalone [ARMADA:VERDICT] PASS, [ARMADA:VERDICT] FAIL, or [ARMADA:VERDICT] NEEDS_REVISION line. Emit that verdict line before any completion signal or exit; a review without it is discarded and re-run.",
+                PersonaCatalog.Judge => "You are an Armada judge agent. Include " + JudgeReviewSections.Headings(false) + " sections, and end with exactly one standalone [ARMADA:VERDICT] PASS, [ARMADA:VERDICT] FAIL, or [ARMADA:VERDICT] NEEDS_REVISION line. Emit that verdict line before any completion signal or exit; a review without it is discarded and re-run.",
                 _ => "You are an Armada captain executing a mission."
             };
         }
@@ -486,7 +497,7 @@ namespace Armada.Core.Services
                 "This is a report-only " + mode + " mission: validate the prior stage's report and evidence, not a code change. " +
                 "Do not edit, commit, or push, and do not order or run implementation tests (build, unit test, or suite commands). " +
                 "Verify that every claim is backed by exact evidence, that cited paths and references resolve, and that the report is complete and internally consistent. " +
-                "Your response must contain these exact section headings: `## Completeness`, `## Correctness`, `## Evidence`, `## Residual Risks`, and `## Verdict`. " +
+                "Your response must contain these exact section headings: " + JudgeReviewSections.Headings(true) + ". " +
                 "Do not reply with only a verdict line or brief summary." + lensDirective +
                 " Emit your verdict synchronously: the very last thing you do must be to print exactly one standalone line " +
                 "`[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`. " +
@@ -561,7 +572,7 @@ namespace Armada.Core.Services
                 PersonaCatalog.Linter =>
                     "Evaluate the changed code and documentation for style and correctness, staying strictly inside the files this mission changed. Fix clear in-scope violations and flag judgment calls. Before your result line, include `## Code Style`, `## Code Correctness`, `## Documentation`, `## Fixes Applied`, and `## Residual Issues` sections. End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
                 PersonaCatalog.Judge =>
-                    "Your response must contain these exact section headings: `## Completeness`, `## Correctness`, `## Tests`, `## Failure Modes`, and `## Verdict`. Do not reply with only a verdict line or brief summary. Run the test suite in the FOREGROUND and wait for it to finish before reaching a verdict -- never launch tests as a background task and schedule a wakeup, and never terminate before the verdict is emitted. Emit your verdict synchronously: the very last thing you do must be to print exactly one standalone line `[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`. Before you exit, verify that your response already contains the standalone verdict line. If it does not, emit it immediately. A review without that line is discarded and re-run." + BuildJudgeLensDirective(judgePrimaryLens),
+                    "Your response must contain these exact section headings: " + JudgeReviewSections.Headings(false) + ". Do not reply with only a verdict line or brief summary. Run the test suite in the FOREGROUND and wait for it to finish before reaching a verdict -- never launch tests as a background task and schedule a wakeup, and never terminate before the verdict is emitted. Emit your verdict synchronously: the very last thing you do must be to print exactly one standalone line `[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`. Before you exit, verify that your response already contains the standalone verdict line. If it does not, emit it immediately. A review without that line is discarded and re-run." + BuildJudgeLensDirective(judgePrimaryLens),
                 _ => String.Empty
             };
         }
@@ -576,7 +587,7 @@ namespace Armada.Core.Services
                 PersonaCatalog.Worker => "You are an Armada worker agent. Implement the requested code changes carefully, stay within scope, and end with a standalone [ARMADA:RESULT] COMPLETE line.",
                 PersonaCatalog.TestEngineer => "You are an Armada test engineer agent. Write tests for the current mission scope, cover negative and edge paths for validation, timeout, cancellation, retry, cleanup, and error-handling changes when applicable, include `## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections, and end with a standalone [ARMADA:RESULT] COMPLETE line.",
                 PersonaCatalog.Linter => "You are an Armada linter agent. Evaluate the changed code and documentation for style and correctness, fix clear in-scope violations and flag judgment calls, include `## Code Style`, `## Code Correctness`, `## Documentation`, `## Fixes Applied`, and `## Residual Issues` sections, and end with a standalone [ARMADA:RESULT] COMPLETE line.",
-                PersonaCatalog.Judge => "You are an Armada judge agent. Review the completed work for completeness, correctness, test adequacy, and failure modes. Assume there may be a hidden bug. Use `## Completeness`, `## Correctness`, `## Tests`, `## Failure Modes`, and `## Verdict` sections, and end with exactly one standalone [ARMADA:VERDICT] PASS, [ARMADA:VERDICT] FAIL, or [ARMADA:VERDICT] NEEDS_REVISION line. Emit that verdict line before any completion signal or exit; a review without it is discarded and re-run." + JudgeLensAndBoundedRule,
+                PersonaCatalog.Judge => "You are an Armada judge agent. Review the completed work for completeness, correctness, test adequacy, and failure modes. Assume there may be a hidden bug. Use " + JudgeReviewSections.Headings(false) + " sections, and end with exactly one standalone [ARMADA:VERDICT] PASS, [ARMADA:VERDICT] FAIL, or [ARMADA:VERDICT] NEEDS_REVISION line. Emit that verdict line before any completion signal or exit; a review without it is discarded and re-run." + JudgeLensAndBoundedRule,
                 _ => "You are an Armada captain executing a mission. Follow these instructions carefully."
             };
         }

@@ -295,6 +295,87 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("A read-only Judge brief and launch prompt name only the report sections", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+                    ArmadaSettings settings = new ArmadaSettings();
+                    settings.DocksDirectory = Path.Combine(Path.GetTempPath(), "armada_mode_docks_" + Guid.NewGuid().ToString("N"));
+                    settings.ReposDirectory = Path.Combine(Path.GetTempPath(), "armada_mode_repos_" + Guid.NewGuid().ToString("N"));
+
+                    StubGitService git = new StubGitService();
+                    IDockService dockService = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captainService = new CaptainService(logging, testDb.Driver, settings, git, dockService);
+                    MissionService service = new MissionService(logging, testDb.Driver, settings, dockService, captainService, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+
+                    string auditDir = Path.Combine(Path.GetTempPath(), "armada_mode_audit_judge_" + Guid.NewGuid().ToString("N"));
+                    string implDir = Path.Combine(Path.GetTempPath(), "armada_mode_impl_judge_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(auditDir);
+                    Directory.CreateDirectory(implDir);
+
+                    try
+                    {
+                        Vessel vessel = new Vessel("ModeVessel", "https://github.com/test/repo");
+                        Captain captain = new Captain("mode-judge-captain");
+                        captain.Runtime = AgentRuntimeEnum.ClaudeCode;
+
+                        Mission audit = new Mission();
+                        audit.Title = "Read-only judge probe";
+                        audit.Description = "Validate the audit report.";
+                        audit.Persona = "Judge";
+                        audit.Mode = MissionModeEnum.Audit;
+                        await service.GenerateClaudeMdAsync(auditDir, audit, vessel);
+                        string auditBrief = await File.ReadAllTextAsync(Path.Combine(auditDir, "CLAUDE.md"));
+                        Dock auditDock = new Dock(vessel.Id);
+                        auditDock.WorktreePath = auditDir;
+                        string auditLaunch = await MissionPromptBuilder.BuildLaunchPromptAsync(audit, vessel, captain, auditDock, null);
+
+                        Mission implementation = new Mission();
+                        implementation.Title = "Judge implementation review";
+                        implementation.Description = "Review the change.";
+                        implementation.Persona = "Judge";
+                        await service.GenerateClaudeMdAsync(implDir, implementation, vessel);
+                        string implBrief = await File.ReadAllTextAsync(Path.Combine(implDir, "CLAUDE.md"));
+                        Dock implDock = new Dock(vessel.Id);
+                        implDock.WorktreePath = implDir;
+                        string implLaunch = await MissionPromptBuilder.BuildLaunchPromptAsync(implementation, vessel, captain, implDock, null);
+
+                        Dictionary<string, string> readOnlyTexts = new Dictionary<string, string>
+                        {
+                            ["brief"] = auditBrief,
+                            ["launch prompt"] = auditLaunch
+                        };
+                        foreach (KeyValuePair<string, string> readOnlyText in readOnlyTexts)
+                        {
+                            AssertFalse(readOnlyText.Value.Contains("`## Tests`", StringComparison.Ordinal),
+                                "a read-only Judge " + readOnlyText.Key + " must not ask for a Tests section the validator does not read");
+                            AssertFalse(readOnlyText.Value.Contains("`## Failure Modes`", StringComparison.Ordinal),
+                                "a read-only Judge " + readOnlyText.Key + " must not ask for a Failure Modes section the validator does not read");
+                            AssertContains("`## Evidence`", readOnlyText.Value, "a read-only Judge " + readOnlyText.Key + " must ask for the Evidence section");
+                            AssertContains("`## Residual Risks`", readOnlyText.Value, "a read-only Judge " + readOnlyText.Key + " must ask for the Residual Risks section");
+                        }
+
+                        Dictionary<string, string> implTexts = new Dictionary<string, string>
+                        {
+                            ["brief"] = implBrief,
+                            ["launch prompt"] = implLaunch
+                        };
+                        foreach (KeyValuePair<string, string> implText in implTexts)
+                        {
+                            AssertContains("`## Tests`", implText.Value, "an implementation Judge " + implText.Key + " keeps the Tests section");
+                            AssertContains("`## Failure Modes`", implText.Value, "an implementation Judge " + implText.Key + " keeps the Failure Modes section");
+                        }
+                    }
+                    finally
+                    {
+                        if (Directory.Exists(auditDir)) Directory.Delete(auditDir, true);
+                        if (Directory.Exists(implDir)) Directory.Delete(implDir, true);
+                    }
+                }
+            });
+
             await RunTest("The no-commit gate exempts read-only modes and still catches implementation misses", async () =>
             {
                 // PersonaMustProduceChanges is the persona half of the gate; the mode half is

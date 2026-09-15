@@ -753,6 +753,13 @@ UnitTest pair. A voyage is fully report-only when every mission is Audit or
 Research, in any combination, because neither mode produces a diff. One
 Implementation mission puts the whole voyage back on the code Check gates.
 
+A read-only Judge is told to write `## Completeness`, `## Correctness`,
+`## Evidence`, `## Residual Risks` and `## Verdict`; an implementation Judge
+writes `## Tests` and `## Failure Modes` in place of the middle pair. Every
+brief, prompt and output contract renders that list from one mode-aware source,
+and the verdict validator reads the same source, so a Judge that follows its
+instructions cannot have its PASS rejected for the wrong section set.
+
 A green is a statement about one commit. A voyage-armed Check is stamped at the
 FIRST stage that commits, and every later stage commits on top, so by the Judge
 the only green record can describe a commit several stages back - in the worst
