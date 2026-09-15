@@ -17,6 +17,17 @@ namespace Armada.Core.Services
         #region Private-Members
 
         private string _Header = "[MessageTemplateService] ";
+
+        /// <summary>
+        /// Commit preamble used when no prompt template service is available. It must match the embedded
+        /// commit.instructions_preamble default, so every captain receives the same commit-message rule.
+        /// </summary>
+        private const string _DefaultCommitInstructionsPreamble =
+            "IMPORTANT: Every git commit you create MUST have a clear, descriptive commit message. The message MUST include: " +
+            "(1) a concise summary line stating what the commit does, and (2) a full manifest of what changed: list every file " +
+            "added, modified, or deleted and, for each, what changed and why. After that description, append the following " +
+            "trailers at the end of the commit message (after a blank line):";
+
         private LoggingModule _Logging;
         private IPromptTemplateService? _PromptTemplates;
 
@@ -135,13 +146,11 @@ namespace Armada.Core.Services
             if (_PromptTemplates != null)
             {
                 string? resolved = _PromptTemplates.GetEmbeddedDefault("commit.instructions_preamble");
-                preamble = !String.IsNullOrEmpty(resolved)
-                    ? resolved
-                    : "IMPORTANT: For every git commit you create, append the following trailers at the end of your commit message (after a blank line):";
+                preamble = !String.IsNullOrEmpty(resolved) ? resolved : _DefaultCommitInstructionsPreamble;
             }
             else
             {
-                preamble = "IMPORTANT: For every git commit you create, append the following trailers at the end of your commit message (after a blank line):";
+                preamble = _DefaultCommitInstructionsPreamble;
             }
 
             string instructions = preamble + rendered;

@@ -35,6 +35,11 @@ When Armada builds a captain prompt, it resolves the persona, loads its active
 prompt template, and adds mission context and selected playbooks. Default
 playbooks merge from fleet, vessel, persona, captain, and mission layers.
 
+When commit metadata is on and the mission is not read-only, the launch prompt
+ends with the `commit.instructions_preamble` text and the Armada trailers. The
+preamble requires a summary line and a full manifest of every file added,
+modified or deleted, with what changed and why.
+
 Persona prompts describe behavior. They must not contain fixed provider model
 names. Use a pipeline stage model tier of `low`, `mid`, or `high` when a stage
 needs a preference.

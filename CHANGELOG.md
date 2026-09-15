@@ -69,6 +69,15 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   is a local clone (a `file://` URL or a rooted path to a directory with a
   `.git` entry, or a bare repository) and no `workingDirectory` is given.
   `LocalPath` stays unset, because vessel removal deletes that directory.
+### Captain commit messages carry a change manifest
+
+- The commit instructions a captain receives now require a summary line and a
+  full manifest: every file added, modified or deleted, with what changed and
+  why, before the Armada trailers. The embedded default and the fallback use
+  the same text. The rendered block grows from 319 to 589 bytes, and a
+  worst-case worker launch prompt with it grows from 985 to 1255 bytes, inside
+  the 32768-byte instruction budget.
+
 ### Linter persona in the ProductDevelopment pipeline
 
 - A built-in Linter persona now checks the code and documentation a mission

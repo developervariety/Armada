@@ -102,6 +102,10 @@ Judge. Upstream also adds it to FullPipeline. The fork keeps FullPipeline
 unchanged, because startup reconciliation rewrites a built-in pipeline and would
 add the stage to every existing FullPipeline without notice.
 
+Captain commit instructions use upstream's manifest rule: every commit needs a
+summary line and a list of each changed file with what changed and why, before
+the Armada trailers. The fork keeps them off read-only missions.
+
 Mission history uses upstream's status rule: a mission counts as complete once
 it has produced work (WorkProduced, PullRequestOpen, Testing, Review or
 Complete), so reviewed work reads as done when landing is off.
