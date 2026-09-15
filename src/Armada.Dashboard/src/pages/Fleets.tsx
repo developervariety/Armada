@@ -180,9 +180,9 @@ export default function Fleets() {
                 {t('Delete Selected')} ({table.selected.length})
               </button>
             )}
-            <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Fleet')}</button>
             <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={load} title={t('Refresh fleet data')} />
+            <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Fleet')}</button>
           </>
         )}
       />

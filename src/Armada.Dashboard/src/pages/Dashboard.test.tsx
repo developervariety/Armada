@@ -89,6 +89,11 @@ function renderDashboard() {
   );
 }
 
+function LocationProbe() {
+  const location = useLocation();
+  return <div data-testid="location">{location.pathname + location.search}</div>;
+}
+
 describe('Dashboard home', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -114,6 +119,31 @@ describe('Dashboard home', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.clearAllMocks();
+  });
+
+  it('leads with an Ask Armada band that opens Ask, Needs You, Dispatch, and Diagnostics', async () => {
+    const targets: Array<[string, string]> = [
+      ['Ask Armada →', '/ask'],
+      ['Needs You', '/inbox'],
+      ['Dispatch', '/dispatch'],
+      ['Diagnostics', '/server?tab=diagnostics'],
+    ];
+    for (const [label, target] of targets) {
+      const { unmount } = render(
+        <MemoryRouter initialEntries={['/']}>
+          <Routes>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="*" element={<LocationProbe />} />
+          </Routes>
+        </MemoryRouter>,
+      );
+      const band = (await screen.findByText('Ask about fleet state in plain language and dispatch work straight from the conversation.')).closest('.ask-hero') as HTMLElement;
+      const button = Array.from(band.querySelectorAll('button')).find((element) => element.textContent?.trim() === label);
+      expect(button).toBeDefined();
+      fireEvent.click(button!);
+      expect(await screen.findByTestId('location')).toHaveTextContent(target);
+      unmount();
+    }
   });
 
   it('loads a bounded page of mission summaries instead of full missions', async () => {

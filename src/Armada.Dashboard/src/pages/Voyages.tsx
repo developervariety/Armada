@@ -151,9 +151,9 @@ export default function Voyages() {
                 {t('Cancel Selected')} ({table.selected.length})
               </button>
             )}
-            <button className="btn btn-primary btn-sm" onClick={() => navigate('/voyages/create')}>+ {t('Voyage')}</button>
             <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={load} title="Refresh voyage data" />
+            <button className="btn btn-primary btn-sm" onClick={() => navigate('/voyages/create')}>+ {t('Voyage')}</button>
           </>
         )}
       />

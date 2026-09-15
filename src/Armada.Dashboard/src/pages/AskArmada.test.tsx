@@ -5,7 +5,8 @@ import { getCaptainAskTools, listCaptains } from '../api/client';
 vi.mock('../api/client', () => ({ chatWithCaptain: vi.fn(), getCaptainAskTools: vi.fn(), listCaptains: vi.fn() }));
 vi.mock('../context/LocaleContext', () => ({ useLocale: () => ({ t: (text: string) => text, formatDateTime: (v: string) => v, formatRelativeTime: (v: string) => v }) }));
 vi.mock('../context/WebSocketContext', () => ({ useWebSocket: () => ({ subscribe: () => () => undefined }) }));
-vi.mock('../components/shared/CaptainChatPanel', () => ({ default: () => <div>chat panel</div> }));
+vi.mock('../components/shared/CaptainChatPanel', () => ({ default: (props: { emptyState?: unknown }) => <div>chat panel{props.emptyState as never}</div> }));
+vi.mock('../components/askGreetings', () => ({ randomGreeting: () => 'Ahoy! How can Armada help?' }));
 vi.mock('../components/shared/ErrorModal', () => ({ default: () => null }));
 vi.mock('../components/shared/ConfirmDialog', () => ({ default: () => null }));
 const captain = { id: 'cpt_test', name: 'Test captain', runtime: 'ClaudeCode', model: 'test' };
@@ -13,6 +14,12 @@ const page = { success: true, pageNumber: 1, pageSize: 10, totalPages: 1, totalR
 function renderPage() { return render(<MemoryRouter><AskArmada /></MemoryRouter>); }
 describe('Ask MCP preflight states', () => {
   beforeEach(() => { vi.mocked(listCaptains).mockResolvedValue(page as never); });
+  it('greets the operator on the blank chat and names the selected captain', async () => {
+    vi.mocked(getCaptainAskTools).mockResolvedValue({ mcpConnectionPlanned: true, availabilityVerified: true, armadaToolCount: 3, summary: '' } as never);
+    renderPage();
+    expect(await screen.findByText('Ahoy! How can Armada help?')).toHaveClass('ask-empty-greeting');
+    expect(await screen.findByText('Chatting with {{name}}')).toHaveClass('ask-empty-sub');
+  });
   it('shows planned preflight failure summary', async () => {
     vi.mocked(getCaptainAskTools).mockResolvedValue({ mcpConnectionPlanned: true, availabilityVerified: true, armadaToolCount: 0, summary: 'Ask launch plan targets Armada MCP, but endpoint preflight failed.' } as never);
     renderPage();
