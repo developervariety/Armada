@@ -23,6 +23,18 @@ namespace Armada.Core.Services
     /// </summary>
     public class DefinitionOfDoneGate
     {
+        #region Public-Members
+
+        /// <summary>
+        /// Named skip reason recorded when a read-only (Audit or Research) mission reaches the gate without
+        /// producing a commit: its dock head still equals the dock start commit, so the build and unit-test
+        /// commands would measure only the base branch, and a base branch that is already red would fail a
+        /// mission that changed nothing.
+        /// </summary>
+        public const string ReadOnlyNoCommitSkipReason = "read_only_no_commit";
+
+        #endregion
+
         #region Private-Members
 
         private readonly string _Header = "[DefinitionOfDoneGate] ";

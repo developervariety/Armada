@@ -575,6 +575,181 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(RecordedHistoryStateEnum.Recorded, report.HistoryState, "A reversed range is reported as recorded, not hidden");
                 }
             }).ConfigureAwait(false);
+
+            await RunTest("A Research mission that made no commit skips the gate on a red suite and hands off to its next stage", async () =>
+            {
+                ReadOnlyGateScenarioResult result = await RunReadOnlyGateScenarioAsync(
+                    MissionModeEnum.Research, _ScenarioStartCommit, Array.Empty<string>(), LongReport()).ConfigureAwait(false);
+
+                AssertEqual(MissionStatusEnum.WorkProduced, result.Mission.Status,
+                    "A read-only mission with no commit must not fail on a red base suite. FailureReason: " + result.Mission.FailureReason);
+                AssertNull(result.Mission.FailureReason, "No failure is recorded");
+                AssertNotEqual(MissionStatusEnum.Cancelled, result.Dependent.Status, "The next stage is not cancelled");
+                AssertEqual(result.Mission.BranchName, result.Dependent.BranchName, "The next stage was prepared by the handoff");
+                AssertNotNull(result.LatestEvaluation, "The skip is recorded as an evaluation event");
+                AssertEqual(DefinitionOfDoneEvaluationOutcomeEnum.Skipped, result.LatestEvaluation!.Outcome, "Recorded as Skipped");
+                AssertTrue((result.LatestEvaluation.SkippedReason ?? String.Empty).StartsWith(DefinitionOfDoneGate.ReadOnlyNoCommitSkipReason, StringComparison.Ordinal),
+                    "The skip reason is named. Reason: " + result.LatestEvaluation.SkippedReason);
+                AssertContains("validation skipped: " + DefinitionOfDoneGate.ReadOnlyNoCommitSkipReason, result.Activity, "The activity log names the skip");
+                AssertFalse(result.Activity.Contains("validation passed: definition-of-done gate", StringComparison.Ordinal), "A skip is not reported as a pass");
+            }).ConfigureAwait(false);
+
+            await RunTest("An Audit mission that made no commit skips the gate on a red suite the same way", async () =>
+            {
+                ReadOnlyGateScenarioResult result = await RunReadOnlyGateScenarioAsync(
+                    MissionModeEnum.Audit, _ScenarioStartCommit, Array.Empty<string>(), LongReport()).ConfigureAwait(false);
+
+                AssertEqual(MissionStatusEnum.WorkProduced, result.Mission.Status,
+                    "An Audit mission with no commit must not fail on a red base suite. FailureReason: " + result.Mission.FailureReason);
+                AssertNotEqual(MissionStatusEnum.Cancelled, result.Dependent.Status, "The next stage is not cancelled");
+                AssertEqual(DefinitionOfDoneEvaluationOutcomeEnum.Skipped, result.LatestEvaluation!.Outcome, "Recorded as Skipped");
+                AssertTrue((result.LatestEvaluation.SkippedReason ?? String.Empty).StartsWith(DefinitionOfDoneGate.ReadOnlyNoCommitSkipReason, StringComparison.Ordinal),
+                    "The skip reason is named. Reason: " + result.LatestEvaluation.SkippedReason);
+            }).ConfigureAwait(false);
+
+            await RunTest("A Research mission that made a commit still runs the gate and fails on the red suite", async () =>
+            {
+                ReadOnlyGateScenarioResult result = await RunReadOnlyGateScenarioAsync(
+                    MissionModeEnum.Research, "fedcba987654", new[] { "docs/report.md" }, LongReport()).ConfigureAwait(false);
+
+                AssertEqual(MissionStatusEnum.Failed, result.Mission.Status, "A read-only mission that committed is still gated");
+                AssertContains("unit-test", result.Mission.FailureReason ?? String.Empty, "The red unit-test command fails the gate");
+                AssertEqual(MissionStatusEnum.Cancelled, result.Dependent.Status, "The next stage is cancelled as before");
+                AssertEqual(DefinitionOfDoneEvaluationOutcomeEnum.Failed, result.LatestEvaluation!.Outcome, "Recorded as Failed");
+            }).ConfigureAwait(false);
+
+            await RunTest("An Implementation mission that made no commit is not exempted by the read-only rule", async () =>
+            {
+                ReadOnlyGateScenarioResult result = await RunReadOnlyGateScenarioAsync(
+                    MissionModeEnum.Implementation, _ScenarioStartCommit, Array.Empty<string>(), "worker exited without a marker").ConfigureAwait(false);
+
+                AssertEqual(MissionStatusEnum.Failed, result.Mission.Status, "An Implementation mission with no commit still fails");
+                AssertContains("no_op_completion_detected", result.Mission.FailureReason ?? String.Empty, "The no-op rule still applies");
+                AssertFalse(result.Activity.Contains(DefinitionOfDoneGate.ReadOnlyNoCommitSkipReason, StringComparison.Ordinal),
+                    "The read-only skip never applies to an Implementation mission");
+            }).ConfigureAwait(false);
+        }
+
+        private const string _ScenarioStartCommit = "abc123def456";
+
+        private static string LongReport()
+        {
+            return "## Findings\n" + new string('x', 1200) + "\n[ARMADA:RESULT] COMPLETE";
+        }
+
+        private sealed class ReadOnlyGateScenarioResult
+        {
+            public Mission Mission { get; set; } = null!;
+            public Mission Dependent { get; set; } = null!;
+            public DefinitionOfDoneEvaluationRecord? LatestEvaluation { get; set; } = null;
+            public string Activity { get; set; } = String.Empty;
+        }
+
+        /// <summary>
+        /// Complete a first-stage mission whose vessel build passes and whose unit-test command fails, with a
+        /// dependent Judge stage waiting on it. The dock start commit is fixed; the head commit and the changed
+        /// files since dock start are the scenario's inputs.
+        /// </summary>
+        private static async Task<ReadOnlyGateScenarioResult> RunReadOnlyGateScenarioAsync(
+            MissionModeEnum mode,
+            string headCommit,
+            IReadOnlyList<string> changedFilesSinceStart,
+            string agentOutput)
+        {
+            using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+            {
+                ArmadaSettings settings = CreateSettings();
+                try
+                {
+                    LoggingModule logging = CreateLogging();
+                    StubGitService git = new StubGitService();
+                    git.HeadCommitHashResult = headCommit;
+                    git.ChangedFilesSinceResult = changedFilesSinceStart;
+                    IDockService docks = new DockService(logging, testDb.Driver, settings, git);
+                    ICaptainService captains = new CaptainService(logging, testDb.Driver, settings, git, docks);
+                    MissionService missions = new MissionService(logging, testDb.Driver, settings, docks, captains, git: git, resourcePressureAdmission: TestResourcePressure.Unconstrained(settings));
+                    missions.DefinitionOfDone = new DefinitionOfDoneGate(new DefinitionOfDoneSettings { Enabled = true }, testDb.Driver, logging);
+                    missions.OnGetMissionOutput = _ => agentOutput;
+                    missions.OnMissionComplete = (m, d) => Task.CompletedTask;
+
+                    Vessel vessel = new Vessel("dod-readonly-vessel-" + Guid.NewGuid().ToString("N"), "https://github.com/test/repo.git");
+                    vessel.LocalPath = Path.Combine(settings.ReposDirectory, "bare");
+                    vessel.WorkingDirectory = Path.Combine(settings.ReposDirectory, "work");
+                    vessel.DefaultBranch = "main";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(new WorkflowProfile
+                    {
+                        Name = "Red Suite Profile",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = "exit 0",
+                        UnitTestCommand = "exit 1",
+                        IsDefault = true,
+                        Active = true
+                    }).ConfigureAwait(false);
+
+                    Captain captain = new Captain("dod-readonly-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("dod-readonly-voyage")).ConfigureAwait(false);
+
+                    Mission mission = new Mission("Read-only gate mission", "Report on the repository.");
+                    mission.Mode = mode;
+                    mission.Persona = "Worker";
+                    mission.Status = MissionStatusEnum.InProgress;
+                    mission.StartedUtc = DateTime.UtcNow.AddMinutes(-5);
+                    mission.VesselId = vessel.Id;
+                    mission.VoyageId = voyage.Id;
+                    mission.CaptainId = captain.Id;
+                    mission = await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    Dock dock = new Dock(vessel.Id);
+                    dock.CaptainId = captain.Id;
+                    dock.WorktreePath = Path.Combine(settings.DocksDirectory, "wt");
+                    dock.BranchName = "armada/dod-readonly/stage";
+                    dock.Active = true;
+                    dock = await testDb.Driver.Docks.CreateAsync(dock).ConfigureAwait(false);
+                    Directory.CreateDirectory(dock.WorktreePath);
+
+                    mission.DockId = dock.Id;
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+                    captain.CurrentMissionId = mission.Id;
+                    captain.CurrentDockId = dock.Id;
+                    await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+
+                    Mission dependent = new Mission("[Judge] Review the report", "Review.");
+                    dependent.Mode = mode;
+                    dependent.Persona = "Judge";
+                    dependent.Status = MissionStatusEnum.Pending;
+                    dependent.VesselId = vessel.Id;
+                    dependent.VoyageId = voyage.Id;
+                    dependent.DependsOnMissionId = mission.Id;
+                    dependent = await testDb.Driver.Missions.CreateAsync(dependent).ConfigureAwait(false);
+
+                    Directory.CreateDirectory(Path.Combine(settings.LogDirectory, "docks"));
+                    await File.WriteAllTextAsync(Path.Combine(settings.LogDirectory, "docks", dock.Id + ".start"), _ScenarioStartCommit + "\n").ConfigureAwait(false);
+
+                    await missions.HandleCompletionAsync(captain, mission.Id).ConfigureAwait(false);
+
+                    ReadOnlyGateScenarioResult result = new ReadOnlyGateScenarioResult();
+                    result.Mission = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    result.Dependent = (await testDb.Driver.Missions.ReadAsync(dependent.Id).ConfigureAwait(false))!;
+
+                    DefinitionOfDoneReportService reports = new DefinitionOfDoneReportService(testDb.Driver, logging, () => missions.DefinitionOfDone);
+                    MissionDefinitionOfDoneReport report = await reports.GetForMissionAsync(_Admin, result.Mission).ConfigureAwait(false);
+                    result.LatestEvaluation = report.LatestEvaluation;
+
+                    string logPath = Path.Combine(settings.LogDirectory, "missions", mission.Id + ".log");
+                    result.Activity = File.Exists(logPath) ? await File.ReadAllTextAsync(logPath).ConfigureAwait(false) : String.Empty;
+                    return result;
+                }
+                finally
+                {
+                    DeleteDirectories(settings);
+                }
+            }
         }
     }
 }

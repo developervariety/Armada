@@ -853,6 +853,17 @@ build and unit test. What changed is the floor: a voyage no longer reaches its
 Judge stage carrying nothing, and a re-dispatch after a cancellation no longer
 starts bare because the previous voyage's Checks went with it.
 
+The definition-of-done gate does not run for a read-only mission (mission mode
+Research or Audit) that produced no commit. Armada proves "no commit" by
+comparing the dock's head commit with the commit recorded when the dock was
+provisioned. When they are equal, the build and unit-test commands would
+measure only the base branch, so a base branch that is already red would fail
+work that changed nothing. The mission completes its stage and hands off. The
+activity log and the recorded evaluation event (outcome `Skipped`) name the
+reason `read_only_no_commit`. A read-only mission that did commit, and every
+Implementation mission, run the gate as before. If either commit cannot be
+read, the gate runs.
+
 The definition-of-done gate also builds the vessels that DECLARE this vessel as
 a sibling repository. A producer's own build cannot observe a break it causes
 in a consumer, because the consumer is a different repository with a different

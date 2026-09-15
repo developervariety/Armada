@@ -1826,6 +1826,30 @@ namespace Armada.Core.Services
             // intended outcome, and their own report gate judges them.
             bool dodGateHasWorkToVerify = !(dockProducedChanges == false && !mission.IsReadOnlyMode);
 
+            // A read-only (Audit or Research) mission whose dock head still equals its dock start commit
+            // produced no commit. The gate's build and unit-test commands would then measure only the
+            // base branch, so a base branch that is already red would fail a mission that changed
+            // nothing. Skip the gate with a named reason. A read-only mission that did commit, and every
+            // Implementation mission, keeps the gate unchanged. When either commit cannot be read the
+            // gate runs, because a skip must rest on proof that nothing was committed.
+            bool dodSkippedForReadOnlyNoCommit = false;
+            if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForPolicyRefusal && !failedForIneffectiveRescue && dock != null
+                && _DefinitionOfDoneGate != null && mission.IsReadOnlyMode)
+            {
+                string? readOnlyNoCommitDetail = await DescribeReadOnlyNoCommitAsync(dock, token).ConfigureAwait(false);
+                if (readOnlyNoCommitDetail != null)
+                {
+                    dodSkippedForReadOnlyNoCommit = true;
+                    string skipReason = DefinitionOfDoneGate.ReadOnlyNoCommitSkipReason + ": " + mission.Mode
+                        + " mission produced no commit (" + readOnlyNoCommitDetail + "); build and unit-test commands would measure only the base branch";
+                    await AppendMissionActivityAsync(mission.Id, "validation skipped: " + skipReason, token).ConfigureAwait(false);
+                    await RecordDefinitionOfDoneEvaluationAsync(mission, captain, dock,
+                        DefinitionOfDoneEvaluationRecord.FromResult(DefinitionOfDoneResult.Skipped(skipReason), DateTime.UtcNow),
+                        token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "mission " + mission.Id + " definition-of-done gate skipped: " + skipReason);
+                }
+            }
+
             if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
                 && _DefinitionOfDoneGate != null && !dodGateHasWorkToVerify)
             {
@@ -1845,7 +1869,7 @@ namespace Armada.Core.Services
             // Definition-of-done gate: run in-dock build and unit-test before accepting Worker work.
             bool failedForDodGate = false;
             if (!failedForScopeViolation && !failedForNoOpCompletion && !failedForPolicyRefusal &&!failedForIneffectiveRescue && dock != null
-                && _DefinitionOfDoneGate != null && dodGateHasWorkToVerify)
+                && _DefinitionOfDoneGate != null && dodGateHasWorkToVerify && !dodSkippedForReadOnlyNoCommit)
             {
                 DateTime dodStartedUtc = DateTime.UtcNow;
                 try
@@ -7313,6 +7337,51 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "could not read dock start commit metadata for " + dockId + ": " + ex.Message);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Prove that a dock produced no commit: its current head commit equals the commit recorded when
+        /// the dock was provisioned. Returns a short description of the matching commit when proven, and
+        /// null when the dock moved or either commit cannot be read.
+        /// </summary>
+        private async Task<string?> DescribeReadOnlyNoCommitAsync(Dock dock, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(dock.WorktreePath)) return null;
+
+            string? startCommit = TryReadDockStartCommit(dock.Id);
+            if (String.IsNullOrWhiteSpace(startCommit))
+            {
+                _Logging.Warn(_Header + "no dock start commit metadata for " + dock.Id
+                    + "; the read-only no-commit skip cannot be proven, so the definition-of-done gate runs");
+                return null;
+            }
+
+            if (_Git == null)
+            {
+                _Logging.Warn(_Header + "no git service; the read-only no-commit skip cannot be proven for dock " + dock.Id
+                    + ", so the definition-of-done gate runs");
+                return null;
+            }
+
+            string? headCommit;
+            try
+            {
+                headCommit = await _Git.GetHeadCommitHashAsync(dock.WorktreePath, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not read head commit for dock " + dock.Id + ": " + ex.Message
+                    + "; the read-only no-commit skip cannot be proven, so the definition-of-done gate runs");
+                return null;
+            }
+
+            if (String.IsNullOrWhiteSpace(headCommit)) return null;
+            if (!String.Equals(headCommit.Trim(), startCommit.Trim(), StringComparison.OrdinalIgnoreCase)) return null;
+            return "head equals dock start commit " + startCommit.Trim();
         }
 
         private async Task<bool> HasChangesSinceDockStartAsync(Dock? dock, int fallbackDiffLineCount, CancellationToken token)

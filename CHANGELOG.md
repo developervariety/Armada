@@ -63,6 +63,20 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Operator dispatch, the scheduler, restarts, rescues, review re-queues and
   the health-check dispatch of Pending work all apply this one rule through
   captain selection.
+### Read-only missions without a commit skip the definition-of-done gate
+
+- A Research or Audit mission whose dock head still equals its dock start
+  commit now skips the build and unit-test definition-of-done gate. It
+  completes its stage and hands off to the next stage. Before, the gate ran
+  the vessel's commands against the unchanged base branch, so a suite that was
+  already red there failed a mission that changed nothing, and its Judge stage
+  was cancelled.
+- The skip is never silent. The mission activity log, the recorded
+  definition-of-done evaluation event (outcome `Skipped`) and the mission
+  report all name the reason `read_only_no_commit`.
+- A read-only mission that did commit, and every Implementation mission, keep
+  the gate unchanged. When the start or head commit cannot be read, the gate
+  runs.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 
