@@ -358,19 +358,6 @@ export interface Voyage {
   captainOverridesJson?: string | null;
 }
 
-/** Endpoint role: embedding endpoints serve the code index, inference endpoints serve API-endpoint captains. */
-export type ModelEndpointKind = 'Embedding' | 'Inference';
-
-/** Configured model endpoint, as listed by GET /api/v1/model-endpoints. Only the fields the dashboard reads. */
-export interface ModelEndpoint {
-  id: string;
-  name: string;
-  kind: ModelEndpointKind;
-  provider: string;
-  model: string | null;
-  enabled: boolean;
-}
-
 /** Capability tier used for fallback routing when a preferred captain is busy. */
 export type CaptainTier = 'Economy' | 'Standard' | 'Premium';
 
@@ -2571,6 +2558,7 @@ export interface CoordinationPresenceRequest {
 
 // ==================== Model endpoints ====================
 
+/** Endpoint role: embedding endpoints serve the code index, inference endpoints serve API-endpoint captains. */
 export type ModelEndpointKind = 'Embedding' | 'Inference';
 /** Providers the server ModelProviderEnum accepts. */
 export type ModelProvider = 'Ollama' | 'OpenAI' | 'OpenAICompatible' | 'Anthropic' | 'Gemini' | 'VoyageAI';
