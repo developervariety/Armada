@@ -151,6 +151,19 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   .NET to run this application", a framework that "was not found") and a
   testhost process that exited with an error as `Infra`. Before, a test command
   with that output read as `TestFail`.
+### A diverged working checkout is preserved and raised after landing
+
+- When a `LocalMerge` landing finds that the vessel working checkout holds
+  commits the landing repository lacks, Armada now pushes the checkout `HEAD`
+  to a `recover/working-checkout-<sha>` branch in the landing repository, emits
+  one `landing.working_checkout_diverged` event, and opens one incident that
+  names the recover branch, the full SHA, the commit count and the operator
+  steps. Before, the landing only wrote a failure reason on the mission, and
+  the divergence stayed invisible until someone read it.
+- The checkout is never reset and nothing is pushed to a remote. A later
+  landing that finds the same divergence with the incident still open adds no
+  second event or incident. When the checkout cannot be read, counted or
+  pushed, the incident says which step failed.
 
 ### Incident lifecycle sweep reaches every open incident
 

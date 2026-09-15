@@ -987,6 +987,19 @@ message with a failure class. `worktree_conflict:` names the worktree that
 holds the needed ref. `integration_merge_failed:` covers every other refusal,
 such as a content conflict. Read the class before you retry.
 
+After the merge, `LocalMerge` fast-forwards the configured working checkout. If
+the checkout holds commits that the landing repository's target branch lacks,
+the fast-forward cannot run, and those commits exist nowhere else. Armada does
+not reset the checkout and does not push to a remote. It pushes the checkout
+`HEAD` to `recover/working-checkout-<12-char-sha>` in the landing repository,
+emits one `landing.working_checkout_diverged` event, and opens one incident for
+the vessel. The incident names the recover branch, the full SHA, the commit
+count and the repair steps: land the recover branch through the merge queue,
+fast-forward the checkout, confirm that no commits remain on either side, then
+close the incident. The same divergence with its incident still open adds no
+second event or incident. If the checkout cannot be read, counted or pushed,
+the incident names the step that failed. `docs/MERGING.md` has the commands.
+
 Do not infer successful landing from a `Complete` label alone. Verify the
 target branch or remote commit that should contain the work.
 

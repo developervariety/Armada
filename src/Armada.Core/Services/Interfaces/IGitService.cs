@@ -569,5 +569,41 @@ namespace Armada.Core.Services.Interfaces
         /// <param name="token">Cancellation token.</param>
         /// <returns>Number of commits ahead; 0 when refs are equal or on any error.</returns>
         Task<int> GetCommitCountBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default);
+
+        /// <summary>
+        /// Count the commits reachable from <paramref name="toRef"/> and not from <paramref name="fromRef"/>.
+        /// Executes: git rev-list --count {fromRef}..{toRef}
+        /// </summary>
+        /// <remarks>
+        /// Unlike <see cref="GetCommitCountBetweenAsync"/>, a failure is null rather than zero, so a
+        /// caller deciding whether unrecorded work exists can tell "none" from "could not tell". The
+        /// default implementation answers null.
+        /// </remarks>
+        /// <param name="repoPath">Repository or checkout in which both refs resolve.</param>
+        /// <param name="fromRef">Excluded ref.</param>
+        /// <param name="toRef">Included ref.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The commit count, or null when git could not answer.</returns>
+        Task<int?> TryCountCommitsBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default)
+        {
+            return Task.FromResult<int?>(null);
+        }
+
+        /// <summary>
+        /// Push the HEAD of a checkout to a branch in another local repository, without force.
+        /// Executes: git push {repositoryPath} HEAD:refs/heads/{branchName}
+        /// </summary>
+        /// <remarks>
+        /// The destination is a repository path, never a named remote, so this cannot reach a hosted
+        /// remote by accident. The default implementation throws, so a double that cannot push says so.
+        /// </remarks>
+        /// <param name="worktreePath">Checkout whose HEAD is pushed.</param>
+        /// <param name="repositoryPath">Local repository that receives the branch.</param>
+        /// <param name="branchName">Destination branch name, without refs/heads/.</param>
+        /// <param name="token">Cancellation token.</param>
+        Task PushHeadToRepositoryBranchAsync(string worktreePath, string repositoryPath, string branchName, CancellationToken token = default)
+        {
+            throw new NotSupportedException("This git service cannot push a checkout HEAD to a repository path.");
+        }
     }
 }

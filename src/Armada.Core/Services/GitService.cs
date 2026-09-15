@@ -1534,6 +1534,45 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <inheritdoc />
+        public async Task<int?> TryCountCommitsBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(repoPath)) throw new ArgumentNullException(nameof(repoPath));
+            if (String.IsNullOrEmpty(fromRef)) throw new ArgumentNullException(nameof(fromRef));
+            if (String.IsNullOrEmpty(toRef)) throw new ArgumentNullException(nameof(toRef));
+
+            try
+            {
+                string result = await RunGitAsync(repoPath, token, "rev-list", "--count", fromRef + ".." + toRef).ConfigureAwait(false);
+                int count = 0;
+                if (int.TryParse(result.Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out count))
+                    return count;
+
+                _Logging.Warn(_Header + "rev-list --count " + fromRef + ".." + toRef + " in " + repoPath + " returned an unparseable answer: " + result.Trim());
+                return null;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not count commits " + fromRef + ".." + toRef + " in " + repoPath + ": " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <inheritdoc />
+        public async Task PushHeadToRepositoryBranchAsync(string worktreePath, string repositoryPath, string branchName, CancellationToken token = default)
+        {
+            if (String.IsNullOrEmpty(worktreePath)) throw new ArgumentNullException(nameof(worktreePath));
+            if (String.IsNullOrEmpty(repositoryPath)) throw new ArgumentNullException(nameof(repositoryPath));
+            if (String.IsNullOrEmpty(branchName)) throw new ArgumentNullException(nameof(branchName));
+
+            _Logging.Info(_Header + "pushing HEAD of " + worktreePath + " to refs/heads/" + branchName + " in " + repositoryPath);
+            await RunGitAsync(worktreePath, token, "push", repositoryPath, "HEAD:refs/heads/" + branchName).ConfigureAwait(false);
+        }
+
         #endregion
 
         #region Private-Methods

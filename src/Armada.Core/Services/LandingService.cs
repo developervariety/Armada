@@ -1,6 +1,7 @@
 namespace Armada.Core.Services
 {
     using System.IO;
+    using System.Text.Json;
     using SyslogLogging;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -25,11 +26,14 @@ namespace Armada.Core.Services
 
         #region Private-Members
 
+        private static readonly string _RecoverBranchPrefix = "recover/working-checkout-";
+
         private string _Header = "[LandingService] ";
         private LoggingModule _Logging;
         private DatabaseDriver _Database;
         private ArmadaSettings _Settings;
         private IGitService _Git;
+        private IncidentService _Incidents;
 
         #endregion
 
@@ -52,6 +56,7 @@ namespace Armada.Core.Services
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Git = git ?? throw new ArgumentNullException(nameof(git));
+            _Incidents = new IncidentService(database);
         }
 
         #endregion
@@ -511,6 +516,7 @@ namespace Armada.Core.Services
                 return true;
             }
 
+            bool syncAttempted = false;
             try
             {
                 // A fast-forward preserves untracked files, so an untracked captain scratch dir left
@@ -521,6 +527,7 @@ namespace Armada.Core.Services
 
                 if (!hasTrackedChanges && String.Equals(currentBranch, targetBranch, StringComparison.Ordinal))
                 {
+                    syncAttempted = true;
                     if (vessel.LandingMode == LandingModeEnum.LocalMerge)
                     {
                         await _Git.MergeBranchLocalAsync(
@@ -540,7 +547,10 @@ namespace Armada.Core.Services
                     string? divergence = await DescribeWorkingDirectoryDivergenceAsync(vessel, targetBranch, token).ConfigureAwait(false);
                     if (divergence != null)
                     {
-                        mission.FailureReason = divergence;
+                        string? preserved = vessel.LandingMode == LandingModeEnum.LocalMerge
+                            ? await PreserveWorkingCheckoutOnlyCommitsAsync(vessel, mission, targetBranch, token).ConfigureAwait(false)
+                            : null;
+                        mission.FailureReason = preserved != null ? divergence + " " + preserved : divergence;
                         mission.LastUpdateUtc = DateTime.UtcNow;
                         await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
                         _Logging.Warn(_Header + divergence);
@@ -569,6 +579,15 @@ namespace Armada.Core.Services
                 if (vessel.LandingMode == LandingModeEnum.LocalMerge)
                 {
                     mission.FailureReason = "working_directory_sync_failed: " + ex.Message;
+
+                    // A fast-forward refused because the checkout carries its own commits leaves those
+                    // commits in one place on disk. Preserve and raise them; never reset the checkout.
+                    if (syncAttempted)
+                    {
+                        string? preserved = await PreserveWorkingCheckoutOnlyCommitsAsync(vessel, mission, targetBranch, token).ConfigureAwait(false);
+                        if (preserved != null) mission.FailureReason = mission.FailureReason + " " + preserved;
+                    }
+
                     mission.LastUpdateUtc = DateTime.UtcNow;
                     await PersistMissionRetryStateAsync(mission, token).ConfigureAwait(false);
                     _Logging.Warn(_Header + "failed to reconcile LocalMerge working directory " + vessel.WorkingDirectory + ": " + ex.Message);
@@ -578,6 +597,215 @@ namespace Armada.Core.Services
                 _Logging.Info(_Header + "leaving user working directory " + vessel.WorkingDirectory + " unchanged after sync check failed: " + ex.Message + "; run git pull on " + targetBranch + " to sync when ready");
                 return true;
             }
+        }
+
+        /// <summary>
+        /// Keeps commits that exist only in the configured checkout reachable from the landing
+        /// repository, and raises one event and one incident for them.
+        /// </summary>
+        /// <remarks>
+        /// Those commits exist in one place on disk, so the checkout is never reset and nothing is
+        /// pushed to a remote. The checkout HEAD is pushed, without force, to a recover branch in the
+        /// landing repository, where an operator can land it through the merge queue and then
+        /// fast-forward the checkout. A step that cannot run is named in the incident instead.
+        /// </remarks>
+        /// <returns>A sentence for the mission failure reason, or null when the checkout holds no commit the landing repository lacks.</returns>
+        private async Task<string?> PreserveWorkingCheckoutOnlyCommitsAsync(Vessel vessel, Mission mission, string targetBranch, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(vessel.LocalPath) || String.IsNullOrEmpty(vessel.WorkingDirectory)) return null;
+
+            string? landingTip = null;
+            string? checkoutHead = null;
+            int? onlyInCheckout = null;
+            string? recoverBranch = null;
+            string? problem = null;
+
+            try
+            {
+                landingTip = await _Git.GetRevisionCommitShaAsync(vessel.LocalPath!, "refs/heads/" + targetBranch, token).ConfigureAwait(false);
+                checkoutHead = await _Git.GetRevisionCommitShaAsync(vessel.WorkingDirectory!, "HEAD", token).ConfigureAwait(false);
+
+                if (String.IsNullOrWhiteSpace(landingTip) || String.IsNullOrWhiteSpace(checkoutHead))
+                {
+                    problem = "the landing tip or the checkout HEAD could not be resolved";
+                }
+                else if (String.Equals(landingTip, checkoutHead, StringComparison.OrdinalIgnoreCase))
+                {
+                    return null;
+                }
+                else
+                {
+                    onlyInCheckout = await _Git.TryCountCommitsBetweenAsync(vessel.WorkingDirectory!, landingTip!, "HEAD", token).ConfigureAwait(false);
+                    if (onlyInCheckout == null)
+                    {
+                        problem = "the commits held only by the checkout could not be counted";
+                    }
+                    else if (onlyInCheckout.Value == 0)
+                    {
+                        return null;
+                    }
+                    else
+                    {
+                        string candidate = _RecoverBranchPrefix + checkoutHead!.Substring(0, Math.Min(12, checkoutHead.Length));
+                        await _Git.PushHeadToRepositoryBranchAsync(vessel.WorkingDirectory!, vessel.LocalPath!, candidate, token).ConfigureAwait(false);
+                        recoverBranch = candidate;
+                    }
+                }
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                problem = (onlyInCheckout.HasValue && onlyInCheckout.Value > 0
+                    ? "pushing the checkout HEAD to the landing repository failed: "
+                    : "reading the checkout failed: ") + ex.Message;
+            }
+
+            string workingDirectory = vessel.WorkingDirectory!;
+            string landingRepository = vessel.LocalPath!;
+            string title;
+            string rootCause;
+            string recoveryNotes;
+            string reasonSentence;
+
+            if (recoverBranch != null)
+            {
+                title = "Working checkout holds unlanded commits: " + recoverBranch;
+                rootCause = "The configured working checkout holds " + onlyInCheckout + " commit(s) that are not on "
+                    + targetBranch + " in the landing repository, so the post-landing fast-forward cannot run.";
+                recoveryNotes = "Recover branch: " + recoverBranch + " in the landing repository " + landingRepository + ".\n"
+                    + "Checkout HEAD: " + checkoutHead + ".\n"
+                    + "Landing tip: " + landingTip + ".\n"
+                    + "Commits only in the checkout: " + onlyInCheckout + ".\n"
+                    + "Do not reset the checkout. Steps:\n"
+                    + "1. Review: git -C " + landingRepository + " log --oneline " + targetBranch + ".." + recoverBranch + "\n"
+                    + "2. Land " + recoverBranch + " onto " + targetBranch + " through the merge queue.\n"
+                    + "3. Fast-forward the checkout: git -C " + workingDirectory + " fetch " + landingRepository + " " + targetBranch
+                    + " && git -C " + workingDirectory + " merge --ff-only FETCH_HEAD\n"
+                    + "4. Confirm git -C " + workingDirectory + " rev-list --count FETCH_HEAD..HEAD and HEAD..FETCH_HEAD both print 0, "
+                    + "then close this incident and delete " + recoverBranch + " from the landing repository.";
+                reasonSentence = "Preserved " + onlyInCheckout + " checkout-only commit(s) as " + recoverBranch + " (" + checkoutHead
+                    + ") in the landing repository; see the incident for the repair steps.";
+            }
+            else
+            {
+                title = "Working checkout divergence could not be preserved: " + workingDirectory;
+                rootCause = "Working checkout divergence could not be preserved: " + problem + ".";
+                recoveryNotes = "Nothing was pushed and the checkout was not changed. Do not reset the checkout.\n"
+                    + "Checkout HEAD: " + (checkoutHead ?? "(unresolved)") + ".\n"
+                    + "Landing tip: " + (landingTip ?? "(unresolved)") + ".\n"
+                    + "Inspect by hand: git -C " + workingDirectory + " fetch " + landingRepository + " " + targetBranch
+                    + ", then git -C " + workingDirectory + " rev-list --count FETCH_HEAD..HEAD. A non-zero count is work that exists only "
+                    + "in the checkout: push it with git -C " + workingDirectory + " push " + landingRepository + " HEAD:refs/heads/"
+                    + _RecoverBranchPrefix + "<sha> and land that branch through the merge queue.";
+                reasonSentence = "Checkout-only commits were not preserved: " + problem + "; see the incident.";
+            }
+
+            string? raiseProblem = await RaiseWorkingCheckoutDivergenceAsync(
+                vessel, mission, title, rootCause, recoveryNotes, recoverBranch, checkoutHead, onlyInCheckout, problem, token).ConfigureAwait(false);
+            if (raiseProblem != null) reasonSentence = reasonSentence + " " + raiseProblem;
+
+            _Logging.Warn(_Header + rootCause + " " + reasonSentence);
+            return reasonSentence;
+        }
+
+        /// <summary>
+        /// Opens one incident and emits one event for a working checkout divergence, unless an open
+        /// incident with the same title already exists for the vessel.
+        /// </summary>
+        /// <returns>Null on success or when already raised; otherwise a sentence naming what could not be recorded.</returns>
+        private async Task<string?> RaiseWorkingCheckoutDivergenceAsync(
+            Vessel vessel,
+            Mission mission,
+            string title,
+            string rootCause,
+            string recoveryNotes,
+            string? recoverBranch,
+            string? checkoutHead,
+            int? onlyInCheckout,
+            string? problem,
+            CancellationToken token)
+        {
+            AuthContext auth = AuthContext.Authenticated(
+                mission.TenantId ?? Constants.DefaultTenantId,
+                mission.UserId ?? Constants.DefaultUserId,
+                isAdmin: false,
+                isTenantAdmin: true,
+                authMethod: "System",
+                principalDisplay: "Landing");
+
+            try
+            {
+                IncidentQuery query = new IncidentQuery
+                {
+                    VesselId = vessel.Id,
+                    Search = title,
+                    ExcludeTerminal = true,
+                    PageSize = 1
+                };
+                EnumerationResult<Incident> existing = await _Incidents.EnumerateAsync(auth, query, token).ConfigureAwait(false);
+                if (existing.TotalRecords > 0) return null;
+
+                IncidentUpsertRequest request = new IncidentUpsertRequest
+                {
+                    Title = title,
+                    Summary = rootCause,
+                    Status = IncidentStatusEnum.Open,
+                    Severity = IncidentSeverityEnum.High,
+                    VesselId = vessel.Id,
+                    MissionId = mission.Id,
+                    VoyageId = mission.VoyageId,
+                    Impact = "Commits that exist only in the working checkout are at risk until they land, and later landings cannot fast-forward the checkout.",
+                    RootCause = rootCause,
+                    RecoveryNotes = recoveryNotes
+                };
+                await _Incidents.CreateAsync(auth, request, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not open the working checkout divergence incident for vessel " + vessel.Id + ": " + ex.Message);
+                return "The incident could not be opened: " + ex.Message;
+            }
+
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent("landing.working_checkout_diverged", title);
+                evt.EntityType = "vessel";
+                evt.EntityId = vessel.Id;
+                evt.MissionId = mission.Id;
+                evt.VesselId = vessel.Id;
+                evt.VoyageId = mission.VoyageId;
+                EventOwnerScope.ApplyFromMission(evt, mission);
+                evt.Payload = JsonSerializer.Serialize(new
+                {
+                    vesselId = vessel.Id,
+                    missionId = mission.Id,
+                    workingDirectory = vessel.WorkingDirectory,
+                    landingRepository = vessel.LocalPath,
+                    recoverBranch,
+                    checkoutHead,
+                    commitsOnlyInCheckout = onlyInCheckout,
+                    problem
+                });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not record the working checkout divergence event for vessel " + vessel.Id + ": " + ex.Message);
+                return "The divergence event could not be recorded: " + ex.Message;
+            }
+
+            return null;
         }
 
         private async Task PersistMissionRetryStateAsync(Mission mission, CancellationToken token)

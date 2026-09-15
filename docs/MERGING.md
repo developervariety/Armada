@@ -150,6 +150,29 @@ wrong branch, is left untouched and the mission records
 `working_directory_sync_failed` for the operator to reconcile by hand — the work
 is still on the target branch.
 
+**Diverged working checkout (`LocalMerge`).** The working checkout and the
+landing repository are separate clones. When the checkout holds commits that
+the landing repository's target branch does not, the fast-forward cannot run
+and those commits exist in one place only. Armada never resets the checkout and
+never pushes to a remote. Instead it:
+
+1. Counts the checkout-only commits (`git rev-list --count <target-tip>..HEAD`
+   in the checkout).
+2. Pushes the checkout `HEAD` to `recover/working-checkout-<12-char-sha>` in the
+   landing repository (the vessel `LocalPath`), without force.
+3. Emits one `landing.working_checkout_diverged` event and opens one incident
+   for the vessel. The incident names the recover branch, the full SHA, the
+   commit count and the operator steps. A later landing that finds the same
+   recover branch with the incident still open adds neither again.
+
+The mission reason names the recover branch. To repair: review
+`git log <target>..recover/working-checkout-<sha>` in the landing repository,
+land that branch through the merge queue, fast-forward the checkout
+(`git fetch <LocalPath> <target>` then `git merge --ff-only FETCH_HEAD`),
+confirm both `rev-list --count` directions read 0, then close the incident and
+delete the recover branch. If the checkout cannot be read, counted or pushed,
+nothing is pushed and the incident reason says which step failed.
+
 ---
 
 ## Branch Cleanup Policy
