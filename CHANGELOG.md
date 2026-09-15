@@ -182,6 +182,10 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   runtimes as two separate series.
 - The Backlog list reads every page of backlog items, so its counts, filters
   and rank moves cover the whole backlog, not the first 500 items.
+- Backlog item detail keeps unsaved edits when the item changes elsewhere and
+  offers the newer copy. It shows a refinement summary the server announces,
+  reloads the item when a summary is applied, and says when the item was
+  deleted. Its parent and blocked-by pickers list every backlog item.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 

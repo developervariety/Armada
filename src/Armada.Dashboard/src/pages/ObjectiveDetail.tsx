@@ -9,7 +9,7 @@ import {
   getBacklogItem,
   getObjectiveRefinementSession,
   importObjectiveFromGitHub,
-  listBacklog,
+  listAllBacklog,
   listBacklogRefinementSessions,
   listCaptains,
   listFleets,
@@ -41,7 +41,7 @@ import type {
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
-import { useWebSocket } from '../context/WebSocketContext';
+import { RESYNC_MESSAGE_TYPE, useWebSocket } from '../context/WebSocketContext';
 import BacklogRefinementSessionList from '../components/backlog/BacklogRefinementSessionList';
 import {
   buildObjectiveDispatchPrompt,
@@ -60,6 +60,8 @@ import {
 import {
   getLatestAssistantRefinementMessage,
   mergeCaptainState,
+  readRefinementApplied,
+  readRefinementSummaryCreated,
   removeRefinementSession,
   upsertRefinementMessage,
   upsertRefinementSession,
@@ -242,6 +244,15 @@ export default function ObjectiveDetail() {
 
   const refinementTranscriptRef = useRef<HTMLDivElement | null>(null);
 
+  // The record no longer exists: a reload answered 404 or the server announced its deletion.
+  const [deleted, setDeleted] = useState(false);
+  // A newer copy that arrived while the form held unsaved edits; the page keeps the edits and offers it.
+  const [serverObjective, setServerObjective] = useState<Objective | null>(null);
+  // The form as it stood right after the last hydration. The form is dirty when it differs from this.
+  const baselinePayloadRef = useRef<string | null>(null);
+  // The objective whose hydration has not been captured as the baseline yet.
+  const pendingBaselineRef = useRef<Objective | null>(null);
+
   const fleetMap = useMemo(() => new Map(fleets.map((fleet) => [fleet.id, fleet.name])), [fleets]);
   const vesselMap = useMemo(() => new Map(vessels.map((vessel) => [vessel.id, vessel.name])), [vessels]);
   const captainNameById = useMemo(() => new Map(captains.map((captain) => [captain.id, captain.name])), [captains]);
@@ -349,6 +360,10 @@ export default function ObjectiveDetail() {
   }), [t]);
 
   function hydrateObjectiveForm(next: Objective) {
+    // Capture the new baseline in the render that shows this objective (see the baseline effect below).
+    pendingBaselineRef.current = next;
+    setServerObjective(null);
+    setDeleted(false);
     setObjective(next);
     setTitle(next.title);
     setDescription(next.description || '');
@@ -433,6 +448,46 @@ export default function ObjectiveDetail() {
     };
   }
 
+  function currentPayloadJson(): string {
+    try {
+      return JSON.stringify(buildPayload());
+    } catch {
+      // A form value that cannot be turned into a payload (such as invalid preparation JSON) is an edit.
+      return ' unparseable';
+    }
+  }
+
+  const formPayloadJson = currentPayloadJson();
+  const dirty = !createMode && baselinePayloadRef.current !== null && formPayloadJson !== baselinePayloadRef.current;
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+
+  // The hydration setters commit in one batch with setObjective. Another update can commit a render
+  // first, so capture only in the render whose objective is the one just hydrated.
+  useEffect(() => {
+    if (!pendingBaselineRef.current || objective !== pendingBaselineRef.current) return;
+    baselinePayloadRef.current = formPayloadJson;
+    pendingBaselineRef.current = null;
+  });
+
+  function isNotFound(err: unknown): boolean {
+    return (err as { status?: number } | null)?.status === 404;
+  }
+
+  // Read the record again; keep unsaved edits and offer the new copy instead of replacing them.
+  async function reloadObjective() {
+    if (createMode || !id) return;
+    try {
+      const result = await getBacklogItem(id);
+      if (dirtyRef.current) setServerObjective(result);
+      else hydrateObjectiveForm(result);
+    } catch (err: unknown) {
+      if (isNotFound(err)) setDeleted(true);
+    }
+  }
+  const reloadObjectiveRef = useRef(reloadObjective);
+  reloadObjectiveRef.current = reloadObjective;
+
   function updateTagEntry(index: number, field: keyof TagEntry, value: string) {
     setTagEntries((current) => current.map((entry, entryIndex) => (
       entryIndex === index ? { ...entry, [field]: value } : entry
@@ -494,19 +549,20 @@ export default function ObjectiveDetail() {
   useEffect(() => {
     let cancelled = false;
 
+    // The parent and blocked-by pickers list every backlog item; one capped page would hide the rest.
     Promise.all([
-      listFleets({ pageSize: 9999 }),
-      listVessels({ pageSize: 9999 }),
-      listCaptains({ pageSize: 9999 }),
-      listPipelines({ pageSize: 9999 }),
-      listBacklog({ pageSize: 9999 }),
-    ]).then(([fleetResult, vesselResult, captainResult, pipelineResult, objectiveResult]) => {
+      listFleets({ pageSize: 1000 }),
+      listVessels({ pageSize: 1000 }),
+      listCaptains({ pageSize: 1000 }),
+      listPipelines({ pageSize: 1000 }),
+      listAllBacklog(),
+    ]).then(([fleetResult, vesselResult, captainResult, pipelineResult, allObjectives]) => {
       if (cancelled) return;
       setFleets(fleetResult.objects || []);
       setVessels(vesselResult.objects || []);
       setCaptains(captainResult.objects || []);
       setPipelines(pipelineResult.objects || []);
-      setAvailableObjectives(objectiveResult.objects || []);
+      setAvailableObjectives(allObjectives || []);
     }).catch((err: unknown) => {
       if (!cancelled) setError(err instanceof Error ? err.message : t('Failed to load backlog reference data.'));
     });
@@ -544,7 +600,9 @@ export default function ObjectiveDetail() {
         await loadRefinementSessions(result.id, requestedRefinementSessionId || undefined);
         setError('');
       } catch (err: unknown) {
-        if (mounted) setError(err instanceof Error ? err.message : t('Failed to load backlog item.'));
+        if (!mounted) return;
+        if (isNotFound(err)) setDeleted(true);
+        else setError(err instanceof Error ? err.message : t('Failed to load backlog item.'));
       } finally {
         if (mounted) setLoading(false);
       }
@@ -587,10 +645,26 @@ export default function ObjectiveDetail() {
 
   useEffect(() => {
     const unsubscribe = subscribe((msg: WebSocketMessage) => {
+      if (msg.type === RESYNC_MESSAGE_TYPE) {
+        // Live events may have been missed; read the record again.
+        if (objective?.id) void reloadObjectiveRef.current();
+        return;
+      }
+
       if (msg.type === 'objective.changed') {
         const payload = msg.data as Objective | undefined;
         if (!payload || payload.id !== objective?.id) return;
-        hydrateObjectiveForm(payload);
+        // Never replace unsaved edits; keep them and offer the newer copy.
+        if (dirtyRef.current) setServerObjective(payload);
+        else hydrateObjectiveForm(payload);
+        return;
+      }
+
+      if (msg.type === 'objective.deleted') {
+        const payload = msg.data as { id?: string; objectiveId?: string } | undefined;
+        const deletedId = payload?.id || payload?.objectiveId;
+        if (!deletedId || deletedId !== (objective?.id || id)) return;
+        setDeleted(true);
         return;
       }
 
@@ -636,18 +710,20 @@ export default function ObjectiveDetail() {
       }
 
       if (msg.type === 'objective-refinement-session.summary.created') {
-        const payload = msg.data as ObjectiveRefinementSummaryResponse | undefined;
-        if (!payload || payload.sessionId !== selectedRefinementSessionId) return;
-        setRefinementSummaryDraft(payload);
-        if (payload.messageId) setSelectedRefinementMessageId(payload.messageId);
+        // The event is { sessionId, messageId, summary }; the summary is inside the envelope.
+        const created = readRefinementSummaryCreated(msg.data);
+        if (!created || created.sessionId !== selectedRefinementSessionId) return;
+        setRefinementSummaryDraft(created.summary);
+        if (created.messageId) setSelectedRefinementMessageId(created.messageId);
         return;
       }
 
       if (msg.type === 'objective-refinement-session.applied') {
-        const payload = msg.data as { objective?: Objective; summary?: ObjectiveRefinementSummaryResponse } | undefined;
-        if (!payload?.objective || payload.objective.id !== objective?.id) return;
-        hydrateObjectiveForm(payload.objective);
-        if (payload.summary) setRefinementSummaryDraft(payload.summary);
+        // The event is { sessionId, objectiveId, summary } and carries no objective, so read it again.
+        const applied = readRefinementApplied(msg.data);
+        if (!applied || applied.objectiveId !== objective?.id) return;
+        setRefinementSummaryDraft(applied.summary);
+        void reloadObjectiveRef.current();
         return;
       }
 
@@ -664,7 +740,7 @@ export default function ObjectiveDetail() {
     });
 
     return unsubscribe;
-  }, [objective?.id, refinementDetail, selectedRefinementSessionId, subscribe]);
+  }, [id, objective?.id, refinementDetail, selectedRefinementSessionId, subscribe]);
 
   async function handleSave() {
     if (!canManage) return;
@@ -864,6 +940,19 @@ export default function ObjectiveDetail() {
     }
   }
 
+  if (deleted) {
+    return (
+      <div className="playbook-empty-state">
+        <strong>{t('This backlog item was deleted or does not exist.')}</strong>
+        <div className="backlog-empty-actions">
+          <button type="button" className="btn btn-sm" onClick={() => navigate(canonicalListPath)}>
+            {t('Back to Backlog')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="playbook-empty-state">
@@ -875,6 +964,14 @@ export default function ObjectiveDetail() {
 
   return (
     <div>
+      {serverObjective && (
+        <div className="alert alert-warning" role="status" style={{ marginBottom: '1rem' }}>
+          {t('This backlog item changed on the server while you were editing. Your edits are kept.')}{' '}
+          <button type="button" className="btn btn-sm" onClick={() => hydrateObjectiveForm(serverObjective)}>
+            {t('Discard my edits and load the change')}
+          </button>
+        </div>
+      )}
       <PageHeader
         breadcrumb={
           <>

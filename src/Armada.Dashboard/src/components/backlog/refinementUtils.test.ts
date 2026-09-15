@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   getLatestAssistantRefinementMessage,
   mergeCaptainState,
+  readRefinementApplied,
+  readRefinementSummaryCreated,
   removeRefinementSession,
   upsertRefinementMessage,
   upsertRefinementSession,
@@ -121,5 +123,50 @@ describe('refinementUtils', () => {
     expect(updated[0].state).toBe('Refining');
     expect(updated[0].name).toBe('Captain Alpha');
     expect(updated[1].state).toBe('Idle');
+  });
+});
+
+describe('refinement WebSocket payloads', () => {
+  const summary = {
+    summary: 'Tighten the scope.',
+    acceptanceCriteria: ['Criterion'],
+    nonGoals: [],
+    rolloutConstraints: [],
+    suggestedPipelineId: null,
+    preparation: null,
+    method: 'runtime-json',
+  };
+
+  it('reads the summary out of a summary.created envelope', () => {
+    const result = readRefinementSummaryCreated({ sessionId: 'ref_1', messageId: 'msg_1', summary });
+    expect(result).toEqual({
+      sessionId: 'ref_1',
+      messageId: 'msg_1',
+      summary: { ...summary, sessionId: 'ref_1', messageId: 'msg_1' },
+    });
+  });
+
+  it('gives missing summary lists an empty value so the draft renders', () => {
+    const result = readRefinementSummaryCreated({ sessionId: 'ref_1', messageId: null, summary: { summary: 'Only text' } });
+    expect(result?.summary.acceptanceCriteria).toEqual([]);
+    expect(result?.summary.nonGoals).toEqual([]);
+    expect(result?.summary.rolloutConstraints).toEqual([]);
+  });
+
+  it('rejects a summary.created payload without a session or a summary object', () => {
+    expect(readRefinementSummaryCreated({ messageId: 'msg_1', summary })).toBeNull();
+    expect(readRefinementSummaryCreated({ sessionId: 'ref_1', summary: 'text' })).toBeNull();
+    expect(readRefinementSummaryCreated(null)).toBeNull();
+  });
+
+  it('reads the objective id and summary out of an applied envelope', () => {
+    const result = readRefinementApplied({ sessionId: 'ref_1', objectiveId: 'obj_1', summary });
+    expect(result?.sessionId).toBe('ref_1');
+    expect(result?.objectiveId).toBe('obj_1');
+    expect(result?.summary.summary).toBe('Tighten the scope.');
+  });
+
+  it('rejects an applied payload without an objective id', () => {
+    expect(readRefinementApplied({ sessionId: 'ref_1', summary })).toBeNull();
   });
 });
