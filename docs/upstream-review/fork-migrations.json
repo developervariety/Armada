@@ -88,7 +88,7 @@
         },
         {
           "version": 17,
-          "description": "Add enable_model_context and model_context to vessels",
+          "description": "Add a boolean flag column and a text column to vessels",
           "sha256": "242a5b7993e232db29d09448f4d203b9cea4a6f45648970ba6c39e3ff2429236"
         },
         {
@@ -203,12 +203,12 @@
         },
         {
           "version": 40,
-          "description": "Add reflection tracking columns to vessels",
+          "description": "Add a mission id column and a threshold column to vessels",
           "sha256": "f3c7ebbff31667886485fea9e6fbced4ac7223faa79c267377c8e1dd57eb0940"
         },
         {
           "version": 41,
-          "description": "Add reorganize_threshold column to vessels",
+          "description": "Add a threshold column to vessels",
           "sha256": "871fd0f661add959d48aae801e3c211a1bf676d84a7991751e8766c5cac94142"
         },
         {
@@ -218,17 +218,17 @@
         },
         {
           "version": 43,
-          "description": "Add vessel_pack_hints table and pack_curate_threshold column to vessels (v2-F1)",
+          "description": "Add a vessel hint table and a threshold column to vessels",
           "sha256": "fe64cd3a82eb2219a15126d20f4f884cd8a77e98bf250d3f8eed5f8a2d80a3a6"
         },
         {
           "version": 44,
-          "description": "Add identity-memory columns to personas and captains (Reflections v2-F2)",
+          "description": "Add playbook and threshold columns to personas and captains",
           "sha256": "956ae83ea08fefcb9d3610558eab1352485b7faf688ce77dfb9849e81ce487af"
         },
         {
           "version": 45,
-          "description": "Add fleet-memory columns to fleets (Reflections v2-F3)",
+          "description": "Add playbook and threshold columns to fleets",
           "sha256": "e01a4c2027183195ff269c5940f282a6d1cff6cf9b778d5c0633744b9ff3341e"
         },
         {
@@ -444,7 +444,7 @@
         },
         {
           "version": 5,
-          "description": "Add enable_model_context and model_context to vessels",
+          "description": "Add a boolean flag column and a text column to vessels",
           "sha256": "a3d70d62d5a6ee249aed41c23c4b18d61dd2eb57b4fff12dcf95a5cb4e040e38"
         },
         {
@@ -554,12 +554,12 @@
         },
         {
           "version": 40,
-          "description": "Add reflection tracking columns to vessels",
+          "description": "Add a mission id column and a threshold column to vessels",
           "sha256": "bf05c8cee5fd46facfd6219b5188ef5e0b338c514573e359dfe82fb494697a7b"
         },
         {
           "version": 41,
-          "description": "Add reorganize_threshold column to vessels",
+          "description": "Add a threshold column to vessels",
           "sha256": "d64e6e1d0ef14e19d47400c19bf2cbd193731697dbe176ee38a294c74c211235"
         },
         {
@@ -569,17 +569,17 @@
         },
         {
           "version": 43,
-          "description": "Add vessel_pack_hints table and pack_curate_threshold column to vessels (v2-F1)",
+          "description": "Add a vessel hint table and a threshold column to vessels",
           "sha256": "78fd979b817e0ed0eaea550628e9c3f07fe6cc5197ee6f825e0590f6d3939f32"
         },
         {
           "version": 44,
-          "description": "Add identity-memory columns to personas and captains (Reflections v2-F2)",
+          "description": "Add playbook and threshold columns to personas and captains",
           "sha256": "ad31ecd925e0eba097eea59605de6ebbb6ce1c391b4d0690527e5e22cae62a22"
         },
         {
           "version": 45,
-          "description": "Add fleet-memory columns to fleets (Reflections v2-F3)",
+          "description": "Add playbook and threshold columns to fleets",
           "sha256": "7158017e4cdb77c4db4fe1a63fd1782ff5d102708368bae5580e66ed2cae0194"
         },
         {
@@ -790,7 +790,7 @@
         },
         {
           "version": 5,
-          "description": "Add enable_model_context and model_context to vessels",
+          "description": "Add a boolean flag column and a text column to vessels",
           "sha256": "ccf795626ab5a966e3bffc6f8344f951c431702ba8b504357ed51926c491d756"
         },
         {
@@ -900,12 +900,12 @@
         },
         {
           "version": 40,
-          "description": "Add reflection tracking columns to vessels",
+          "description": "Add a mission id column and a threshold column to vessels",
           "sha256": "2c4c91090ffbbe7b4bd664e4ce25a7f7f3b2afc6c8c77e6e5d459191b58d6929"
         },
         {
           "version": 41,
-          "description": "Add reorganize_threshold column to vessels",
+          "description": "Add a threshold column to vessels",
           "sha256": "f40122e583423536fd9b4a614616faf330777c46490a86436361230b74241f89"
         },
         {
@@ -915,17 +915,17 @@
         },
         {
           "version": 43,
-          "description": "Add vessel_pack_hints table and pack_curate_threshold column to vessels (v2-F1)",
+          "description": "Add a vessel hint table and a threshold column to vessels",
           "sha256": "756a2a5777dd593a82ef9a4c5081af10b5ddd7fb0265f25825588a9b94c5030e"
         },
         {
           "version": 44,
-          "description": "Add identity-memory columns to personas and captains (Reflections v2-F2)",
+          "description": "Add playbook and threshold columns to personas and captains",
           "sha256": "110e9b3ba9ab81046341e3451a526d237e53787768250123850f895e4a1dfcf8"
         },
         {
           "version": 45,
-          "description": "Add fleet-memory columns to fleets (Reflections v2-F3)",
+          "description": "Add playbook and threshold columns to fleets",
           "sha256": "33b13933415554479d37c15982a8d9a4c8d4f87573b02b91dcf59a7142f5139c"
         },
         {
@@ -1116,7 +1116,7 @@
         },
         {
           "version": 7,
-          "description": "Add enable_model_context and model_context to vessels",
+          "description": "Add a boolean flag column and a text column to vessels",
           "sha256": "5c3d4a773610dc148bf5d69ab2cd724ccf147a72f6be56ee7af817e2454d5775"
         },
         {
@@ -1226,12 +1226,12 @@
         },
         {
           "version": 40,
-          "description": "Add reflection tracking columns to vessels",
+          "description": "Add a mission id column and a threshold column to vessels",
           "sha256": "d5038fcc1e37326fe636d3a592c391b6749ffb7de936c895f6dcec6b6a8201eb"
         },
         {
           "version": 41,
-          "description": "Add reorganize_threshold column to vessels",
+          "description": "Add a threshold column to vessels",
           "sha256": "78d7485c33ed24467e4a4041319d2b11d05876356b38c3ba96571c5a2d5e187a"
         },
         {
@@ -1241,17 +1241,17 @@
         },
         {
           "version": 43,
-          "description": "Add vessel_pack_hints table and pack_curate_threshold column to vessels (v2-F1)",
+          "description": "Add a vessel hint table and a threshold column to vessels",
           "sha256": "ffc8c78a9f033391e84c8f8daa37a6cdda35ec4b0f708e84757c79e330e584a8"
         },
         {
           "version": 44,
-          "description": "Add identity-memory columns to personas and captains (Reflections v2-F2)",
+          "description": "Add playbook and threshold columns to personas and captains",
           "sha256": "13ce4f5c62fd76f8131f83c4dc7b7a9a2728bfeecfdaa604848b05aaec76a31b"
         },
         {
           "version": 45,
-          "description": "Add fleet-memory columns to fleets (Reflections v2-F3)",
+          "description": "Add playbook and threshold columns to fleets",
           "sha256": "4dab933de6d94b56006b01f64b715a8f32d8769e39f5e4594cabe016ec43283d"
         },
         {

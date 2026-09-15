@@ -38,8 +38,6 @@ src/Armada.Core/Enums/JobKindEnum.cs,equal_normalized_text
 src/Armada.Core/Enums/JobStatusEnum.cs,equal_normalized_text
 src/Armada.Core/Enums/LandingJobStateEnum.cs,fork_only
 src/Armada.Core/Enums/LandingModeEnum.cs,equal_normalized_text
-src/Armada.Core/Enums/LeadOperatingModeEnum.cs,fork_only
-src/Armada.Core/Enums/LeadRunnerTypeEnum.cs,fork_only
 src/Armada.Core/Enums/MemorySourceKindEnum.cs,upstream_only
 src/Armada.Core/Enums/MemoryTypeEnum.cs,upstream_only
 src/Armada.Core/Enums/MergeFailureClassEnum.cs,fork_only
@@ -102,25 +100,6 @@ src/Armada.Core/Harbor/HarborProtocol.cs,upstream_only
 src/Armada.Core/Harbor/HarborStarted.cs,upstream_only
 src/Armada.Core/Harbor/HarborStdinRequest.cs,upstream_only
 src/Armada.Core/Json/JsonDefaults.cs,fork_only
-src/Armada.Core/Memory/CandidateDiffResult.cs,fork_only
-src/Armada.Core/Memory/HabitPatternMiner.cs,fork_only
-src/Armada.Core/Memory/LearnedFactsFile.cs,fork_only
-src/Armada.Core/Memory/LearnedFactsPruneOptions.cs,fork_only
-src/Armada.Core/Memory/LearnedFactsPruneResult.cs,fork_only
-src/Armada.Core/Memory/MemoryAnchor.cs,fork_only
-src/Armada.Core/Memory/MemoryAnchorExtractor.cs,fork_only
-src/Armada.Core/Memory/PackCurateCandidate.cs,fork_only
-src/Armada.Core/Memory/PackUsageMiner.cs,fork_only
-src/Armada.Core/Memory/ReflectionAcceptProposalResult.cs,fork_only
-src/Armada.Core/Memory/ReflectionDispatcher.cs,fork_only
-src/Armada.Core/Memory/ReflectionMode.cs,fork_only
-src/Armada.Core/Memory/ReflectionOutputParseError.cs,fork_only
-src/Armada.Core/Memory/ReflectionOutputParseResult.cs,fork_only
-src/Armada.Core/Memory/ReflectionOutputParseVerdict.cs,fork_only
-src/Armada.Core/Memory/ReflectionOutputParser.cs,fork_only
-src/Armada.Core/Memory/StaleAnchorDetectionResult.cs,fork_only
-src/Armada.Core/Memory/StaleAnchorDetector.cs,fork_only
-src/Armada.Core/Memory/StaleAnchorWarning.cs,fork_only
 src/Armada.Core/Models/ActiveMissionSummary.cs,fork_only
 src/Armada.Core/Models/AgentRuntime.cs,equal_normalized_text
 src/Armada.Core/Models/AgentWakeProcessRequest.cs,fork_only
@@ -267,10 +246,6 @@ src/Armada.Core/Models/JudgeFollowUp.cs,fork_only
 src/Armada.Core/Models/LandingJob.cs,fork_only
 src/Armada.Core/Models/LandingPreviewIssue.cs,equal_normalized_text
 src/Armada.Core/Models/LandingPreviewResult.cs,equal_normalized_text
-src/Armada.Core/Models/LeadCycleEventPayload.cs,fork_only
-src/Armada.Core/Models/LeadCycleStartResult.cs,fork_only
-src/Armada.Core/Models/LeadCycleStatus.cs,fork_only
-src/Armada.Core/Models/LeadModeEventPayload.cs,fork_only
 src/Armada.Core/Models/McpServerEntry.cs,equal_normalized_text
 src/Armada.Core/Models/Memory.cs,upstream_only
 src/Armada.Core/Models/MergeEntry.cs,diverged
@@ -424,7 +399,6 @@ src/Armada.Core/Models/UnlandedBranchReport.cs,fork_only
 src/Armada.Core/Models/UserMaster.cs,equal_normalized_text
 src/Armada.Core/Models/Vessel.cs,diverged
 src/Armada.Core/Models/VesselDeploymentMetadata.cs,equal_normalized_text
-src/Armada.Core/Models/VesselPackHint.cs,fork_only
 src/Armada.Core/Models/VesselReadinessIssue.cs,equal_normalized_text
 src/Armada.Core/Models/VesselReadinessResult.cs,equal_normalized_text
 src/Armada.Core/Models/VesselSetupChecklistItem.cs,equal_normalized_text
@@ -601,9 +575,6 @@ src/Armada.Core/Services/Interfaces/IPullRequestService.cs,fork_only
 src/Armada.Core/Services/Interfaces/IPullRequestServiceModels.cs,fork_only
 src/Armada.Core/Services/Interfaces/IRebaseCaptainDockSetup.cs,fork_only
 src/Armada.Core/Services/Interfaces/IRecoveryRouter.cs,fork_only
-src/Armada.Core/Services/Interfaces/IReflectionMemoryBootstrapService.cs,fork_only
-src/Armada.Core/Services/Interfaces/IReflectionMemoryService.cs,fork_only
-src/Armada.Core/Services/Interfaces/IReflectionOutputParser.cs,fork_only
 src/Armada.Core/Services/Interfaces/IReleaseWebhookDispatcher.cs,fork_only
 src/Armada.Core/Services/Interfaces/IRemoteTriggerHttpClient.cs,fork_only
 src/Armada.Core/Services/Interfaces/IRemoteTriggerService.cs,fork_only
@@ -626,7 +597,6 @@ src/Armada.Core/Services/JudgeFollowUpService.cs,fork_only
 src/Armada.Core/Services/JudgeOutputParser.cs,fork_only
 src/Armada.Core/Services/LandingPreviewService.cs,equal_normalized_text
 src/Armada.Core/Services/LandingService.cs,diverged
-src/Armada.Core/Services/LeadCycleCoordinator.cs,fork_only
 src/Armada.Core/Services/LocalHostCommandExecutor.cs,upstream_only
 src/Armada.Core/Services/LogRotationService.cs,diverged
 src/Armada.Core/Services/MemoryService.cs,upstream_only
@@ -683,8 +653,6 @@ src/Armada.Core/Services/ProviderResetQuotaProbe.cs,fork_only
 src/Armada.Core/Services/ReadContextStager.cs,fork_only
 src/Armada.Core/Services/ReasoningEffortTranslator.cs,equal_normalized_text
 src/Armada.Core/Services/RebuildException.cs,upstream_only
-src/Armada.Core/Services/ReflectionMemoryBootstrapService.cs,fork_only
-src/Armada.Core/Services/ReflectionMemoryService.cs,fork_only
 src/Armada.Core/Services/ReleaseService.cs,diverged
 src/Armada.Core/Services/ReleaseWebhookDispatcher.cs,fork_only
 src/Armada.Core/Services/RemoteHostCommandExecutor.cs,upstream_only
@@ -752,7 +720,6 @@ src/Armada.Core/Settings/DefinitionOfDoneSettings.cs,fork_only
 src/Armada.Core/Settings/DiskLifecycleSettings.cs,fork_only
 src/Armada.Core/Settings/DockBoundarySettings.cs,fork_only
 src/Armada.Core/Settings/EscalationRule.cs,equal_normalized_text
-src/Armada.Core/Settings/GrokLeadSettings.cs,fork_only
 src/Armada.Core/Settings/HarborServerSettings.cs,upstream_only
 src/Armada.Core/Settings/IncidentLifecycleSettings.cs,fork_only
 src/Armada.Core/Settings/MessageTemplateSettings.cs,equal_normalized_text
@@ -785,7 +752,6 @@ src/Armada.Server/CoordinationService.cs,fork_only
 src/Armada.Server/Dashboard/StaticFileHandler.cs,diverged
 src/Armada.Server/HarborLinkEndpoint.cs,upstream_only
 src/Armada.Server/IncidentLifecycleOrchestrator.cs,fork_only
-src/Armada.Server/LeadModeUpdateRequest.cs,fork_only
 src/Armada.Server/LongRunningJob.cs,fork_only
 src/Armada.Server/LongRunningJobService.cs,fork_only
 src/Armada.Server/LongRunningJobStatusEnum.cs,fork_only
@@ -808,12 +774,8 @@ src/Armada.Server/Mcp/EventListArgs.cs,equal_normalized_text
 src/Armada.Server/Mcp/FleetCreateArgs.cs,equal_normalized_text
 src/Armada.Server/Mcp/FleetIdArgs.cs,equal_normalized_text
 src/Armada.Server/Mcp/FleetUpdateArgs.cs,diverged
-src/Armada.Server/Mcp/GrokMcpOAuthBroker.cs,fork_only
-src/Armada.Server/Mcp/GrokMcpToolRegistrar.cs,fork_only
 src/Armada.Server/Mcp/HarborIdArgs.cs,upstream_only
 src/Armada.Server/Mcp/HarborUpsertArgs.cs,upstream_only
-src/Armada.Server/Mcp/LeadCycleBeginArgs.cs,fork_only
-src/Armada.Server/Mcp/LeadCycleUpdateArgs.cs,fork_only
 src/Armada.Server/Mcp/McpToolArgumentNormalizer.cs,fork_only
 src/Armada.Server/Mcp/McpToolCallAudit.cs,fork_only
 src/Armada.Server/Mcp/McpToolRegistrar.cs,diverged
@@ -871,7 +833,6 @@ src/Armada.Server/Mcp/Tools/McpFleetTools.cs,diverged
 src/Armada.Server/Mcp/Tools/McpHarborTools.cs,upstream_only
 src/Armada.Server/Mcp/Tools/McpInboxTools.cs,diverged
 src/Armada.Server/Mcp/Tools/McpIncidentTools.cs,fork_only
-src/Armada.Server/Mcp/Tools/McpLeadCycleTools.cs,fork_only
 src/Armada.Server/Mcp/Tools/McpLongRunningJobTools.cs,fork_only
 src/Armada.Server/Mcp/Tools/McpMemoryTools.cs,upstream_only
 src/Armada.Server/Mcp/Tools/McpMergeQueueTools.cs,diverged
@@ -886,7 +847,6 @@ src/Armada.Server/Mcp/Tools/McpPipelineTools.cs,diverged
 src/Armada.Server/Mcp/Tools/McpPlaybookTools.cs,diverged
 src/Armada.Server/Mcp/Tools/McpProductionTools.cs,fork_only
 src/Armada.Server/Mcp/Tools/McpPromptTemplateTools.cs,diverged
-src/Armada.Server/Mcp/Tools/McpReflectionTools.cs,fork_only
 src/Armada.Server/Mcp/Tools/McpReleaseTools.cs,diverged
 src/Armada.Server/Mcp/Tools/McpResultPreview.cs,fork_only
 src/Armada.Server/Mcp/Tools/McpRunbookTools.cs,diverged
@@ -913,7 +873,6 @@ src/Armada.Server/MissionRestartRequest.cs,diverged
 src/Armada.Server/ObjectiveRefinementCoordinator.cs,diverged
 src/Armada.Server/PlanningSessionCoordinator.cs,diverged
 src/Armada.Server/Program.cs,diverged
-src/Armada.Server/ReflectionSweeper.cs,fork_only
 src/Armada.Server/RemoteControlManagementService.cs,fork_only
 src/Armada.Server/RemoteControlQueryService.cs,fork_only
 src/Armada.Server/RemoteDashboardRelayService.cs,diverged
@@ -936,7 +895,6 @@ src/Armada.Server/Routes/HistoryRoutes.cs,equal_normalized_text
 src/Armada.Server/Routes/InboxRoutes.cs,diverged
 src/Armada.Server/Routes/IncidentRoutes.cs,diverged
 src/Armada.Server/Routes/JobRoutes.cs,equal_normalized_text
-src/Armada.Server/Routes/LeadControlRoutes.cs,fork_only
 src/Armada.Server/Routes/MemoryRoutes.cs,upstream_only
 src/Armada.Server/Routes/MergeQueueRoutes.cs,diverged
 src/Armada.Server/Routes/MissionRoutes.cs,diverged

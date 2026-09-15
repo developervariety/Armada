@@ -65,7 +65,7 @@ it does not certify these adapters or authorize their fixture cleanup behavior.
 
 The baseline identity run uses the foundation commit's suite registrations and
 case bodies with the current result recorder and corrected exception assertions.
-It records 3,982 Unit, 907 API and 183 runtime identities. Unit reports one
+It records 3,664 Unit, 907 API and 183 runtime identities. Unit reports one
 failure: the old Postman mutation did not alter its intended JSON input. This
 baseline run is identity evidence, not a passing baseline certification. The
 current fixture correction preserves that case and its negative assertion.
@@ -87,8 +87,8 @@ separate provisioned databases; no live application database is reset. The new
 preview migration fixture preserves old version rows and existing values through
 failure and restart. MySQL rejects latin1 and utf8mb3 preview text columns.
 
-No speed improvement is claimed. No deployment, live provider account collection,
-routing policy activation or retired lead/Grok restoration is part of this work.
+No speed improvement is claimed. No deployment, live provider account collection
+or routing policy activation is part of this work.
 Backend enrichment, actual gate behavior and later campaign decisions remain open.
 
 A repeated provider run exhausted the 1 GiB MySQL fixture container after many

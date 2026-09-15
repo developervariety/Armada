@@ -23,19 +23,12 @@ remain pinned to `19242085`; the later addition is deferred to persona/pipeline
 review and does not change this foundation repair.
 
 The local usage-aware routing work is now committed and integrated with the
-retirement and incident changes. Combined validation passed: 3,982 unit tests,
+incident changes. Combined validation passed: 3,982 unit tests,
 907 automated API tests, 183 runtime tests, and 77 dashboard tests. The solution
 build completed with 212 warnings and no errors. Dashboard output was rebuilt.
 Live provider collection, all-provider upgrade tests and a new image rollout
 were not performed by this integration. These results cover this combined
 change, not the remaining upstream phases.
-
-The standalone autonomous lead and Grok bot integration have been retired.
-Shared coordination, generic AgentWake, the watcher, bounded helpers and log
-renderer remain supported. Historical assets are in the
-[retirement archive](../archive/autonomous-lead/README.md). A deployed older
-image can still contain removed server endpoints; use rollout evidence to
-check the running version.
 
 Preserve Routing V2 contracts when integrating upstream: approved persona
 account routes, explicit model and persona constraints, usage windows and
@@ -65,13 +58,13 @@ The fetched fork and local checkout matched. Git reports 1,187 fork-only and 324
 
 | Area | Upstream changes since base | Fork changes since base | Direct-tip differences |
 | --- | ---: | ---: | ---: |
-| Backend | 323 | 702 | 764 |
-| Database and migration scripts | 126 | 169 | 179 |
+| Backend | 323 | 633 | 695 |
+| Database and migration scripts | 126 | 164 | 174 |
 | Dashboard source/config | 137 | 136 | 88 |
-| Platform/runtime/CLI/build | 162 | 124 | 145 |
-| Tests | 302 | 558 | 529 |
-| Documentation | 40 | 41 | 49 |
-| Other source/configuration | 6 | 8 | 10 |
+| Platform/runtime/CLI/build | 162 | 118 | 139 |
+| Tests | 302 | 524 | 495 |
+| Documentation | 40 | 39 | 47 |
+| Other source/configuration | 6 | 6 | 8 |
 | Built dashboard | 192 | 185 | 164 |
 | Vendor tree | 6,832 | 5,413 | 5,715 |
 | Archive | 4 | 11 | 15 |
@@ -310,9 +303,7 @@ Acceptance:
 - Update affected docs, land normally to the fork main branch, and record exact source/merge commits and real checks in the objective.
 - Add the new routing contracts to the preservation matrix before dependent upstream adaptation. Treat deployment separately.
 
-### Retirement and archive work
-
-Inventory old autonomous lead scripts, prompts, service units, Grok deployment assets and their runtime/configuration callers. Retire approved launch paths before moving their targets. Ask the owner about uncertain assets. Keep useful shared watcher and coordination tools unless their retirement is also established.
+### Archive work
 
 Archive obsolete project assets with their original paths, retirement reason and replacement links. Do not archive current operating instructions merely because their original implementation plan is complete. After accepted implementation and final dispositions, move this historical review and its inventories into the repository archive, repair inbound links, and retain a current capability and operator guide. Open decisions must remain accessible through current objectives and guidance.
 
@@ -331,7 +322,7 @@ Acceptance:
 - Docs distinguish landed, deployed, deferred and disabled behavior; no stale copy of replaced workflow instructions remains.
 - If rollout is authorized, prove running source/image, provider schema, Helm discovery, served dashboard hash and scheduler state; otherwise state deploy pending.
 - All phase objectives carry evidence, terminal statuses match results, and automatic dispatch remains disabled throughout.
-- Complete the usage-aware routing integration and approved lead/Grok retirement. Archive completed plans with repaired links and retain current operating documentation.
+- Complete the usage-aware routing integration. Archive completed plans with repaired links and retain current operating documentation.
 
 The existing dashboard styling repair objective is reused after dashboard integration. It owns badge, toolbar, modal, long-content, theme and narrow-viewport proof. Do not create a duplicate styling queue.
 

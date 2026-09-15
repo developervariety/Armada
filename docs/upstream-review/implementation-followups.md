@@ -269,9 +269,9 @@ Required completion:
   PostgreSQL 69, MySQL 70, SQL Server 69, all passing; this is not a newly run
   historical/partial-failure matrix for every later change.
 - Browser and route/action evidence in FOLLOWUP-010; deployed image/schema,
-  served bundle, and endpoint checks, including retired endpoints.
-- Preserve routing constraints, immutable Checks, recovery, incident mitigation,
-  retired lead/Grok state and disabled automatic dispatch.
+  served bundle, and endpoint checks.
+- Preserve routing constraints, immutable Checks, recovery, incident mitigation
+  and disabled automatic dispatch.
 - Finish final dispositions before archiving review plans and inventories.
 
 ## FOLLOWUP-008 — Generic event ownership
@@ -464,7 +464,7 @@ Campaign work still includes user/auth, dashboard behavior and styling, health
 monitor disposition, an OpenCode error fixture, the passing-checks setting
 choice, native-memory acceptance, branch inspection, SDK/CLI, optional model
 endpoints, Harbor and self-rebuild decisions, final verification, and final
-retirement/archive dispositions. Native memory includes landed changes and
+archive dispositions. Native memory includes landed changes and
 belongs to the other session; its open row does not mean nothing was implemented.
 
 Additional product areas outside the campaign need reconciliation before a
@@ -495,7 +495,7 @@ exit symptom; two InProgress rows cover overlapping brief/handoff size work.
 Native-memory and schema-incident rows already contain landed or applied work
 but retain acceptance tasks. Do not merge, close or discount any of these rows
 without checking their evidence and remaining criteria. No objective was changed
-by this pass. This backlog review does not reopen or restore retired lead assets.
+by this pass.
 
 ## Closure record
 

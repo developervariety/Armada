@@ -18,28 +18,28 @@
       "tests": 302
     },
     "fork": {
-      "other": 8,
-      "documentation": 41,
+      "other": 6,
+      "documentation": 39,
       "archive": 11,
-      "platform": 124,
-      "backend": 702,
-      "database": 169,
+      "platform": 118,
+      "backend": 633,
+      "database": 164,
       "built-dashboard": 185,
       "vendor": 5413,
       "dashboard": 136,
-      "tests": 558
+      "tests": 524
     },
     "tips": {
-      "other": 10,
-      "documentation": 49,
+      "other": 8,
+      "documentation": 47,
       "archive": 15,
-      "platform": 145,
-      "database": 179,
-      "backend": 764,
+      "platform": 139,
+      "database": 174,
+      "backend": 695,
       "built-dashboard": 164,
       "vendor": 5715,
       "dashboard": 88,
-      "tests": 529
+      "tests": 495
     }
   },
   "files": {
@@ -4467,14 +4467,6 @@
         "area": "documentation"
       },
       {
-        "path": "deploy/grok/Caddyfile",
-        "area": "other"
-      },
-      {
-        "path": "deploy/grok/docker-compose.override.yml",
-        "area": "other"
-      },
-      {
         "path": "docker/armada/armada.json",
         "area": "platform"
       },
@@ -4603,15 +4595,7 @@
         "area": "documentation"
       },
       {
-        "path": "docs/autonomy/grok-bot-lead.md",
-        "area": "documentation"
-      },
-      {
         "path": "docs/autonomy/helper-offer-prompt.md",
-        "area": "documentation"
-      },
-      {
-        "path": "docs/autonomy/lead-bootstrap-prompt.md",
         "area": "documentation"
       },
       {
@@ -4639,35 +4623,11 @@
         "area": "platform"
       },
       {
-        "path": "scripts/autonomy/lead-cycle.sh",
-        "area": "platform"
-      },
-      {
-        "path": "scripts/autonomy/lead-wake.sh",
-        "area": "platform"
-      },
-      {
         "path": "scripts/autonomy/render-cycle-log.mjs",
         "area": "platform"
       },
       {
         "path": "scripts/autonomy/spawn-helper.sh",
-        "area": "platform"
-      },
-      {
-        "path": "scripts/autonomy/systemd/armada-lead-cycle.service",
-        "area": "platform"
-      },
-      {
-        "path": "scripts/autonomy/systemd/armada-lead-cycle.timer",
-        "area": "platform"
-      },
-      {
-        "path": "scripts/autonomy/systemd/install.sh",
-        "area": "platform"
-      },
-      {
-        "path": "scripts/autonomy/test-lead-cycle.sh",
         "area": "platform"
       },
       {
@@ -4903,10 +4863,6 @@
         "area": "database"
       },
       {
-        "path": "src/Armada.Core/Database/Interfaces/IVesselPackHintMethods.cs",
-        "area": "database"
-      },
-      {
         "path": "src/Armada.Core/Database/Interfaces/IVoyageMethods.cs",
         "area": "database"
       },
@@ -5044,10 +5000,6 @@
       },
       {
         "path": "src/Armada.Core/Database/Mysql/Implementations/VesselMethods.cs",
-        "area": "database"
-      },
-      {
-        "path": "src/Armada.Core/Database/Mysql/Implementations/VesselPackHintMethods.cs",
         "area": "database"
       },
       {
@@ -5203,10 +5155,6 @@
         "area": "database"
       },
       {
-        "path": "src/Armada.Core/Database/Postgresql/Implementations/VesselPackHintMethods.cs",
-        "area": "database"
-      },
-      {
         "path": "src/Armada.Core/Database/Postgresql/Implementations/VoyageMethods.cs",
         "area": "database"
       },
@@ -5336,10 +5284,6 @@
       },
       {
         "path": "src/Armada.Core/Database/SqlServer/Implementations/VesselMethods.cs",
-        "area": "database"
-      },
-      {
-        "path": "src/Armada.Core/Database/SqlServer/Implementations/VesselPackHintMethods.cs",
         "area": "database"
       },
       {
@@ -5475,10 +5419,6 @@
         "area": "database"
       },
       {
-        "path": "src/Armada.Core/Database/Sqlite/Implementations/VesselPackHintMethods.cs",
-        "area": "database"
-      },
-      {
         "path": "src/Armada.Core/Database/Sqlite/Implementations/VoyageMethods.cs",
         "area": "database"
       },
@@ -5576,14 +5516,6 @@
       },
       {
         "path": "src/Armada.Core/Enums/LandingModeEnum.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Enums/LeadOperatingModeEnum.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Enums/LeadRunnerTypeEnum.cs",
         "area": "backend"
       },
       {
@@ -5688,82 +5620,6 @@
       },
       {
         "path": "src/Armada.Core/Json/JsonDefaults.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/CandidateDiffResult.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/HabitPatternMiner.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/LearnedFactsFile.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/LearnedFactsPruneOptions.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/LearnedFactsPruneResult.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/MemoryAnchor.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/MemoryAnchorExtractor.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/PackCurateCandidate.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/PackUsageMiner.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/ReflectionAcceptProposalResult.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/ReflectionDispatcher.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/ReflectionMode.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/ReflectionOutputParseError.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/ReflectionOutputParseResult.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/ReflectionOutputParseVerdict.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/ReflectionOutputParser.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/StaleAnchorDetectionResult.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/StaleAnchorDetector.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/StaleAnchorWarning.cs",
         "area": "backend"
       },
       {
@@ -6135,22 +5991,6 @@
         "area": "backend"
       },
       {
-        "path": "src/Armada.Core/Models/LeadCycleEventPayload.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Models/LeadCycleStartResult.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Models/LeadCycleStatus.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Models/LeadModeEventPayload.cs",
-        "area": "backend"
-      },
-      {
         "path": "src/Armada.Core/Models/McpServerEntry.cs",
         "area": "backend"
       },
@@ -6464,10 +6304,6 @@
       },
       {
         "path": "src/Armada.Core/Models/Vessel.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Models/VesselPackHint.cs",
         "area": "backend"
       },
       {
@@ -6923,18 +6759,6 @@
         "area": "backend"
       },
       {
-        "path": "src/Armada.Core/Services/Interfaces/IReflectionMemoryBootstrapService.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Services/Interfaces/IReflectionMemoryService.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Services/Interfaces/IReflectionOutputParser.cs",
-        "area": "backend"
-      },
-      {
         "path": "src/Armada.Core/Services/Interfaces/IReleaseWebhookDispatcher.cs",
         "area": "backend"
       },
@@ -7004,10 +6828,6 @@
       },
       {
         "path": "src/Armada.Core/Services/LandingService.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Services/LeadCycleCoordinator.cs",
         "area": "backend"
       },
       {
@@ -7196,14 +7016,6 @@
       },
       {
         "path": "src/Armada.Core/Services/ReasoningEffortTranslator.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Services/ReflectionMemoryBootstrapService.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Services/ReflectionMemoryService.cs",
         "area": "backend"
       },
       {
@@ -7440,10 +7252,6 @@
       },
       {
         "path": "src/Armada.Core/Settings/EscalationRule.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Settings/GrokLeadSettings.cs",
         "area": "backend"
       },
       {
@@ -8423,10 +8231,6 @@
         "area": "backend"
       },
       {
-        "path": "src/Armada.Server/LeadModeUpdateRequest.cs",
-        "area": "backend"
-      },
-      {
         "path": "src/Armada.Server/LongRunningJob.cs",
         "area": "backend"
       },
@@ -8508,22 +8312,6 @@
       },
       {
         "path": "src/Armada.Server/Mcp/FleetUpdateArgs.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/Mcp/GrokMcpOAuthBroker.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/Mcp/GrokMcpToolRegistrar.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/Mcp/LeadCycleBeginArgs.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/Mcp/LeadCycleUpdateArgs.cs",
         "area": "backend"
       },
       {
@@ -8703,10 +8491,6 @@
         "area": "backend"
       },
       {
-        "path": "src/Armada.Server/Mcp/Tools/McpLeadCycleTools.cs",
-        "area": "backend"
-      },
-      {
         "path": "src/Armada.Server/Mcp/Tools/McpLongRunningJobTools.cs",
         "area": "backend"
       },
@@ -8748,10 +8532,6 @@
       },
       {
         "path": "src/Armada.Server/Mcp/Tools/McpPromptTemplateTools.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/Mcp/Tools/McpReflectionTools.cs",
         "area": "backend"
       },
       {
@@ -8859,10 +8639,6 @@
         "area": "backend"
       },
       {
-        "path": "src/Armada.Server/ReflectionSweeper.cs",
-        "area": "backend"
-      },
-      {
         "path": "src/Armada.Server/RemoteControlManagementService.cs",
         "area": "backend"
       },
@@ -8904,10 +8680,6 @@
       },
       {
         "path": "src/Armada.Server/Routes/JobRoutes.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/Routes/LeadControlRoutes.cs",
         "area": "backend"
       },
       {
@@ -9032,114 +8804,6 @@
       },
       {
         "path": "src/Armada.Server/WebSocket/WebSocketVoyageData.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/css/dashboard.css",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/dashboard.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/action-menu.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/data-loaders.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/filtering.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/navigation.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/pagination.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/partial-loader.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/selection.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/sorting.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/status.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/viewers.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/websocket.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/captains.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/dispatch.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/docks.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/doctor.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/events.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/fleets-list.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/fleets.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/home.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/merge-queue.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/missions.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/modals.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/server.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/signals.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/voyages.html",
         "area": "backend"
       },
       {
@@ -10087,10 +9751,6 @@
         "area": "tests"
       },
       {
-        "path": "test/Armada.Test.Unit/LearnedFactsPruneTests.cs",
-        "area": "tests"
-      },
-      {
         "path": "test/Armada.Test.Unit/McpSignalToolsTests.cs",
         "area": "tests"
       },
@@ -10212,14 +9872,6 @@
       },
       {
         "path": "test/Armada.Test.Unit/Suites/Database/SchemaMigrationTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Database/SchemaMigrationV40ReflectionTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Database/SchemaMigrationV41ReorganizeTests.cs",
         "area": "tests"
       },
       {
@@ -10351,18 +10003,6 @@
         "area": "tests"
       },
       {
-        "path": "test/Armada.Test.Unit/Suites/Routes/VesselModelContextBoundaryTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Routes/VesselReflectionThresholdRoutesTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Routes/VesselReorganizeThresholdRoutesTests.cs",
-        "area": "tests"
-      },
-      {
         "path": "test/Armada.Test.Unit/Suites/Routes/VesselSiblingReposRoutesTests.cs",
         "area": "tests"
       },
@@ -10452,10 +10092,6 @@
       },
       {
         "path": "test/Armada.Test.Unit/Suites/Services/CancelKillsCaptainTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/CandidateDiffBuilderTests.cs",
         "area": "tests"
       },
       {
@@ -10552,10 +10188,6 @@
       },
       {
         "path": "test/Armada.Test.Unit/Suites/Services/CodexProviderRoutingTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ConsolidatorLandingExclusionTests.cs",
         "area": "tests"
       },
       {
@@ -10719,10 +10351,6 @@
         "area": "tests"
       },
       {
-        "path": "test/Armada.Test.Unit/Suites/Services/GrokMcpToolPolicyTests.cs",
-        "area": "tests"
-      },
-      {
         "path": "test/Armada.Test.Unit/Suites/Services/InboxServiceTests.cs",
         "area": "tests"
       },
@@ -10767,26 +10395,6 @@
         "area": "tests"
       },
       {
-        "path": "test/Armada.Test.Unit/Suites/Services/LeadCycleCoordinatorTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/LeadCycleGateTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/LearnedFactsApplyTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/LearnedFactsFileExtractionTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/LearnedFactsReadPreferenceTests.cs",
-        "area": "tests"
-      },
-      {
         "path": "test/Armada.Test.Unit/Suites/Services/LogRotationServiceTests.cs",
         "area": "tests"
       },
@@ -10812,10 +10420,6 @@
       },
       {
         "path": "test/Armada.Test.Unit/Suites/Services/McpEnumerateChecksProjectionTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/McpLeadCycleToolsTests.cs",
         "area": "tests"
       },
       {
@@ -11063,10 +10667,6 @@
         "area": "tests"
       },
       {
-        "path": "test/Armada.Test.Unit/Suites/Services/ProtectedPathsLearnedFileTests.cs",
-        "area": "tests"
-      },
-      {
         "path": "test/Armada.Test.Unit/Suites/Services/ProtectedPathsTests.cs",
         "area": "tests"
       },
@@ -11080,62 +10680,6 @@
       },
       {
         "path": "test/Armada.Test.Unit/Suites/Services/ReadContextStagerTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionAcceptRejectToolsTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionAnchorTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionAuditDrainTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionConsolidateToolsTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionInFlightUnblockTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionLearnedFactProposalTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionMemoryBootstrapServiceTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionOutputParserTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionSweeperTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionsEndToEndSmokeTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionsV2F1EndToEndSmokeTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionsV2F2EndToEndSmokeTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionsV2F3EndToEndSmokeTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionsV2F4EndToEndSmokeTests.cs",
         "area": "tests"
       },
       {
@@ -11227,14 +10771,6 @@
         "area": "tests"
       },
       {
-        "path": "test/Armada.Test.Unit/Suites/Services/StaleAnchorDetectorEdgeCaseTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/StaleAnchorDetectorTests.cs",
-        "area": "tests"
-      },
-      {
         "path": "test/Armada.Test.Unit/Suites/Services/StalePauseRuleTests.cs",
         "area": "tests"
       },
@@ -11307,10 +10843,6 @@
         "area": "tests"
       },
       {
-        "path": "test/Armada.Test.Unit/Suites/Settings/GrokLeadSettingsTests.cs",
-        "area": "tests"
-      },
-      {
         "path": "test/Armada.Test.Unit/Suites/Settings/TestDataDirectoryIsolationTests.cs",
         "area": "tests"
       },
@@ -11340,10 +10872,6 @@
       },
       {
         "path": "test/Armada.Test.Unit/TestHelpers/RecordingPullRequestService.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/TestHelpers/ReflectionTestHelpers.cs",
         "area": "tests"
       },
       {
@@ -11427,14 +10955,6 @@
       {
         "path": "README.md",
         "area": "documentation"
-      },
-      {
-        "path": "deploy/grok/Caddyfile",
-        "area": "other"
-      },
-      {
-        "path": "deploy/grok/docker-compose.override.yml",
-        "area": "other"
       },
       {
         "path": "docker/armada/armada.json",
@@ -11625,15 +11145,7 @@
         "area": "documentation"
       },
       {
-        "path": "docs/autonomy/grok-bot-lead.md",
-        "area": "documentation"
-      },
-      {
         "path": "docs/autonomy/helper-offer-prompt.md",
-        "area": "documentation"
-      },
-      {
-        "path": "docs/autonomy/lead-bootstrap-prompt.md",
         "area": "documentation"
       },
       {
@@ -11685,35 +11197,11 @@
         "area": "database"
       },
       {
-        "path": "scripts/autonomy/lead-cycle.sh",
-        "area": "platform"
-      },
-      {
-        "path": "scripts/autonomy/lead-wake.sh",
-        "area": "platform"
-      },
-      {
         "path": "scripts/autonomy/render-cycle-log.mjs",
         "area": "platform"
       },
       {
         "path": "scripts/autonomy/spawn-helper.sh",
-        "area": "platform"
-      },
-      {
-        "path": "scripts/autonomy/systemd/armada-lead-cycle.service",
-        "area": "platform"
-      },
-      {
-        "path": "scripts/autonomy/systemd/armada-lead-cycle.timer",
-        "area": "platform"
-      },
-      {
-        "path": "scripts/autonomy/systemd/install.sh",
-        "area": "platform"
-      },
-      {
-        "path": "scripts/autonomy/test-lead-cycle.sh",
         "area": "platform"
       },
       {
@@ -11985,10 +11473,6 @@
         "area": "database"
       },
       {
-        "path": "src/Armada.Core/Database/Interfaces/IVesselPackHintMethods.cs",
-        "area": "database"
-      },
-      {
         "path": "src/Armada.Core/Database/Interfaces/IVoyageMethods.cs",
         "area": "database"
       },
@@ -12126,10 +11610,6 @@
       },
       {
         "path": "src/Armada.Core/Database/Mysql/Implementations/VesselMethods.cs",
-        "area": "database"
-      },
-      {
-        "path": "src/Armada.Core/Database/Mysql/Implementations/VesselPackHintMethods.cs",
         "area": "database"
       },
       {
@@ -12289,10 +11769,6 @@
         "area": "database"
       },
       {
-        "path": "src/Armada.Core/Database/Postgresql/Implementations/VesselPackHintMethods.cs",
-        "area": "database"
-      },
-      {
         "path": "src/Armada.Core/Database/Postgresql/Implementations/VoyageMethods.cs",
         "area": "database"
       },
@@ -12437,10 +11913,6 @@
         "area": "database"
       },
       {
-        "path": "src/Armada.Core/Database/SqlServer/Implementations/VesselPackHintMethods.cs",
-        "area": "database"
-      },
-      {
         "path": "src/Armada.Core/Database/SqlServer/Implementations/VoyageMethods.cs",
         "area": "database"
       },
@@ -12581,10 +12053,6 @@
         "area": "database"
       },
       {
-        "path": "src/Armada.Core/Database/Sqlite/Implementations/VesselPackHintMethods.cs",
-        "area": "database"
-      },
-      {
         "path": "src/Armada.Core/Database/Sqlite/Implementations/VoyageMethods.cs",
         "area": "database"
       },
@@ -12678,14 +12146,6 @@
       },
       {
         "path": "src/Armada.Core/Enums/LandingModeEnum.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Enums/LeadOperatingModeEnum.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Enums/LeadRunnerTypeEnum.cs",
         "area": "backend"
       },
       {
@@ -12866,82 +12326,6 @@
       },
       {
         "path": "src/Armada.Core/Json/JsonDefaults.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/CandidateDiffResult.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/HabitPatternMiner.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/LearnedFactsFile.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/LearnedFactsPruneOptions.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/LearnedFactsPruneResult.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/MemoryAnchor.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/MemoryAnchorExtractor.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/PackCurateCandidate.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/PackUsageMiner.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/ReflectionAcceptProposalResult.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/ReflectionDispatcher.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/ReflectionMode.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/ReflectionOutputParseError.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/ReflectionOutputParseResult.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/ReflectionOutputParseVerdict.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/ReflectionOutputParser.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/StaleAnchorDetectionResult.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/StaleAnchorDetector.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Memory/StaleAnchorWarning.cs",
         "area": "backend"
       },
       {
@@ -13317,22 +12701,6 @@
         "area": "backend"
       },
       {
-        "path": "src/Armada.Core/Models/LeadCycleEventPayload.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Models/LeadCycleStartResult.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Models/LeadCycleStatus.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Models/LeadModeEventPayload.cs",
-        "area": "backend"
-      },
-      {
         "path": "src/Armada.Core/Models/McpServerEntry.cs",
         "area": "backend"
       },
@@ -13654,10 +13022,6 @@
       },
       {
         "path": "src/Armada.Core/Models/Vessel.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Models/VesselPackHint.cs",
         "area": "backend"
       },
       {
@@ -14161,18 +13525,6 @@
         "area": "backend"
       },
       {
-        "path": "src/Armada.Core/Services/Interfaces/IReflectionMemoryBootstrapService.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Services/Interfaces/IReflectionMemoryService.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Services/Interfaces/IReflectionOutputParser.cs",
-        "area": "backend"
-      },
-      {
         "path": "src/Armada.Core/Services/Interfaces/IReleaseWebhookDispatcher.cs",
         "area": "backend"
       },
@@ -14230,10 +13582,6 @@
       },
       {
         "path": "src/Armada.Core/Services/LandingService.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Services/LeadCycleCoordinator.cs",
         "area": "backend"
       },
       {
@@ -14438,14 +13786,6 @@
       },
       {
         "path": "src/Armada.Core/Services/RebuildException.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Services/ReflectionMemoryBootstrapService.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Services/ReflectionMemoryService.cs",
         "area": "backend"
       },
       {
@@ -14686,10 +14026,6 @@
       },
       {
         "path": "src/Armada.Core/Settings/EscalationRule.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Core/Settings/GrokLeadSettings.cs",
         "area": "backend"
       },
       {
@@ -15493,10 +14829,6 @@
         "area": "backend"
       },
       {
-        "path": "src/Armada.Server/LeadModeUpdateRequest.cs",
-        "area": "backend"
-      },
-      {
         "path": "src/Armada.Server/LongRunningJob.cs",
         "area": "backend"
       },
@@ -15581,27 +14913,11 @@
         "area": "backend"
       },
       {
-        "path": "src/Armada.Server/Mcp/GrokMcpOAuthBroker.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/Mcp/GrokMcpToolRegistrar.cs",
-        "area": "backend"
-      },
-      {
         "path": "src/Armada.Server/Mcp/HarborIdArgs.cs",
         "area": "backend"
       },
       {
         "path": "src/Armada.Server/Mcp/HarborUpsertArgs.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/Mcp/LeadCycleBeginArgs.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/Mcp/LeadCycleUpdateArgs.cs",
         "area": "backend"
       },
       {
@@ -15809,10 +15125,6 @@
         "area": "backend"
       },
       {
-        "path": "src/Armada.Server/Mcp/Tools/McpLeadCycleTools.cs",
-        "area": "backend"
-      },
-      {
         "path": "src/Armada.Server/Mcp/Tools/McpLongRunningJobTools.cs",
         "area": "backend"
       },
@@ -15866,10 +15178,6 @@
       },
       {
         "path": "src/Armada.Server/Mcp/Tools/McpPromptTemplateTools.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/Mcp/Tools/McpReflectionTools.cs",
         "area": "backend"
       },
       {
@@ -15973,10 +15281,6 @@
         "area": "backend"
       },
       {
-        "path": "src/Armada.Server/ReflectionSweeper.cs",
-        "area": "backend"
-      },
-      {
         "path": "src/Armada.Server/RemoteControlManagementService.cs",
         "area": "backend"
       },
@@ -16034,10 +15338,6 @@
       },
       {
         "path": "src/Armada.Server/Routes/IncidentRoutes.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/Routes/LeadControlRoutes.cs",
         "area": "backend"
       },
       {
@@ -16206,114 +15506,6 @@
       },
       {
         "path": "src/Armada.Server/WebSocket/WebSocketVoyageData.cs",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/css/dashboard.css",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/dashboard.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/action-menu.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/data-loaders.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/filtering.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/navigation.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/pagination.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/partial-loader.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/selection.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/sorting.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/status.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/viewers.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/js/modules/websocket.js",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/captains.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/dispatch.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/docks.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/doctor.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/events.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/fleets-list.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/fleets.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/home.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/merge-queue.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/missions.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/modals.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/server.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/signals.html",
-        "area": "backend"
-      },
-      {
-        "path": "src/Armada.Server/wwwroot/views/voyages.html",
         "area": "backend"
       },
       {
@@ -17037,10 +16229,6 @@
         "area": "tests"
       },
       {
-        "path": "test/Armada.Test.Unit/LearnedFactsPruneTests.cs",
-        "area": "tests"
-      },
-      {
         "path": "test/Armada.Test.Unit/McpSignalToolsTests.cs",
         "area": "tests"
       },
@@ -17178,14 +16366,6 @@
       },
       {
         "path": "test/Armada.Test.Unit/Suites/Database/SchemaMigrationTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Database/SchemaMigrationV40ReflectionTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Database/SchemaMigrationV41ReorganizeTests.cs",
         "area": "tests"
       },
       {
@@ -17357,18 +16537,6 @@
         "area": "tests"
       },
       {
-        "path": "test/Armada.Test.Unit/Suites/Routes/VesselModelContextBoundaryTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Routes/VesselReflectionThresholdRoutesTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Routes/VesselReorganizeThresholdRoutesTests.cs",
-        "area": "tests"
-      },
-      {
         "path": "test/Armada.Test.Unit/Suites/Routes/VesselSiblingReposRoutesTests.cs",
         "area": "tests"
       },
@@ -17469,10 +16637,6 @@
         "area": "tests"
       },
       {
-        "path": "test/Armada.Test.Unit/Suites/Services/CandidateDiffBuilderTests.cs",
-        "area": "tests"
-      },
-      {
         "path": "test/Armada.Test.Unit/Suites/Services/CapabilityRoutingSelectionTests.cs",
         "area": "tests"
       },
@@ -17566,10 +16730,6 @@
       },
       {
         "path": "test/Armada.Test.Unit/Suites/Services/CodexProviderRoutingTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ConsolidatorLandingExclusionTests.cs",
         "area": "tests"
       },
       {
@@ -17741,10 +16901,6 @@
         "area": "tests"
       },
       {
-        "path": "test/Armada.Test.Unit/Suites/Services/GrokMcpToolPolicyTests.cs",
-        "area": "tests"
-      },
-      {
         "path": "test/Armada.Test.Unit/Suites/Services/HistoricalTimelineServiceTests.cs",
         "area": "tests"
       },
@@ -17793,26 +16949,6 @@
         "area": "tests"
       },
       {
-        "path": "test/Armada.Test.Unit/Suites/Services/LeadCycleCoordinatorTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/LeadCycleGateTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/LearnedFactsApplyTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/LearnedFactsFileExtractionTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/LearnedFactsReadPreferenceTests.cs",
-        "area": "tests"
-      },
-      {
         "path": "test/Armada.Test.Unit/Suites/Services/LogRotationServiceTests.cs",
         "area": "tests"
       },
@@ -17838,10 +16974,6 @@
       },
       {
         "path": "test/Armada.Test.Unit/Suites/Services/McpEnumerateChecksProjectionTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/McpLeadCycleToolsTests.cs",
         "area": "tests"
       },
       {
@@ -18085,10 +17217,6 @@
         "area": "tests"
       },
       {
-        "path": "test/Armada.Test.Unit/Suites/Services/ProtectedPathsLearnedFileTests.cs",
-        "area": "tests"
-      },
-      {
         "path": "test/Armada.Test.Unit/Suites/Services/ProtectedPathsTests.cs",
         "area": "tests"
       },
@@ -18118,62 +17246,6 @@
       },
       {
         "path": "test/Armada.Test.Unit/Suites/Services/ReadContextStagerTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionAcceptRejectToolsTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionAnchorTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionAuditDrainTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionConsolidateToolsTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionInFlightUnblockTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionLearnedFactProposalTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionMemoryBootstrapServiceTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionOutputParserTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionSweeperTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionsEndToEndSmokeTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionsV2F1EndToEndSmokeTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionsV2F2EndToEndSmokeTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionsV2F3EndToEndSmokeTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/ReflectionsV2F4EndToEndSmokeTests.cs",
         "area": "tests"
       },
       {
@@ -18285,14 +17357,6 @@
         "area": "tests"
       },
       {
-        "path": "test/Armada.Test.Unit/Suites/Services/StaleAnchorDetectorEdgeCaseTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/Suites/Services/StaleAnchorDetectorTests.cs",
-        "area": "tests"
-      },
-      {
         "path": "test/Armada.Test.Unit/Suites/Services/StalePauseRuleTests.cs",
         "area": "tests"
       },
@@ -18365,10 +17429,6 @@
         "area": "tests"
       },
       {
-        "path": "test/Armada.Test.Unit/Suites/Settings/GrokLeadSettingsTests.cs",
-        "area": "tests"
-      },
-      {
         "path": "test/Armada.Test.Unit/Suites/Settings/TestDataDirectoryIsolationTests.cs",
         "area": "tests"
       },
@@ -18398,10 +17458,6 @@
       },
       {
         "path": "test/Armada.Test.Unit/TestHelpers/RecordingPullRequestService.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/TestHelpers/ReflectionTestHelpers.cs",
         "area": "tests"
       },
       {

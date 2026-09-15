@@ -35,7 +35,7 @@ keys enabled. This is a documented test-data correction, not the schema repair
 under test. The isolated image validation below passed. No source repair has been deployed by this session.
 
 The native memory port is owned by another session. This repair does not alter
-memory or learned-facts behavior, automatic dispatch, routing or landing gates.
+memory behavior, automatic dispatch, routing or landing gates.
 
 ## Combined validation
 

@@ -8,18 +8,18 @@ The fork needs selected ports. A replacement of platform files would remove impo
 
 | Area | Direct tip changed files | Upstream commits since base |
 |---|---:|---:|
-| Core database | 173 | 37 |
+| Core database | 168 | 37 |
 | Runtimes | 48 | 27 |
 | Harbor application | 10 | 10 |
 | Helm CLI | 21 | 17 |
 | Core C# client | 1 | 4 |
-| Scripts | 52 | 12 |
+| Scripts | 46 | 12 |
 | Docker | 11 | 2 |
 | Migration scripts | 6 | 1 |
 
-The 322 changed paths in this table do not overlap. Commit counts overlap. I read the commit family census, direct tip statistics, and selected behavior diffs. I did not read every changed line in these 322 files. No build or runtime tests ran. Package availability, current advisories, cloud behavior and actual database upgrades remain unverified. The integration review owns the detailed test-framework census and adaptation plan.
+The 311 changed paths in this table do not overlap. Commit counts overlap. I read the commit family census, direct tip statistics, and selected behavior diffs. I did not read every changed line in these 311 files. No build or runtime tests ran. Package availability, current advisories, cloud behavior and actual database upgrades remain unverified. The integration review owns the detailed test-framework census and adaptation plan.
 
-The follow-up checked all 10 paths classified `other` in [inventory.json](inventory.json): `.cursor/mcp.json`, `.gitattributes`, `.gitignore`, `Armada.postman_collection.json`, two `deploy/grok/` files, Proxy project and server, solution, and Directory.Build.props. The Postman check enumerated method/raw-URL pairs; it is not a full request-body or authorization review.
+The follow-up checked all 8 paths classified `other` in [inventory.json](inventory.json): `.cursor/mcp.json`, `.gitattributes`, `.gitignore`, `Armada.postman_collection.json`, Proxy project and server, solution, and Directory.Build.props. The Postman check enumerated method/raw-URL pairs; it is not a full request-body or authorization review.
 
 ## Database: adapt before feature ports
 
@@ -66,7 +66,7 @@ Harbor families `215ddfb2f`, `ef18d8753`, `314d3d482`, `7473dbf21`, `9d8707ac9`,
 
 API captain/tool families `b27968875`, `22bc0947c`, `175fdbe3e`, `13e976720`, cloud endpoint family `65630266a`, chat MCP tools `2202a3fd1` add `ApiAgentRuntime.cs`, `Tools/*`, `Mcp/McpToolClient.cs` and model endpoint DB methods. Decision: DEFER to a separate acceptance phase. Keep the fork provider registry. Dependencies: endpoint ownership, credentials, deletion guard, tool/path bounds, cancellation and token accounting. Prove one controlled local endpoint before remote Harbor use.
 
-Native memory/Recorder `09cf86bae`, four-provider `MemoryMethods.cs`, upstream migration 70: DEFER and keep disabled. Current workspace sole-memory and disabled learned bootstrap/reflection policy must remain intact. Do not turn this into a second active durable memory store during parity work. The design objective now evaluates compatible capture and retrieval improvements with one Git authority, rebuildable indexes, and reviewed Recorder proposals. Activation still requires the documented validation and deliberate policy changes.
+Native memory/Recorder `09cf86bae`, four-provider `MemoryMethods.cs`, upstream migration 70: DEFER and keep disabled. Current workspace sole-memory policy must remain intact. Do not turn this into a second active durable memory store during parity work. The design objective now evaluates compatible capture and retrieval improvements with one Git authority, rebuildable indexes, and reviewed Recorder proposals. Activation still requires the documented validation and deliberate policy changes.
 
 A/B rebuild and rollback `2ce122d30`: DEFER. Depends on Harbor, artifact selection, health cutover and persistent schema compatibility. Prove failed build, failed health, rollback and restart recovery before adding operational use.
 
@@ -87,8 +87,6 @@ Fork `deploy-dashboard.sh` builds into a temporary output directory; upstream di
 Upstream build-server adds pulls from the upstream publisher after push. Decision: ADAPT configurable fork image ownership; REJECT fixed publisher behavior. No build/push/deploy script ran during this audit.
 
 `.cursor/mcp.json` is a new repository-scoped localhost MCP connection. Decision: DEFER/REJECT automatic import. It is local client setup, not a backend capability, and can conflict with the operator/captain connection boundary. Keep installation guidance/configuration explicit and prove the actual server/port/transport before use.
-
-The two `deploy/grok/` gateway files are fork-only and route MCP/OAuth paths through a dedicated Caddy service. Original audit decision was retain during upstream parity. A later explicit owner decision retires the Grok bot and gateway. The sanitized historical assets are now in `docs/archive/autonomous-lead`; do not restore the gateway during integration. Shared coordination and generic MCP controls remain. No private endpoint is reproduced here.
 
 ## Proxy follow-up
 

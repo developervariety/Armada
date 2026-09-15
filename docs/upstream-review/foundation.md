@@ -19,8 +19,8 @@ Later backend changes retain [separate evidence](backend-storage.md).
 
 Both remotes were fetched before implementation. The review remains pinned to
 `19242085`; the later fetch and its additional commits are recorded below.
-The implementation baseline is `24a23b966`, which includes Routing V2,
-standalone lead retirement and the incident mitigation guard. The original
+The implementation baseline is `24a23b966`, which includes Routing V2
+and the incident mitigation guard. The original
 path census remains pinned to fork `21786ec0`, upstream `19242085` and base
 `e9e3021f`. Its path and commit counts were checked again, including separate
 vendor, built-output and archive exclusions. This is a path/capability census,
@@ -93,7 +93,7 @@ must produce that map before replacing a runner.
 | Immutable Check and landing | `ArmedCheckEligibilityTests`, `CheckRunIsolatedCheckoutTests`, `LandingPipelineTests`; preserve armed ref, required checks and landing evidence. |
 | Recovery and incidents | `AutonomousRecoveryOrchestratorTests`, recovery suites, `IncidentLifecycleOrchestratorTests`; retain full recovery pipeline and the mitigation-time guard. |
 | Sibling lanes | `SiblingLaneAdmissionTests`, `SiblingLeaseRegistryTests`; retain leases and admission evidence. |
-| Coordination and wakes | `CoordinationClaimTests`, `CoordinationServiceTests`, coordination database tests; retain ownership and directed generic wakes. Do not restore retired lead or Grok paths. |
+| Coordination and wakes | `CoordinationClaimTests`, `CoordinationServiceTests`, coordination database tests; retain ownership and directed generic wakes. |
 | Routing and provider limits | `UsageRoutingTests` and provider-routing suites; retain approved accounts, explicit persona/model constraints, window mappings, stale/unknown handling, reserves, concurrency and disabled default. Live account collection needs separate proof. |
 | Process ownership | Runtime suite, `ProcessExitFailureReasonTests` and quarantine service; manual quarantine must protect a live process and its assignment. |
 | Output evidence | `MissionOutputArtifactTests`, `RuntimeOutputFormattingTests`; retain structured output, redaction and artifact provenance. |
