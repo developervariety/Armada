@@ -196,6 +196,34 @@ namespace Armada.Test.Unit
             return await testDb.Driver.CheckRuns.CreateAsync(run).ConfigureAwait(false);
         }
 
+        /// <summary>A structurally valid implementation Judge PASS, so only the check gate decides.</summary>
+        private const string ImplementationJudgePassOutput =
+            "## Completeness\n" +
+            "Every requirement in the brief is delivered by a cited diff hunk in the reviewed change.\n\n" +
+            "## Correctness\n" +
+            "The implementation follows the source logic and handles the null and empty inputs.\n\n" +
+            "## Tests\n" +
+            "The added cases fail without the change and pass with it.\n\n" +
+            "## Failure Modes\n" +
+            "Timeout, cancellation and cleanup paths were reviewed and are covered.\n\n" +
+            "## Suggested Follow-ups\n(none)\n\n" +
+            "## Verdict\n" +
+            "The change is ready to land.\n\n" +
+            "[ARMADA:VERDICT] PASS";
+
+        /// <summary>Assigns a working captain to the Judge so completion handling can run.</summary>
+        private async Task<Captain> StartJudgeAsync(TestDatabase testDb, Mission judge, string captainName)
+        {
+            Captain captain = new Captain(captainName);
+            captain.State = CaptainStateEnum.Working;
+            captain = await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+            judge.CaptainId = captain.Id;
+            await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+            captain.CurrentMissionId = judge.Id;
+            await testDb.Driver.Captains.UpdateAsync(captain).ConfigureAwait(false);
+            return captain;
+        }
+
         private async Task AddCheckAsync(TestDatabase testDb, string voyageId, CheckRunStatusEnum status)
         {
             CheckRun run = new CheckRun
@@ -924,6 +952,65 @@ namespace Armada.Test.Unit
                         MissionService.JudgeCheckGate.HasFailed,
                         await svc.EvaluateJudgeCheckGateAsync(judge, CancellationToken.None).ConfigureAwait(false),
                         "a failed Check at the reviewed commit still rejects the PASS");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("JudgeGate_RejectedPass_CarriesRejectingCheckCommitAndRedactedTail", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService svc, Voyage voyage, Mission judge) = await SeedVoyageWithMeasurableWorkAsync(
+                        testDb, MissionModeEnum.Implementation, MissionStatusEnum.Pending).ConfigureAwait(false);
+                    CheckRun failed = await AddExecutedCheckAsync(testDb, voyage.Id, CheckRunTypeEnum.Build, CheckRunStatusEnum.Failed, _ReviewedCommit).ConfigureAwait(false);
+                    List<string> lines = new List<string>();
+                    lines.Add("EARLY-LINE-OUTSIDE-THE-TAIL");
+                    for (int i = 2; i <= 60; i++) lines.Add("build output line " + i);
+                    lines[57] = "connection password=hunter2secretvalue";
+                    lines[59] = "error CS1002: ; expected";
+                    failed.Output = String.Join("\n", lines);
+                    await testDb.Driver.CheckRuns.UpdateAsync(failed).ConfigureAwait(false);
+
+                    Captain captain = await StartJudgeAsync(testDb, judge, "rejected-pass-evidence-captain").ConfigureAwait(false);
+                    svc.OnGetMissionOutput = _ => ImplementationJudgePassOutput;
+                    await svc.HandleCompletionAsync(captain, judge.Id).ConfigureAwait(false);
+
+                    Mission? rejected = await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false);
+                    string reason = rejected!.FailureReason ?? String.Empty;
+                    AssertContains("Judge PASS rejected: an independent Check failed", reason, "the gate rejected the PASS");
+                    AssertContains(failed.Id, reason, "the reason names the rejecting Check");
+                    AssertContains(_ReviewedCommit, reason, "the reason carries the commit the rejecting Check measured");
+                    AssertContains("error CS1002", reason, "the reason carries the rejecting Check's output tail");
+                    AssertFalse(reason.Contains("EARLY-LINE-OUTSIDE-THE-TAIL", StringComparison.Ordinal),
+                        "only the bounded tail is carried, not the whole log");
+                    AssertFalse(reason.Contains("hunter2secretvalue", StringComparison.Ordinal),
+                        "check output is redacted before it reaches the incident");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("JudgeGate_RejectedPass_EvidenceStaysBoundedForLargeOutputs", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    (MissionService svc, Voyage voyage, Mission judge) = await SeedVoyageWithMeasurableWorkAsync(
+                        testDb, MissionModeEnum.Implementation, MissionStatusEnum.Pending).ConfigureAwait(false);
+                    foreach (CheckRunTypeEnum type in new CheckRunTypeEnum[] { CheckRunTypeEnum.Build, CheckRunTypeEnum.UnitTest })
+                    {
+                        CheckRun failed = await AddExecutedCheckAsync(testDb, voyage.Id, type, CheckRunStatusEnum.Failed, _ReviewedCommit).ConfigureAwait(false);
+                        List<string> lines = new List<string>();
+                        for (int i = 0; i < 400; i++) lines.Add(new String('x', 500) + " " + i);
+                        failed.Output = String.Join("\n", lines);
+                        await testDb.Driver.CheckRuns.UpdateAsync(failed).ConfigureAwait(false);
+                    }
+
+                    Captain captain = await StartJudgeAsync(testDb, judge, "rejected-pass-bounded-captain").ConfigureAwait(false);
+                    svc.OnGetMissionOutput = _ => ImplementationJudgePassOutput;
+                    await svc.HandleCompletionAsync(captain, judge.Id).ConfigureAwait(false);
+
+                    Mission? rejected = await testDb.Driver.Missions.ReadAsync(judge.Id).ConfigureAwait(false);
+                    string reason = rejected!.FailureReason ?? String.Empty;
+                    AssertContains("Judge PASS rejected: an independent Check failed", reason, "the gate rejected the PASS");
+                    AssertTrue(reason.Length <= 6000,
+                        "two 200 KB logs must not inflate the incident; reason length was " + reason.Length);
                 }
             }).ConfigureAwait(false);
 

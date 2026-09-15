@@ -783,7 +783,12 @@ Resolve EVERY failed Check, not most of them. When several Checks fail for one
 environmental cause, resolving all but one leaves a record that rejects the
 PASS hours later, long after the cause is forgotten. The rejection now names
 the specific Checks that blocked it, so read the `FailureReason` and confirm no
-record remains `Failed` before the Judge stage runs. Resolve an environmental
+record remains `Failed` before the Judge stage runs. For each rejecting Check
+the reason also carries the commit that Check measured and a bounded tail of its
+output, redacted the same way every stored command output is, so the incident
+that records the rejection says what failed and against which tip instead of
+only which record to open. The tail is capped per Check and only the first few
+rejecting Checks carry one, so a large log cannot inflate the incident. Resolve an environmental
 failure as `Canceled`, not `Passed`: the run genuinely did not pass, and the
 reason field is where the evidence belongs.
 

@@ -2025,11 +2025,15 @@ namespace Armada.Core.Services
                                 mission.CompletedUtc = DateTime.UtcNow;
                                 mission.LastUpdateUtc = DateTime.UtcNow;
                                 string blocking = DescribeBlockingChecks(_LastJudgeGateChecks, CheckRunStatusEnum.Failed);
+                                string blockingEvidence = DescribeRejectingCheckEvidence(_LastJudgeGateChecks, CheckRunStatusEnum.Failed);
                                 mission.FailureReason =
                                     "Judge PASS rejected: an independent Check failed (real-signal gate; Judge self-report cannot override real command output)."
                                     + (String.IsNullOrEmpty(blocking)
                                         ? String.Empty
                                         : " Failed Checks: " + blocking + ".")
+                                    + (String.IsNullOrEmpty(blockingEvidence)
+                                        ? String.Empty
+                                        : " Evidence: " + blockingEvidence + ".")
                                     + " Resolve or re-run EVERY failed Check on this voyage before the Judge re-runs; a single unresolved record rejects the PASS.";
                                 mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
                                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
@@ -6341,6 +6345,54 @@ namespace Armada.Core.Services
                 parts.Add(c.Id + " (" + c.Type + ": " + label + ")");
             }
             return String.Join(", ", parts);
+        }
+
+        /// <summary>
+        /// Output-tail lines carried per rejecting Check, the same depth an operator reads from a
+        /// check record by hand.
+        /// </summary>
+        private const int _RejectingCheckTailLines = 40;
+
+        /// <summary>Character budget per rejecting Check tail.</summary>
+        private const int _RejectingCheckTailChars = 1200;
+
+        /// <summary>How many rejecting Checks carry evidence; the rest are named by id alone.</summary>
+        private const int _RejectingCheckEvidenceCount = 3;
+
+        /// <summary>
+        /// Renders, for each Check that rejected a Judge PASS, the commit it measured and a bounded
+        /// tail of its output. The id alone tells an operator which record to open; the commit and the
+        /// tail say what failed and against which tip, so the incident carries the diagnosis instead of
+        /// a pointer to it. Output is redacted and capped, because it is copied into a record.
+        /// </summary>
+        /// <param name="checks">The Checks collected by the gate. Null renders as empty.</param>
+        /// <param name="status">Status that rejected the PASS.</param>
+        /// <returns>The evidence text, or an empty string when nothing matches.</returns>
+        internal static string DescribeRejectingCheckEvidence(List<CheckRun>? checks, CheckRunStatusEnum status)
+        {
+            if (checks == null) return String.Empty;
+            List<CheckRun> matching = checks
+                .Where(c => c != null && c.Status == status)
+                .OrderBy(c => c.Id, StringComparer.Ordinal)
+                .Take(_RejectingCheckEvidenceCount)
+                .ToList();
+            if (matching.Count == 0) return String.Empty;
+
+            List<string> parts = new List<string>();
+            foreach (CheckRun c in matching)
+            {
+                string commit = String.IsNullOrWhiteSpace(c.CommitHash) ? "(no commit recorded)" : c.CommitHash!;
+                CheckRunSummaryView view = CheckRunSummaryView.From(c, _RejectingCheckTailLines);
+                string tail = RuntimeLogFormatter.RedactSecrets(view.OutputTail ?? String.Empty).Trim();
+                if (tail.Length > _RejectingCheckTailChars)
+                    tail = tail.Substring(tail.Length - _RejectingCheckTailChars);
+
+                parts.Add(c.Id + " measured " + commit
+                    + (tail.Length == 0
+                        ? ", no output recorded"
+                        : ", last output lines: " + tail));
+            }
+            return String.Join(" | ", parts);
         }
 
         /// <summary>

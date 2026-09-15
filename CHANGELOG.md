@@ -214,6 +214,17 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - A command named by a shell variable is resolved at run time, so it is not
   probed. A genuinely missing binary, inside a loop body or outside one, is
   still reported as a blocking readiness error.
+### A rejected Judge PASS carries the rejecting check's evidence
+
+- A Judge PASS rejected by a failed independent Check now records, for each
+  rejecting Check, the commit that Check measured and a bounded tail of its
+  output. The incident opened for the rejection carries that reason, so it says
+  what failed and against which tip. Before, it named only the failed check
+  ids, and the diagnosis stayed in the check record.
+- The tail is redacted with the same secret redaction applied to stored command
+  output, is capped per Check, and is carried for the first few rejecting
+  Checks only, so a large log cannot inflate the incident.
+
 ### A Judge is told to write the sections its verdict is judged against
 
 - The review sections a Judge must emit now come from one mode-aware source
