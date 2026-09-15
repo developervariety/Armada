@@ -898,6 +898,53 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
             }
 
+            await RunTest("A check left Running by a stopped admiral is cancelled at startup; one started since is untouched", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_reap", "usr_reap").ConfigureAwait(false);
+                Vessel vessel = CreateVessel("ten_reap", "usr_reap", Path.GetTempPath());
+                await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                DateTime processStartUtc = DateTime.UtcNow;
+                CheckRun interrupted = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    TenantId = "ten_reap",
+                    UserId = "usr_reap",
+                    VesselId = vessel.Id,
+                    Type = CheckRunTypeEnum.UnitTest,
+                    Source = CheckRunSourceEnum.Armada,
+                    Status = CheckRunStatusEnum.Running,
+                    Command = "dotnet test",
+                    StartedUtc = processStartUtc.AddHours(-3)
+                }).ConfigureAwait(false);
+                CheckRun current = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                {
+                    TenantId = "ten_reap",
+                    UserId = "usr_reap",
+                    VesselId = vessel.Id,
+                    Type = CheckRunTypeEnum.Build,
+                    Source = CheckRunSourceEnum.Armada,
+                    Status = CheckRunStatusEnum.Running,
+                    Command = "dotnet build",
+                    StartedUtc = processStartUtc.AddMinutes(1)
+                }).ConfigureAwait(false);
+
+                int cancelled = await checkRuns.CancelInterruptedRunsAsync(processStartUtc).ConfigureAwait(false);
+
+                CheckRun? reloadedInterrupted = await testDb.Driver.CheckRuns.ReadAsync(interrupted.Id).ConfigureAwait(false);
+                CheckRun? reloadedCurrent = await testDb.Driver.CheckRuns.ReadAsync(current.Id).ConfigureAwait(false);
+
+                AssertEqual(1, cancelled, "only the record that predates this process is cancelled");
+                AssertEqual(CheckRunStatusEnum.Canceled, reloadedInterrupted!.Status, "a check cannot survive the process that was running it");
+                AssertContains("admiral restart", reloadedInterrupted.Summary ?? String.Empty, "the cancel names the restart");
+                AssertEqual(CheckRunStatusEnum.Running, reloadedCurrent!.Status, "a check started by this process must keep running");
+            }).ConfigureAwait(false);
+
             await RunTest("Readiness exposes toolchains, environments, and setup checklist", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

@@ -164,6 +164,14 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   landing that finds the same divergence with the incident still open adds no
   second event or incident. When the checkout cannot be read, counted or
   pushed, the incident says which step failed.
+### Checks left Running by a stopped admiral are cancelled at startup
+
+- Startup now cancels every Check whose status is Running and whose start time
+  predates the running process, with a summary naming the restart. A check
+  executes inside the Admiral process, so such a record could never reach a
+  verdict: it counted as unresolved forever, held a Judge PASS and then rejected
+  it. A check started by the running process is untouched.
+
 ### A running check's checkout survives a prune and a reclaim sweep
 
 - The private checkout a Build or UnitTest check executes in is now locked as a

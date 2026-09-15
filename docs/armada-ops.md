@@ -729,6 +729,14 @@ gate reads every Check attached to the voyage and to the Judge mission:
 | None attached | PASS is rejected unless the review carries `[JUDGE-CHECK-EXCLUSION]` |
 | `Canceled` | Ignored |
 
+A check executes inside the Admiral process. A record left `Running` when that
+process stops can never reach a verdict, so at startup every `Running` record
+whose start time predates the new process is set `Canceled` with a summary
+naming the restart. Records started by the running process are untouched.
+Nothing re-arms such a record: supersession replaces only a `Passed` or `Failed`
+record whose commit moved, so a voyage whose only Build record was cancelled
+this way needs the gate re-armed by hand before the Judge stage.
+
 A voyage that ends before its armed Checks run does not keep them `Pending`.
 Cancelling a voyage (every cancel surface and the halt after a terminal mission
 failure) marks each `Pending` Check of that voyage `Canceled` with the summary

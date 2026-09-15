@@ -1661,6 +1661,22 @@ namespace Armada.Server
         _Logging.Warn(_Header + "startup landing recovery error: " + ex.Message);
     }
 
+    // Cancel Checks left Running by the stopped process: their command died with it, so they can
+    // never reach a verdict and would hold a Judge PASS forever.
+    try
+    {
+        int cancelledChecks = await _CheckRunService.CancelInterruptedRunsAsync(_StartUtc, token).ConfigureAwait(false);
+        if (cancelledChecks > 0)
+        {
+            _Logging.Info(_Header + "startup cancelled " + cancelledChecks + " check run"
+                + (cancelledChecks == 1 ? "" : "s") + " left Running by a stopped admiral");
+        }
+    }
+    catch (Exception ex)
+    {
+        _Logging.Warn(_Header + "startup interrupted-check cancellation error: " + ex.Message);
+    }
+
     // Reconcile owned disk storage at startup: purge stale sibling leases left by a crashed
     // Admiral and record the first dry-run byte report. Deletion only happens when the
     // diskLifecycle settings opt in, so startup is always safe.

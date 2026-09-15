@@ -58,6 +58,62 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Cancel every Check left Running by an earlier process. A check executes inside the
+        /// Admiral process, so a record that was Running before this process started has no command
+        /// behind it any more and can never reach a verdict. Left alone it counts as unresolved
+        /// forever, which holds a Judge PASS and then rejects it. A record started by this process
+        /// is untouched.
+        /// </summary>
+        /// <param name="processStartUtc">The moment this process started.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The number of records cancelled.</returns>
+        public async Task<int> CancelInterruptedRunsAsync(DateTime processStartUtc, CancellationToken token = default)
+        {
+            List<CheckRun> interrupted = new List<CheckRun>();
+            CheckRunQuery query = new CheckRunQuery
+            {
+                Status = CheckRunStatusEnum.Running,
+                PageNumber = 1,
+                PageSize = 200
+            };
+
+            while (true)
+            {
+                EnumerationResult<CheckRun> page = await _Database.CheckRuns.EnumerateAsync(query, token).ConfigureAwait(false);
+                foreach (CheckRun run in page.Objects)
+                {
+                    if (run == null) continue;
+                    // A record with no start time cannot have been started by this process either.
+                    if (run.StartedUtc.HasValue && run.StartedUtc.Value >= processStartUtc) continue;
+                    interrupted.Add(run);
+                }
+
+                if (page.Objects.Count < query.PageSize || query.PageNumber >= page.TotalPages) break;
+                query.PageNumber++;
+            }
+
+            int cancelled = 0;
+            foreach (CheckRun run in interrupted)
+            {
+                DateTime now = DateTime.UtcNow;
+                run.Status = CheckRunStatusEnum.Canceled;
+                run.Summary = "admiral restart: this Check was Running when the admiral process stopped, so its "
+                    + "command never finished and the record carries no verdict.";
+                run.Output = String.IsNullOrWhiteSpace(run.Output) ? run.Summary : run.Output;
+                run.CompletedUtc = now;
+                run.LastUpdateUtc = now;
+                CheckRun updated = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+                OnCheckRunChanged?.Invoke(updated);
+                cancelled++;
+            }
+
+            if (cancelled > 0)
+                _Logging.Warn(_Header + "cancelled " + cancelled + " check run" + (cancelled == 1 ? "" : "s") + " left Running by a stopped admiral");
+
+            return cancelled;
+        }
+
+        /// <summary>
         /// Execute a check run synchronously and persist the result.
         /// </summary>
         public async Task<CheckRun> RunAsync(AuthContext auth, CheckRunRequest request, CancellationToken token = default)
