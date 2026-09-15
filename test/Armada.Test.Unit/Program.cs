@@ -353,6 +353,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new McpSignalToolsTests());
             runner.AddSuite(new McpToolArgumentNormalizerTests());
             runner.AddSuite(new QueryValueReaderTests());
+            runner.AddSuite(new PostgresqlUtcReadTests());
             runner.AddSuite(new MissionMailboxDrainTests());
             runner.AddSuite(new BuildDriftEvaluatorTests());
             runner.AddSuite(new BuildDriftServiceTests());

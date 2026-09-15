@@ -114,6 +114,13 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   `Active` and `DefaultPlaybooks` unless the body names them. A tenant user's
   update with only a name and description no longer removes the fleet from the
   tenant's scope or reactivates it.
+- The per-vessel GitHub token override is persisted by the PostgreSQL, MySQL
+  and SQL Server providers, with the same write-only rule SQLite already
+  applied: an update that omits it keeps it, an empty value clears it, and a
+  value replaces it.
+- PostgreSQL timestamp reads return the stored UTC instant on a host in any
+  time zone, for TEXT values in ISO 8601 form or PostgreSQL's own
+  `yyyy-MM-dd HH:mm:ss+00` form.
 - The token-usage summary matches a legacy `mission.token_usage` event to its
   table record by mission identity, in any window. A usage whose record and
   event fall on opposite sides of a window edge is counted once, in the window

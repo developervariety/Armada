@@ -249,7 +249,7 @@ namespace Armada.Core.Database.Postgresql
         {
             if (value == null || value == DBNull.Value)
                 throw new InvalidCastException("UTC timestamp column was null.");
-            return DateTime.SpecifyKind(Convert.ToDateTime(value), DateTimeKind.Utc);
+            return ToUtcInstant(value);
         }
 
         /// <summary>
@@ -260,7 +260,31 @@ namespace Armada.Core.Database.Postgresql
         internal static DateTime? ReadUtcNullable(object value)
         {
             if (value == null || value == DBNull.Value) return null;
-            return DateTime.SpecifyKind(Convert.ToDateTime(value), DateTimeKind.Utc);
+            return ToUtcInstant(value);
+        }
+
+        /// <summary>
+        /// Convert a timestamp column value to a UTC instant. A TIMESTAMP column arrives as an unspecified
+        /// DateTime that already holds UTC. A TEXT column arrives as a string in any of the forms a writer has
+        /// used ("yyyy-MM-ddTHH:mm:ss.fffffffZ", or PostgreSQL's "yyyy-MM-dd HH:mm:ss+00"); an explicit offset
+        /// is honoured and a string without one is read as UTC, so the host time zone never changes the value.
+        /// </summary>
+        /// <param name="value">Non-null column value.</param>
+        /// <returns>The instant tagged as UTC.</returns>
+        private static DateTime ToUtcInstant(object value)
+        {
+            if (value is string text)
+            {
+                return DateTime.SpecifyKind(
+                    DateTime.Parse(
+                        text,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal),
+                    DateTimeKind.Utc);
+            }
+
+            if (value is DateTimeOffset offset) return offset.UtcDateTime;
+            return DateTime.SpecifyKind(Convert.ToDateTime(value, System.Globalization.CultureInfo.InvariantCulture), DateTimeKind.Utc);
         }
 
         #endregion

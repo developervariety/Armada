@@ -800,6 +800,7 @@ namespace Armada.Core.Database.Mysql
             vessel.RepoUrl = NullableString(reader["repo_url"]);
             vessel.LocalPath = NullableString(reader["local_path"]);
             vessel.WorkingDirectory = NullableString(reader["working_directory"]);
+            vessel.GitHubTokenOverride = NullableString(reader["github_token_override"]);
             vessel.ProjectContext = NullableString(reader["project_context"]);
             vessel.StyleGuide = NullableString(reader["style_guide"]);
             try { vessel.EnableModelContext = Convert.ToInt64(reader["enable_model_context"]) == 1; }

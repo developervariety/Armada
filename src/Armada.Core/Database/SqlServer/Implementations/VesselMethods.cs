@@ -58,8 +58,8 @@ namespace Armada.Core.Database.SqlServer.Implementations
                 await conn.OpenAsync(token).ConfigureAwait(false);
                 using (SqlCommand cmd = conn.CreateCommand())
                 {
-                    cmd.CommandText = @"INSERT INTO vessels (id, tenant_id, user_id, fleet_id, name, repo_url, local_path, working_directory, project_context, style_guide, enable_model_context, model_context, landing_mode, branch_cleanup_policy, allow_concurrent_missions, require_passing_checks_to_land, protected_branch_patterns, release_branch_prefix, hotfix_branch_prefix, require_pull_request_for_protected_branches, require_merge_queue_for_release_branches, default_pipeline_id, protected_paths, auto_land_predicate, auto_land_calibration_landed_count, default_playbooks, sibling_repos, architect_max_missions_per_voyage, default_branch, active, created_utc, last_update_utc, secret_scan_enabled, protected_path_patterns_json, private_identifier_denylist_json)
-                        VALUES (@id, @tenant_id, @user_id, @fleet_id, @name, @repo_url, @local_path, @working_directory, @project_context, @style_guide, @enable_model_context, @model_context, @landing_mode, @branch_cleanup_policy, @allow_concurrent_missions, @require_passing_checks_to_land, @protected_branch_patterns, @release_branch_prefix, @hotfix_branch_prefix, @require_pull_request_for_protected_branches, @require_merge_queue_for_release_branches, @default_pipeline_id, @protected_paths, @auto_land_predicate, @auto_land_calibration_landed_count, @default_playbooks, @sibling_repos, @architect_max_missions_per_voyage, @default_branch, @active, @created_utc, @last_update_utc, @secret_scan_enabled, @protected_path_patterns_json, @private_identifier_denylist_json);";
+                    cmd.CommandText = @"INSERT INTO vessels (id, tenant_id, user_id, fleet_id, name, repo_url, local_path, working_directory, github_token_override, project_context, style_guide, enable_model_context, model_context, landing_mode, branch_cleanup_policy, allow_concurrent_missions, require_passing_checks_to_land, protected_branch_patterns, release_branch_prefix, hotfix_branch_prefix, require_pull_request_for_protected_branches, require_merge_queue_for_release_branches, default_pipeline_id, protected_paths, auto_land_predicate, auto_land_calibration_landed_count, default_playbooks, sibling_repos, architect_max_missions_per_voyage, default_branch, active, created_utc, last_update_utc, secret_scan_enabled, protected_path_patterns_json, private_identifier_denylist_json)
+                        VALUES (@id, @tenant_id, @user_id, @fleet_id, @name, @repo_url, @local_path, @working_directory, @github_token_override, @project_context, @style_guide, @enable_model_context, @model_context, @landing_mode, @branch_cleanup_policy, @allow_concurrent_missions, @require_passing_checks_to_land, @protected_branch_patterns, @release_branch_prefix, @hotfix_branch_prefix, @require_pull_request_for_protected_branches, @require_merge_queue_for_release_branches, @default_pipeline_id, @protected_paths, @auto_land_predicate, @auto_land_calibration_landed_count, @default_playbooks, @sibling_repos, @architect_max_missions_per_voyage, @default_branch, @active, @created_utc, @last_update_utc, @secret_scan_enabled, @protected_path_patterns_json, @private_identifier_denylist_json);";
                     cmd.Parameters.AddWithValue("@id", vessel.Id);
                     cmd.Parameters.AddWithValue("@tenant_id", (object?)vessel.TenantId ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@user_id", (object?)vessel.UserId ?? DBNull.Value);
@@ -68,6 +68,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.Parameters.AddWithValue("@repo_url", (object?)vessel.RepoUrl ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@local_path", (object?)vessel.LocalPath ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@working_directory", (object?)vessel.WorkingDirectory ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@github_token_override", (object?)vessel.GitHubTokenOverride ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@project_context", (object?)vessel.ProjectContext ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@style_guide", (object?)vessel.StyleGuide ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@enable_model_context", vessel.EnableModelContext ? 1 : 0);
@@ -160,6 +161,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                         repo_url = @repo_url,
                         local_path = @local_path,
                         working_directory = @working_directory,
+                        github_token_override = @github_token_override,
                         project_context = @project_context,
                         style_guide = @style_guide,
                         enable_model_context = @enable_model_context,
@@ -192,6 +194,7 @@ namespace Armada.Core.Database.SqlServer.Implementations
                     cmd.Parameters.AddWithValue("@repo_url", (object?)vessel.RepoUrl ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@local_path", (object?)vessel.LocalPath ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@working_directory", (object?)vessel.WorkingDirectory ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@github_token_override", (object?)vessel.GitHubTokenOverride ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@project_context", (object?)vessel.ProjectContext ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@style_guide", (object?)vessel.StyleGuide ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@enable_model_context", vessel.EnableModelContext ? 1 : 0);
