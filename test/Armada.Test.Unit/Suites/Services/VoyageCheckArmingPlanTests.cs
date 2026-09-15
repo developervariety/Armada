@@ -276,12 +276,13 @@ namespace Armada.Test.Unit.Suites.Services
                     0).ConfigureAwait(false);
             }).ConfigureAwait(false);
 
-            await RunTest("Arming service preserves code Checks for mixed report-only modes", async () =>
+            await RunTest("Arming service arms no code Check for an Audit and Research voyage", async () =>
             {
-                // The profile invokes dotnet, so Build, UnitTest and Slop are all armed.
+                // Neither mode produces a diff, so the voyage is report-only whichever way the two
+                // modes are mixed, and a code Check would have nothing to measure.
                 await AssertServiceArmsExpectedCountAsync(
                     new List<MissionModeEnum> { MissionModeEnum.Audit, MissionModeEnum.Research },
-                    3).ConfigureAwait(false);
+                    0).ConfigureAwait(false);
             }).ConfigureAwait(false);
         }
 
