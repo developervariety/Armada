@@ -43,6 +43,26 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   Its generated instruction sections are deliberate.
 - The unused planning-session inactivity default constant (60 minutes) is
   removed. The effective default stays 0, which disables the timeout.
+### Assignment honours the requested captain and its fallback tier
+
+- A mission's requested captain now decides assignment. The requested captain
+  can come from the mission itself, a voyage captain override, or a persona
+  default. When it is idle, it is assigned ahead of the other idle captains.
+  Before, assignment stored the choice and then ignored it.
+- A requested captain that is busy, quarantined, excluded, reserved, in
+  another tenant, or not approved by usage routing is never used. Normal
+  routing then runs over idle captains at or above the fallback tier, and the
+  lowest tier at or above that floor is preferred. The floor is the mission's
+  stored tier, or the requested captain's own tier when none is stored. When
+  no captain meets the floor, the mission waits. It is not given to a
+  lower-tier substitute.
+- Every substitution and every wait records a `mission.requested_captain`
+  event. The event names the requested captain, why it was not used, and the
+  tier. An unchanged wait is recorded once, not on every tick. A mission with
+  neither field set is assigned exactly as before.
+- Operator dispatch, the scheduler, restarts, rescues, review re-queues and
+  the health-check dispatch of Pending work all apply this one rule through
+  captain selection.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 

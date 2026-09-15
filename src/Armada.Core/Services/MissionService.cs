@@ -109,6 +109,9 @@ namespace Armada.Core.Services
         // in one pass pick the same captain, both provision full docks, and the second learns at
         // the final claim that the captain is gone -- after the whole provisioning cost is spent.
         private readonly SemaphoreSlim _CaptainSelectionLock = new SemaphoreSlim(1, 1);
+        // Last requested-captain outcome recorded per waiting mission; cleared when the mission is assigned.
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _RequestedCaptainNotices =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _CaptainReservations =
             new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
 
@@ -711,6 +714,7 @@ namespace Armada.Core.Services
                 : BuildMissionBranchName(captain, mission);
             mission.BranchName = branchName;
             mission.CaptainId = captain.Id;
+            _RequestedCaptainNotices.TryRemove(mission.Id, out string? _);
             mission.Status = MissionStatusEnum.Assigned;
             mission.AssignmentState = MissionAssignmentStateEnum.Provisioning;
             mission.LastUpdateUtc = DateTime.UtcNow;
@@ -8004,16 +8008,13 @@ namespace Armada.Core.Services
 
         private async Task<Captain?> FindAvailableCaptainAsync(Mission mission, CancellationToken token)
         {
-            string? persona = mission?.Persona;
-            string? preferredModel = mission?.PreferredModel;
-
-            List<string> specialistPersonas = _Settings.ModelTier.SpecialistPersonas;
-            IReadOnlyDictionary<string, List<string>> withinTierPreferenceOrder = _Settings.ModelTier.WithinTierPreferenceOrder;
-            bool isSpecialist = _Settings.ModelTier.IsSpecialistPersona(persona);
+            // A stored requested captain or tier goes through RequestedCaptainAssignmentRule, so an empty
+            // pool still reaches the rule and the wait is recorded with its reason.
+            bool hasRequest = RequestedCaptainAssignmentRule.HasRequest(mission);
 
             // Only idle captains are eligible for assignment
             List<Captain> idleCaptains = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Idle, token).ConfigureAwait(false);
-            if (idleCaptains.Count == 0)
+            if (idleCaptains.Count == 0 && !hasRequest)
                 return null;
 
             string assignmentTenant = AssignmentTenantOf(mission!);
@@ -8034,35 +8035,77 @@ namespace Armada.Core.Services
             }
 
             idleCaptains = assignableCaptains;
-            if (idleCaptains.Count == 0)
+            if (idleCaptains.Count == 0 && !hasRequest)
                 return null;
 
+            RequestedCaptainAssignmentDecision? request = null;
             UsageRoutingSettings usagePolicy = _Settings.ModelTier.UsageRouting;
             if (usagePolicy.Enabled)
             {
-                UsageRoutingService usage = UsageRoutingService.For(_Settings);
-                await usage.RefreshAsync(usagePolicy, token).ConfigureAwait(false);
-                List<Captain> eligibleForUsage = UsageRoutingService.Eligible(_Settings.ModelTier, mission!, idleCaptains);
-                List<Captain> working = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
-                HashSet<string> busy = new HashSet<string>(_CaptainReservations.Keys, StringComparer.OrdinalIgnoreCase);
-                foreach (Captain active in working) busy.Add(active.Id);
-                UsageRoutingDecision decision = usage.Select(usagePolicy, mission!, eligibleForUsage, busy, DateTime.UtcNow);
-                idleCaptains = decision.Candidates;
-                if (idleCaptains.Count == 0)
+                string usageReason = "no idle captain";
+                if (idleCaptains.Count > 0)
                 {
-                    if (eligibleForUsage.Count > 0)
+                    UsageRoutingService usage = UsageRoutingService.For(_Settings);
+                    await usage.RefreshAsync(usagePolicy, token).ConfigureAwait(false);
+                    List<Captain> eligibleForUsage = UsageRoutingService.Eligible(_Settings.ModelTier, mission, idleCaptains);
+                    List<Captain> working = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
+                    HashSet<string> busy = new HashSet<string>(_CaptainReservations.Keys, StringComparer.OrdinalIgnoreCase);
+                    foreach (Captain active in working) busy.Add(active.Id);
+                    UsageRoutingDecision decision = usage.Select(usagePolicy, mission, eligibleForUsage, busy, DateTime.UtcNow);
+                    idleCaptains = decision.Candidates;
+                    usageReason = decision.Reason;
+                    if (idleCaptains.Count == 0 && eligibleForUsage.Count > 0)
                     {
-                        mission!.AssignmentState = MissionAssignmentStateEnum.WaitingForProviderUsage;
+                        mission.AssignmentState = MissionAssignmentStateEnum.WaitingForProviderUsage;
                         _Logging.Info(_Header + "usage routing deferred mission " + mission.Id + ": " + decision.Reason);
+                        return null;
                     }
-                    return null;
                 }
-                // V2 owns selection. Legacy model/provider preferences must not reorder it.
+
+                // V2 owns selection. Legacy model/provider preferences must not reorder it; only the
+                // requested-captain rule narrows the candidates usage routing approved.
+                if (hasRequest)
                 {
-                    _Logging.Info(_Header + "usage routing selected captain " + idleCaptains[0].Id + " for mission " + mission!.Id + ": " + decision.Reason);
-                    return idleCaptains[0];
+                    request = await DecideRequestedCaptainAsync(mission, idleCaptains, "not approved by usage routing", token).ConfigureAwait(false);
+                    if (request.Outcome == RequestedCaptainOutcomeEnum.AssignRequested) return request.Captain;
+                    idleCaptains = request.Outcome == RequestedCaptainOutcomeEnum.FallbackByTier
+                        ? RequestedCaptainAssignmentRule.NarrowToLowestTier(request.Candidates)
+                        : request.Candidates;
                 }
+
+                Captain? usageSelected = idleCaptains.Count > 0 ? idleCaptains[0] : null;
+                if (usageSelected != null)
+                    _Logging.Info(_Header + "usage routing selected captain " + usageSelected.Id + " for mission " + mission.Id + ": " + usageReason);
+                if (request != null)
+                    await RecordRequestedCaptainOutcomeAsync(mission, request, usageSelected, token).ConfigureAwait(false);
+                return usageSelected;
             }
+
+            if (hasRequest)
+            {
+                request = await DecideRequestedCaptainAsync(mission, idleCaptains, null, token).ConfigureAwait(false);
+                if (request.Outcome == RequestedCaptainOutcomeEnum.AssignRequested) return request.Captain;
+                idleCaptains = request.Candidates;
+            }
+
+            Captain? selected = idleCaptains.Count == 0
+                ? null
+                : SelectByModelAndPersona(mission, idleCaptains, request != null && request.Outcome == RequestedCaptainOutcomeEnum.FallbackByTier);
+            if (request != null)
+                await RecordRequestedCaptainOutcomeAsync(mission, request, selected, token).ConfigureAwait(false);
+            return selected;
+        }
+
+        // Normal routing over a gated pool: model-tier selection, external-provider preference, the persona
+        // fence, the retry skip list and persona preference. A tier fallback keeps the lowest tier present.
+        private Captain? SelectByModelAndPersona(Mission mission, List<Captain> idleCaptains, bool narrowToLowestTier)
+        {
+            string? persona = mission.Persona;
+            string? preferredModel = mission.PreferredModel;
+
+            List<string> specialistPersonas = _Settings.ModelTier.SpecialistPersonas;
+            IReadOnlyDictionary<string, List<string>> withinTierPreferenceOrder = _Settings.ModelTier.WithinTierPreferenceOrder;
+            bool isSpecialist = _Settings.ModelTier.IsSpecialistPersona(persona);
 
             // Model filter: tier selector (random peer selection) or literal match
             if (!String.IsNullOrEmpty(preferredModel))
@@ -8180,7 +8223,7 @@ namespace Armada.Core.Services
 
             // If no persona requirement, return any idle captain
             if (String.IsNullOrEmpty(persona))
-                return idleCaptains[0];
+                return narrowToLowestTier ? RequestedCaptainAssignmentRule.NarrowToLowestTier(idleCaptains)[0] : idleCaptains[0];
 
             // Filter by AllowedPersonas (null = any persona is allowed)
             List<Captain> eligible = new List<Captain>();
@@ -8217,6 +8260,9 @@ namespace Armada.Core.Services
                 eligible = eligibleFiltersSkipped;
             }
 
+            if (narrowToLowestTier)
+                eligible = RequestedCaptainAssignmentRule.NarrowToLowestTier(eligible);
+
             // Prefer captains whose PreferredPersona matches
             foreach (Captain captain in eligible)
             {
@@ -8229,6 +8275,95 @@ namespace Armada.Core.Services
 
             // No preferred match -- return first eligible
             return eligible[0];
+        }
+
+        private async Task<RequestedCaptainAssignmentDecision> DecideRequestedCaptainAsync(
+            Mission mission,
+            List<Captain> pool,
+            string? poolExclusionLabel,
+            CancellationToken token)
+        {
+            Captain? requested = null;
+            string? unavailable = null;
+            if (!String.IsNullOrWhiteSpace(mission.RequestedCaptainId))
+            {
+                requested = await _Database.Captains.ReadAsync(mission.RequestedCaptainId.Trim(), token).ConfigureAwait(false);
+                if (requested != null)
+                    unavailable = DescribeRequestedCaptainUnavailability(mission, requested, pool, poolExclusionLabel);
+            }
+
+            return RequestedCaptainAssignmentRule.Decide(mission, requested, unavailable, pool);
+        }
+
+        // Names the gate that keeps a requested captain from this mission, or null when none does. The
+        // checks mirror the assignable-pool gates so the recorded reason matches the real exclusion.
+        private string? DescribeRequestedCaptainUnavailability(Mission mission, Captain requested, List<Captain> pool, string? poolExclusionLabel)
+        {
+            if (_CaptainQuarantine.IsQuarantined(requested)) return "quarantined";
+            if (requested.State != CaptainStateEnum.Idle) return "busy (" + requested.State + ")";
+            if (!String.Equals(Armada.Core.Authorization.OwnershipPolicy.TenantOfRecord(requested.TenantId), AssignmentTenantOf(mission), StringComparison.Ordinal))
+                return "in another tenant";
+            if (IsExcludedForAssignment(mission, requested)) return "excluded after a policy refusal";
+            if (IsCaptainOnRetrySkipList(mission.RetrySkipCaptainIds, requested.Id)) return "on the mission's retry skip list";
+            if (_CaptainReservations.TryGetValue(requested.Id, out string? holder)
+                && !String.Equals(holder, mission.Id, StringComparison.Ordinal))
+                return "reserved by mission " + holder;
+            if (!pool.Any(c => String.Equals(c.Id, requested.Id, StringComparison.Ordinal)))
+                return poolExclusionLabel ?? "not assignable";
+            return null;
+        }
+
+        // Records every substitution for, or wait on, a requested captain or tier as an event. An unchanged
+        // outcome is recorded once per mission so a waiting mission does not write an event every tick.
+        private async Task RecordRequestedCaptainOutcomeAsync(Mission mission, RequestedCaptainAssignmentDecision decision, Captain? selected, CancellationToken token)
+        {
+            if (decision.Outcome == RequestedCaptainOutcomeEnum.NotRequested
+                || decision.Outcome == RequestedCaptainOutcomeEnum.AssignRequested)
+                return;
+
+            // A stored tier without a requested captain that found a captain is ordinary tier-floored routing.
+            if (String.IsNullOrEmpty(decision.RequestedCaptainId) && selected != null)
+                return;
+
+            string message;
+            if (selected != null)
+                message = decision.Reason + " Selected captain " + selected.Id + ".";
+            else if (decision.Outcome == RequestedCaptainOutcomeEnum.WaitForTier)
+                message = decision.Reason;
+            else
+                message = decision.Reason + " No eligible idle captain passed persona and model routing; waiting.";
+
+            if (_RequestedCaptainNotices.TryGetValue(mission.Id, out string? previous)
+                && String.Equals(previous, message, StringComparison.Ordinal))
+                return;
+            _RequestedCaptainNotices[mission.Id] = message;
+
+            _Logging.Info(_Header + "mission " + mission.Id + " requested captain: " + message);
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent(RequestedCaptainAssignmentRule.EventType, message);
+                evt.TenantId = mission.TenantId;
+                evt.UserId = mission.UserId;
+                evt.EntityType = "mission";
+                evt.EntityId = mission.Id;
+                evt.MissionId = mission.Id;
+                evt.VesselId = mission.VesselId;
+                evt.VoyageId = mission.VoyageId;
+                evt.CaptainId = selected?.Id;
+                evt.Payload = JsonSerializer.Serialize(new
+                {
+                    outcome = decision.Outcome.ToString(),
+                    requestedCaptainId = decision.RequestedCaptainId,
+                    fallbackTier = decision.FallbackTier?.ToString(),
+                    selectedCaptainId = selected?.Id
+                });
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _RequestedCaptainNotices.TryRemove(mission.Id, out string? _);
+                _Logging.Warn(_Header + "could not record requested-captain event for mission " + mission.Id + ": " + ex.Message);
+            }
         }
 
         /// <summary>

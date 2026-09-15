@@ -120,10 +120,7 @@ namespace Test.Shared.Infrastructure
                 "the WebSocket hub does not serve the list_missions_summary command"),
             SharedCaseDisposition.AwaitingOwner("E2E.WebSocket.list_mission_summaries_with_pagination_respects_page_size",
                 "the WebSocket hub does not serve the list_missions_summary command"),
-            SharedCaseDisposition.AwaitingOwner("Services.CaptainRouting.preferred_idle_captain_is_assigned",
-                "a mission's requested captain is resolved and stored but assignment does not consult it"),
-            SharedCaseDisposition.AwaitingOwner("Services.CaptainRouting.no_tier_eligible_captain_stays_pending",
-                "a mission's fallback tier is resolved and stored but assignment does not consult it"),
+
             SharedCaseDisposition.ForkDifference("Services.MissionPrompt.generate_claude_md_async_includes_model_context_when_enabled_and_set",
                 "generated instructions are written under .armada/instructions and carry no Model Context Updates section; " + ForkKeepsInstructionSections),
             SharedCaseDisposition.ForkDifference("Services.MissionPrompt.generate_claude_md_async_includes_update_instructions_even_when_model_context_is_empty",

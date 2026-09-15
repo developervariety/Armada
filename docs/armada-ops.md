@@ -1800,6 +1800,37 @@ whole account Exhausted and quarantines its idle captains until the retry time.
 Rollout of any second subscription account needs an owner decision under the
 provider's terms. See [Account logins](USAGE_ROUTING.md#account-logins).
 
+#### Requested captain and fallback tier
+
+A mission can store a requested captain (`RequestedCaptainId`) and a
+fallback tier (`Tier`). They come from the mission itself, a voyage captain
+override (`captainAssignments` with `captainId` and `fallbackTier`), or a
+persona `DefaultCaptainId`. Every assignment path applies one rule:
+
+1. The captain pool keeps only captains that are Idle, in the mission's
+   tenant, not quarantined, not excluded after a policy refusal, and not
+   reserved by another assignment. When usage routing is enabled, the pool
+   keeps only the captains that usage routing approves. No request overrides
+   these gates.
+2. If the requested captain is in that pool, it is assigned. This is an
+   explicit choice. It wins over persona preference, model-tier selection
+   and the captain's `AllowedPersonas` fence.
+3. If the requested captain is not in the pool, normal routing runs over the
+   captains at or above the fallback tier. The fallback tier is the stored
+   `Tier`, or the requested captain's own effective tier when no tier is
+   stored. The lowest tier at or above that floor is preferred. A stored tier
+   with no requested captain applies the same floor.
+4. If no captain meets the floor, the mission stays Pending with
+   `WaitingForIdleCaptain`. It is never given to a lower-tier substitute.
+5. If the requested captain no longer exists and no tier is stored, normal
+   routing applies.
+
+Rules 3, 4 and 5 record a `mission.requested_captain` event. The event names
+the requested captain, why it was not used, and the tier. Read these events
+when a mission with a requested captain waits. A wait that does not change is
+recorded once. A mission with neither field set is assigned exactly as
+before.
+
 When both tier lists and family rules are empty, every idle
 persona-eligible captain is an equal peer. That is the vanilla dispatch
 path. Low still maps to mid: that is the platform two-tier architecture,
