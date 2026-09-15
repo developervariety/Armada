@@ -58,6 +58,10 @@ import type {
   SendSignalRequest,
   SettingsData,
   ScopeEnum,
+  ModelEndpoint,
+  ModelEndpointProbeResult,
+  ModelEndpointHealthSweepResponse,
+  Memory,
   BatchDeleteResult,
   DoctorCheck,
   StatusSnapshot,
@@ -970,6 +974,25 @@ export const listDocks = (params?: { pageNumber?: number; pageSize?: number; fil
   get<EnumerationResult<Dock>>(`/api/v1/docks${buildQuery(params)}`);
 export const getDock = (id: string) => get<Dock>(`/api/v1/docks/${id}`);
 export const deleteDock = (id: string) => del<void>(`/api/v1/docks/${id}`);
+
+// ==================== Model endpoints ====================
+export const listModelEndpoints = () => get<ModelEndpoint[]>('/api/v1/model-endpoints');
+export const getModelEndpoint = (id: string) => get<ModelEndpoint>(`/api/v1/model-endpoints/${encodeURIComponent(id)}`);
+export const createModelEndpoint = (data: Partial<ModelEndpoint> & { apiKey?: string | null }) =>
+  post<ModelEndpoint>('/api/v1/model-endpoints', data);
+export const updateModelEndpoint = (id: string, data: Partial<ModelEndpoint> & { apiKey?: string | null }) =>
+  put<ModelEndpoint>(`/api/v1/model-endpoints/${encodeURIComponent(id)}`, data);
+export const deleteModelEndpoint = (id: string) => del<void>(`/api/v1/model-endpoints/${encodeURIComponent(id)}`);
+export const validateModelEndpoint = (id: string) =>
+  post<ModelEndpointProbeResult>(`/api/v1/model-endpoints/${encodeURIComponent(id)}/validate`, {});
+export const healthCheckModelEndpoints = () =>
+  post<ModelEndpointHealthSweepResponse>('/api/v1/model-endpoints/health-check', {});
+
+// ==================== Memories ====================
+export const listMemories = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
+  get<EnumerationResult<Memory>>(`/api/v1/memories${buildQuery(params)}`);
+export const getMemory = (id: string) => get<Memory>(`/api/v1/memories/${encodeURIComponent(id)}`);
+export const deleteMemory = (id: string) => del<void>(`/api/v1/memories/${encodeURIComponent(id)}`);
 
 // ==================== Signals ====================
 export const listSignals = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>

@@ -2568,3 +2568,89 @@ export interface CoordinationPresenceRequest {
   participantKey: string;
   displayName: string;
 }
+
+// ==================== Model endpoints ====================
+
+export type ModelEndpointKind = 'Embedding' | 'Inference';
+/** Providers the server ModelProviderEnum accepts. */
+export type ModelProvider = 'Ollama' | 'OpenAI' | 'OpenAICompatible' | 'Anthropic' | 'Gemini' | 'VoyageAI';
+export type EndpointHealthStatus = 'Unknown' | 'Healthy' | 'Unhealthy';
+
+export interface ModelEndpointHealthRecord {
+  timestampUtc: string;
+  success: boolean;
+}
+
+export interface ModelEndpoint {
+  id: string;
+  tenantId: string | null;
+  userId: string | null;
+  scope: ScopeEnum;
+  name: string;
+  kind: ModelEndpointKind;
+  provider: ModelProvider;
+  baseUrl: string;
+  model: string | null;
+  dimensionality: number;
+  timeoutMs: number;
+  enabled: boolean;
+  hasApiKey: boolean;
+  healthStatus: EndpointHealthStatus;
+  lastHealthCheckUtc: string | null;
+  lastHealthError: string | null;
+  lastLatencyMs: number | null;
+  healthHistory: ModelEndpointHealthRecord[];
+  uptimePercentage: number;
+  consecutiveSuccesses: number;
+  consecutiveFailures: number;
+  firstHealthCheckUtc: string | null;
+  lastHealthyUtc: string | null;
+  lastUnhealthyUtc: string | null;
+  createdUtc: string;
+  lastUpdateUtc: string;
+}
+
+export interface ModelEndpointProbeResult {
+  success: boolean;
+  baseUrl: string | null;
+  latencyMs: number;
+  statusCode: number | null;
+  error: string | null;
+  embeddingDimensions: number | null;
+  sampleText: string | null;
+  timestampUtc: string;
+}
+
+export interface ModelEndpointHealthSweepResponse {
+  endpointsProbed: number;
+}
+
+// ==================== Memories ====================
+
+export type MemoryType = 'Episodic' | 'Semantic' | 'Procedural';
+
+export type MemorySourceKind = 'Voyage' | 'Mission' | 'Vessel' | 'Conversation' | 'Manual' | 'Other';
+
+export interface Memory {
+  id: string;
+  tenantId?: string | null;
+  userId?: string | null;
+  /** Server MemoryScopeEnum; same values as ScopeEnum. */
+  scope: ScopeEnum;
+  type: MemoryType;
+  topic?: string | null;
+  key?: string | null;
+  summary?: string | null;
+  content: string;
+  salience: number;
+  version: number;
+  sourceKind: MemorySourceKind;
+  sourceVoyageId?: string | null;
+  sourceMissionId?: string | null;
+  sourceVesselId?: string | null;
+  sourceDetail?: string | null;
+  vesselId?: string | null;
+  tags: string[];
+  createdUtc: string;
+  lastUpdateUtc: string;
+}

@@ -98,4 +98,25 @@ describe('dashboard API client routes', () => {
 
     expect([...new Set(dead)].sort()).toEqual([]);
   });
+
+  it('calls the model endpoint and memory routes the server registers', () => {
+    const routes = serverRoutes();
+    const calls = clientCalls().filter((call) => call.path.startsWith('/api/v1/model-endpoints') || call.path.startsWith('/api/v1/memories'));
+    const described = [...new Set(calls.map((call) => `${call.method} ${call.path}`))].sort();
+    expect(described).toEqual([
+      'DELETE /api/v1/memories/{p}',
+      'DELETE /api/v1/model-endpoints/{p}',
+      'GET /api/v1/memories',
+      'GET /api/v1/memories/{p}',
+      'GET /api/v1/model-endpoints',
+      'GET /api/v1/model-endpoints/{p}',
+      'POST /api/v1/model-endpoints',
+      'POST /api/v1/model-endpoints/health-check',
+      'POST /api/v1/model-endpoints/{p}/validate',
+      'PUT /api/v1/model-endpoints/{p}',
+    ]);
+    for (const call of calls) {
+      expect(routes.some((route) => matches(call, route))).toBe(true);
+    }
+  });
 });

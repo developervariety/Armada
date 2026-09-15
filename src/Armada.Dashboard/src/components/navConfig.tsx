@@ -82,7 +82,7 @@ export const navSections: NavSection[] = [
     label: 'CONFIGURATION',
     matchers: ['/configuration', '/workflow-profiles', '/project-profiles', '/skills', '/personas', '/pipelines', '/prompt-templates', '/playbooks'],
     items: [
-      { to: '/configuration', label: 'Configuration', tooltip: 'Workflow Profiles, Project Profiles, Skills, Personas, Pipelines, Prompts, and Playbooks as tabs', icon: icons.configuration },
+      { to: '/configuration', label: 'Configuration', tooltip: 'Workflow Profiles, Project Profiles, Skills, Personas, Pipelines, Prompts, Playbooks, Endpoints, and Memory as tabs', icon: icons.configuration },
     ],
   },
   {

@@ -8,6 +8,8 @@ const Personas = lazy(() => import('./Personas'));
 const Pipelines = lazy(() => import('./Pipelines'));
 const PromptTemplates = lazy(() => import('./PromptTemplates'));
 const Playbooks = lazy(() => import('./Playbooks'));
+const Endpoints = lazy(() => import('./Endpoints'));
+const Memories = lazy(() => import('./Memories'));
 
 function panel(node: ReactNode): ReactNode {
   return <Suspense fallback={<p className="text-dim" style={{ padding: '1rem' }}>Loading...</p>}>{node}</Suspense>;
@@ -16,7 +18,7 @@ function panel(node: ReactNode): ReactNode {
 /**
  * Configuration hub. Folds the seven "how work gets done" setup surfaces
  * (Workflow Profiles, Project Profiles, Skills, Personas, Pipelines, Prompts,
- * Playbooks) into one tabbed page so rarely-touched configuration stops
+ * Playbooks, Endpoints, Memory) into one tabbed page so rarely-touched configuration stops
  * competing for nav slots with daily-driver work. Each tab lazy-mounts the
  * existing page component; their detail routes are unchanged.
  */
@@ -29,6 +31,8 @@ export default function Configuration() {
     { key: 'pipelines', label: 'Pipelines', render: () => panel(<Pipelines />) },
     { key: 'prompts', label: 'Prompts', render: () => panel(<PromptTemplates />) },
     { key: 'playbooks', label: 'Playbooks', render: () => panel(<Playbooks />) },
+    { key: 'endpoints', label: 'Endpoints', render: () => panel(<Endpoints />) },
+    { key: 'memory', label: 'Memory', render: () => panel(<Memories />) },
   ];
 
   return <Tabs tabs={tabs} defaultTabKey="workflow-profiles" ariaLabel="Configuration sections" />;
