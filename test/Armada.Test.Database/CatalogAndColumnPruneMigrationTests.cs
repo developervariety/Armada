@@ -69,11 +69,7 @@ namespace Armada.Test.Database
             DatabaseAssert.True(before.Keys.All(key => key < version), "The prune is still pending and no later version applied");
             DatabaseAssert.True(await TableExistsAsync("vessel_pack_hints", token).ConfigureAwait(false), "Pack hints exist before the prune");
 
-            Seed seed;
-            using (DatabaseDriver driver = CreateDriver())
-            {
-                seed = await SeedAsync(driver, token).ConfigureAwait(false);
-            }
+            Seed seed = await SeedAsync(token).ConfigureAwait(false);
 
             await StopAtAsync(version, 3, token).ConfigureAwait(false);
             Dictionary<int, string> interrupted = await history.ReadHistoryAsync(token).ConfigureAwait(false);
@@ -99,116 +95,129 @@ namespace Armada.Test.Database
             Console.WriteLine("PASS catalog and column prune migration: named rows and links removed, references cleared, consolidator stages and allow-list entries removed, table and columns dropped, interrupted run restarts, operator rows and native memory unchanged");
         }
 
-        private async Task<Seed> SeedAsync(DatabaseDriver driver, CancellationToken token)
+        // Every row is seeded while the schema stops below the prune version and below the newest version, so each
+        // row is written with SQL that names only columns present at the stop version, never through driver writes.
+        private async Task<Seed> SeedAsync(CancellationToken token)
         {
             string tenant = Constants.DefaultTenantId;
+            StopVersionSeed rows = new StopVersionSeed(_Settings);
             Seed seed = new Seed();
 
-            seed.LearnedVessel = await CreatePlaybookAsync(driver, "vessel-example-learned.md", token).ConfigureAwait(false);
-            seed.LearnedPersona = await CreatePlaybookAsync(driver, "persona-worker-learned.md", token).ConfigureAwait(false);
-            seed.LearnedCaptain = await CreatePlaybookAsync(driver, "captain-cpt_example-learned.md", token).ConfigureAwait(false);
-            seed.LearnedFleet = await CreatePlaybookAsync(driver, "fleet-flt_example-learned.md", token).ConfigureAwait(false);
-            seed.OperatorPlaybook = await CreatePlaybookAsync(driver, "vessel-guide.md", token).ConfigureAwait(false);
-            seed.LookalikePlaybook = await CreatePlaybookAsync(driver, "release-notes-learned.md", token).ConfigureAwait(false);
+            seed.LearnedVessel = await CreatePlaybookAsync(rows, "vessel-example-learned.md", token).ConfigureAwait(false);
+            seed.LearnedPersona = await CreatePlaybookAsync(rows, "persona-worker-learned.md", token).ConfigureAwait(false);
+            seed.LearnedCaptain = await CreatePlaybookAsync(rows, "captain-cpt_example-learned.md", token).ConfigureAwait(false);
+            seed.LearnedFleet = await CreatePlaybookAsync(rows, "fleet-flt_example-learned.md", token).ConfigureAwait(false);
+            seed.OperatorPlaybook = await CreatePlaybookAsync(rows, "vessel-guide.md", token).ConfigureAwait(false);
+            seed.LookalikePlaybook = await CreatePlaybookAsync(rows, "release-notes-learned.md", token).ConfigureAwait(false);
 
-            seed.NamedPipeline = await CreatePipelineAsync("Reflections", new[] { "MemoryConsolidator" }, token).ConfigureAwait(false);
-            seed.NamedDualJudgePipeline = await CreatePipelineAsync("ReflectionsDualJudge", new[] { "MemoryConsolidator", "Judge" }, token).ConfigureAwait(false);
-            seed.CustomPipeline = await CreatePipelineAsync("CustomReview", new[] { "Worker", "Judge" }, token).ConfigureAwait(false);
-            seed.PipelineWithConsolidatorStage = await CreatePipelineAsync("OperatorWithConsolidator", new[] { "Worker", "MemoryConsolidator", "Judge" }, token).ConfigureAwait(false);
-            seed.ConsolidatorOnlyPipeline = await CreatePipelineAsync("OperatorConsolidatorOnly", new[] { "MemoryConsolidator" }, token).ConfigureAwait(false);
+            seed.NamedPipeline = await rows.CreatePipelineAsync("Reflections", new[] { "MemoryConsolidator" }, token).ConfigureAwait(false);
+            seed.NamedDualJudgePipeline = await rows.CreatePipelineAsync("ReflectionsDualJudge", new[] { "MemoryConsolidator", "Judge" }, token).ConfigureAwait(false);
+            seed.CustomPipeline = await rows.CreatePipelineAsync("CustomReview", new[] { "Worker", "Judge" }, token).ConfigureAwait(false);
+            seed.PipelineWithConsolidatorStage = await rows.CreatePipelineAsync("OperatorWithConsolidator", new[] { "Worker", "MemoryConsolidator", "Judge" }, token).ConfigureAwait(false);
+            seed.ConsolidatorOnlyPipeline = await rows.CreatePipelineAsync("OperatorConsolidatorOnly", new[] { "MemoryConsolidator" }, token).ConfigureAwait(false);
 
-            await CreateTemplateAsync("persona.memory_consolidator", "persona", token).ConfigureAwait(false);
-            await CreateTemplateAsync("mission.model_context_updates", "mission", token).ConfigureAwait(false);
-            await CreateTemplateAsync("persona.custom_reviewer", "persona", token).ConfigureAwait(false);
+            await rows.CreateTemplateAsync("persona.memory_consolidator", "persona", false, token).ConfigureAwait(false);
+            await rows.CreateTemplateAsync("mission.model_context_updates", "mission", false, token).ConfigureAwait(false);
+            await rows.CreateTemplateAsync("persona.custom_reviewer", "persona", false, token).ConfigureAwait(false);
 
-            await CreatePersonaAsync("MemoryConsolidator", "persona.memory_consolidator", Selections(seed.LearnedPersona), token).ConfigureAwait(false);
-            await CreatePersonaAsync("CustomReviewer", "persona.custom_reviewer", Selections(seed.LearnedPersona, seed.OperatorPlaybook), token).ConfigureAwait(false);
+            await rows.CreatePersonaAsync("MemoryConsolidator", "persona.memory_consolidator", false, Selections(seed.LearnedPersona), token).ConfigureAwait(false);
+            await rows.CreatePersonaAsync("CustomReviewer", "persona.custom_reviewer", false, Selections(seed.LearnedPersona, seed.OperatorPlaybook), token).ConfigureAwait(false);
 
             Fleet fleet = new Fleet("PruneFleet");
-            fleet.TenantId = tenant;
-            fleet.DefaultPipelineId = seed.NamedPipeline;
-            fleet.DefaultPlaybooks = Selections(seed.LearnedFleet, seed.OperatorPlaybook);
-            seed.FleetId = (await driver.Fleets.CreateAsync(fleet, token).ConfigureAwait(false)).Id;
+            seed.FleetId = fleet.Id;
+            Dictionary<string, object?> fleetRow = rows.TimestampedRow();
+            fleetRow["id"] = fleet.Id;
+            fleetRow["tenant_id"] = tenant;
+            fleetRow["name"] = fleet.Name;
+            fleetRow["default_pipeline_id"] = seed.NamedPipeline;
+            fleetRow["default_playbooks"] = Selections(seed.LearnedFleet, seed.OperatorPlaybook);
+            fleetRow["active"] = rows.Flag(true);
+            await rows.InsertAsync("fleets", fleetRow, token).ConfigureAwait(false);
 
-            Vessel mixed = new Vessel("MixedDefaults", "https://example.com/mixed.git");
-            mixed.TenantId = tenant;
-            mixed.FleetId = seed.FleetId;
-            mixed.DefaultPipelineId = seed.NamedPipeline;
             // One entry uses the PascalCase key an older writer produced; parsing is case-insensitive.
-            mixed.DefaultPlaybooks = "[{\"playbookId\":\"" + seed.OperatorPlaybook + "\",\"deliveryMode\":\"InlineFullContent\"},"
+            string mixedDefaults = "[{\"playbookId\":\"" + seed.OperatorPlaybook + "\",\"deliveryMode\":\"InlineFullContent\"},"
                 + "{\"PlaybookId\":\"" + seed.LearnedVessel + "\",\"DeliveryMode\":\"InlineFullContent\"}]";
-            seed.VesselWithMixedDefaults = (await driver.Vessels.CreateAsync(mixed, token).ConfigureAwait(false)).Id;
+            seed.VesselWithMixedDefaults = await CreateVesselAsync(rows, "MixedDefaults", "https://example.com/mixed.git", seed.FleetId, seed.NamedPipeline, mixedDefaults, token).ConfigureAwait(false);
+            seed.VesselWithOnlyLearnedDefaults = await CreateVesselAsync(rows, "OnlyLearnedDefaults", "https://example.com/learned.git", null, seed.CustomPipeline, Selections(seed.LearnedVessel), token).ConfigureAwait(false);
 
-            Vessel onlyLearned = new Vessel("OnlyLearnedDefaults", "https://example.com/learned.git");
-            onlyLearned.TenantId = tenant;
-            onlyLearned.DefaultPipelineId = seed.CustomPipeline;
-            onlyLearned.DefaultPlaybooks = Selections(seed.LearnedVessel);
-            seed.VesselWithOnlyLearnedDefaults = (await driver.Vessels.CreateAsync(onlyLearned, token).ConfigureAwait(false)).Id;
+            seed.ConsolidatorCaptain = await CreateCaptainAsync(rows, "consolidator-captain", "MemoryConsolidator", "[\"MemoryConsolidator\"]", Selections(seed.LearnedCaptain), token).ConfigureAwait(false);
+            seed.WorkerCaptain = await CreateCaptainAsync(rows, "worker-captain", "Worker", "[\"Worker\",\"MemoryConsolidator\",\"Judge\"]", Selections(seed.OperatorPlaybook), token).ConfigureAwait(false);
 
-            Captain consolidatorCaptain = new Captain("consolidator-captain");
-            consolidatorCaptain.TenantId = tenant;
-            consolidatorCaptain.PreferredPersona = "MemoryConsolidator";
-            consolidatorCaptain.AllowedPersonas = "[\"MemoryConsolidator\"]";
-            consolidatorCaptain.DefaultPlaybooks = Selections(seed.LearnedCaptain);
-            seed.ConsolidatorCaptain = (await driver.Captains.CreateAsync(consolidatorCaptain, token).ConfigureAwait(false)).Id;
-
-            Captain workerCaptain = new Captain("worker-captain");
-            workerCaptain.TenantId = tenant;
-            workerCaptain.PreferredPersona = "Worker";
-            workerCaptain.AllowedPersonas = "[\"Worker\",\"MemoryConsolidator\",\"Judge\"]";
-            workerCaptain.DefaultPlaybooks = Selections(seed.OperatorPlaybook);
-            seed.WorkerCaptain = (await driver.Captains.CreateAsync(workerCaptain, token).ConfigureAwait(false)).Id;
-
-            Objective prunedPipelineObjective = new Objective();
-            prunedPipelineObjective.TenantId = tenant;
-            prunedPipelineObjective.Title = "Consolidate memory";
-            prunedPipelineObjective.SuggestedPipelineId = seed.NamedDualJudgePipeline;
-            seed.PrunedPipelineObjective = (await driver.Objectives.CreateAsync(prunedPipelineObjective, token).ConfigureAwait(false)).Id;
-
-            Objective customObjective = new Objective();
-            customObjective.TenantId = tenant;
-            customObjective.Title = "Ordinary review";
-            customObjective.SuggestedPipelineId = seed.CustomPipeline;
-            seed.CustomObjective = (await driver.Objectives.CreateAsync(customObjective, token).ConfigureAwait(false)).Id;
+            seed.PrunedPipelineObjective = await CreateObjectiveAsync(rows, "Consolidate memory", seed.NamedDualJudgePipeline, token).ConfigureAwait(false);
+            seed.CustomObjective = await CreateObjectiveAsync(rows, "Ordinary review", seed.CustomPipeline, token).ConfigureAwait(false);
 
             Voyage voyage = new Voyage("Prune voyage");
-            voyage.TenantId = tenant;
-            seed.VoyageId = (await driver.Voyages.CreateAsync(voyage, token).ConfigureAwait(false)).Id;
-            await driver.Playbooks.SetVoyageSelectionsAsync(seed.VoyageId, new List<SelectedPlaybook>
+            seed.VoyageId = voyage.Id;
+            Dictionary<string, object?> voyageRow = rows.TimestampedRow();
+            voyageRow["id"] = voyage.Id;
+            voyageRow["tenant_id"] = tenant;
+            voyageRow["title"] = voyage.Title;
+            voyageRow["status"] = voyage.Status.ToString();
+            await rows.InsertAsync("voyages", voyageRow, token).ConfigureAwait(false);
+            string[] voyagePlaybooks = new[] { seed.LearnedVessel, seed.OperatorPlaybook };
+            for (int index = 0; index < voyagePlaybooks.Length; index++)
             {
-                new SelectedPlaybook { PlaybookId = seed.LearnedVessel },
-                new SelectedPlaybook { PlaybookId = seed.OperatorPlaybook }
-            }, token).ConfigureAwait(false);
+                Dictionary<string, object?> selection = new Dictionary<string, object?>();
+                selection["voyage_id"] = seed.VoyageId;
+                selection["playbook_id"] = voyagePlaybooks[index];
+                selection["selection_order"] = index;
+                selection["delivery_mode"] = new SelectedPlaybook().DeliveryMode.ToString();
+                await rows.InsertAsync("voyage_playbooks", selection, token).ConfigureAwait(false);
+            }
 
             Mission mission = new Mission("Prune mission");
-            mission.TenantId = tenant;
-            mission.VoyageId = seed.VoyageId;
-            mission.VesselId = seed.VesselWithMixedDefaults;
-            seed.MissionId = (await driver.Missions.CreateAsync(mission, token).ConfigureAwait(false)).Id;
-            await driver.Playbooks.SetMissionSnapshotsAsync(seed.MissionId, new List<MissionPlaybookSnapshot>
-            {
-                new MissionPlaybookSnapshot { PlaybookId = seed.LearnedVessel, FileName = "vessel-example-learned.md", Content = "learned" },
-                new MissionPlaybookSnapshot { PlaybookId = seed.OperatorPlaybook, FileName = "vessel-guide.md", Content = "operator" }
-            }, token).ConfigureAwait(false);
+            seed.MissionId = mission.Id;
+            Dictionary<string, object?> missionRow = rows.TimestampedRow();
+            missionRow["id"] = mission.Id;
+            missionRow["tenant_id"] = tenant;
+            missionRow["voyage_id"] = seed.VoyageId;
+            missionRow["vessel_id"] = seed.VesselWithMixedDefaults;
+            missionRow["title"] = mission.Title;
+            missionRow["status"] = mission.Status.ToString();
+            missionRow["priority"] = mission.Priority;
+            await rows.InsertAsync("missions", missionRow, token).ConfigureAwait(false);
+            await CreateSnapshotAsync(rows, seed.MissionId, 0, seed.LearnedVessel, "vessel-example-learned.md", "learned", token).ConfigureAwait(false);
+            await CreateSnapshotAsync(rows, seed.MissionId, 1, seed.OperatorPlaybook, "vessel-guide.md", "operator", token).ConfigureAwait(false);
 
             Memory memory = new Memory();
-            memory.TenantId = tenant;
-            memory.UserId = Constants.DefaultUserId;
-            memory.Key = "catalog-column-prune/native";
-            memory.Content = "Native memory survives the prune.";
-            seed.MemoryId = (await driver.Memories.CreateAsync(memory, token).ConfigureAwait(false)).Id;
+            seed.MemoryId = memory.Id;
+            Dictionary<string, object?> memoryRow = rows.TimestampedRow();
+            memoryRow["id"] = memory.Id;
+            memoryRow["tenant_id"] = tenant;
+            memoryRow["user_id"] = Constants.DefaultUserId;
+            memoryRow["scope"] = memory.Scope.ToString();
+            memoryRow["type"] = memory.Type.ToString();
+            memoryRow["memory_key"] = "catalog-column-prune/native";
+            memoryRow["content"] = "Native memory survives the prune.";
+            memoryRow["salience"] = memory.Salience;
+            memoryRow["version"] = memory.Version;
+            await rows.InsertAsync("memories", memoryRow, token).ConfigureAwait(false);
 
-            await ExecuteAsync("UPDATE vessels SET reflection_threshold = 5, reorganize_threshold = 6, pack_curate_threshold = 7, last_reflection_mission_id = 'msn_reflection' WHERE id = @id;",
-                token, ("@id", seed.VesselWithMixedDefaults)).ConfigureAwait(false);
-            await ExecuteAsync("UPDATE personas SET curate_threshold = 3, learned_playbook_id = @playbook WHERE name = 'MemoryConsolidator';",
-                token, ("@playbook", seed.LearnedPersona)).ConfigureAwait(false);
-            await ExecuteAsync("UPDATE captains SET curate_threshold = 4, learned_playbook_id = @playbook WHERE id = @id;",
-                token, ("@playbook", seed.LearnedCaptain), ("@id", seed.ConsolidatorCaptain)).ConfigureAwait(false);
-            await ExecuteAsync("UPDATE fleets SET curate_threshold = 2, learned_playbook_id = @playbook WHERE id = @id;",
-                token, ("@playbook", seed.LearnedFleet), ("@id", seed.FleetId)).ConfigureAwait(false);
-            await ExecuteAsync("INSERT INTO vessel_pack_hints (id, vessel_id, goal_pattern, must_include, must_exclude, priority, confidence, source_mission_ids, active, created_utc, last_update_utc) "
+            Dictionary<string, object?> vesselThresholds = new Dictionary<string, object?>();
+            vesselThresholds["@id"] = seed.VesselWithMixedDefaults;
+            await rows.ExecuteAsync("UPDATE vessels SET reflection_threshold = 5, reorganize_threshold = 6, pack_curate_threshold = 7, last_reflection_mission_id = 'msn_reflection' WHERE id = @id;",
+                vesselThresholds, token).ConfigureAwait(false);
+            Dictionary<string, object?> personaThresholds = new Dictionary<string, object?>();
+            personaThresholds["@playbook"] = seed.LearnedPersona;
+            await rows.ExecuteAsync("UPDATE personas SET curate_threshold = 3, learned_playbook_id = @playbook WHERE name = 'MemoryConsolidator';",
+                personaThresholds, token).ConfigureAwait(false);
+            Dictionary<string, object?> captainThresholds = new Dictionary<string, object?>();
+            captainThresholds["@playbook"] = seed.LearnedCaptain;
+            captainThresholds["@id"] = seed.ConsolidatorCaptain;
+            await rows.ExecuteAsync("UPDATE captains SET curate_threshold = 4, learned_playbook_id = @playbook WHERE id = @id;",
+                captainThresholds, token).ConfigureAwait(false);
+            Dictionary<string, object?> fleetThresholds = new Dictionary<string, object?>();
+            fleetThresholds["@playbook"] = seed.LearnedFleet;
+            fleetThresholds["@id"] = seed.FleetId;
+            await rows.ExecuteAsync("UPDATE fleets SET curate_threshold = 2, learned_playbook_id = @playbook WHERE id = @id;",
+                fleetThresholds, token).ConfigureAwait(false);
+            Dictionary<string, object?> packHint = new Dictionary<string, object?>();
+            packHint["@vessel"] = seed.VesselWithMixedDefaults;
+            packHint["@active"] = true;
+            packHint["@created"] = rows.Timestamp();
+            await rows.ExecuteAsync("INSERT INTO vessel_pack_hints (id, vessel_id, goal_pattern, must_include, must_exclude, priority, confidence, source_mission_ids, active, created_utc, last_update_utc) "
                 + "VALUES ('vph_example', @vessel, 'build', '[]', '[]', 1, 'high', '[]', @active, @created, @created);",
-                token, ("@vessel", seed.VesselWithMixedDefaults), ("@active", true), ("@created", Timestamp())).ConfigureAwait(false);
+                packHint, token).ConfigureAwait(false);
 
             return seed;
         }
@@ -324,59 +333,79 @@ namespace Armada.Test.Database
             return "[" + String.Join(",", playbookIds.Select(id => "{\"playbookId\":\"" + id + "\",\"deliveryMode\":\"InlineFullContent\"}")) + "]";
         }
 
-        private static async Task<string> CreatePlaybookAsync(DatabaseDriver driver, string fileName, CancellationToken token)
+        private static async Task<string> CreatePlaybookAsync(StopVersionSeed rows, string fileName, CancellationToken token)
         {
             Playbook playbook = new Playbook(fileName, "# " + fileName + "\n\n- guidance\n");
-            playbook.TenantId = Constants.DefaultTenantId;
-            playbook.Active = false;
-            return (await driver.Playbooks.CreateAsync(playbook, token).ConfigureAwait(false)).Id;
+            Dictionary<string, object?> row = rows.TimestampedRow();
+            row["id"] = playbook.Id;
+            row["tenant_id"] = Constants.DefaultTenantId;
+            row["file_name"] = fileName;
+            row["content"] = playbook.Content;
+            row["active"] = rows.Flag(false);
+            await rows.InsertAsync("playbooks", row, token).ConfigureAwait(false);
+            return playbook.Id;
         }
 
-        // Personas, pipelines, their stages and prompt templates are seeded while the schema stops below the
-        // prune version. Driver create methods write the newest row shape, which names columns that later
-        // migrations add, so these rows are written with SQL that names only columns present at that version.
-        private async Task<string> CreatePipelineAsync(string name, string[] personas, CancellationToken token)
+        private static async Task<string> CreateVesselAsync(StopVersionSeed rows, string name, string repoUrl, string? fleetId, string pipelineId, string defaultPlaybooks, CancellationToken token)
         {
-            string id = new Pipeline(name).Id;
-            await ExecuteAsync("INSERT INTO pipelines (id, tenant_id, name, is_built_in, active, created_utc, last_update_utc) VALUES (@id, @tenant, @name, @builtIn, @active, @created, @updated);", token,
-                ("@id", id), ("@tenant", Constants.DefaultTenantId), ("@name", name), ("@builtIn", Flag(false)), ("@active", Flag(true)),
-                ("@created", Timestamp()), ("@updated", Timestamp())).ConfigureAwait(false);
-            for (int index = 0; index < personas.Length; index++)
-            {
-                await ExecuteAsync("INSERT INTO pipeline_stages (id, pipeline_id, stage_order, persona_name, is_optional) VALUES (@id, @pipeline, @order, @persona, @optional);", token,
-                    ("@id", new PipelineStage(index + 1, personas[index]).Id), ("@pipeline", id), ("@order", index + 1), ("@persona", personas[index]),
-                    ("@optional", Flag(false))).ConfigureAwait(false);
-            }
-            return id;
+            Vessel vessel = new Vessel(name, repoUrl);
+            Dictionary<string, object?> row = rows.TimestampedRow();
+            row["id"] = vessel.Id;
+            row["tenant_id"] = Constants.DefaultTenantId;
+            if (fleetId != null) row["fleet_id"] = fleetId;
+            row["name"] = name;
+            row["repo_url"] = repoUrl;
+            row["default_branch"] = vessel.DefaultBranch;
+            row["default_pipeline_id"] = pipelineId;
+            row["default_playbooks"] = defaultPlaybooks;
+            row["active"] = rows.Flag(true);
+            await rows.InsertAsync("vessels", row, token).ConfigureAwait(false);
+            return vessel.Id;
         }
 
-        private async Task CreateTemplateAsync(string name, string category, CancellationToken token)
+        private static async Task<string> CreateCaptainAsync(StopVersionSeed rows, string name, string preferredPersona, string allowedPersonas, string defaultPlaybooks, CancellationToken token)
         {
-            await ExecuteAsync("INSERT INTO prompt_templates (id, tenant_id, name, category, content, is_built_in, active, created_utc, last_update_utc) VALUES (@id, @tenant, @name, @category, @content, @builtIn, @active, @created, @updated);", token,
-                ("@id", new PromptTemplate(name, "template body for " + name).Id), ("@tenant", Constants.DefaultTenantId), ("@name", name), ("@category", category),
-                ("@content", "template body for " + name), ("@builtIn", Flag(false)), ("@active", Flag(true)), ("@created", Timestamp()), ("@updated", Timestamp())).ConfigureAwait(false);
+            Captain captain = new Captain(name);
+            Dictionary<string, object?> row = rows.TimestampedRow();
+            row["id"] = captain.Id;
+            row["tenant_id"] = Constants.DefaultTenantId;
+            row["name"] = name;
+            row["runtime"] = captain.Runtime.ToString();
+            row["state"] = captain.State.ToString();
+            row["preferred_persona"] = preferredPersona;
+            row["allowed_personas"] = allowedPersonas;
+            row["default_playbooks"] = defaultPlaybooks;
+            await rows.InsertAsync("captains", row, token).ConfigureAwait(false);
+            return captain.Id;
         }
 
-        private async Task CreatePersonaAsync(string name, string templateName, string defaultPlaybooks, CancellationToken token)
+        private static async Task<string> CreateObjectiveAsync(StopVersionSeed rows, string title, string suggestedPipelineId, CancellationToken token)
         {
-            await ExecuteAsync("INSERT INTO personas (id, tenant_id, name, prompt_template_name, is_built_in, default_playbooks, active, created_utc, last_update_utc) VALUES (@id, @tenant, @name, @template, @builtIn, @defaults, @active, @created, @updated);", token,
-                ("@id", new Persona(name, templateName).Id), ("@tenant", Constants.DefaultTenantId), ("@name", name), ("@template", templateName),
-                ("@builtIn", Flag(false)), ("@defaults", defaultPlaybooks), ("@active", Flag(true)), ("@created", Timestamp()), ("@updated", Timestamp())).ConfigureAwait(false);
+            Objective objective = new Objective();
+            Dictionary<string, object?> row = rows.TimestampedRow();
+            row["id"] = objective.Id;
+            row["tenant_id"] = Constants.DefaultTenantId;
+            row["title"] = title;
+            row["status"] = objective.Status.ToString();
+            row["kind"] = objective.Kind.ToString();
+            row["priority"] = objective.Priority.ToString();
+            row["backlog_state"] = objective.BacklogState.ToString();
+            row["effort"] = objective.Effort.ToString();
+            row["suggested_pipeline_id"] = suggestedPipelineId;
+            await rows.InsertAsync("objectives", row, token).ConfigureAwait(false);
+            return objective.Id;
         }
 
-        private object Flag(bool value)
+        private static async Task CreateSnapshotAsync(StopVersionSeed rows, string missionId, int order, string playbookId, string fileName, string content, CancellationToken token)
         {
-            // PostgreSQL stores these flags as booleans; the other providers as integers.
-            return _Settings.Type == DatabaseTypeEnum.Postgresql ? (object)value : (value ? 1 : 0);
-        }
-
-        private object Timestamp()
-        {
-            DateTime timestamp = new DateTime(2025, 3, 4, 5, 6, 7, DateTimeKind.Utc);
-            // SQLite and SQL Server store this historical column as text; the other providers as a timestamp.
-            return _Settings.Type == DatabaseTypeEnum.Sqlite || _Settings.Type == DatabaseTypeEnum.SqlServer
-                ? timestamp.ToString("o", CultureInfo.InvariantCulture)
-                : timestamp;
+            Dictionary<string, object?> row = new Dictionary<string, object?>();
+            row["mission_id"] = missionId;
+            row["playbook_id"] = playbookId;
+            row["selection_order"] = order;
+            row["file_name"] = fileName;
+            row["content"] = content;
+            row["delivery_mode"] = new MissionPlaybookSnapshot().DeliveryMode.ToString();
+            await rows.InsertAsync("mission_playbook_snapshots", row, token).ConfigureAwait(false);
         }
 
         private async Task<bool> TableExistsAsync(string table, CancellationToken token)
@@ -413,19 +442,6 @@ namespace Armada.Test.Database
                 using (DbCommand command = Command(connection, sql, parameters))
                 {
                     return Convert.ToInt64(await command.ExecuteScalarAsync(token).ConfigureAwait(false));
-                }
-            }
-        }
-
-        private async Task ExecuteAsync(string sql, CancellationToken token, params (string Name, object Value)[] parameters)
-        {
-            using (DbConnection connection = MigrationScenarioRunner.CreateConnection(_Settings))
-            {
-                await connection.OpenAsync(token).ConfigureAwait(false);
-                using (DbCommand command = Command(connection, sql, parameters))
-                {
-                    int changed = await command.ExecuteNonQueryAsync(token).ConfigureAwait(false);
-                    DatabaseAssert.True(changed == 1, "Fixture statement changes exactly one row: " + sql);
                 }
             }
         }

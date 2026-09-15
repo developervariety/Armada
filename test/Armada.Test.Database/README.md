@@ -63,10 +63,10 @@ between restarts, and then restarts to completion. It checks applied history,
 revocation persistence across a reopen, and compare-and-set enrollment and
 revocation after restart.
 
-A scenario that seeds rows while the schema is stopped below a version writes
-them with SQL that names only columns present at that version. Driver create
-methods write the newest row shape, so they would name columns that a later
-migration adds and fail against the older schema.
+A scenario that stops the schema below the newest version seeds every row with
+SQL that names only the columns of the stop version, never through driver
+create or update methods. Driver writes use the newest row shape, so they fail
+as soon as a later migration adds a column to a seeded table.
 
 | Scenario | Providers | Proof |
 | --- | --- | --- |

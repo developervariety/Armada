@@ -30,12 +30,16 @@ namespace Armada.Test.Database
             MigrationScenarioRunner history = new MigrationScenarioRunner(_Settings);
             Dictionary<int, string> before = await history.ReadHistoryAsync(token).ConfigureAwait(false);
             string id = "anchor-legacy-" + Guid.NewGuid().ToString("N");
-            string vesselId;
-            using (DatabaseDriver driver = CreateDriver())
-            {
-                Vessel vessel = await driver.Vessels.CreateAsync(new Vessel("legacy", "https://example.invalid/repo"), token).ConfigureAwait(false);
-                vesselId = vessel.Id;
-            }
+            // The schema stops below the newest version, so the vessel is written with SQL naming only columns present here.
+            Vessel legacyVessel = new Vessel("legacy", "https://example.invalid/repo");
+            string vesselId = legacyVessel.Id;
+            StopVersionSeed rows = new StopVersionSeed(_Settings);
+            Dictionary<string, object?> vesselRow = rows.TimestampedRow();
+            vesselRow["id"] = vesselId;
+            vesselRow["name"] = legacyVessel.Name;
+            vesselRow["repo_url"] = legacyVessel.RepoUrl;
+            vesselRow["active"] = rows.Flag(true);
+            await rows.InsertAsync("vessels", vesselRow, token).ConfigureAwait(false);
             using (DbConnection connection = MigrationScenarioRunner.CreateConnection(_Settings))
             {
                 await connection.OpenAsync(token).ConfigureAwait(false);

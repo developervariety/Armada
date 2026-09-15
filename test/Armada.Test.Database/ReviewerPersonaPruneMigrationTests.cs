@@ -41,28 +41,29 @@ namespace Armada.Test.Database
             Dictionary<int, string> before = await history.ReadHistoryAsync(token).ConfigureAwait(false);
             DatabaseAssert.True(before.Keys.All(key => key < version), "The prune is still pending and no later version applied");
 
-            using (DatabaseDriver driver = CreateDriver())
-            {
-                await CreateTemplateAsync(driver, "persona.migration_data_reviewer", true, token).ConfigureAwait(false);
-                await CreateTemplateAsync(driver, "persona.performance_memory_reviewer", true, token).ConfigureAwait(false);
-                await CreateTemplateAsync(driver, "persona.frontend_workflow_reviewer", true, token).ConfigureAwait(false);
-                await CreateTemplateAsync(driver, "persona.operator_reviewer", false, token).ConfigureAwait(false);
+            // The schema stops below the newest version, so rows are written with SQL naming only columns present here.
+            StopVersionSeed rows = new StopVersionSeed(_Settings);
+            await rows.CreateTemplateAsync("persona.migration_data_reviewer", "persona", true, token).ConfigureAwait(false);
+            await rows.CreateTemplateAsync("persona.performance_memory_reviewer", "persona", true, token).ConfigureAwait(false);
+            await rows.CreateTemplateAsync("persona.frontend_workflow_reviewer", "persona", true, token).ConfigureAwait(false);
+            await rows.CreateTemplateAsync("persona.operator_reviewer", "persona", false, token).ConfigureAwait(false);
 
-                await CreatePersonaAsync(driver, "MigrationDataReviewer", "persona.migration_data_reviewer", true, token).ConfigureAwait(false);
-                await CreatePersonaAsync(driver, "PerformanceMemoryReviewer", "persona.performance_memory_reviewer", true, token).ConfigureAwait(false);
-                await CreatePersonaAsync(driver, "FrontendWorkflowReviewer", "persona.frontend_workflow_reviewer", true, token).ConfigureAwait(false);
-                await CreatePersonaAsync(driver, "OperatorReviewer", "persona.operator_reviewer", false, token).ConfigureAwait(false);
+            await rows.CreatePersonaAsync("MigrationDataReviewer", "persona.migration_data_reviewer", true, null, token).ConfigureAwait(false);
+            await rows.CreatePersonaAsync("PerformanceMemoryReviewer", "persona.performance_memory_reviewer", true, null, token).ConfigureAwait(false);
+            await rows.CreatePersonaAsync("FrontendWorkflowReviewer", "persona.frontend_workflow_reviewer", true, null, token).ConfigureAwait(false);
+            await rows.CreatePersonaAsync("OperatorReviewer", "persona.operator_reviewer", false, null, token).ConfigureAwait(false);
 
-                Pipeline pipeline = new Pipeline("OperatorPerformanceReview");
-                pipeline.TenantId = Constants.DefaultTenantId;
-                pipeline.Stages = new List<PipelineStage> { new PipelineStage(1, "Worker"), new PipelineStage(2, "PerformanceMemoryReviewer") };
-                await driver.Pipelines.CreateAsync(pipeline, token).ConfigureAwait(false);
+            await rows.CreatePipelineAsync("OperatorPerformanceReview", new[] { "Worker", "PerformanceMemoryReviewer" }, token).ConfigureAwait(false);
 
-                Captain captain = new Captain("frontend-review-captain");
-                captain.TenantId = Constants.DefaultTenantId;
-                captain.AllowedPersonas = "[\"Worker\",\"FrontendWorkflowReviewer\"]";
-                await driver.Captains.CreateAsync(captain, token).ConfigureAwait(false);
-            }
+            Captain captain = new Captain("frontend-review-captain");
+            Dictionary<string, object?> captainRow = rows.TimestampedRow();
+            captainRow["id"] = captain.Id;
+            captainRow["tenant_id"] = Constants.DefaultTenantId;
+            captainRow["name"] = captain.Name;
+            captainRow["runtime"] = captain.Runtime.ToString();
+            captainRow["state"] = captain.State.ToString();
+            captainRow["allowed_personas"] = "[\"Worker\",\"FrontendWorkflowReviewer\"]";
+            await rows.InsertAsync("captains", captainRow, token).ConfigureAwait(false);
 
             await StopAtAsync(version, 1, token).ConfigureAwait(false);
             Dictionary<int, string> interrupted = await history.ReadHistoryAsync(token).ConfigureAwait(false);
@@ -97,23 +98,6 @@ namespace Armada.Test.Database
 
             DatabaseAssert.NotNull(await driver.Personas.ReadByNameAsync("OperatorReviewer", token).ConfigureAwait(false), "An operator persona is kept");
             DatabaseAssert.NotNull(await driver.PromptTemplates.ReadByNameAsync("persona.operator_reviewer", token).ConfigureAwait(false), "An operator template is kept");
-        }
-
-        private static async Task CreateTemplateAsync(DatabaseDriver driver, string name, bool builtIn, CancellationToken token)
-        {
-            PromptTemplate template = new PromptTemplate(name, "template body for " + name);
-            template.TenantId = Constants.DefaultTenantId;
-            template.Category = "persona";
-            template.IsBuiltIn = builtIn;
-            await driver.PromptTemplates.CreateAsync(template, token).ConfigureAwait(false);
-        }
-
-        private static async Task CreatePersonaAsync(DatabaseDriver driver, string name, string templateName, bool builtIn, CancellationToken token)
-        {
-            Persona persona = new Persona(name, templateName);
-            persona.TenantId = Constants.DefaultTenantId;
-            persona.IsBuiltIn = builtIn;
-            await driver.Personas.CreateAsync(persona, token).ConfigureAwait(false);
         }
 
         private async Task StopAtAsync(int version, int ordinal, CancellationToken token)

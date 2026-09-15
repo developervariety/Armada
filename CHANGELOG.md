@@ -2260,6 +2260,9 @@ Skipped from upstream (already equal or richer here): captain-map, token-usage c
 - Added bearer and session-auth headers to dashboard requests where the relay requires both forms of authentication
 - Repaired dark readiness cards, workspace layout, responsive shell controls, mobile sidebar navigation, and Ask Armada control sizing
 
+### Migration scenarios seed the schema they stop at
+- Database migration scenarios that stop the schema below the newest version now seed every row with SQL that names only the columns of the stop version, through one shared test seed helper. The catalog and column prune, reviewer persona prune and dock anchor scenarios no longer seed through driver create methods, which write the newest row shape and fail on every provider once a later migration adds a column to a seeded table
+
 ---
 
 ## v0.9.0
