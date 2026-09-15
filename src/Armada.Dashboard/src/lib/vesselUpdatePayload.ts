@@ -1,6 +1,5 @@
 /**
- * Response fields a vessel update must not send: identity, ownership, server-maintained counters and timestamps,
- * and the retired flat auto-land fields the fork server never stored.
+ * Response fields a vessel update must not send: identity, ownership, and server-maintained counters and timestamps.
  */
 const EXCLUDED_KEYS = [
   'id',
@@ -10,11 +9,6 @@ const EXCLUDED_KEYS = [
   'autoLandCalibrationLandedCount',
   'createdUtc',
   'lastUpdateUtc',
-  'autoLandEnabled',
-  'autoLandMaxFiles',
-  'autoLandMaxLines',
-  'autoLandPathAllowGlobs',
-  'autoLandPathDenyGlobs',
 ];
 
 /**

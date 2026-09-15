@@ -18,8 +18,6 @@ const loaded = {
   autoLandCalibrationLandedCount: 12,
   createdUtc: '2026-09-01T00:00:00Z',
   lastUpdateUtc: '2026-09-02T00:00:00Z',
-  autoLandEnabled: true,
-  autoLandMaxFiles: 5,
 };
 
 describe('buildVesselUpdatePayload', () => {
@@ -47,10 +45,10 @@ describe('buildVesselUpdatePayload', () => {
     expect(cleared.autoLandPredicate).toBeNull();
   });
 
-  it('drops read-only response fields and the retired flat auto-land fields', () => {
+  it('drops read-only response fields', () => {
     const payload = buildVesselUpdatePayload(loaded, {});
 
-    for (const key of ['id', 'tenantId', 'userId', 'hasGitHubTokenOverride', 'autoLandCalibrationLandedCount', 'createdUtc', 'lastUpdateUtc', 'autoLandEnabled', 'autoLandMaxFiles']) {
+    for (const key of ['id', 'tenantId', 'userId', 'hasGitHubTokenOverride', 'autoLandCalibrationLandedCount', 'createdUtc', 'lastUpdateUtc']) {
       expect(key in payload).toBe(false);
     }
   });
