@@ -2,6 +2,9 @@ import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPromptTemplate, listPromptTemplates, resetPromptTemplate } from '../api/client';
 import type { PromptTemplate } from '../types/models';
+import { useAuth } from '../context/AuthContext';
+import { canEditOwned, canWrite, resolveCreateScope, viewerFromAuth, OWNED_RECORD_WRITE_LEVEL } from '../lib/scoping';
+import ScopeBadge from '../components/shared/ScopeBadge';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -26,6 +29,9 @@ export default function PromptTemplates() {
   const navigate = useNavigate();
   const { t: translate, formatRelativeTime, formatDateTime } = useLocale();
   const { pushToast } = useNotifications();
+  const viewer = viewerFromAuth(useAuth());
+  const writeLevel = OWNED_RECORD_WRITE_LEVEL.promptTemplates;
+  const canCreate = canWrite(viewer, writeLevel);
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -135,7 +141,7 @@ export default function PromptTemplates() {
 
   async function handleDuplicate(template: PromptTemplate) {
     try {
-      const created = await createPromptTemplate(buildPromptTemplateDuplicatePayload(template));
+      const created = await createPromptTemplate({ ...buildPromptTemplateDuplicatePayload(template), ownershipScope: resolveCreateScope(viewer, template.ownershipScope) });
       pushToast('success', translate('Template "{{name}}" duplicated.', { name: created.name }));
       navigate(`/prompt-templates/${encodeURIComponent(created.name)}`);
     } catch (err: unknown) {
@@ -150,11 +156,13 @@ export default function PromptTemplates() {
         subtitle={translate('Prompt templates define the instructions and structure used when generating prompts for captains and missions.')}
         actions={(
           <>
-            <button className="btn btn-primary btn-sm" onClick={() => navigate('/prompt-templates/create')}>
-              + {translate('Prompt Template')}
-            </button>
             <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={load} title={translate('Refresh prompt template data')} />
+            {canCreate && (
+              <button className="btn btn-primary btn-sm" onClick={() => navigate('/prompt-templates/create')}>
+                + {translate('Prompt Template')}
+              </button>
+            )}
           </>
         )}
       />
@@ -218,6 +226,7 @@ export default function PromptTemplates() {
                   <th className="sortable" onClick={() => handleSort('category')} title={translate('Category -- click to sort')}>
                     {translate('Category')}{sortIcon('category')}
                   </th>
+                  <th>{translate('Visibility')}</th>
                   <th className="sortable" onClick={() => handleSort('isBuiltIn')} title={translate('Built-in -- click to sort')}>
                     {translate('Built-in')}{sortIcon('isBuiltIn')}
                   </th>
@@ -241,6 +250,7 @@ export default function PromptTemplates() {
                   <td></td>
                   <td></td>
                   <td></td>
+                  <td></td>
                 </tr>
               </thead>
               <tbody>
@@ -249,22 +259,25 @@ export default function PromptTemplates() {
                     <td><strong>{template.name}</strong></td>
                     <td className="text-dim">{template.description || '-'}</td>
                     <td><StatusBadge status={template.category} /></td>
+                    <td><ScopeBadge scope={template.ownershipScope} /></td>
                     <td>{template.isBuiltIn ? <StatusBadge status="Built-in" /> : '-'}</td>
                     <td className="mono text-dim">{(template.content ?? '').length.toLocaleString()} {translate('chars')}</td>
                     <td><StatusBadge status={template.active !== false ? 'Active' : 'Inactive'} /></td>
                     <td className="text-dim" title={formatDateTime(template.lastUpdateUtc)}>{formatRelativeTime(template.lastUpdateUtc)}</td>
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={`template-${template.id}`} items={[
-                        { label: 'Edit', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(template.name)}`) },
-                        { label: 'Duplicate', onClick: () => void handleDuplicate(template) },
+                        canEditOwned(viewer, template, writeLevel)
+                          ? { label: 'Edit', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(template.name)}`) }
+                          : { label: 'Open', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(template.name)}`) },
+                        ...(canCreate ? [{ label: 'Duplicate', onClick: () => void handleDuplicate(template) }] : []),
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${translate('Template')}: ${template.name}`, data: template }) },
-                        ...(template.isBuiltIn ? [{ label: 'Reset to Default', danger: true as const, onClick: () => handleResetToDefault(template.name) }] : []),
+                        ...(template.isBuiltIn && canEditOwned(viewer, template, writeLevel) ? [{ label: 'Reset to Default', danger: true as const, onClick: () => handleResetToDefault(template.name) }] : []),
                       ]} />
                     </td>
                   </tr>
                 ))}
                 {paginated.length === 0 && (
-                  <tr><td colSpan={8} className="text-dim">{translate('No prompt templates match the current filters.')}</td></tr>
+                  <tr><td colSpan={9} className="text-dim">{translate('No prompt templates match the current filters.')}</td></tr>
                 )}
               </tbody>
             </table>

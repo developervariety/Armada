@@ -13,11 +13,15 @@ import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { useAuth } from '../context/AuthContext';
+import { canEditOwned, canWrite, resolveCreateScope, viewerFromAuth, OWNED_RECORD_WRITE_LEVEL } from '../lib/scoping';
+import ScopeBadge from '../components/shared/ScopeBadge';
 import { buildPersonaDuplicatePayload } from '../lib/duplicates';
 
 export default function PersonaDetail() {
   const { t, formatDateTime } = useLocale();
   const { pushToast } = useNotifications();
+  const viewer = viewerFromAuth(useAuth());
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
   const [persona, setPersona] = useState<Persona | null>(null);
@@ -180,7 +184,7 @@ export default function PersonaDetail() {
   async function handleDuplicate() {
     if (!persona) return;
     try {
-      const created = await createPersona(buildPersonaDuplicatePayload(persona));
+      const created = await createPersona({ ...buildPersonaDuplicatePayload(persona), ownershipScope: resolveCreateScope(viewer, persona.ownershipScope) });
       pushToast('success', t('Persona "{{name}}" duplicated.', { name: created.name }));
       navigate(`/personas/${encodeURIComponent(created.name)}`);
     } catch (err: unknown) {
@@ -205,10 +209,10 @@ export default function PersonaDetail() {
           <>
             <ActionMenu id={`persona-${persona.name}`} items={[
               { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Persona: {{name}}', { name: persona.name }), data: persona }) },
-              { label: 'Edit', onClick: openEdit },
-              { label: 'Duplicate', onClick: () => void handleDuplicate() },
+              ...(canEditOwned(viewer, persona, OWNED_RECORD_WRITE_LEVEL.personas) ? [{ label: 'Edit', onClick: openEdit }] : []),
+              ...(canWrite(viewer, OWNED_RECORD_WRITE_LEVEL.personas) ? [{ label: 'Duplicate', onClick: () => void handleDuplicate() }] : []),
               ...(persona.promptTemplateName ? [{ label: 'Open Backing Prompt', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(persona.promptTemplateName)}`) }] : []),
-              { label: 'Delete', danger: true, onClick: handleDelete },
+              ...(canEditOwned(viewer, persona, OWNED_RECORD_WRITE_LEVEL.personas) ? [{ label: 'Delete', danger: true as const, onClick: handleDelete }] : []),
             ]} />
           </>
         }
@@ -276,6 +280,7 @@ export default function PersonaDetail() {
           <span className="detail-label">{t('Default Captain')}</span>
           <span><CaptainRef captainId={persona.defaultCaptainId} captains={captains} autoLabel={t('None (default routing)')} /></span>
         </div>
+        <div className="detail-field"><span className="detail-label">{t('Visibility')}</span><ScopeBadge scope={persona.ownershipScope} /></div>
         <div className="detail-field"><span className="detail-label">{t('Built-in')}</span>{persona.isBuiltIn ? <StatusBadge status="Built-in" /> : <span className="text-dim">{t('No')}</span>}</div>
         <div className="detail-field"><span className="detail-label">{t('Active')}</span><StatusBadge status={persona.active ? 'Active' : 'Inactive'} /></div>
         <div className="detail-field"><span className="detail-label">{t('Created')}</span><span title={persona.createdUtc}>{formatDateTime(persona.createdUtc)}</span></div>

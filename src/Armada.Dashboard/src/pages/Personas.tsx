@@ -1,7 +1,11 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listPersonas, listPromptTemplates, createPersona, updatePersona, deletePersona } from '../api/client';
-import type { Persona } from '../types/models';
+import type { Persona, ScopeEnum } from '../types/models';
+import { useAuth } from '../context/AuthContext';
+import { canEditOwned, canWrite, resolveCreateScope, viewerFromAuth, OWNED_RECORD_WRITE_LEVEL } from '../lib/scoping';
+import ScopeBadge from '../components/shared/ScopeBadge';
+import ScopeSelect from '../components/shared/ScopeSelect';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import StatusBadge from '../components/shared/StatusBadge';
@@ -23,6 +27,9 @@ export default function Personas() {
   const navigate = useNavigate();
   const { t, formatRelativeTime, formatDateTime } = useLocale();
   const { pushToast } = useNotifications();
+  const viewer = viewerFromAuth(useAuth());
+  const writeLevel = OWNED_RECORD_WRITE_LEVEL.personas;
+  const canCreate = canWrite(viewer, writeLevel);
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -30,7 +37,7 @@ export default function Personas() {
   // Modal state
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Persona | null>(null);
-  const [form, setForm] = useState({ name: '', description: '', promptTemplateName: '' });
+  const [form, setForm] = useState<{ name: string; description: string; promptTemplateName: string; ownershipScope: ScopeEnum }>({ name: '', description: '', promptTemplateName: '', ownershipScope: 'TenantWide' });
   const [templateNames, setTemplateNames] = useState<string[]>([]);
 
   // JSON viewer
@@ -77,8 +84,8 @@ export default function Personas() {
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('personas', load);
 
   // CRUD
-  function openCreate() { setForm({ name: '', description: '', promptTemplateName: '' }); setEditing(null); setShowForm(true); }
-  function openEdit(p: Persona) { setForm({ name: p.name, description: p.description ?? '', promptTemplateName: p.promptTemplateName }); setEditing(p); setShowForm(true); }
+  function openCreate() { setForm({ name: '', description: '', promptTemplateName: '', ownershipScope: resolveCreateScope(viewer) }); setEditing(null); setShowForm(true); }
+  function openEdit(p: Persona) { setForm({ name: p.name, description: p.description ?? '', promptTemplateName: p.promptTemplateName, ownershipScope: p.ownershipScope }); setEditing(p); setShowForm(true); }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -86,7 +93,7 @@ export default function Personas() {
       const payload: Record<string, unknown> = { name: form.name, promptTemplateName: form.promptTemplateName };
       if (form.description) payload.description = form.description;
       if (editing) await updatePersona(editing.name, payload);
-      else await createPersona(payload as Partial<Persona>);
+      else await createPersona({ ...payload, ownershipScope: form.ownershipScope } as Partial<Persona>);
       setShowForm(false);
       pushToast('success', editing
         ? t('Persona "{{name}}" saved.', { name: editing.name })
@@ -113,7 +120,7 @@ export default function Personas() {
 
   async function handleDuplicate(persona: Persona) {
     try {
-      const created = await createPersona(buildPersonaDuplicatePayload(persona));
+      const created = await createPersona({ ...buildPersonaDuplicatePayload(persona), ownershipScope: resolveCreateScope(viewer, persona.ownershipScope) });
       pushToast('success', t('Persona "{{name}}" duplicated.', { name: created.name }));
       navigate(`/personas/${encodeURIComponent(created.name)}`);
     } catch (err: unknown) {
@@ -128,9 +135,9 @@ export default function Personas() {
         subtitle={t('Named configurations that define how captains behave when executing missions.')}
         actions={(
           <>
-            <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Persona')}</button>
             <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={load} title={t('Refresh persona data')} />
+            {canCreate && <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Persona')}</button>}
           </>
         )}
       />
@@ -154,6 +161,7 @@ export default function Personas() {
                 ))}
               </select>
             </label>
+            <ScopeSelect viewer={viewer} value={form.ownershipScope} locked={!!editing} onChange={(ownershipScope) => setForm({ ...form, ownershipScope })} />
             <div className="modal-actions">
               <button type="submit" className="btn btn-primary">{t('Save')}</button>
               <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
@@ -203,6 +211,7 @@ export default function Personas() {
                   <th className="sortable" onClick={() => table.handleSort('promptTemplateName')} title={t('Prompt template -- click to sort')}>
                     {t('Prompt Template')}{table.sortIcon('promptTemplateName')}
                   </th>
+                  <th>{t('Visibility')}</th>
                   <th className="sortable" onClick={() => table.handleSort('isBuiltIn')} title={t('Built-in -- click to sort')}>
                     {t('Built-in')}{table.sortIcon('isBuiltIn')}
                   </th>
@@ -223,6 +232,7 @@ export default function Personas() {
                   <td></td>
                   <td></td>
                   <td></td>
+                  <td></td>
                 </tr>
               </thead>
               <tbody>
@@ -237,23 +247,24 @@ export default function Personas() {
                     </td>
                     <td className="text-dim">{p.description ?? '-'}</td>
                     <td className="mono text-dim">{p.promptTemplateName}</td>
+                    <td><ScopeBadge scope={p.ownershipScope} /></td>
                     <td>{p.isBuiltIn ? <StatusBadge status="Built-in" /> : <span className="text-dim">-</span>}</td>
                     <td><StatusBadge status={p.active ? 'Active' : 'Inactive'} /></td>
                     <td className="text-dim" title={formatDateTime(p.createdUtc)}>{formatRelativeTime(p.createdUtc)}</td>
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={`persona-${p.name}`} items={[
                         { label: 'View Detail', onClick: () => navigate(`/personas/${encodeURIComponent(p.name)}`) },
-                        { label: 'Edit', onClick: () => openEdit(p) },
-                        { label: 'Duplicate', onClick: () => void handleDuplicate(p) },
+                        ...(canEditOwned(viewer, p, writeLevel) ? [{ label: 'Edit', onClick: () => openEdit(p) }] : []),
+                        ...(canCreate ? [{ label: 'Duplicate', onClick: () => void handleDuplicate(p) }] : []),
                         { label: 'Edit Backing Prompt', onClick: () => navigate(`/prompt-templates/${encodeURIComponent(p.promptTemplateName)}`) },
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Persona')}: ${p.name}`, data: p }) },
-                        ...(!p.isBuiltIn ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(p.name) }] : []),
+                        ...(!p.isBuiltIn && canEditOwned(viewer, p, writeLevel) ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(p.name) }] : []),
                       ]} />
                     </td>
                   </tr>
                 ))}
                 {table.paginated.length === 0 && (
-                  <tr><td colSpan={8} className="text-dim">{t('No personas match the current filters.')}</td></tr>
+                  <tr><td colSpan={9} className="text-dim">{t('No personas match the current filters.')}</td></tr>
                 )}
               </tbody>
             </table>

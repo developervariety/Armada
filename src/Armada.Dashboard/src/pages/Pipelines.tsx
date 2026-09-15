@@ -1,7 +1,11 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { listPipelines, listPersonas, createPipeline, updatePipeline, deletePipeline } from '../api/client';
-import type { Pipeline, PipelineStage } from '../types/models';
+import type { Pipeline, PipelineStage, ScopeEnum } from '../types/models';
+import { useAuth } from '../context/AuthContext';
+import { canEditOwned, canWrite, resolveCreateScope, viewerFromAuth, OWNED_RECORD_WRITE_LEVEL } from '../lib/scoping';
+import ScopeBadge from '../components/shared/ScopeBadge';
+import ScopeSelect from '../components/shared/ScopeSelect';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
@@ -36,6 +40,9 @@ export default function Pipelines() {
   const navigate = useNavigate();
   const { t, formatRelativeTime } = useLocale();
   const { pushToast } = useNotifications();
+  const viewer = viewerFromAuth(useAuth());
+  const writeLevel = OWNED_RECORD_WRITE_LEVEL.pipelines;
+  const canCreate = canWrite(viewer, writeLevel);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -43,7 +50,7 @@ export default function Pipelines() {
   // Modal state
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Pipeline | null>(null);
-  const [form, setForm] = useState<{ name: string; description: string; stages: StageFormEntry[] }>({ name: '', description: '', stages: [{ personaName: '', isOptional: false, requiresReview: false, reviewDenyAction: 'RetryStage' }] });
+  const [form, setForm] = useState<{ name: string; description: string; stages: StageFormEntry[]; ownershipScope: ScopeEnum }>({ name: '', description: '', stages: [{ personaName: '', isOptional: false, requiresReview: false, reviewDenyAction: 'RetryStage' }], ownershipScope: 'TenantWide' });
   const [personaNames, setPersonaNames] = useState<string[]>([]);
 
   // JSON viewer
@@ -91,7 +98,7 @@ export default function Pipelines() {
 
   // CRUD
   function openCreate() {
-    setForm({ name: '', description: '', stages: [{ personaName: '', isOptional: false, requiresReview: false, reviewDenyAction: 'RetryStage' }] });
+    setForm({ name: '', description: '', stages: [{ personaName: '', isOptional: false, requiresReview: false, reviewDenyAction: 'RetryStage' }], ownershipScope: resolveCreateScope(viewer) });
     setEditing(null);
     setShowForm(true);
   }
@@ -101,7 +108,7 @@ export default function Pipelines() {
       .sort((a, b) => a.order - b.order)
       .map(s => ({ personaName: s.personaName, isOptional: s.isOptional, requiresReview: s.requiresReview, reviewDenyAction: s.reviewDenyAction }));
     if (stages.length === 0) stages.push({ personaName: '', isOptional: false, requiresReview: false, reviewDenyAction: 'RetryStage' });
-    setForm({ name: p.name, description: p.description ?? '', stages });
+    setForm({ name: p.name, description: p.description ?? '', stages, ownershipScope: p.ownershipScope });
     setEditing(p);
     setShowForm(true);
   }
@@ -146,7 +153,7 @@ export default function Pipelines() {
         .map((s, i) => ({ personaName: s.personaName.trim(), isOptional: s.isOptional, requiresReview: s.requiresReview, reviewDenyAction: s.reviewDenyAction, order: i + 1 }));
       const payload = { name: form.name, description: form.description || null, stages: stagesPayload } as Partial<Pipeline>;
       if (editing) await updatePipeline(editing.name, payload as Partial<Pipeline>);
-      else await createPipeline(payload);
+      else await createPipeline({ ...payload, ownershipScope: form.ownershipScope });
       setShowForm(false);
       pushToast('success', editing
         ? t('Pipeline "{{name}}" saved.', { name: editing.name })
@@ -173,7 +180,7 @@ export default function Pipelines() {
 
   async function handleDuplicate(pipeline: Pipeline) {
     try {
-      const created = await createPipeline(buildPipelineDuplicatePayload(pipeline));
+      const created = await createPipeline({ ...buildPipelineDuplicatePayload(pipeline), ownershipScope: resolveCreateScope(viewer, pipeline.ownershipScope) });
       pushToast('success', t('Pipeline "{{name}}" duplicated.', { name: created.name }));
       navigate(`/pipelines/${encodeURIComponent(created.name)}`);
     } catch (err: unknown) {
@@ -188,9 +195,9 @@ export default function Pipelines() {
         subtitle={t('Multi-stage workflows combining different personas')}
         actions={(
           <>
-            <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Pipeline')}</button>
             <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <RefreshButton onRefresh={load} title="Refresh pipeline data" />
+            {canCreate && <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Pipeline')}</button>}
           </>
         )}
       />
@@ -256,6 +263,7 @@ export default function Pipelines() {
               ))}
               <button type="button" className="btn btn-sm" onClick={addStage} style={{ marginTop: '0.5rem' }}>+ {t('Stage')}</button>
             </div>
+            <ScopeSelect viewer={viewer} value={form.ownershipScope} locked={!!editing} onChange={(ownershipScope) => setForm({ ...form, ownershipScope })} />
             <div className="modal-actions">
               <button type="submit" className="btn btn-primary">{t('Save')}</button>
               <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
@@ -305,6 +313,7 @@ export default function Pipelines() {
                   <th className="sortable" onClick={() => table.handleSort('stages')} title={t('Stage count -- click to sort')}>
                     {t('Stages')}{table.sortIcon('stages')}
                   </th>
+                  <th>{t('Visibility')}</th>
                   <th className="sortable" onClick={() => table.handleSort('isBuiltIn')} title={t('Built-in -- click to sort')}>
                     {t('Built-in')}{table.sortIcon('isBuiltIn')}
                   </th>
@@ -325,6 +334,7 @@ export default function Pipelines() {
                   <td></td>
                   <td></td>
                   <td></td>
+                  <td></td>
                 </tr>
               </thead>
               <tbody>
@@ -339,22 +349,23 @@ export default function Pipelines() {
                     </td>
                     <td className="text-dim">{p.description || '-'}</td>
                     <td>{formatStages(p.stages)}</td>
+                    <td><ScopeBadge scope={p.ownershipScope} /></td>
                     <td>{p.isBuiltIn ? <StatusBadge status="Built-in" /> : <span className="text-dim">-</span>}</td>
                     <td><StatusBadge status={p.active !== false ? 'Active' : 'Inactive'} /></td>
                     <td className="text-dim">{formatRelativeTime(p.createdUtc)}</td>
                     <td className="text-right" onClick={e => e.stopPropagation()}>
                       <ActionMenu id={`pipeline-${p.id}`} items={[
                         { label: 'View Detail', onClick: () => navigate(`/pipelines/${encodeURIComponent(p.name)}`) },
-                        { label: 'Edit', onClick: () => openEdit(p) },
-                        { label: 'Duplicate', onClick: () => void handleDuplicate(p) },
+                        ...(canEditOwned(viewer, p, writeLevel) ? [{ label: 'Edit', onClick: () => openEdit(p) }] : []),
+                        ...(canCreate ? [{ label: 'Duplicate', onClick: () => void handleDuplicate(p) }] : []),
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `Pipeline: ${p.name}`, data: p }) },
-                        ...(!p.isBuiltIn ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(p.name) }] : []),
+                        ...(!p.isBuiltIn && canEditOwned(viewer, p, writeLevel) ? [{ label: 'Delete', danger: true as const, onClick: () => handleDelete(p.name) }] : []),
                       ]} />
                     </td>
                   </tr>
                 ))}
                 {table.paginated.length === 0 && (
-                  <tr><td colSpan={8} className="text-dim">{t('No pipelines match the current filters.')}</td></tr>
+                  <tr><td colSpan={9} className="text-dim">{t('No pipelines match the current filters.')}</td></tr>
                 )}
               </tbody>
             </table>

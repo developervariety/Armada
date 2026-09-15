@@ -2233,9 +2233,14 @@ export interface WebSocketMessage {
   timestamp?: string;
 }
 
+/** Who may see and change a tenant-wide or user-specific record. */
+export type ScopeEnum = 'TenantWide' | 'UserSpecific';
+
 export interface PromptTemplate {
   id: string;
   tenantId: string | null;
+  userId?: string | null;
+  ownershipScope: ScopeEnum;
   name: string;
   description: string | null;
   category: string;
@@ -2249,6 +2254,8 @@ export interface PromptTemplate {
 export interface Persona {
   id: string;
   tenantId: string | null;
+  userId?: string | null;
+  ownershipScope: ScopeEnum;
   name: string;
   description: string | null;
   promptTemplateName: string;
@@ -2263,6 +2270,8 @@ export interface Persona {
 export interface Pipeline {
   id: string;
   tenantId: string | null;
+  userId?: string | null;
+  ownershipScope: ScopeEnum;
   name: string;
   description: string | null;
   stages: PipelineStage[];

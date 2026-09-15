@@ -3,6 +3,8 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { createPipeline, getPipeline, updatePipeline, deletePipeline, listPersonas, listVessels, createVoyage } from '../api/client';
 import type { Pipeline, PipelineStage, Vessel } from '../types/models';
 import { useAuth } from '../context/AuthContext';
+import { canEditOwned, canWrite, resolveCreateScope, viewerFromAuth, OWNED_RECORD_WRITE_LEVEL } from '../lib/scoping';
+import ScopeBadge from '../components/shared/ScopeBadge';
 import ActionMenu from '../components/shared/ActionMenu';
 import PageHeader from '../components/shared/PageHeader';
 import JsonViewer from '../components/shared/JsonViewer';
@@ -50,7 +52,9 @@ function PipelineFlow({ stages, label }: { stages: PipelineStage[]; label: (key:
 export default function PipelineDetail() {
   const { t, formatDateTime } = useLocale();
   const { pushToast } = useNotifications();
-  const { isAdmin, isTenantAdmin } = useAuth();
+  const auth = useAuth();
+  const { isAdmin, isTenantAdmin } = auth;
+  const viewer = viewerFromAuth(auth);
   const { name } = useParams<{ name: string }>();
   const navigate = useNavigate();
   const [pipeline, setPipeline] = useState<Pipeline | null>(null);
@@ -65,6 +69,7 @@ export default function PipelineDetail() {
   const [runDescription, setRunDescription] = useState('');
   const [running, setRunning] = useState(false);
   const canManage = isAdmin || isTenantAdmin;
+  const canEditPipeline = pipeline ? canEditOwned(viewer, pipeline, OWNED_RECORD_WRITE_LEVEL.pipelines) : false;
 
   // Edit modal
   const [showForm, setShowForm] = useState(false);
@@ -181,7 +186,7 @@ export default function PipelineDetail() {
   async function handleDuplicate() {
     if (!pipeline) return;
     try {
-      const created = await createPipeline(buildPipelineDuplicatePayload(pipeline));
+      const created = await createPipeline({ ...buildPipelineDuplicatePayload(pipeline), ownershipScope: resolveCreateScope(viewer, pipeline.ownershipScope) });
       pushToast('success', t('Pipeline "{{name}}" duplicated.', { name: created.name }));
       navigate(`/pipelines/${encodeURIComponent(created.name)}`);
     } catch (err: unknown) {
@@ -240,9 +245,9 @@ export default function PipelineDetail() {
             )}
             <ActionMenu id={`pipeline-${pipeline.name}`} items={[
               { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Pipeline: {{name}}', { name: pipeline.name }), data: pipeline }) },
-              { label: 'Edit', onClick: openEdit },
-              { label: 'Duplicate', onClick: () => void handleDuplicate() },
-              { label: 'Delete', danger: true, onClick: handleDelete, disabled: pipeline.isBuiltIn },
+              ...(canEditPipeline ? [{ label: 'Edit', onClick: openEdit }] : []),
+              ...(canWrite(viewer, OWNED_RECORD_WRITE_LEVEL.pipelines) ? [{ label: 'Duplicate', onClick: () => void handleDuplicate() }] : []),
+              ...(canEditPipeline ? [{ label: 'Delete', danger: true as const, onClick: handleDelete, disabled: pipeline.isBuiltIn }] : []),
             ]} />
           </>
         }
@@ -346,6 +351,7 @@ export default function PipelineDetail() {
         </div>
         <div className="detail-field"><span className="detail-label">{t('Name')}</span><span>{pipeline.name}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Description')}</span><span>{pipeline.description || '-'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Visibility')}</span><span><ScopeBadge scope={pipeline.ownershipScope} /></span></div>
         <div className="detail-field"><span className="detail-label">{t('Built-in')}</span><span>{pipeline.isBuiltIn ? <span className="badge badge-info">{t('Yes')}</span> : <span className="badge">{t('No')}</span>}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Active')}</span><span>{pipeline.active !== false ? <span className="badge badge-success">{t('Yes')}</span> : <span className="badge badge-dim">{t('No')}</span>}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Created')}</span><span title={pipeline.createdUtc}>{formatDateTime(pipeline.createdUtc)}</span></div>
@@ -356,7 +362,7 @@ export default function PipelineDetail() {
       <div style={{ marginBottom: '1.5rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3>{t('Flow')}</h3>
-          {canManage && <button className="btn" onClick={openEdit}>{t('Edit stages')}</button>}
+          {canEditPipeline && <button className="btn" onClick={openEdit}>{t('Edit stages')}</button>}
         </div>
         <div className="table-wrap" style={{ overflowX: 'auto' }}>
           <PipelineFlow stages={pipeline.stages} label={t} />

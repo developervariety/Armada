@@ -12,6 +12,9 @@ import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { buildPromptTemplateDuplicatePayload } from '../lib/duplicates';
+import { useAuth } from '../context/AuthContext';
+import { canEditOwned, canWrite, resolveCreateScope, viewerFromAuth, OWNED_RECORD_WRITE_LEVEL } from '../lib/scoping';
+import ScopeBadge from '../components/shared/ScopeBadge';
 
 interface ParameterInfo {
   name: string;
@@ -79,8 +82,12 @@ export default function PromptTemplateDetail() {
   const navigate = useNavigate();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const createMode = !name;
+  const viewer = viewerFromAuth(useAuth());
 
   const [template, setTemplate] = useState<PromptTemplate | null>(null);
+  const canEditThis = createMode
+    ? canWrite(viewer, OWNED_RECORD_WRITE_LEVEL.promptTemplates)
+    : (template ? canEditOwned(viewer, template, OWNED_RECORD_WRITE_LEVEL.promptTemplates) : false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -226,7 +233,7 @@ export default function PromptTemplateDetail() {
     if (!template) return;
     try {
       setSaving(true);
-      const created = await createPromptTemplate(buildPromptTemplateDuplicatePayload(template));
+      const created = await createPromptTemplate({ ...buildPromptTemplateDuplicatePayload(template), ownershipScope: resolveCreateScope(viewer, template.ownershipScope) });
       pushToast('success', t('Template "{{name}}" duplicated.', { name: created.name }));
       navigate(`/prompt-templates/${encodeURIComponent(created.name)}`);
     } catch (err: unknown) {
@@ -297,10 +304,11 @@ export default function PromptTemplateDetail() {
               <>
                 <StatusBadge status={template!.category} />
                 {template!.isBuiltIn && <StatusBadge status="Built-in" />}
+                <ScopeBadge scope={template!.ownershipScope} />
                 <ActionMenu id={`template-${template!.name}`} items={[
-                  { label: 'Duplicate', onClick: () => void handleDuplicate() },
+                  ...(canWrite(viewer, OWNED_RECORD_WRITE_LEVEL.promptTemplates) ? [{ label: 'Duplicate', onClick: () => void handleDuplicate() }] : []),
                   { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Template: {{name}}', { name: template!.name }), data: template }) },
-                  ...(template!.isBuiltIn ? [{ label: 'Reset to Default', danger: true as const, onClick: handleReset }] : []),
+                  ...(template!.isBuiltIn && canEditThis ? [{ label: 'Reset to Default', danger: true as const, onClick: handleReset }] : []),
                 ]} />
               </>
             )}
@@ -535,7 +543,7 @@ export default function PromptTemplateDetail() {
             <button
               className="btn btn-primary"
               onClick={handleSave}
-              disabled={saving || !dirty || (createMode && (!templateName.trim() || !category.trim() || !content.trim()))}
+              disabled={saving || !dirty || !canEditThis || (createMode && (!templateName.trim() || !category.trim() || !content.trim()))}
             >
               {saving ? t('Saving...') : t('Save')}
             </button>
