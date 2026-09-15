@@ -201,6 +201,40 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   typed. The source-type filter lists every source type, the page shows the
   server total, and an export reads every page instead of the first 500
   entries.
+### Dashboard pages follow upstream
+
+- Vessel, mission and merge queue detail show the upstream inline landing
+  preview with its "Ready To Land" or "Needs Review" pill. The vessel setting
+  reads "Require Passing Checks To Land".
+- Captain chat waits 330 seconds and a vessel context build waits 900 seconds
+  for the server. A Mux captain requires a named Mux endpoint.
+- The captain forms set the capability tier, and an API Endpoint captain
+  selects the inference endpoint it drives. The captain list and detail show
+  the tier badge. The list uses the upstream two-column form, runtime order and
+  header order, and shows a quarantined captain as a stalled tag with its
+  release time; the reason is the tag's tooltip.
+- Mission detail offers Land for a WorkProduced mission and Retry Landing for a
+  LandingFailed mission. A Review mission offers neither Land nor Mark
+  Complete, because the server refuses a landing retry and a manual Complete
+  while the mission is in Review. The mission `DELETE` route cancels, so the
+  action is Cancel and the mission stays on screen; Purge returns to the
+  mission list.
+- The mission list keeps server paging for the creation-time order. A title,
+  status or branch filter, or a title, status or priority sort, reads every
+  page at the server page cap and filters, sorts and pages in the browser. The
+  status filter lists PullRequestOpen and LandingFailed.
+- Captains, captain detail, mission detail and vessel detail refresh on the
+  auto-refresh interval and show the loading spinner only on the first load.
+  Captain and vessel detail report a missing record as not found. Vessel detail
+  reads the vessel by id.
+- Merge entry detail polls while the queue is working the entry and shows the
+  pull request link, merge failure class, failure summary and conflicted files.
+- The home Active Voyages card opens the voyages tab of the missions page, a
+  home mission row's View JSON shows its summary row, and the mission history
+  chart reloads on each home refresh.
+- The Vessels page has no Workspace header button, and API Explorer and
+  Requests do not link to each other from their headers. Page header buttons
+  use the upstream order.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 
@@ -1433,9 +1467,6 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - The required-checks and no-passing-checks messages state that they come from
   the preview scope. Before, the message said checks were required "before
   landing may proceed", although no landing path reads the vessel setting.
-- Vessel, mission and merge queue pages render the preview through one card
-  that says "No blocking preview issues" instead of "Ready To Land" and states
-  that its Check evidence is not the Check gate for the landed commit.
 
 ### Captain chat tool activity
 
@@ -1455,10 +1486,8 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   it keeps, not configured, or a stored predicate that cannot be parsed.
   Per-vessel Definition of Done controls were not imported; Definition of Done
   stays a global setting.
-- The vessel form states what the selected landing mode does, from one shared
-  list of modes. Local Merge merges into the managed repository and
-  fast-forwards the working checkout without a push; Default uses the global
-  mode, and a voyage landing mode takes priority over the vessel.
+- The vessel form, filter and table describe each landing mode with the
+  upstream labels and short descriptions.
 
 ### Captain assignment for inherited pipelines
 
@@ -1577,8 +1606,9 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - A provider spend cap no longer strips work from other captains on the capped
   model: the failing captain and idle siblings are held, and a busy sibling keeps
   its mission, dock and process until its own run returns the cap.
-- The captains list shows the hold reason and expiry and offers Quarantine and
-  Lift Quarantine; Captain Detail adds Quarantine. Both use one dialog (reason
+- The captains list shows a quarantined captain as a stalled tag with its
+  release time and the hold reason as the tag's tooltip, and offers Quarantine
+  and Lift Quarantine; Captain Detail adds Quarantine. Both use one dialog (reason
   plus a duration, an expiry, or until released) and report the server's typed
   outcome, including Busy and NotQuarantined.
 
