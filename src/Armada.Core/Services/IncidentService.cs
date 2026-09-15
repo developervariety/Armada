@@ -80,10 +80,33 @@ namespace Armada.Core.Services
                     || ContainsIgnoreCase(item.EnvironmentName, search));
             }
 
-            List<Incident> ordered = filtered
-                .OrderByDescending(item => item.LastUpdateUtc)
-                .ThenByDescending(item => item.Id, StringComparer.Ordinal)
-                .ToList();
+            if (query.ExcludeTerminal)
+                filtered = filtered.Where(item => item.Status != IncidentStatusEnum.Closed && item.Status != IncidentStatusEnum.RolledBack);
+
+            List<Incident> ordered;
+            if (query.OldestFirst)
+            {
+                if (query.AfterLastUpdateUtc.HasValue)
+                {
+                    DateTime afterUtc = query.AfterLastUpdateUtc.Value;
+                    string afterId = query.AfterId ?? String.Empty;
+                    filtered = filtered.Where(item =>
+                        item.LastUpdateUtc > afterUtc
+                        || (item.LastUpdateUtc == afterUtc && String.CompareOrdinal(item.Id, afterId) > 0));
+                }
+
+                ordered = filtered
+                    .OrderBy(item => item.LastUpdateUtc)
+                    .ThenBy(item => item.Id, StringComparer.Ordinal)
+                    .ToList();
+            }
+            else
+            {
+                ordered = filtered
+                    .OrderByDescending(item => item.LastUpdateUtc)
+                    .ThenByDescending(item => item.Id, StringComparer.Ordinal)
+                    .ToList();
+            }
 
             int pageSize = query.PageSize < 1 ? 50 : Math.Min(query.PageSize, 500);
             int pageNumber = query.PageNumber < 1 ? 1 : query.PageNumber;

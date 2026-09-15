@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System;
+    using System.Collections.Generic;
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
@@ -432,12 +433,116 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(IncidentStatusEnum.RolledBack, updated!.Status);
                 AssertTrue(updated.ClosedUtc.HasValue, "Rolled-back incidents should get closure timestamp.");
             }).ConfigureAwait(false);
+
+            await RunTest("Sweep reaches an open incident when newer closed incidents fill a whole sweep page", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_inc_life_closed_page", "usr_inc_life_closed_page").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_inc_life_closed_page", "usr_inc_life_closed_page").ConfigureAwait(false);
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
+                int maxPerSweep = 3;
+
+                Incident open = await CreateSupersededIncidentAsync(testDb, incidents, auth, vessel, "Open superseded").ConfigureAwait(false);
+                for (int i = 0; i < maxPerSweep + 2; i++)
+                {
+                    await Task.Delay(15).ConfigureAwait(false);
+                    await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                    {
+                        Title = "Closed incident " + i,
+                        Status = IncidentStatusEnum.Closed,
+                        Severity = IncidentSeverityEnum.Low,
+                        VesselId = vessel.Id,
+                        DetectedUtc = DateTime.UtcNow.AddMinutes(-2),
+                        ClosedUtc = DateTime.UtcNow.AddMinutes(-1)
+                    }).ConfigureAwait(false);
+                }
+
+                IncidentLifecycleOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, incidents, 60, maxPerSweep);
+                AssertEqual(1, await orchestrator.RunSweepAsync().ConfigureAwait(false), "The sweep must evaluate the open incident behind a page of closed ones.");
+
+                Incident? updated = await incidents.ReadAsync(auth, open.Id).ConfigureAwait(false);
+                AssertTrue(updated != null, "Expected incident.");
+                AssertEqual(IncidentStatusEnum.Closed, updated!.Status, "The open superseded incident closes.");
+            }).ConfigureAwait(false);
+
+            await RunTest("Sweeps reach every eligible open incident within a bounded number of sweeps", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_inc_life_rotation", "usr_inc_life_rotation").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_inc_life_rotation", "usr_inc_life_rotation").ConfigureAwait(false);
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
+                int maxPerSweep = 3;
+
+                // Oldest open incidents carry no evidence, so every sweep leaves them unchanged.
+                for (int i = 0; i < maxPerSweep; i++)
+                {
+                    await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                    {
+                        Title = "Unchanged open incident " + i,
+                        Status = IncidentStatusEnum.Open,
+                        Severity = IncidentSeverityEnum.Low,
+                        VesselId = vessel.Id,
+                        DetectedUtc = DateTime.UtcNow.AddMinutes(-10)
+                    }).ConfigureAwait(false);
+                    await Task.Delay(15).ConfigureAwait(false);
+                }
+
+                List<string> eligibleIds = new List<string>();
+                for (int i = 0; i < maxPerSweep * 2; i++)
+                {
+                    Incident eligible = await CreateSupersededIncidentAsync(testDb, incidents, auth, vessel, "Eligible " + i).ConfigureAwait(false);
+                    eligibleIds.Add(eligible.Id);
+                    await Task.Delay(15).ConfigureAwait(false);
+                }
+
+                IncidentLifecycleOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, incidents, 60, maxPerSweep);
+                int totalOpen = maxPerSweep * 3;
+                int sweepBound = (totalOpen + maxPerSweep - 1) / maxPerSweep + 1;
+                int changed = 0;
+                for (int sweep = 0; sweep < sweepBound; sweep++)
+                    changed += await orchestrator.RunSweepAsync().ConfigureAwait(false);
+
+                AssertEqual(maxPerSweep * 2, changed, "Every eligible incident changes once within " + sweepBound + " sweeps.");
+                foreach (string id in eligibleIds)
+                {
+                    Incident? updated = await incidents.ReadAsync(auth, id).ConfigureAwait(false);
+                    AssertTrue(updated != null, "Expected incident.");
+                    AssertEqual(IncidentStatusEnum.Closed, updated!.Status, "Eligible incident " + id + " closes within the sweep bound.");
+                }
+            }).ConfigureAwait(false);
+        }
+
+        private static async Task<Incident> CreateSupersededIncidentAsync(
+            TestDatabase testDb,
+            IncidentService incidents,
+            AuthContext auth,
+            Vessel vessel,
+            string title)
+        {
+            Mission failed = await CreateMissionAsync(testDb, vessel, MissionStatusEnum.Failed, title).ConfigureAwait(false);
+            Mission rescue = await CreateMissionAsync(testDb, vessel, MissionStatusEnum.Cancelled, "Rescue 1: " + title).ConfigureAwait(false);
+            rescue.ParentMissionId = failed.Id;
+            rescue.Description = "Autonomous rescue mission cancelled. <!-- ARMADA:AUTO-RESCUE -->";
+            await testDb.Driver.Missions.UpdateAsync(rescue).ConfigureAwait(false);
+
+            return await incidents.CreateAsync(auth, new IncidentUpsertRequest
+            {
+                Title = "Mission failed: " + title,
+                Status = IncidentStatusEnum.Open,
+                Severity = IncidentSeverityEnum.Medium,
+                VesselId = vessel.Id,
+                MissionId = failed.Id,
+                DetectedUtc = DateTime.UtcNow.AddMinutes(-3)
+            }).ConfigureAwait(false);
         }
 
         private static IncidentLifecycleOrchestrator CreateOrchestrator(
             DatabaseDriver database,
             IncidentService incidents,
-            int closeQuietPeriodMinutes = 60)
+            int closeQuietPeriodMinutes = 60,
+            int maxIncidentsPerSweep = 50)
         {
             return new IncidentLifecycleOrchestrator(
                 database,
@@ -446,7 +551,8 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     IncidentLifecycle = new IncidentLifecycleSettings
                     {
-                        CloseQuietPeriodMinutes = closeQuietPeriodMinutes
+                        CloseQuietPeriodMinutes = closeQuietPeriodMinutes,
+                        MaxIncidentsPerSweep = maxIncidentsPerSweep
                     }
                 },
                 new LoggingModule());

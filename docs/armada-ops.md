@@ -1226,6 +1226,14 @@ Incident closure is evidence-driven. Produce a newer passing check, successful
 rescue, shipped release, verified deployment, or completed rollback. Do not
 close an incident only because a captain reported success.
 
+The lifecycle sweep reads only incidents that are not Closed or RolledBack. It
+takes at most `incidentLifecycle.maxIncidentsPerSweep` of them per sweep,
+oldest update first. Each sweep resumes after the last incident the previous
+sweep evaluated and wraps to the oldest at the end. Terminal incidents never
+take a sweep slot, so every open incident is evaluated within one full pass.
+The cursor is held in memory and restarts from the oldest after an admiral
+restart.
+
 ### A rescue of a stage inside a voyage re-enters review
 
 The rescue root first uses the failed mission's produced commit. If no commit

@@ -23,6 +23,9 @@ namespace Armada.Server
         private const string _Header = "[IncidentLifecycleOrchestrator] ";
         private readonly DatabaseDriver _Database;
         private readonly IncidentService _Incidents;
+        private readonly object _CursorLock = new object();
+        private DateTime? _CursorLastUpdateUtc = null;
+        private string? _CursorId = null;
         private readonly ArmadaSettings _Settings;
         private readonly LoggingModule _Logging;
         private readonly SemaphoreSlim _SweepGate = new SemaphoreSlim(1, 1);
@@ -80,17 +83,48 @@ namespace Armada.Server
             if (!settings.Enabled) return 0;
 
             AuthContext auth = BuildSystemAuth();
-            EnumerationResult<Incident> page = await _Incidents.EnumerateAsync(auth, new IncidentQuery
+            int pageSize = Math.Max(1, settings.MaxIncidentsPerSweep);
+
+            // The sweep reads only non-terminal incidents, oldest first, resuming after the last
+            // incident the previous sweep evaluated. Terminal incidents can never fill a page, and
+            // unchanged incidents cannot hold the page forever: every open incident is reached
+            // within one full pass of the cursor, then the cursor wraps to the oldest again.
+            DateTime? cursorUtc;
+            string? cursorId;
+            lock (_CursorLock)
             {
-                PageNumber = 1,
-                PageSize = Math.Max(1, settings.MaxIncidentsPerSweep)
-            }, token).ConfigureAwait(false);
+                cursorUtc = _CursorLastUpdateUtc;
+                cursorId = _CursorId;
+            }
+
+            List<Incident> batch = await ReadSweepPageAsync(auth, pageSize, cursorUtc, cursorId, token).ConfigureAwait(false);
+            if (batch.Count == 0 && cursorUtc.HasValue)
+            {
+                cursorUtc = null;
+                cursorId = null;
+                batch = await ReadSweepPageAsync(auth, pageSize, null, null, token).ConfigureAwait(false);
+            }
+
+            if (batch.Count < pageSize)
+            {
+                cursorUtc = null;
+                cursorId = null;
+            }
+            else
+            {
+                Incident last = batch[batch.Count - 1];
+                cursorUtc = last.LastUpdateUtc;
+                cursorId = last.Id;
+            }
+
+            lock (_CursorLock)
+            {
+                _CursorLastUpdateUtc = cursorUtc;
+                _CursorId = cursorId;
+            }
 
             int changed = 0;
-            foreach (Incident incident in page.Objects
-                .Where(item => item.Status != IncidentStatusEnum.Closed && item.Status != IncidentStatusEnum.RolledBack)
-                .OrderBy(item => item.LastUpdateUtc)
-                .Take(settings.MaxIncidentsPerSweep))
+            foreach (Incident incident in batch)
             {
                 token.ThrowIfCancellationRequested();
                 if (await EvaluateIncidentAsync(auth, incident, token).ConfigureAwait(false))
@@ -98,6 +132,26 @@ namespace Armada.Server
             }
 
             return changed;
+        }
+
+        private async Task<List<Incident>> ReadSweepPageAsync(
+            AuthContext auth,
+            int pageSize,
+            DateTime? afterLastUpdateUtc,
+            string? afterId,
+            CancellationToken token)
+        {
+            EnumerationResult<Incident> page = await _Incidents.EnumerateAsync(auth, new IncidentQuery
+            {
+                PageNumber = 1,
+                PageSize = pageSize,
+                ExcludeTerminal = true,
+                OldestFirst = true,
+                AfterLastUpdateUtc = afterLastUpdateUtc,
+                AfterId = afterId
+            }, token).ConfigureAwait(false);
+
+            return page.Objects.ToList();
         }
 
         private async Task<bool> EvaluateIncidentAsync(AuthContext auth, Incident incident, CancellationToken token)

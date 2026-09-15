@@ -14,6 +14,21 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Incident lifecycle sweep reaches every open incident
+
+- The incident lifecycle sweep now reads only non-terminal incidents. It no
+  longer reads Closed and RolledBack ones. Before, it read the newest page of
+  all incidents and then dropped the terminal ones. Once that page held only
+  closed incidents, every later sweep evaluated nothing while older open
+  incidents stayed open.
+- The sweep orders open incidents oldest update first and resumes after the
+  last incident the previous sweep evaluated. When it reaches the end, it
+  starts again from the oldest. Incidents that a sweep leaves unchanged can no
+  longer hold the page, so every open incident is evaluated within one full
+  pass of `incidentLifecycle.maxIncidentsPerSweep`-sized sweeps.
+- Incident enumeration accepts `ExcludeTerminal`, `OldestFirst`, and an
+  oldest-first keyset cursor (`AfterLastUpdateUtc`, `AfterId`).
+
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 
 - A mission that terminal-voyage reconciliation moved to Failed or Cancelled is
