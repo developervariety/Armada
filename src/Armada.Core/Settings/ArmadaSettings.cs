@@ -135,6 +135,18 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// How many times a mission is re-dispatched after its runtime reports an interrupted run (a negative
+        /// exit code from a stop, shutdown or restart) before the next interruption fails it. Counted per
+        /// mission from its <c>mission.interrupted_redispatched</c> events and separate from the
+        /// autonomous-rescue budget. Clamped to [0, 10]; 0 fails every interrupted run. Default 2.
+        /// </summary>
+        public int MaxInterruptedExitRedispatchAttempts
+        {
+            get => _MaxInterruptedExitRedispatchAttempts;
+            set => _MaxInterruptedExitRedispatchAttempts = Math.Max(0, Math.Min(10, value));
+        }
+
+        /// <summary>
         /// Stall detection threshold in minutes. Must be >= 1.
         /// </summary>
         public int StallThresholdMinutes
@@ -910,6 +922,7 @@ namespace Armada.Core.Settings
         private int _McpPort = Constants.DefaultMcpPort;
         private int _HeartbeatIntervalSeconds = Constants.DefaultHeartbeatIntervalSeconds;
         private int _LaunchProcessIdGraceSeconds = 30;
+        private int _MaxInterruptedExitRedispatchAttempts = 2;
         private int _StallThresholdMinutes = Constants.DefaultStallThresholdMinutes;
         private int _StageWatchdogTimeoutMinutes = 30;
         private int _MaxRecoveryAttempts = Constants.DefaultMaxRecoveryAttempts;
@@ -1054,6 +1067,7 @@ namespace Armada.Core.Settings
             MaxConcurrentCaptainWorkloads = source.MaxConcurrentCaptainWorkloads;
             HeartbeatIntervalSeconds = source.HeartbeatIntervalSeconds;
             LaunchProcessIdGraceSeconds = source.LaunchProcessIdGraceSeconds;
+            MaxInterruptedExitRedispatchAttempts = source.MaxInterruptedExitRedispatchAttempts;
             StallThresholdMinutes = source.StallThresholdMinutes;
             StageWatchdogTimeoutMinutes = source.StageWatchdogTimeoutMinutes;
             IdleCaptainTimeoutSeconds = source.IdleCaptainTimeoutSeconds;

@@ -1333,6 +1333,7 @@ new launch:
 | Refusal in the captain output | completion handler, continuation on another runtime | released by the next launch |
 | Provider safeguard block on exit | process-exit failure, continuation | released by the next launch |
 | Probable resource kill or captain unavailable | process-exit failure, transient requeue | released by the next launch |
+| Runtime-reported interruption (negative exit code) | process-exit handler, interrupted re-dispatch | released by the next launch |
 | Provider quota, credit or spend limit | process-exit failure, re-route | released by the next launch |
 | Operator restart | restart of a Failed, Cancelled or LandingFailed mission | released by the next launch |
 | Review denied with retry | review decision | released by the next launch |
@@ -1348,6 +1349,31 @@ was never launched, so no completion for it exists to de-duplicate.
 A completion for a requeued mission that has not been launched again is a
 late duplicate and is still skipped. Look for the handler's log line naming
 the new launch when a completion inside the window is processed.
+
+### An interrupted run is re-dispatched within a budget
+
+A runtime reports a cancelled run as a negative exit code. A stop, a shutdown
+or an Admiral restart causes it; an agent, model or configuration failure
+exits with a positive code. The process-exit handler treats a negative code as
+an interruption:
+
+1. An explicit `[ARMADA:RESULT] COMPLETE` still wins and completes the stage.
+2. A Cancelled mission is not re-dispatched.
+3. When the mission has fewer `mission.interrupted_redispatched` events than
+   `maxInterruptedExitRedispatchAttempts` (default 2, 0-10), it returns to
+   Pending with its captain and dock released, the captain goes to Idle, the
+   voyage keeps running, and one more event is written. Its `FailureReason`
+   names the exit code and the attempt.
+4. Otherwise the exit fails the mission through the normal terminal path.
+
+The mission is never Failed while it is re-dispatched, so autonomous recovery
+opens no incident or rescue for that exit. The budget is separate from the
+rescue budget. Deleting a mission's `mission.interrupted_redispatched` events
+resets its count.
+
+The health check is not an interruption source. When it cannot find a
+captain's process it reports `-1`, but that process may have exited cleanly
+after its exit record was pruned, so the health check keeps the failure path.
 
 ### A rescue brief keeps the reviewer's instructions, not only its diagnosis
 

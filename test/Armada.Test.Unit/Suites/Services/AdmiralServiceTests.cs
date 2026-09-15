@@ -159,6 +159,21 @@ namespace Armada.Test.Unit.Suites.Services
                     new AdmiralService(CreateLogging(), null!, null!, null!, null!, null!, null!));
             });
 
+            await RunTest("ArmadaSettings MaxInterruptedExitRedispatchAttempts ClampsToRangeAndDefaultsToTwo", () =>
+            {
+                ArmadaSettings settings = new ArmadaSettings();
+                AssertEqual(2, settings.MaxInterruptedExitRedispatchAttempts, "the default budget is two re-dispatches");
+
+                settings.MaxInterruptedExitRedispatchAttempts = -3;
+                AssertEqual(0, settings.MaxInterruptedExitRedispatchAttempts, "the budget clamps to the minimum");
+
+                settings.MaxInterruptedExitRedispatchAttempts = 99;
+                AssertEqual(10, settings.MaxInterruptedExitRedispatchAttempts, "the budget clamps to the maximum");
+
+                settings.MaxInterruptedExitRedispatchAttempts = 4;
+                AssertEqual(4, settings.MaxInterruptedExitRedispatchAttempts, "an in-range budget is kept");
+            });
+
             await RunTest("ArmadaSettings LaunchProcessIdGraceSeconds ClampsToRange", () =>
             {
                 ArmadaSettings settings = CreateSettings();
@@ -1785,6 +1800,130 @@ namespace Armada.Test.Unit.Suites.Services
 
                     EnumerationResult<ArmadaEvent> events = await db.Events.EnumerateAsync(new EnumerationQuery { PageNumber = 1, PageSize = 100 }).ConfigureAwait(false);
                     AssertTrue(events.Objects.Any(e => e.EventType == "mission.failed_recoverable_work" && e.MissionId == mission.Id), "Recoverable-work failure should emit mission.failed_recoverable_work");
+                }
+            });
+
+            await RunTest("HandleProcessExitAsync InterruptedExit RedispatchesMissionAndKeepsVoyageRunning", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MinIdleCaptains = 0;
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, new StubGitService());
+
+                    Voyage voyage = await db.Voyages.CreateAsync(new Voyage("Interrupted voyage") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                    Mission mission = await db.Missions.CreateAsync(new Mission("Interrupted mission")
+                    {
+                        VoyageId = voyage.Id,
+                        Status = MissionStatusEnum.InProgress,
+                        AssignmentState = MissionAssignmentStateEnum.Assigned,
+                        ProcessId = 7400,
+                        StartedUtc = DateTime.UtcNow.AddSeconds(-5)
+                    }).ConfigureAwait(false);
+                    Captain captain = new Captain("interrupted-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = mission.Id;
+                    captain.ProcessId = 7400;
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    await service.HandleProcessExitAsync(7400, -1, captain.Id, mission.Id).ConfigureAwait(false);
+
+                    Mission? updatedMission = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    Voyage? updatedVoyage = await db.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    Captain? updatedCaptain = await db.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                    List<ArmadaEvent> events = await db.Events.EnumerateByMissionAsync(mission.Id, 100).ConfigureAwait(false);
+
+                    AssertEqual(MissionStatusEnum.Pending, updatedMission!.Status, "an interrupted exit re-dispatches the mission");
+                    AssertNull(updatedMission.CaptainId, "the re-dispatched mission is unbound from its captain");
+                    AssertContains("interrupted", updatedMission.FailureReason ?? String.Empty, "the re-dispatch records why the run ended");
+                    AssertEqual(VoyageStatusEnum.InProgress, updatedVoyage!.Status, "an interrupted exit does not halt the voyage");
+                    AssertEqual(CaptainStateEnum.Idle, updatedCaptain!.State, "an interruption is not a captain fault, so the captain is released, not stalled");
+                    AssertEqual(1, events.Count(e => e.EventType == "mission.interrupted_redispatched"), "the re-dispatch emits one named event");
+                    AssertFalse(events.Any(e => e.EventType == "mission.failed"), "an interrupted exit emits no mission failure, so recovery opens no rescue");
+                }
+            });
+
+            await RunTest("HandleProcessExitAsync InterruptedExit BudgetExhausted FailsTerminally", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MinIdleCaptains = 0;
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, new StubGitService());
+
+                    Voyage voyage = await db.Voyages.CreateAsync(new Voyage("Repeatedly interrupted voyage") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                    Mission mission = await db.Missions.CreateAsync(new Mission("Repeatedly interrupted mission")
+                    {
+                        VoyageId = voyage.Id,
+                        Status = MissionStatusEnum.InProgress,
+                        AssignmentState = MissionAssignmentStateEnum.Assigned,
+                        ProcessId = 7401,
+                        StartedUtc = DateTime.UtcNow.AddSeconds(-5)
+                    }).ConfigureAwait(false);
+                    for (int attempt = 0; attempt < 2; attempt++)
+                    {
+                        ArmadaEvent prior = new ArmadaEvent("mission.interrupted_redispatched", "prior re-dispatch " + attempt);
+                        prior.MissionId = mission.Id;
+                        prior.VoyageId = voyage.Id;
+                        await db.Events.CreateAsync(prior).ConfigureAwait(false);
+                    }
+                    Captain captain = new Captain("repeatedly-interrupted-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = mission.Id;
+                    captain.ProcessId = 7401;
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    await service.HandleProcessExitAsync(7401, -1, captain.Id, mission.Id).ConfigureAwait(false);
+
+                    Mission? updatedMission = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    Voyage? updatedVoyage = await db.Voyages.ReadAsync(voyage.Id).ConfigureAwait(false);
+                    List<ArmadaEvent> events = await db.Events.EnumerateByMissionAsync(mission.Id, 100).ConfigureAwait(false);
+
+                    AssertEqual(MissionStatusEnum.Failed, updatedMission!.Status, "an interruption past the default budget of two re-dispatches fails the mission");
+                    AssertEqual(VoyageStatusEnum.Cancelled, updatedVoyage!.Status, "the exhausted mission halts the voyage like any other failure");
+                    AssertEqual(2, events.Count(e => e.EventType == "mission.interrupted_redispatched"), "no further re-dispatch is emitted once the budget is spent");
+                }
+            });
+
+            await RunTest("HealthCheckAsync VanishedProcess IsNotTreatedAsAnInterruption", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MinIdleCaptains = 0;
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, new StubGitService());
+
+                    Voyage voyage = await db.Voyages.CreateAsync(new Voyage("Vanished process voyage") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                    Mission mission = await db.Missions.CreateAsync(new Mission("Vanished process mission")
+                    {
+                        VoyageId = voyage.Id,
+                        Status = MissionStatusEnum.InProgress,
+                        AssignmentState = MissionAssignmentStateEnum.Assigned,
+                        ProcessId = 99999998,
+                        StartedUtc = DateTime.UtcNow.AddMinutes(-5)
+                    }).ConfigureAwait(false);
+                    Captain captain = new Captain("vanished-process-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = mission.Id;
+                    captain.ProcessId = 99999998;
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    // The health check reports a process it cannot find as -1. That value is not an exit code
+                    // the runtime reported: the process may have completed normally after its exit record was
+                    // pruned, so re-running the mission could repeat finished work.
+                    await service.HealthCheckAsync().ConfigureAwait(false);
+
+                    Mission? updatedMission = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    List<ArmadaEvent> events = await db.Events.EnumerateByMissionAsync(mission.Id, 100).ConfigureAwait(false);
+
+                    AssertFalse(events.Any(e => e.EventType == "mission.interrupted_redispatched"), "a vanished process is never re-dispatched as an interruption");
+                    AssertEqual(MissionStatusEnum.Failed, updatedMission!.Status, "a vanished process keeps the loud failure path");
                 }
             });
 

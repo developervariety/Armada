@@ -1569,6 +1569,16 @@ namespace Armada.Core.Services
                     return;
                 }
 
+                // A negative exit code reported by the runtime is an interruption (a stop, shutdown or restart
+                // cancelled the run), not a failure of the work. The mission is re-dispatched within its budget
+                // and never marked Failed, so autonomous recovery opens no rescue for the same exit.
+                if (IsInterruptedExitCode(exitCode)
+                    && await TryRedispatchInterruptedMissionAsync(captain, mission, missionId, exitCode!.Value, token).ConfigureAwait(false))
+                {
+                    await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
+                    return;
+                }
+
                 // Fail the mission deterministically. Process exits should not bounce between
                 // recovery paths; preserve the captured runtime error, halt the voyage, and only
                 // stall the captain when the failure indicates the runtime itself is unavailable.
@@ -1752,6 +1762,12 @@ namespace Armada.Core.Services
         }
 
         private CaptainStallEvaluator? _StallEvaluator;
+
+        private const string _InterruptedRedispatchEventType = "mission.interrupted_redispatched";
+
+        // Upper bound on the mission events read to count interrupted re-dispatches. Far above any budget the
+        // setting allows, so older unrelated events cannot hide a re-dispatch from the count.
+        private const int _InterruptedRedispatchHistoryLimit = 1000;
 
         // Created on first use so the stall rule reads the same database and git service the
         // admiral was built with.
@@ -3096,6 +3112,87 @@ namespace Armada.Core.Services
                         missionId: dependent.Id, voyageId: dependent.VoyageId, token: token).ConfigureAwait(false);
                 }
             }
+        }
+
+        /// <summary>
+        /// True when a runtime-reported exit code means the run was interrupted rather than failed. Runtimes
+        /// report a cancelled run as a negative code; agent, model and configuration failures exit positive.
+        /// </summary>
+        /// <param name="exitCode">Exit code reported by the runtime, or null when unknown.</param>
+        /// <returns>True for a negative exit code.</returns>
+        internal static bool IsInterruptedExitCode(int? exitCode)
+        {
+            return exitCode.HasValue && exitCode.Value < 0;
+        }
+
+        /// <summary>
+        /// Re-dispatch a mission whose run was interrupted, when its re-dispatch budget allows. The budget is
+        /// counted from the mission's <c>mission.interrupted_redispatched</c> events, so it survives an Admiral
+        /// restart and is separate from the autonomous-rescue budget. The captain is released to Idle because an
+        /// interruption is not a captain fault. Returns false, changing nothing, when the mission was cancelled or
+        /// the budget is spent; the caller then fails the mission through the normal terminal path.
+        /// </summary>
+        /// <param name="captain">Captain whose process exited.</param>
+        /// <param name="mission">Mission the process was running.</param>
+        /// <param name="missionId">Mission identifier.</param>
+        /// <param name="exitCode">Negative exit code reported by the runtime.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the mission was re-dispatched.</returns>
+        private async Task<bool> TryRedispatchInterruptedMissionAsync(
+            Captain captain,
+            Mission mission,
+            string missionId,
+            int exitCode,
+            CancellationToken token)
+        {
+            if (mission.Status == MissionStatusEnum.Cancelled) return false;
+
+            int budget = _Settings.MaxInterruptedExitRedispatchAttempts;
+            List<ArmadaEvent> history = await _Database.Events.EnumerateByMissionAsync(mission.Id, _InterruptedRedispatchHistoryLimit, token).ConfigureAwait(false);
+            int used = history.Count(item => String.Equals(item.EventType, _InterruptedRedispatchEventType, StringComparison.Ordinal));
+            if (used >= budget)
+            {
+                _Logging.Warn(_Header + "mission " + missionId + " was interrupted (exit code " + exitCode + ") after " + used
+                    + " interrupted re-dispatches; the budget of " + budget + " is spent, so the exit fails the mission");
+                return false;
+            }
+
+            int attempt = used + 1;
+            string reason = "Agent process was interrupted (exit code " + exitCode + "); mission re-dispatched, interrupted attempt "
+                + attempt + " of " + budget + ".";
+
+            mission.Status = MissionStatusEnum.Pending;
+            mission.AssignmentState = MissionAssignmentStateEnum.Pending;
+            mission.FailureReason = reason;
+            mission.CaptainId = null;
+            mission.DockId = null;
+            mission.ProcessId = null;
+            mission.StartedUtc = null;
+            mission.CompletedUtc = null;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            _Logging.Warn(_Header + "mission " + missionId + " " + reason);
+            await MissionAttemptFactRecorder.RecordAsync(_Database, mission, MissionAttemptFactTypeEnum.Retried, "interrupted_process_exit", _Logging, token).ConfigureAwait(false);
+
+            await EmitEventAsync(_InterruptedRedispatchEventType, reason + " " + mission.Title,
+                entityType: "mission", entityId: mission.Id,
+                captainId: captain.Id, missionId: mission.Id,
+                vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
+
+            await ReclaimDockAsync(captain, mission, token).ConfigureAwait(false);
+            await _Captains.ReleaseAsync(captain, token).ConfigureAwait(false);
+
+            if (!String.IsNullOrEmpty(mission.VesselId))
+            {
+                QueueVoyageAssignments(mission.VoyageId, mission.VesselId!, new List<string> { mission.Id });
+            }
+            else
+            {
+                _Logging.Warn(_Header + "mission " + missionId + " re-dispatched after an interruption but has no vessel id; relying on health-check retry sweep");
+                _RetryDispatchNeeded = true;
+            }
+
+            return true;
         }
 
         /// <summary>

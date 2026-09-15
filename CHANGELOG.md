@@ -14,6 +14,24 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### An interrupted captain run is re-dispatched, not failed
+
+- A negative exit code that a runtime reports means a stop, shutdown or
+  Admiral restart cancelled the run. The process-exit handler now returns
+  that mission to Pending, releases the captain to Idle, keeps the voyage
+  running and emits `mission.interrupted_redispatched`. Before, every
+  non-zero exit failed the mission and halted the voyage.
+- `maxInterruptedExitRedispatchAttempts` (default 2, 0-10) bounds the
+  re-dispatches per mission. The count comes from the mission's
+  `mission.interrupted_redispatched` events, so it survives a restart and
+  does not spend the autonomous-rescue budget. The next interruption after
+  the budget fails the mission through the normal terminal path.
+- An interrupted run is never marked Failed, so autonomous recovery opens no
+  incident or rescue for the same exit. A positive exit code still fails.
+- The health check's `-1` for a process it cannot find is not treated as an
+  interruption. That process may have completed after its exit record was
+  pruned, so re-running it could repeat finished work.
+
 ### Incident lifecycle sweep reaches every open incident
 
 - The incident lifecycle sweep now reads only non-terminal incidents. It no
