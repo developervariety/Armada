@@ -56,6 +56,28 @@ namespace Test.Shared.Suites.Services
                 AssertContains("Fixture.Suite.renamed names no discovered case", message);
             }));
 
+            cases.Add(Case("apply_reports_fork_difference_distinctly_from_owner_decision", "Apply reports an intentional fork difference with its own prefix, not as an owner decision", TestTags.Positive, () =>
+            {
+                IReadOnlyList<TestSuiteDescriptor> applied = SharedCaseDispositions.Apply(
+                    Suites(),
+                    new List<SharedCaseDisposition> { SharedCaseDisposition.ForkDifference("Fixture.Suite.recorded", "the fork keeps its own behaviour") },
+                    null);
+
+                TestCaseDescriptor recorded = applied[0].Cases.Single(c => c.CaseId == "recorded");
+                AssertTrue(recorded.Skip, "fork difference should be skipped");
+                AssertContains("Intentional fork difference: the fork keeps its own behaviour", recorded.SkipReason ?? String.Empty);
+                AssertFalse((recorded.SkipReason ?? String.Empty).Contains("Awaiting owner decision"), "a decided fork difference must not read as pending");
+            }));
+
+            cases.Add(Case("apply_rejects_fork_difference_naming_no_case", "Apply rejects an intentional fork difference that names no discovered case", TestTags.Negative, () =>
+            {
+                string message = CaptureInvalidOperation(() => SharedCaseDispositions.Apply(
+                    Suites(),
+                    new List<SharedCaseDisposition> { SharedCaseDisposition.ForkDifference("Fixture.Suite.renamed", "the fork keeps its own behaviour") },
+                    null));
+                AssertContains("Fixture.Suite.renamed names no discovered case", message);
+            }));
+
             cases.Add(Case("apply_rejects_duplicate_whose_legacy_owner_is_missing", "Apply rejects a duplicate whose legacy owner case is not registered", TestTags.Negative, () =>
             {
                 string root = CreateOwnerRoot("await RunTest(\"Some Other Case\", async () => { });");

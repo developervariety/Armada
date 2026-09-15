@@ -28,6 +28,21 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   pass of `incidentLifecycle.maxIncidentsPerSweep`-sized sweeps.
 - Incident enumeration accepts `ExcludeTerminal`, `OldestFirst`, and an
   oldest-first keyset cursor (`AfterLastUpdateUtc`, `AfterId`).
+### Shared-runner fork differences are recorded as decided
+
+- Shared cases that assert behaviour the fork has decided not to adopt now
+  carry their own disposition kind, "Intentional fork difference". The shared
+  runner prints that prefix on each skip and counts the kind separately, so a
+  decided difference no longer reads as pending owner work. A stale record of
+  this kind still fails discovery.
+- Six cases move to that kind: three expect a seeded "Test Engineer" persona
+  and an expanded FullPipeline, and three expect a "Model Context Updates"
+  section in generated instructions. The fork keeps its TestEngineer persona
+  and four-stage FullPipeline, because renaming or re-ordering seeded personas
+  on upgraded databases would break operator pipelines and prompt templates.
+  Its generated instruction sections are deliberate.
+- The unused planning-session inactivity default constant (60 minutes) is
+  removed. The effective default stays 0, which disables the timeout.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 

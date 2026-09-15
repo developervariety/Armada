@@ -138,8 +138,10 @@ namespace Test.Automated
             HashSet<string> skippedIds = new HashSet<string>(skipped.Select(testCase => testCase.TestId), StringComparer.Ordinal);
             int duplicates = SharedCaseDispositions.All.Count(d => d.Kind == SharedCaseDispositionKindEnum.DuplicateOfLegacyCase && skippedIds.Contains(d.TestId));
             int awaiting = SharedCaseDispositions.All.Count(d => d.Kind == SharedCaseDispositionKindEnum.AwaitingOwnerDecision && skippedIds.Contains(d.TestId));
+            int forkDifferences = SharedCaseDispositions.All.Count(d => d.Kind == SharedCaseDispositionKindEnum.IntentionalForkDifference && skippedIds.Contains(d.TestId));
             Console.WriteLine("Skipped by disposition: " + duplicates + " duplicate of an executed legacy case, " + awaiting + " awaiting owner decision, "
-                + (skipped.Count - duplicates - awaiting) + " other named skip.");
+                + forkDifferences + " intentional fork difference, "
+                + (skipped.Count - duplicates - awaiting - forkDifferences) + " other named skip.");
             if (SharedCaseDispositions.FindRepositoryRoot() == null)
                 Console.WriteLine("Legacy owners were not verified: the runner is not inside a source checkout.");
         }

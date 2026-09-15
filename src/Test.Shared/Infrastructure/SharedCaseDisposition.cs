@@ -44,6 +44,8 @@ namespace Test.Shared.Infrastructure
             {
                 if (Kind == SharedCaseDispositionKindEnum.DuplicateOfLegacyCase)
                     return "Duplicate of executed legacy case '" + OwnerCase + "' (" + OwnerFile + "): " + Reason;
+                if (Kind == SharedCaseDispositionKindEnum.IntentionalForkDifference)
+                    return "Intentional fork difference: " + Reason;
                 return "Awaiting owner decision: " + Reason;
             }
         }
@@ -61,6 +63,17 @@ namespace Test.Shared.Infrastructure
         public static SharedCaseDisposition AwaitingOwner(string testId, string reason)
         {
             return new SharedCaseDisposition(testId, SharedCaseDispositionKindEnum.AwaitingOwnerDecision, null, null, reason);
+        }
+
+        /// <summary>
+        /// Record a case that asserts behaviour the fork deliberately keeps different.
+        /// </summary>
+        /// <param name="testId">Shared test identity, <c>SuiteId.CaseId</c>.</param>
+        /// <param name="reason">The fork behaviour and why the fork keeps it.</param>
+        /// <returns>The disposition.</returns>
+        public static SharedCaseDisposition ForkDifference(string testId, string reason)
+        {
+            return new SharedCaseDisposition(testId, SharedCaseDispositionKindEnum.IntentionalForkDifference, null, null, reason);
         }
 
         /// <summary>

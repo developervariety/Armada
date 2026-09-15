@@ -89,8 +89,9 @@ The legacy executables remain the owners of the fork cases they execute. The sha
 |-------------|---------|---------------------------|
 | Duplicate of an executed legacy case | The shared copy predates a contract change that the legacy case already asserts. | The legacy file and registered case name |
 | Awaiting owner decision | The shared case asserts behaviour the fork does not implement. | None; the owner decides whether to implement the behaviour or retire the case |
+| Intentional fork difference | The shared case asserts behaviour the fork has decided not to adopt. The reason says what the fork does instead and why. | None; the decision is made, so nothing is pending |
 
-Discovery fails when a record names no discovered case or names a legacy case that its file no longer registers, so a rename or removal cannot silently hide a case. The per-case list and the reasons are in [the case mapping](upstream-review/test-discovery-cases.md#shared-runner-failure-inventory).
+The runner prints each kind with its own prefix and count, so a decided fork difference never reads as pending owner work. Discovery fails when a record names no discovered case or names a legacy case that its file no longer registers, so a rename or removal cannot silently hide a case. The per-case list and the reasons are in [the case mapping](upstream-review/test-discovery-cases.md#shared-runner-failure-inventory).
 
 | Shared suite prefix | Executed by | Legacy runner with overlapping cases |
 |---------------------|-------------|--------------------------------------|

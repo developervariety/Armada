@@ -18,6 +18,12 @@ namespace Test.Shared.Infrastructure
         /// The case asserts behaviour the fork does not implement. The owner decides whether to
         /// implement the behaviour or retire the case.
         /// </summary>
-        AwaitingOwnerDecision
+        AwaitingOwnerDecision,
+
+        /// <summary>
+        /// The case asserts behaviour the fork deliberately does not adopt. The decision is made and the
+        /// reason records why the fork keeps its own behaviour; nothing is pending.
+        /// </summary>
+        IntentionalForkDifference
     }
 }

@@ -305,11 +305,6 @@ namespace Armada.Core
         public static readonly int DefaultRequestHistoryMaxBodyBytes = 32768;
 
         /// <summary>
-        /// Default planning session inactivity timeout in minutes.
-        /// </summary>
-        public static readonly int DefaultPlanningSessionInactivityTimeoutMinutes = 60;
-
-        /// <summary>
         /// Default abandonment timeout in minutes for planning sessions with no active runtime process.
         /// </summary>
         public static readonly int DefaultPlanningSessionAbandonmentTimeoutMinutes = 0;

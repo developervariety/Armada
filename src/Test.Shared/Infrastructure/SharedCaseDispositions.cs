@@ -36,6 +36,8 @@ namespace Test.Shared.Infrastructure
         private const string CommittedCheckFixture = "check runs use an isolated checkout, so the fixture must commit its files and send a real commit";
         private const string VerifiedCompletion = "stage completion now requires a structured result and a green voyage Check";
         private const string PromptFinalArgument = "the fork passes the prompt as the final argument instead of stdin";
+        private const string ForkKeepsSeededPersonas = "kept because renaming or re-ordering seeded personas and pipelines on upgraded databases would break operator pipelines and prompt templates for no functional gain";
+        private const string ForkKeepsInstructionSections = "kept because the fork's generated instruction sections are deliberate";
 
         private static readonly IReadOnlyList<SharedCaseDisposition> _All = new List<SharedCaseDisposition>
         {
@@ -122,18 +124,18 @@ namespace Test.Shared.Infrastructure
                 "a mission's requested captain is resolved and stored but assignment does not consult it"),
             SharedCaseDisposition.AwaitingOwner("Services.CaptainRouting.no_tier_eligible_captain_stays_pending",
                 "a mission's fallback tier is resolved and stored but assignment does not consult it"),
-            SharedCaseDisposition.AwaitingOwner("Services.MissionPrompt.generate_claude_md_async_includes_model_context_when_enabled_and_set",
-                "generated instructions are written under .armada/instructions and carry no Model Context Updates section"),
-            SharedCaseDisposition.AwaitingOwner("Services.MissionPrompt.generate_claude_md_async_includes_update_instructions_even_when_model_context_is_empty",
-                "generated instructions carry no Model Context Updates section"),
-            SharedCaseDisposition.AwaitingOwner("Services.MissionPrompt.template_resolved_claude_md_contains_model_context_updates_when_enabled",
-                "generated instructions carry no Model Context Updates section"),
-            SharedCaseDisposition.AwaitingOwner("Services.PersonaSeedService.seed_async_creates_new_built_in_personas_and_expanded_full_pipeline",
-                "the fork seeds FullPipeline as Architect, Worker, TestEngineer, Judge and does not seed a Test Engineer persona"),
-            SharedCaseDisposition.AwaitingOwner("Services.PersonaSeedService.seed_async_upgrades_the_legacy_built_in_full_pipeline_order",
-                "the fork does not upgrade FullPipeline to the expanded product persona order"),
-            SharedCaseDisposition.AwaitingOwner("Services.PersonaSeedService.seed_async_renames_the_legacy_built_in_test_engineer_persona",
-                "the fork does not rename the built-in TestEngineer persona to Test Engineer"),
+            SharedCaseDisposition.ForkDifference("Services.MissionPrompt.generate_claude_md_async_includes_model_context_when_enabled_and_set",
+                "generated instructions are written under .armada/instructions and carry no Model Context Updates section; " + ForkKeepsInstructionSections),
+            SharedCaseDisposition.ForkDifference("Services.MissionPrompt.generate_claude_md_async_includes_update_instructions_even_when_model_context_is_empty",
+                "generated instructions carry no Model Context Updates section; " + ForkKeepsInstructionSections),
+            SharedCaseDisposition.ForkDifference("Services.MissionPrompt.template_resolved_claude_md_contains_model_context_updates_when_enabled",
+                "generated instructions carry no Model Context Updates section; " + ForkKeepsInstructionSections),
+            SharedCaseDisposition.ForkDifference("Services.PersonaSeedService.seed_async_creates_new_built_in_personas_and_expanded_full_pipeline",
+                "the fork seeds FullPipeline as Architect, Worker, TestEngineer, Judge and seeds the persona as TestEngineer; " + ForkKeepsSeededPersonas),
+            SharedCaseDisposition.ForkDifference("Services.PersonaSeedService.seed_async_upgrades_the_legacy_built_in_full_pipeline_order",
+                "the fork does not upgrade FullPipeline to the expanded product persona order; " + ForkKeepsSeededPersonas),
+            SharedCaseDisposition.ForkDifference("Services.PersonaSeedService.seed_async_renames_the_legacy_built_in_test_engineer_persona",
+                "the fork does not rename the built-in TestEngineer persona to Test Engineer; " + ForkKeepsSeededPersonas),
         };
 
         #endregion
