@@ -2,13 +2,23 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
+    using System.Net;
+    using System.Net.Sockets;
+    using System.Text.Json;
     using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Settings;
     using Armada.Runtimes;
     using Armada.Runtimes.Interfaces;
+    using Armada.Runtimes.Mcp;
     using Armada.Server;
+    using Armada.Server.Mcp;
+    using Armada.Server.Mcp.Tools;
+    using PolyPrompt.Models;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
@@ -128,6 +138,128 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("An API-endpoint chat lists and calls Armada MCP tools with the caller's own session credential and scope", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    ChatMcpFixture fixture = await ChatMcpFixture.CreateAsync(testDb, logging).ConfigureAwait(false);
+                    await using (ArmadaMcpHttpServer server = fixture.CreateServer())
+                    {
+                        await server.StartAsync().ConfigureAwait(false);
+
+                        ScriptedToolChatClient client = new ScriptedToolChatClient(new ToolChatResponse[]
+                        {
+                            new ToolChatResponse
+                            {
+                                Success = true,
+                                ToolCalls = new List<ToolCall>
+                                {
+                                    new ToolCall { Id = "call_own", Name = "get_memory", ArgumentsJson = "{\"memoryId\":\"" + fixture.OwnMemoryId + "\"}" },
+                                    new ToolCall { Id = "call_foreign", Name = "get_memory", ArgumentsJson = "{\"memoryId\":\"" + fixture.ForeignMemoryId + "\"}" },
+                                    new ToolCall { Id = "call_operator", Name = "armada_stop_server", ArgumentsJson = "{}" }
+                                }
+                            },
+                            new ToolChatResponse { Success = true, Text = "Done", ToolCalls = new List<ToolCall>() }
+                        }, logging);
+
+                        CaptainChatService chat = new CaptainChatService(testDb.Driver, new ScriptedApiRuntimeFactory(logging, client), null, null, logging, fixture.Settings, fixture.SessionTokens);
+                        AuthContext caller = AuthContext.Authenticated(fixture.TenantAId, fixture.UserAId, false, false, "Session");
+                        CaptainChatResponse response = await chat.ChatAsync(caller, fixture.CaptainId, new CaptainChatRequest { Message = "Read my memory" }).ConfigureAwait(false);
+
+                        AssertTrue(response.Success, "The chat turn succeeds: " + (response.Error ?? String.Empty));
+                        AssertTrue(client.Requests.Count >= 2, "The model is called again with the tool results");
+                        List<string> offered = client.Requests[0].Tools == null ? new List<string>() : client.Requests[0].Tools!.Select(tool => tool.Name).ToList();
+                        AssertTrue(offered.Contains("get_memory"), "The caller-scoped get_memory tool is offered to the model");
+                        AssertTrue(offered.Contains("search_memory"), "The caller-scoped search_memory tool is offered to the model");
+                        AssertFalse(offered.Contains("armada_stop_server"), "An operator-control tool is not offered to a caller who may not use it");
+
+                        string toolResults = JsonSerializer.Serialize(client.Requests[1].Messages);
+                        AssertContains("OWN-TENANT-MEMORY", toolResults, "The caller reads its own memory through MCP");
+                        AssertFalse(toolResults.Contains("OTHER-TENANT-MEMORY", StringComparison.Ordinal), "The caller cannot read another tenant's memory");
+                        AssertContains("Memory not found: " + fixture.ForeignMemoryId, toolResults, "Another tenant's memory reads as not found");
+                        AssertFalse(fixture.OperatorToolRan, "The operator-control tool never runs");
+
+                        List<McpRequestCredentials> seen = fixture.SeenCredentials();
+                        AssertTrue(seen.Count > 0, "The runtime reached the MCP endpoint");
+                        foreach (McpRequestCredentials credentials in seen)
+                        {
+                            AssertTrue(String.IsNullOrEmpty(credentials.Authorization), "The runtime never presents an Authorization header, so the launch credential cannot reach MCP");
+                            AssertTrue(String.IsNullOrEmpty(credentials.ApiKey), "The runtime never presents an API key");
+                            AssertFalse(String.IsNullOrEmpty(credentials.SessionToken), "Every MCP request carries the caller's session token");
+                            AssertFalse(McpLaunchCredential.Matches(credentials.SessionToken), "The session token is not the admiral launch credential");
+                        }
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("An API-endpoint chat without an authenticated caller reaches no Armada MCP tool", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    ChatMcpFixture fixture = await ChatMcpFixture.CreateAsync(testDb, logging).ConfigureAwait(false);
+                    await using (ArmadaMcpHttpServer server = fixture.CreateServer())
+                    {
+                        await server.StartAsync().ConfigureAwait(false);
+
+                        ScriptedToolChatClient client = new ScriptedToolChatClient(new ToolChatResponse[]
+                        {
+                            new ToolChatResponse
+                            {
+                                Success = true,
+                                ToolCalls = new List<ToolCall> { new ToolCall { Id = "call_own", Name = "get_memory", ArgumentsJson = "{\"memoryId\":\"" + fixture.OwnMemoryId + "\"}" } }
+                            },
+                            new ToolChatResponse { Success = true, Text = "Done", ToolCalls = new List<ToolCall>() }
+                        }, logging);
+
+                        CaptainChatService chat = new CaptainChatService(testDb.Driver, new ScriptedApiRuntimeFactory(logging, client), null, null, logging, fixture.Settings, fixture.SessionTokens);
+                        CaptainChatResponse response = await chat.ChatAsync(fixture.CaptainId, new CaptainChatRequest { Message = "Read memory" }).ConfigureAwait(false);
+
+                        AssertTrue(response.Success, "The chat turn still completes with the workspace tools: " + (response.Error ?? String.Empty));
+                        List<string> offered = client.Requests[0].Tools == null ? new List<string>() : client.Requests[0].Tools!.Select(tool => tool.Name).ToList();
+                        AssertFalse(offered.Contains("get_memory"), "No MCP tool is offered without a caller");
+                        AssertEqual(0, fixture.SeenCredentials().Count, "The runtime never contacts MCP without a caller credential");
+                        AssertFalse(JsonSerializer.Serialize(client.Requests[1].Messages).Contains("OWN-TENANT-MEMORY", StringComparison.Ordinal), "No memory is read without a caller");
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("The MCP tool client is refused without a credential and with a forged session token", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    ChatMcpFixture fixture = await ChatMcpFixture.CreateAsync(testDb, logging).ConfigureAwait(false);
+                    await using (ArmadaMcpHttpServer server = fixture.CreateServer())
+                    {
+                        await server.StartAsync().ConfigureAwait(false);
+                        string url = ArmadaMcpConfigBuilder.GetMcpUrl(fixture.Settings.McpPort);
+
+                        foreach (string? presented in new string?[] { null, "forged-session-token" })
+                        {
+                            using (McpToolClient client = new McpToolClient(url, presented, logging))
+                            {
+                                McpClientException? refused = null;
+                                try
+                                {
+                                    await client.ListToolsAsync().ConfigureAwait(false);
+                                }
+                                catch (McpClientException ex)
+                                {
+                                    refused = ex;
+                                }
+
+                                AssertNotNull(refused, "Listing tools is refused for credential: " + (presented ?? "<none>"));
+                                AssertEqual(401, refused!.StatusCode ?? 0, "The refusal is an authentication failure");
+                            }
+                        }
+
+                        AssertFalse(fixture.OperatorToolRan, "No refused request reaches a tool handler");
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Non-tool activity records stay out of a chat reply", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -196,6 +328,130 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>
         /// Factory that counts endpoint runtime creations and refuses to build a real API runtime.
         /// </summary>
+        /// <summary>
+        /// Runtime factory that builds a real API-endpoint runtime driven by a scripted inference client.
+        /// </summary>
+        private sealed class ScriptedApiRuntimeFactory : AgentRuntimeFactory
+        {
+            private readonly LoggingModule _Logging;
+            private readonly ScriptedToolChatClient _Client;
+
+            public ScriptedApiRuntimeFactory(LoggingModule logging, ScriptedToolChatClient client) : base(logging)
+            {
+                _Logging = logging;
+                _Client = client;
+            }
+
+            public override IAgentRuntime Create(ModelEndpoint endpoint)
+            {
+                return new ApiAgentRuntime(endpoint, _Logging, 10, (ep, log) => _Client);
+            }
+        }
+
+        /// <summary>
+        /// Two tenants, one memory record in each, an API-endpoint captain owned by the first tenant's user, and an
+        /// MCP server that authenticates like the admiral and applies the shared tool access policy.
+        /// </summary>
+        private sealed class ChatMcpFixture
+        {
+            public ArmadaSettings Settings { get; private set; } = new ArmadaSettings();
+            public SessionTokenService SessionTokens { get; private set; } = new SessionTokenService();
+            public string TenantAId { get; private set; } = String.Empty;
+            public string UserAId { get; private set; } = String.Empty;
+            public string OwnMemoryId { get; private set; } = String.Empty;
+            public string ForeignMemoryId { get; private set; } = String.Empty;
+            public string CaptainId { get; private set; } = String.Empty;
+            public bool OperatorToolRan { get; private set; } = false;
+
+            private DatabaseDriver? _Database;
+            private LoggingModule? _Logging;
+            private AuthenticationService? _Authentication;
+            private readonly List<McpRequestCredentials> _Seen = new List<McpRequestCredentials>();
+            private readonly object _Lock = new object();
+
+            public static async Task<ChatMcpFixture> CreateAsync(TestDatabase testDb, LoggingModule logging)
+            {
+                ChatMcpFixture fixture = new ChatMcpFixture();
+                fixture._Database = testDb.Driver;
+                fixture._Logging = logging;
+                fixture.Settings.McpPort = GetAvailablePort();
+                fixture._Authentication = new AuthenticationService(testDb.Driver, fixture.SessionTokens, fixture.Settings, logging);
+
+                TenantMetadata tenantA = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("ChatMcpTenantA")).ConfigureAwait(false);
+                TenantMetadata tenantB = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("ChatMcpTenantB")).ConfigureAwait(false);
+                UserMaster userA = await testDb.Driver.Users.CreateAsync(new UserMaster(tenantA.Id, "a@chat-mcp.test", "pass")).ConfigureAwait(false);
+                UserMaster userB = await testDb.Driver.Users.CreateAsync(new UserMaster(tenantB.Id, "b@chat-mcp.test", "pass")).ConfigureAwait(false);
+                fixture.TenantAId = tenantA.Id;
+                fixture.UserAId = userA.Id;
+
+                Memory own = new Memory { TenantId = tenantA.Id, UserId = userA.Id, Scope = MemoryScopeEnum.UserSpecific, Content = "OWN-TENANT-MEMORY" };
+                Memory foreign = new Memory { TenantId = tenantB.Id, UserId = userB.Id, Scope = MemoryScopeEnum.TenantWide, Content = "OTHER-TENANT-MEMORY" };
+                fixture.OwnMemoryId = (await testDb.Driver.Memories.CreateAsync(own).ConfigureAwait(false)).Id;
+                fixture.ForeignMemoryId = (await testDb.Driver.Memories.CreateAsync(foreign).ConfigureAwait(false)).Id;
+
+                ModelEndpoint endpoint = new ModelEndpoint
+                {
+                    Name = "chat-mcp-endpoint",
+                    TenantId = tenantA.Id,
+                    UserId = userA.Id,
+                    Scope = ScopeEnum.TenantWide,
+                    Provider = ModelProviderEnum.OpenAICompatible,
+                    Kind = ModelEndpointKindEnum.Inference,
+                    BaseUrl = "http://127.0.0.1:1",
+                    Model = "fixture-model",
+                    Enabled = true
+                };
+                await testDb.Driver.ModelEndpoints.CreateAsync(endpoint).ConfigureAwait(false);
+                Captain captain = new Captain("chat-api-mcp", AgentRuntimeEnum.ApiEndpoint)
+                {
+                    TenantId = tenantA.Id,
+                    UserId = userA.Id,
+                    ModelEndpointId = endpoint.Id,
+                    Model = "fixture-model"
+                };
+                await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+                fixture.CaptainId = captain.Id;
+                return fixture;
+            }
+
+            public ArmadaMcpHttpServer CreateServer()
+            {
+                ArmadaMcpHttpServer server = new ArmadaMcpHttpServer("127.0.0.1", Settings.McpPort);
+                server.Authenticator = async (credentials, token) =>
+                {
+                    lock (_Lock) _Seen.Add(credentials);
+                    return await _Authentication!.AuthenticateAsync(credentials.Authorization, credentials.SessionToken, credentials.ApiKey, token).ConfigureAwait(false);
+                };
+                server.ToolAuthorizer = McpToolAccessPolicy.IsAllowed;
+                McpMemoryTools.Register(server.RegisterTool, _Database!, _Logging);
+                server.RegisterTool("armada_stop_server", "Operator control", new { type = "object" }, args =>
+                {
+                    OperatorToolRan = true;
+                    return Task.FromResult((object)new { Status = "stopped" });
+                });
+                return server;
+            }
+
+            public List<McpRequestCredentials> SeenCredentials()
+            {
+                lock (_Lock) return new List<McpRequestCredentials>(_Seen);
+            }
+
+            private static int GetAvailablePort()
+            {
+                TcpListener listener = new TcpListener(IPAddress.Loopback, 0);
+                listener.Start();
+                try
+                {
+                    return ((IPEndPoint)listener.LocalEndpoint).Port;
+                }
+                finally
+                {
+                    listener.Stop();
+                }
+            }
+        }
+
         private sealed class RecordingEndpointRuntimeFactory : AgentRuntimeFactory
         {
             public int EndpointCreations { get; private set; }

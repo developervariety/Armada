@@ -14,6 +14,7 @@ namespace Armada.Runtimes
     using Armada.Core.Enums;
     using Armada.Core.Services;
     using Armada.Runtimes.Interfaces;
+    using Armada.Runtimes.Mcp;
     using Armada.Runtimes.Tools;
     using Armada.Runtimes.Tools.Tasks;
     using PolyPrompt.Clients;
@@ -60,6 +61,14 @@ namespace Armada.Runtimes
 
         /// <inheritdoc />
         public event Action<int, int?>? OnProcessExited;
+
+        /// <summary>
+        /// Armada MCP tool access for the caller of the next run, or null for none. Only a caller-bound session
+        /// credential grants access: the runtime never reads an MCP credential from the launch environment or the
+        /// isolation plan, so the admiral launch credential cannot widen what a chat caller may do. A run reads
+        /// this value once when it starts.
+        /// </summary>
+        public CallerMcpToolAccess? McpToolAccess { get; set; } = null;
 
         #endregion
 
@@ -173,7 +182,8 @@ namespace Armada.Runtimes
             }
 
             // Run the loop in the background so StartAsync returns the pid promptly, mirroring a process launch.
-            _ = Task.Run(() => RunLoopAsync(processId, workingDirectory, prompt, model, finalMessageFilePath, cts));
+            CallerMcpToolAccess? mcpAccess = McpToolAccess;
+            _ = Task.Run(() => RunLoopAsync(processId, workingDirectory, prompt, model, finalMessageFilePath, mcpAccess, cts));
 
             return Task.FromResult(processId);
         }
@@ -205,11 +215,13 @@ namespace Armada.Runtimes
             string prompt,
             string? model,
             string? finalMessageFilePath,
+            CallerMcpToolAccess? mcpAccess,
             CancellationTokenSource cts)
         {
             int exitCode = 0;
             string finalText = String.Empty;
             CancellationToken token = cts.Token;
+            McpToolClient? mcpClient = null;
 
             try
             {
@@ -220,6 +232,12 @@ namespace Armada.Runtimes
                 TaskPlan taskPlan = new TaskPlan();
                 BuiltInToolRegistry registry = new BuiltInToolRegistry(taskPlan);
                 List<PolyToolDefinition> tools = BuildToolDefinitions(registry);
+
+                HashSet<string> mcpToolNames = new HashSet<string>(StringComparer.Ordinal);
+                if (mcpAccess != null)
+                {
+                    mcpClient = await ConnectMcpToolsAsync(processId, mcpAccess, tools, mcpToolNames, token).ConfigureAwait(false);
+                }
 
                 List<ChatMessage> messages = new List<ChatMessage>();
                 messages.Add(ChatMessage.System(BuildSystemPrompt(workingDirectory)));
@@ -302,7 +320,9 @@ namespace Armada.Runtimes
                     foreach (ToolCall call in response.ToolCalls)
                     {
                         token.ThrowIfCancellationRequested();
-                        string resultContent = await ExecuteToolAsync(processId, registry, call, workingDirectory, token).ConfigureAwait(false);
+                        string resultContent = mcpClient != null && mcpToolNames.Contains(call.Name)
+                            ? await ExecuteMcpToolAsync(processId, mcpClient, call, workingDirectory, token).ConfigureAwait(false)
+                            : await ExecuteToolAsync(processId, registry, call, workingDirectory, token).ConfigureAwait(false);
                         messages.Add(ChatMessage.ToolResult(call.Id, call.Name, resultContent));
                     }
 
@@ -328,6 +348,7 @@ namespace Armada.Runtimes
             }
             finally
             {
+                mcpClient?.Dispose();
                 CloseLog();
                 try { _TransportClient?.Dispose(); } catch { }
                 _TransportClient = null;
@@ -354,6 +375,73 @@ namespace Armada.Runtimes
                 string message = "Tool execution failed: " + Truncate(ex.Message, 200);
                 EmitToolActivity(processId, call.Name, detail, StructuredRuntimeLogFormatter.ErrorStatus, workingDirectory);
                 return JsonSerializer.Serialize(new { error = "invalid_arguments", message });
+            }
+        }
+
+        /// <summary>
+        /// Connect to the Armada MCP endpoint with the caller's credential and add the tools it offers that caller.
+        /// A built-in workspace tool keeps its name: a remote tool with the same name is not added. When the
+        /// endpoint cannot be reached or refuses the credential, the run continues with the workspace tools
+        /// only and the reason is logged, never written into the reply.
+        /// </summary>
+        private async Task<McpToolClient?> ConnectMcpToolsAsync(
+            int processId,
+            CallerMcpToolAccess access,
+            List<PolyToolDefinition> tools,
+            HashSet<string> mcpToolNames,
+            CancellationToken token)
+        {
+            HashSet<string> builtInNames = new HashSet<string>(StringComparer.Ordinal);
+            foreach (PolyToolDefinition builtIn in tools) builtInNames.Add(builtIn.Name);
+
+            McpToolClient mcpClient = new McpToolClient(access.Endpoint, access.SessionToken, _Logging);
+            try
+            {
+                await mcpClient.InitializeAsync(token).ConfigureAwait(false);
+                List<McpRemoteTool> remoteTools = await mcpClient.ListToolsAsync(token).ConfigureAwait(false);
+                foreach (McpRemoteTool remote in remoteTools)
+                {
+                    if (builtInNames.Contains(remote.Name) || mcpToolNames.Contains(remote.Name)) continue;
+                    tools.Add(PolyToolDefinition.Function(remote.Name, remote.Description, remote.InputSchema));
+                    mcpToolNames.Add(remote.Name);
+                }
+
+                WriteLog("[mcp] " + mcpToolNames.Count + " Armada MCP tool(s) available to process " + processId);
+                return mcpClient;
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                mcpClient.Dispose();
+                throw;
+            }
+            catch (Exception ex) when (ex is McpClientException || ex is HttpRequestException || ex is TaskCanceledException)
+            {
+                mcpClient.Dispose();
+                mcpToolNames.Clear();
+                string reason = "Armada MCP tools are unavailable for process " + processId + ": " + ex.Message;
+                _Logging.Warn(_Header + reason);
+                WriteLog("[mcp] " + reason);
+                return null;
+            }
+        }
+
+        private async Task<string> ExecuteMcpToolAsync(int processId, McpToolClient mcpClient, ToolCall call, string workingDirectory, CancellationToken token)
+        {
+            string argsJson = String.IsNullOrWhiteSpace(call.ArgumentsJson) ? "{}" : call.ArgumentsJson;
+            try
+            {
+                McpToolCallResult result = await mcpClient.CallToolAsync(call.Name, argsJson, token).ConfigureAwait(false);
+                EmitToolActivity(processId, call.Name, null, result.IsError ? StructuredRuntimeLogFormatter.ErrorStatus : StructuredRuntimeLogFormatter.OkStatus, workingDirectory);
+                return ToolExecution.LimitOutput(result.Text, ToolSafetyLimits.MaxProcessOutputBytes);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex) when (ex is McpClientException || ex is HttpRequestException || ex is TaskCanceledException)
+            {
+                EmitToolActivity(processId, call.Name, null, StructuredRuntimeLogFormatter.ErrorStatus, workingDirectory);
+                return JsonSerializer.Serialize(new { error = "mcp_tool_failed", message = Truncate(ex.Message, 500) });
             }
         }
 

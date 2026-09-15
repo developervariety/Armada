@@ -115,6 +115,11 @@ tip metadata, divergence and verified HEAD state. It uses persisted repository
 paths and preserves refs. Upstream push and merge controls remain separate
 integration work because they must preserve the fork's landing gates.
 
+An API-endpoint captain in Ask chat calls Armada MCP tools with the caller's own
+session token, as upstream does. The fork sends no other credential, so the
+captain reaches only the tools and records the caller may already reach, and a
+chat without a caller gets no MCP tools.
+
 Ask chat launches receive runtime-specific MCP configuration. Its availability
 check probes the planned chat endpoint, including when the selected captain has
 an active mission. Endpoint readiness does not prove a running chat connection.

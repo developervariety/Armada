@@ -15,6 +15,7 @@ namespace Armada.Server
     using Armada.Core.Settings;
     using Armada.Runtimes;
     using Armada.Runtimes.Interfaces;
+    using Armada.Runtimes.Mcp;
     using Armada.Server.WebSocket;
     using SyslogLogging;
 
@@ -35,6 +36,7 @@ namespace Armada.Server
         private readonly LoggingModule _Logging;
         private readonly string _Header = "[CaptainChatService] ";
         private readonly ArmadaSettings _Settings;
+        private readonly ISessionTokenService? _SessionTokens;
 
         // A chat turn spawns a real agent process; bound how long we wait and how much stdout we retain.
         private const int _DefaultTimeoutMs = 300000;
@@ -53,8 +55,10 @@ namespace Armada.Server
         /// <param name="promptTemplates">Prompt template service used to resolve the Ask Armada system prompt; may be null.</param>
         /// <param name="logging">Logging module.</param>
         /// <param name="settings">Armada settings used for per-chat runtime configuration.</param>
-        public CaptainChatService(DatabaseDriver database, AgentRuntimeFactory runtimeFactory, ArmadaWebSocketHub? webSocketHub, IPromptTemplateService? promptTemplates, LoggingModule logging, ArmadaSettings? settings = null)
+        /// <param name="sessionTokens">Session token service that issues the caller's token for API-endpoint chat MCP tool access; null disables that access.</param>
+        public CaptainChatService(DatabaseDriver database, AgentRuntimeFactory runtimeFactory, ArmadaWebSocketHub? webSocketHub, IPromptTemplateService? promptTemplates, LoggingModule logging, ArmadaSettings? settings = null, ISessionTokenService? sessionTokens = null)
         {
+            _SessionTokens = sessionTokens;
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _RuntimeFactory = runtimeFactory ?? throw new ArgumentNullException(nameof(runtimeFactory));
             _WebSocketHub = webSocketHub;
@@ -174,6 +178,8 @@ namespace Armada.Server
                         if (admissionError != null)
                             return Fail(admissionError);
                         runtime = _RuntimeFactory.Create(endpoint!);
+                        if (runtime is ApiAgentRuntime apiRuntime)
+                            apiRuntime.McpToolAccess = CreateCallerMcpToolAccess(caller);
                     }
                     else
                     {
@@ -538,6 +544,30 @@ namespace Armada.Server
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// Build the Armada MCP tool access an API-endpoint chat turn runs with. Access is issued only for an
+        /// authenticated caller with a tenant and a user: the token is that caller's own session token, and the MCP
+        /// endpoint re-reads the user and tenant on every request, so the turn can list and call only the tools the
+        /// caller may use, inside the caller's scope. A turn with no such caller gets no MCP tools.
+        /// </summary>
+        /// <param name="caller">Authenticated caller, or null.</param>
+        /// <returns>Caller-bound access, or null when none may be issued.</returns>
+        private CallerMcpToolAccess? CreateCallerMcpToolAccess(AuthContext? caller)
+        {
+            if (caller == null || !caller.IsAuthenticated) return null;
+            if (String.IsNullOrWhiteSpace(caller.TenantId) || String.IsNullOrWhiteSpace(caller.UserId)) return null;
+            if (_SessionTokens == null || _Settings.McpPort <= 0) return null;
+
+            AuthenticateResult issued = _SessionTokens.CreateToken(caller.TenantId!, caller.UserId!);
+            if (String.IsNullOrWhiteSpace(issued.Token))
+            {
+                _Logging.Warn(_Header + "no session token was issued for an API-endpoint chat; the turn runs without Armada MCP tools");
+                return null;
+            }
+
+            return new CallerMcpToolAccess(ArmadaMcpConfigBuilder.GetMcpUrl(_Settings.McpPort), issued.Token!);
+        }
 
         private static void MaterializeIsolationPlan(CaptainLaunchIsolationPlan plan, string scopedDirectory)
         {

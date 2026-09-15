@@ -69,6 +69,18 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   is a local clone (a `file://` URL or a rooted path to a directory with a
   `.git` entry, or a bare repository) and no `workingDirectory` is given.
   `LocalPath` stays unset, because vessel removal deletes that directory.
+### API-endpoint chat captains call Armada MCP tools as the caller
+
+- An Ask chat backed by an API-endpoint captain now lists and calls Armada MCP
+  tools. The chat issues the caller's own session token, and the runtime sends
+  it as its only MCP credential. The MCP endpoint re-reads the user and tenant
+  on every request and applies the shared tool access policy, so the captain
+  reaches only the tools and records the caller may already reach.
+- A chat with no authenticated caller gets no MCP tools. The runtime never uses
+  the admiral launch credential for chat tools, and a refused or unreachable
+  endpoint leaves the turn on its workspace tools with the reason in the log.
+- MCP tool calls appear as tool activity cards like the workspace tools.
+
 ### Captain commit messages carry a change manifest
 
 - The commit instructions a captain receives now require a summary line and a
