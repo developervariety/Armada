@@ -6,14 +6,13 @@ namespace Test.Shared.Infrastructure
     using Armada.Core.Settings;
 
     /// <summary>
-    /// Recreates the routing, guard, and specialist-asset values that were previously
-    /// hardcoded in product code. Tests that assert today's deployment behavior pass
-    /// this fixture; product defaults stay empty and policy-neutral.
+    /// Fleet routing, guard, and specialist-asset settings supplied through configuration. Tests that
+    /// assert fleet deployment behavior pass this fixture; product defaults stay empty and policy-neutral.
     /// </summary>
     public static class FleetRoutingSettings
     {
         /// <summary>
-        /// Former built-in specialist persona names.
+        /// Specialist persona names reserved for the high tier.
         /// </summary>
         public static readonly string[] SpecialistPersonaNames = new string[]
         {
@@ -26,10 +25,10 @@ namespace Test.Shared.Infrastructure
         };
 
         /// <summary>
-        /// Build the former hardcoded model-tier settings, including family rules and
+        /// Build the fleet model-tier settings, including family rules and
         /// the non-native-first / preference-order policy.
         /// </summary>
-        /// <returns>A ModelTierSettings instance that reproduces the previous code defaults.</returns>
+        /// <returns>The fleet ModelTierSettings.</returns>
         public static ModelTierSettings CreateModelTier()
         {
             return new ModelTierSettings
@@ -77,9 +76,9 @@ namespace Test.Shared.Infrastructure
         }
 
         /// <summary>
-        /// Build the former hardcoded stage-persona title-prefix guard.
+        /// Build the stage-persona title-prefix guard.
         /// </summary>
-        /// <returns>VoyageDispatchSettings with the guard on and the former prefix list.</returns>
+        /// <returns>VoyageDispatchSettings with the guard on and the stage persona prefix list.</returns>
         public static VoyageDispatchSettings CreateVoyageDispatch()
         {
             return new VoyageDispatchSettings
@@ -99,7 +98,7 @@ namespace Test.Shared.Infrastructure
         }
 
         /// <summary>
-        /// Build the former baked specialist-reviewer prompt templates.
+        /// Build the specialist reviewer and analyst prompt templates.
         /// </summary>
         /// <returns>The three specialist reviewer and analyst templates.</returns>
         public static List<AdditionalPromptTemplateSettings> CreateAdditionalPromptTemplates()
@@ -145,7 +144,7 @@ namespace Test.Shared.Infrastructure
         }
 
         /// <summary>
-        /// Build the former baked specialist personas.
+        /// Build the specialist reviewer and analyst personas.
         /// </summary>
         /// <returns>The three specialist reviewer and analyst personas.</returns>
         public static List<AdditionalPersonaSettings> CreateAdditionalPersonas()
@@ -159,7 +158,7 @@ namespace Test.Shared.Infrastructure
         }
 
         /// <summary>
-        /// Build the former baked specialist pipelines.
+        /// Build the specialist-tested pipelines.
         /// </summary>
         /// <returns>The three specialist-tested pipelines.</returns>
         public static List<AdditionalPipelineSettings> CreateAdditionalPipelines()
@@ -173,8 +172,8 @@ namespace Test.Shared.Infrastructure
         }
 
         /// <summary>
-        /// Build a full ArmadaSettings instance that reproduces the previous hardcoded
-        /// routing, guard, and specialist-asset behavior.
+        /// Build a full ArmadaSettings instance carrying the fleet
+        /// routing, guard, and specialist-asset configuration.
         /// </summary>
         /// <returns>Settings that yield today's decisions.</returns>
         public static ArmadaSettings CreateArmadaSettings()

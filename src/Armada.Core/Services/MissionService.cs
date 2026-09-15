@@ -4226,7 +4226,7 @@ namespace Armada.Core.Services
         /// </summary>
         /// <summary>
         /// Detects a root instruction file that is really a stale Armada-generated model-context dump
-        /// rather than hand-written project rules. Such a file accumulates learned facts from earlier
+        /// rather than hand-written project rules. Such a file accumulates repository facts from earlier
         /// missions, can reach tens of kilobytes, and must never be inlined back into a captain brief.
         /// Matched on the generated header that opens every such dump.
         /// </summary>
