@@ -14,6 +14,7 @@ import ErrorModal from '../../components/shared/ErrorModal';
 import { useLocale } from '../../context/LocaleContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { useProxySessionContext } from '../../lib/useProxySessionContext';
+import { listAllPages } from '../../lib/listAllPages';
 
 type SortField = 'name' | 'userId' | 'active' | 'createdUtc';
 type SortDir = 'asc' | 'desc';
@@ -51,15 +52,19 @@ export default function Credentials() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
+      // The server returns 10 rows without a page size; read every page so every credential and every
+      // owner and tenant name is present.
       const tenantPromise = isAdmin
-        ? listTenants()
-        : Promise.resolve({
-            objects: user?.tenant ? [user.tenant] : [],
-          } as { objects: TenantMetadata[] });
-      const [cResult, uResult, tResult] = await Promise.all([listCredentials(), listUsers(), tenantPromise]);
-      setItems(cResult.objects);
-      setUsers(uResult.objects);
-      setTenants(tResult.objects);
+        ? listAllPages((pageNumber) => listTenants({ pageNumber, pageSize: 1000 }))
+        : Promise.resolve(user?.tenant ? [user.tenant] : []);
+      const [allCredentials, allUsers, allTenants] = await Promise.all([
+        listAllPages((pageNumber) => listCredentials({ pageNumber, pageSize: 1000 })),
+        listAllPages((pageNumber) => listUsers({ pageNumber, pageSize: 1000 })),
+        tenantPromise,
+      ]);
+      setItems(allCredentials);
+      setUsers(allUsers);
+      setTenants(allTenants);
       setError('');
     } catch { setError(t('Failed to load credentials.')); }
     finally { setLoading(false); }

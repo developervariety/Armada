@@ -14,6 +14,7 @@ import ErrorModal from '../../components/shared/ErrorModal';
 import { useLocale } from '../../context/LocaleContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { useProxySessionContext } from '../../lib/useProxySessionContext';
+import { listAllPages } from '../../lib/listAllPages';
 
 type SortField = 'email' | 'firstName' | 'isAdmin' | 'active' | 'createdUtc';
 type SortDir = 'asc' | 'desc';
@@ -55,15 +56,14 @@ export default function Users() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const userPromise = listUsers();
+      // The server returns 10 rows without a page size; read every page at its 1000-row maximum.
+      const userPromise = listAllPages((pageNumber) => listUsers({ pageNumber, pageSize: 1000 }));
       const tenantPromise = isAdmin
-        ? listTenants()
-        : Promise.resolve({
-            objects: user?.tenant ? [user.tenant] : [],
-          } as { objects: TenantMetadata[] });
-      const [uResult, tResult] = await Promise.all([userPromise, tenantPromise]);
-      setItems(uResult.objects);
-      setTenants(tResult.objects);
+        ? listAllPages((pageNumber) => listTenants({ pageNumber, pageSize: 1000 }))
+        : Promise.resolve(user?.tenant ? [user.tenant] : []);
+      const [allUsers, allTenants] = await Promise.all([userPromise, tenantPromise]);
+      setItems(allUsers);
+      setTenants(allTenants);
       setError('');
     } catch { setError(t('Failed to load users.')); }
     finally { setLoading(false); }

@@ -14,6 +14,7 @@ import ErrorModal from '../../components/shared/ErrorModal';
 import { useLocale } from '../../context/LocaleContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { useProxySessionContext } from '../../lib/useProxySessionContext';
+import { listAllPages } from '../../lib/listAllPages';
 
 type SortField = 'name' | 'active' | 'createdUtc';
 type SortDir = 'asc' | 'desc';
@@ -43,8 +44,8 @@ export default function Tenants() {
     try {
       setLoading(true);
       if (isAdmin) {
-        const result = await listTenants();
-        setItems(result.objects);
+        // The server returns 10 rows without a page size; read every page at its 1000-row maximum.
+        setItems(await listAllPages((pageNumber) => listTenants({ pageNumber, pageSize: 1000 })));
       } else {
         setItems(user?.tenant ? [user.tenant] : []);
       }

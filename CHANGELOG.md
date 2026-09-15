@@ -189,6 +189,8 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - The Runbooks list takes execution totals and per-runbook counts from the
   server, not from the first 500 executions. Runbook detail shows its
   execution total and says when it lists only the newest executions.
+- The Users, Tenants and Credentials pages list every record, not only the
+  first 10, and credentials show owners and tenants past the first 10 by name.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 
