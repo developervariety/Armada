@@ -26,8 +26,7 @@ Canonical helpers:
 
 > **Container deployments:** the Docker image build does not include the React
 > dashboard. The Admiral serves the dashboard from `~/.armada/dashboard` (data
-> directory), and an external dashboard there wins over the embedded legacy
-> UI. When you deploy the Admiral through Docker (`docker compose build/up`),
+> directory). When you deploy the Admiral through Docker (`docker compose build/up`),
 > run `scripts/common/deploy-dashboard.sh` on the host afterward so the
 > dashboard matches the new server commit. Add `--insecure` if npm fails
 > behind a TLS-inspecting proxy; if Node.js is not installed the script

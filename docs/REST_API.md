@@ -24,7 +24,6 @@
   - [Harbor Runner Enrollment](#harbor-runner-enrollment)
   - [Harbor Jobs](#harbor-jobs)
   - [Status](#status)
-  - [Lead Control](#lead-control)
   - [Fleets](#fleets)
   - [Vessels](#vessels)
   - [Voyages](#voyages)
@@ -1208,7 +1207,7 @@ Skipped entries include the entity ID and the reason (e.g., "Not found" or "Empt
 
 #### PATCH /api/v1/vessels/{id}/context
 
-Update only the `ProjectContext`, `StyleGuide`, and `ModelContext` fields of a vessel.
+Update only the `ProjectContext` and `StyleGuide` fields of a vessel.
 
 **Path Parameters:**
 | Parameter | Description |
@@ -1221,7 +1220,6 @@ Update only the `ProjectContext`, `StyleGuide`, and `ModelContext` fields of a v
 |---|---|---|---|
 | `ProjectContext` | string | no | Project context describing architecture, key files, and dependencies |
 | `StyleGuide` | string | no | Style guide describing naming conventions, patterns, and library preferences |
-| `ModelContext` | string | no | Agent-accumulated context about this repository |
 
 ```bash
 curl -X PATCH http://localhost:7890/api/v1/vessels/vsl_abc123/context \
@@ -3931,8 +3929,6 @@ A git repository registered with Armada.
   "DefaultBranch": "main",
   "ProjectContext": null,
   "StyleGuide": null,
-  "EnableModelContext": false,
-  "ModelContext": null,
   "LandingMode": null,
   "BranchCleanupPolicy": null,
   "Active": true,
@@ -3952,8 +3948,6 @@ A git repository registered with Armada.
 | `DefaultBranch` | string | `"main"` | Default branch name |
 | `ProjectContext` | string? | null | Project context describing architecture, key files, and dependencies |
 | `StyleGuide` | string? | null | Style guide describing naming conventions, patterns, and library preferences |
-| `EnableModelContext` | bool | false | Whether model context accumulation is enabled |
-| `ModelContext` | string? | null | Agent-accumulated context about this repository |
 | `LandingMode` | [LandingModeEnum](#landingmodeenum)? | null | Per-vessel landing policy override (null = use global setting) |
 | `BranchCleanupPolicy` | [BranchCleanupPolicyEnum](#branchcleanuppolicyenum)? | null | Per-vessel branch cleanup policy override (null = use global setting) |
 | `Active` | bool | true | Whether vessel is active |
@@ -4924,11 +4918,6 @@ Access-Control-Allow-Origin: *
 Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS
 Access-Control-Allow-Headers: Content-Type, Authorization, X-Token, X-Api-Key
 ```
-## Retired Lead Control
-
-The `/api/v1/server/lead-control` and `/api/v1/server/lead-control/mode`
-routes are removed with the standalone lead integration. See the [retirement archive](archive/autonomous-lead/README.md).
-
 ## Account usage and persona routing
 
 See [Usage-aware routing](USAGE_ROUTING.md) for the opt-in policy, collectors,

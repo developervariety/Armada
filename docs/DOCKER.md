@@ -28,14 +28,14 @@ This starts two containers:
 
 | Service | Port | Description |
 |---------|------|-------------|
-| `armada-server` | 7890 | REST API, built-in dashboard, and WebSocket at /ws |
+| `armada-server` | 7890 | REST API, Admiral-served React dashboard, and WebSocket at /ws |
 | `armada-server` | 7891 | MCP (agent communication) |
 | `armada-dashboard` | 3000 | Standalone React dashboard |
 
-Open the dashboard at **http://localhost:3000** (React SPA) or **http://localhost:7890/dashboard** (built-in).
+Open the dashboard at **http://localhost:3000** (React SPA) or **http://localhost:7890/dashboard** (served by the Admiral).
 
-> **Rebuilding either image does not rebuild the other.** `armada-server` embeds
-> the legacy dashboard only; the React dashboard is built separately
+> **Rebuilding either image does not rebuild the other.** `armada-server` does
+> not contain the React dashboard; it is built separately
 > (`src/Armada.Dashboard`). For the standalone compose topology, rebuild the
 > `armada-dashboard` image as well. For deployments where the Admiral serves
 > the React dashboard from the data directory (`~/.armada/dashboard`), run
@@ -201,7 +201,7 @@ loaded (bind-mount that file so the change survives a container replacement):
     "agentWake": {
       "runtime": "OpenCode",
       "deliveryMode": "Both",
-      "participantKey": "armada-lead",
+      "participantKey": "ops-session",
       "workingDirectory": "/workspace"
     }
   }
@@ -216,7 +216,7 @@ resume state. OpenCode starts fresh for every wake, so the note must carry the
 complete task and the session must read the board and durable memory. Confirm
 the effective owner with `armada_agentwake_status`.
 
-Use `StoredWake` (formerly `McpNotification`, still accepted) when a resident
+Use `StoredWake` when a resident
 operator only needs Wake rows. Use
 `SpawnProcess` or `Both` only after a controlled spawn test. Do not run a host
 service-managed Admiral beside the containerized Admiral; two service graphs
@@ -405,7 +405,7 @@ Restore replaces the database only on SQLite; see `docs/REST_API.md`.
 
 | Port | Protocol | Service | Description |
 |------|----------|---------|-------------|
-| 7890 | HTTP | Admiral REST API | REST endpoints, OpenAPI, built-in dashboard, WebSocket at /ws |
+| 7890 | HTTP | Admiral REST API | REST endpoints, OpenAPI, dashboard, WebSocket at /ws |
 | 7891 | TCP | MCP | Model Context Protocol for agent communication |
 | 3000 | HTTP | React Dashboard | Standalone SPA (nginx) |
 

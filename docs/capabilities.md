@@ -24,6 +24,3 @@ Bounded read-only helper processes use `scripts/autonomy/spawn-helper.sh`.
 Its `offer` mode gives an operator a bounded reassignment window before
 fallback work starts. One process owns one participant key; do not combine a
 resident helper with an AgentWake process owner for the same key.
-
-The standalone lead runner and Grok Bot integration are retired. See the
-[retirement archive](archive/autonomous-lead/README.md).

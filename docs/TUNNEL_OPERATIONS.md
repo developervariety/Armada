@@ -144,7 +144,6 @@ Point Armada at the proxy by setting:
 ### On The Armada Instance
 
 - Server dashboard -> `Server`
-- Legacy dashboard -> `Server Settings`
 - `GET /api/v1/status`
 - `GET /api/v1/status/health`
 - `GET /api/v1/settings`

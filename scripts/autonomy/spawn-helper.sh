@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Manage bounded, host-side helper sessions for an autonomous Armada lead.
+# Manage bounded, host-side helper sessions for an Armada operator session.
 #
 # Helpers started here are fresh, read-only, single-task processes. The script
 # adds the board contract to every prompt, enforces a concurrency cap, records

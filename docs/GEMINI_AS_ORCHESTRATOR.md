@@ -85,8 +85,7 @@ override it. OpenCode
 wakes are fresh sessions, so the note carries the task and the session rebuilds
 state from the board and durable memory.
 
-The objective scheduler is the built-in unattended dispatcher. The standalone
-lead integration is retired; see [archive status](archive/autonomous-lead/README.md).
+The objective scheduler is the built-in unattended dispatcher.
 Bounded read-only helpers use `scripts/autonomy/spawn-helper.sh`; `offer` mode
 allows a bounded operator reassignment window before fallback work. Do not assign
 one participant key to both a resident helper and AgentWake.

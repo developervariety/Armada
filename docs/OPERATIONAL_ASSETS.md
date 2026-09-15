@@ -58,10 +58,6 @@ Use file-name prefixes to make intent clear:
 | `fe-` | Opt-in frontend guidance |
 | `RUNBOOK-` or `system/` | Playbook-backed runbook |
 
-Learned-facts playbooks no longer exist. Startup deletes any remaining
-`vessel-`, `persona-`, `captain-` or `fleet-` `*-learned.md` playbook and its
-links. Record captain working memory in native memory instead.
-
 Imported subject playbooks remain opt-in. Do not attach a large library to
 every mission. Select the smallest set that contains required guidance.
 

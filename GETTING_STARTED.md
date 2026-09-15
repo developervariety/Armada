@@ -118,16 +118,14 @@ contract test:
 
 ```bash
 scripts/autonomy/spawn-helper.sh spawn census /tmp/census-task.md /path/to/repo
-scripts/autonomy/spawn-helper.sh offer ready /tmp/fallback-task.md armada-lead /path/to/repo
+scripts/autonomy/spawn-helper.sh offer ready /tmp/fallback-task.md ops-session /path/to/repo
 scripts/autonomy/test-spawn-helper.sh
 ```
 
-The built-in objective scheduler dispatches ready objectives. Host-side lead
-cycles and helpers are an operator layer; see
-`docs/autonomy/lead-bootstrap-prompt.md` and section 4.11 of the operations
-guide. Do not register a launcher-managed helper for AgentWake under the same
+The built-in objective scheduler dispatches ready objectives. Host-side
+helpers are an operator layer; see section 4.11 of the operations guide. Do not register a launcher-managed helper for AgentWake under the same
 participant key.
-The `offer` command gives the lead four minutes to assign replacement work
+The `offer` command gives the operator session four minutes to assign replacement work
 before the helper starts its fallback. See
 `docs/autonomy/helper-offer-prompt.md` for a manual helper prompt.
 Claude launcher mode passes a generated Armada-only MCP file to strict mode;

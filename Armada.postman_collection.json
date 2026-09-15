@@ -2166,36 +2166,6 @@
                                                   }
                                   },
                                   {
-                                      "name":  "Build or Refine the Vessel Model Context",
-                                      "request":  {
-                                                      "method":  "POST",
-                                                      "header":  [
-                                                                     {
-                                                                         "key":  "Content-Type",
-                                                                         "value":  "application/json"
-                                                                     }
-                                                                 ],
-                                                      "body":  {
-                                                                   "mode":  "raw",
-                                                                   "raw":  "{\n  \"CaptainId\": \"{{captainId}}\",\n  \"Notes\": \"Focus on build and test commands.\"\n}"
-                                                               },
-                                                      "url":  {
-                                                                  "raw":  "{{baseUrl}}/api/v1/vessels/{{vesselId}}/build-context",
-                                                                  "host":  [
-                                                                               "{{baseUrl}}"
-                                                                           ],
-                                                                  "path":  [
-                                                                               "api",
-                                                                               "v1",
-                                                                               "vessels",
-                                                                               "{{vesselId}}",
-                                                                               "build-context"
-                                                                           ]
-                                                              },
-                                                      "description":  "Launches the chosen captain in a worktree of the vessel repository to analyze it and write a Model Context document. Refines the existing context when one is present. Runs synchronously and can take several minutes. Requires a tenant administrator."
-                                                  }
-                                  },
-                                  {
                                       "name":  "Update Vessel Context",
                                       "request":  {
                                                       "method":  "PATCH",
@@ -2207,7 +2177,7 @@
                                                                  ],
                                                       "body":  {
                                                                    "mode":  "raw",
-                                                                   "raw":  "{\n  \"ProjectContext\": \"Example project context.\",\n  \"StyleGuide\": \"Example style guide.\",\n  \"ModelContext\": \"Example model context.\"\n}"
+                                                                   "raw":  "{\n  \"ProjectContext\": \"Example project context.\",\n  \"StyleGuide\": \"Example style guide.\"\n}"
                                                                },
                                                       "url":  {
                                                                   "raw":  "{{baseUrl}}/api/v1/vessels/{{vesselId}}/context",

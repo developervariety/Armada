@@ -1,7 +1,7 @@
 # Bounded Helper Offer Prompt
 
-Use this prompt when a lead is already running and a new helper should offer
-capacity before it starts fallback work. Prefer the host launcher command below;
+Use this prompt when an operator session is already running and a new helper
+should offer capacity before it starts fallback work. Prefer the host launcher command below;
 it injects the participant keys, safety limits, and the four-minute handoff
 window. In Claude mode it also injects the local Armada MCP configuration that
 strict mode requires. The helper exits after one task.

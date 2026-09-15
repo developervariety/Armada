@@ -212,8 +212,7 @@ stage commit before a Judge PASS can land. `armada_dispatch_hold` stops new
 scheduler and operator dispatches while leaving in-flight voyages running.
 
 Operators maintain campaign quality, verify objectives, and delegate bounded
-read-only helpers. The standalone lead runner and Grok Bot integration are
-retired; see the [retirement archive](archive/autonomous-lead/README.md). The built-in objective scheduler and generic AgentWake remain available.
+read-only helpers. The built-in objective scheduler and generic AgentWake are available.
 
 Once a voyage exists, mission-level priority, voyage association, and FIFO
 (above) still decide which mission a captain picks up next.

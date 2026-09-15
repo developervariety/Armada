@@ -214,7 +214,6 @@ If you'd rather hand the whole thing to the agent in one shot, the minimal promp
 
 - **Run the manifest pass first.** Having the agent enumerate 200+ git repos and propose fleets takes a couple of minutes; revising the proposal in plain text takes seconds. Skipping straight to creation makes you fix vessels one at a time later.
 - **Persist your style guides in a known location.** With Claude Code, save them to the auto-memory store (`coding-standards.md`, `user-preferences.md`) once and future sessions inherit them automatically. With Codex (or any agent that lacks built-in memory), keep them at a stable path like `~/.config/coding-standards.md` and reference them in your session prompt.
-- **Set `EnableModelContext: true`** (the default for `add_vessel`) so missions can accumulate per-repo learnings into `ModelContext` over time. The agent will not blow this away when it updates `ProjectContext` and `StyleGuide`.
 - **Keep `ProjectContext` short.** A vessel's project context should be a 1-2 sentence orientation + the repo URL + the local path. Detailed architecture goes in playbooks where it can be reused across vessels.
 - **Don't try to push 60+ vessels' context updates serially.** Parallel registration is fast; sequential is painful.
 - **Watch for repo name vs. package name mismatches.** Some libraries are published under a different name than their repo. Make sure the vessel's `repoUrl` matches the actual git remote, not the published package name. The agent reads `git config --get remote.origin.url` to avoid getting this wrong.

@@ -202,8 +202,7 @@ registers one in-memory process target with a concrete `runtime` (`Claude`,
 working directory, and client name. A registration key overrides the configured
 key until restart. The settings file controls delivery:
 `SpawnProcess`, `StoredWake`, or `Both`. `StoredWake` stores the wake row and
-sends no MCP notification, because this transport cannot carry one. It was
-called `McpNotification`; that spelling is still accepted in settings files.
+sends no MCP notification, because this transport cannot carry one.
 
 An addressed board note always retains a Wake signal. When its key matches the
 effective participant key and delivery is `SpawnProcess` or `Both`, Armada also
@@ -342,13 +341,6 @@ request with a named error.
 
 Bind the service to a trusted interface and use a protected transport even with
 authentication. Do not expose the MCP port to an untrusted network.
-
-### Retired lead integration
-
-The restricted Grok listener, OAuth proof-of-concept broker, and
-`armada_lead_cycle_*` tools are removed. Use the main operator MCP endpoint.
-Generic AgentWake, participant identity, bearer authentication, and tool audit
-support remain. See the [retirement archive](archive/autonomous-lead/README.md).
 
 ## Catalog Availability
 

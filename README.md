@@ -111,8 +111,7 @@ new fork migrations. Do not replace schema history, test registrations or
 runtime files wholesale.
 
 The fork provides bounded helpers, shared coordination, persistent ownership
-and safe lane admission. The standalone lead and Grok runtime are retired.
-Directed wakes reach an identified operator on its next tool result. Armada's
+and safe lane admission. Directed wakes reach an identified operator on its next tool result. Armada's
 current stateless MCP endpoint does not push an unsolicited notification to an
 idle client.
 
@@ -148,10 +147,6 @@ an armed Check that has not run yet is queued work: the Judge gate stamps it at
 the reviewed commit and holds the PASS until it runs, rather than rejecting the
 PASS for missing Checks. Operators handle landing, incidents,
 campaign planning, and helper requests.
-
-The standalone lead launcher and Grok Bot integration are retired. See the
-[retirement archive](docs/archive/autonomous-lead/README.md) for history and
-host cleanup requirements. Generic AgentWake and shared coordination remain.
 
 `scripts/autonomy/spawn-helper.sh` provides capped, timed helpers for narrow
 delegated work. `scripts/autonomy/watch-armada.mjs` subscribes to the WebSocket

@@ -1116,9 +1116,8 @@ Operating rules:
 
 An operator session that starts host-side helpers owns their complete
 lifecycle. The autonomous objective scheduler selects ready objectives and
-dispatches captains inside Armada. The standalone lead cycle and its external
-launcher are retired. Do not restore them through an external timer or
-AgentWake registration. Generic operator wakes and bounded helpers remain.
+dispatches captains inside Armada. Generic operator wakes and bounded helpers
+support operator sessions.
 
 Use `scripts/autonomy/spawn-helper.sh` for bounded host-side helpers:
 
@@ -2182,19 +2181,6 @@ The watcher notifies and nothing more. It never reads, acknowledges, or consumes
 a wake, so the banner and `armada_mark_signal_read` remain the delivery and
 acknowledgement path.
 
-### Retired standalone lead integration
-
-The standalone lead scripts, systemd units, and Grok gateway are archived.
-The server no longer consumes `grokLead` settings or exposes the restricted
-Grok listener, OAuth proof-of-concept broker, lead-cycle MCP tools, or
-lead-control REST routes. See the [retirement archive](archive/autonomous-lead/README.md).
-
-Before updating an existing deployment, remove the disabled lead service and
-timer, Grok gateway, its credentials and listener configuration, and the
-lead-specific AgentWake target. Preserve generic AgentWake for other clients.
-The scheduler, coordination board, bounded helpers, watcher, and log renderer
-remain supported. Operators now perform lead work in authorized sessions.
-
 ### 8.10 Incidents
 
 | Risk | Tools |
@@ -2305,9 +2291,6 @@ configured key, effective key, delivery mode, runtime, and transient session.
 
 Nothing is pushed under any delivery mode. The row waits until the session next
 calls a tool, and the participant header above is what lets that call carry it.
-This mode was called `McpNotification`, which promised a push the transport
-cannot carry; it is now `StoredWake`. Settings files using the old spelling keep
-loading unchanged, and Armada writes the new one.
 
 OpenCode does not resume an earlier conversation for AgentWake. It starts a
 fresh session by design. Put the complete task in the addressed note and make
@@ -2446,8 +2429,7 @@ Two boundaries decide what belongs here:
   rules. When a brief carries a Shared Memory section, an external rule wins over
   a native record on conflict, and a captain reports the conflict instead of
   rewriting either side.
-- The memory tools never write to that repository, to repository files, or to the
-  vessel model context.
+- The memory tools never write to that repository or to repository files.
 
 The MCP surface carries no per-request identity, so the memory tools act as an
 administrator of the default tenant: they reach every record of that tenant and
@@ -2479,8 +2461,7 @@ Three operator facts:
   operator as a proposal in its summary.
 
 Every other built-in persona template carries a Recall Existing Memory section
-telling the agent to read the vessel model context and search memory before it
-acts. Startup adds that section once to a built-in persona template that lacks
+telling the agent to search memory before it acts. Startup adds that section once to a built-in persona template that lacks
 it and changes nothing else, so an operator edit is kept.
 
 ### 8.25 Branch Cleanup Sweep
