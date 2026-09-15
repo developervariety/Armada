@@ -683,6 +683,95 @@ namespace Armada.Test.Unit.Suites.Services
                     SafeDeleteDirectory(sourceRepo);
                 }
             }).ConfigureAwait(false);
+
+            // Premise: a prune run from a view of the repository where a worktree's directory does not
+            // exist removes that worktree's admin entry, unless the worktree is locked.
+            await RunTest("git worktree prune drops an unlocked worktree it cannot see and keeps a locked one", async () =>
+            {
+                string sourceRepo = await CreateSourceRepoAsync().ConfigureAwait(false);
+                string parent = Path.Combine(Path.GetTempPath(), "armada-iso-prune-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(parent);
+
+                try
+                {
+                    string open = Path.Combine(parent, "wt-open");
+                    string held = Path.Combine(parent, "wt-held");
+                    await RunGitAsync(sourceRepo, "worktree", "add", "--detach", open, "HEAD").ConfigureAwait(false);
+                    await RunGitAsync(sourceRepo, "worktree", "add", "--detach", held, "HEAD").ConfigureAwait(false);
+                    await RunGitAsync(sourceRepo, "worktree", "lock", "--reason", "check run in progress", held).ConfigureAwait(false);
+
+                    // Hide both directories from this repository's view of the filesystem.
+                    Directory.Move(open, open + "-elsewhere");
+                    Directory.Move(held, held + "-elsewhere");
+
+                    await RunGitAsync(sourceRepo, "worktree", "prune").ConfigureAwait(false);
+                    string list = await RunGitAsync(sourceRepo, "worktree", "list", "--porcelain").ConfigureAwait(false);
+
+                    AssertFalse(list.Contains("wt-open", StringComparison.Ordinal), "an unlocked invisible worktree is pruned: " + list);
+                    AssertTrue(list.Contains("wt-held", StringComparison.Ordinal), "a locked invisible worktree survives prune: " + list);
+                }
+                finally
+                {
+                    SafeDeleteDirectory(parent);
+                    SafeDeleteDirectory(sourceRepo);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Isolated checkout worktree is locked while the check command runs and named for its check", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+                VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+                CheckRunService checkRuns = new CheckRunService(testDb.Driver, workflowProfiles, readiness, logging);
+
+                await EnsureTenantAndUserAsync(testDb, "ten_iso_wtlock", "usr_iso_wtlock").ConfigureAwait(false);
+
+                string sourceRepo = await CreateSourceRepoAsync().ConfigureAwait(false);
+                string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-iso-wtlock-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(workingDirectory);
+
+                try
+                {
+                    Vessel vessel = CreateVessel("ten_iso_wtlock", "usr_iso_wtlock", workingDirectory);
+                    vessel.LocalPath = sourceRepo;
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    WorkflowProfile profile = new WorkflowProfile
+                    {
+                        TenantId = "ten_iso_wtlock",
+                        UserId = "usr_iso_wtlock",
+                        Name = "Worktree Lock Build Workflow",
+                        Scope = WorkflowProfileScopeEnum.Vessel,
+                        VesselId = vessel.Id,
+                        BuildCommand = "git worktree list --porcelain"
+                    };
+                    await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                    AuthContext auth = AuthContext.Authenticated("ten_iso_wtlock", "usr_iso_wtlock", false, false, "UnitTest");
+                    CheckRun run = await checkRuns.RunAsync(auth, new CheckRunRequest
+                    {
+                        VesselId = vessel.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        Label = "Build"
+                    }).ConfigureAwait(false);
+
+                    string output = run.Output ?? String.Empty;
+                    AssertEqual(CheckRunStatusEnum.Passed, run.Status, output);
+                    AssertTrue(output.Contains("\nlocked", StringComparison.Ordinal), "the running checkout must be locked: " + output);
+                    AssertContains("armada-chk-" + run.Id, output, "the checkout directory must name its check run");
+
+                    string worktreeList = await RunGitAsync(sourceRepo, "worktree", "list").ConfigureAwait(false);
+                    AssertFalse(
+                        worktreeList.Contains("armada-chk-", StringComparison.OrdinalIgnoreCase),
+                        "the locked worktree must still be unregistered after the check completes: " + worktreeList);
+                }
+                finally
+                {
+                    SafeDeleteDirectory(workingDirectory);
+                    SafeDeleteDirectory(sourceRepo);
+                }
+            }).ConfigureAwait(false);
         }
 
         #region Private-Methods

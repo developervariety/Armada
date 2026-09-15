@@ -692,6 +692,12 @@ against a shared sibling while checks are in flight; an out-of-band `reset
 under load, an isolated re-run remains the discriminator: a contention flake
 passes alone, a genuine mismatch fails alone every time.
 
+A Build or UnitTest check executes in a private checkout cut from the vessel's
+repository, never in the live working directory. That checkout is locked as a
+git worktree while the check runs, so a prune elsewhere cannot unregister it
+mid-run, and its directory name carries the check run id, so the storage reclaim
+sweep keeps it while the check has no verdict.
+
 Readiness probes the program each command segment starts with, so a check whose
 command needs a missing binary is blocked before it runs. Shell syntax is not a
 program: the header of a `for`, `select` or `case` construct, the loop and

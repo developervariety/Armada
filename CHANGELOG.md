@@ -164,6 +164,17 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   landing that finds the same divergence with the incident still open adds no
   second event or incident. When the checkout cannot be read, counted or
   pushed, the incident says which step failed.
+### A running check's checkout survives a prune and a reclaim sweep
+
+- The private checkout a Build or UnitTest check executes in is now locked as a
+  git worktree for the length of the run and unlocked before removal. A
+  `git worktree prune` run from a process that cannot see that directory no
+  longer removes the live worktree's admin entry mid-run.
+- The checkout directory carries its check run id, and the storage reclaim sweep
+  keeps the checkout of any check that has not reached a verdict instead of
+  reclaiming it on modification time alone. An unreadable check list protects
+  every checkout for that pass.
+
 ### An unstamped voyage-armed Check never measures the default branch
 
 - A voyage that ends between the eligibility read and the stamping read leaves

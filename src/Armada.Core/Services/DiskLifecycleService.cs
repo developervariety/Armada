@@ -465,6 +465,7 @@ namespace Armada.Core.Services
             string root = Path.GetTempPath();
             TimeSpan retention = TimeSpan.FromHours(Math.Max(1, section.TempArtifactRetentionHours));
             DateTime cutoff = DateTime.UtcNow.Subtract(retention);
+            HashSet<string> liveCheckRunIds = await ReadLiveCheckRunIdsAsync(token).ConfigureAwait(false);
 
             foreach (string entry in SafeEnumerateFileSystemEntries(root))
             {
@@ -484,6 +485,17 @@ namespace Armada.Core.Services
                 {
                     RecordAction(report, category, full, "skipped", "outside allowed roots");
                     report.SkippedItems++;
+                    continue;
+                }
+
+                // A check executes in its own checkout and writes nothing to the directory itself, so
+                // a long suite looks expired while it is still running. The directory names its check
+                // run, so a check that has not finished keeps its checkout.
+                string? liveCheckRunId = FindLiveCheckRunId(name, liveCheckRunIds);
+                if (liveCheckRunId != null)
+                {
+                    category.ProtectedItems++;
+                    RecordAction(report, category, full, "protected", "checkout of a check run that has not finished");
                     continue;
                 }
 
@@ -516,6 +528,65 @@ namespace Armada.Core.Services
             }
 
             report.Categories.Add(category);
+        }
+
+        /// <summary>
+        /// Read the ids of the check runs that have not reached a verdict. A Pending record counts:
+        /// its checkout is created before the record leaves Pending, while it waits for the host slot.
+        /// </summary>
+        private async Task<HashSet<string>> ReadLiveCheckRunIdsAsync(CancellationToken token)
+        {
+            HashSet<string> ids = new HashSet<string>(StringComparer.Ordinal);
+            foreach (CheckRunStatusEnum status in new CheckRunStatusEnum[] { CheckRunStatusEnum.Running, CheckRunStatusEnum.Pending })
+            {
+                CheckRunQuery query = new CheckRunQuery
+                {
+                    Status = status,
+                    PageNumber = 1,
+                    PageSize = 200
+                };
+
+                try
+                {
+                    while (true)
+                    {
+                        EnumerationResult<CheckRun> page = await _Database.CheckRuns.EnumerateAsync(query, token).ConfigureAwait(false);
+                        foreach (CheckRun run in page.Objects)
+                        {
+                            if (run != null && !String.IsNullOrWhiteSpace(run.Id)) ids.Add(run.Id);
+                        }
+
+                        if (page.Objects.Count < query.PageSize || query.PageNumber >= page.TotalPages) break;
+                        query.PageNumber++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // Fail closed: an unreadable live set protects every checkout this pass.
+                    _Logging.Warn(_Header + "could not enumerate " + status + " check runs; temp checkouts are protected this pass: " + ex.Message);
+                    ids.Add(String.Empty);
+                }
+            }
+
+            return ids;
+        }
+
+        /// <summary>
+        /// The live check run a temp directory belongs to, or null when none does. An unreadable live
+        /// set (marked by the empty id) protects every checkout.
+        /// </summary>
+        private static string? FindLiveCheckRunId(string directoryName, HashSet<string> liveCheckRunIds)
+        {
+            if (!directoryName.StartsWith(CheckRunService.CheckoutDirectoryPrefix, StringComparison.Ordinal)) return null;
+            if (liveCheckRunIds.Contains(String.Empty)) return String.Empty;
+
+            string remainder = directoryName.Substring(CheckRunService.CheckoutDirectoryPrefix.Length);
+            foreach (string id in liveCheckRunIds)
+            {
+                if (id.Length > 0 && remainder.StartsWith(id, StringComparison.Ordinal)) return id;
+            }
+
+            return null;
         }
 
         private async Task ScanBackups(DiskLifecycleSettings section, bool delete, DiskLifecycleReport report, CancellationToken token)

@@ -292,6 +292,70 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Temp reclaim keeps the checkout directory of a live check run and reclaims a finished one", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                Layout layout = CreateLayout();
+                string tempDir = Path.GetTempPath();
+                string liveDir = String.Empty;
+                string finishedDir = String.Empty;
+
+                try
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("vsl_check_reclaim", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    CheckRun live = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        VesselId = vessel.Id,
+                        Type = CheckRunTypeEnum.UnitTest,
+                        Source = CheckRunSourceEnum.Armada,
+                        Status = CheckRunStatusEnum.Running,
+                        Command = "dotnet test",
+                        StartedUtc = DateTime.UtcNow.AddDays(-2)
+                    }).ConfigureAwait(false);
+                    CheckRun finished = await testDb.Driver.CheckRuns.CreateAsync(new CheckRun
+                    {
+                        VesselId = vessel.Id,
+                        Type = CheckRunTypeEnum.Build,
+                        Source = CheckRunSourceEnum.Armada,
+                        Status = CheckRunStatusEnum.Passed,
+                        Command = "dotnet build"
+                    }).ConfigureAwait(false);
+
+                    // A long suite leaves its checkout untouched for longer than the retention window.
+                    liveDir = Path.Combine(tempDir, "armada-chk-" + live.Id + "-" + Guid.NewGuid().ToString("N"));
+                    finishedDir = Path.Combine(tempDir, "armada-chk-" + finished.Id + "-" + Guid.NewGuid().ToString("N"));
+                    foreach (string dir in new[] { liveDir, finishedDir })
+                    {
+                        Directory.CreateDirectory(dir);
+                        File.WriteAllText(Path.Combine(dir, "artifact.bin"), "data");
+                        File.SetLastWriteTimeUtc(dir, DateTime.UtcNow.AddDays(-3));
+                    }
+
+                    layout.Settings.DiskLifecycle.Enabled = true;
+                    layout.Settings.DiskLifecycle.DryRun = false;
+                    DiskLifecycleService service = new DiskLifecycleService(testDb.Driver, layout.Settings, logging);
+
+                    DiskLifecycleReport report = await service.ReconcileAsync().ConfigureAwait(false);
+
+                    AssertTrue(Directory.Exists(liveDir), "The checkout of a Running check must not be reclaimed.");
+                    AssertTrue(
+                        report.Actions.Any(a => a.Category == "tempArtifacts" && a.Path == Path.GetFullPath(liveDir) && a.Disposition == "protected"),
+                        "The live checkout must be recorded as protected.");
+                    AssertFalse(Directory.Exists(finishedDir), "The checkout of a finished check past retention must be reclaimed.");
+                }
+                finally
+                {
+                    foreach (string dir in new[] { liveDir, finishedDir })
+                    {
+                        if (!String.IsNullOrEmpty(dir) && Directory.Exists(dir)) Directory.Delete(dir, true);
+                    }
+                    Cleanup(layout);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Fail closed: a symlinked dock dir is skipped, never deleted", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

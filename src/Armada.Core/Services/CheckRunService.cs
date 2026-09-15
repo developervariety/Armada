@@ -22,6 +22,14 @@ namespace Armada.Core.Services
         /// </summary>
         public Action<CheckRun>? OnCheckRunChanged { get; set; }
 
+        /// <summary>
+        /// Directory-name prefix of the private checkout a check run executes in. The check run id
+        /// follows it, so a storage sweep can recognize the checkout of a live check.
+        /// </summary>
+        public const string CheckoutDirectoryPrefix = "armada-chk-";
+
+        private const string _WorktreeLockReason = "armada check run in progress";
+
         private readonly string _Header = "[CheckRunService] ";
         private readonly DatabaseDriver _Database;
         private readonly WorkflowProfileService _WorkflowProfiles;
@@ -142,7 +150,7 @@ namespace Armada.Core.Services
                         string? repoSource = ResolveRepoSource(vessel);
                         if (repoSource != null)
                         {
-                            isolatedCheckout = await TryCreateIsolatedCheckoutAsync(vessel, run.CommitHash, run.BranchName, vessel.DefaultBranch, token).ConfigureAwait(false);
+                            isolatedCheckout = await TryCreateIsolatedCheckoutAsync(vessel, run.Id, run.CommitHash, run.BranchName, vessel.DefaultBranch, token).ConfigureAwait(false);
                             if (isolatedCheckout != null)
                             {
                                 executionDirectory = isolatedCheckout.Path;
@@ -705,7 +713,7 @@ namespace Armada.Core.Services
                 string? repoSource = ResolveRepoSource(vessel);
                 if (repoSource != null)
                 {
-                    isolatedCheckout = await TryCreateIsolatedCheckoutAsync(vessel, run.CommitHash, run.BranchName, vessel.DefaultBranch, token).ConfigureAwait(false);
+                    isolatedCheckout = await TryCreateIsolatedCheckoutAsync(vessel, run.Id, run.CommitHash, run.BranchName, vessel.DefaultBranch, token).ConfigureAwait(false);
                     if (isolatedCheckout != null)
                     {
                         executionDirectory = isolatedCheckout.Path;
@@ -1173,6 +1181,17 @@ namespace Armada.Core.Services
             return run;
         }
 
+        /// <summary>
+        /// Build the path of a check's private checkout. The check run id is part of the directory
+        /// name so a reclaim sweep can tell a checkout that a live check is executing in from a
+        /// leftover one, without a second record of what is in flight.
+        /// </summary>
+        private static string BuildCheckoutPath(string checkRunId)
+        {
+            string suffix = String.IsNullOrWhiteSpace(checkRunId) ? String.Empty : checkRunId.Trim() + "-";
+            return Path.Combine(Path.GetTempPath(), CheckoutDirectoryPrefix + suffix + Guid.NewGuid().ToString("N"));
+        }
+
         private static bool IsIsolatedCheckoutType(CheckRunTypeEnum type)
         {
             return type == CheckRunTypeEnum.Build || type == CheckRunTypeEnum.UnitTest;
@@ -1220,6 +1239,7 @@ namespace Armada.Core.Services
         /// </summary>
         private async Task<IsolatedCheckout?> TryCreateIsolatedCheckoutAsync(
             Vessel vessel,
+            string checkRunId,
             string? commitHash,
             string? branchName,
             string defaultBranch,
@@ -1231,7 +1251,7 @@ namespace Armada.Core.Services
 
             if (localPath != null)
             {
-                IsolatedCheckout? worktree = await TryCreateDetachedWorktreeAsync(localPath, commitHash, branchName, defaultBranch, token).ConfigureAwait(false);
+                IsolatedCheckout? worktree = await TryCreateDetachedWorktreeAsync(localPath, checkRunId, commitHash, branchName, defaultBranch, token).ConfigureAwait(false);
                 if (worktree != null)
                 {
                     return worktree;
@@ -1245,7 +1265,7 @@ namespace Armada.Core.Services
                 return null;
             }
 
-            string? clonePath = await TryCloneToTempAsync(repoSource, commitHash, branchName, defaultBranch, token).ConfigureAwait(false);
+            string? clonePath = await TryCloneToTempAsync(repoSource, checkRunId, commitHash, branchName, defaultBranch, token).ConfigureAwait(false);
             if (clonePath == null)
             {
                 return null;
@@ -1260,12 +1280,13 @@ namespace Armada.Core.Services
         /// </summary>
         private async Task<IsolatedCheckout?> TryCreateDetachedWorktreeAsync(
             string repoPath,
+            string checkRunId,
             string? commitHash,
             string? branchName,
             string defaultBranch,
             CancellationToken token)
         {
-            string tempPath = Path.Combine(Path.GetTempPath(), "armada-chk-" + Guid.NewGuid().ToString("N"));
+            string tempPath = BuildCheckoutPath(checkRunId);
             SemaphoreSlim repoLock = _CheckoutRepoLocks.GetOrAdd(repoPath, _ => new SemaphoreSlim(1, 1));
             await repoLock.WaitAsync(token).ConfigureAwait(false);
             try
@@ -1289,6 +1310,14 @@ namespace Armada.Core.Services
                     SafeDeleteDirectory(tempPath);
                     return null;
                 }
+
+                // A prune run from a process that cannot see this directory removes an unlocked
+                // worktree's admin entry while the check is still executing in it. A lock survives
+                // every prune, whoever runs it.
+                int lockExit = await RunGitAsync(repoPath, TimeSpan.FromMinutes(1), token,
+                    "worktree", "lock", "--reason", _WorktreeLockReason, tempPath).ConfigureAwait(false);
+                if (lockExit != 0)
+                    _Logging.Warn(_Header + "isolated checkout: could not lock worktree " + tempPath + "; a prune can remove it mid-run");
 
                 _Logging.Debug(_Header + "isolated checkout created at " + tempPath);
                 return new IsolatedCheckout(tempPath, repoPath);
@@ -1392,6 +1421,10 @@ namespace Armada.Core.Services
             {
                 try
                 {
+                    // Removal is refused while the worktree is locked, so the lock that protected the
+                    // run is released first.
+                    await RunGitAsync(checkout.RepoPath, TimeSpan.FromMinutes(1), token,
+                        "worktree", "unlock", checkout.Path).ConfigureAwait(false);
                     await RunGitAsync(checkout.RepoPath, TimeSpan.FromMinutes(2), token,
                         "worktree", "remove", "--force", checkout.Path).ConfigureAwait(false);
                 }
@@ -1418,12 +1451,13 @@ namespace Armada.Core.Services
 
         private async Task<string?> TryCloneToTempAsync(
             string repoSource,
+            string checkRunId,
             string? commitHash,
             string? branchName,
             string defaultBranch,
             CancellationToken token)
         {
-            string tempPath = Path.Combine(Path.GetTempPath(), "armada-chk-" + Guid.NewGuid().ToString("N"));
+            string tempPath = BuildCheckoutPath(checkRunId);
             try
             {
                 int cloneExit = await RunGitAsync(
