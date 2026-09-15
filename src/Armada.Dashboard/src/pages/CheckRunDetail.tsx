@@ -4,6 +4,7 @@ import { deleteCheckRun, getCheckRun, getVessel, getWorkflowProfile, listCheckRu
 import type { CheckRun, Vessel, WorkflowProfile } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { RESYNC_MESSAGE_TYPE, useWebSocket } from '../context/WebSocketContext';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -45,6 +46,11 @@ export default function CheckRunDetail() {
   const [vessel, setVessel] = useState<Vessel | null>(null);
   const [profile, setProfile] = useState<WorkflowProfile | null>(null);
   const [comparison, setComparison] = useState<CheckRunComparison | null>(null);
+  // How far the previous-run search reached: the route returns at most 500 earlier runs.
+  const [baselineScope, setBaselineScope] = useState<{ searched: number; total: number } | null>(null);
+  // Bumped to read the run again after the live-update connection missed events.
+  const [reloadTick, setReloadTick] = useState(0);
+  const { subscribe } = useWebSocket();
   const [loading, setLoading] = useState(true);
   const [retrying, setRetrying] = useState(false);
   const [error, setError] = useState('');
@@ -63,7 +69,7 @@ export default function CheckRunDetail() {
 
     async function load() {
       try {
-        setLoading(true);
+        if (!run) setLoading(true);
         const nextRun = await getCheckRun(runId);
         if (!mounted) return;
         setRun(nextRun);
@@ -73,7 +79,7 @@ export default function CheckRunDetail() {
           nextRun.workflowProfileId ? getWorkflowProfile(nextRun.workflowProfileId).catch(() => null) : Promise.resolve(null),
           nextRun.vesselId
             ? listCheckRuns({
-              pageSize: 1000,
+              pageSize: 500,
               filters: {
                 vesselId: nextRun.vesselId,
                 type: nextRun.type,
@@ -86,6 +92,12 @@ export default function CheckRunDetail() {
         setVessel(nextVessel);
         setProfile(nextProfile);
         setComparison(relatedRunsResult?.objects ? buildCheckRunComparison(nextRun, relatedRunsResult.objects) : null);
+        if (relatedRunsResult) {
+          const total = relatedRunsResult.totalRecords || 0;
+          setBaselineScope({ searched: Math.min(relatedRunsResult.pageSize || 500, total), total });
+        } else {
+          setBaselineScope(null);
+        }
         setError('');
       } catch (err: unknown) {
         if (mounted) setError(err instanceof Error ? err.message : t('Failed to load check run.'));
@@ -96,7 +108,25 @@ export default function CheckRunDetail() {
 
     load();
     return () => { mounted = false; };
-  }, [id, t]);
+    // `run` is read only to decide whether a reload shows the loading state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, t, reloadTick]);
+
+  // A Pending or Running check changes on the server; follow its change events instead of showing
+  // a stale status, and read it again when the connection reports missed events.
+  useEffect(() => {
+    if (!id) return undefined;
+    return subscribe((msg) => {
+      if (msg.type === RESYNC_MESSAGE_TYPE) {
+        setReloadTick((tick) => tick + 1);
+        return;
+      }
+      if (msg.type !== 'check-run.changed') return;
+      const changed = msg.data as CheckRun | undefined;
+      if (!changed || changed.id !== id) return;
+      setRun((current) => (current ? { ...current, ...changed } : changed));
+    });
+  }, [id, subscribe]);
 
   const outputLineCount = useMemo(() => Math.max(1, (run?.output || '').split(/\r?\n/).length), [run?.output]);
 
@@ -133,7 +163,7 @@ export default function CheckRunDetail() {
     });
   }
 
-  if (loading) return <p className="text-dim">{t('Loading...')}</p>;
+  if (loading && !run) return <p className="text-dim">{t('Loading...')}</p>;
   if (!run) return <p className="text-dim">{t('Check run not found.')}</p>;
 
   return (
@@ -224,6 +254,16 @@ export default function CheckRunDetail() {
         <div className="detail-field"><span className="detail-label">{t('Started')}</span><span>{run.startedUtc ? formatDateTime(run.startedUtc) : '-'}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Completed')}</span><span>{run.completedUtc ? formatDateTime(run.completedUtc) : '-'}</span></div>
       </div>
+
+      {baselineScope && baselineScope.total > baselineScope.searched && (
+        <p className="text-dim" style={{ marginBottom: '1rem' }}>
+          {t('The previous-run comparison searched the newest {{searched}} of {{total}} earlier {{type}} runs for this vessel.', {
+            searched: baselineScope.searched,
+            total: baselineScope.total,
+            type: run.type,
+          })}
+        </p>
+      )}
 
       <div className="card" style={{ marginBottom: '1rem' }}>
         <h3>{t('Command')}</h3>

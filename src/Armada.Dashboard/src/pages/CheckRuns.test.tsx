@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import CheckRuns from './CheckRuns';
 import {
@@ -10,14 +10,6 @@ import {
   runCheck,
 } from '../api/client';
 
-const translate = (text: string, params?: Record<string, string | number | null | undefined>) => {
-  if (!params) return text;
-  return Object.entries(params).reduce(
-    (current, [key, value]) => current.split(`{{${key}}}`).join(value == null ? '' : String(value)),
-    text,
-  );
-};
-
 vi.mock('../api/client', () => ({
   listCheckRuns: vi.fn(),
   listVessels: vi.fn(),
@@ -27,13 +19,22 @@ vi.mock('../api/client', () => ({
   runCheck: vi.fn(),
 }));
 
-vi.mock('../context/LocaleContext', () => ({
-  useLocale: () => ({
+// One stable locale object, like the real provider.
+vi.mock('../context/LocaleContext', () => {
+  const translate = (text: string, params?: Record<string, string | number | null | undefined>) => {
+    if (!params) return text;
+    return Object.entries(params).reduce(
+      (current, [key, value]) => current.split(`{{${key}}}`).join(value == null ? '' : String(value)),
+      text,
+    );
+  };
+  const locale = {
     t: translate,
     formatDateTime: (value: string | null | undefined) => value ?? '',
     formatRelativeTime: (value: string | null | undefined) => value ?? '',
-  }),
-}));
+  };
+  return { useLocale: () => locale };
+});
 
 vi.mock('../context/NotificationContext', () => ({
   useNotifications: () => ({
@@ -41,56 +42,71 @@ vi.mock('../context/NotificationContext', () => ({
   }),
 }));
 
+const nightlyBuild = {
+  id: 'chk_123',
+  tenantId: 'ten_123',
+  userId: 'usr_123',
+  workflowProfileId: 'wfp_123',
+  vesselId: 'vsl_123',
+  missionId: null,
+  voyageId: null,
+  deploymentId: null,
+  label: 'Nightly Build',
+  type: 'Build',
+  source: 'Armada',
+  status: 'Passed',
+  providerName: null,
+  externalId: null,
+  externalUrl: null,
+  environmentName: null,
+  command: 'dotnet build',
+  workingDirectory: 'C:/repo',
+  branchName: 'main',
+  commitHash: 'abc123',
+  exitCode: 0,
+  output: 'Build succeeded.',
+  summary: 'Nightly build passed.',
+  testSummary: null,
+  coverageSummary: null,
+  artifacts: [],
+  durationMs: 1250,
+  startedUtc: '2026-05-03T00:00:00Z',
+  completedUtc: '2026-05-03T00:00:01Z',
+  createdUtc: '2026-05-03T00:00:00Z',
+  lastUpdateUtc: '2026-05-03T00:00:01Z',
+};
+
+// The server contract: the route caps a page at 500, filters by status, type, source and vessel,
+// and reports totals for the whole filtered set. This server holds 730 Armada runs.
+type CheckRunListParams = { pageNumber?: number; pageSize?: number; filters?: Record<string, string> };
+const SERVER_TOTAL = 730;
+function serverList(params?: CheckRunListParams) {
+  const pageSize = Math.min(Math.max(params?.pageSize ?? 10, 1), 500);
+  const filters = params?.filters ?? {};
+  const matches = (!filters.source || filters.source === 'Armada')
+    && (!filters.status || filters.status === 'Passed')
+    && (!filters.type || filters.type === 'Build')
+    && (!filters.vesselId || filters.vesselId === 'vsl_123');
+  const total = matches ? SERVER_TOTAL : 0;
+  return {
+    success: true,
+    pageNumber: params?.pageNumber ?? 1,
+    pageSize,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    totalRecords: total,
+    totalMs: 1,
+    objects: matches ? [nightlyBuild] : [],
+  };
+}
+
 describe('CheckRuns', () => {
   beforeEach(() => {
-    vi.mocked(listCheckRuns).mockResolvedValue({
-      success: true,
-      pageNumber: 1,
-      pageSize: 9999,
-      totalPages: 1,
-      totalRecords: 1,
-      totalMs: 1,
-      objects: [
-        {
-          id: 'chk_123',
-          tenantId: 'ten_123',
-          userId: 'usr_123',
-          workflowProfileId: 'wfp_123',
-          vesselId: 'vsl_123',
-          missionId: null,
-          voyageId: null,
-          deploymentId: null,
-          label: 'Nightly Build',
-          type: 'Build',
-          source: 'Armada',
-          status: 'Passed',
-          providerName: null,
-          externalId: null,
-          externalUrl: null,
-          environmentName: null,
-          command: 'dotnet build',
-          workingDirectory: 'C:/repo',
-          branchName: 'main',
-          commitHash: 'abc123',
-          exitCode: 0,
-          output: 'Build succeeded.',
-          summary: 'Nightly build passed.',
-          testSummary: null,
-          coverageSummary: null,
-          artifacts: [],
-          durationMs: 1250,
-          startedUtc: '2026-05-03T00:00:00Z',
-          completedUtc: '2026-05-03T00:00:01Z',
-          createdUtc: '2026-05-03T00:00:00Z',
-          lastUpdateUtc: '2026-05-03T00:00:01Z',
-        },
-      ],
-    });
+    vi.mocked(listCheckRuns).mockImplementation(async (params?: CheckRunListParams) => serverList(params) as never);
 
     vi.mocked(listVessels).mockResolvedValue({
       success: true,
       pageNumber: 1,
-      pageSize: 9999,
+      pageSize: 1000,
       totalPages: 1,
       totalRecords: 1,
       totalMs: 1,
@@ -105,7 +121,7 @@ describe('CheckRuns', () => {
     vi.mocked(listWorkflowProfiles).mockResolvedValue({
       success: true,
       pageNumber: 1,
-      pageSize: 9999,
+      pageSize: 1000,
       totalPages: 1,
       totalRecords: 1,
       totalMs: 1,
@@ -198,7 +214,7 @@ describe('CheckRuns', () => {
     vi.clearAllMocks();
   });
 
-  it('renders check runs, filters them, and opens the run modal', async () => {
+  function renderPage() {
     render(
       <MemoryRouter initialEntries={['/checks']}>
         <Routes>
@@ -208,6 +224,16 @@ describe('CheckRuns', () => {
         </Routes>
       </MemoryRouter>,
     );
+  }
+
+  function cardValue(label: string) {
+    const card = Array.from(document.querySelectorAll('.playbook-overview-card'))
+      .find((element) => element.querySelector('span')?.textContent === label);
+    return card?.querySelector('strong')?.textContent;
+  }
+
+  it('renders check runs, filters them, and opens the run modal', async () => {
+    renderPage();
 
     expect(screen.getByRole('heading', { name: 'Checks' })).toBeInTheDocument();
     expect(await screen.findByText('Nightly Build')).toBeInTheDocument();
@@ -225,5 +251,27 @@ describe('CheckRuns', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Run Check/ }));
     expect(screen.getByRole('heading', { name: 'Run Check' })).toBeInTheDocument();
+  });
+
+  it('requests a page the server can return and shows the server total', async () => {
+    renderPage();
+    expect(await screen.findByText('Nightly Build')).toBeInTheDocument();
+    for (const call of vi.mocked(listCheckRuns).mock.calls) {
+      expect(call[0]?.pageSize ?? 0).toBeLessThanOrEqual(500);
+    }
+    await waitFor(() => expect(cardValue('Total Runs')).toBe(String(SERVER_TOTAL)));
+  });
+
+  it('sends the status, type and source filters to the server', async () => {
+    renderPage();
+    expect(await screen.findByText('Nightly Build')).toBeInTheDocument();
+    fireEvent.change(screen.getByDisplayValue('All statuses'), { target: { value: 'Failed' } });
+    await waitFor(() => expect(listCheckRuns).toHaveBeenLastCalledWith(
+      expect.objectContaining({ filters: expect.objectContaining({ status: 'Failed' }) }),
+    ));
+    fireEvent.change(screen.getByDisplayValue('All check types'), { target: { value: 'UnitTest' } });
+    await waitFor(() => expect(listCheckRuns).toHaveBeenLastCalledWith(
+      expect.objectContaining({ filters: expect.objectContaining({ status: 'Failed', type: 'UnitTest' }) }),
+    ));
   });
 });

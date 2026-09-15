@@ -191,6 +191,11 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   execution total and says when it lists only the newest executions.
 - The Users, Tenants and Credentials pages list every record, not only the
   first 10, and credentials show owners and tenants past the first 10 by name.
+- The Checks list sends its status, type, source and vessel filters to the
+  server and pages through every run. Its summary cards come from server
+  totals, not from the newest 500 runs.
+- Check detail follows live changes to a pending or running check, and says
+  when its previous-run comparison searched only the newest runs.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 

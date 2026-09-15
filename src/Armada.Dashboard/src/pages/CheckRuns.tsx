@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   getVesselReadiness,
@@ -21,6 +21,7 @@ import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import StatusBadge from '../components/shared/StatusBadge';
+import Pagination from '../components/shared/Pagination';
 import WorkflowCommandPreview from '../components/shared/WorkflowCommandPreview';
 import {
   buildCheckRunComparisonMap,
@@ -126,7 +127,12 @@ export default function CheckRuns() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'Passed' | 'Failed' | 'Running' | 'Pending' | 'Canceled'>('all');
   const [sourceFilter, setSourceFilter] = useState<'all' | 'Armada' | 'External'>('all');
   const [typeFilter, setTypeFilter] = useState<'all' | CheckRunType>('all');
-  const [colFilters, setColFilters] = useState({ label: '', environmentName: '' });
+  // Filters and pages run on the server (a page holds at most 500 runs), so they cover every run.
+  const [pageNumber, setPageNumber] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalRecords, setTotalRecords] = useState(0);
+  const [summaryCounts, setSummaryCounts] = useState({ total: 0, passed: 0, failed: 0, running: 0 });
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
 
@@ -148,15 +154,29 @@ export default function CheckRuns() {
   const [readiness, setReadiness] = useState<VesselReadinessResult | null>(null);
   const [loadingReadiness, setLoadingReadiness] = useState(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [runResult, vesselResult, profileResult] = await Promise.all([
-        listCheckRuns({ pageSize: 9999 }),
-        listVessels({ pageSize: 9999 }),
-        listWorkflowProfiles({ pageSize: 9999 }),
+      const filters: Record<string, string> = {};
+      if (statusFilter !== 'all') filters.status = statusFilter;
+      if (sourceFilter !== 'all') filters.source = sourceFilter;
+      if (typeFilter !== 'all') filters.type = typeFilter;
+      if (vesselFilter !== 'all') filters.vesselId = vesselFilter;
+      // The summary cards count every run (one-row queries read the server totals). The page request goes last.
+      const countOf = async (status?: string) =>
+        (await listCheckRuns({ pageSize: 1, filters: status ? { status } : undefined })).totalRecords || 0;
+      const countRequests = Promise.all([countOf(), countOf('Passed'), countOf('Failed'), countOf('Running')]);
+      const pageRequest = listCheckRuns({ pageNumber, pageSize, filters });
+      const [vesselResult, profileResult, counts, runResult] = await Promise.all([
+        listVessels({ pageSize: 1000 }),
+        listWorkflowProfiles({ pageSize: 1000 }),
+        countRequests,
+        pageRequest,
       ]);
       setRuns(runResult.objects || []);
+      setTotalPages(runResult.totalPages || 1);
+      setTotalRecords(runResult.totalRecords || 0);
+      setSummaryCounts({ total: counts[0], passed: counts[1], failed: counts[2], running: counts[3] });
       setVessels(vesselResult.objects || []);
       setProfiles(profileResult.objects || []);
       setError('');
@@ -165,11 +185,11 @@ export default function CheckRuns() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [pageNumber, pageSize, sourceFilter, statusFilter, t, typeFilter, vesselFilter]);
 
   useEffect(() => {
-    load();
-  }, []);
+    void load();
+  }, [load]);
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('checkruns', load);
 
   useEffect(() => {
@@ -258,21 +278,10 @@ export default function CheckRuns() {
     }
   }, [environmentName, environmentOptions, selectedType]);
 
-  const filtered = useMemo(() => runs.filter((run) => {
-    const matchesVessel = vesselFilter === 'all' || run.vesselId === vesselFilter;
-    const matchesStatus = statusFilter === 'all' || run.status === statusFilter;
-    const matchesSource = sourceFilter === 'all' || run.source === sourceFilter;
-    const matchesType = typeFilter === 'all' || run.type === typeFilter;
-    const matchesColFilters = (!colFilters.label || (run.label || run.type || '').toLowerCase().includes(colFilters.label.toLowerCase()))
-      && (!colFilters.environmentName || (run.environmentName ?? '').toLowerCase().includes(colFilters.environmentName.toLowerCase()));
-    return matchesVessel && matchesStatus && matchesSource && matchesType && matchesColFilters;
-  }), [colFilters, runs, sourceFilter, statusFilter, typeFilter, vesselFilter]);
+  const filtered = runs;
   const comparisonMap = useMemo(() => buildCheckRunComparisonMap(runs), [runs]);
 
   const vesselMap = useMemo(() => new Map(vessels.map((vessel) => [vessel.id, vessel.name])), [vessels]);
-  const passedCount = runs.filter((run) => run.status === 'Passed').length;
-  const failedCount = runs.filter((run) => run.status === 'Failed').length;
-  const runningCount = runs.filter((run) => run.status === 'Running').length;
 
   function resetRunModal(prefill?: Partial<CheckRunRequest>) {
     setSelectedVesselId(prefill?.vesselId || '');
@@ -493,31 +502,31 @@ export default function CheckRuns() {
       <div className="playbook-overview-grid">
         <div className="card playbook-overview-card">
           <span>{t('Total Runs')}</span>
-          <strong>{runs.length}</strong>
+          <strong>{summaryCounts.total}</strong>
         </div>
         <div className="card playbook-overview-card">
           <span>{t('Passed')}</span>
-          <strong>{passedCount}</strong>
+          <strong>{summaryCounts.passed}</strong>
         </div>
         <div className="card playbook-overview-card">
           <span>{t('Failed')}</span>
-          <strong>{failedCount}</strong>
+          <strong>{summaryCounts.failed}</strong>
         </div>
         <div className="card playbook-overview-card">
           <span>{t('Running')}</span>
-          <strong>{runningCount}</strong>
+          <strong>{summaryCounts.running}</strong>
         </div>
       </div>
 
       <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
         <div className="playbook-filter-row">
-          <select value={vesselFilter} onChange={(event) => setVesselFilter(event.target.value)}>
+          <select value={vesselFilter} onChange={(event) => { setVesselFilter(event.target.value); setPageNumber(1); }}>
             <option value="all">{t('All vessels')}</option>
             {vessels.map((vessel) => (
               <option key={vessel.id} value={vessel.id}>{vessel.name}</option>
             ))}
           </select>
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
+          <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as typeof statusFilter); setPageNumber(1); }}>
             <option value="all">{t('All statuses')}</option>
             <option value="Passed">{t('Passed')}</option>
             <option value="Failed">{t('Failed')}</option>
@@ -525,12 +534,12 @@ export default function CheckRuns() {
             <option value="Pending">{t('Pending')}</option>
             <option value="Canceled">{t('Canceled')}</option>
           </select>
-          <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as typeof sourceFilter)}>
+          <select value={sourceFilter} onChange={(event) => { setSourceFilter(event.target.value as typeof sourceFilter); setPageNumber(1); }}>
             <option value="all">{t('All sources')}</option>
             <option value="Armada">{t('Armada')}</option>
             <option value="External">{t('External')}</option>
           </select>
-          <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value as typeof typeFilter)}>
+          <select value={typeFilter} onChange={(event) => { setTypeFilter(event.target.value as typeof typeFilter); setPageNumber(1); }}>
             <option value="all">{t('All check types')}</option>
             {ALL_CHECK_TYPES.map((type) => (
               <option key={type} value={type}>{type}</option>
@@ -547,6 +556,9 @@ export default function CheckRuns() {
           <span>{t('Run a structured check to capture build, test, or deploy evidence for a vessel.')}</span>
         </div>
       ) : (
+        <>
+        <Pagination pageNumber={pageNumber} pageSize={pageSize} totalPages={totalPages} totalRecords={totalRecords}
+          onPageChange={(page) => setPageNumber(page)} onPageSizeChange={(size) => { setPageSize(Math.min(size, 500)); setPageNumber(1); }} />
         <div className="table-wrap">
           <table>
             <thead>
@@ -559,16 +571,6 @@ export default function CheckRuns() {
                 <th>{t('Duration')}</th>
                 <th>{t('Created')}</th>
                 <th className="text-right">{t('Actions')}</th>
-              </tr>
-              <tr className="column-filter-row">
-                <td><input type="text" className="col-filter" value={colFilters.label} onChange={e => setColFilters(f => ({ ...f, label: e.target.value }))} placeholder={t('Filter...')} /></td>
-                <td></td>
-                <td></td>
-                <td></td>
-                <td><input type="text" className="col-filter" value={colFilters.environmentName} onChange={e => setColFilters(f => ({ ...f, environmentName: e.target.value }))} placeholder={t('Filter...')} /></td>
-                <td></td>
-                <td></td>
-                <td></td>
               </tr>
             </thead>
             <tbody>
@@ -630,6 +632,7 @@ export default function CheckRuns() {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );
