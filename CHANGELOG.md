@@ -196,6 +196,11 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   totals, not from the newest 500 runs.
 - Check detail follows live changes to a pending or running check, and says
   when its previous-run comparison searched only the newest runs.
+- History loads the filters that were applied. A saved view or a changed URL
+  loads its filters, and a refresh no longer sends filter text still being
+  typed. The source-type filter lists every source type, the page shows the
+  server total, and an export reads every page instead of the first 500
+  entries.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 

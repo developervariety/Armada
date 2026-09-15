@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { enumerateHistoryTimeline, listObjectives, listVessels, deleteRequestHistoryEntry } from '../api/client';
 import type { HistoricalTimelineEntry, HistoricalTimelineQuery, Objective, Vessel } from '../types/models';
@@ -12,6 +12,7 @@ import RefreshButton from '../components/shared/RefreshButton';
 import PageHeader from '../components/shared/PageHeader';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { listAllPages } from '../lib/listAllPages';
 
 interface SavedHistoryView {
   id: string;
@@ -21,6 +22,41 @@ interface SavedHistoryView {
 }
 
 const HISTORY_SAVED_VIEWS_KEY = 'armada_history_saved_views';
+
+/** Every timeline source type the server produces, so the filter does not shrink to the visible rows. */
+const HISTORY_SOURCE_TYPES = [
+  'CheckRun',
+  'Deployment',
+  'Event',
+  'Incident',
+  'MergeEntry',
+  'Mission',
+  'Objective',
+  'ObjectiveRefinementSession',
+  'Planning',
+  'Release',
+  'Request',
+  'RunbookExecution',
+  'Voyage',
+] as const;
+
+/** The table shows this many entries; the route caps a page at 500. */
+const HISTORY_PAGE_SIZE = 250;
+const HISTORY_EXPORT_PAGE_SIZE = 500;
+
+function queryFromParams(params: URLSearchParams): HistoricalTimelineQuery {
+  const sourceType = params.get('sourceType');
+  return {
+    pageNumber: 1,
+    pageSize: HISTORY_PAGE_SIZE,
+    objectiveId: params.get('objectiveId') || null,
+    text: params.get('text') || null,
+    actor: params.get('actor') || null,
+    vesselId: params.get('vesselId') || null,
+    sourceTypes: sourceType ? [sourceType] : [],
+    postmortemOnly: params.get('postmortemOnly') === 'true' || undefined,
+  };
+}
 
 function severityClass(value: string | null | undefined) {
   const normalized = (value || '').toLowerCase();
@@ -166,6 +202,10 @@ export default function History() {
   const [vesselFilter, setVesselFilter] = useState(initialQuery.get('vesselId') || 'all');
   const [sourceTypeFilter, setSourceTypeFilter] = useState(initialQuery.get('sourceType') || 'all');
   const [postmortemOnly, setPostmortemOnly] = useState(initialQuery.get('postmortemOnly') === 'true');
+  // The filters the table was loaded with. The inputs above can hold edits not applied yet; loads,
+  // refreshes and exports use this query so half-typed filters never reach the server.
+  const [appliedQuery, setAppliedQuery] = useState<HistoricalTimelineQuery>(() => queryFromParams(initialQuery));
+  const [totalRecords, setTotalRecords] = useState(0);
   const [savedViews, setSavedViews] = useState<SavedHistoryView[]>(() => loadSavedViews());
   const [saveViewOpen, setSaveViewOpen] = useState(false);
   const [saveViewName, setSaveViewName] = useState('');
@@ -176,7 +216,7 @@ export default function History() {
     data: null,
   });
 
-  function buildQuery(pageSize = 250): HistoricalTimelineQuery {
+  function buildQuery(pageSize = HISTORY_PAGE_SIZE): HistoricalTimelineQuery {
     return {
       pageNumber: 1,
       pageSize,
@@ -189,48 +229,46 @@ export default function History() {
     };
   }
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
-      const query = buildQuery();
-
-      const [historyResult, vesselResult, objectiveResult] = await Promise.all([
-        enumerateHistoryTimeline(query),
-        listVessels({ pageSize: 9999 }),
-        listObjectives({ pageSize: 9999 }),
+      const [historyResult, vesselResult, allObjectives] = await Promise.all([
+        enumerateHistoryTimeline(appliedQuery),
+        listVessels({ pageSize: 1000 }),
+        listAllPages((pageNumber) => listObjectives({ pageNumber, pageSize: 500 })),
       ]);
 
       setEntries(historyResult.objects || []);
+      setTotalRecords(historyResult.totalRecords || 0);
       setVessels(vesselResult.objects || []);
-      setObjectives(objectiveResult.objects || []);
+      setObjectives(allObjectives);
       setError('');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Failed to load history.'));
     } finally {
       setLoading(false);
     }
-  }
+  }, [appliedQuery, t]);
 
+  // A link that changes the URL filters (for example from a backlog item) defines the view: show the
+  // new filters and load them. The first render already started from the URL.
+  const lastSearchRef = useRef(location.search);
   useEffect(() => {
-    const query = new URLSearchParams(location.search);
-    const objectiveId = query.get('objectiveId');
-    const vesselId = query.get('vesselId');
-    const sourceType = query.get('sourceType');
-    const postmortemOnlyValue = query.get('postmortemOnly');
-    const text = query.get('text');
-    const actor = query.get('actor');
-
-    if (objectiveId) setObjectiveFilter(objectiveId);
-    if (vesselId) setVesselFilter(vesselId);
-    if (sourceType) setSourceTypeFilter(sourceType);
-    if (postmortemOnlyValue !== null) setPostmortemOnly(postmortemOnlyValue === 'true');
-    if (text) setTextFilter(text);
-    if (actor) setActorFilter(actor);
+    if (location.search === lastSearchRef.current) return;
+    lastSearchRef.current = location.search;
+    const params = new URLSearchParams(location.search);
+    setObjectiveFilter(params.get('objectiveId') || 'all');
+    setVesselFilter(params.get('vesselId') || 'all');
+    setSourceTypeFilter(params.get('sourceType') || 'all');
+    setPostmortemOnly(params.get('postmortemOnly') === 'true');
+    setTextFilter(params.get('text') || '');
+    setActorFilter(params.get('actor') || '');
+    setAppliedQuery(queryFromParams(params));
   }, [location.search]);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('history', load);
 
@@ -253,13 +291,6 @@ export default function History() {
       counts.set(entry.sourceType, (counts.get(entry.sourceType) || 0) + 1);
     }
     return counts;
-  }, [entries]);
-  const distinctSourceTypes = useMemo(() => {
-    const types = new Set<string>();
-    for (const entry of entries) {
-      types.add(entry.sourceType);
-    }
-    return Array.from(types).sort();
   }, [entries]);
   const errorCount = useMemo(() => entries.filter((entry) => (entry.severity || '').toLowerCase() === 'error').length, [entries]);
   const warningCount = useMemo(() => entries.filter((entry) => (entry.severity || '').toLowerCase() === 'warning').length, [entries]);
@@ -324,6 +355,8 @@ export default function History() {
     setVesselFilter(view.query.vesselId || 'all');
     setSourceTypeFilter(view.query.sourceTypes && view.query.sourceTypes.length > 0 ? view.query.sourceTypes[0] : 'all');
     setPostmortemOnly(view.query.postmortemOnly === true);
+    // Applying a view loads it, like pressing Apply.
+    setAppliedQuery({ ...view.query, pageNumber: 1, pageSize: HISTORY_PAGE_SIZE });
   }
 
   function deleteSavedView(id: string) {
@@ -335,9 +368,9 @@ export default function History() {
   async function exportCurrentView(format: 'json' | 'csv' | 'md') {
     try {
       setExporting(format);
-      const query = buildQuery(5000);
-      const result = await enumerateHistoryTimeline(query);
-      const allEntries = result.objects || [];
+      // Export the view the table shows, reading every page (the route returns at most 500 per page).
+      const query: HistoricalTimelineQuery = { ...appliedQuery, pageNumber: 1, pageSize: HISTORY_EXPORT_PAGE_SIZE };
+      const allEntries = await listAllPages((pageNumber) => enumerateHistoryTimeline({ ...query, pageNumber }));
       const timestamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
 
       if (format === 'json') {
@@ -415,7 +448,7 @@ export default function History() {
       <div className="playbook-overview-grid">
         <div className="card playbook-overview-card">
           <span>{t('Visible Entries')}</span>
-          <strong>{entries.length}</strong>
+          <strong>{t('{{shown}} of {{total}}', { shown: entries.length, total: totalRecords })}</strong>
         </div>
         <div className="card playbook-overview-card">
           <span>{t('Errors')}</span>
@@ -459,7 +492,7 @@ export default function History() {
           </select>
           <select value={sourceTypeFilter} onChange={(event) => setSourceTypeFilter(event.target.value)}>
             <option value="all">{t('All source types')}</option>
-            {distinctSourceTypes.map((sourceType) => (
+            {HISTORY_SOURCE_TYPES.map((sourceType) => (
               <option key={sourceType} value={sourceType}>{sourceType}</option>
             ))}
           </select>
@@ -471,7 +504,7 @@ export default function History() {
             />
             {t('Postmortem context only')}
           </label>
-          <button className="btn btn-primary" onClick={load}>{t('Apply')}</button>
+          <button className="btn btn-primary" onClick={() => setAppliedQuery(buildQuery())}>{t('Apply')}</button>
         </div>
 
         {savedViews.length > 0 && (
