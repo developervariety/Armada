@@ -14,6 +14,21 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### WebSocket create commands record the caller as owner
+
+- `create_fleet`, `create_vessel`, `create_voyage` without missions,
+  `create_mission`, `create_captain`, `send_signal`, `enqueue_merge`,
+  `create_persona` and `create_pipeline` now record the authenticated session
+  caller's tenant and user as the owner, as the matching REST create does. A
+  tenant or user named in the command body is replaced. Before, these commands
+  stored the body as sent, so a record usually had no owner.
+- A create command with no authenticated caller returns `command.error` and
+  writes nothing.
+- The progress signal from `restart_mission` belongs to the restarted
+  mission's tenant and user.
+- `create_voyage` with missions still dispatches through the admiral, so its
+  voyage and missions take the vessel's owner, as REST and MCP dispatch do.
+
 ### An interrupted captain run is re-dispatched, not failed
 
 - Exit code -1 that a runtime reports means a stop, shutdown or Admiral

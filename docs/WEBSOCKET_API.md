@@ -147,6 +147,14 @@ this frame and not in the URL. Query strings appear in request logs.
   `list_missions_summary` is the exception inside the handler: it reads through
   the same caller-scoped query as `GET /api/v1/missions/summaries`, so it
   returns exactly what REST returns to the same caller.
+- A create command (`create_fleet`, `create_vessel`, `create_voyage`,
+  `create_mission`, `create_captain`, `send_signal`, `enqueue_merge`,
+  `create_persona`, `create_pipeline`) records the session caller's tenant and
+  user as the owner, as the matching REST create does, and replaces any owner
+  the `data` object names. Without an authenticated caller it returns
+  `command.error` and writes nothing. `create_voyage` with missions dispatches
+  through the admiral, so the voyage and missions take the vessel's owner. The
+  `restart_mission` progress signal takes the mission's owner.
 - `subscribe` is open to any authenticated session. Each event carries a
   delivery scope and reaches only the sessions that may read the record it
   describes: the owning user, administrators of the owning tenant, and global

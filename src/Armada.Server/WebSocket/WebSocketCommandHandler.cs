@@ -97,6 +97,26 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
+        /// True when a command runs for an authenticated caller. A create records that caller as the owner.
+        /// </summary>
+        /// <param name="caller">Session caller, or null.</param>
+        /// <returns>True for an authenticated caller.</returns>
+        private static bool IsAuthenticatedCaller(AuthContext? caller)
+        {
+            return caller != null && caller.IsAuthenticated;
+        }
+
+        /// <summary>
+        /// The refusal a create command returns when it has no authenticated caller to own the record.
+        /// </summary>
+        /// <param name="action">Command action.</param>
+        /// <returns>The command error.</returns>
+        private static object CreateRequiresCaller(string action)
+        {
+            return new { type = "command.error", action = action, error = action + " requires an authenticated caller to own the record" };
+        }
+
+        /// <summary>
         /// Handle a WebSocket command by dispatching to the appropriate action.
         /// </summary>
         /// <param name="action">The action string from the command.</param>
@@ -156,6 +176,9 @@ namespace Armada.Server.WebSocket
 
                 case "create_fleet":
                     Fleet newFleet = JsonSerializer.Deserialize<WebSocketDataCommand<Fleet>>(rawBody, _JsonOptions)?.Data!;
+                    if (!IsAuthenticatedCaller(caller)) return CreateRequiresCaller("create_fleet");
+                    newFleet.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller!);
+                    newFleet.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller!);
                     newFleet = await _Database.Fleets.CreateAsync(newFleet).ConfigureAwait(false);
                     return new { type = "command.result", action = "create_fleet", data = (object)newFleet };
 
@@ -198,6 +221,9 @@ namespace Armada.Server.WebSocket
                     Vessel newVessel = JsonSerializer.Deserialize<WebSocketDataCommand<Vessel>>(rawBody, _JsonOptions)?.Data!;
                     if (String.IsNullOrEmpty(newVessel.RepoUrl))
                         return new { type = "command.error", action = "create_vessel", error = "repoUrl is required when creating a vessel" };
+                    if (!IsAuthenticatedCaller(caller)) return CreateRequiresCaller("create_vessel");
+                    newVessel.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller!);
+                    newVessel.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller!);
                     newVessel.NormalizeGitHubTokenOverride();
                     newVessel = await _Database.Vessels.CreateAsync(newVessel).ConfigureAwait(false);
                     return new { type = "command.result", action = "create_vessel", data = (object)newVessel };
@@ -321,6 +347,9 @@ namespace Armada.Server.WebSocket
                     if (String.IsNullOrEmpty(voyVesselId) || missionDescs.Count == 0)
                     {
                         createdVoyage = new Voyage(voyTitle, voyDesc);
+                        if (!IsAuthenticatedCaller(caller)) return CreateRequiresCaller("create_voyage");
+                        createdVoyage.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller!);
+                        createdVoyage.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller!);
                         createdVoyage = await _Database.Voyages.CreateAsync(createdVoyage).ConfigureAwait(false);
                     }
                     else
@@ -494,6 +523,9 @@ namespace Armada.Server.WebSocket
                 case "create_mission":
                 {
                     Mission newMission = JsonSerializer.Deserialize<WebSocketDataCommand<Mission>>(rawBody, _JsonOptions)?.Data!;
+                    if (!IsAuthenticatedCaller(caller)) return CreateRequiresCaller("create_mission");
+                    newMission.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller!);
+                    newMission.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller!);
                     try
                     {
                         newMission = await _Admiral.DispatchMissionAsync(newMission).ConfigureAwait(false);
@@ -693,7 +725,10 @@ namespace Armada.Server.WebSocket
                             };
                         }
 
+                        // The restart signal belongs to the mission it reports, so the mission's owner sees it.
                         Signal rmSignal = new Signal(SignalTypeEnum.Progress, "Mission " + rmId + " restarted");
+                        rmSignal.TenantId = rmMission.TenantId;
+                        rmSignal.UserId = rmMission.UserId;
                         await _Database.Signals.CreateAsync(rmSignal).ConfigureAwait(false);
 
                         _BroadcastMissionChange(rmMission);
@@ -811,7 +846,11 @@ namespace Armada.Server.WebSocket
                         JsonSerializer.Deserialize<WebSocketDataCommand<CaptainServerOwnedFields>>(rawBody, _JsonOptions)?.Data, null);
                     if (createOwnedFieldError != null)
                         return new { type = "command.error", action = "create_captain", error = createOwnedFieldError };
-                    Captain newCaptain = await _Database.Captains.CreateAsync(CaptainInputMapping.ForCreate(newCaptainInput)).ConfigureAwait(false);
+                    Captain captainToCreate = CaptainInputMapping.ForCreate(newCaptainInput);
+                    if (!IsAuthenticatedCaller(caller)) return CreateRequiresCaller("create_captain");
+                    captainToCreate.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller!);
+                    captainToCreate.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller!);
+                    Captain newCaptain = await _Database.Captains.CreateAsync(captainToCreate).ConfigureAwait(false);
                     return new { type = "command.result", action = "create_captain", data = (object)newCaptain };
                 }
 
@@ -901,6 +940,9 @@ namespace Armada.Server.WebSocket
 
                 case "send_signal":
                     Signal newSignal = JsonSerializer.Deserialize<WebSocketDataCommand<Signal>>(rawBody, _JsonOptions)?.Data!;
+                    if (!IsAuthenticatedCaller(caller)) return CreateRequiresCaller("send_signal");
+                    newSignal.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller!);
+                    newSignal.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller!);
                     newSignal = await _Database.Signals.CreateAsync(newSignal).ConfigureAwait(false);
                     return new { type = "command.result", action = "send_signal", data = (object)newSignal };
 
@@ -946,6 +988,9 @@ namespace Armada.Server.WebSocket
 
                 case "enqueue_merge":
                     MergeEntry newEntry = JsonSerializer.Deserialize<WebSocketDataCommand<MergeEntry>>(rawBody, _JsonOptions)?.Data!;
+                    if (!IsAuthenticatedCaller(caller)) return CreateRequiresCaller("enqueue_merge");
+                    newEntry.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller!);
+                    newEntry.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller!);
                     newEntry = await _MergeQueue.EnqueueAsync(newEntry).ConfigureAwait(false);
                     return new { type = "command.result", action = "enqueue_merge", data = (object)newEntry };
 
@@ -1081,6 +1126,9 @@ namespace Armada.Server.WebSocket
 
                 case "create_persona":
                     Persona newPersona = JsonSerializer.Deserialize<WebSocketDataCommand<Persona>>(rawBody, _JsonOptions)?.Data!;
+                    if (!IsAuthenticatedCaller(caller)) return CreateRequiresCaller("create_persona");
+                    newPersona.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller!);
+                    newPersona.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller!);
                     newPersona = await _Database.Personas.CreateAsync(newPersona).ConfigureAwait(false);
                     return new { type = "command.result", action = "create_persona", data = (object)newPersona };
 
@@ -1142,6 +1190,9 @@ namespace Armada.Server.WebSocket
 
                 case "create_pipeline":
                     Pipeline newPipeline = JsonSerializer.Deserialize<WebSocketDataCommand<Pipeline>>(rawBody, _JsonOptions)?.Data!;
+                    if (!IsAuthenticatedCaller(caller)) return CreateRequiresCaller("create_pipeline");
+                    newPipeline.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller!);
+                    newPipeline.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller!);
                     newPipeline = await _Database.Pipelines.CreateAsync(newPipeline).ConfigureAwait(false);
                     return new { type = "command.result", action = "create_pipeline", data = (object)newPipeline };
 

@@ -81,7 +81,9 @@ still fail.
 MCP create tools record the authenticated caller as the owner, as upstream
 now does and as the fork's REST creates always did. The fork applies its shared
 ownership policy, so a global administrator's profile tenant choice and the
-per-tenant playbook name rule match REST exactly.
+per-tenant playbook name rule match REST exactly. The fork's WebSocket create
+commands follow the same rule, and dispatch creates take the vessel's owner on
+every surface.
 
 Ask chat uses upstream's honest system prompt. The fork seeds it as the
 built-in `ask.system` template, which it previously resolved but never seeded.

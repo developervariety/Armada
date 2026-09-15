@@ -290,6 +290,13 @@ keeps a tenant named in the record only for a global administrator. A progress
 signal a tool writes about an existing mission, such as the one from
 `armada_restart_mission`, belongs to that mission's owner.
 
+Dispatch creates follow the record they act on, the same way on REST and MCP.
+`armada_dispatch`, `armada_decompose_plan` and `dispatch_backlog_planning_session`
+create voyages and missions owned by the target vessel's owner. `run_check` and
+`retry_check_run` create a check run in the vessel's tenant for the calling
+user. `start_runbook_execution` creates an execution in the runbook's tenant for
+the calling user.
+
 What a caller may use:
 
 | Caller | Tools listed and callable |
