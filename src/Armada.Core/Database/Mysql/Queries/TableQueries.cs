@@ -729,7 +729,7 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
-        /// Migration v40 statements for adding reflection tracking columns to vessels.
+        /// Migration v40 statements for adding mission tracking and threshold columns to vessels.
         /// </summary>
         public static readonly string[] MigrationV40Statements = new string[]
         {
@@ -765,7 +765,7 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
-        /// Migration v43 statements for adding the vessel_pack_hints table and pack_curate_threshold column (v2-F1).
+        /// Migration v43 statements for adding the vessel_pack_hints table and pack_curate_threshold column.
         /// MySQL supports `IF NOT EXISTS` on `CREATE TABLE` and on `ALTER TABLE ... ADD COLUMN` (8.0+) but NOT on
         /// `CREATE INDEX`, so the index is wrapped in an `INFORMATION_SCHEMA.STATISTICS` lookup that builds the DDL
         /// only when the index does not already exist and runs it via `PREPARE`/`EXECUTE`. Same pattern as v42.
@@ -795,8 +795,8 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
-        /// Migration v44 statements for adding identity-memory columns to personas and captains
-        /// (Reflections v2-F2). MySQL 8.0+ supports `IF NOT EXISTS` on `ALTER TABLE ... ADD COLUMN`,
+        /// Migration v44 statements for adding default playbook, threshold and playbook reference columns to
+        /// personas and captains. MySQL 8.0+ supports `IF NOT EXISTS` on `ALTER TABLE ... ADD COLUMN`,
         /// so this migration is a flat list of additive ALTERs and idempotent on re-run.
         /// </summary>
         public static readonly string[] MigrationV44Statements = new string[]
@@ -810,7 +810,7 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
-        /// Migration v45 statements for adding fleet-memory columns to fleets (Reflections v2-F3).
+        /// Migration v45 statements for adding default playbook, threshold and playbook reference columns to fleets.
         /// MySQL 8.0+ supports `IF NOT EXISTS` on `ALTER TABLE ... ADD COLUMN`, so this migration
         /// is a flat list of additive ALTERs and idempotent on re-run.
         /// </summary>

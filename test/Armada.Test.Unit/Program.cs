@@ -48,6 +48,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ProxyDashboardRelayIntegrationTests());
             runner.AddSuite(new ProxyRoutePolicyServiceTests());
             runner.AddSuite(new RemoteDashboardRelayServiceTests());
+            runner.AddSuite(new DashboardStaticFileTests());
             runner.AddSuite(new RequestHistoryCaptureServiceTests());
             runner.AddSuite(new ReviewGateTests());
 

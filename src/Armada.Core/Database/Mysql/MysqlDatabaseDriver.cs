@@ -480,12 +480,12 @@ namespace Armada.Core.Database.Mysql
                 ),
                 new SchemaMigration(
                     40,
-                    "Add reflection tracking columns to vessels",
+                    "Add a mission id column and a threshold column to vessels",
                     TableQueries.MigrationV40Statements
                 ),
                 new SchemaMigration(
                     41,
-                    "Add reorganize_threshold column to vessels",
+                    "Add a threshold column to vessels",
                     TableQueries.MigrationV41Statements
                 ),
                 new SchemaMigration(
@@ -495,17 +495,17 @@ namespace Armada.Core.Database.Mysql
                 ),
                 new SchemaMigration(
                     43,
-                    "Add vessel_pack_hints table and pack_curate_threshold column to vessels (v2-F1)",
+                    "Add a vessel hint table and a threshold column to vessels",
                     TableQueries.MigrationV43Statements
                 ),
                 new SchemaMigration(
                     44,
-                    "Add identity-memory columns to personas and captains (Reflections v2-F2)",
+                    "Add playbook and threshold columns to personas and captains",
                     TableQueries.MigrationV44Statements
                 ),
                 new SchemaMigration(
                     45,
-                    "Add fleet-memory columns to fleets (Reflections v2-F3)",
+                    "Add playbook and threshold columns to fleets",
                     TableQueries.MigrationV45Statements
                 ),
                 new SchemaMigration(
@@ -661,14 +661,15 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(82, "Persist Harbor runner enrollments", TableQueries.MigrationV82Statements),
                 new SchemaMigration(83, "Persist project authorization policy", TableQueries.MigrationV83Statements),
                 new SchemaMigration(84, "Move terminal objectives out of dispatchable backlog states", TableQueries.MigrationV84Statements),
-                new SchemaMigration(85, "Remove learned-facts data, pack hints and reflection columns", LearnedFactsRemovalSchema.MysqlStatements),
+                new SchemaMigration(85, "Drop the vessel_pack_hints table, threshold and playbook reference columns and the catalog rows they describe", CatalogAndColumnPruneSchema.MysqlStatements),
                 new SchemaMigration(86, "Persist mission attempt facts", TableQueries.MigrationV86Statements),
                 new SchemaMigration(87, "Persist Check regression links", TableQueries.MigrationV87Statements),
                 new SchemaMigration(88, "Persist preparation claim observations", TableQueries.MigrationV88Statements),
                 new SchemaMigration(89, "Persist lane state transitions and Check slot requests", TableQueries.MigrationV89Statements),
                 new SchemaMigration(90, "Persist configuration record ownership", TableQueries.MigrationV90Statements),
                 new SchemaMigration(91, "Persist Harbor job records", TableQueries.MigrationV91Statements),
-                new SchemaMigration(92, "Record terminal-voyage reconciliation on the mission row", TableQueries.MigrationV92Statements)
+                new SchemaMigration(92, "Record terminal-voyage reconciliation on the mission row", TableQueries.MigrationV92Statements),
+                new SchemaMigration(93, "Delete unreferenced built-in reviewer personas and their templates", ReviewerPersonaPruneSchema.MysqlStatements)
             };
         }
 

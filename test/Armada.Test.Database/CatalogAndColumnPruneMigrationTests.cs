@@ -15,14 +15,14 @@ namespace Armada.Test.Database
     using SyslogLogging;
 
     /// <summary>
-    /// Learned-facts removal migration proof. A database one version below the removal holds learned
-    /// playbooks and their links, the reflection pipelines, the memory consolidator persona and its
-    /// templates, pack hints and reflection columns next to operator rows and native memory. The
-    /// migration removes only the learned-facts rows, clears every reference to them, drops the
-    /// learned-facts table and columns, restarts cleanly after an interruption and leaves the other
+    /// Catalog and column prune migration proof. A database one version below the prune holds scope-named
+    /// playbooks and their links, the named pipelines, the pruned persona and its templates, pack hints
+    /// and threshold columns next to operator rows and native memory. The migration deletes only the
+    /// named rows, clears every reference to them, drops the table and columns, restarts cleanly after
+    /// an interruption and leaves the other
     /// rows unchanged.
     /// </summary>
-    internal sealed class LearnedFactsRemovalMigrationTests
+    internal sealed class CatalogAndColumnPruneMigrationTests
     {
         private readonly DatabaseSettings _Settings;
         private sealed class StopException : Exception { }
@@ -35,8 +35,8 @@ namespace Armada.Test.Database
             internal string LearnedFleet = "";
             internal string OperatorPlaybook = "";
             internal string LookalikePlaybook = "";
-            internal string Reflections = "";
-            internal string ReflectionsDualJudge = "";
+            internal string NamedPipeline = "";
+            internal string NamedDualJudgePipeline = "";
             internal string CustomPipeline = "";
             internal string PipelineWithConsolidatorStage = "";
             internal string ConsolidatorOnlyPipeline = "";
@@ -45,14 +45,14 @@ namespace Armada.Test.Database
             internal string VesselWithOnlyLearnedDefaults = "";
             internal string ConsolidatorCaptain = "";
             internal string WorkerCaptain = "";
-            internal string ReflectionObjective = "";
+            internal string PrunedPipelineObjective = "";
             internal string CustomObjective = "";
             internal string VoyageId = "";
             internal string MissionId = "";
             internal string MemoryId = "";
         }
 
-        internal LearnedFactsRemovalMigrationTests(DatabaseSettings settings) { _Settings = settings; }
+        internal CatalogAndColumnPruneMigrationTests(DatabaseSettings settings) { _Settings = settings; }
 
         internal async Task VerifyAsync(CancellationToken token)
         {
@@ -66,8 +66,8 @@ namespace Armada.Test.Database
             await StopAtAsync(version, -1, token).ConfigureAwait(false);
             MigrationScenarioRunner history = new MigrationScenarioRunner(_Settings);
             Dictionary<int, string> before = await history.ReadHistoryAsync(token).ConfigureAwait(false);
-            DatabaseAssert.True(before.Keys.All(key => key < version), "Learned-facts removal is still pending and no later version applied");
-            DatabaseAssert.True(await TableExistsAsync("vessel_pack_hints", token).ConfigureAwait(false), "Pack hints exist before the removal");
+            DatabaseAssert.True(before.Keys.All(key => key < version), "The prune is still pending and no later version applied");
+            DatabaseAssert.True(await TableExistsAsync("vessel_pack_hints", token).ConfigureAwait(false), "Pack hints exist before the prune");
 
             Seed seed;
             using (DatabaseDriver driver = CreateDriver())
@@ -77,14 +77,14 @@ namespace Armada.Test.Database
 
             await StopAtAsync(version, 3, token).ConfigureAwait(false);
             Dictionary<int, string> interrupted = await history.ReadHistoryAsync(token).ConfigureAwait(false);
-            DatabaseAssert.Equal(before.Count, interrupted.Count, "An interrupted removal records no version");
+            DatabaseAssert.Equal(before.Count, interrupted.Count, "An interrupted prune records no version");
             MigrationScenarioRunner.AssertHistory(before, interrupted);
 
             using (DatabaseDriver driver = await DatabaseDriverFactory.CreateAndInitializeAsync(_Settings, token).ConfigureAwait(false))
             {
                 Dictionary<int, string> committed = await history.ReadHistoryAsync(token).ConfigureAwait(false);
                 // Later migrations may follow this one, so prove this version committed rather than a count.
-                DatabaseAssert.True(committed.ContainsKey(version), "The restarted run commits the removal version");
+                DatabaseAssert.True(committed.ContainsKey(version), "The restarted run commits the prune version");
                 DatabaseAssert.True(committed.Keys.All(key => key <= version || !before.ContainsKey(key)), "Only pending versions are added");
                 MigrationScenarioRunner.AssertHistory(before, committed);
 
@@ -96,7 +96,7 @@ namespace Armada.Test.Database
                 await AssertRetainedAsync(driver, seed, token).ConfigureAwait(false);
             }
 
-            Console.WriteLine("PASS learned-facts removal migration: learned rows and links removed, references cleared, consolidator stages and allow-list entries removed, table and columns dropped, interrupted run restarts, operator rows and native memory unchanged");
+            Console.WriteLine("PASS catalog and column prune migration: named rows and links removed, references cleared, consolidator stages and allow-list entries removed, table and columns dropped, interrupted run restarts, operator rows and native memory unchanged");
         }
 
         private async Task<Seed> SeedAsync(DatabaseDriver driver, CancellationToken token)
@@ -111,8 +111,8 @@ namespace Armada.Test.Database
             seed.OperatorPlaybook = await CreatePlaybookAsync(driver, "vessel-guide.md", token).ConfigureAwait(false);
             seed.LookalikePlaybook = await CreatePlaybookAsync(driver, "release-notes-learned.md", token).ConfigureAwait(false);
 
-            seed.Reflections = await CreatePipelineAsync("Reflections", new[] { "MemoryConsolidator" }, token).ConfigureAwait(false);
-            seed.ReflectionsDualJudge = await CreatePipelineAsync("ReflectionsDualJudge", new[] { "MemoryConsolidator", "Judge" }, token).ConfigureAwait(false);
+            seed.NamedPipeline = await CreatePipelineAsync("Reflections", new[] { "MemoryConsolidator" }, token).ConfigureAwait(false);
+            seed.NamedDualJudgePipeline = await CreatePipelineAsync("ReflectionsDualJudge", new[] { "MemoryConsolidator", "Judge" }, token).ConfigureAwait(false);
             seed.CustomPipeline = await CreatePipelineAsync("CustomReview", new[] { "Worker", "Judge" }, token).ConfigureAwait(false);
             seed.PipelineWithConsolidatorStage = await CreatePipelineAsync("OperatorWithConsolidator", new[] { "Worker", "MemoryConsolidator", "Judge" }, token).ConfigureAwait(false);
             seed.ConsolidatorOnlyPipeline = await CreatePipelineAsync("OperatorConsolidatorOnly", new[] { "MemoryConsolidator" }, token).ConfigureAwait(false);
@@ -124,16 +124,16 @@ namespace Armada.Test.Database
             await CreatePersonaAsync("MemoryConsolidator", "persona.memory_consolidator", Selections(seed.LearnedPersona), token).ConfigureAwait(false);
             await CreatePersonaAsync("CustomReviewer", "persona.custom_reviewer", Selections(seed.LearnedPersona, seed.OperatorPlaybook), token).ConfigureAwait(false);
 
-            Fleet fleet = new Fleet("LearnedFactsFleet");
+            Fleet fleet = new Fleet("PruneFleet");
             fleet.TenantId = tenant;
-            fleet.DefaultPipelineId = seed.Reflections;
+            fleet.DefaultPipelineId = seed.NamedPipeline;
             fleet.DefaultPlaybooks = Selections(seed.LearnedFleet, seed.OperatorPlaybook);
             seed.FleetId = (await driver.Fleets.CreateAsync(fleet, token).ConfigureAwait(false)).Id;
 
             Vessel mixed = new Vessel("MixedDefaults", "https://example.com/mixed.git");
             mixed.TenantId = tenant;
             mixed.FleetId = seed.FleetId;
-            mixed.DefaultPipelineId = seed.Reflections;
+            mixed.DefaultPipelineId = seed.NamedPipeline;
             // One entry uses the PascalCase key an older writer produced; parsing is case-insensitive.
             mixed.DefaultPlaybooks = "[{\"playbookId\":\"" + seed.OperatorPlaybook + "\",\"deliveryMode\":\"InlineFullContent\"},"
                 + "{\"PlaybookId\":\"" + seed.LearnedVessel + "\",\"DeliveryMode\":\"InlineFullContent\"}]";
@@ -159,11 +159,11 @@ namespace Armada.Test.Database
             workerCaptain.DefaultPlaybooks = Selections(seed.OperatorPlaybook);
             seed.WorkerCaptain = (await driver.Captains.CreateAsync(workerCaptain, token).ConfigureAwait(false)).Id;
 
-            Objective reflectionObjective = new Objective();
-            reflectionObjective.TenantId = tenant;
-            reflectionObjective.Title = "Consolidate memory";
-            reflectionObjective.SuggestedPipelineId = seed.ReflectionsDualJudge;
-            seed.ReflectionObjective = (await driver.Objectives.CreateAsync(reflectionObjective, token).ConfigureAwait(false)).Id;
+            Objective prunedPipelineObjective = new Objective();
+            prunedPipelineObjective.TenantId = tenant;
+            prunedPipelineObjective.Title = "Consolidate memory";
+            prunedPipelineObjective.SuggestedPipelineId = seed.NamedDualJudgePipeline;
+            seed.PrunedPipelineObjective = (await driver.Objectives.CreateAsync(prunedPipelineObjective, token).ConfigureAwait(false)).Id;
 
             Objective customObjective = new Objective();
             customObjective.TenantId = tenant;
@@ -171,7 +171,7 @@ namespace Armada.Test.Database
             customObjective.SuggestedPipelineId = seed.CustomPipeline;
             seed.CustomObjective = (await driver.Objectives.CreateAsync(customObjective, token).ConfigureAwait(false)).Id;
 
-            Voyage voyage = new Voyage("Learned facts voyage");
+            Voyage voyage = new Voyage("Prune voyage");
             voyage.TenantId = tenant;
             seed.VoyageId = (await driver.Voyages.CreateAsync(voyage, token).ConfigureAwait(false)).Id;
             await driver.Playbooks.SetVoyageSelectionsAsync(seed.VoyageId, new List<SelectedPlaybook>
@@ -180,7 +180,7 @@ namespace Armada.Test.Database
                 new SelectedPlaybook { PlaybookId = seed.OperatorPlaybook }
             }, token).ConfigureAwait(false);
 
-            Mission mission = new Mission("Learned facts mission");
+            Mission mission = new Mission("Prune mission");
             mission.TenantId = tenant;
             mission.VoyageId = seed.VoyageId;
             mission.VesselId = seed.VesselWithMixedDefaults;
@@ -194,8 +194,8 @@ namespace Armada.Test.Database
             Memory memory = new Memory();
             memory.TenantId = tenant;
             memory.UserId = Constants.DefaultUserId;
-            memory.Key = "learned-facts-removal/native";
-            memory.Content = "Native memory survives the learned-facts removal.";
+            memory.Key = "catalog-column-prune/native";
+            memory.Content = "Native memory survives the prune.";
             seed.MemoryId = (await driver.Memories.CreateAsync(memory, token).ConfigureAwait(false)).Id;
 
             await ExecuteAsync("UPDATE vessels SET reflection_threshold = 5, reorganize_threshold = 6, pack_curate_threshold = 7, last_reflection_mission_id = 'msn_reflection' WHERE id = @id;",
@@ -218,17 +218,17 @@ namespace Armada.Test.Database
             foreach (string learned in new[] { seed.LearnedVessel, seed.LearnedPersona, seed.LearnedCaptain, seed.LearnedFleet })
                 DatabaseAssert.True(await driver.Playbooks.ReadAsync(learned, token).ConfigureAwait(false) == null, "Learned playbook " + learned + " is removed");
 
-            DatabaseAssert.True(await driver.Pipelines.ReadByNameAsync("Reflections", token).ConfigureAwait(false) == null, "Reflections pipeline is removed");
-            DatabaseAssert.True(await driver.Pipelines.ReadByNameAsync("ReflectionsDualJudge", token).ConfigureAwait(false) == null, "Dual-Judge reflections pipeline is removed");
+            DatabaseAssert.True(await driver.Pipelines.ReadByNameAsync("Reflections", token).ConfigureAwait(false) == null, "Named pipeline is removed");
+            DatabaseAssert.True(await driver.Pipelines.ReadByNameAsync("ReflectionsDualJudge", token).ConfigureAwait(false) == null, "Named dual-Judge pipeline is removed");
             DatabaseAssert.Equal(0L, await CountAsync("SELECT COUNT(*) FROM pipeline_stages WHERE pipeline_id IN (@a, @b);", token,
-                ("@a", seed.Reflections), ("@b", seed.ReflectionsDualJudge)).ConfigureAwait(false), "Reflection pipeline stages are removed");
+                ("@a", seed.NamedPipeline), ("@b", seed.NamedDualJudgePipeline)).ConfigureAwait(false), "Named pipeline stages are removed");
             DatabaseAssert.True(await driver.Pipelines.ReadAsync(seed.ConsolidatorOnlyPipeline, token).ConfigureAwait(false) == null, "A pipeline left with no stages is removed");
             DatabaseAssert.Equal(0L, await CountAsync("SELECT COUNT(*) FROM pipeline_stages WHERE persona_name = @persona OR pipeline_id = @id;", token,
                 ("@persona", "MemoryConsolidator"), ("@id", seed.ConsolidatorOnlyPipeline)).ConfigureAwait(false), "No stage names the removed consolidator");
 
             DatabaseAssert.True(await driver.Personas.ReadByNameAsync("MemoryConsolidator", token).ConfigureAwait(false) == null, "Memory consolidator persona is removed");
             DatabaseAssert.True(await driver.PromptTemplates.ReadByNameAsync("persona.memory_consolidator", token).ConfigureAwait(false) == null, "Consolidator template is removed");
-            DatabaseAssert.True(await driver.PromptTemplates.ReadByNameAsync("mission.model_context_updates", token).ConfigureAwait(false) == null, "Learned-fact proposal template is removed");
+            DatabaseAssert.True(await driver.PromptTemplates.ReadByNameAsync("mission.model_context_updates", token).ConfigureAwait(false) == null, "Named mission template is removed");
 
             DatabaseAssert.True(!await TableExistsAsync("vessel_pack_hints", token).ConfigureAwait(false), "Pack hints table is dropped");
             foreach (string column in new[] { "reflection_threshold", "reorganize_threshold", "pack_curate_threshold", "last_reflection_mission_id" })
@@ -252,11 +252,11 @@ namespace Armada.Test.Database
             DatabaseAssert.Equal("vessel-guide.md", snapshots[0].FileName, "Mission operator snapshot");
 
             Fleet fleet = DatabaseAssert.NotNull(await driver.Fleets.ReadAsync(seed.FleetId, token).ConfigureAwait(false), "Fleet retained");
-            DatabaseAssert.True(fleet.DefaultPipelineId == null, "Fleet default pipeline reference to reflections is cleared");
+            DatabaseAssert.True(fleet.DefaultPipelineId == null, "Fleet default pipeline reference to a named pipeline is cleared");
             AssertOnlyOperatorDefault(fleet.GetDefaultPlaybooks(), seed, "Fleet");
 
             Vessel mixed = DatabaseAssert.NotNull(await driver.Vessels.ReadAsync(seed.VesselWithMixedDefaults, token).ConfigureAwait(false), "Mixed vessel retained");
-            DatabaseAssert.True(mixed.DefaultPipelineId == null, "Vessel default pipeline reference to reflections is cleared");
+            DatabaseAssert.True(mixed.DefaultPipelineId == null, "Vessel default pipeline reference to a named pipeline is cleared");
             AssertOnlyOperatorDefault(mixed.GetDefaultPlaybooks(), seed, "Mixed vessel");
 
             Vessel onlyLearned = DatabaseAssert.NotNull(await driver.Vessels.ReadAsync(seed.VesselWithOnlyLearnedDefaults, token).ConfigureAwait(false), "Learned-only vessel retained");
@@ -283,8 +283,8 @@ namespace Armada.Test.Database
             AssertOnlyOperatorDefault(workerCaptain.GetDefaultPlaybooks(), seed, "Worker captain");
             DatabaseAssert.Equal("Worker,Judge", String.Join(",", AllowedPersonas(workerCaptain)), "The consolidator is removed from the allow-list and the order is kept");
 
-            Objective reflectionObjective = DatabaseAssert.NotNull(await driver.Objectives.ReadAsync(seed.ReflectionObjective, token).ConfigureAwait(false), "Objective retained");
-            DatabaseAssert.True(reflectionObjective.SuggestedPipelineId == null, "Objective reference to a reflection pipeline is cleared");
+            Objective prunedPipelineObjective = DatabaseAssert.NotNull(await driver.Objectives.ReadAsync(seed.PrunedPipelineObjective, token).ConfigureAwait(false), "Objective retained");
+            DatabaseAssert.True(prunedPipelineObjective.SuggestedPipelineId == null, "Objective reference to a named pipeline is cleared");
             Objective customObjective = DatabaseAssert.NotNull(await driver.Objectives.ReadAsync(seed.CustomObjective, token).ConfigureAwait(false), "Operator objective retained");
             DatabaseAssert.Equal(seed.CustomPipeline, customObjective.SuggestedPipelineId, "Operator objective pipeline reference unchanged");
 
@@ -333,7 +333,7 @@ namespace Armada.Test.Database
         }
 
         // Personas, pipelines, their stages and prompt templates are seeded while the schema stops below the
-        // removal version. Driver create methods write the newest row shape, which names columns that later
+        // prune version. Driver create methods write the newest row shape, which names columns that later
         // migrations add, so these rows are written with SQL that names only columns present at that version.
         private async Task<string> CreatePipelineAsync(string name, string[] personas, CancellationToken token)
         {
@@ -452,7 +452,7 @@ namespace Armada.Test.Database
                 {
                     if (current == version && statement == ordinal) throw new StopException();
                 };
-                try { await driver.InitializeAsync(token).ConfigureAwait(false); throw new Exception("Learned-facts removal checkpoint was not reached"); }
+                try { await driver.InitializeAsync(token).ConfigureAwait(false); throw new Exception("Prune checkpoint was not reached"); }
                 catch (StopException) { }
             }
         }

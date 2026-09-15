@@ -460,7 +460,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                 ),
                 new SchemaMigration(
                     40,
-                    "Add reflection tracking columns to vessels",
+                    "Add a mission id column and a threshold column to vessels",
                     @"
                     IF COL_LENGTH('vessels', 'last_reflection_mission_id') IS NULL
                         ALTER TABLE vessels ADD last_reflection_mission_id NVARCHAR(MAX);",
@@ -470,7 +470,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                 ),
                 new SchemaMigration(
                     41,
-                    "Add reorganize_threshold column to vessels",
+                    "Add a threshold column to vessels",
                     @"
                     IF COL_LENGTH('vessels', 'reorganize_threshold') IS NULL
                         ALTER TABLE vessels ADD reorganize_threshold INT;"
@@ -487,7 +487,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                 ),
                 new SchemaMigration(
                     43,
-                    "Add vessel_pack_hints table and pack_curate_threshold column to vessels (v2-F1)",
+                    "Add a vessel hint table and a threshold column to vessels",
                     @"
                     IF COL_LENGTH('vessels', 'pack_curate_threshold') IS NULL
                         ALTER TABLE vessels ADD pack_curate_threshold INT;",
@@ -514,7 +514,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                 ),
                 new SchemaMigration(
                     44,
-                    "Add identity-memory columns to personas and captains (Reflections v2-F2)",
+                    "Add playbook and threshold columns to personas and captains",
                     @"
                     IF COL_LENGTH('personas', 'default_playbooks') IS NULL
                         ALTER TABLE personas ADD default_playbooks NVARCHAR(MAX) NULL;",
@@ -536,7 +536,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                 ),
                 new SchemaMigration(
                     45,
-                    "Add fleet-memory columns to fleets (Reflections v2-F3)",
+                    "Add playbook and threshold columns to fleets",
                     @"
                     IF COL_LENGTH('fleets', 'default_playbooks') IS NULL
                         ALTER TABLE fleets ADD default_playbooks NVARCHAR(MAX) NULL;",
@@ -950,7 +950,7 @@ namespace Armada.Core.Database.SqlServer.Queries
                 new SchemaMigration(87, "Move terminal objectives out of dispatchable backlog states",
                     @"UPDATE objectives SET backlog_state = 'Inbox' WHERE status IN ('Completed', 'Cancelled') AND (backlog_state IS NULL OR backlog_state <> 'Inbox');"
                 ),
-                new SchemaMigration(88, "Remove learned-facts data, pack hints and reflection columns", LearnedFactsRemovalSchema.SqlServerStatements),
+                new SchemaMigration(88, "Drop the vessel_pack_hints table, threshold and playbook reference columns and the catalog rows they describe", CatalogAndColumnPruneSchema.SqlServerStatements),
                 new SchemaMigration(89, "Persist mission attempt facts",
                     @"IF OBJECT_ID('mission_attempt_facts','U') IS NULL CREATE TABLE mission_attempt_facts (id NVARCHAR(128) NOT NULL PRIMARY KEY, tenant_id NVARCHAR(128) NULL, user_id NVARCHAR(128) NULL, mission_id NVARCHAR(128) NOT NULL, voyage_id NVARCHAR(128) NULL, vessel_id NVARCHAR(128) NULL, root_mission_id NVARCHAR(128) NOT NULL, parent_mission_id NVARCHAR(128) NULL, fact_type NVARCHAR(32) NOT NULL, is_rescue BIT NOT NULL DEFAULT 0, reason_code NVARCHAR(96) NULL, created_utc DATETIME2 NOT NULL);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_mission_attempt_facts_mission' AND object_id=OBJECT_ID('mission_attempt_facts')) CREATE INDEX idx_mission_attempt_facts_mission ON mission_attempt_facts(mission_id);",
@@ -987,7 +987,8 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_harbor_jobs_state' AND object_id=OBJECT_ID('harbor_jobs')) CREATE INDEX idx_harbor_jobs_state ON harbor_jobs(state);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_harbor_jobs_tenant_user' AND object_id=OBJECT_ID('harbor_jobs')) CREATE INDEX idx_harbor_jobs_tenant_user ON harbor_jobs(tenant_id, user_id);"
                 ),
-                new SchemaMigration(95, "Record terminal-voyage reconciliation on the mission row", MigrationV95Statements)
+                new SchemaMigration(95, "Record terminal-voyage reconciliation on the mission row", MigrationV95Statements),
+                new SchemaMigration(96, "Delete unreferenced built-in reviewer personas and their templates", ReviewerPersonaPruneSchema.SqlServerStatements)
             };
         }
 

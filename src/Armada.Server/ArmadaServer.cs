@@ -1212,8 +1212,7 @@ namespace Armada.Server
                 return;
             }
 
-            // Fallback: use embedded wwwroot resources (legacy dashboard)
-            _Logging.Info(_Header + "using embedded legacy dashboard (no external dashboard found)");
+            _Logging.Warn(_Header + "no dashboard directory found; /dashboard serves nothing until DashboardPath or a dashboard directory with index.html exists");
         }
 
         private static string? TryFindSourceDashboardDist()

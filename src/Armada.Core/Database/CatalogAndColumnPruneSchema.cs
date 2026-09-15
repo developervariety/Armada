@@ -6,31 +6,31 @@ namespace Armada.Core.Database
     using Armada.Core.Enums;
 
     /// <summary>
-    /// Statements that delete the retired learned-facts feature from an existing database: learned
-    /// playbooks with every link and default-playbook entry that names them, the reflection pipelines
-    /// with their stages and every reference to them, the memory consolidator persona and its prompt
-    /// templates, the pack-hint table, and the reflection and curate columns. Every provider migration
-    /// uses these definitions, so all providers remove exactly the same rows. Operator rows outside
-    /// these names and native captain memory are never touched.
+    /// Statements that prune a named part of the catalog from an existing database: scope-named
+    /// playbooks with every link and default-playbook entry that names them, two named pipelines with
+    /// their stages and every reference to them, one named persona with its prompt templates, the
+    /// vessel_pack_hints table, and the threshold and playbook reference columns. Every provider
+    /// migration uses these definitions, so all providers delete exactly the same rows. Operator rows
+    /// outside these names and native captain memory are never touched.
     /// </summary>
-    internal static class LearnedFactsRemovalSchema
+    internal static class CatalogAndColumnPruneSchema
     {
         #region Private-Members
 
-        // Learned playbooks were always named by scope: vessel-, persona-, captain- and fleet-<name>-learned.md.
-        private static readonly string[] _LearnedPlaybookShapes = new string[]
+        // Scope-named playbooks: vessel-, persona-, captain- and fleet-<name>-learned.md.
+        private static readonly string[] _ScopedPlaybookShapes = new string[]
         {
             "vessel-%-learned.md", "persona-%-learned.md", "captain-%-learned.md", "fleet-%-learned.md"
         };
 
-        // Pipelines removed outright: the reflection pipelines by name, and any pipeline whose every stage names the
-        // memory consolidator, because removing those stages would leave it with none.
-        private static readonly string _RemovedPipelinePredicate =
+        // Pipelines deleted outright: the two named pipelines, and any pipeline whose every stage names the pruned
+        // persona, because deleting those stages would leave it with none.
+        private static readonly string _PrunedPipelinePredicate =
             "pipelines.name IN ('Reflections', 'ReflectionsDualJudge') OR ("
             + "EXISTS (SELECT 1 FROM pipeline_stages AS consolidator WHERE consolidator.pipeline_id = pipelines.id AND consolidator.persona_name = 'MemoryConsolidator') "
             + "AND NOT EXISTS (SELECT 1 FROM pipeline_stages AS kept WHERE kept.pipeline_id = pipelines.id AND kept.persona_name <> 'MemoryConsolidator'))";
 
-        private static readonly string _RemovedPipelineIds = "SELECT id FROM pipelines WHERE " + _RemovedPipelinePredicate;
+        private static readonly string _PrunedPipelineIds = "SELECT id FROM pipelines WHERE " + _PrunedPipelinePredicate;
 
         private static readonly string[] _DefaultPlaybookOwners = new string[] { "fleets", "vessels", "personas", "captains" };
 
@@ -69,13 +69,13 @@ namespace Armada.Core.Database
 
         private static string[] Build(DatabaseTypeEnum provider)
         {
-            string learnedIds = "SELECT id FROM playbooks WHERE " + LearnedPlaybook("playbooks");
+            string scopedIds = "SELECT id FROM playbooks WHERE " + ScopedPlaybook("playbooks");
             List<string> statements = new List<string>();
 
-            statements.Add("DELETE FROM mission_playbook_snapshots WHERE playbook_id IN (" + learnedIds + ") OR (playbook_id IS NULL AND " + LearnedPlaybook("mission_playbook_snapshots") + ");");
-            statements.Add("DELETE FROM voyage_playbooks WHERE playbook_id IN (" + learnedIds + ");");
+            statements.Add("DELETE FROM mission_playbook_snapshots WHERE playbook_id IN (" + scopedIds + ") OR (playbook_id IS NULL AND " + ScopedPlaybook("mission_playbook_snapshots") + ");");
+            statements.Add("DELETE FROM voyage_playbooks WHERE playbook_id IN (" + scopedIds + ");");
             foreach (string owner in _DefaultPlaybookOwners)
-                statements.Add(RemoveLearnedDefaults(provider, owner));
+                statements.Add(RemoveScopedDefaults(provider, owner));
 
             List<string> references = new List<string>(_PipelineReferences);
             // Only SQLite planning sessions carry a pipeline reference.
@@ -83,20 +83,20 @@ namespace Armada.Core.Database
             foreach (string reference in references)
             {
                 string[] parts = reference.Split('.');
-                statements.Add("UPDATE " + parts[0] + " SET " + parts[1] + " = NULL WHERE " + parts[1] + " IN (" + _RemovedPipelineIds + ");");
+                statements.Add("UPDATE " + parts[0] + " SET " + parts[1] + " = NULL WHERE " + parts[1] + " IN (" + _PrunedPipelineIds + ");");
             }
             statements.Add("DELETE FROM pipeline_stages WHERE pipeline_id IN (SELECT id FROM pipelines WHERE name IN ('Reflections', 'ReflectionsDualJudge'));");
-            statements.Add("DELETE FROM pipelines WHERE " + _RemovedPipelinePredicate + ";");
-            // Renumber the surviving stages before the consolidator stages go, so a restarted run still finds the
+            statements.Add("DELETE FROM pipelines WHERE " + _PrunedPipelinePredicate + ";");
+            // Renumber the surviving stages before the pruned persona stages go, so a restarted run still finds the
             // affected pipelines. Parallel stages that share an order keep sharing it.
-            statements.Add(RenumberStagesWithoutConsolidator(provider));
+            statements.Add(RenumberStagesWithoutPrunedPersona(provider));
             statements.Add("DELETE FROM pipeline_stages WHERE persona_name = 'MemoryConsolidator';");
 
             statements.Add("UPDATE captains SET preferred_persona = NULL WHERE preferred_persona = 'MemoryConsolidator';");
-            statements.Add(RemoveConsolidatorFromAllowedPersonas(provider));
+            statements.Add(RemovePrunedPersonaFromAllowedPersonas(provider));
             statements.Add("DELETE FROM personas WHERE name = 'MemoryConsolidator';");
             statements.Add("DELETE FROM prompt_templates WHERE name IN ('persona.memory_consolidator', 'mission.model_context_updates');");
-            statements.Add("DELETE FROM playbooks WHERE " + LearnedPlaybook("playbooks") + ";");
+            statements.Add("DELETE FROM playbooks WHERE " + ScopedPlaybook("playbooks") + ";");
 
             statements.Add(provider == DatabaseTypeEnum.SqlServer
                 ? "IF OBJECT_ID('vessel_pack_hints', 'U') IS NOT NULL DROP TABLE vessel_pack_hints;"
@@ -115,7 +115,7 @@ namespace Armada.Core.Database
             return statements.ToArray();
         }
 
-        private static string RenumberStagesWithoutConsolidator(DatabaseTypeEnum provider)
+        private static string RenumberStagesWithoutPrunedPersona(DatabaseTypeEnum provider)
         {
             string ranked = "SELECT id, DENSE_RANK() OVER (PARTITION BY pipeline_id ORDER BY stage_order) AS new_order FROM pipeline_stages "
                 + "WHERE persona_name <> 'MemoryConsolidator' AND pipeline_id IN (SELECT pipeline_id FROM pipeline_stages WHERE persona_name = 'MemoryConsolidator')";
@@ -137,11 +137,11 @@ namespace Armada.Core.Database
         }
 
         /// <summary>
-        /// Rewrite a captain's allowed-persona JSON list without the memory consolidator, keeping the other entries in
-        /// order. A list that held only the consolidator becomes an empty list, never null, because a null list allows
+        /// Rewrite a captain's allowed-persona JSON list without the pruned persona, keeping the other entries in
+        /// order. A list that held only that persona becomes an empty list, never null, because a null list allows
         /// every persona.
         /// </summary>
-        private static string RemoveConsolidatorFromAllowedPersonas(DatabaseTypeEnum provider)
+        private static string RemovePrunedPersonaFromAllowedPersonas(DatabaseTypeEnum provider)
         {
             switch (provider)
             {
@@ -171,49 +171,49 @@ namespace Armada.Core.Database
             }
         }
 
-        private static string LearnedPlaybook(string table)
+        private static string ScopedPlaybook(string table)
         {
-            return "(" + String.Join(" OR ", _LearnedPlaybookShapes.Select(shape => table + ".file_name LIKE '" + shape + "'")) + ")";
+            return "(" + String.Join(" OR ", _ScopedPlaybookShapes.Select(shape => table + ".file_name LIKE '" + shape + "'")) + ")";
         }
 
         /// <summary>
-        /// Rewrite a default-playbook JSON list without its learned entries, keeping every other entry
-        /// in order. Only rows whose text names a learned playbook id are rewritten. The playbook key is
+        /// Rewrite a default-playbook JSON list without its scope-named entries, keeping every other entry
+        /// in order. Only rows whose text names a scope-named playbook id are rewritten. The playbook key is
         /// matched in camel and Pascal case because the list is parsed case-insensitively.
         /// </summary>
-        private static string RemoveLearnedDefaults(DatabaseTypeEnum provider, string owner)
+        private static string RemoveScopedDefaults(DatabaseTypeEnum provider, string owner)
         {
-            string learnedIds = "SELECT id FROM playbooks WHERE " + LearnedPlaybook("playbooks");
-            string namesLearned = "SELECT 1 FROM playbooks AS learned WHERE " + LearnedPlaybook("learned");
+            string scopedIds = "SELECT id FROM playbooks WHERE " + ScopedPlaybook("playbooks");
+            string namesScoped = "SELECT 1 FROM playbooks AS learned WHERE " + ScopedPlaybook("learned");
             switch (provider)
             {
                 case DatabaseTypeEnum.Sqlite:
                     return "UPDATE " + owner + " SET default_playbooks = (SELECT '[' || COALESCE(group_concat(kept.item, ','), '') || ']' FROM ("
                         + "SELECT CASE WHEN element.type IN ('object', 'array') THEN element.value ELSE json_quote(element.value) END AS item FROM json_each(" + owner + ".default_playbooks) AS element "
-                        + "WHERE (CASE WHEN element.type = 'object' THEN COALESCE(json_extract(element.value, '$.playbookId'), json_extract(element.value, '$.PlaybookId'), '') ELSE '' END) NOT IN (" + learnedIds + ") "
+                        + "WHERE (CASE WHEN element.type = 'object' THEN COALESCE(json_extract(element.value, '$.playbookId'), json_extract(element.value, '$.PlaybookId'), '') ELSE '' END) NOT IN (" + scopedIds + ") "
                         + "ORDER BY element.key) AS kept) "
                         + "WHERE CASE WHEN json_valid(" + owner + ".default_playbooks) AND json_type(" + owner + ".default_playbooks) = 'array' "
-                        + "THEN EXISTS (" + namesLearned + " AND instr(" + owner + ".default_playbooks, learned.id) > 0) ELSE 0 END;";
+                        + "THEN EXISTS (" + namesScoped + " AND instr(" + owner + ".default_playbooks, learned.id) > 0) ELSE 0 END;";
 
                 case DatabaseTypeEnum.Postgresql:
                     return "UPDATE " + owner + " SET default_playbooks = (SELECT COALESCE(jsonb_agg(element.item ORDER BY element.position), '[]'::jsonb)::text "
                         + "FROM jsonb_array_elements(" + owner + ".default_playbooks::jsonb) WITH ORDINALITY AS element(item, position) "
-                        + "WHERE COALESCE(element.item->>'playbookId', element.item->>'PlaybookId', '') NOT IN (" + learnedIds + ")) "
-                        + "WHERE EXISTS (" + namesLearned + " AND strpos(" + owner + ".default_playbooks, learned.id) > 0);";
+                        + "WHERE COALESCE(element.item->>'playbookId', element.item->>'PlaybookId', '') NOT IN (" + scopedIds + ")) "
+                        + "WHERE EXISTS (" + namesScoped + " AND strpos(" + owner + ".default_playbooks, learned.id) > 0);";
 
                 case DatabaseTypeEnum.Mysql:
                     // JSON comparison is binary, so matching through JSON_CONTAINS avoids mixing column collations.
                     return "UPDATE " + owner + " SET default_playbooks = (SELECT COALESCE(JSON_ARRAYAGG(element.item), JSON_ARRAY()) "
                         + "FROM JSON_TABLE(" + owner + ".default_playbooks, '$[*]' COLUMNS (item_position FOR ORDINALITY, item JSON PATH '$')) AS element "
-                        + "WHERE NOT EXISTS (" + namesLearned + " AND (JSON_CONTAINS(element.item, JSON_QUOTE(learned.id), '$.playbookId') OR JSON_CONTAINS(element.item, JSON_QUOTE(learned.id), '$.PlaybookId')))) "
-                        + "WHERE JSON_VALID(" + owner + ".default_playbooks) AND EXISTS (" + namesLearned + " AND LOCATE(learned.id, " + owner + ".default_playbooks) > 0);";
+                        + "WHERE NOT EXISTS (" + namesScoped + " AND (JSON_CONTAINS(element.item, JSON_QUOTE(learned.id), '$.playbookId') OR JSON_CONTAINS(element.item, JSON_QUOTE(learned.id), '$.PlaybookId')))) "
+                        + "WHERE JSON_VALID(" + owner + ".default_playbooks) AND EXISTS (" + namesScoped + " AND LOCATE(learned.id, " + owner + ".default_playbooks) > 0);";
 
                 case DatabaseTypeEnum.SqlServer:
                     return "UPDATE target SET default_playbooks = COALESCE((SELECT '[' + STRING_AGG(CAST(CASE WHEN element.[type] = 1 THEN '\"' + STRING_ESCAPE(element.[value], 'json') + '\"' ELSE element.[value] END AS NVARCHAR(MAX)), ',') "
                         + "WITHIN GROUP (ORDER BY CAST(element.[key] AS INT)) + ']' FROM OPENJSON(target.default_playbooks) AS element "
-                        + "WHERE COALESCE(CASE WHEN element.[type] = 5 THEN COALESCE(JSON_VALUE(element.[value], '$.playbookId'), JSON_VALUE(element.[value], '$.PlaybookId')) END, '') NOT IN (" + learnedIds + ")), '[]') "
+                        + "WHERE COALESCE(CASE WHEN element.[type] = 5 THEN COALESCE(JSON_VALUE(element.[value], '$.playbookId'), JSON_VALUE(element.[value], '$.PlaybookId')) END, '') NOT IN (" + scopedIds + ")), '[]') "
                         + "FROM " + owner + " AS target WHERE ISJSON(target.default_playbooks) = 1 "
-                        + "AND EXISTS (" + namesLearned + " AND CHARINDEX(learned.id, target.default_playbooks) > 0);";
+                        + "AND EXISTS (" + namesScoped + " AND CHARINDEX(learned.id, target.default_playbooks) > 0);";
 
                 default:
                     throw new NotSupportedException("Unsupported database provider: " + provider);

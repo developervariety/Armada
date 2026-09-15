@@ -230,7 +230,7 @@ namespace Armada.Test.Database
             if (MigrationScenario == "catalog-guards" && Type == "sqlite")
                 errors.Add(MigrationScenario + " requires a server provider.");
 
-            if (MigrationScenario.Length > 0 && !new HashSet<string> { "fresh", "concurrent-fresh", "upgrade-51", "partial-first", "partial-52", "catalog-guards", "mysql-compat", "partial-identity", "sqlserver-corrections", "preview-migration", "backend-migration", "anchor-migration", "partial-anchor", "memory-migration", "ownership-migration", "postgres-legacy", "admission-migration", "model-endpoint-migration", "model-endpoint-guards", "harbor-enrollment-migration", "harbor-enrollment-guards", "harbor-enrollment-combined", "learned-facts-removal", "skipped-version" }.Contains(MigrationScenario))
+            if (MigrationScenario.Length > 0 && !new HashSet<string> { "fresh", "concurrent-fresh", "upgrade-51", "partial-first", "partial-52", "catalog-guards", "mysql-compat", "partial-identity", "sqlserver-corrections", "preview-migration", "backend-migration", "anchor-migration", "partial-anchor", "memory-migration", "ownership-migration", "postgres-legacy", "admission-migration", "model-endpoint-migration", "model-endpoint-guards", "harbor-enrollment-migration", "harbor-enrollment-guards", "harbor-enrollment-combined", "catalog-column-prune", "reviewer-persona-prune", "skipped-version" }.Contains(MigrationScenario))
                 errors.Add("Unknown migration scenario: " + MigrationScenario);
 
             if (Port < 0 || Port > 65535)
@@ -286,7 +286,7 @@ namespace Armada.Test.Database
             Console.WriteLine("  --password, -w   Database password");
             Console.WriteLine("  --database, -d   Database name");
             Console.WriteLine("  --schema, -s     Database schema");
-            Console.WriteLine("  --migration-scenario fresh|concurrent-fresh|upgrade-51|partial-first|partial-52|partial-identity|catalog-guards|mysql-compat|sqlserver-corrections|preview-migration|backend-migration|anchor-migration|partial-anchor|memory-migration|ownership-migration|postgres-legacy|admission-migration|model-endpoint-migration|harbor-enrollment-migration|harbor-enrollment-guards|harbor-enrollment-combined|learned-facts-removal|skipped-version (empty database only)");
+            Console.WriteLine("  --migration-scenario fresh|concurrent-fresh|upgrade-51|partial-first|partial-52|partial-identity|catalog-guards|mysql-compat|sqlserver-corrections|preview-migration|backend-migration|anchor-migration|partial-anchor|memory-migration|ownership-migration|postgres-legacy|admission-migration|model-endpoint-migration|harbor-enrollment-migration|harbor-enrollment-guards|harbor-enrollment-combined|catalog-column-prune|reviewer-persona-prune|skipped-version (empty database only)");
             Console.WriteLine("  --no-cleanup     Do not clean up test data after execution");
             Console.WriteLine("  --help, -?       Show this help message");
             Console.WriteLine();

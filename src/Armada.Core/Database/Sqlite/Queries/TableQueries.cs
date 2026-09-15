@@ -907,18 +907,18 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(39, "Add runtime_options_json to captains",
                     @"ALTER TABLE captains ADD COLUMN runtime_options_json TEXT;"
                 ),
-                new SchemaMigration(40, "Add reflection tracking columns to vessels",
+                new SchemaMigration(40, "Add a mission id column and a threshold column to vessels",
                     @"ALTER TABLE vessels ADD COLUMN last_reflection_mission_id TEXT;",
                     @"ALTER TABLE vessels ADD COLUMN reflection_threshold INTEGER;"
                 ),
-                new SchemaMigration(41, "Add reorganize_threshold column to vessels",
+                new SchemaMigration(41, "Add a threshold column to vessels",
                     @"ALTER TABLE vessels ADD COLUMN reorganize_threshold INTEGER;"
                 ),
                 new SchemaMigration(42, "Allow same-order parallel stages in pipeline_stages",
                     @"DROP INDEX IF EXISTS idx_pipeline_stages_order;",
                     @"CREATE INDEX IF NOT EXISTS idx_pipeline_stages_order ON pipeline_stages(pipeline_id, stage_order);"
                 ),
-                new SchemaMigration(43, "Add vessel_pack_hints table and pack_curate_threshold column to vessels (v2-F1)",
+                new SchemaMigration(43, "Add a vessel hint table and a threshold column to vessels",
                     @"ALTER TABLE vessels ADD COLUMN pack_curate_threshold INTEGER;",
                     @"CREATE TABLE IF NOT EXISTS vessel_pack_hints (
                         id TEXT PRIMARY KEY,
@@ -937,7 +937,7 @@ namespace Armada.Core.Database.Sqlite.Queries
                     );",
                     @"CREATE INDEX IF NOT EXISTS idx_vessel_pack_hints_vessel ON vessel_pack_hints(vessel_id, active);"
                 ),
-                new SchemaMigration(44, "Add identity-memory columns to personas and captains (Reflections v2-F2)",
+                new SchemaMigration(44, "Add playbook and threshold columns to personas and captains",
                     @"ALTER TABLE personas ADD COLUMN default_playbooks TEXT;",
                     @"ALTER TABLE personas ADD COLUMN curate_threshold INTEGER;",
                     @"ALTER TABLE personas ADD COLUMN learned_playbook_id TEXT;",
@@ -945,7 +945,7 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"ALTER TABLE captains ADD COLUMN curate_threshold INTEGER;",
                     @"ALTER TABLE captains ADD COLUMN learned_playbook_id TEXT;"
                 ),
-                new SchemaMigration(45, "Add fleet-memory columns to fleets (Reflections v2-F3)",
+                new SchemaMigration(45, "Add playbook and threshold columns to fleets",
                     @"ALTER TABLE fleets ADD COLUMN default_playbooks TEXT;",
                     @"ALTER TABLE fleets ADD COLUMN curate_threshold INTEGER;",
                     @"ALTER TABLE fleets ADD COLUMN learned_playbook_id TEXT;"
@@ -1612,7 +1612,7 @@ namespace Armada.Core.Database.Sqlite.Queries
                 new SchemaMigration(92, "Move terminal objectives out of dispatchable backlog states",
                     @"UPDATE objectives SET backlog_state = 'Inbox' WHERE status IN ('Completed', 'Cancelled') AND (backlog_state IS NULL OR backlog_state <> 'Inbox');"
                 ),
-                new SchemaMigration(93, "Remove learned-facts data, pack hints and reflection columns", LearnedFactsRemovalSchema.SqliteStatements),
+                new SchemaMigration(93, "Drop the vessel_pack_hints table, threshold and playbook reference columns and the catalog rows they describe", CatalogAndColumnPruneSchema.SqliteStatements),
                 new SchemaMigration(94, "Persist mission attempt facts",
                     @"CREATE TABLE IF NOT EXISTS mission_attempt_facts (id TEXT NOT NULL PRIMARY KEY, tenant_id TEXT, user_id TEXT, mission_id TEXT NOT NULL, voyage_id TEXT, vessel_id TEXT, root_mission_id TEXT NOT NULL, parent_mission_id TEXT, fact_type TEXT NOT NULL, is_rescue INTEGER NOT NULL DEFAULT 0, reason_code TEXT, created_utc TEXT NOT NULL);",
                     @"CREATE INDEX IF NOT EXISTS idx_mission_attempt_facts_mission ON mission_attempt_facts(mission_id);",
@@ -1649,7 +1649,8 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_harbor_jobs_state ON harbor_jobs(state);",
                     @"CREATE INDEX IF NOT EXISTS idx_harbor_jobs_tenant_user ON harbor_jobs(tenant_id, user_id);"
                 ),
-                new SchemaMigration(100, "Record terminal-voyage reconciliation on the mission row", MigrationV100Statements)
+                new SchemaMigration(100, "Record terminal-voyage reconciliation on the mission row", MigrationV100Statements),
+                new SchemaMigration(101, "Delete unreferenced built-in reviewer personas and their templates", ReviewerPersonaPruneSchema.SqliteStatements)
             };
         }
 

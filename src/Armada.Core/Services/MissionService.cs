@@ -3864,10 +3864,7 @@ namespace Armada.Core.Services
                 case "usability engineer":
                 case "diagnosticprotocolreviewer":
                 case "tenantsecurityreviewer":
-                case "migrationdatareviewer":
-                case "performancememoryreviewer":
                 case "portingreferenceanalyst":
-                case "frontendworkflowreviewer":
                 case "recorder":
                     return false;
                 default:

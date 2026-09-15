@@ -68,7 +68,7 @@ namespace Armada.Server.Mcp.Tools
                         styleGuide = new { type = "string", description = "Style guide describing naming conventions, patterns, and library preferences" },
                         workingDirectory = new { type = "string", description = "Optional local directory where completed mission changes will be pulled after merge" },
                         allowConcurrentMissions = new { type = "boolean", description = "Allow multiple concurrent missions on this vessel (default false)" },
-                        enableModelContext = new { type = "boolean", description = "Enable legacy model context injection into mission briefs (default false)" },
+                        enableModelContext = new { type = "boolean", description = "Enable model context injection into mission briefs (default false)" },
                         defaultPipelineId = new { type = "string", description = "Default pipeline ID for dispatches to this vessel (ppl_ prefix)" },
                         gitHubTokenOverride = new { type = "string", description = "Optional per-vessel GitHub token. Write-only: no tool result returns it; results carry HasGitHubTokenOverride instead." },
                         protectedPaths = new
@@ -222,8 +222,8 @@ namespace Armada.Server.Mcp.Tools
                         workingDirectory = new { type = "string", description = "New local directory where completed mission changes will be pulled after merge" },
                         localPath = new { type = "string", description = "New path to the local bare repository Armada cuts dock worktrees from. Set this when the bare repo is renamed or relocated (e.g. onto another drive); otherwise DockService keeps resolving the stale path and re-clones from repoUrl into it." },
                         allowConcurrentMissions = new { type = "boolean", description = "Allow multiple concurrent missions on this vessel" },
-                        enableModelContext = new { type = "boolean", description = "Enable or disable legacy model context injection" },
-                        modelContext = new { type = "string", description = "Legacy model context retained for backward compatibility. Writing it requires operatorOverride=true." },
+                        enableModelContext = new { type = "boolean", description = "Enable or disable model context injection" },
+                        modelContext = new { type = "string", description = "Agent-accumulated context about this repository. Writing it requires operatorOverride=true." },
                         operatorOverride = new { type = "boolean", description = "Orchestrator/operator only: set true to apply a direct modelContext edit. Captains must NOT set this -- emit [CLAUDE.MD-PROPOSAL] instead." },
                         defaultPipelineId = new { type = "string", description = "Default pipeline ID for dispatches to this vessel (ppl_ prefix)" },
                         gitHubTokenOverride = new { type = "string", emptyStringClears = true, description = "Per-vessel GitHub token. Write-only: omit to keep the stored value, pass an empty string to clear it. No tool result returns it; results carry HasGitHubTokenOverride instead." },
@@ -477,7 +477,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_update_vessel_context",
-                "Update a vessel's project context, style guide, or legacy model context without modifying other properties.",
+                "Update a vessel's project context, style guide, or model context without modifying other properties.",
                 new
                 {
                     type = "object",
@@ -486,7 +486,7 @@ namespace Armada.Server.Mcp.Tools
                         vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix)" },
                         projectContext = new { type = "string", description = "Project context describing architecture, key files, and dependencies" },
                         styleGuide = new { type = "string", description = "Style guide describing naming conventions, patterns, and library preferences" },
-                        modelContext = new { type = "string", description = "Legacy model context retained for backward compatibility. Writing it requires operatorOverride=true." },
+                        modelContext = new { type = "string", description = "Agent-accumulated context about this repository. Writing it requires operatorOverride=true." },
                         operatorOverride = new { type = "boolean", description = "Orchestrator/operator only: set true to apply a direct modelContext edit (or clear it with an empty string). Captains must NOT set this -- emit [CLAUDE.MD-PROPOSAL] instead." }
                     },
                     required = new[] { "vesselId" }
