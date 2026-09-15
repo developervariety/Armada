@@ -692,6 +692,12 @@ against a shared sibling while checks are in flight; an out-of-band `reset
 under load, an isolated re-run remains the discriminator: a contention flake
 passes alone, a genuine mismatch fails alone every time.
 
+Readiness probes the program each command segment starts with, so a check whose
+command needs a missing binary is blocked before it runs. Shell syntax is not a
+program: the header of a `for`, `select` or `case` construct, the loop and
+conditional keywords, and a command named by a shell variable (`$tool`) are not
+probed. A real missing binary inside a loop body is still reported.
+
 Use `run_check` to execute a check. Use `retry_check_run` for a real rerun.
 Use `resolve_check` only when valid evidence was produced outside Armada. Do
 not use it to hide a failure.

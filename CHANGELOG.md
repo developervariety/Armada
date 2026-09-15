@@ -164,6 +164,15 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   landing that finds the same divergence with the incident still open adds no
   second event or incident. When the checkout cannot be read, counted or
   pushed, the incident says which step failed.
+### Check readiness reads shell syntax as syntax, not as programs
+
+- The command-dependency probe no longer treats a loop variable, a shell
+  keyword, or the header of a `for`, `select` or `case` construct as a program
+  to find on PATH. A check command that uses a loop is no longer blocked with a
+  missing-dependency error for a name that is not a program.
+- A command named by a shell variable is resolved at run time, so it is not
+  probed. A genuinely missing binary, inside a loop body or outside one, is
+  still reported as a blocking readiness error.
 
 ### Incident lifecycle sweep reaches every open incident
 

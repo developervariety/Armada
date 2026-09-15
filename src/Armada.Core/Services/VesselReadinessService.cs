@@ -26,12 +26,19 @@ namespace Armada.Core.Services
         private static readonly HashSet<string> _ShellBuiltins = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "cd", "echo", "set", "export", "unset", "shift", "eval", "exec", "source",
-            "if", "then", "fi", "for", "do", "done", "call", "rem", "@echo",
-            "true", "false", "type", "exit", "return", ":"
+            "if", "elif", "then", "else", "fi", "while", "until", "do", "done", "call", "rem", "@echo",
+            "true", "false", "type", "exit", "return", ":", "!", "{", "}"
         };
         private static readonly HashSet<string> _TerminalShellBuiltins = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "echo", "@echo", "rem", "true", "false", "type", "exit", "return", ":"
+            "echo", "@echo", "rem", "true", "false", "type", "exit", "return", ":", "fi", "done", "esac", "}"
+        };
+        // The header of a for, select or case construct is a variable name and a word list, not a
+        // command, so no token in it names a program. Probing one reports the loop variable as a
+        // missing dependency and blocks the check.
+        private static readonly HashSet<string> _CompoundStatementHeaders = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "for", "select", "case"
         };
         private static readonly Dictionary<string, string[]> _VersionProbeArgs = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
         {
@@ -668,6 +675,14 @@ namespace Armada.Core.Services
                         : tokenMatch.Groups[3].Value;
 
                 if (String.IsNullOrWhiteSpace(token))
+                    return null;
+
+                // A command named by a shell variable is resolved at run time, so its value is not
+                // knowable here; probing the literal "$name" always reports a missing dependency.
+                if (token.StartsWith("$", StringComparison.Ordinal))
+                    return null;
+
+                if (_CompoundStatementHeaders.Contains(token))
                     return null;
 
                 if (LooksLikeEnvironmentAssignment(token))

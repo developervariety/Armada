@@ -870,6 +870,34 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            if (!OperatingSystem.IsWindows())
+            {
+                await RunTest("Readiness does not probe shell loop variables or loop keywords as command dependencies", async () =>
+                {
+                    List<string> forLoop = await EvaluateBuildDependencyIssuesAsync(
+                        "for ex in sh ls; do $ex --version; done").ConfigureAwait(false);
+                    AssertEqual(0, forLoop.Count, "for-loop command reported dependencies: " + String.Join(" | ", forLoop));
+
+                    List<string> whileLoop = await EvaluateBuildDependencyIssuesAsync(
+                        "while false; do sh -c true; done").ConfigureAwait(false);
+                    AssertEqual(0, whileLoop.Count, "while-loop command reported dependencies: " + String.Join(" | ", whileLoop));
+                }).ConfigureAwait(false);
+
+                await RunTest("Readiness still reports a real missing binary inside and outside a shell loop", async () =>
+                {
+                    string missing = "armada-missing-binary-" + Guid.NewGuid().ToString("N");
+
+                    List<string> inLoop = await EvaluateBuildDependencyIssuesAsync(
+                        "for ex in a b; do " + missing + " --version; done").ConfigureAwait(false);
+                    AssertEqual(1, inLoop.Count, "loop body binary must be reported: " + String.Join(" | ", inLoop));
+                    AssertContains("'" + missing + "'", inLoop[0]);
+
+                    List<string> plain = await EvaluateBuildDependencyIssuesAsync(missing + " build").ConfigureAwait(false);
+                    AssertEqual(1, plain.Count, "plain missing binary must be reported: " + String.Join(" | ", plain));
+                    AssertContains("'" + missing + "'", plain[0]);
+                }).ConfigureAwait(false);
+            }
+
             await RunTest("Readiness exposes toolchains, environments, and setup checklist", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -1518,6 +1546,51 @@ namespace Armada.Test.Unit.Suites.Services
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
             return logging;
+        }
+
+        private static async Task<List<string>> EvaluateBuildDependencyIssuesAsync(string buildCommand)
+        {
+            using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+            LoggingModule logging = CreateLogging();
+            WorkflowProfileService workflowProfiles = new WorkflowProfileService(testDb.Driver, logging);
+            VesselReadinessService readiness = new VesselReadinessService(testDb.Driver, workflowProfiles, logging);
+
+            await EnsureTenantAndUserAsync(testDb, "ten_ready_deps", "usr_ready_deps").ConfigureAwait(false);
+
+            string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-readiness-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(workingDirectory);
+
+            try
+            {
+                Vessel vessel = CreateVessel("ten_ready_deps", "usr_ready_deps", workingDirectory);
+                await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                WorkflowProfile profile = new WorkflowProfile
+                {
+                    TenantId = "ten_ready_deps",
+                    UserId = "usr_ready_deps",
+                    Name = "Dependency Workflow",
+                    Scope = WorkflowProfileScopeEnum.Vessel,
+                    VesselId = vessel.Id,
+                    BuildCommand = buildCommand
+                };
+                await testDb.Driver.WorkflowProfiles.CreateAsync(profile).ConfigureAwait(false);
+
+                AuthContext auth = AuthContext.Authenticated("ten_ready_deps", "usr_ready_deps", false, false, "UnitTest");
+                VesselReadinessResult result = await readiness.EvaluateAsync(
+                    auth,
+                    vessel,
+                    requestedCheckType: CheckRunTypeEnum.Build).ConfigureAwait(false);
+
+                return result.Issues
+                    .Where(issue => String.Equals(issue.Code, "command_dependency_missing", StringComparison.Ordinal))
+                    .Select(issue => issue.Message)
+                    .ToList();
+            }
+            finally
+            {
+                TryDeleteDirectory(workingDirectory);
+            }
         }
 
         private static async Task EnsureTenantAndUserAsync(TestDatabase testDb, string tenantId, string userId)
