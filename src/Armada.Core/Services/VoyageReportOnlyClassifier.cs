@@ -10,15 +10,16 @@ namespace Armada.Core.Services
     /// the Build/UnitTest real-signal gates; a Judge PASS is accepted on report evidence alone.
     /// </summary>
     /// <remarks>
-    /// Fully report-only means every mission is Audit, or every mission is Research. A voyage that
-    /// mixes Audit with Research, or carries any Implementation mission, keeps the code Check gates.
+    /// Fully report-only means every mission is Audit or Research. Neither mode produces code, so a
+    /// voyage that mixes the two still has no diff for a Build or UnitTest Check to measure. One
+    /// Implementation mission keeps the whole voyage on the code Check gates.
     /// </remarks>
     public static class VoyageReportOnlyClassifier
     {
         #region Public-Methods
 
         /// <summary>
-        /// True when every mission on the voyage is Audit, or every mission is Research.
+        /// True when every mission on the voyage is Audit or Research.
         /// </summary>
         /// <param name="missions">Missions on the voyage. Null or empty returns false.</param>
         /// <returns>True when the voyage is fully report-only.</returns>
@@ -29,7 +30,7 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// True when every supplied mode is Audit, or every supplied mode is Research.
+        /// True when every supplied mode is Audit or Research.
         /// </summary>
         /// <param name="modes">Mission modes for the voyage. Null or empty returns false.</param>
         /// <returns>True when the mode set is fully report-only.</returns>
@@ -37,15 +38,12 @@ namespace Armada.Core.Services
         {
             if (modes == null || modes.Count == 0) return false;
 
-            bool allAudit = true;
-            bool allResearch = true;
             foreach (MissionModeEnum mode in modes)
             {
-                if (mode != MissionModeEnum.Audit) allAudit = false;
-                if (mode != MissionModeEnum.Research) allResearch = false;
+                if (mode != MissionModeEnum.Audit && mode != MissionModeEnum.Research) return false;
             }
 
-            return allAudit || allResearch;
+            return true;
         }
 
         #endregion

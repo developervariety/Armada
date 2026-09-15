@@ -40,15 +40,28 @@ namespace Armada.Test.Unit
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
-            await RunTest("MixedAuditAndResearch_IsNotFullyReportOnly", () =>
+            await RunTest("MixedAuditAndResearch_IsFullyReportOnly", () =>
             {
                 List<Mission> missions = new List<Mission>
                 {
                     new Mission("Worker", "audit") { Mode = MissionModeEnum.Audit },
                     new Mission("Worker", "research") { Mode = MissionModeEnum.Research }
                 };
+                AssertTrue(VoyageReportOnlyClassifier.IsFullyReportOnly(missions),
+                    "a voyage whose every mission is Audit or Research produces no code and is report-only");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("ResearchAuditAndImplementation_IsNotFullyReportOnly", () =>
+            {
+                List<Mission> missions = new List<Mission>
+                {
+                    new Mission("Worker", "research") { Mode = MissionModeEnum.Research },
+                    new Mission("Worker", "code") { Mode = MissionModeEnum.Implementation },
+                    new Mission("Judge", "review") { Mode = MissionModeEnum.Audit, Persona = "Judge" }
+                };
                 AssertFalse(VoyageReportOnlyClassifier.IsFullyReportOnly(missions),
-                    "Audit and Research on one voyage keeps implementation-style gates");
+                    "any Implementation mission keeps the code Check gates");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 

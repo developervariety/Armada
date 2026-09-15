@@ -164,6 +164,15 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   landing that finds the same divergence with the incident still open adds no
   second event or incident. When the checkout cannot be read, counted or
   pushed, the incident says which step failed.
+### A voyage mixing Audit and Research missions is report-only
+
+- A voyage counts as fully report-only when every mission is Audit or Research,
+  in any combination. Before, it had to be all Audit or all Research, so a
+  voyage that mixed the two took the code Check gates and its Judge PASS was
+  rejected for having no green Build and UnitTest, which such a voyage never
+  produces.
+- A voyage carrying any Implementation mission keeps the code Check gates.
+
 ### Check readiness reads shell syntax as syntax, not as programs
 
 - The command-dependency probe no longer treats a loop variable, a shell

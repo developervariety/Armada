@@ -735,7 +735,9 @@ no longer counted in `PendingChecksRequired`. A re-dispatch arms fresh Checks.
 The table applies to voyages that contain implementation work. A fully
 report-only voyage has no implementation Checks by design. Its Judge validates
 the report structure and evidence, not a code diff or a green Build and
-UnitTest pair. Do not use this rule for a mixed-mode voyage.
+UnitTest pair. A voyage is fully report-only when every mission is Audit or
+Research, in any combination, because neither mode produces a diff. One
+Implementation mission puts the whole voyage back on the code Check gates.
 
 A green is a statement about one commit. A voyage-armed Check is stamped at the
 FIRST stage that commits, and every later stage commits on top, so by the Judge

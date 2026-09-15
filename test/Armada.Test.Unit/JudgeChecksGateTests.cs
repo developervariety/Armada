@@ -830,7 +830,7 @@ namespace Armada.Test.Unit
                 }
             }).ConfigureAwait(false);
 
-            await RunTest("MixedAuditAndResearchVoyage_StillRequiresGreenChecks", async () =>
+            await RunTest("AuditAndResearchVoyage_IsReportOnlyAndAcceptsWithoutChecks", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -844,9 +844,9 @@ namespace Armada.Test.Unit
                     await testDb.Driver.Missions.UpdateAsync(judge, CancellationToken.None).ConfigureAwait(false);
 
                     AssertEqual(
-                        MissionService.JudgeCheckGate.NoChecksNoExclusion,
+                        MissionService.JudgeCheckGate.GreenChecks,
                         await svc.EvaluateJudgeCheckGateAsync(judge, CancellationToken.None).ConfigureAwait(false),
-                        "an Audit and Research voyage is mixed-mode and still requires green Checks");
+                        "a voyage whose every mission is Audit or Research is report-only and needs no code Checks");
                 }
             }).ConfigureAwait(false);
 
