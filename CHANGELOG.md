@@ -617,34 +617,6 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - The dispatch preview lists the Slop Check when dispatch would arm it, and the
   dashboard offers the type for .NET workflow profiles.
 
-### Learned-facts data and schema deletion
-
-- A new migration on all four providers deletes the remaining learned-facts
-  data. It removes the learned playbooks, their voyage links, mission snapshots
-  and default-playbook entries on fleets, vessels, personas and captains. It
-  removes the `Reflections` and `ReflectionsDualJudge` pipelines and their
-  stages, and clears fleet, vessel, project-profile, objective and planning
-  references to them. It also removes the `MemoryConsolidator` persona, its
-  prompt template and the learned-fact proposal template. Every pipeline stage
-  that names the consolidator is removed, the remaining stages are renumbered
-  without gaps, and a pipeline left with no stages is removed. The consolidator
-  is cleared from captain preferred personas and removed from allowed-persona
-  lists; a list that held only the consolidator becomes empty, which still
-  restricts the captain.
-- The migration drops the pack-hint table and the reflection, reorganize,
-  pack-curate, curate and learned-playbook columns. Operator rows outside
-  those names and native captain memory are unchanged. A restarted migration
-  completes; MySQL skips a column it already dropped.
-- Removed the pack-hint store and its context-pack effects: pack hints no
-  longer filter results, and context packs no longer report matched hint ids.
-- Removed the vessel reflection fields from the vessel model, REST responses
-  and the dashboard update payload, and the curate and learned-playbook fields
-  from fleets, personas and captains.
-- The brief renderer no longer skips playbooks by the learned file-name
-  suffix. An operator playbook with that suffix now renders like any other.
-- A settings file that still carries the removed learned-facts keys loads,
-  and saving it drops those keys.
-
 ### Health-loop maintenance and branch cleanup sweep
 
 - Health-loop maintenance steps now run in isolation. A step that failed on
@@ -1233,9 +1205,6 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - MCP persona, pipeline and prompt template reads and the persona, pipeline and
   template entries of `armada_enumerate` apply the same rule, and MCP creates
   record their owner.
-- The learned-facts removal migration scenario seeds personas, pipelines, their
-  stages and prompt templates with only the columns present below its version,
-  so the ownership columns a later migration adds no longer break its seed.
 
 ### Persona, pipeline and prompt template writes respect ownership
 
@@ -1275,8 +1244,8 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 
 ### Vessel updates keep what the form does not edit
 
-- `PUT /api/v1/vessels/{id}` keeps the stored tenant, user, creation time,
-  auto-land calibration count and last reflection mission. Before, an update
+- `PUT /api/v1/vessels/{id}` keeps the stored tenant, user, creation time and
+  auto-land calibration count. Before, an update
   wrote them from the body, so a normal save reset the tenant and user to null.
 - Vessel create and update accept the `autoLandPredicate` object under a key
   in any letter case. Before, the route bound the body to the vessel model
@@ -1589,16 +1558,6 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   finished work and commits nothing. Only the `ProductDevelopment` pipeline gains
   the stage; no other built-in pipeline changes.
 
-### Retired three unused specialist pipelines
-
-- Retired the `FrontendWorkflowTested`, `MigrationDataTested`, and
-  `PerformanceMemoryTested` pipelines, which had no vessel default and no use. The
-  fleet routing example and the routing fixture no longer define them, so they are
-  no longer created or reconciled. Their reviewer personas and prompt templates
-  stay defined, so an operator can still compose an ad-hoc pipeline from them.
-  Existing pipeline rows in a live database are operator data and are retired
-  separately.
-
 ### Consumer test gate on behavior-breaking waves
 
 - The definition-of-done gate now RUNS a declared consumer's unit-test suite,
@@ -1619,32 +1578,6 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   details and summaries. Reads do not run admission checks. Revision checks
   reject stale writes; a refusal and its waiting state are written together.
   Preserve Unicode IDs, existing policy limits and process ownership.
-
-### Removed the learned-facts / Reflections implementation
-
-- Removed the fork learned-facts and Reflections memory feature. Native captain
-  memory (the Recorder persona and the Recorded pipeline) is the replacement and
-  is unchanged.
-- Deleted the reflection dispatcher, the reflection memory service and its
-  bootstrap, the reflection sweeper, and the whole learned-facts library
-  (learned-facts file, memory anchors, pack and habit miners, the reflection
-  output parser, and the curate candidate helpers).
-- Removed the four learned-facts MCP tools: `armada_consolidate_memory`,
-  `armada_accept_memory_proposal`, `armada_reject_memory_proposal`, and
-  `armada_check_stale_memory`.
-- Removed the `MemoryConsolidator` persona seed and the `Reflections` and
-  `ReflectionsDualJudge` pipeline seeds. Inactive learned playbooks and any
-  existing reflection pipeline rows remain as data for an operator to retire.
-- Removed the learned-facts settings (the enable flag, thresholds, token
-  budgets, curate settings and prune options) and the `[LEARNED-FACT-PROPOSAL]`
-  mission guidance. The native "Recall Existing Memory" guidance stays.
-- Removed the reflection-threshold vessel routes and MCP arguments and the
-  fleet curate MCP arguments.
-- Reflection-coupled database columns (the vessel reflection and reorganize
-  thresholds, the last-reflection anchor, the per-scope curate thresholds and
-  learned-playbook references, and the pack-hint table) are retained as inert
-  data. No destructive migration is added; an operator retires the leftover
-  rows separately.
 
 ### Captain brief AI-Memory repository folder
 
@@ -1698,7 +1631,6 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   not_found, forbidden or conflict.
 - New REST API under `/api/v1/memories`: list and search, create or update by key, read,
   change and delete, with 409 on a conflict.
-- Native memory is independent of the learned-facts feature and reads none of its settings.
 
 ### Native captain memory: the Recorder persona and memory recall
 
@@ -1708,18 +1640,18 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Added the built-in `Recorder` persona with its own editable prompt. It reviews the
   finished work of a voyage, classifies what is worth keeping, reconciles it against what
   is already recorded, and writes it to native memory. It writes memory only: it changes
-  no repository file, no vessel model context, and no shared external memory repository,
+  no repository file and no shared external memory repository,
   and it hands anything that belongs in shared memory to the operator as a proposal.
 - Added the built-in `Recorded` pipeline: Worker, then Recorder. It is seeded only when no
   pipeline of that name exists, so an operator pipeline with that name is kept as it is.
 - No existing pipeline gains a Recorder stage. Where the Recorder belongs in a pipeline is
   an owner decision, so startup changes no other pipeline.
 - Every other built-in persona template now carries a Recall Existing Memory section that
-  tells the agent to read the vessel model context and search memory before acting, to
+  tells the agent to search memory before acting, to
   treat a record as working memory rather than proof, and to let a rule from the brief's
   Shared Memory section win over a memory record on conflict. Startup adds that section once
   to a built-in persona template that lacks it and changes nothing else, so an operator edit
-  is kept. The Recorder and the learned-facts memory consolidator do not receive it.
+  is kept. The Recorder does not receive it.
 
 ### Judge Check gate on queued armed Checks
 
@@ -1839,8 +1771,6 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   field mappings in the [foundation checkpoint](docs/upstream-review/foundation.md).
   The initial failures are retained as baseline evidence; provider repairs are
   described separately. No deployment is claimed.
-- Remove stale instructions that described the retired standalone lead as an
-  available operator tool. Keep generic wakes and bounded helpers.
 
 ### Routing V2
 
@@ -1848,14 +1778,6 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Replace legacy preference overrides with opt-in persona account routes and usage reserves. Missing persona routes wait unless an explicit default is configured.
 - Add optional account usage collection for Codex, Claude, Cursor, and OpenCode Go, plus file and manual snapshots. Keep persona preferences until allowance runs low; reserve capacity for important work and queue missions when no approved account is available.
 - Add Dashboard policy editing, usage status, budget planning, and an admin draft preview API. Defaults contain no accounts or personal subscription data. See [usage routing](docs/USAGE_ROUTING.md).
-
-### Retired standalone lead integration
-- Archived the standalone lead launcher, timer, deployment assets, and guides.
-- Removed the Grok listener, OAuth proof-of-concept broker, lead configuration,
-  lead-control REST routes, and lead-cycle MCP tools. Existing deployments must
-  remove their old listener, gateway, and lead-specific wake configuration.
-- Preserved the objective scheduler, shared coordination, generic AgentWake,
-  helper launcher, watcher, and generic MCP authentication and audit controls.
 
 ### Operator documentation
 - Incident mitigation now acknowledges existing failure evidence. Lifecycle
@@ -1885,7 +1807,7 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Objective create and update MCP schemas now expose `suggestedPlaybooks`.
   Scheduler-created voyages can receive the same validated playbook selections
   that the objective model and dispatcher already supported.
-- All voyage, mission, recovery, reflection, Architect, and restart entry points
+- All voyage, mission, recovery, Architect, and restart entry points
   now share one tenant-scoped durable capacity admission lease. The gate counts
   actual work-bearing voyages and standalone missions, resolves transitive
   sibling lanes, returns typed capacity refusals, verifies lease ownership at
@@ -1943,7 +1865,7 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 Skipped from upstream (already equal or richer here): captain-map, token-usage charts, dashboard nav, fork-parity cores, Touchstone/test move, Mux install, `POST /api/v1/server/restart`, heartbeat 30s→10s, and the AutoLandPredicate alternate evaluator.
 
 ### Routing and settings (code to config)
-- Captain routing, specialist-persona reservation, model-family classification, the stage-persona title guard, and the six specialist reviewer personas/pipelines/templates are no longer hardcoded. Product defaults are empty and policy-neutral (random within an unconfigured pool, guard off, no family or persona assumption). The former behavior lives in `factory/settings.fleet.example.json` and `Test.Shared.Infrastructure.FleetRoutingSettings`.
+- Captain routing, specialist-persona reservation, model-family classification, the stage-persona title guard, and the specialist reviewer personas/pipelines/templates are no longer hardcoded. Product defaults are empty and policy-neutral (random within an unconfigured pool, guard off, no family or persona assumption). The former behavior lives in `factory/settings.fleet.example.json` and `Test.Shared.Infrastructure.FleetRoutingSettings`.
 - Dashboard Settings now edits tier lists, family rules, within-tier strategy, non-native preference, specialist personas, the dispatch title-prefix guard, model providers, and additional personas/pipelines/templates. `modelTier` and `voyageDispatch` hot-reload; `modelProviders` and additional assets load at startup (the Settings page says so).
 - When no tier list and no family rule is configured, `SelectModel` picks randomly among idle persona-eligible captains so a fresh clone still assigns work. Low still maps to mid (platform two-tier architecture).
 
@@ -2027,16 +1949,8 @@ Skipped from upstream (already equal or richer here): captain-map, token-usage c
 ### Dashboard
 - Login: the form uses email autofill semantics, sends bearer and session auth headers, and its layout is repaired; the chat view preserves its reading position.
 
-### Autonomous lead
-- The operator's blocking poll is replaced by a WebSocket subscription watcher and bounded autonomous lead cycles: prompts are passed on stdin, the cycle runs under a scoped permission policy, the whole cycle is logged with a 30-minute cap, it runs from the Armada checkout whoever started it, survives a redeploy, and is routed through the configured Fable captain.
-- A delegate helper class with permission-enforced limits; the lead posts its handoff from the completion gate exactly once, defaults the room key to `fleet`, refuses a cycle while an operator holds the work, and treats rows another participant owns as read-only.
-- A Grok lead integration foundation with its evaluation notes.
-- The Grok lead integration now has a restricted MCP listener with a fixed participant identity, an explicit read-only catalog, server-side tool-call audit events, and the shared lead-cycle lease used by the legacy runner.
-- Its OAuth proof flow supports protected-resource discovery, dynamic client registration, PKCE authorization, native-app callback handoff, rotating refresh tokens, and owner approval for the read-only scope.
-- A deployment overlay provides a loopback-only Armada listener and a Caddy HTTPS gateway that forwards only MCP and OAuth paths; the normal Armada MCP endpoint is not exposed through this gateway.
-- The `grok.skcc.network` read-only staging connection is documented, with the legacy unattended lead retained as fallback while durable OAuth storage and write-mode review remain outstanding.
-- Added a controlled-dispatch mode that keeps the normal `armada_dispatch` name but exposes a reduced schema: an active Grok cycle and objective are required, mission count is capped, code context is off, and staging files, playbooks, captain overrides, arbitrary pipeline IDs, and cross-dispatch dependencies are rejected.
-- Controlled dispatch uses the `armada:dispatch` OAuth scope and remains disabled by default. Cancel, purge, release, deployment, dispatch-hold, check-resolution, and service-control tools remain outside the Grok catalog.
+### Operator watcher
+- The operator's blocking poll is replaced by a WebSocket subscription watcher.
 
 ### Coordination board (chatroom)
 - A shared coordination board keeps concurrent operator sessions on the same page: rooms hold short notes about who is doing what, so a session that reads the board before dispatching no longer mistakes another session's voyage for unowned work or double-dispatches a rescue
@@ -2060,8 +1974,8 @@ Skipped from upstream (already equal or richer here): captain-map, token-usage c
 - Addressed notes now EMIT a Wake signal (`[to=<key>]` payload prefix), so a helper session's next heartbeat or read surfaces a targeted UnreadWakes list instead of requiring a full room re-read - the pause-and-read nudge for sessions inside blocking loops. Acknowledge with armada_mark_signal_read
 - An addressed note to the participant key of the registered AgentWake session now also starts that session in `SpawnProcess` or `Both` delivery mode while always retaining the Wake signal row. OpenCode starts a fresh session instead of resuming, so the wake text carries the task and the session reconstructs state from the board and durable memory
 - Notes can be addressed to one participant (`toParticipantKey`), turning the board into a work-handoff channel between operator sessions: a new session told only to "join the chatroom" reads broadcast plus its own mail and picks up addressed asks. Voyage-tagged notes now also reach captain briefs - at each stage handoff, notes naming the voyage created since the prior stage started are appended under a dedicated heading; general fleet chatter remains advisory
-- The autonomous lead kit now has a bounded, tested host-helper launcher plus a reusable fresh-cycle prompt. It enforces process caps and timeouts, injects the read-only board/Wake contract, records participant keys, and provides explicit list, kill, and cull operations; the operator guide also separates Armada's built-in objective scheduler from optional externally started lead cycles and prevents one participant key from being owned by both a resident helper and AgentWake
-- AgentWake can now retain a stable lead `participantKey` in settings across Admiral restarts, its status tool reports configured and effective ownership, helper offer mode allows a bounded reassignment window before fallback work, Claude helpers receive the explicit local Armada MCP config required by strict mode, and the autonomy guide defines controlled multi-voyage lane refill instead of treating one global voyage as the normal throughput limit
+- A bounded, tested host-helper launcher enforces process caps and timeouts, injects the read-only board/Wake contract, records participant keys, and provides explicit list, kill, and cull operations; the operator guide also prevents one participant key from being owned by both a resident helper and AgentWake
+- AgentWake can now retain a stable `participantKey` in settings across Admiral restarts, its status tool reports configured and effective ownership, helper offer mode allows a bounded reassignment window before fallback work, Claude helpers receive the explicit local Armada MCP config required by strict mode, and the autonomy guide defines controlled multi-voyage lane refill instead of treating one global voyage as the normal throughput limit
 - The objective scheduler now has a persisted `maxConcurrentVoyagesPerVessel` ceiling (default 1), so a fleet-wide capacity of three can dispatch independent vessels without starting three conflicting voyages on the same vessel; operator-linked voyages count toward both ceilings
 - Supported mission captains now receive the local Armada MCP URL by default. Claude strict mode receives an explicit `--mcp-config`, Codex receives a per-process URL override without hiding its authentication, Gemini and Cursor receive their project files, Mux receives an isolated config directory, and OpenCode receives the remote endpoint in its dock config
 - The tri-source porting campaign is structured as the first instance of the campaign pattern: hub with `port:jpro` / `port:otr` / `port:dxp` lanes, four strategic programs re-parented beneath, thirteen active items re-parented, completed history left flat. The pattern is opt-in grouping; plain objectives outside campaigns stay the default for ordinary features and fixes
