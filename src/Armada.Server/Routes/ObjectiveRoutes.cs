@@ -163,9 +163,9 @@ namespace Armada.Server.Routes
                     return await _DispatchPreview.PreviewAsync(
                         ctx,
                         objective,
-                        NormalizeEmpty(req.Query.GetValueOrDefault("vesselId")),
-                        NormalizeEmpty(req.Query.GetValueOrDefault("pipelineId")),
-                        ParseCaptainAssignments(req.Query.GetValueOrDefault("captainAssignments"))).ConfigureAwait(false);
+                        NormalizeEmpty(QueryValueReader.Read(req, "vesselId")),
+                        NormalizeEmpty(QueryValueReader.Read(req, "pipelineId")),
+                        ParseCaptainAssignments(QueryValueReader.Read(req, "captainAssignments"))).ConfigureAwait(false);
                 }
                 catch (JsonException ex)
                 {
@@ -411,9 +411,9 @@ namespace Armada.Server.Routes
                     return await _DispatchPreview.PreviewAsync(
                         ctx,
                         objective,
-                        NormalizeEmpty(req.Query.GetValueOrDefault("vesselId")),
-                        NormalizeEmpty(req.Query.GetValueOrDefault("pipelineId")),
-                        ParseCaptainAssignments(req.Query.GetValueOrDefault("captainAssignments"))).ConfigureAwait(false);
+                        NormalizeEmpty(QueryValueReader.Read(req, "vesselId")),
+                        NormalizeEmpty(QueryValueReader.Read(req, "pipelineId")),
+                        ParseCaptainAssignments(QueryValueReader.Read(req, "captainAssignments"))).ConfigureAwait(false);
                 }
                 catch (JsonException ex)
                 {
@@ -526,40 +526,40 @@ namespace Armada.Server.Routes
 
         private static void ApplyQuerystringOverrides(ApiRequest req, ObjectiveQuery query)
         {
-            if (Int32.TryParse(req.Query.GetValueOrDefault("pageNumber"), out int pageNumber))
+            if (Int32.TryParse(QueryValueReader.Read(req, "pageNumber"), out int pageNumber))
                 query.PageNumber = Math.Max(1, pageNumber);
-            if (Int32.TryParse(req.Query.GetValueOrDefault("pageSize"), out int pageSize))
+            if (Int32.TryParse(QueryValueReader.Read(req, "pageSize"), out int pageSize))
                 query.PageSize = Math.Clamp(pageSize, 1, 500);
-            if (DateTime.TryParse(req.Query.GetValueOrDefault("fromUtc"), out DateTime fromUtc))
+            if (DateTime.TryParse(QueryValueReader.Read(req, "fromUtc"), out DateTime fromUtc))
                 query.FromUtc = fromUtc.ToUniversalTime();
-            if (DateTime.TryParse(req.Query.GetValueOrDefault("toUtc"), out DateTime toUtc))
+            if (DateTime.TryParse(QueryValueReader.Read(req, "toUtc"), out DateTime toUtc))
                 query.ToUtc = toUtc.ToUniversalTime();
-            if (Enum.TryParse(req.Query.GetValueOrDefault("status"), true, out ObjectiveStatusEnum status))
+            if (Enum.TryParse(QueryValueReader.Read(req, "status"), true, out ObjectiveStatusEnum status))
                 query.Status = status;
-            if (Enum.TryParse(req.Query.GetValueOrDefault("backlogState"), true, out ObjectiveBacklogStateEnum backlogState))
+            if (Enum.TryParse(QueryValueReader.Read(req, "backlogState"), true, out ObjectiveBacklogStateEnum backlogState))
                 query.BacklogState = backlogState;
-            if (Enum.TryParse(req.Query.GetValueOrDefault("kind"), true, out ObjectiveKindEnum kind))
+            if (Enum.TryParse(QueryValueReader.Read(req, "kind"), true, out ObjectiveKindEnum kind))
                 query.Kind = kind;
-            if (Enum.TryParse(req.Query.GetValueOrDefault("priority"), true, out ObjectivePriorityEnum priority))
+            if (Enum.TryParse(QueryValueReader.Read(req, "priority"), true, out ObjectivePriorityEnum priority))
                 query.Priority = priority;
-            if (Enum.TryParse(req.Query.GetValueOrDefault("effort"), true, out ObjectiveEffortEnum effort))
+            if (Enum.TryParse(QueryValueReader.Read(req, "effort"), true, out ObjectiveEffortEnum effort))
                 query.Effort = effort;
 
-            query.Owner = NormalizeEmpty(req.Query.GetValueOrDefault("owner")) ?? query.Owner;
-            query.Category = NormalizeEmpty(req.Query.GetValueOrDefault("category")) ?? query.Category;
-            query.ParentObjectiveId = NormalizeEmpty(req.Query.GetValueOrDefault("parentObjectiveId")) ?? query.ParentObjectiveId;
-            query.VesselId = NormalizeEmpty(req.Query.GetValueOrDefault("vesselId")) ?? query.VesselId;
-            query.FleetId = NormalizeEmpty(req.Query.GetValueOrDefault("fleetId")) ?? query.FleetId;
-            query.PlanningSessionId = NormalizeEmpty(req.Query.GetValueOrDefault("planningSessionId")) ?? query.PlanningSessionId;
-            query.VoyageId = NormalizeEmpty(req.Query.GetValueOrDefault("voyageId")) ?? query.VoyageId;
-            query.MissionId = NormalizeEmpty(req.Query.GetValueOrDefault("missionId")) ?? query.MissionId;
-            query.CheckRunId = NormalizeEmpty(req.Query.GetValueOrDefault("checkRunId")) ?? query.CheckRunId;
-            query.ReleaseId = NormalizeEmpty(req.Query.GetValueOrDefault("releaseId")) ?? query.ReleaseId;
-            query.DeploymentId = NormalizeEmpty(req.Query.GetValueOrDefault("deploymentId")) ?? query.DeploymentId;
-            query.IncidentId = NormalizeEmpty(req.Query.GetValueOrDefault("incidentId")) ?? query.IncidentId;
-            query.Tag = NormalizeEmpty(req.Query.GetValueOrDefault("tag")) ?? query.Tag;
-            query.TargetVersion = NormalizeEmpty(req.Query.GetValueOrDefault("targetVersion")) ?? query.TargetVersion;
-            query.Search = NormalizeEmpty(req.Query.GetValueOrDefault("search")) ?? query.Search;
+            query.Owner = NormalizeEmpty(QueryValueReader.Read(req, "owner")) ?? query.Owner;
+            query.Category = NormalizeEmpty(QueryValueReader.Read(req, "category")) ?? query.Category;
+            query.ParentObjectiveId = NormalizeEmpty(QueryValueReader.Read(req, "parentObjectiveId")) ?? query.ParentObjectiveId;
+            query.VesselId = NormalizeEmpty(QueryValueReader.Read(req, "vesselId")) ?? query.VesselId;
+            query.FleetId = NormalizeEmpty(QueryValueReader.Read(req, "fleetId")) ?? query.FleetId;
+            query.PlanningSessionId = NormalizeEmpty(QueryValueReader.Read(req, "planningSessionId")) ?? query.PlanningSessionId;
+            query.VoyageId = NormalizeEmpty(QueryValueReader.Read(req, "voyageId")) ?? query.VoyageId;
+            query.MissionId = NormalizeEmpty(QueryValueReader.Read(req, "missionId")) ?? query.MissionId;
+            query.CheckRunId = NormalizeEmpty(QueryValueReader.Read(req, "checkRunId")) ?? query.CheckRunId;
+            query.ReleaseId = NormalizeEmpty(QueryValueReader.Read(req, "releaseId")) ?? query.ReleaseId;
+            query.DeploymentId = NormalizeEmpty(QueryValueReader.Read(req, "deploymentId")) ?? query.DeploymentId;
+            query.IncidentId = NormalizeEmpty(QueryValueReader.Read(req, "incidentId")) ?? query.IncidentId;
+            query.Tag = NormalizeEmpty(QueryValueReader.Read(req, "tag")) ?? query.Tag;
+            query.TargetVersion = NormalizeEmpty(QueryValueReader.Read(req, "targetVersion")) ?? query.TargetVersion;
+            query.Search = NormalizeEmpty(QueryValueReader.Read(req, "search")) ?? query.Search;
         }
 
         private static ApiErrorResponse BuildAuthError(ApiRequest req)

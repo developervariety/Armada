@@ -101,28 +101,28 @@ namespace Armada.Server.Routes
 
         private static void ApplyQuerystringOverrides(ApiRequest req, HistoricalTimelineQuery query)
         {
-            if (Int32.TryParse(req.Query.GetValueOrDefault("pageNumber"), out int pageNumber))
+            if (Int32.TryParse(QueryValueReader.Read(req, "pageNumber"), out int pageNumber))
                 query.PageNumber = Math.Max(1, pageNumber);
-            if (Int32.TryParse(req.Query.GetValueOrDefault("pageSize"), out int pageSize))
+            if (Int32.TryParse(QueryValueReader.Read(req, "pageSize"), out int pageSize))
                 query.PageSize = Math.Clamp(pageSize, 1, 500);
-            if (DateTime.TryParse(req.Query.GetValueOrDefault("fromUtc"), out DateTime fromUtc))
+            if (DateTime.TryParse(QueryValueReader.Read(req, "fromUtc"), out DateTime fromUtc))
                 query.FromUtc = fromUtc.ToUniversalTime();
-            if (DateTime.TryParse(req.Query.GetValueOrDefault("toUtc"), out DateTime toUtc))
+            if (DateTime.TryParse(QueryValueReader.Read(req, "toUtc"), out DateTime toUtc))
                 query.ToUtc = toUtc.ToUniversalTime();
-            if (Boolean.TryParse(req.Query.GetValueOrDefault("postmortemOnly"), out bool postmortemOnly))
+            if (Boolean.TryParse(QueryValueReader.Read(req, "postmortemOnly"), out bool postmortemOnly))
                 query.PostmortemOnly = postmortemOnly;
 
-            query.ObjectiveId = NormalizeEmpty(req.Query.GetValueOrDefault("objectiveId")) ?? query.ObjectiveId;
-            query.VesselId = NormalizeEmpty(req.Query.GetValueOrDefault("vesselId")) ?? query.VesselId;
-            query.EnvironmentId = NormalizeEmpty(req.Query.GetValueOrDefault("environmentId")) ?? query.EnvironmentId;
-            query.DeploymentId = NormalizeEmpty(req.Query.GetValueOrDefault("deploymentId")) ?? query.DeploymentId;
-            query.IncidentId = NormalizeEmpty(req.Query.GetValueOrDefault("incidentId")) ?? query.IncidentId;
-            query.MissionId = NormalizeEmpty(req.Query.GetValueOrDefault("missionId")) ?? query.MissionId;
-            query.VoyageId = NormalizeEmpty(req.Query.GetValueOrDefault("voyageId")) ?? query.VoyageId;
-            query.Actor = NormalizeEmpty(req.Query.GetValueOrDefault("actor")) ?? query.Actor;
-            query.Text = NormalizeEmpty(req.Query.GetValueOrDefault("text")) ?? query.Text;
+            query.ObjectiveId = NormalizeEmpty(QueryValueReader.Read(req, "objectiveId")) ?? query.ObjectiveId;
+            query.VesselId = NormalizeEmpty(QueryValueReader.Read(req, "vesselId")) ?? query.VesselId;
+            query.EnvironmentId = NormalizeEmpty(QueryValueReader.Read(req, "environmentId")) ?? query.EnvironmentId;
+            query.DeploymentId = NormalizeEmpty(QueryValueReader.Read(req, "deploymentId")) ?? query.DeploymentId;
+            query.IncidentId = NormalizeEmpty(QueryValueReader.Read(req, "incidentId")) ?? query.IncidentId;
+            query.MissionId = NormalizeEmpty(QueryValueReader.Read(req, "missionId")) ?? query.MissionId;
+            query.VoyageId = NormalizeEmpty(QueryValueReader.Read(req, "voyageId")) ?? query.VoyageId;
+            query.Actor = NormalizeEmpty(QueryValueReader.Read(req, "actor")) ?? query.Actor;
+            query.Text = NormalizeEmpty(QueryValueReader.Read(req, "text")) ?? query.Text;
 
-            string? sourceTypeValue = NormalizeEmpty(req.Query.GetValueOrDefault("sourceType"));
+            string? sourceTypeValue = NormalizeEmpty(QueryValueReader.Read(req, "sourceType"));
             if (!String.IsNullOrWhiteSpace(sourceTypeValue))
             {
                 query.SourceTypes = sourceTypeValue

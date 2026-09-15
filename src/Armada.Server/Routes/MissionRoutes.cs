@@ -243,7 +243,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 EnumerationQuery query = new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Mission> result = ctx.IsAdmin
                     ? await _database.Missions.EnumerateSummariesAsync(query).ConfigureAwait(false)
@@ -280,7 +280,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 EnumerationQuery query = JsonSerializer.Deserialize<EnumerationQuery>(req.Http.Request.DataAsString, _jsonOptions) ?? new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Mission> result = ctx.IsAdmin
                     ? await _database.Missions.EnumerateSummariesAsync(query).ConfigureAwait(false)
@@ -313,7 +313,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 EnumerationQuery query = new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
                 return await MissionSummaryQuery.EnumerateForCallerAsync(_database, ctx, query).ConfigureAwait(false);
             },
             api => api
@@ -336,7 +336,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 EnumerationQuery query = JsonSerializer.Deserialize<EnumerationQuery>(req.Http.Request.DataAsString, _jsonOptions) ?? new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
                 return await MissionSummaryQuery.EnumerateForCallerAsync(_database, ctx, query).ConfigureAwait(false);
             },
             api => api
@@ -357,12 +357,12 @@ namespace Armada.Server.Routes
                 }
 
                 MissionHistoryQuery query = new MissionHistoryQuery();
-                if (DateTime.TryParse(req.Query.GetValueOrDefault("fromUtc"), out DateTime fromUtc)) query.FromUtc = fromUtc.ToUniversalTime();
-                if (DateTime.TryParse(req.Query.GetValueOrDefault("toUtc"), out DateTime toUtc)) query.ToUtc = toUtc.ToUniversalTime();
-                if (int.TryParse(req.Query.GetValueOrDefault("bucketMinutes"), out int bucketMinutes) && bucketMinutes > 0) query.BucketMinutes = bucketMinutes;
-                string? fleetId = req.Query.GetValueOrDefault("fleetId");
+                if (DateTime.TryParse(QueryValueReader.Read(req, "fromUtc"), out DateTime fromUtc)) query.FromUtc = fromUtc.ToUniversalTime();
+                if (DateTime.TryParse(QueryValueReader.Read(req, "toUtc"), out DateTime toUtc)) query.ToUtc = toUtc.ToUniversalTime();
+                if (int.TryParse(QueryValueReader.Read(req, "bucketMinutes"), out int bucketMinutes) && bucketMinutes > 0) query.BucketMinutes = bucketMinutes;
+                string? fleetId = QueryValueReader.Read(req, "fleetId");
                 if (!String.IsNullOrEmpty(fleetId)) query.FleetId = fleetId;
-                string? vesselId = req.Query.GetValueOrDefault("vesselId");
+                string? vesselId = QueryValueReader.Read(req, "vesselId");
                 if (!String.IsNullOrEmpty(vesselId)) query.VesselId = vesselId;
 
                 List<MissionHistoryPoint> points = ctx.IsAdmin
@@ -499,8 +499,8 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" };
                 }
 
-                int offset = Int32.TryParse(req.Query.GetValueOrDefault("offset"), out int parsedOffset) ? parsedOffset : 0;
-                int length = Int32.TryParse(req.Query.GetValueOrDefault("length"), out int parsedLength)
+                int offset = Int32.TryParse(QueryValueReader.Read(req, "offset"), out int parsedOffset) ? parsedOffset : 0;
+                int length = Int32.TryParse(QueryValueReader.Read(req, "length"), out int parsedLength)
                     ? parsedLength
                     : MissionOutputArtifact.DefaultPageLength;
                 try
@@ -1263,7 +1263,7 @@ namespace Armada.Server.Routes
                         : await _database.Missions.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (mission == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Mission not found" }; }
 
-                bool formatted = String.Equals(req.Query.GetValueOrDefault("formatted"), "true", StringComparison.OrdinalIgnoreCase);
+                bool formatted = String.Equals(QueryValueReader.Read(req, "formatted"), "true", StringComparison.OrdinalIgnoreCase);
                 string? logPath = ResolveMissionLogPath(id);
                 if (String.IsNullOrEmpty(logPath))
                     return new MissionLogResponse { MissionId = id, Log = "", Lines = 0, TotalLines = 0, Entries = formatted ? new List<FormattedLogLine>() : null };
@@ -1277,11 +1277,11 @@ namespace Armada.Server.Routes
                     int offset = 0;
                     int lineCount = 200;
 
-                    string? offsetParam = req.Query.GetValueOrDefault("offset");
+                    string? offsetParam = QueryValueReader.Read(req, "offset");
                     if (!String.IsNullOrEmpty(offsetParam) && Int32.TryParse(offsetParam, out int parsedOffset))
                         offset = Math.Max(0, parsedOffset);
 
-                    string? linesParam = req.Query.GetValueOrDefault("lines");
+                    string? linesParam = QueryValueReader.Read(req, "lines");
                     if (!String.IsNullOrEmpty(linesParam) && Int32.TryParse(linesParam, out int parsedLines))
                         lineCount = Math.Max(1, parsedLines);
 
@@ -1413,7 +1413,15 @@ namespace Armada.Server.Routes
                     buckets[bucketStartTicks] = bucket;
                 }
 
-                if (point.Status == MissionStatusEnum.Complete)
+                // Complete covers every state in which the captain has produced work or gone further,
+                // not only landed missions, so produced and reviewed work still reads as done when
+                // landing is off. Failed and LandingFailed are failures; only in-flight and cancelled
+                // missions are Other.
+                if (point.Status == MissionStatusEnum.WorkProduced
+                    || point.Status == MissionStatusEnum.PullRequestOpen
+                    || point.Status == MissionStatusEnum.Testing
+                    || point.Status == MissionStatusEnum.Review
+                    || point.Status == MissionStatusEnum.Complete)
                 {
                     bucket.CompleteCount++;
                     result.CompleteCount++;

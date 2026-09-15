@@ -322,28 +322,28 @@ namespace Armada.Server.Routes
 
         private static void ApplyQuerystringOverrides(ApiRequest req, DeploymentQuery query)
         {
-            if (Int32.TryParse(req.Query.GetValueOrDefault("pageNumber"), out int pageNumber))
+            if (Int32.TryParse(QueryValueReader.Read(req, "pageNumber"), out int pageNumber))
                 query.PageNumber = Math.Max(1, pageNumber);
-            if (Int32.TryParse(req.Query.GetValueOrDefault("pageSize"), out int pageSize))
+            if (Int32.TryParse(QueryValueReader.Read(req, "pageSize"), out int pageSize))
                 query.PageSize = Math.Clamp(pageSize, 1, 500);
-            if (DateTime.TryParse(req.Query.GetValueOrDefault("fromUtc"), out DateTime fromUtc))
+            if (DateTime.TryParse(QueryValueReader.Read(req, "fromUtc"), out DateTime fromUtc))
                 query.FromUtc = fromUtc.ToUniversalTime();
-            if (DateTime.TryParse(req.Query.GetValueOrDefault("toUtc"), out DateTime toUtc))
+            if (DateTime.TryParse(QueryValueReader.Read(req, "toUtc"), out DateTime toUtc))
                 query.ToUtc = toUtc.ToUniversalTime();
-            if (Enum.TryParse(req.Query.GetValueOrDefault("status"), true, out DeploymentStatusEnum status))
+            if (Enum.TryParse(QueryValueReader.Read(req, "status"), true, out DeploymentStatusEnum status))
                 query.Status = status;
-            if (Enum.TryParse(req.Query.GetValueOrDefault("verificationStatus"), true, out DeploymentVerificationStatusEnum verificationStatus))
+            if (Enum.TryParse(QueryValueReader.Read(req, "verificationStatus"), true, out DeploymentVerificationStatusEnum verificationStatus))
                 query.VerificationStatus = verificationStatus;
 
-            query.VesselId = NormalizeEmpty(req.Query.GetValueOrDefault("vesselId")) ?? query.VesselId;
-            query.WorkflowProfileId = NormalizeEmpty(req.Query.GetValueOrDefault("workflowProfileId")) ?? query.WorkflowProfileId;
-            query.EnvironmentId = NormalizeEmpty(req.Query.GetValueOrDefault("environmentId")) ?? query.EnvironmentId;
-            query.EnvironmentName = NormalizeEmpty(req.Query.GetValueOrDefault("environmentName")) ?? query.EnvironmentName;
-            query.ReleaseId = NormalizeEmpty(req.Query.GetValueOrDefault("releaseId")) ?? query.ReleaseId;
-            query.MissionId = NormalizeEmpty(req.Query.GetValueOrDefault("missionId")) ?? query.MissionId;
-            query.VoyageId = NormalizeEmpty(req.Query.GetValueOrDefault("voyageId")) ?? query.VoyageId;
-            query.CheckRunId = NormalizeEmpty(req.Query.GetValueOrDefault("checkRunId")) ?? query.CheckRunId;
-            query.Search = NormalizeEmpty(req.Query.GetValueOrDefault("search")) ?? query.Search;
+            query.VesselId = NormalizeEmpty(QueryValueReader.Read(req, "vesselId")) ?? query.VesselId;
+            query.WorkflowProfileId = NormalizeEmpty(QueryValueReader.Read(req, "workflowProfileId")) ?? query.WorkflowProfileId;
+            query.EnvironmentId = NormalizeEmpty(QueryValueReader.Read(req, "environmentId")) ?? query.EnvironmentId;
+            query.EnvironmentName = NormalizeEmpty(QueryValueReader.Read(req, "environmentName")) ?? query.EnvironmentName;
+            query.ReleaseId = NormalizeEmpty(QueryValueReader.Read(req, "releaseId")) ?? query.ReleaseId;
+            query.MissionId = NormalizeEmpty(QueryValueReader.Read(req, "missionId")) ?? query.MissionId;
+            query.VoyageId = NormalizeEmpty(QueryValueReader.Read(req, "voyageId")) ?? query.VoyageId;
+            query.CheckRunId = NormalizeEmpty(QueryValueReader.Read(req, "checkRunId")) ?? query.CheckRunId;
+            query.Search = NormalizeEmpty(QueryValueReader.Read(req, "search")) ?? query.Search;
         }
 
         private async Task ValidateObjectivesAsync(AuthContext auth, IEnumerable<string>? objectiveIds)

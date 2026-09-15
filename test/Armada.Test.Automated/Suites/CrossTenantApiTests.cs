@@ -297,6 +297,25 @@ using System.IO;
                 AssertEqual(fleetAId, detail.Fleet!.Id);
             }).ConfigureAwait(false);
 
+            await RunTest("Fleet_UpdateWithNameAndDescriptionOnly_KeepsOwnershipAndActive", async () =>
+            {
+                HttpResponseMessage deactivate = await _ClientA!.PutAsync("/api/v1/fleets/" + fleetAId,
+                    JsonHelper.ToJsonContent(new { Name = "xt-fleet-A-inactive", Active = false })).ConfigureAwait(false);
+                await AssertStatusCodeAsync(HttpStatusCode.OK, deactivate).ConfigureAwait(false);
+
+                HttpResponseMessage rename = await _ClientA!.PutAsync("/api/v1/fleets/" + fleetAId,
+                    JsonHelper.ToJsonContent(new { Name = "xt-fleet-A-renamed", Description = "renamed by tenant A" })).ConfigureAwait(false);
+                await AssertStatusCodeAsync(HttpStatusCode.OK, rename).ConfigureAwait(false);
+
+                HttpResponseMessage read = await _ClientA!.GetAsync("/api/v1/fleets/" + fleetAId).ConfigureAwait(false);
+                await AssertStatusCodeAsync(HttpStatusCode.OK, read).ConfigureAwait(false);
+                FleetDetailResponse detail = await JsonHelper.DeserializeAsync<FleetDetailResponse>(read).ConfigureAwait(false);
+                AssertEqual("xt-fleet-A-renamed", detail.Fleet!.Name);
+                AssertEqual(_TenantAId, detail.Fleet!.TenantId, "a partial PUT keeps the stored tenant");
+                AssertEqual(_UserAId, detail.Fleet!.UserId, "a partial PUT keeps the stored owner");
+                AssertFalse(detail.Fleet!.Active, "a PUT that omits Active keeps the stored value");
+            }).ConfigureAwait(false);
+
             #endregion
 
             #region Captain-Isolation

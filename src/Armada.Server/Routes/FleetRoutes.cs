@@ -57,7 +57,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 EnumerationQuery query = new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Fleet> result = ctx.IsAdmin
                     ? await _database.Fleets.EnumerateAsync(query).ConfigureAwait(false)
@@ -83,7 +83,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 EnumerationQuery query = JsonSerializer.Deserialize<EnumerationQuery>(req.Http.Request.DataAsString, _jsonOptions) ?? new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Fleet> result = ctx.IsAdmin
                     ? await _database.Fleets.EnumerateAsync(query).ConfigureAwait(false)
@@ -168,9 +168,21 @@ namespace Armada.Server.Routes
                         ? await _database.Fleets.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
                         : await _database.Fleets.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (existing == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Fleet not found" }; }
-                Fleet updated = JsonSerializer.Deserialize<Fleet>(req.Http.Request.DataAsString, _jsonOptions)
+                string fleetBody = req.Http.Request.DataAsString;
+                Fleet updated = JsonSerializer.Deserialize<Fleet>(fleetBody, _jsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Fleet.");
                 updated.Id = id;
+                // The body replaces client-editable fields only. Ownership and creation time come from the
+                // stored record, because every provider writes every column on update. A field with a model
+                // default (Active, DefaultPlaybooks) keeps its stored value unless the body names it.
+                updated.TenantId = existing.TenantId;
+                updated.UserId = existing.UserId;
+                updated.CreatedUtc = existing.CreatedUtc;
+                HashSet<string> fleetBodyFields = ReadTopLevelFieldNames(fleetBody);
+                if (!fleetBodyFields.Contains(nameof(Fleet.Active)))
+                    updated.Active = existing.Active;
+                if (!fleetBodyFields.Contains(nameof(Fleet.DefaultPlaybooks)))
+                    updated.DefaultPlaybooks = existing.DefaultPlaybooks;
                 updated = await _database.Fleets.UpdateAsync(updated).ConfigureAwait(false);
                 return (object)updated;
             },
@@ -272,6 +284,31 @@ namespace Armada.Server.Routes
                 .WithRequestBody(OpenApiJson.BodyFor<DeleteMultipleRequest>("List of fleet IDs to delete"))
                 .WithResponse(200, OpenApiJson.For<DeleteMultipleResult>("Delete result summary"))
                 .WithSecurity("ApiKey"));
+        }
+
+        /// <summary>
+        /// Read the names of the top-level fields a JSON object body carries, compared case-insensitively.
+        /// A body that is not a JSON object carries no fields.
+        /// </summary>
+        /// <param name="body">Request body text.</param>
+        /// <returns>The field names.</returns>
+        internal static HashSet<string> ReadTopLevelFieldNames(string? body)
+        {
+            HashSet<string> names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (String.IsNullOrWhiteSpace(body)) return names;
+            try
+            {
+                Dictionary<string, JsonElement>? fields = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(body);
+                if (fields != null)
+                {
+                    foreach (string name in fields.Keys) names.Add(name);
+                }
+            }
+            catch (JsonException)
+            {
+                // Not a JSON object: the typed deserialization above reports the body error.
+            }
+            return names;
         }
     }
 }

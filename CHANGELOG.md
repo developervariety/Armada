@@ -97,6 +97,27 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   the same caller-scoped query as `GET /api/v1/missions/summaries`, so it
   returns the same `EnumerationResult<MissionSummary>` shape and the same rows
   to the same caller. A command without a session caller is refused.
+### REST queries, fleet updates and server data integrity
+
+- Every REST route percent-decodes query-string values once, through one
+  shared reader, before it parses them. An encoded timestamp such as
+  `fromUtc=2026-09-14T00%3A00%3A00.000Z` now selects the requested window on
+  mission history, token-usage summaries, request-history summaries and every
+  other route that reads a query value. Before, the web server passed values
+  through undecoded, the timestamp failed to parse, and the route silently
+  used its default window.
+- Mission history counts a mission as complete once it has produced work:
+  WorkProduced, PullRequestOpen, Testing, Review and Complete. Failed and
+  LandingFailed count as failed; only in-flight and cancelled missions count
+  as other. This matches upstream.
+- A fleet update keeps the stored tenant, owner and creation time, and keeps
+  `Active` and `DefaultPlaybooks` unless the body names them. A tenant user's
+  update with only a name and description no longer removes the fleet from the
+  tenant's scope or reactivates it.
+- The token-usage summary matches a legacy `mission.token_usage` event to its
+  table record by mission identity, in any window. A usage whose record and
+  event fall on opposite sides of a window edge is counted once, in the window
+  of its record.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 

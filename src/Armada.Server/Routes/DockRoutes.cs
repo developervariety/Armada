@@ -61,7 +61,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 EnumerationQuery query = new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Dock> result = ctx.IsAdmin
                     ? await _database.Docks.EnumerateAsync(query).ConfigureAwait(false)
@@ -91,7 +91,7 @@ namespace Armada.Server.Routes
                 EnumerationQuery query = String.IsNullOrWhiteSpace(requestBody)
                     ? new EnumerationQuery()
                     : JsonSerializer.Deserialize<EnumerationQuery>(requestBody, _jsonOptions) ?? new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Dock> result = ctx.IsAdmin
                     ? await _database.Docks.EnumerateAsync(query).ConfigureAwait(false)

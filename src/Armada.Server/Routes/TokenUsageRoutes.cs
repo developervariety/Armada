@@ -56,7 +56,8 @@ namespace Armada.Server.Routes
 
                 List<TokenUsageRecord> records = await _database.TokenUsage.EnumerateForSummaryAsync(query).ConfigureAwait(false);
                 List<ArmadaEvent> legacyEvents = await EnumerateLegacyEventsAsync(ctx, query).ConfigureAwait(false);
-                records = TokenUsageCompatibility.MergeLegacyEvents(records, legacyEvents, _jsonOptions);
+                List<TokenUsageRecord> identityRecords = await EnumerateMissionRecordsForEventsAsync(query, legacyEvents).ConfigureAwait(false);
+                records = TokenUsageCompatibility.MergeLegacyEvents(records, legacyEvents, identityRecords, _jsonOptions);
                 return TokenUsageSummaryBuilder.Build(records, query);
             },
             api => api
@@ -157,24 +158,24 @@ namespace Armada.Server.Routes
         {
             TokenUsageQuery query = new TokenUsageQuery();
 
-            if (int.TryParse(req.Query.GetValueOrDefault("pageNumber"), out int pageNumber))
+            if (int.TryParse(QueryValueReader.Read(req, "pageNumber"), out int pageNumber))
                 query.PageNumber = Math.Max(1, pageNumber);
-            if (int.TryParse(req.Query.GetValueOrDefault("pageSize"), out int pageSize))
+            if (int.TryParse(QueryValueReader.Read(req, "pageSize"), out int pageSize))
                 query.PageSize = Math.Clamp(pageSize, 1, 500);
-            if (double.TryParse(req.Query.GetValueOrDefault("bucketMinutes"), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double bucketMinutes) && bucketMinutes > 0)
+            if (double.TryParse(QueryValueReader.Read(req, "bucketMinutes"), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out double bucketMinutes) && bucketMinutes > 0)
                 query.BucketMinutes = bucketMinutes;
 
-            query.Model = NormalizeEmpty(req.Query.GetValueOrDefault("model"));
-            query.Runtime = NormalizeEmpty(req.Query.GetValueOrDefault("runtime"));
-            query.Source = NormalizeEmpty(req.Query.GetValueOrDefault("source"));
-            query.VesselId = NormalizeEmpty(req.Query.GetValueOrDefault("vesselId"));
-            query.CaptainId = NormalizeEmpty(req.Query.GetValueOrDefault("captainId"));
-            query.TenantId = NormalizeEmpty(req.Query.GetValueOrDefault("tenantId"));
-            query.UserId = NormalizeEmpty(req.Query.GetValueOrDefault("userId"));
+            query.Model = NormalizeEmpty(QueryValueReader.Read(req, "model"));
+            query.Runtime = NormalizeEmpty(QueryValueReader.Read(req, "runtime"));
+            query.Source = NormalizeEmpty(QueryValueReader.Read(req, "source"));
+            query.VesselId = NormalizeEmpty(QueryValueReader.Read(req, "vesselId"));
+            query.CaptainId = NormalizeEmpty(QueryValueReader.Read(req, "captainId"));
+            query.TenantId = NormalizeEmpty(QueryValueReader.Read(req, "tenantId"));
+            query.UserId = NormalizeEmpty(QueryValueReader.Read(req, "userId"));
 
-            if (DateTime.TryParse(req.Query.GetValueOrDefault("fromUtc"), out DateTime fromUtc))
+            if (DateTime.TryParse(QueryValueReader.Read(req, "fromUtc"), out DateTime fromUtc))
                 query.FromUtc = fromUtc.ToUniversalTime();
-            if (DateTime.TryParse(req.Query.GetValueOrDefault("toUtc"), out DateTime toUtc))
+            if (DateTime.TryParse(QueryValueReader.Read(req, "toUtc"), out DateTime toUtc))
                 query.ToUtc = toUtc.ToUniversalTime();
 
             return query;
@@ -217,6 +218,36 @@ namespace Armada.Server.Routes
             }
 
             return events;
+        }
+
+        /// <summary>
+        /// Read every table record, in any window, for the missions the legacy events name, within the
+        /// caller's scope, so an event is matched to its table record by identity rather than by whether
+        /// both happen to fall inside the requested window.
+        /// </summary>
+        private async Task<List<TokenUsageRecord>> EnumerateMissionRecordsForEventsAsync(TokenUsageQuery query, List<ArmadaEvent> events)
+        {
+            HashSet<string> missionIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (ArmadaEvent armadaEvent in events)
+            {
+                string? missionId = armadaEvent.MissionId ?? armadaEvent.EntityId;
+                if (!String.IsNullOrWhiteSpace(missionId)) missionIds.Add(missionId);
+            }
+
+            List<TokenUsageRecord> identityRecords = new List<TokenUsageRecord>();
+            foreach (string missionId in missionIds)
+            {
+                TokenUsageQuery missionQuery = new TokenUsageQuery
+                {
+                    TenantId = query.TenantId,
+                    UserId = query.UserId,
+                    Source = "mission",
+                    SourceId = missionId
+                };
+                identityRecords.AddRange(await _database.TokenUsage.EnumerateForSummaryAsync(missionQuery).ConfigureAwait(false));
+            }
+
+            return identityRecords;
         }
 
         private static string? NormalizeEmpty(string? value)

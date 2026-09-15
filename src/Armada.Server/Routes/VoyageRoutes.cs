@@ -152,7 +152,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 EnumerationQuery query = new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Voyage> result = ctx.IsAdmin
                     ? await _database.Voyages.EnumerateAsync(query).ConfigureAwait(false)
@@ -179,7 +179,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 EnumerationQuery query = JsonSerializer.Deserialize<EnumerationQuery>(req.Http.Request.DataAsString, _jsonOptions) ?? new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Voyage> result = ctx.IsAdmin
                     ? await _database.Voyages.EnumerateAsync(query).ConfigureAwait(false)
@@ -367,8 +367,8 @@ namespace Armada.Server.Routes
                 }
                 int pageNumber = 1;
                 int pageSize = 100;
-                string? number = req.Query.GetValueOrDefault("pageNumber");
-                string? size = req.Query.GetValueOrDefault("pageSize");
+                string? number = QueryValueReader.Read(req, "pageNumber");
+                string? size = QueryValueReader.Read(req, "pageSize");
                 if ((req.Query.Contains("pageNumber") && !Int32.TryParse(number, out pageNumber))
                     || (req.Query.Contains("pageSize") && !Int32.TryParse(size, out pageSize))
                     || pageNumber < 1 || pageSize < 1 || pageSize > 100)

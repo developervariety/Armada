@@ -56,6 +56,24 @@ namespace Armada.Test.Automated.Suites
                 AssertNotNull(result.RegressionCoverage);
             }).ConfigureAwait(false);
 
+            await RunTest("TokenUsageSummaryHonoursPercentEncodedTimestamps", async () =>
+            {
+                HttpResponseMessage response = await _AuthClient.GetAsync(
+                    "/api/v1/token-usage/summary?fromUtc=" + Uri.EscapeDataString("2026-09-14T00:00:00.000Z")
+                    + "&toUtc=" + Uri.EscapeDataString("2026-09-15T00:00:00.000Z")
+                    + "&bucketMinutes=60")
+                    .ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+
+                TokenUsageSummaryResult result = await JsonHelper
+                    .DeserializeAsync<TokenUsageSummaryResult>(response)
+                    .ConfigureAwait(false);
+                AssertNotNull(result.FromUtc, "Echoed fromUtc");
+                AssertNotNull(result.ToUtc, "Echoed toUtc");
+                AssertEqual(new DateTime(2026, 9, 14, 0, 0, 0, DateTimeKind.Utc), result.FromUtc!.Value.ToUniversalTime(), "an encoded fromUtc is parsed, not replaced by the default window");
+                AssertEqual(new DateTime(2026, 9, 15, 0, 0, 0, DateTimeKind.Utc), result.ToUtc!.Value.ToUniversalTime(), "an encoded toUtc is parsed, not replaced by the default window");
+            }).ConfigureAwait(false);
+
             await RunTest("RegressionLinksRoundTripThroughIncidentAndCheckRoutes", async () =>
             {
                 string workingDirectory = Path.Combine(Path.GetTempPath(), "armada-regression-links-" + Guid.NewGuid().ToString("N"));

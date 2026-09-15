@@ -165,7 +165,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 EnumerationQuery query = new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Vessel> result = ctx.IsAdmin
                     ? await _database.Vessels.EnumerateAsync(query).ConfigureAwait(false)
@@ -192,7 +192,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 EnumerationQuery query = JsonSerializer.Deserialize<EnumerationQuery>(req.Http.Request.DataAsString, _jsonOptions) ?? new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Vessel> result = ctx.IsAdmin
                     ? await _database.Vessels.EnumerateAsync(query).ConfigureAwait(false)
@@ -531,12 +531,12 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
                 }
 
-                string? explicitProfileId = NormalizeEmpty(req.Query.GetValueOrDefault("workflowProfileId"));
-                string? environmentName = NormalizeEmpty(req.Query.GetValueOrDefault("environmentName"));
-                bool includeWorkflowRequirements = ParseBoolean(req.Query.GetValueOrDefault("includeWorkflowRequirements"), true);
+                string? explicitProfileId = NormalizeEmpty(QueryValueReader.Read(req, "workflowProfileId"));
+                string? environmentName = NormalizeEmpty(QueryValueReader.Read(req, "environmentName"));
+                bool includeWorkflowRequirements = ParseBoolean(QueryValueReader.Read(req, "includeWorkflowRequirements"), true);
 
                 CheckRunTypeEnum? checkType = null;
-                string? checkTypeRaw = NormalizeEmpty(req.Query.GetValueOrDefault("checkType"));
+                string? checkTypeRaw = NormalizeEmpty(QueryValueReader.Read(req, "checkType"));
                 if (!String.IsNullOrWhiteSpace(checkTypeRaw))
                 {
                     if (!Enum.TryParse(checkTypeRaw, true, out CheckRunTypeEnum parsedCheckType))
@@ -590,7 +590,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
                 }
 
-                string? sourceBranch = NormalizeEmpty(req.Query.GetValueOrDefault("sourceBranch"));
+                string? sourceBranch = NormalizeEmpty(QueryValueReader.Read(req, "sourceBranch"));
                 return await _landingPreview.PreviewForVesselAsync(ctx, vessel, sourceBranch).ConfigureAwait(false);
             },
             api => api

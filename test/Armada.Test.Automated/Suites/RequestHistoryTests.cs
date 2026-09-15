@@ -329,6 +329,23 @@ namespace Armada.Test.Automated.Suites
                 AssertTrue(summary.Buckets.Any(b => b.TotalCount > 0), "At least one populated bucket");
             }).ConfigureAwait(false);
 
+            await RunTest("RequestHistory_Summary_PercentEncodedTimestamps_AreHonoured", async () =>
+            {
+                HttpResponseMessage response = await _TenantAAdminClient!.GetAsync(
+                    "/api/v1/request-history/summary?fromUtc=" + Uri.EscapeDataString("2026-09-14T00:00:00.000Z")
+                    + "&toUtc=" + Uri.EscapeDataString("2026-09-15T00:00:00.000Z")
+                    + "&bucketMinutes=60").ConfigureAwait(false);
+                await AssertStatusCodeAsync(HttpStatusCode.OK, response).ConfigureAwait(false);
+
+                RequestHistorySummaryResult summary =
+                    await JsonHelper.DeserializeAsync<RequestHistorySummaryResult>(response).ConfigureAwait(false);
+
+                AssertNotNull(summary.FromUtc, "Echoed fromUtc");
+                AssertNotNull(summary.ToUtc, "Echoed toUtc");
+                AssertEqual(new DateTime(2026, 9, 14, 0, 0, 0, DateTimeKind.Utc), summary.FromUtc!.Value.ToUniversalTime(), "an encoded fromUtc is parsed, not replaced by the default window");
+                AssertEqual(new DateTime(2026, 9, 15, 0, 0, 0, DateTimeKind.Utc), summary.ToUtc!.Value.ToUniversalTime(), "an encoded toUtc is parsed, not replaced by the default window");
+            }).ConfigureAwait(false);
+
             await RunTest("RequestHistory_CapturesReleaseAndHistoryRoutes", async () =>
             {
                 string releaseTrace = "release-route-" + Guid.NewGuid().ToString("N").Substring(0, 10);

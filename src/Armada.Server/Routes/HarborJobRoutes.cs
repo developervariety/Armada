@@ -57,9 +57,9 @@ namespace Armada.Server.Routes
             {
                 AuthContext context = await authenticate(req.Http).ConfigureAwait(false);
                 if (!authz.IsAuthorized(context, "GET", "/api/v1/harbor-runners/jobs")) return Denied(req, context);
-                string? runnerId = req.Query.GetValueOrDefault("runnerId");
-                bool activeOnly = Boolean.TryParse(req.Query.GetValueOrDefault("activeOnly"), out bool parsedActive) && parsedActive;
-                int limit = Int32.TryParse(req.Query.GetValueOrDefault("limit"), out int parsedLimit) ? parsedLimit : 100;
+                string? runnerId = QueryValueReader.Read(req, "runnerId");
+                bool activeOnly = Boolean.TryParse(QueryValueReader.Read(req, "activeOnly"), out bool parsedActive) && parsedActive;
+                int limit = Int32.TryParse(QueryValueReader.Read(req, "limit"), out int parsedLimit) ? parsedLimit : 100;
                 List<HarborJobRecord> jobs = await _Jobs.ListAsync(context, runnerId, activeOnly, limit, req.Http.Token).ConfigureAwait(false);
                 return (object)new HarborJobListResponse { Jobs = jobs };
             });

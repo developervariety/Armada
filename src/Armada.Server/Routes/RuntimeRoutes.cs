@@ -56,7 +56,7 @@ namespace Armada.Server.Routes
 
                 try
                 {
-                    string? configDirectory = req.Query.GetValueOrDefault("configDirectory");
+                    string? configDirectory = QueryValueReader.Read(req, "configDirectory");
                     MuxEndpointListResult result = await _MuxCli.ListEndpointsAsync(configDirectory).ConfigureAwait(false);
                     if (!result.Success)
                     {
@@ -95,7 +95,7 @@ namespace Armada.Server.Routes
                 try
                 {
                     string endpointName = req.Parameters["name"];
-                    string? configDirectory = req.Query.GetValueOrDefault("configDirectory");
+                    string? configDirectory = QueryValueReader.Read(req, "configDirectory");
                     MuxEndpointShowResult result = await _MuxCli.ShowEndpointAsync(endpointName, configDirectory).ConfigureAwait(false);
                     if (!result.Success)
                     {

@@ -57,8 +57,8 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 EnumerationQuery query = new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
-                string limitStr = req.Query.GetValueOrDefault("limit");
+                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
+                string limitStr = QueryValueReader.Read(req, "limit");
                 if (!String.IsNullOrEmpty(limitStr) && int.TryParse(limitStr, out int limit)) query.PageSize = limit;
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<ArmadaEvent> result = ctx.IsAdmin
@@ -91,8 +91,8 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 EnumerationQuery query = JsonSerializer.Deserialize<EnumerationQuery>(req.Http.Request.DataAsString, _jsonOptions) ?? new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
-                string limitStr = req.Query.GetValueOrDefault("limit");
+                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
+                string limitStr = QueryValueReader.Read(req, "limit");
                 if (!String.IsNullOrEmpty(limitStr) && int.TryParse(limitStr, out int limit)) query.PageSize = limit;
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<ArmadaEvent> result = ctx.IsAdmin
@@ -120,7 +120,7 @@ namespace Armada.Server.Routes
                 }
 
                 int days = 30;
-                string daysValue = req.Query.GetValueOrDefault("days");
+                string daysValue = QueryValueReader.Read(req, "days");
                 if (!String.IsNullOrEmpty(daysValue) && int.TryParse(daysValue, out int parsedDays))
                     days = Math.Clamp(parsedDays, 1, 3650);
 

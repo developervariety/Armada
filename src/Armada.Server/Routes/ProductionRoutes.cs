@@ -69,22 +69,19 @@ namespace Armada.Server.Routes
         private static ProductionSummaryQuery BuildQuery(ApiRequest req)
         {
             ProductionSummaryQuery query = new ProductionSummaryQuery();
-            if (DateTime.TryParse(Decode(req.Query.GetValueOrDefault("fromUtc")), out DateTime fromUtc))
+            if (DateTime.TryParse(QueryValueReader.Read(req, "fromUtc"), out DateTime fromUtc))
                 query.FromUtc = fromUtc.ToUniversalTime();
-            if (DateTime.TryParse(Decode(req.Query.GetValueOrDefault("toUtc")), out DateTime toUtc))
+            if (DateTime.TryParse(QueryValueReader.Read(req, "toUtc"), out DateTime toUtc))
                 query.ToUtc = toUtc.ToUniversalTime();
 
-            query.SourceFamily = Normalize(req.Query.GetValueOrDefault("sourceFamily"));
-            query.WorkType = Normalize(req.Query.GetValueOrDefault("workType"));
+            query.SourceFamily = Normalize(QueryValueReader.Read(req, "sourceFamily"));
+            query.WorkType = Normalize(QueryValueReader.Read(req, "workType"));
             return query;
         }
 
         private static string? Normalize(string? value)
         {
-            value = Decode(value);
             return String.IsNullOrWhiteSpace(value) ? null : value.Trim();
         }
-
-        private static string? Decode(string? value) => value == null ? null : Uri.UnescapeDataString(value);
     }
 }

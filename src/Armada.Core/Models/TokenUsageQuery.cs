@@ -45,6 +45,11 @@ namespace Armada.Core.Models
         public string? CaptainId { get; set; } = null;
 
         /// <summary>
+        /// Source-entity filter (for example the mission ID of a mission record).
+        /// </summary>
+        public string? SourceId { get; set; } = null;
+
+        /// <summary>
         /// Lower bound on creation timestamp.
         /// </summary>
         public DateTime? FromUtc { get; set; } = null;

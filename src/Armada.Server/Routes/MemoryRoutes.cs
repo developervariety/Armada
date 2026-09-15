@@ -50,11 +50,11 @@ namespace Armada.Server.Routes
                 if (ctx == null) return AuthError(req);
 
                 EnumerationQuery query = new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
-                string? vesselId = Trimmed(req.Query.GetValueOrDefault("vesselId"));
+                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
+                string? vesselId = Trimmed(QueryValueReader.Read(req, "vesselId"));
                 if (vesselId != null) query.VesselId = vesselId;
 
-                string? typeText = Trimmed(req.Query.GetValueOrDefault("type"));
+                string? typeText = Trimmed(QueryValueReader.Read(req, "type"));
                 MemoryTypeEnum? type = null;
                 if (typeText != null)
                 {
@@ -66,7 +66,7 @@ namespace Armada.Server.Routes
                     type = parsed;
                 }
 
-                return await _Memories.EnumerateAsync(ctx, query, Trimmed(req.Query.GetValueOrDefault("search")), type, Trimmed(req.Query.GetValueOrDefault("topic"))).ConfigureAwait(false);
+                return await _Memories.EnumerateAsync(ctx, query, Trimmed(QueryValueReader.Read(req, "search")), type, Trimmed(QueryValueReader.Read(req, "topic"))).ConfigureAwait(false);
             },
             api => api
                 .WithTag("Memories")
@@ -83,7 +83,7 @@ namespace Armada.Server.Routes
                 Memory request = JsonSerializer.Deserialize<Memory>(req.Http.Request.DataAsString, _JsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as Memory.");
                 int? expectedVersion = null;
-                if (Int32.TryParse(req.Query.GetValueOrDefault("expectedVersion"), out int parsedVersion)) expectedVersion = parsedVersion;
+                if (Int32.TryParse(QueryValueReader.Read(req, "expectedVersion"), out int parsedVersion)) expectedVersion = parsedVersion;
 
                 return await GuardAsync(req, async () =>
                 {
@@ -131,7 +131,7 @@ namespace Armada.Server.Routes
 
                 MemoryUpdate request = JsonSerializer.Deserialize<MemoryUpdate>(req.Http.Request.DataAsString, _JsonOptions)
                     ?? throw new InvalidOperationException("Request body could not be deserialized as MemoryUpdate.");
-                if (!request.ExpectedVersion.HasValue && Int32.TryParse(req.Query.GetValueOrDefault("expectedVersion"), out int parsedVersion))
+                if (!request.ExpectedVersion.HasValue && Int32.TryParse(QueryValueReader.Read(req, "expectedVersion"), out int parsedVersion))
                     request.ExpectedVersion = parsedVersion;
 
                 return await GuardAsync(req, async () =>

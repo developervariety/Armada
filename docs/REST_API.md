@@ -198,6 +198,8 @@ All list endpoints return paginated results wrapped in `EnumerationResult<T>`. T
 GET /api/v1/missions?pageNumber=2&pageSize=25&status=InProgress&order=CreatedAscending
 ```
 
+Every route percent-decodes each query-string value exactly once before it parses the value, so an encoded timestamp such as `fromUtc=2026-09-14T00%3A00%3A00.000Z` and its unencoded form select the same window. A `+` is kept as a literal plus (so an unencoded `+00:00` offset stays valid); send a space as `%20`. A value that still does not parse is ignored and the route's default applies.
+
 ### POST /enumerate with JSON Body
 
 ```
@@ -1009,6 +1011,8 @@ Update an existing fleet.
 | `id` | Fleet ID (`flt_` prefix) |
 
 **Request Body:** [Fleet](#fleet) (fields to update)
+
+The body replaces client-editable fields. `TenantId`, `UserId` and `CreatedUtc` always keep their stored values. `Active` and `DefaultPlaybooks` keep their stored values unless the body names them, so a body with only `Name` and `Description` does not reactivate a fleet or clear its default playbooks.
 
 **Response:** `200 OK` - [Fleet](#fleet)
 **Error:** `404` - Fleet not found

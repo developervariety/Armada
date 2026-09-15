@@ -141,7 +141,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 EnumerationQuery query = new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Captain> result = ctx.IsAdmin
                     ? await _database.Captains.EnumerateAsync(query).ConfigureAwait(false)
@@ -167,7 +167,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 EnumerationQuery query = JsonSerializer.Deserialize<EnumerationQuery>(req.Http.Request.DataAsString, _jsonOptions) ?? new EnumerationQuery();
-                query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
+                query.ApplyQuerystringOverrides(key => QueryValueReader.Read(req, key));
                 Stopwatch sw = Stopwatch.StartNew();
                 EnumerationResult<Captain> result = ctx.IsAdmin
                     ? await _database.Captains.EnumerateAsync(query).ConfigureAwait(false)
@@ -272,7 +272,7 @@ namespace Armada.Server.Routes
                         ? await _database.Captains.ReadAsync(ctx.TenantId!, id).ConfigureAwait(false)
                         : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (captain == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" }; }
-                string context = req.Query.GetValueOrDefault("context") ?? String.Empty;
+                string context = QueryValueReader.Read(req, "context") ?? String.Empty;
                 if (!String.IsNullOrWhiteSpace(context) && !String.Equals(context, "ask", StringComparison.OrdinalIgnoreCase))
                 {
                     req.Http.Response.StatusCode = 400;
@@ -569,7 +569,7 @@ namespace Armada.Server.Routes
                         : await _database.Captains.ReadAsync(ctx.TenantId!, ctx.UserId!, id).ConfigureAwait(false);
                 if (captain == null) { req.Http.Response.StatusCode = 404; return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Captain not found" }; }
 
-                bool formatted = String.Equals(req.Query.GetValueOrDefault("formatted"), "true", StringComparison.OrdinalIgnoreCase);
+                bool formatted = String.Equals(QueryValueReader.Read(req, "formatted"), "true", StringComparison.OrdinalIgnoreCase);
                 string pointerPath = Path.Combine(_settings.LogDirectory, "captains", id + ".current");
                 string? logPath = null;
 
@@ -591,11 +591,11 @@ namespace Armada.Server.Routes
                     int offset = 0;
                     int lineCount = 50;
 
-                    string? offsetParam = req.Query.GetValueOrDefault("offset");
+                    string? offsetParam = QueryValueReader.Read(req, "offset");
                     if (!String.IsNullOrEmpty(offsetParam) && Int32.TryParse(offsetParam, out int parsedOffset))
                         offset = Math.Max(0, parsedOffset);
 
-                    string? linesParam = req.Query.GetValueOrDefault("lines");
+                    string? linesParam = QueryValueReader.Read(req, "lines");
                     if (!String.IsNullOrEmpty(linesParam) && Int32.TryParse(linesParam, out int parsedLines))
                         lineCount = Math.Max(1, parsedLines);
 

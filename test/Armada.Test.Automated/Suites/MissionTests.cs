@@ -454,6 +454,43 @@ namespace Armada.Test.Automated.Suites
                 await TransitionAndAssertAsync(missionId, "Review");
             });
 
+            await RunTest("MissionHistory_PercentEncodedTimestamps_AreHonoured", async () =>
+            {
+                DateTime fromUtc = new DateTime(2026, 9, 14, 0, 0, 0, DateTimeKind.Utc);
+                DateTime toUtc = new DateTime(2026, 9, 15, 0, 0, 0, DateTimeKind.Utc);
+                HttpResponseMessage resp = await _AuthClient.GetAsync(
+                    "/api/v1/missions/history?fromUtc=" + Uri.EscapeDataString("2026-09-14T00:00:00.000Z")
+                    + "&toUtc=" + Uri.EscapeDataString("2026-09-15T00:00:00.000Z")
+                    + "&bucketMinutes=60");
+                string body = await resp.Content.ReadAsStringAsync();
+                AssertEqual(HttpStatusCode.OK, resp.StatusCode, body);
+                MissionHistorySummaryResult summary = JsonHelper.Deserialize<MissionHistorySummaryResult>(body);
+                AssertEqual(fromUtc, summary.FromUtc.ToUniversalTime(), "an encoded fromUtc is parsed, not replaced by the default window: " + body);
+                AssertEqual(toUtc, summary.ToUtc.ToUniversalTime(), "an encoded toUtc is parsed, not replaced by the default window: " + body);
+                AssertEqual(60, summary.BucketMinutes);
+                AssertEqual(24, summary.Buckets.Count, "a one-day window at 60 minutes has 24 buckets");
+            });
+
+            await RunTest("MissionHistory_MissionInReview_CountsAsComplete", async () =>
+            {
+                string vesselId = await SetupVesselAsync();
+                Mission created = await CreateMissionAsync(vesselId, "HistoryReview");
+                await TransitionAndAssertAsync(created.Id, "Assigned");
+                await TransitionAndAssertAsync(created.Id, "InProgress");
+                await TransitionAndAssertAsync(created.Id, "Review");
+
+                HttpResponseMessage resp = await _AuthClient.GetAsync(
+                    "/api/v1/missions/history?vesselId=" + Uri.EscapeDataString(vesselId)
+                    + "&fromUtc=" + Uri.EscapeDataString(DateTime.UtcNow.AddHours(-1).ToString("o"))
+                    + "&toUtc=" + Uri.EscapeDataString(DateTime.UtcNow.AddHours(1).ToString("o")));
+                string body = await resp.Content.ReadAsStringAsync();
+                AssertEqual(HttpStatusCode.OK, resp.StatusCode, body);
+                MissionHistorySummaryResult summary = JsonHelper.Deserialize<MissionHistorySummaryResult>(body);
+                AssertEqual(1, summary.TotalCount, "the vessel has one mission in the window: " + body);
+                AssertEqual(1, summary.CompleteCount, "a mission in Review has produced work and counts as complete: " + body);
+                AssertEqual(0, summary.OtherCount, "a mission in Review is not counted as in flight: " + body);
+            });
+
             await RunTest("StatusTransition_InProgressToComplete_Succeeds", async () =>
             {
                 (string vesselId, string commitHash) = await SetupLandedVesselAsync();

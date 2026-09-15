@@ -135,7 +135,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
                 }
 
-                string? explicitProfileId = NormalizeEmpty(req.Query.GetValueOrDefault("workflowProfileId"));
+                string? explicitProfileId = NormalizeEmpty(QueryValueReader.Read(req, "workflowProfileId"));
                 WorkflowProfileResolutionPreviewResult? preview = await _workflowProfiles.PreviewForVesselAsync(ctx, vessel, explicitProfileId).ConfigureAwait(false);
                 if (preview == null || preview.ResolvedProfile == null)
                 {
@@ -168,7 +168,7 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "Vessel not found" };
                 }
 
-                string? explicitProfileId = NormalizeEmpty(req.Query.GetValueOrDefault("workflowProfileId"));
+                string? explicitProfileId = NormalizeEmpty(QueryValueReader.Read(req, "workflowProfileId"));
                 WorkflowProfile? profile = await _workflowProfiles.ResolveForVesselAsync(ctx, vessel, explicitProfileId).ConfigureAwait(false);
                 if (profile == null)
                 {
@@ -401,22 +401,22 @@ namespace Armada.Server.Routes
 
         private static void ApplyQuerystringOverrides(ApiRequest req, WorkflowProfileQuery query)
         {
-            if (int.TryParse(req.Query.GetValueOrDefault("pageNumber"), out int pageNumber))
+            if (int.TryParse(QueryValueReader.Read(req, "pageNumber"), out int pageNumber))
                 query.PageNumber = Math.Max(1, pageNumber);
-            if (int.TryParse(req.Query.GetValueOrDefault("pageSize"), out int pageSize))
+            if (int.TryParse(QueryValueReader.Read(req, "pageSize"), out int pageSize))
                 query.PageSize = Math.Clamp(pageSize, 1, 500);
-            if (Enum.TryParse(req.Query.GetValueOrDefault("scope"), true, out WorkflowProfileScopeEnum scope))
+            if (Enum.TryParse(QueryValueReader.Read(req, "scope"), true, out WorkflowProfileScopeEnum scope))
                 query.Scope = scope;
-            if (DateTime.TryParse(req.Query.GetValueOrDefault("fromUtc"), out DateTime fromUtc))
+            if (DateTime.TryParse(QueryValueReader.Read(req, "fromUtc"), out DateTime fromUtc))
                 query.FromUtc = fromUtc.ToUniversalTime();
-            if (DateTime.TryParse(req.Query.GetValueOrDefault("toUtc"), out DateTime toUtc))
+            if (DateTime.TryParse(QueryValueReader.Read(req, "toUtc"), out DateTime toUtc))
                 query.ToUtc = toUtc.ToUniversalTime();
 
-            query.FleetId = NormalizeEmpty(req.Query.GetValueOrDefault("fleetId")) ?? query.FleetId;
-            query.VesselId = NormalizeEmpty(req.Query.GetValueOrDefault("vesselId")) ?? query.VesselId;
-            query.Search = NormalizeEmpty(req.Query.GetValueOrDefault("search")) ?? query.Search;
+            query.FleetId = NormalizeEmpty(QueryValueReader.Read(req, "fleetId")) ?? query.FleetId;
+            query.VesselId = NormalizeEmpty(QueryValueReader.Read(req, "vesselId")) ?? query.VesselId;
+            query.Search = NormalizeEmpty(QueryValueReader.Read(req, "search")) ?? query.Search;
 
-            if (TryParseNullableBool(req.Query.GetValueOrDefault("active"), out bool? active))
+            if (TryParseNullableBool(QueryValueReader.Read(req, "active"), out bool? active))
                 query.Active = active;
         }
 

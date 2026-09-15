@@ -248,31 +248,31 @@ namespace Armada.Server.Routes
         {
             RequestHistoryQuery query = new RequestHistoryQuery();
 
-            if (int.TryParse(req.Query.GetValueOrDefault("pageNumber"), out int pageNumber))
+            if (int.TryParse(QueryValueReader.Read(req, "pageNumber"), out int pageNumber))
                 query.PageNumber = Math.Max(1, pageNumber);
-            if (int.TryParse(req.Query.GetValueOrDefault("pageSize"), out int pageSize))
+            if (int.TryParse(QueryValueReader.Read(req, "pageSize"), out int pageSize))
                 query.PageSize = Math.Clamp(pageSize, 1, 500);
-            if (int.TryParse(req.Query.GetValueOrDefault("statusCode"), out int statusCode))
+            if (int.TryParse(QueryValueReader.Read(req, "statusCode"), out int statusCode))
                 query.StatusCode = statusCode;
-            if (int.TryParse(req.Query.GetValueOrDefault("bucketMinutes"), out int bucketMinutes))
+            if (int.TryParse(QueryValueReader.Read(req, "bucketMinutes"), out int bucketMinutes))
                 query.BucketMinutes = Math.Max(1, bucketMinutes);
 
-            query.Method = NormalizeEmpty(req.Query.GetValueOrDefault("method"));
-            query.Route = NormalizeEmpty(req.Query.GetValueOrDefault("route"));
-            query.Principal = NormalizeEmpty(req.Query.GetValueOrDefault("principal"));
-            query.TenantId = NormalizeEmpty(req.Query.GetValueOrDefault("tenantId"));
-            query.UserId = NormalizeEmpty(req.Query.GetValueOrDefault("userId"));
-            query.CredentialId = NormalizeEmpty(req.Query.GetValueOrDefault("credentialId"));
+            query.Method = NormalizeEmpty(QueryValueReader.Read(req, "method"));
+            query.Route = NormalizeEmpty(QueryValueReader.Read(req, "route"));
+            query.Principal = NormalizeEmpty(QueryValueReader.Read(req, "principal"));
+            query.TenantId = NormalizeEmpty(QueryValueReader.Read(req, "tenantId"));
+            query.UserId = NormalizeEmpty(QueryValueReader.Read(req, "userId"));
+            query.CredentialId = NormalizeEmpty(QueryValueReader.Read(req, "credentialId"));
 
-            if (TryParseNullableBool(req.Query.GetValueOrDefault("isSuccess"), out bool? isSuccess)
-                || TryParseNullableBool(req.Query.GetValueOrDefault("successOnly"), out isSuccess))
+            if (TryParseNullableBool(QueryValueReader.Read(req, "isSuccess"), out bool? isSuccess)
+                || TryParseNullableBool(QueryValueReader.Read(req, "successOnly"), out isSuccess))
             {
                 query.IsSuccess = isSuccess;
             }
 
-            if (DateTime.TryParse(req.Query.GetValueOrDefault("fromUtc"), out DateTime fromUtc))
+            if (DateTime.TryParse(QueryValueReader.Read(req, "fromUtc"), out DateTime fromUtc))
                 query.FromUtc = fromUtc.ToUniversalTime();
-            if (DateTime.TryParse(req.Query.GetValueOrDefault("toUtc"), out DateTime toUtc))
+            if (DateTime.TryParse(QueryValueReader.Read(req, "toUtc"), out DateTime toUtc))
                 query.ToUtc = toUtc.ToUniversalTime();
 
             return query;

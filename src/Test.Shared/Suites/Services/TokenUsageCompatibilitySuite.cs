@@ -49,6 +49,29 @@ namespace Test.Shared.Suites.Services
                 AssertEqual(100L, merged[1].TotalTokens, "Legacy total is input plus output when provider total is absent");
             }));
 
+            cases.Add(Case("usage_split_across_a_window_edge_is_counted_once", () =>
+            {
+                JsonSerializerOptions jsonOptions = new JsonSerializerOptions();
+                DateTime boundary = new DateTime(2026, 9, 14, 12, 0, 0, DateTimeKind.Utc);
+                TokenUsageRecord row = Record("msn_edge", "claudecode", "claude-sonnet-4", 100, 25, 10);
+                row.CreatedUtc = boundary.AddMilliseconds(-5);
+                ArmadaEvent evt = Event("msn_edge", "claudecode", "claude-sonnet-4", 100, 25, 10, jsonOptions);
+                evt.CreatedUtc = boundary.AddMilliseconds(20);
+                List<TokenUsageRecord> missionRows = new List<TokenUsageRecord> { row };
+
+                // The table record falls in the earlier window and its event in the later one.
+                List<TokenUsageRecord> earlier = TokenUsageCompatibility.MergeLegacyEvents(
+                    new List<TokenUsageRecord> { row }, new List<ArmadaEvent>(), missionRows, jsonOptions);
+                List<TokenUsageRecord> later = TokenUsageCompatibility.MergeLegacyEvents(
+                    new List<TokenUsageRecord>(), new List<ArmadaEvent> { evt }, missionRows, jsonOptions);
+                AssertEqual(1, earlier.Count, "The earlier window counts the table record");
+                AssertEqual(0, later.Count, "The later window matches the event to its table record by mission identity");
+
+                List<TokenUsageRecord> windowOnly = TokenUsageCompatibility.MergeLegacyEvents(
+                    new List<TokenUsageRecord>(), new List<ArmadaEvent> { evt }, jsonOptions);
+                AssertEqual(1, windowOnly.Count, "A match against in-window records alone cannot see the earlier record and counts the usage again");
+            }));
+
             return new TestSuiteDescriptor(
                 suiteId: SuiteId,
                 displayName: "Token Usage Compatibility",

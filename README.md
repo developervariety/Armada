@@ -78,6 +78,10 @@ project profiles, captain assignment, jobs, token accounting, friction reports
 and coordination leases. A shared feature name does not imply equal behavior.
 The fork's recovery and Judge gates remain more complete.
 
+Mission history uses upstream's status rule: a mission counts as complete once
+it has produced work (WorkProduced, PullRequestOpen, Testing, Review or
+Complete), so reviewed work reads as done when landing is off.
+
 The fork now provides scoped, read-only vessel branch inspection, including
 tip metadata, divergence and verified HEAD state. It uses persisted repository
 paths and preserves refs. Upstream push and merge controls remain separate

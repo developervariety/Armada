@@ -288,6 +288,11 @@ namespace Armada.Core.Database.Sqlite.Implementations
                 conditions.Add("captain_id = @captain_id");
                 parameters.Add(new SqliteParameter("@captain_id", query.CaptainId));
             }
+            if (!string.IsNullOrWhiteSpace(query.SourceId))
+            {
+                conditions.Add("source_id = @source_id");
+                parameters.Add(new SqliteParameter("@source_id", query.SourceId));
+            }
             if (query.FromUtc.HasValue)
             {
                 conditions.Add("created_utc >= @from_utc");

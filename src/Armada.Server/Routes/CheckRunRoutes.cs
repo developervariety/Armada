@@ -301,29 +301,29 @@ namespace Armada.Server.Routes
 
         private static void ApplyQuerystringOverrides(ApiRequest req, CheckRunQuery query)
         {
-            if (int.TryParse(req.Query.GetValueOrDefault("pageNumber"), out int pageNumber))
+            if (int.TryParse(QueryValueReader.Read(req, "pageNumber"), out int pageNumber))
                 query.PageNumber = Math.Max(1, pageNumber);
-            if (int.TryParse(req.Query.GetValueOrDefault("pageSize"), out int pageSize))
+            if (int.TryParse(QueryValueReader.Read(req, "pageSize"), out int pageSize))
                 query.PageSize = Math.Clamp(pageSize, 1, 500);
-            if (Enum.TryParse(req.Query.GetValueOrDefault("type"), true, out CheckRunTypeEnum type))
+            if (Enum.TryParse(QueryValueReader.Read(req, "type"), true, out CheckRunTypeEnum type))
                 query.Type = type;
-            if (Enum.TryParse(req.Query.GetValueOrDefault("status"), true, out CheckRunStatusEnum status))
+            if (Enum.TryParse(QueryValueReader.Read(req, "status"), true, out CheckRunStatusEnum status))
                 query.Status = status;
-            if (Enum.TryParse(req.Query.GetValueOrDefault("source"), true, out CheckRunSourceEnum source))
+            if (Enum.TryParse(QueryValueReader.Read(req, "source"), true, out CheckRunSourceEnum source))
                 query.Source = source;
-            if (DateTime.TryParse(req.Query.GetValueOrDefault("fromUtc"), out DateTime fromUtc))
+            if (DateTime.TryParse(QueryValueReader.Read(req, "fromUtc"), out DateTime fromUtc))
                 query.FromUtc = fromUtc.ToUniversalTime();
-            if (DateTime.TryParse(req.Query.GetValueOrDefault("toUtc"), out DateTime toUtc))
+            if (DateTime.TryParse(QueryValueReader.Read(req, "toUtc"), out DateTime toUtc))
                 query.ToUtc = toUtc.ToUniversalTime();
 
-            query.WorkflowProfileId = NormalizeEmpty(req.Query.GetValueOrDefault("workflowProfileId")) ?? query.WorkflowProfileId;
-            query.VesselId = NormalizeEmpty(req.Query.GetValueOrDefault("vesselId")) ?? query.VesselId;
-            query.MissionId = NormalizeEmpty(req.Query.GetValueOrDefault("missionId")) ?? query.MissionId;
-            query.VoyageId = NormalizeEmpty(req.Query.GetValueOrDefault("voyageId")) ?? query.VoyageId;
-            query.DeploymentId = NormalizeEmpty(req.Query.GetValueOrDefault("deploymentId")) ?? query.DeploymentId;
-            query.EnvironmentName = NormalizeEmpty(req.Query.GetValueOrDefault("environmentName")) ?? query.EnvironmentName;
-            query.ProviderName = NormalizeEmpty(req.Query.GetValueOrDefault("providerName")) ?? query.ProviderName;
-            query.ExternalId = NormalizeEmpty(req.Query.GetValueOrDefault("externalId")) ?? query.ExternalId;
+            query.WorkflowProfileId = NormalizeEmpty(QueryValueReader.Read(req, "workflowProfileId")) ?? query.WorkflowProfileId;
+            query.VesselId = NormalizeEmpty(QueryValueReader.Read(req, "vesselId")) ?? query.VesselId;
+            query.MissionId = NormalizeEmpty(QueryValueReader.Read(req, "missionId")) ?? query.MissionId;
+            query.VoyageId = NormalizeEmpty(QueryValueReader.Read(req, "voyageId")) ?? query.VoyageId;
+            query.DeploymentId = NormalizeEmpty(QueryValueReader.Read(req, "deploymentId")) ?? query.DeploymentId;
+            query.EnvironmentName = NormalizeEmpty(QueryValueReader.Read(req, "environmentName")) ?? query.EnvironmentName;
+            query.ProviderName = NormalizeEmpty(QueryValueReader.Read(req, "providerName")) ?? query.ProviderName;
+            query.ExternalId = NormalizeEmpty(QueryValueReader.Read(req, "externalId")) ?? query.ExternalId;
         }
 
         private static void ApplyScope(AuthContext ctx, CheckRunQuery query)

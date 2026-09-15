@@ -25,13 +25,39 @@ namespace Armada.Core.Services
             List<ArmadaEvent> events,
             JsonSerializerOptions jsonOptions)
         {
+            return MergeLegacyEvents(records, events, records, jsonOptions);
+        }
+
+        /// <summary>
+        /// Add legacy mission token-usage events that have no matching table record anywhere in time.
+        /// <para>
+        /// The current capture path writes a table record and then its event, so the two carry slightly
+        /// different creation times. Near a window edge one of them can fall inside the window and the
+        /// other outside. Matching an event only against the in-window records would then count the usage
+        /// as a legacy event in one window and as a table record in the adjacent one. The match is therefore
+        /// made against <paramref name="identityRecords"/>: every table record for the missions the events
+        /// name, whatever their creation time. The usage is counted where its table record lies.
+        /// </para>
+        /// </summary>
+        /// <param name="records">Table records inside the summary window; these are counted.</param>
+        /// <param name="events">Legacy mission.token_usage events inside the summary window.</param>
+        /// <param name="identityRecords">Every table record for the missions the events name, in any window.</param>
+        /// <param name="jsonOptions">JSON options used for event payloads.</param>
+        /// <returns>The in-window records plus the events that have no table record.</returns>
+        public static List<TokenUsageRecord> MergeLegacyEvents(
+            List<TokenUsageRecord> records,
+            List<ArmadaEvent> events,
+            List<TokenUsageRecord> identityRecords,
+            JsonSerializerOptions jsonOptions)
+        {
             if (records == null) throw new ArgumentNullException(nameof(records));
             if (events == null) throw new ArgumentNullException(nameof(events));
+            if (identityRecords == null) throw new ArgumentNullException(nameof(identityRecords));
             if (jsonOptions == null) throw new ArgumentNullException(nameof(jsonOptions));
 
             List<TokenUsageRecord> merged = new List<TokenUsageRecord>(records);
             Dictionary<string, int> availableTableRecords = new Dictionary<string, int>(StringComparer.Ordinal);
-            foreach (TokenUsageRecord record in records)
+            foreach (TokenUsageRecord record in identityRecords)
             {
                 string key = BuildMatchKey(record);
                 availableTableRecords.TryGetValue(key, out int count);

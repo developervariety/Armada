@@ -262,13 +262,13 @@ namespace Armada.Server.Routes
                 }
 
                 CoordinationClaimSubjectEnum? subjectType = null;
-                string? rawSubjectType = req.Query.GetValueOrDefault("subjectType");
+                string? rawSubjectType = QueryValueReader.Read(req, "subjectType");
                 if (!String.IsNullOrEmpty(rawSubjectType) &&
                     Enum.TryParse(rawSubjectType!, true, out CoordinationClaimSubjectEnum parsed))
                 {
                     subjectType = parsed;
                 }
-                string? subjectId = req.Query.GetValueOrDefault("subjectId");
+                string? subjectId = QueryValueReader.Read(req, "subjectId");
 
                 List<CoordinationClaim> claims = await _coordination.EnumerateActiveClaimsAsync(subjectType, subjectId).ConfigureAwait(false);
                 return claims;
@@ -317,7 +317,7 @@ namespace Armada.Server.Routes
 
         private static int ParseIntQuery(ApiRequest req, string name, int defaultValue)
         {
-            string? raw = req.Query.GetValueOrDefault(name);
+            string? raw = QueryValueReader.Read(req, name);
             if (String.IsNullOrEmpty(raw)) return defaultValue;
             if (!Int32.TryParse(raw, out int value)) return defaultValue;
             return value;
@@ -325,7 +325,7 @@ namespace Armada.Server.Routes
 
         private static DateTime? ParseDateTimeQuery(ApiRequest req, string name)
         {
-            string? raw = req.Query.GetValueOrDefault(name);
+            string? raw = QueryValueReader.Read(req, name);
             if (String.IsNullOrEmpty(raw)) return null;
             if (!DateTime.TryParse(raw, out DateTime value)) return null;
             return value.ToUniversalTime();
