@@ -7,10 +7,7 @@
       "TestEngineer",
       "DiagnosticProtocolReviewer",
       "TenantSecurityReviewer",
-      "MigrationDataReviewer",
-      "PerformanceMemoryReviewer",
-      "PortingReferenceAnalyst",
-      "FrontendWorkflowReviewer"
+      "PortingReferenceAnalyst"
     ],
     "reservedHighTierSlots": 1,
     "preferNonNativeFirst": true,
@@ -29,7 +26,8 @@
     "midTierModels": [
       "gpt-5.6-luna",
       "opencode-go/deepseek-v4-flash",
-      "opencode-go/qwen3.8-max"
+      "composer-2.5",
+      "cursor-grok-4.6-high"
     ],
     "highTierModels": [
       "claude-fable-5",
@@ -43,7 +41,8 @@
       "gpt-5.6-sol": { "telemetryRichness": 96, "auditReasoningFit": 96, "mechanicalThroughput": 55, "cost": 95 },
       "gpt-5.6-luna": { "telemetryRichness": 75, "auditReasoningFit": 78, "mechanicalThroughput": 70, "cost": 55 },
       "opencode-go/deepseek-v4-flash": { "telemetryRichness": 30, "auditReasoningFit": 30, "mechanicalThroughput": 75, "cost": 15 },
-      "opencode-go/qwen3.8-max": { "telemetryRichness": 60, "auditReasoningFit": 65, "mechanicalThroughput": 68, "cost": 55 }
+      "composer-2.5": { "telemetryRichness": 60, "auditReasoningFit": 65, "mechanicalThroughput": 68, "cost": 55 },
+      "cursor-grok-4.6-high": { "telemetryRichness": 60, "auditReasoningFit": 65, "mechanicalThroughput": 68, "cost": 55 }
     }
   },
   "voyageDispatch": {
@@ -61,10 +60,7 @@
   "additionalPersonas": [
     { "name": "DiagnosticProtocolReviewer", "description": "Specialist reviewer for binary/wire protocol parsing, security-sensitive access paths, and high-risk hardware-affecting operations.", "promptTemplateName": "persona.diagnostic_protocol_reviewer" },
     { "name": "TenantSecurityReviewer", "description": "Specialist reviewer for multi-tenant authz/authn, tenant isolation, secrets, auditability, and cross-tenant leak risk.", "promptTemplateName": "persona.tenant_security_reviewer" },
-    { "name": "MigrationDataReviewer", "description": "Specialist reviewer for migrations, schema/provider parity, indexes, backfills, rollback/restart safety, and data-loss risk.", "promptTemplateName": "persona.migration_data_reviewer" },
-    { "name": "PerformanceMemoryReviewer", "description": "Specialist reviewer for memory/allocations, retained object graphs, process output/log growth, DB materialization, throughput, and resource lifetime.", "promptTemplateName": "persona.performance_memory_reviewer" },
-    { "name": "PortingReferenceAnalyst", "description": "Specialist analyst for approved reference material, decompiler-derived notes, vendor traces, protocol captures, and semantic parity evidence for porting work.", "promptTemplateName": "persona.porting_reference_analyst" },
-    { "name": "FrontendWorkflowReviewer", "description": "Specialist reviewer for frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency.", "promptTemplateName": "persona.frontend_workflow_reviewer" }
+    { "name": "PortingReferenceAnalyst", "description": "Specialist analyst for approved reference material, decompiler-derived notes, vendor traces, protocol captures, and semantic parity evidence for porting work.", "promptTemplateName": "persona.porting_reference_analyst" }
   ],
   "additionalPipelines": [
     {
@@ -114,32 +110,11 @@
       "checklist": "- Verify authorization and authentication checks are applied at every entry point and background path touched by the diff.\n- Check tenant scoping on queries, events, logs, caches, queues, and identifiers.\n- Look for secrets in logs, exceptions, persisted payloads, test fixtures, and client-visible responses.\n- Confirm audit trails are complete enough to explain sensitive access or cross-tenant administration.\n"
     },
     {
-      "name": "persona.migration_data_reviewer",
-      "description": "Migration and data reviewer persona for schema, provider parity, and data-loss risk.",
-      "roleName": "MigrationDataReviewer",
-      "focus": "migrations, schema/provider parity, indexes, backfills, rollback/restart safety, and data-loss risk.",
-      "checklist": "- Verify every supported provider has equivalent schema, index, nullability, default, and reader/writer behavior.\n- Check backfills and migrations for idempotency, restart safety, ordering, and large-data behavior.\n- Look for data-loss, truncation, casing, collation, timestamp, and enum/string compatibility risks.\n- Confirm rollback or failure behavior is documented or contained when a migration cannot be reversed.\n"
-    },
-    {
-      "name": "persona.performance_memory_reviewer",
-      "description": "Performance and memory reviewer persona for allocation, retention, throughput, and lifetime risks.",
-      "roleName": "PerformanceMemoryReviewer",
-      "focus": "memory/allocations, retained object graphs, process output/log growth, DB materialization, throughput, and resource lifetime.",
-      "checklist": "- Look for unbounded collections, retained object graphs, large string accumulation, and process output/log growth.\n- Check database materialization, pagination, projection size, streaming, and repeated query patterns.\n- Review allocation-heavy loops, async lifetime, timer/task cleanup, disposal, cancellation, and retry behavior.\n- Validate that throughput-sensitive paths keep resource usage bounded under repeated orchestration operations.\n"
-    },
-    {
       "name": "persona.porting_reference_analyst",
       "description": "Porting reference analyst persona for evidence-based parity work against known references.",
       "roleName": "PortingReferenceAnalyst",
       "focus": "approved reference material, decompiler-derived notes, vendor traces, protocol captures, and semantic parity evidence for porting work.",
       "checklist": "- Compare the implementation to approved reference material, decompiler-derived notes, vendor traces, protocol captures, or other semantic parity evidence cited by the mission.\n- Distinguish evidence-backed parity from guesses, and flag missing references or assumptions explicitly.\n- Check naming, constants, byte layouts, state transitions, error mapping, and edge-case behavior against the cited evidence.\n- Keep changes traceable to the referenced behavior without copying unrelated implementation structure.\n"
-    },
-    {
-      "name": "persona.frontend_workflow_reviewer",
-      "description": "Frontend workflow reviewer persona for UX, accessibility, responsive states, and design consistency.",
-      "roleName": "FrontendWorkflowReviewer",
-      "focus": "frontend UX/workflow, accessibility, responsive states, i18n, errors, and design consistency.",
-      "checklist": "- Walk the affected user workflow end to end, including empty, loading, error, disabled, success, and permission states.\n- Check accessibility semantics, keyboard flow, focus management, contrast, labels, and screen-reader impact.\n- Review responsive layout, text fit, i18n-ready copy, validation messages, and recoverability from failures.\n- Keep visual changes consistent with the existing design system and avoid introducing workflow dead ends.\n"
     }
   ]
 }
