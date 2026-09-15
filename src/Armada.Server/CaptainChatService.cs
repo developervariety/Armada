@@ -157,10 +157,22 @@ namespace Armada.Server
             {
                 Directory.CreateDirectory(workingDirectory);
                 string runtimeConfigDirectory = Path.Combine(workingDirectory, "runtime-config");
+
+                // A chat turn authenticates to Armada MCP exactly one way: the authenticated caller's own
+                // session token, scoped to that caller by the endpoint. The admiral launch credential, which
+                // maps to operator access, is a mission-launch credential and never enters a chat captain's
+                // environment. A CLI runtime carries the token in its scoped MCP configuration by variable
+                // name; an API-endpoint runtime carries the same token in-process. A turn with no
+                // authenticated caller carries no token and reaches no MCP tool.
+                CallerMcpToolAccess? callerMcpAccess = CreateCallerMcpToolAccess(caller);
+                McpCredentialReference chatCredential = callerMcpAccess != null
+                    ? McpCredentialReference.ForChat(callerMcpAccess.SessionToken)
+                    : McpCredentialReference.ChatUnauthenticated;
                 CaptainLaunchIsolationPlan isolationPlan = CaptainLaunchIsolationPlanner.Plan(
                     captain.Runtime,
                     _Settings.McpPort,
-                    runtimeConfigDirectory);
+                    runtimeConfigDirectory,
+                    chatCredential);
                 MaterializeIsolationPlan(isolationPlan, runtimeConfigDirectory);
 
                 try
@@ -179,7 +191,7 @@ namespace Armada.Server
                             return Fail(admissionError);
                         runtime = _RuntimeFactory.Create(endpoint!);
                         if (runtime is ApiAgentRuntime apiRuntime)
-                            apiRuntime.McpToolAccess = CreateCallerMcpToolAccess(caller);
+                            apiRuntime.McpToolAccess = callerMcpAccess;
                     }
                     else
                     {

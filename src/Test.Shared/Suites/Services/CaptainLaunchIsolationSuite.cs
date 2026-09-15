@@ -140,9 +140,11 @@ namespace Test.Shared.Suites.Services
                 AssertEqual("mcp-servers.json", plan.FilesToWrite[0].RelativePath);
             }));
 
-            // ---- Launch credential ----
-            cases.Add(Case("plan_carries_launch_credential_by_reference", "Every plan carries the launch credential in the environment and references it by name", TestTags.Positive, () =>
+            // ---- MCP credential per launch kind ----
+            cases.Add(Case("plan_carries_launch_credential_by_reference", "A mission plan carries the launch credential and a chat plan carries the caller session token, each by name", TestTags.Positive, () =>
             {
+                // A MISSION launch (the default Plan overload) carries this admiral's launch credential, which
+                // the endpoint maps to operator access. Unchanged behaviour.
                 string token = McpLaunchCredential.Token;
                 foreach (AgentRuntimeEnum runtime in new[] { AgentRuntimeEnum.ClaudeCode, AgentRuntimeEnum.Codex, AgentRuntimeEnum.Gemini, AgentRuntimeEnum.Cursor, AgentRuntimeEnum.OpenCode, AgentRuntimeEnum.Mux })
                 {
@@ -154,6 +156,36 @@ namespace Test.Shared.Suites.Services
                     foreach (string argument in plan.ExtraArguments)
                         AssertFalse(argument.Contains(token, StringComparison.Ordinal), runtime + " never passes the credential value as an argument");
                 }
+
+                // A CHAT launch carries the authenticated caller's own session token, referenced by the chat
+                // variable, and the admiral launch credential never enters its environment, files or arguments.
+                string callerSessionToken = "caller-session-token-abc123";
+                foreach (AgentRuntimeEnum runtime in new[] { AgentRuntimeEnum.ClaudeCode, AgentRuntimeEnum.Codex, AgentRuntimeEnum.Gemini, AgentRuntimeEnum.Cursor, AgentRuntimeEnum.OpenCode, AgentRuntimeEnum.Mux })
+                {
+                    CaptainLaunchIsolationPlan chatPlan = CaptainLaunchIsolationPlanner.Plan(runtime, 7891, scoped, McpCredentialReference.ForChat(callerSessionToken));
+                    AssertTrue(chatPlan.EnvironmentOverrides.TryGetValue(McpCredentialReference.ChatEnvironmentVariable, out string? chatCarried), runtime + " carries the caller session token in the chat variable");
+                    AssertEqual(callerSessionToken, chatCarried, runtime + " carries the caller's own session token");
+                    AssertFalse(chatPlan.EnvironmentOverrides.ContainsKey(McpLaunchCredential.EnvironmentVariable), runtime + " never sets the launch credential variable for chat");
+                    AssertFalse(chatPlan.EnvironmentOverrides.ContainsValue(token), runtime + " never carries the launch credential value for chat");
+                    foreach (IsolationConfigFile file in chatPlan.FilesToWrite)
+                    {
+                        AssertFalse(file.Contents.Contains(McpLaunchCredential.EnvironmentVariable, StringComparison.Ordinal), runtime + " never references the launch variable in " + file.RelativePath);
+                        AssertFalse(file.Contents.Contains(callerSessionToken, StringComparison.Ordinal), runtime + " never writes the caller token value into " + file.RelativePath);
+                        AssertTrue(file.Contents.Contains(McpCredentialReference.ChatEnvironmentVariable, StringComparison.Ordinal), runtime + " references the chat variable in " + file.RelativePath);
+                    }
+                    foreach (string argument in chatPlan.ExtraArguments)
+                    {
+                        AssertFalse(argument.Contains(McpLaunchCredential.EnvironmentVariable, StringComparison.Ordinal), runtime + " never references the launch variable in an argument");
+                        AssertFalse(argument.Contains(callerSessionToken, StringComparison.Ordinal), runtime + " never passes the caller token value as an argument");
+                    }
+                }
+
+                // An unauthenticated chat launch names the chat variable but leaves it unset, so the runtime
+                // presents no credential and the endpoint refuses it.
+                CaptainLaunchIsolationPlan unauth = CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.ClaudeCode, 7891, scoped, McpCredentialReference.ChatUnauthenticated);
+                AssertFalse(unauth.EnvironmentOverrides.ContainsKey(McpCredentialReference.ChatEnvironmentVariable), "An unauthenticated chat launch sets no token value");
+                AssertFalse(unauth.EnvironmentOverrides.ContainsKey(McpLaunchCredential.EnvironmentVariable), "An unauthenticated chat launch never sets the launch credential");
+                AssertTrue(unauth.FilesToWrite[0].Contents.Contains(McpCredentialReference.ChatEnvironmentVariable, StringComparison.Ordinal), "An unauthenticated chat launch still references the chat variable");
 
                 AssertTrue(CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.ClaudeCode, 7891, scoped).FilesToWrite[0].Contents.Contains("${" + McpLaunchCredential.EnvironmentVariable + "}", StringComparison.Ordinal), "Claude Code references the variable");
                 AssertTrue(CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.Gemini, 7891, scoped).FilesToWrite[0].Contents.Contains("${" + McpLaunchCredential.EnvironmentVariable + "}", StringComparison.Ordinal), "Gemini references the variable");

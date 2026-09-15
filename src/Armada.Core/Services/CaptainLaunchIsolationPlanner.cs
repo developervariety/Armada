@@ -20,8 +20,9 @@ namespace Armada.Core.Services
     /// - Mux: a scoped MUX_CONFIG_DIR containing mcp-servers.json, whose auth object presents the launch
     ///   credential as a bearer token referenced by variable name.
     ///
-    /// Every plan puts the admiral's launch credential in the captain's environment, and each client
-    /// references it by variable name, so the token never lands in a scoped configuration file.
+    /// Every plan puts a chosen MCP credential in the captain's environment, and each client references it
+    /// by variable name, so the token never lands in a scoped configuration file. A mission launch carries
+    /// the admiral launch credential; a chat launch carries the caller's own session token instead.
     ///
     /// A captain on a subscription account also receives that account's login switch through
     /// <see cref="ApplyAccount"/>, independent of MCP isolation.
@@ -43,20 +44,41 @@ namespace Armada.Core.Services
         /// <returns>The isolation plan; never null.</returns>
         public static CaptainLaunchIsolationPlan Plan(AgentRuntimeEnum runtime, int mcpPort, string scopedConfigDirectory)
         {
+            return Plan(runtime, mcpPort, scopedConfigDirectory, McpCredentialReference.Launch);
+        }
+
+        /// <summary>
+        /// Build the isolation plan for a runtime with a chosen MCP credential. The configuration files reference
+        /// the credential's environment variable by name; the environment carries the value only when the
+        /// credential has one, so an unauthenticated chat turn writes the same configuration but presents no
+        /// credential and reaches no MCP tool. Returns an empty plan when isolation cannot be expressed for the
+        /// runtime or when the MCP port is invalid.
+        /// </summary>
+        /// <param name="runtime">The captain's runtime.</param>
+        /// <param name="mcpPort">The Admiral MCP port (must be positive).</param>
+        /// <param name="scopedConfigDirectory">Absolute path to the per-launch scoped configuration directory.</param>
+        /// <param name="credential">The MCP credential the launch references; its value never lands in a file.</param>
+        /// <returns>The isolation plan; never null.</returns>
+        public static CaptainLaunchIsolationPlan Plan(AgentRuntimeEnum runtime, int mcpPort, string scopedConfigDirectory, McpCredentialReference credential)
+        {
+            if (credential == null) throw new ArgumentNullException(nameof(credential));
+
             CaptainLaunchIsolationPlan plan = new CaptainLaunchIsolationPlan();
             if (mcpPort <= 0 || mcpPort > 65535) return plan;
             if (String.IsNullOrWhiteSpace(scopedConfigDirectory)) return plan;
 
-            // The Armada MCP endpoint refuses a request without credentials. Every launched captain
-            // carries this admiral's launch credential in its environment, and the configuration files
-            // below reference it by variable name in each client's own syntax.
-            plan.EnvironmentOverrides[McpLaunchCredential.EnvironmentVariable] = McpLaunchCredential.Token;
+            // The Armada MCP endpoint refuses a request without credentials. A launched captain carries the
+            // chosen credential's value in its environment, and the configuration files below reference it by
+            // variable name in each client's own syntax. A credential with no value (an unauthenticated chat
+            // turn) leaves the variable unset, so the runtime presents nothing and the endpoint refuses it.
+            if (credential.HasToken)
+                plan.EnvironmentOverrides[credential.EnvironmentVariable] = credential.Token;
 
             switch (runtime)
             {
                 case AgentRuntimeEnum.ClaudeCode:
                     {
-                        plan.FilesToWrite.Add(new IsolationConfigFile("armada-mcp.json", ArmadaMcpConfigBuilder.BuildKeyedMcpServersJson(mcpPort, ArmadaMcpConfigBuilder.AuthorizationForDollarBraceExpansion)));
+                        plan.FilesToWrite.Add(new IsolationConfigFile("armada-mcp.json", ArmadaMcpConfigBuilder.BuildKeyedMcpServersJson(mcpPort, ArmadaMcpConfigBuilder.AuthorizationDollarBrace(credential.EnvironmentVariable))));
                         string mcpConfigPath = Path.Combine(scopedConfigDirectory, "armada-mcp.json");
                         plan.ExtraArguments.Add("--setting-sources");
                         plan.ExtraArguments.Add("project,local");
@@ -70,29 +92,29 @@ namespace Armada.Core.Services
                         plan.ExtraArguments.Add("-c");
                         plan.ExtraArguments.Add("mcp_servers.armada.url=\"" + ArmadaMcpConfigBuilder.GetMcpUrl(mcpPort) + "\"");
                         plan.ExtraArguments.Add("-c");
-                        plan.ExtraArguments.Add("mcp_servers.armada.bearer_token_env_var=\"" + McpLaunchCredential.EnvironmentVariable + "\"");
+                        plan.ExtraArguments.Add("mcp_servers.armada.bearer_token_env_var=\"" + credential.EnvironmentVariable + "\"");
                         break;
                     }
                 case AgentRuntimeEnum.Gemini:
                     {
-                        plan.FilesToWrite.Add(new IsolationConfigFile(Path.Combine(".gemini", "settings.json"), ArmadaMcpConfigBuilder.BuildKeyedMcpServersJson(mcpPort, ArmadaMcpConfigBuilder.AuthorizationForDollarBraceExpansion)));
+                        plan.FilesToWrite.Add(new IsolationConfigFile(Path.Combine(".gemini", "settings.json"), ArmadaMcpConfigBuilder.BuildKeyedMcpServersJson(mcpPort, ArmadaMcpConfigBuilder.AuthorizationDollarBrace(credential.EnvironmentVariable))));
                         ApplyHomeOverride(plan, scopedConfigDirectory);
                         break;
                     }
                 case AgentRuntimeEnum.Cursor:
                     {
-                        plan.FilesToWrite.Add(new IsolationConfigFile(Path.Combine(".cursor", "mcp.json"), ArmadaMcpConfigBuilder.BuildKeyedMcpServersJson(mcpPort, ArmadaMcpConfigBuilder.AuthorizationForCursorExpansion)));
+                        plan.FilesToWrite.Add(new IsolationConfigFile(Path.Combine(".cursor", "mcp.json"), ArmadaMcpConfigBuilder.BuildKeyedMcpServersJson(mcpPort, ArmadaMcpConfigBuilder.AuthorizationCursor(credential.EnvironmentVariable))));
                         ApplyHomeOverride(plan, scopedConfigDirectory);
                         break;
                     }
                 case AgentRuntimeEnum.OpenCode:
                     {
-                        plan.FilesToWrite.Add(new IsolationConfigFile("opencode.json", ArmadaMcpConfigBuilder.BuildOpenCodeMcpJson(mcpPort, ArmadaMcpConfigBuilder.AuthorizationForOpenCodeExpansion)));
+                        plan.FilesToWrite.Add(new IsolationConfigFile("opencode.json", ArmadaMcpConfigBuilder.BuildOpenCodeMcpJson(mcpPort, ArmadaMcpConfigBuilder.AuthorizationOpenCode(credential.EnvironmentVariable))));
                         break;
                     }
                 case AgentRuntimeEnum.Mux:
                     {
-                        plan.FilesToWrite.Add(new IsolationConfigFile("mcp-servers.json", ArmadaMcpConfigBuilder.BuildMuxServersJson(mcpPort)));
+                        plan.FilesToWrite.Add(new IsolationConfigFile("mcp-servers.json", ArmadaMcpConfigBuilder.BuildMuxServersJson(mcpPort, credential.EnvironmentVariable)));
                         plan.EnvironmentOverrides["MUX_CONFIG_DIR"] = scopedConfigDirectory;
                         break;
                     }

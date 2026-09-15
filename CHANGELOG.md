@@ -28,6 +28,23 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   mission's tenant and user.
 - `create_voyage` with missions still dispatches through the admiral, so its
   voyage and missions take the vessel's owner, as REST and MCP dispatch do.
+### A CLI chat captain runs with the caller's scope, not operator access
+
+- A captain chat turn on a CLI runtime (Claude Code, Codex, Cursor, Gemini,
+  OpenCode, Mux) now reaches Armada MCP with the authenticated caller's own
+  session token, carried by the scoped launch configuration and referenced by
+  variable name, never the admiral launch credential. Before, every chat launch
+  carried the launch credential, which the MCP endpoint maps to operator access,
+  so a non-admin dashboard user who could start a captain chat could reach
+  operator-only MCP tools (dispatch, purge, `armada_stop_server`) through the
+  captain. The API-endpoint chat path already used the caller token; CLI chat
+  now matches it, so a chat turn authenticates one way.
+- A chat turn with no authenticated caller leaves the token variable unset and
+  reaches no MCP tool. Mission launches are unchanged and still carry the launch
+  credential.
+- The MCP endpoint accepts a session token presented in the Authorization bearer
+  header, after a persistent bearer credential lookup, so a CLI runtime's native
+  bearer configuration authenticates with the caller's own scope.
 
 ### An interrupted captain run is re-dispatched, not failed
 

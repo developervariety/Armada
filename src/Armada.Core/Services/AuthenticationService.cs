@@ -64,6 +64,14 @@ namespace Armada.Core.Services
                 {
                     AuthContext? bearerCtx = await AuthenticateByBearerTokenAsync(bearerToken, token).ConfigureAwait(false);
                     if (bearerCtx != null) return bearerCtx;
+
+                    // A session token may also arrive as a bearer credential. A launched chat captain's
+                    // runtime MCP configuration presents the caller's session token in the Authorization
+                    // header (the CLI runtimes send a bearer credential, not an X-Token header), so accept a
+                    // session token from the bearer header with the token owner's own scope, exactly as the
+                    // X-Token path does. Persistent bearer credentials keep precedence above.
+                    AuthContext? bearerSessionCtx = await AuthenticateBySessionTokenAsync(bearerToken, token).ConfigureAwait(false);
+                    if (bearerSessionCtx != null) return bearerSessionCtx;
                 }
             }
 

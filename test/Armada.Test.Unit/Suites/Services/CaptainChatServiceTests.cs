@@ -4,8 +4,12 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Collections.Generic;
     using System.Linq;
     using System.Net;
+    using System.Net.Http;
+    using System.Net.Http.Headers;
     using System.Net.Sockets;
+    using System.Text;
     using System.Text.Json;
+    using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -260,6 +264,136 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("A CLI chat turn carries the caller's session token, never the admiral launch credential", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    SessionTokenService sessionTokens = new SessionTokenService();
+                    ArmadaSettings settings = new ArmadaSettings { McpPort = 51789 };
+
+                    // A CLI captain is a real external process that reads its MCP credential from an environment
+                    // variable named by its scoped configuration. Every CLI runtime must carry the caller's own
+                    // session token there for a chat turn, never the admiral launch credential.
+                    foreach (AgentRuntimeEnum runtime in new[] { AgentRuntimeEnum.ClaudeCode, AgentRuntimeEnum.Codex, AgentRuntimeEnum.Gemini, AgentRuntimeEnum.Cursor, AgentRuntimeEnum.OpenCode, AgentRuntimeEnum.Mux })
+                    {
+                        Captain captain = new Captain("chat-cli-" + runtime, runtime);
+                        await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                        ReplayRuntimeFactory factory = new ReplayRuntimeFactory(logging, new[] { "reply" });
+                        CaptainChatService chat = new CaptainChatService(testDb.Driver, factory, null, null, logging, settings, sessionTokens);
+                        AuthContext caller = AuthContext.Authenticated("tenant-cli", "user-cli", false, false, "Session");
+                        // The reply content is irrelevant here; the launched runtime records the isolation plan the
+                        // chat turn built when StartAsync is called, so assert on that plan regardless of the reply.
+                        await chat.ChatAsync(caller, captain.Id, new CaptainChatRequest { Message = "hello" }).ConfigureAwait(false);
+
+                        CaptainLaunchIsolationPlan plan = factory.LastRuntime!.ReceivedIsolationPlan!;
+                        AssertNotNull(plan);
+
+                        AssertTrue(plan.EnvironmentOverrides.TryGetValue(McpCredentialReference.ChatEnvironmentVariable, out string? carried), runtime + " carries the caller token in the chat variable");
+                        AssertFalse(String.IsNullOrEmpty(carried), runtime + " carries a non-empty caller token");
+                        AssertFalse(plan.EnvironmentOverrides.ContainsKey(McpLaunchCredential.EnvironmentVariable), runtime + " never sets the launch credential variable");
+                        AssertFalse(plan.EnvironmentOverrides.Values.Any(value => McpLaunchCredential.Matches(value)), runtime + " never carries the launch credential value");
+
+                        // The carried token authenticates as the caller, so the endpoint scopes the turn to it.
+                        AuthContext? validated = sessionTokens.ValidateToken(carried!);
+                        AssertNotNull(validated);
+                        AssertEqual("tenant-cli", validated!.TenantId, runtime + " token resolves to the caller's tenant");
+                        AssertEqual("user-cli", validated.UserId, runtime + " token resolves to the caller's user");
+                    }
+
+                    // A chat turn with no authenticated caller carries no token and reaches no MCP tool.
+                    Captain anon = new Captain("chat-cli-anon", AgentRuntimeEnum.OpenCode);
+                    await testDb.Driver.Captains.CreateAsync(anon).ConfigureAwait(false);
+                    ReplayRuntimeFactory anonFactory = new ReplayRuntimeFactory(logging, new[] { "reply" });
+                    CaptainChatService anonChat = new CaptainChatService(testDb.Driver, anonFactory, null, null, logging, settings, sessionTokens);
+                    CaptainChatResponse anonResponse = await anonChat.ChatAsync(anon.Id, new CaptainChatRequest { Message = "hello" }).ConfigureAwait(false);
+                    AssertTrue(anonResponse.Success, "The anonymous chat turn still completes");
+                    CaptainLaunchIsolationPlan anonPlan = anonFactory.LastRuntime!.ReceivedIsolationPlan!;
+                    AssertFalse(anonPlan.EnvironmentOverrides.ContainsKey(McpCredentialReference.ChatEnvironmentVariable), "An anonymous chat turn sets no caller token");
+                    AssertFalse(anonPlan.EnvironmentOverrides.ContainsKey(McpLaunchCredential.EnvironmentVariable), "An anonymous chat turn never sets the launch credential");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A CLI chat captain reaching MCP with the plan's credential gets only the caller's scope", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    ChatMcpFixture fixture = await ChatMcpFixture.CreateAsync(testDb, logging).ConfigureAwait(false);
+                    await using (ArmadaMcpHttpServer server = fixture.CreateServer())
+                    {
+                        await server.StartAsync().ConfigureAwait(false);
+                        string url = ArmadaMcpConfigBuilder.GetMcpUrl(fixture.Settings.McpPort);
+
+                        // Build the isolation plan a CLI (Claude Code) chat turn produces for this caller, then act as
+                        // the launched captain: read the credential the plan puts in the environment and present it in
+                        // the Authorization bearer header, exactly as the runtime's scoped MCP config would.
+                        AuthenticateResult issued = fixture.SessionTokens.CreateToken(fixture.TenantAId, fixture.UserAId);
+                        CaptainLaunchIsolationPlan plan = CaptainLaunchIsolationPlanner.Plan(
+                            AgentRuntimeEnum.ClaudeCode, fixture.Settings.McpPort, "/tmp/cli-chat-scope", McpCredentialReference.ForChat(issued.Token!));
+                        string bearerCredential = plan.EnvironmentOverrides[McpCredentialReference.ChatEnvironmentVariable];
+                        AssertFalse(McpLaunchCredential.Matches(bearerCredential), "The plan credential is not the admiral launch credential");
+
+                        using (BearerMcpProbe probe = new BearerMcpProbe(url, bearerCredential))
+                        {
+                            await probe.InitializeAsync().ConfigureAwait(false);
+                            List<string> offered = await probe.ListToolNamesAsync().ConfigureAwait(false);
+                            AssertTrue(offered.Contains("get_memory"), "The caller-scoped get_memory tool is offered");
+                            AssertTrue(offered.Contains("search_memory"), "The caller-scoped search_memory tool is offered");
+                            AssertFalse(offered.Contains("armada_stop_server"), "The operator tool is not offered to a non-admin caller");
+
+                            BearerMcpProbe.ToolResult own = await probe.CallToolAsync("get_memory", "{\"memoryId\":\"" + fixture.OwnMemoryId + "\"}").ConfigureAwait(false);
+                            AssertFalse(own.Refused, "Reading the caller's own memory is not refused");
+                            AssertContains("OWN-TENANT-MEMORY", own.Text, "The caller reads its own memory through MCP");
+
+                            BearerMcpProbe.ToolResult foreign = await probe.CallToolAsync("get_memory", "{\"memoryId\":\"" + fixture.ForeignMemoryId + "\"}").ConfigureAwait(false);
+                            AssertFalse(foreign.Text.Contains("OTHER-TENANT-MEMORY", StringComparison.Ordinal), "The caller cannot read another tenant's memory");
+                            AssertContains("Memory not found: " + fixture.ForeignMemoryId, foreign.Text, "Another tenant's memory reads as not found");
+
+                            BearerMcpProbe.ToolResult operatorCall = await probe.CallToolAsync("armada_stop_server", "{}").ConfigureAwait(false);
+                            AssertTrue(operatorCall.Refused, "The operator tool call is refused for a non-admin caller");
+                            AssertFalse(fixture.OperatorToolRan, "The operator tool never runs");
+                        }
+                    }
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A CLI chat captain with no credential and with a forged token reaches no MCP tool", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    LoggingModule logging = CreateLogging();
+                    ChatMcpFixture fixture = await ChatMcpFixture.CreateAsync(testDb, logging).ConfigureAwait(false);
+                    await using (ArmadaMcpHttpServer server = fixture.CreateServer())
+                    {
+                        await server.StartAsync().ConfigureAwait(false);
+                        string url = ArmadaMcpConfigBuilder.GetMcpUrl(fixture.Settings.McpPort);
+
+                        foreach (string? presented in new string?[] { null, "forged-session-token" })
+                        {
+                            using (BearerMcpProbe probe = new BearerMcpProbe(url, presented))
+                            {
+                                int? refusedStatus = null;
+                                try
+                                {
+                                    await probe.InitializeAsync().ConfigureAwait(false);
+                                    await probe.ListToolNamesAsync().ConfigureAwait(false);
+                                }
+                                catch (BearerMcpProbe.ProbeHttpException ex)
+                                {
+                                    refusedStatus = ex.StatusCode;
+                                }
+
+                                AssertEqual(401, refusedStatus ?? 0, "A CLI captain is refused for credential: " + (presented ?? "<none>"));
+                            }
+                        }
+
+                        AssertFalse(fixture.OperatorToolRan, "No refused request reaches a tool handler");
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Non-tool activity records stay out of a chat reply", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -449,6 +583,184 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     listener.Stop();
                 }
+            }
+        }
+
+        /// <summary>
+        /// A minimal MCP Streamable HTTP probe that presents its credential in the Authorization bearer header,
+        /// the way a launched CLI chat captain's scoped MCP configuration does. It exists only to exercise the
+        /// server's authentication and authorization from the CLI runtime's wire shape.
+        /// </summary>
+        private sealed class BearerMcpProbe : IDisposable
+        {
+            private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                PropertyNameCaseInsensitive = true
+            };
+
+            private readonly HttpClient _Http;
+            private readonly string _Endpoint;
+            private string? _SessionId = null;
+            private int _RpcId = 0;
+            private bool _Disposed = false;
+
+            public BearerMcpProbe(string endpoint, string? bearerCredential)
+            {
+                _Endpoint = endpoint;
+                _Http = new HttpClient();
+                _Http.Timeout = TimeSpan.FromSeconds(30);
+                if (!String.IsNullOrWhiteSpace(bearerCredential))
+                    _Http.DefaultRequestHeaders.TryAddWithoutValidation("Authorization", "Bearer " + bearerCredential.Trim());
+            }
+
+            public async Task InitializeAsync(CancellationToken token = default)
+            {
+                Dictionary<string, object> parameters = new Dictionary<string, object>
+                {
+                    ["protocolVersion"] = "2025-06-18",
+                    ["capabilities"] = new Dictionary<string, object>(),
+                    ["clientInfo"] = new Dictionary<string, object> { ["name"] = "cli-chat-probe", ["version"] = "1.0" }
+                };
+                await SendAsync("initialize", parameters, token).ConfigureAwait(false);
+            }
+
+            public async Task<List<string>> ListToolNamesAsync(CancellationToken token = default)
+            {
+                JsonDocument document = await SendAsync("tools/list", new Dictionary<string, object>(), token).ConfigureAwait(false);
+                using (document)
+                {
+                    List<string> names = new List<string>();
+                    if (document.RootElement.TryGetProperty("result", out JsonElement result)
+                        && result.TryGetProperty("tools", out JsonElement tools)
+                        && tools.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (JsonElement tool in tools.EnumerateArray())
+                        {
+                            if (tool.TryGetProperty("name", out JsonElement name) && name.ValueKind == JsonValueKind.String)
+                                names.Add(name.GetString() ?? String.Empty);
+                        }
+                    }
+                    return names;
+                }
+            }
+
+            public async Task<ToolResult> CallToolAsync(string name, string argumentsJson, CancellationToken token = default)
+            {
+                Dictionary<string, object> parameters = new Dictionary<string, object>
+                {
+                    ["name"] = name,
+                    ["arguments"] = JsonSerializer.Deserialize<Dictionary<string, object>>(argumentsJson, _JsonOptions) ?? new Dictionary<string, object>()
+                };
+                JsonDocument document = await SendAsync("tools/call", parameters, token).ConfigureAwait(false);
+                using (document)
+                {
+                    JsonElement root = document.RootElement;
+                    if (root.TryGetProperty("error", out JsonElement error))
+                    {
+                        string message = error.TryGetProperty("message", out JsonElement m) && m.ValueKind == JsonValueKind.String ? m.GetString() ?? String.Empty : String.Empty;
+                        return new ToolResult { Refused = true, Text = message };
+                    }
+
+                    StringBuilder text = new StringBuilder();
+                    if (root.TryGetProperty("result", out JsonElement result)
+                        && result.TryGetProperty("content", out JsonElement content)
+                        && content.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (JsonElement block in content.EnumerateArray())
+                        {
+                            if (block.TryGetProperty("text", out JsonElement blockText) && blockText.ValueKind == JsonValueKind.String)
+                            {
+                                if (text.Length > 0) text.Append('\n');
+                                text.Append(blockText.GetString());
+                            }
+                        }
+                    }
+                    return new ToolResult { Refused = false, Text = text.ToString() };
+                }
+            }
+
+            private async Task<JsonDocument> SendAsync(string method, object parameters, CancellationToken token)
+            {
+                Dictionary<string, object> payload = new Dictionary<string, object>
+                {
+                    ["jsonrpc"] = "2.0",
+                    ["id"] = System.Threading.Interlocked.Increment(ref _RpcId),
+                    ["method"] = method,
+                    ["params"] = parameters
+                };
+
+                using (HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, _Endpoint))
+                {
+                    request.Content = new StringContent(JsonSerializer.Serialize(payload, _JsonOptions), Encoding.UTF8, "application/json");
+                    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                    request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/event-stream"));
+                    if (!String.IsNullOrEmpty(_SessionId)) request.Headers.TryAddWithoutValidation("Mcp-Session-Id", _SessionId);
+
+                    using (HttpResponseMessage response = await _Http.SendAsync(request, token).ConfigureAwait(false))
+                    {
+                        string body = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+                        if (!response.IsSuccessStatusCode)
+                            throw new ProbeHttpException((int)response.StatusCode);
+
+                        if (response.Headers.TryGetValues("Mcp-Session-Id", out IEnumerable<string>? values))
+                        {
+                            foreach (string value in values)
+                            {
+                                if (!String.IsNullOrWhiteSpace(value)) { _SessionId = value; break; }
+                            }
+                        }
+
+                        string json = ExtractEnvelope(body) ?? throw new ProbeHttpException(0);
+                        return JsonDocument.Parse(json);
+                    }
+                }
+            }
+
+            private static string? ExtractEnvelope(string body)
+            {
+                if (String.IsNullOrWhiteSpace(body)) return null;
+                string trimmed = body.Trim();
+                if (trimmed.StartsWith("{", StringComparison.Ordinal)) return trimmed;
+                foreach (string rawLine in body.Split('\n'))
+                {
+                    string line = rawLine.Trim();
+                    if (!line.StartsWith("data:", StringComparison.Ordinal)) continue;
+                    string data = line.Substring(5).Trim();
+                    if (data.StartsWith("{", StringComparison.Ordinal)) return data;
+                }
+                return null;
+            }
+
+            public void Dispose()
+            {
+                if (_Disposed) return;
+                _Disposed = true;
+                _Http.Dispose();
+            }
+
+            /// <summary>The result of a probe tool call.</summary>
+            public sealed class ToolResult
+            {
+                /// <summary>True when the server refused the call with a JSON-RPC error.</summary>
+                public bool Refused { get; set; }
+
+                /// <summary>The concatenated text content, or the refusal message.</summary>
+                public string Text { get; set; } = String.Empty;
+            }
+
+            /// <summary>A non-success HTTP status from the MCP endpoint (for example a 401 refusal).</summary>
+            public sealed class ProbeHttpException : Exception
+            {
+                /// <summary>Instantiate.</summary>
+                /// <param name="statusCode">The HTTP status code.</param>
+                public ProbeHttpException(int statusCode) : base("MCP probe HTTP " + statusCode)
+                {
+                    StatusCode = statusCode;
+                }
+
+                /// <summary>The HTTP status code.</summary>
+                public int StatusCode { get; }
             }
         }
 

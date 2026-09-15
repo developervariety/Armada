@@ -30,17 +30,53 @@ namespace Armada.Core.Services
         /// Authorization header value for Claude Code and Gemini, which expand ${NAME} from the
         /// process environment. The launch credential itself is never written into a file.
         /// </summary>
-        public static readonly string AuthorizationForDollarBraceExpansion = "Bearer ${" + McpLaunchCredential.EnvironmentVariable + "}";
+        public static readonly string AuthorizationForDollarBraceExpansion = AuthorizationDollarBrace(McpLaunchCredential.EnvironmentVariable);
 
         /// <summary>
         /// Authorization header value for Cursor, which expands ${env:NAME} from the process environment.
         /// </summary>
-        public static readonly string AuthorizationForCursorExpansion = "Bearer ${env:" + McpLaunchCredential.EnvironmentVariable + "}";
+        public static readonly string AuthorizationForCursorExpansion = AuthorizationCursor(McpLaunchCredential.EnvironmentVariable);
 
         /// <summary>
         /// Authorization header value for OpenCode, which expands {env:NAME} from the process environment.
         /// </summary>
-        public static readonly string AuthorizationForOpenCodeExpansion = "Bearer {env:" + McpLaunchCredential.EnvironmentVariable + "}";
+        public static readonly string AuthorizationForOpenCodeExpansion = AuthorizationOpenCode(McpLaunchCredential.EnvironmentVariable);
+
+        /// <summary>
+        /// Authorization header value for Claude Code and Gemini, referencing the given environment variable
+        /// with ${NAME} expansion. The credential value is referenced by name, never written into a file.
+        /// </summary>
+        /// <param name="environmentVariable">Environment variable name that carries the credential.</param>
+        /// <returns>The Authorization header value.</returns>
+        public static string AuthorizationDollarBrace(string environmentVariable)
+        {
+            if (String.IsNullOrWhiteSpace(environmentVariable)) throw new ArgumentNullException(nameof(environmentVariable));
+            return "Bearer ${" + environmentVariable + "}";
+        }
+
+        /// <summary>
+        /// Authorization header value for Cursor, referencing the given environment variable with
+        /// ${env:NAME} expansion.
+        /// </summary>
+        /// <param name="environmentVariable">Environment variable name that carries the credential.</param>
+        /// <returns>The Authorization header value.</returns>
+        public static string AuthorizationCursor(string environmentVariable)
+        {
+            if (String.IsNullOrWhiteSpace(environmentVariable)) throw new ArgumentNullException(nameof(environmentVariable));
+            return "Bearer ${env:" + environmentVariable + "}";
+        }
+
+        /// <summary>
+        /// Authorization header value for OpenCode, referencing the given environment variable with
+        /// {env:NAME} expansion.
+        /// </summary>
+        /// <param name="environmentVariable">Environment variable name that carries the credential.</param>
+        /// <returns>The Authorization header value.</returns>
+        public static string AuthorizationOpenCode(string environmentVariable)
+        {
+            if (String.IsNullOrWhiteSpace(environmentVariable)) throw new ArgumentNullException(nameof(environmentVariable));
+            return "Bearer {env:" + environmentVariable + "}";
+        }
 
         /// <summary>
         /// Build the keyed "mcpServers" document used by Claude Code, Gemini, and Cursor. The Armada
@@ -97,8 +133,22 @@ namespace Armada.Core.Services
         /// <returns>An indented JSON document string.</returns>
         public static string BuildMuxServersJson(int mcpPort)
         {
+            return BuildMuxServersJson(mcpPort, McpLaunchCredential.EnvironmentVariable);
+        }
+
+        /// <summary>
+        /// Build the "servers" array document used by Mux, referencing the given environment variable in the
+        /// bearer token so the credential value is never written into the file.
+        /// </summary>
+        /// <param name="mcpPort">The Admiral MCP port.</param>
+        /// <param name="environmentVariable">Environment variable name that carries the credential.</param>
+        /// <returns>An indented JSON document string.</returns>
+        public static string BuildMuxServersJson(int mcpPort, string environmentVariable)
+        {
+            if (String.IsNullOrWhiteSpace(environmentVariable)) throw new ArgumentNullException(nameof(environmentVariable));
+
             // Mux sends an HTTP server's credential from its auth object and expands ${NAME} in the token,
-            // so the launch credential is referenced by variable name and never written into the file.
+            // so the credential is referenced by variable name and never written into the file.
             JsonObject server = new JsonObject
             {
                 ["name"] = "armada",
@@ -108,7 +158,7 @@ namespace Armada.Core.Services
                 ["auth"] = new JsonObject
                 {
                     ["scheme"] = "bearer_token",
-                    ["token"] = "${" + McpLaunchCredential.EnvironmentVariable + "}",
+                    ["token"] = "${" + environmentVariable + "}",
                 },
             };
             JsonObject root = new JsonObject
