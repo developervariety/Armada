@@ -209,9 +209,7 @@ Built-in personas:
 - `Recorder`
 
 Specialist reviewer personas (`DiagnosticProtocolReviewer`,
-`TenantSecurityReviewer`, `MigrationDataReviewer`,
-`PerformanceMemoryReviewer`, `PortingReferenceAnalyst`,
-`FrontendWorkflowReviewer`) are not built in. Seed them from
+`TenantSecurityReviewer`, `PortingReferenceAnalyst`) are not built in. Seed them from
 `additionalPersonas` and `additionalPromptTemplates` in settings (see
 `factory/settings.fleet.example.json`). They are also editable on the
 Dashboard Settings page. They load at startup.

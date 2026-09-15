@@ -21,10 +21,7 @@ Armada seeds 13 built-in personas on startup:
 | `TestEngineer` | Add or update tests and verify behavior. |
 | `DiagnosticProtocolReviewer` | Review binary protocols and hardware-risk paths. |
 | `TenantSecurityReviewer` | Review authentication, authorization, isolation, and secrets. |
-| `MigrationDataReviewer` | Review migrations, provider parity, rollback, and data safety. |
-| `PerformanceMemoryReviewer` | Review allocations, lifetime, throughput, and retained data. |
 | `PortingReferenceAnalyst` | Compare approved references and parity evidence. |
-| `FrontendWorkflowReviewer` | Review frontend workflow, accessibility, i18n, and responsive states. |
 | `Recorder` | Review the finished work of a voyage and record what is worth remembering into native captain memory. Writes memory only; never changes the repository or shared memory. |
 
 The seed service reconciles built-in definitions. Built-in personas cannot be
