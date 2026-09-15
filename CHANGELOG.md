@@ -43,6 +43,10 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   Its generated instruction sections are deliberate.
 - The unused planning-session inactivity default constant (60 minutes) is
   removed. The effective default stays 0, which disables the timeout.
+- The shared case record lists 40 named skips, 34 duplicate records and 6
+  intentional fork differences, and no case awaits an owner decision. The
+  MCP vessel token override, WebSocket mission summary and requested-captain
+  assignment cases now run and pass.
 ### Assignment honours the requested captain and its fallback tier
 
 - A mission's requested captain now decides assignment. The requested captain
