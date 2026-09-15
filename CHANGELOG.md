@@ -154,6 +154,12 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - The chatroom ignores a slow read for a room the operator has left, shows the
   recipient of a directed note, and says when it shows only the newest 200
   notes.
+- The Docks list loads every dock, so its sorting, filters, pages and record
+  count cover all docks. Captain and vessel names refresh with the list. Dock
+  detail refreshes and shows "not found" for a dock that does not exist.
+- Fleet detail reads the fleet by id, refreshes, and shows "not found" for a
+  fleet that does not exist. A fleet edit sends the default playbooks back, so
+  the update keeps them.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 

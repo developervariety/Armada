@@ -18,6 +18,7 @@ import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildFleetDuplicatePayload } from '../lib/duplicates';
 import { useResourceTable } from '../lib/useResourceTable';
+import { buildFleetUpdatePayload } from '../lib/fleetPayload';
 
 interface FleetWithCount extends Fleet {
   _vesselCount: number;
@@ -110,10 +111,14 @@ export default function Fleets() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     try {
-      const payload: Record<string, unknown> = { ...form };
-      if (!payload.defaultPipelineId) delete payload.defaultPipelineId;
-      if (editing) await updateFleet(editing.id, payload);
-      else await createFleet(payload);
+      if (editing) {
+        // A full PUT replaces the record; keep the fields this form does not show.
+        await updateFleet(editing.id, buildFleetUpdatePayload(editing, form));
+      } else {
+        const payload: Record<string, unknown> = { ...form };
+        if (!payload.defaultPipelineId) delete payload.defaultPipelineId;
+        await createFleet(payload);
+      }
       setShowForm(false);
       pushToast('success', editing
         ? t('Fleet "{{name}}" saved.', { name: form.name })

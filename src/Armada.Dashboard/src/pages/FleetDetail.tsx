@@ -1,7 +1,11 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
-import { listFleets, listVessels, listPipelines, createFleet, updateFleet, deleteFleet } from '../api/client';
+import { getFleet, listVessels, listPipelines, createFleet, updateFleet, deleteFleet } from '../api/client';
 import type { Fleet, Vessel, Pipeline } from '../types/models';
+import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { buildFleetUpdatePayload } from '../lib/fleetPayload';
 import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
@@ -33,26 +37,39 @@ export default function FleetDetail() {
   // Confirm
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
+  const [notFound, setNotFound] = useState(false);
+  const loadedRef = useRef(false);
+
+  // The fleet is read by id; searching a listed page misses any fleet past the page limit.
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      setLoading(true);
-      const isInitialLoad = !fleet;
-      const [fResult, vResult, pResult] = await Promise.all([listFleets({ pageSize: 9999 }), listVessels({ pageSize: 9999 }), listPipelines({ pageSize: 9999 })]);
-      const found = fResult.objects.find((fleetItem) => fleetItem.id === id);
-      if (!found) { setError(t('Fleet not found.')); setLoading(false); return; }
+      // Only the first read shows the loading state; a refresh keeps the page on screen.
+      if (!loadedRef.current) setLoading(true);
+      const [found, vResult, pResult] = await Promise.all([
+        getFleet(id),
+        listVessels({ pageSize: 1000, filters: { fleetId: id } }),
+        listPipelines({ pageSize: 1000 }),
+      ]);
       setFleet(found);
-      setVessels(vResult.objects.filter(v => v.fleetId === id));
-      setPipelines(pResult.objects);
-      if (isInitialLoad) setError('');
-    } catch {
-      setError(t('Failed to load fleet.'));
+      setNotFound(false);
+      setVessels((vResult.objects || []).filter(v => v.fleetId === id));
+      setPipelines(pResult.objects || []);
+      loadedRef.current = true;
+    } catch (err: unknown) {
+      if ((err as { status?: number } | null)?.status === 404) {
+        setFleet(null);
+        setNotFound(true);
+      } else {
+        setError(t('Failed to load fleet.'));
+      }
     } finally {
       setLoading(false);
     }
   }, [id, t]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadedRef.current = false; load(); }, [load]);
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('fleet-detail', () => { void load(); });
 
   function openEdit() {
     if (!fleet) return;
@@ -64,7 +81,7 @@ export default function FleetDetail() {
     e.preventDefault();
     if (!fleet) return;
     try {
-      await updateFleet(fleet.id, form);
+      await updateFleet(fleet.id, buildFleetUpdatePayload(fleet, form));
       setShowForm(false);
       pushToast('success', t('Fleet "{{name}}" saved.', { name: form.name }));
       load();
@@ -99,7 +116,8 @@ export default function FleetDetail() {
     }
   }
 
-  if (loading) return <p className="text-dim">{t('Loading...')}</p>;
+  if (loading && !fleet) return <p className="text-dim">{t('Loading...')}</p>;
+  if (notFound) return <p className="text-dim">{t('Fleet not found.')} <Link to="/fleets">{t('Back to Fleets')}</Link></p>;
   if (error && !fleet) return <ErrorModal error={error} onClose={() => setError('')} />;
   if (!fleet) return <p className="text-dim">{t('Fleet not found.')}</p>;
 
@@ -114,6 +132,8 @@ export default function FleetDetail() {
         title={fleet.name}
         actions={
           <>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+            <RefreshButton onRefresh={load} title="Refresh fleet" />
             <ActionMenu id={`fleet-${fleet.id}`} items={[
               { label: 'Edit', onClick: openEdit },
               { label: 'Duplicate', onClick: () => void handleDuplicate() },

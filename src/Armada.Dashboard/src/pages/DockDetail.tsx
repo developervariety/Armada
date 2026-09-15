@@ -12,6 +12,9 @@ import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
 import DockGitAnchorPanel from '../components/shared/DockGitAnchorPanel';
+import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 
@@ -40,12 +43,29 @@ export default function DockDetail() {
     return v?.name || vesselId;
   }, [vessels, t]);
 
-  useEffect(() => {
+  const [notFound, setNotFound] = useState(false);
+
+  const load = useCallback(async () => {
     if (!id) return;
-    getDock(id).then(setDock).catch(() => setError(t('Failed to load dock.')));
+    try {
+      const result = await getDock(id);
+      setDock(result);
+      setNotFound(false);
+    } catch (err: unknown) {
+      // A 404 means the dock was reclaimed or never existed; say so instead of a generic failure.
+      if ((err as { status?: number } | null)?.status === 404) {
+        setDock(null);
+        setNotFound(true);
+      } else {
+        setError(t('Failed to load dock.'));
+      }
+    }
     listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
     listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
   }, [id, t]);
+
+  useEffect(() => { void load(); }, [load]);
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('dock-detail', () => { void load(); });
 
   function handleDelete() {
     setConfirmAction({
@@ -62,6 +82,15 @@ export default function DockDetail() {
         }
       }
     });
+  }
+
+  if (notFound) {
+    return (
+      <div>
+        <p className="text-muted">{t('Dock not found.')}</p>
+        <button className="btn-sm" onClick={() => navigate('/docks')}>&larr; {t('Back to Docks')}</button>
+      </div>
+    );
   }
 
   if (error && !dock) {
@@ -88,7 +117,9 @@ export default function DockDetail() {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <h2>{t('Dock Details')}</h2>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+          <RefreshButton onRefresh={load} title="Refresh dock" />
           <button className="btn-sm" onClick={() => setJsonView({ title: t('Dock: {{id}}', { id: dock.id }), data: dock })}>{t('View JSON')}</button>
           <button className="btn-sm btn-danger" onClick={handleDelete}>{t('Delete')}</button>
         </div>

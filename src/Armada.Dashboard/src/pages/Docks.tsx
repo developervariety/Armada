@@ -27,12 +27,6 @@ export default function Docks() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Pagination (server-side)
-  const [pageNumber, setPageNumber] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalRecords, setTotalRecords] = useState(0);
-
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
 
@@ -68,13 +62,13 @@ export default function Docks() {
     return v?.name || id.substring(0, 8);
   }, [vessels]);
 
+  // Sorting, column filters and pagination run in the table over the whole set, so the page loads
+  // every dock (the server caps a page at 1000) instead of one server page.
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const result = await listDocks({ pageNumber, pageSize });
+      const result = await listDocks({ pageSize: 1000 });
       setDocks(result.objects || []);
-      setTotalPages(result.totalPages || 1);
-      setTotalRecords(result.totalRecords || 0);
       table.setSelected([]);
       setError('');
     } catch {
@@ -82,15 +76,13 @@ export default function Docks() {
     } finally {
       setLoading(false);
     }
-  }, [pageNumber, pageSize, t]);
+    // Captain and vessel names are refreshed with the docks so new records resolve by name.
+    listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
+    listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
+  }, [t]);
 
   useEffect(() => { load(); }, [load]);
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('docks', load);
-
-  useEffect(() => {
-    listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
-    listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
-  }, []);
 
   // Delete
   function handleDelete(id: string) {
@@ -170,9 +162,9 @@ export default function Docks() {
 
       {docks.length > 0 && (
         <>
-          <Pagination pageNumber={pageNumber} pageSize={pageSize} totalPages={totalPages}
-            totalRecords={totalRecords}
-            onPageChange={p => setPageNumber(p)} onPageSizeChange={s => { setPageSize(s); setPageNumber(1); }} />
+          <Pagination pageNumber={table.currentPage} pageSize={table.pageSize} totalPages={table.totalPages}
+            totalRecords={table.sorted.length}
+            onPageChange={p => table.setPageNumber(p)} onPageSizeChange={s => { table.setPageSize(s); table.setPageNumber(1); }} />
 
           <div className="table-wrap">
             <table>
@@ -209,7 +201,7 @@ export default function Docks() {
                 </tr>
               </thead>
               <tbody>
-                {table.sorted.map(d => (
+                {table.paginated.map(d => (
                   <tr key={d.id} className="clickable" onClick={() => setViewRecord(d as unknown as Record<string, unknown>)}>
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
                       <input type="checkbox" checked={table.selected.includes(d.id)} onChange={() => table.toggleSelect(d.id)} title={t('Select this dock')} />
