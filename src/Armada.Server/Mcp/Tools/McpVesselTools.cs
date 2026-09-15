@@ -66,7 +66,7 @@ namespace Armada.Server.Mcp.Tools
                         defaultBranch = new { type = "string", description = "Default branch name (defaults to main)" },
                         projectContext = new { type = "string", description = "Project context describing architecture, key files, and dependencies" },
                         styleGuide = new { type = "string", description = "Style guide describing naming conventions, patterns, and library preferences" },
-                        workingDirectory = new { type = "string", description = "Optional local directory where completed mission changes will be pulled after merge" },
+                        workingDirectory = new { type = "string", description = "Optional local directory where completed mission changes will be pulled after merge. When omitted and repoUrl is a local clone (a file:// URL or an existing local git path), it is set to that clone." },
                         allowConcurrentMissions = new { type = "boolean", description = "Allow multiple concurrent missions on this vessel (default false)" },
                         enableModelContext = new { type = "boolean", description = "Enable model context injection into mission briefs (default true)" },
                         defaultPipelineId = new { type = "string", description = "Default pipeline ID for dispatches to this vessel (ppl_ prefix)" },
@@ -193,6 +193,14 @@ namespace Armada.Server.Mcp.Tools
                     vessel.ProjectContext = request.ProjectContext;
                     vessel.StyleGuide = request.StyleGuide;
                     vessel.WorkingDirectory = request.WorkingDirectory;
+                    // A repository that is already a local clone is the working directory when none is named, so
+                    // the vessel is usable at once. LocalPath stays unset: it names the managed bare repository,
+                    // which vessel removal deletes, and must never point at the operator's own clone.
+                    if (String.IsNullOrWhiteSpace(vessel.WorkingDirectory))
+                    {
+                        string? localClone = ResolveLocalClonePath(request.RepoUrl);
+                        if (localClone != null) vessel.WorkingDirectory = localClone;
+                    }
                     vessel.AllowConcurrentMissions = request.AllowConcurrentMissions ?? false;
                     vessel.EnableModelContext = request.EnableModelContext ?? true;
                     vessel.DefaultPipelineId = request.DefaultPipelineId;
@@ -682,6 +690,51 @@ namespace Armada.Server.Mcp.Tools
                     return (BranchCleanupPolicyEnum)Enum.Parse(typeof(BranchCleanupPolicyEnum), name);
             }
             return null;
+        }
+
+        /// <summary>
+        /// The local clone a repository URL names, or null. A <c>file://</c> URL or a rooted filesystem path names a
+        /// local clone when it is an existing directory holding a <c>.git</c> entry, or a bare repository directory
+        /// holding <c>HEAD</c> and <c>hooks</c>. Every other value, including a remote URL, returns null.
+        /// </summary>
+        /// <param name="repoUrl">Repository URL from the request.</param>
+        /// <returns>The full path of the local clone, or null.</returns>
+        internal static string? ResolveLocalClonePath(string? repoUrl)
+        {
+            if (String.IsNullOrWhiteSpace(repoUrl)) return null;
+
+            string candidate;
+            if (repoUrl.StartsWith("file://", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!Uri.TryCreate(repoUrl, UriKind.Absolute, out Uri? uri) || !uri.IsFile) return null;
+                candidate = uri.LocalPath;
+            }
+            else if (Path.IsPathRooted(repoUrl))
+            {
+                candidate = repoUrl;
+            }
+            else
+            {
+                return null;
+            }
+
+            if (String.IsNullOrWhiteSpace(candidate)) return null;
+
+            string fullPath;
+            try
+            {
+                fullPath = Path.GetFullPath(candidate);
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+            {
+                return null;
+            }
+
+            if (!Directory.Exists(fullPath)) return null;
+
+            bool isWorkingClone = Directory.Exists(Path.Combine(fullPath, ".git")) || File.Exists(Path.Combine(fullPath, ".git"));
+            bool isBareRepository = File.Exists(Path.Combine(fullPath, "HEAD")) && Directory.Exists(Path.Combine(fullPath, "hooks"));
+            return isWorkingClone || isBareRepository ? fullPath : null;
         }
 
         /// <summary>

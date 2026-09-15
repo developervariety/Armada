@@ -145,6 +145,43 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("AddVessel_LocalCloneRepoUrl_SetsWorkingDirectoryToTheClone", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Func<JsonElement?, Task<object>> add = CaptureRawHandler(testDb, "armada_add_vessel");
+                    Fleet cloneFleet = await testDb.Driver.Fleets.CreateAsync(new Fleet("local-clone-fleet")).ConfigureAwait(false);
+                    string clone = Path.Combine(Path.GetTempPath(), "armada-local-clone-" + Guid.NewGuid().ToString("N"));
+                    string plainDirectory = Path.Combine(Path.GetTempPath(), "armada-not-a-clone-" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(Path.Combine(clone, ".git"));
+                    Directory.CreateDirectory(plainDirectory);
+                    try
+                    {
+                        Vessel byPath = (Vessel)await CallAsAsync(add, McpTestCaller.Operator, new { name = "local-path", repoUrl = clone, fleetId = cloneFleet.Id }).ConfigureAwait(false);
+                        AssertEqual(Path.GetFullPath(clone), byPath.WorkingDirectory, "a local clone path becomes the working directory");
+                        AssertNull(byPath.LocalPath, "the clone is never recorded as the managed bare repository, which vessel removal deletes");
+
+                        Vessel byFileUrl = (Vessel)await CallAsAsync(add, McpTestCaller.Operator, new { name = "local-file-url", repoUrl = new Uri(clone).AbsoluteUri, fleetId = cloneFleet.Id }).ConfigureAwait(false);
+                        AssertEqual(Path.GetFullPath(clone), byFileUrl.WorkingDirectory, "a file URL to a local clone becomes the working directory");
+
+                        string explicitDirectory = Path.Combine(Path.GetTempPath(), "armada-explicit-" + Guid.NewGuid().ToString("N"));
+                        Vessel byExplicit = (Vessel)await CallAsAsync(add, McpTestCaller.Operator, new { name = "local-explicit", repoUrl = clone, workingDirectory = explicitDirectory, fleetId = cloneFleet.Id }).ConfigureAwait(false);
+                        AssertEqual(explicitDirectory, byExplicit.WorkingDirectory, "an explicit working directory wins");
+
+                        Vessel remote = (Vessel)await CallAsAsync(add, McpTestCaller.Operator, new { name = "remote", repoUrl = "https://github.com/test/remote.git", fleetId = cloneFleet.Id }).ConfigureAwait(false);
+                        AssertNull(remote.WorkingDirectory, "a remote repository gets no working directory");
+
+                        Vessel notClone = (Vessel)await CallAsAsync(add, McpTestCaller.Operator, new { name = "not-a-clone", repoUrl = plainDirectory, fleetId = cloneFleet.Id }).ConfigureAwait(false);
+                        AssertNull(notClone.WorkingDirectory, "a local directory that is not a git repository gets no working directory");
+                    }
+                    finally
+                    {
+                        Directory.Delete(clone, true);
+                        Directory.Delete(plainDirectory, true);
+                    }
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("UpdateVessel_OmittedGitHubTokenOverride_KeepsStoredValue", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

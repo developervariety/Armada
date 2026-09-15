@@ -172,7 +172,7 @@ namespace Armada.Server
                 if (!SelfDeployRehearsal.IsAuthorized())
                 {
                     string denied = "[Program] self-deploy rehearsal refused: set " + SelfDeployRehearsal.GateVariable + "="
-                        + SelfDeployRehearsal.GateValue + " and " + Constants.DataDirectoryOverrideVariable
+                        + SelfDeployRehearsal.GateValue + " and " + Constants.DataDirectoryOverrideVariable + " (or " + Constants.DataDirectoryAliasVariable + ")"
                         + " to a disposable data directory.";
                     Console.Error.WriteLine(denied);
                     Environment.ExitCode = 2;

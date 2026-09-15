@@ -85,6 +85,10 @@ per-tenant playbook name rule match REST exactly.
 Ask chat uses upstream's honest system prompt. The fork seeds it as the
 built-in `ask.system` template, which it previously resolved but never seeded.
 
+The fork accepts upstream's `ARMADA_DATA_DIR` as an alias of its own
+`ARMADA_DATA_DIRECTORY`, which wins when both are set. `armada_add_vessel`
+gives a local-clone repository its working directory, as upstream does.
+
 Features first developed in the fork now also exist upstream: boundary
 scanning, auto-land, quarantine, model tiers, OpenCode, no-op handling,
 reasoning effort, mission modes, acceptance gates, recovery, stage hardening,

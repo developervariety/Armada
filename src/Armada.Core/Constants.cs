@@ -35,6 +35,14 @@ namespace Armada.Core
         public const string DataDirectoryOverrideVariable = "ARMADA_DATA_DIRECTORY";
 
         /// <summary>
+        /// Alias of <see cref="DataDirectoryOverrideVariable"/>, accepted so a deployment configured with the
+        /// shorter name relocates the whole data directory the same way. When both are set to non-empty values,
+        /// <see cref="DataDirectoryOverrideVariable"/> wins, so a test or rehearsal redirect still isolates a
+        /// process whose environment also carries the alias.
+        /// </summary>
+        public const string DataDirectoryAliasVariable = "ARMADA_DATA_DIR";
+
+        /// <summary>
         /// Default data directory. Resolved once at type initialization, so a process that means to
         /// override it must set <see cref="DataDirectoryOverrideVariable"/> before touching this type.
         /// </summary>
@@ -480,10 +488,27 @@ namespace Armada.Core
 
         #region Private-Methods
 
+        /// <summary>
+        /// The data directory the environment names, or null when neither variable is set.
+        /// <see cref="DataDirectoryOverrideVariable"/> is read first; <see cref="DataDirectoryAliasVariable"/>
+        /// applies only when the first is unset or empty.
+        /// </summary>
+        /// <returns>The overriding data directory, or null.</returns>
+        public static string? ReadDataDirectoryOverride()
+        {
+            string? primary = Environment.GetEnvironmentVariable(DataDirectoryOverrideVariable);
+            if (!String.IsNullOrWhiteSpace(primary)) return primary;
+
+            string? alias = Environment.GetEnvironmentVariable(DataDirectoryAliasVariable);
+            if (!String.IsNullOrWhiteSpace(alias)) return alias;
+
+            return null;
+        }
+
         private static string ResolveDefaultDataDirectory()
         {
-            string? overridePath = Environment.GetEnvironmentVariable(DataDirectoryOverrideVariable);
-            if (!String.IsNullOrWhiteSpace(overridePath)) return overridePath;
+            string? overridePath = ReadDataDirectoryOverride();
+            if (overridePath != null) return overridePath;
 
             return Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),

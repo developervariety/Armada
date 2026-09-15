@@ -143,6 +143,14 @@ services:
 | `docker/proxy/data/` | `/app/data/` | Proxy state files |
 | `docker/proxy/logs/` | `/app/data/logs/` | Proxy log files |
 
+### Data Directory Variable
+
+`ARMADA_DATA_DIRECTORY` relocates the whole default data directory: settings,
+database, logs, docks and repositories. `ARMADA_DATA_DIR` is an alias. When
+both are set to non-empty values, `ARMADA_DATA_DIRECTORY` wins. With neither
+set, the default is `~/.armada`. Values in `armada.json` still override the
+paths derived from it.
+
 ### Server Configuration
 
 Edit `docker/armada/armada.json` to customize:

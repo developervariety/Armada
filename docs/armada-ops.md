@@ -1620,7 +1620,7 @@ Each scenario gets its own private data directory, database copy and free
 ports. The script starts the rollback binary with
 `--self-deploy-rehearse <candidate dll>`. That mode is refused unless
 `ARMADA_SELF_DEPLOY_REHEARSAL=isolated-disposable` and `ARMADA_DATA_DIRECTORY`
-are both set. It runs the real cutover (container check, rollback capture,
+(or its alias `ARMADA_DATA_DIR`) are both set. It runs the real cutover (container check, rollback capture,
 native preflight, candidate capture, retention, restart record and supervisor
 handshake) and skips only the git sync and the Release build. The script
 requires `dotnet`, `python3` and `curl`.

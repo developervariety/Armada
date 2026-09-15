@@ -483,6 +483,14 @@ it, so `""` clears the override rather than leaving it unchanged.
 
 Both tools run as the authenticated caller. `armada_add_vessel` records the
 caller's tenant and user as the vessel owner, as a REST create does.
+
+When `armada_add_vessel` gets no `workingDirectory` and `repoUrl` is a local
+clone, the clone becomes the vessel's `WorkingDirectory`. A local clone is a
+`file://` URL or a rooted path to an existing directory that holds a `.git`
+entry, or a bare repository directory with `HEAD` and `hooks`. `LocalPath` is
+not set, because vessel removal deletes that directory. A remote URL, a
+relative path and a directory that is not a repository leave
+`WorkingDirectory` empty.
 `armada_update_vessel` returns `Vessel not found` for a vessel the caller may not
 change and writes nothing to it, the token override included.
 

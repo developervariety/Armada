@@ -57,6 +57,17 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - An operator who already created an `ask.system` template keeps its content;
   seeding only marks it built-in, so **Reset** restores the new default.
 
+### Data directory alias and local-clone vessels
+
+- `ARMADA_DATA_DIR` is accepted as an alias of `ARMADA_DATA_DIRECTORY`. When
+  both are set to non-empty values, `ARMADA_DATA_DIRECTORY` wins, so a test or
+  rehearsal redirect still isolates a process that also carries the alias. The
+  self-deploy rehearsal gate accepts either variable.
+- `armada_add_vessel` sets `WorkingDirectory` to the repository when `repoUrl`
+  is a local clone (a `file://` URL or a rooted path to a directory with a
+  `.git` entry, or a bare repository) and no `workingDirectory` is given.
+  `LocalPath` stays unset, because vessel removal deletes that directory.
+
 ### Incident lifecycle sweep reaches every open incident
 
 - The incident lifecycle sweep now reads only non-terminal incidents. It no

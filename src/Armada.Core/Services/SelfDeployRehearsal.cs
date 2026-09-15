@@ -37,7 +37,7 @@ namespace Armada.Core.Services
         public static bool IsAuthorized()
         {
             return String.Equals(Environment.GetEnvironmentVariable(GateVariable), GateValue, StringComparison.Ordinal)
-                && !String.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(Constants.DataDirectoryOverrideVariable));
+                && Constants.ReadDataDirectoryOverride() != null;
         }
 
         /// <summary>

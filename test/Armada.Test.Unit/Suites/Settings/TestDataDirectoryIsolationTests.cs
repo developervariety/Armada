@@ -66,6 +66,35 @@ namespace Armada.Test.Unit.Suites.Settings
                 AssertNotNull(current, "override variable value");
                 AssertEqual(TestDataDirectory.Root, current, "override points at the temp root");
             }).ConfigureAwait(false);
+
+            // ARMADA_DATA_DIR is accepted as an alias. ARMADA_DATA_DIRECTORY wins when both are set, so the
+            // test redirect still isolates a run whose shell also exports the alias.
+            await RunTest("ARMADA_DATA_DIR relocates the default data directory, and ARMADA_DATA_DIRECTORY wins over it", () =>
+            {
+                System.Reflection.MethodInfo resolve = typeof(Constants).GetMethod(
+                    "ResolveDefaultDataDirectory",
+                    System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+                AssertNotNull(resolve, "the default data directory resolver");
+
+                string? savedPrimary = Environment.GetEnvironmentVariable("ARMADA_DATA_DIRECTORY");
+                string? savedAlias = Environment.GetEnvironmentVariable("ARMADA_DATA_DIR");
+                string aliasPath = Path.Combine(Path.GetTempPath(), "armada-alias-" + Guid.NewGuid().ToString("N"));
+                string primaryPath = Path.Combine(Path.GetTempPath(), "armada-primary-" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    Environment.SetEnvironmentVariable("ARMADA_DATA_DIRECTORY", null);
+                    Environment.SetEnvironmentVariable("ARMADA_DATA_DIR", aliasPath);
+                    AssertEqual(aliasPath, (string)resolve.Invoke(null, null)!, "the alias alone sets the data directory");
+
+                    Environment.SetEnvironmentVariable("ARMADA_DATA_DIRECTORY", primaryPath);
+                    AssertEqual(primaryPath, (string)resolve.Invoke(null, null)!, "ARMADA_DATA_DIRECTORY wins when both are set");
+                }
+                finally
+                {
+                    Environment.SetEnvironmentVariable("ARMADA_DATA_DIRECTORY", savedPrimary);
+                    Environment.SetEnvironmentVariable("ARMADA_DATA_DIR", savedAlias);
+                }
+            }).ConfigureAwait(false);
         }
     }
 }
