@@ -186,6 +186,9 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   offers the newer copy. It shows a refinement summary the server announces,
   reloads the item when a summary is applied, and says when the item was
   deleted. Its parent and blocked-by pickers list every backlog item.
+- The Runbooks list takes execution totals and per-runbook counts from the
+  server, not from the first 500 executions. Runbook detail shows its
+  execution total and says when it lists only the newest executions.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 

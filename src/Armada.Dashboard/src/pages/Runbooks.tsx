@@ -31,6 +31,7 @@ import StatusBadge from '../components/shared/StatusBadge';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { buildRunbookDuplicatePayload } from '../lib/duplicates';
+import { listAllPages } from '../lib/listAllPages';
 
 const RUNBOOK_CHECK_TYPES: CheckRunType[] = [
   'Build',
@@ -61,7 +62,9 @@ export default function Runbooks() {
   const { pushToast } = useNotifications();
 
   const [runbooks, setRunbooks] = useState<Runbook[]>([]);
-  const [executions, setExecutions] = useState<RunbookExecution[]>([]);
+  // Execution totals are server totals: a page holds at most 500 executions, so counting a page undercounts.
+  const [executionTotals, setExecutionTotals] = useState<{ total: number; running: number }>({ total: 0, running: 0 });
+  const [executionCounts, setExecutionCounts] = useState<Map<string, { total: number; running: number }>>(new Map());
   const [profiles, setProfiles] = useState<WorkflowProfile[]>([]);
   const [environments, setEnvironments] = useState<DeploymentEnvironment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -147,14 +150,25 @@ export default function Runbooks() {
   async function load() {
     try {
       setLoading(true);
-      const [runbookResult, executionResult, profileResult, environmentResult] = await Promise.all([
-        listRunbooks({ pageSize: 9999 }),
-        listRunbookExecutions({ pageSize: 9999 }),
-        listWorkflowProfiles({ pageSize: 9999 }),
-        listEnvironments({ pageSize: 9999 }),
+      const countOf = async (query: { runbookId?: string; status?: RunbookExecution['status'] }) =>
+        (await listRunbookExecutions({ ...query, pageSize: 1 })).totalRecords || 0;
+      const [allRunbooks, total, running, profileResult, environmentResult] = await Promise.all([
+        listAllPages((pageNumber) => listRunbooks({ pageNumber, pageSize: 500 })),
+        countOf({}),
+        countOf({ status: 'Running' }),
+        listWorkflowProfiles({ pageSize: 1000 }),
+        listEnvironments({ pageSize: 500 }),
       ]);
-      setRunbooks(runbookResult.objects || []);
-      setExecutions(executionResult.objects || []);
+      const perRunbook = await Promise.all(allRunbooks.map(async (runbook) => {
+        const [runbookTotal, runbookRunning] = await Promise.all([
+          countOf({ runbookId: runbook.id }),
+          countOf({ runbookId: runbook.id, status: 'Running' }),
+        ]);
+        return [runbook.id, { total: runbookTotal, running: runbookRunning }] as const;
+      }));
+      setRunbooks(allRunbooks);
+      setExecutionTotals({ total, running });
+      setExecutionCounts(new Map(perRunbook));
       setProfiles(profileResult.objects || []);
       setEnvironments(environmentResult.objects || []);
       setError('');
@@ -173,16 +187,6 @@ export default function Runbooks() {
 
   const profileMap = useMemo(() => new Map(profiles.map((profile) => [profile.id, profile.name])), [profiles]);
   const environmentMap = useMemo(() => new Map(environments.map((environment) => [environment.id, environment.name])), [environments]);
-  const executionCounts = useMemo(() => {
-    const counts = new Map<string, { total: number; running: number }>();
-    for (const execution of executions) {
-      const current = counts.get(execution.runbookId) || { total: 0, running: 0 };
-      current.total += 1;
-      if (execution.status === 'Running') current.running += 1;
-      counts.set(execution.runbookId, current);
-    }
-    return counts;
-  }, [executions]);
 
   const filtered = useMemo(() => runbooks.filter((runbook) => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -334,11 +338,11 @@ export default function Runbooks() {
         </div>
         <div className="card playbook-overview-card">
           <span>{t('Executions')}</span>
-          <strong>{executions.length}</strong>
+          <strong>{executionTotals.total}</strong>
         </div>
         <div className="card playbook-overview-card">
           <span>{t('Running')}</span>
-          <strong>{executions.filter((execution) => execution.status === 'Running').length}</strong>
+          <strong>{executionTotals.running}</strong>
         </div>
       </div>
 

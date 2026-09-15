@@ -92,6 +92,8 @@ export default function RunbookDetail() {
   const [profiles, setProfiles] = useState<WorkflowProfile[]>([]);
   const [environments, setEnvironments] = useState<DeploymentEnvironment[]>([]);
   const [executions, setExecutions] = useState<RunbookExecution[]>([]);
+  // Server total for this runbook. The list holds at most one page (500), newest first.
+  const [executionTotal, setExecutionTotal] = useState(0);
   const [fileName, setFileName] = useState('RUNBOOK.md');
   const [title, setTitle] = useState('Runbook');
   const [description, setDescription] = useState('');
@@ -129,8 +131,8 @@ export default function RunbookDetail() {
   useEffect(() => {
     let cancelled = false;
     Promise.all([
-      listWorkflowProfiles({ pageSize: 9999 }),
-      listEnvironments({ pageSize: 9999 }),
+      listWorkflowProfiles({ pageSize: 1000 }),
+      listEnvironments({ pageSize: 500 }),
     ]).then(([profileResult, environmentResult]) => {
       if (cancelled) return;
       setProfiles(profileResult.objects || []);
@@ -163,7 +165,7 @@ export default function RunbookDetail() {
         setLoading(true);
         const [runbookResult, executionResult] = await Promise.all([
           getRunbook(runbookId),
-          listRunbookExecutions({ runbookId, pageSize: 9999 }),
+          listRunbookExecutions({ runbookId, pageSize: 500 }),
         ]);
         if (!mounted) return;
         setRunbook(runbookResult);
@@ -179,6 +181,7 @@ export default function RunbookDetail() {
         setParameters(runbookResult.parameters || []);
         setSteps(runbookResult.steps || []);
         setExecutions(executionResult.objects || []);
+        setExecutionTotal(executionResult.totalRecords || (executionResult.objects || []).length);
 
         const requestedExecutionId = searchParams.get('executionId');
         const initialExecution = (executionResult.objects || []).find((execution) => execution.id === requestedExecutionId)
@@ -335,8 +338,9 @@ export default function RunbookDetail() {
         notes: executionNotes.trim() || null,
       };
       const execution = await startRunbookExecution(runbook.id, payload);
-      const refreshed = await listRunbookExecutions({ runbookId: runbook.id, pageSize: 9999 });
+      const refreshed = await listRunbookExecutions({ runbookId: runbook.id, pageSize: 500 });
       setExecutions(refreshed.objects || []);
+      setExecutionTotal(refreshed.totalRecords || (refreshed.objects || []).length);
       setSelectedExecutionId(execution.id);
       setShowStartPanel(false);
       pushToast('success', t('Execution "{{title}}" started.', { title: execution.title }));
@@ -639,7 +643,7 @@ export default function RunbookDetail() {
             <div className="detail-field"><span className="detail-label">{t('Default Check')}</span><span>{defaultCheckType || '-'}</span></div>
             <div className="detail-field"><span className="detail-label">{t('Parameters')}</span><span>{parameters.length}</span></div>
             <div className="detail-field"><span className="detail-label">{t('Steps')}</span><span>{steps.length}</span></div>
-            <div className="detail-field"><span className="detail-label">{t('Executions')}</span><span>{executions.length}</span></div>
+            <div className="detail-field"><span className="detail-label">{t('Executions')}</span><span>{executionTotal}</span></div>
             {!createMode && runbook && (
               <>
                 <div className="detail-field"><span className="detail-label">{t('Created')}</span><span>{formatDateTime(runbook.createdUtc)}</span></div>
@@ -671,6 +675,11 @@ export default function RunbookDetail() {
 
               <div className="detail-divider" />
               <h4>{t('Executions')}</h4>
+              {executionTotal > executions.length && (
+                <p className="text-dim">
+                  {t('Showing the newest {{shown}} of {{total}} executions.', { shown: executions.length, total: executionTotal })}
+                </p>
+              )}
               {executions.length === 0 ? (
                 <p className="text-dim">{t('No executions recorded yet.')}</p>
               ) : (
