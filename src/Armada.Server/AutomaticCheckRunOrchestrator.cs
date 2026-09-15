@@ -212,7 +212,7 @@ namespace Armada.Server
             return await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
         }
 
-        private async Task<CheckRun> ExecutePendingAsync(AuthContext auth, CheckRun pending, CancellationToken token)
+        internal async Task<CheckRun> ExecutePendingAsync(AuthContext auth, CheckRun pending, CancellationToken token)
         {
             pending = await StampWorkUnderReviewAsync(pending, token).ConfigureAwait(false);
 
@@ -225,8 +225,16 @@ namespace Armada.Server
 
             CheckRun result = await _CheckRuns.RunPendingAsync(auth, pending.Id, token: token).ConfigureAwait(false);
 
+            // A record that did not execute (it waits for its stamp, or was cancelled because its
+            // voyage ended unstamped) has no verdict, so it must not be reported as a failure.
+            string outcomeEvent = result.Status == CheckRunStatusEnum.Passed
+                ? "check.auto_passed"
+                : result.Status == CheckRunStatusEnum.Failed
+                    ? "check.auto_failed"
+                    : "check.auto_not_run";
+
             await WriteEventAsync(
-                result.Status == CheckRunStatusEnum.Passed ? "check.auto_passed" : "check.auto_failed",
+                outcomeEvent,
                 "Automated check " + result.Status + ": " + (result.Label ?? result.Type.ToString()),
                 result,
                 new { result.Id, result.Type, result.Label, result.Status, result.ExitCode, result.Summary },

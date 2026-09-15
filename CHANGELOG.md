@@ -164,6 +164,19 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   landing that finds the same divergence with the incident still open adds no
   second event or incident. When the checkout cannot be read, counted or
   pushed, the incident says which step failed.
+### An unstamped voyage-armed Check never measures the default branch
+
+- A voyage that ends between the eligibility read and the stamping read leaves
+  its armed Check with no branch and no commit. The executor no longer runs such
+  a record: it is set `Canceled` with a summary naming the missing stamp. Before,
+  it ran in a checkout of the vessel's default branch and reported base-branch
+  failures as failures of the work under review.
+- An unstamped record of a live voyage keeps waiting for a stage to commit, and
+  one whose voyage is `Complete` still runs, because that work is on the default
+  branch.
+- A check that did not execute is recorded as `check.auto_not_run` instead of
+  `check.auto_failed`.
+
 ### A voyage mixing Audit and Research missions is report-only
 
 - A voyage counts as fully report-only when every mission is Audit or Research,

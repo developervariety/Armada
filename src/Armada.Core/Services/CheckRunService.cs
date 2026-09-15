@@ -277,6 +277,9 @@ namespace Armada.Core.Services
             if (IsNativeSlopRun(run))
                 return await ExecuteSlopRunAsync(run, vessel, token).ConfigureAwait(false);
 
+            CheckRun? unstamped = await HandleUnstampedVoyageRecordAsync(run, token).ConfigureAwait(false);
+            if (unstamped != null) return unstamped;
+
             bool needsProfileCommand = ShouldResolvePendingCommand(run);
             VesselReadinessResult readiness = await _Readiness.EvaluateAsync(
                 auth,
@@ -1128,6 +1131,46 @@ namespace Armada.Core.Services
         private static string? NormalizeValue(string? value)
         {
             return String.IsNullOrWhiteSpace(value) ? null : value.Trim();
+        }
+
+        /// <summary>
+        /// Decide what a voyage-armed record with no stamped branch or commit may do at execution
+        /// time. Build and UnitTest resolve their checkout from the record, so executing one
+        /// unstamped measures the vessel's default branch and reports base-branch failures as
+        /// failures of the work under review. A live voyage has simply not committed yet, so the
+        /// record waits for its stamp. A voyage that ended before any stage stamped it can never be
+        /// measured, so the record is cancelled with that reason. A completed voyage is left to run,
+        /// because its work is on the default branch by then. Returns null when the record may
+        /// execute, and otherwise the record in its decided state.
+        /// </summary>
+        private async Task<CheckRun?> HandleUnstampedVoyageRecordAsync(CheckRun run, CancellationToken token)
+        {
+            if (!IsIsolatedCheckoutType(run.Type)) return null;
+            if (String.IsNullOrWhiteSpace(run.VoyageId)) return null;
+            if (!String.IsNullOrWhiteSpace(run.BranchName) || !String.IsNullOrWhiteSpace(run.CommitHash)) return null;
+
+            Voyage? voyage = await _Database.Voyages.ReadAsync(run.VoyageId!, token).ConfigureAwait(false);
+            if (voyage != null && voyage.Status == VoyageStatusEnum.Complete) return null;
+
+            string? endedReason = voyage == null ? "voyage_missing" : VoyageCheckDiscard.ReasonFor(voyage.Status);
+            if (endedReason == null)
+            {
+                _Logging.Info(_Header + "check " + run.Id + " stays pending: its voyage has not stamped a branch on it yet");
+                return run;
+            }
+
+            DateTime now = DateTime.UtcNow;
+            run.Status = CheckRunStatusEnum.Canceled;
+            run.Summary = "unstamped_voyage_check (" + endedReason + "): this Check carries no branch or commit, "
+                + "and its voyage ended before a stage stamped one. Running it would measure the default branch, "
+                + "not the work under review.";
+            run.Output = run.Summary;
+            run.CompletedUtc = now;
+            run.LastUpdateUtc = now;
+            run = await _Database.CheckRuns.UpdateAsync(run, token).ConfigureAwait(false);
+            OnCheckRunChanged?.Invoke(run);
+            _Logging.Warn(_Header + "cancelled unstamped check " + run.Id + " (" + endedReason + ")");
+            return run;
         }
 
         private static bool IsIsolatedCheckoutType(CheckRunTypeEnum type)

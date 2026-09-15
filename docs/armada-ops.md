@@ -794,6 +794,15 @@ record stays an inert marker and neither gate waits on it. One rule,
 for both gates. A held PASS still uses the bounded Judge wait budget; if the
 queue is slower than that budget, the rejection names the unresolved Check ids.
 
+A voyage can end between the moment the executor selects an armed record and
+the moment it stamps it, which leaves the record with no branch and no commit.
+The executor never runs such a record against the default branch: while the
+voyage is live the record simply waits for a stage to commit, and once the
+voyage is `Cancelled` or `Failed` the record is set `Canceled` with a summary
+naming the missing stamp (`unstamped_voyage_check`). A record whose voyage is
+`Complete` still runs, because that work is on the default branch. A record
+that does not execute is reported as `check.auto_not_run`, never as a failure.
+
 Each sweep searches every stable page of Pending Armada Checks until it finds
 its bounded execution set or reaches the end. A full first page of ineligible
 records cannot hide an older eligible Check. If cancellation or a database

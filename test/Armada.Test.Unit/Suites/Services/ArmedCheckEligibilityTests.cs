@@ -262,6 +262,160 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertNull(stamped.BranchName, "Work on a completed voyage is on the default branch, which is the correct subject");
                 }
             });
+
+            await RunTest("An armed check whose voyage fails before stamping is cancelled, not run against the default branch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string workingDirectory = CreateWorkingDirectory();
+                    try
+                    {
+                        Vessel vessel = await CreateLiveDirectoryVesselAsync(testDb, workingDirectory).ConfigureAwait(false);
+                        Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("window-voyage")).ConfigureAwait(false);
+                        CheckRun armed = await ArmRunnableCheckAsync(testDb, vessel, voyage).ConfigureAwait(false);
+                        Mission work = await CreateWorkMissionAsync(
+                            testDb, vessel, voyage, MissionStatusEnum.WorkProduced, "armada/worker/msn-1", "abc123").ConfigureAwait(false);
+
+                        AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(testDb);
+                        AssertTrue(await orchestrator.IsEligibleAsync(armed, default).ConfigureAwait(false), "the record is eligible while the voyage has work");
+
+                        // The voyage fails between the eligibility read and the stamping read.
+                        voyage.Status = VoyageStatusEnum.Failed;
+                        await testDb.Driver.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
+                        work.Status = MissionStatusEnum.Failed;
+                        await testDb.Driver.Missions.UpdateAsync(work).ConfigureAwait(false);
+
+                        CheckRun result = await orchestrator.ExecutePendingAsync(BuildSystemAuth(), armed, default).ConfigureAwait(false);
+
+                        AssertEqual(CheckRunStatusEnum.Canceled, result.Status, "an unstamped record of an ended voyage must not execute");
+                        AssertFalse((result.Output ?? String.Empty).Contains(_DefaultBranchMarker), "the default branch must not be measured");
+                        AssertContains("no branch or commit", result.Summary ?? String.Empty, "the cancel names the missing stamp");
+                    }
+                    finally
+                    {
+                        DeleteDirectory(workingDirectory);
+                    }
+                }
+            });
+
+            await RunTest("An unstamped armed check of a live voyage whose work disappeared is left Pending", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string workingDirectory = CreateWorkingDirectory();
+                    try
+                    {
+                        Vessel vessel = await CreateLiveDirectoryVesselAsync(testDb, workingDirectory).ConfigureAwait(false);
+                        Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("live-voyage")).ConfigureAwait(false);
+                        CheckRun armed = await ArmRunnableCheckAsync(testDb, vessel, voyage).ConfigureAwait(false);
+                        Mission work = await CreateWorkMissionAsync(
+                            testDb, vessel, voyage, MissionStatusEnum.WorkProduced, "armada/worker/msn-1", "abc123").ConfigureAwait(false);
+
+                        AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(testDb);
+                        AssertTrue(await orchestrator.IsEligibleAsync(armed, default).ConfigureAwait(false), "the record is eligible while the voyage has work");
+
+                        work.Status = MissionStatusEnum.Failed;
+                        await testDb.Driver.Missions.UpdateAsync(work).ConfigureAwait(false);
+
+                        CheckRun result = await orchestrator.ExecutePendingAsync(BuildSystemAuth(), armed, default).ConfigureAwait(false);
+
+                        AssertEqual(CheckRunStatusEnum.Pending, result.Status, "a live voyage's unstamped record waits for a stage to commit");
+                        AssertNull(result.StartedUtc, "the waiting record must not be started");
+                        AssertFalse((result.Output ?? String.Empty).Contains(_DefaultBranchMarker), "the default branch must not be measured");
+                    }
+                    finally
+                    {
+                        DeleteDirectory(workingDirectory);
+                    }
+                }
+            });
+
+            await RunTest("An unstamped armed check of a completed voyage still executes", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string workingDirectory = CreateWorkingDirectory();
+                    try
+                    {
+                        Vessel vessel = await CreateLiveDirectoryVesselAsync(testDb, workingDirectory).ConfigureAwait(false);
+                        Voyage voyage = new Voyage("complete-voyage");
+                        voyage.Status = VoyageStatusEnum.Complete;
+                        voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+                        CheckRun armed = await ArmRunnableCheckAsync(testDb, vessel, voyage).ConfigureAwait(false);
+
+                        AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(testDb);
+                        CheckRun result = await orchestrator.ExecutePendingAsync(BuildSystemAuth(), armed, default).ConfigureAwait(false);
+
+                        AssertEqual(CheckRunStatusEnum.Passed, result.Status, "a completed voyage's work is on the default branch");
+                        AssertContains(_DefaultBranchMarker, result.Output ?? String.Empty, "the command must have run");
+                    }
+                    finally
+                    {
+                        DeleteDirectory(workingDirectory);
+                    }
+                }
+            });
+        }
+
+        private const string _DefaultBranchMarker = "measured-live-directory";
+
+        private static AuthContext BuildSystemAuth()
+        {
+            return AuthContext.Authenticated(
+                Armada.Core.Constants.DefaultTenantId,
+                Armada.Core.Constants.DefaultUserId,
+                isAdmin: true,
+                isTenantAdmin: true,
+                authMethod: "System",
+                principalDisplay: "Automated checks");
+        }
+
+        private static string CreateWorkingDirectory()
+        {
+            string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "armada-iso-armed-" + Guid.NewGuid().ToString("N"));
+            System.IO.Directory.CreateDirectory(path);
+            return path;
+        }
+
+        private static void DeleteDirectory(string path)
+        {
+            try
+            {
+                if (System.IO.Directory.Exists(path)) System.IO.Directory.Delete(path, true);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("  could not delete test directory " + path + ": " + ex.Message);
+            }
+        }
+
+        private static async Task<Vessel> CreateLiveDirectoryVesselAsync(TestDatabase testDb, string workingDirectory)
+        {
+            Vessel vessel = new Vessel
+            {
+                Name = "armed-check-live-vessel",
+                RepoUrl = String.Empty,
+                LocalPath = String.Empty,
+                WorkingDirectory = workingDirectory,
+                DefaultBranch = "main"
+            };
+            return await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+        }
+
+        private static async Task<CheckRun> ArmRunnableCheckAsync(TestDatabase testDb, Vessel vessel, Voyage voyage)
+        {
+            CheckRun run = new CheckRun
+            {
+                VesselId = vessel.Id,
+                VoyageId = voyage.Id,
+                Type = CheckRunTypeEnum.Build,
+                Source = CheckRunSourceEnum.Armada,
+                Status = CheckRunStatusEnum.Pending,
+                Command = "echo " + _DefaultBranchMarker,
+                Label = "Build (armed at dispatch)"
+            };
+
+            return await testDb.Driver.CheckRuns.CreateAsync(run).ConfigureAwait(false);
         }
     }
 }
