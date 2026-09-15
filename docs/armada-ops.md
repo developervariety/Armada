@@ -1793,7 +1793,9 @@ Set `runtime` plus `homeDirectory` (ClaudeCode `CLAUDE_CONFIG_DIR`, Codex
 the shared login, as before. A missing login blocks the account with a named
 reason. Claude Code and Codex accounts also run the runtime's login status
 command in the background, so an expired or revoked login reads
-`account_login_expired`. A quota, billing, or authentication failure on one captain holds the
+`account_login_expired`. When such an account blocks every approved route, the
+routing decision reason (usage preview `reason`, and the deferred-mission log)
+is that account code. A quota, billing, or authentication failure on one captain holds the
 whole account Exhausted and quarantines its idle captains until the retry time.
 Rollout of any second subscription account needs an owner decision under the
 provider's terms. See [Account logins](USAGE_ROUTING.md#account-logins).

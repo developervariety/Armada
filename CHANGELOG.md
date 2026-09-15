@@ -271,7 +271,11 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   account that lists a captain with its own provider key or base URL.
 - A missing home, login file, or Cursor key makes the account Exhausted with a
   named reason in settings status and the usage preview. A launch on such an
-  account fails with that reason instead of using the shared login.
+  account fails with that reason instead of using the shared login. When such
+  an account blocks every approved route, the routing decision reason is that
+  account code (for example `account_login_expired`), so the preview `reason`
+  and the scheduler's deferred-mission log name it instead of a generic
+  allowance shortage.
 - Claude Code and Codex accounts also run the runtime's own login status
   command in the account home, in the background with a timeout and a cached
   result. An expired or revoked login reads `account_login_expired`; a hang,

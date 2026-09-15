@@ -380,6 +380,7 @@ namespace Armada.Core.Services
             }
             List<Captain> normal = new List<Captain>();
             List<Captain> low = new List<Captain>();
+            string? accountBlockReason = null;
             IEnumerable<UsageRouteSettings> ordered = routes;
             foreach (UsageRouteSettings route in ordered)
             {
@@ -391,6 +392,10 @@ namespace Armada.Core.Services
                     if (!account.CaptainIds.Contains(captain.Id, StringComparer.OrdinalIgnoreCase) || (route.Models.Count > 0 && !route.Models.Contains(captain.Model ?? "", StringComparer.OrdinalIgnoreCase))) continue;
                     ProviderUsageStatus status = GetStatus(account, captain.Model, now);
                     string state = status.State == "Unknown" ? account.UnknownUsagePolicy == "Block" ? "Exhausted" : account.UnknownUsagePolicy == "Conserve" ? "Low" : "Normal" : status.State;
+                    // A login problem or provider hold names the account, not its allowance; keep the first such code so a
+                    // mission that waits says why instead of reading as a generic allowance shortage.
+                    if (state == "Exhausted" && accountBlockReason == null && status.Reason != null && status.Reason.StartsWith("account_", StringComparison.Ordinal))
+                        accountBlockReason = status.Reason;
                     if (state == "Exhausted" || (state == "Reserve" && !important)) continue;
                     if (state == "Low" && !important) low.Add(captain);
                     else normal.Add(captain);
@@ -400,7 +405,7 @@ namespace Armada.Core.Services
             List<Captain> lowRetry = low.Where(c => !MissionService.IsCaptainOnRetrySkipList(mission.RetrySkipCaptainIds, c.Id)).ToList();
             if (normalRetry.Count + lowRetry.Count > 0) { normal = normalRetry; low = lowRetry; }
             result.Candidates = normal.Count > 0 ? normal : low;
-            result.Reason = result.Candidates.Count == 0 ? "usage_reserve_exhaustion_or_account_capacity" : normal.Count == 0 ? "low_allowance_no_approved_normal_fallback" : "preferred_eligible_route_with_allowance";
+            result.Reason = result.Candidates.Count == 0 ? accountBlockReason ?? "usage_reserve_exhaustion_or_account_capacity" : normal.Count == 0 ? "low_allowance_no_approved_normal_fallback" : "preferred_eligible_route_with_allowance";
             return result;
         }
 

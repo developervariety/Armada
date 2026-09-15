@@ -350,6 +350,41 @@ namespace Armada.Test.Unit.Suites.Services
                     }
                     finally { Directory.Delete(scratch, true); Directory.Delete(home, true); }
                 });
+
+                await RunTest("An expired account login names account_login_expired in status and in the routing decision that blocks assignment", async () =>
+                {
+                    string scratch = TempDirectory("probe-expired");
+                    string home = LoggedInHome(AgentRuntimeEnum.Codex);
+                    try
+                    {
+                        string loggedOut = WriteScript(scratch, "codex-out", "echo 'Not logged in'\nexit 1\n");
+                        UsageAccountSettings expired = new UsageAccountSettings { Id = "expired", Runtime = AgentRuntimeEnum.Codex, HomeDirectory = home, CaptainIds = new List<string> { "first" } };
+                        UsageAccountSettings shared = new UsageAccountSettings { Id = "shared", CaptainIds = new List<string> { "second" } };
+                        UsageRoutingSettings onlyExpired = new UsageRoutingSettings
+                        {
+                            Enabled = true, Accounts = new List<UsageAccountSettings> { expired, shared },
+                            PersonaRoutes = new Dictionary<string, List<UsageRouteSettings>> { ["Worker"] = new List<UsageRouteSettings> { new UsageRouteSettings { AccountId = "expired" } } }
+                        };
+                        UsageRoutingService service = new UsageRoutingService { LoginProbeExecutable = _ => loggedOut };
+                        List<Captain> captains = new List<Captain> { new Captain("first") { Id = "first" }, new Captain("second") { Id = "second" } };
+
+                        // The login file is present, so only the runtime's own status command can see the expiry.
+                        AssertNull(CaptainAccountLaunch.CheckReadiness(expired), "the file pre-filter passes");
+                        AssertEqual(AccountLoginProbe.ReasonLoginExpired, await WaitForReasonAsync(service, expired, AccountLoginProbe.ReasonLoginExpired).ConfigureAwait(false));
+                        ProviderUsageStatus status = service.GetStatus(expired, null, DateTime.UtcNow);
+                        AssertEqual("Exhausted", status.State);
+                        AssertEqual(AccountLoginProbe.ReasonLoginExpired, status.Reason);
+
+                        UsageRoutingDecision blocked = service.Select(onlyExpired, new Mission { Persona = "Worker" }, captains, Array.Empty<string>(), DateTime.UtcNow);
+                        AssertEqual(0, blocked.Candidates.Count, "no captain on the expired account receives the mission");
+                        AssertEqual(AccountLoginProbe.ReasonLoginExpired, blocked.Reason, "the waiting mission names the account login problem");
+
+                        onlyExpired.PersonaRoutes["Worker"].Add(new UsageRouteSettings { AccountId = "shared" });
+                        UsageRoutingDecision fallback = service.Select(onlyExpired, new Mission { Persona = "Worker" }, captains, Array.Empty<string>(), DateTime.UtcNow);
+                        AssertEqual("second", fallback.Candidates.Single().Id, "an approved fallback account still takes the mission");
+                    }
+                    finally { Directory.Delete(scratch, true); Directory.Delete(home, true); }
+                });
             }
 
             await RunTest("OpenCode and Cursor accounts keep the file or variable check because their status commands cannot verify one account", () =>
@@ -422,6 +457,45 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("second", decision.Candidates.Single().Id);
                     File.WriteAllText(Path.Combine(home, "auth.json"), "{}");
                     AssertFalse(service.GetStatus(loggedOut, null, DateTime.UtcNow).Reason == CaptainAccountLaunch.ReasonLoginMissing, "a login added in the home clears the block");
+                }
+                finally { Directory.Delete(home, true); }
+            });
+
+            await RunTest("A blocked routing decision names the account login reason, and a measured shortage keeps the generic reason", () =>
+            {
+                string home = TempDirectory("decision-reason");
+                try
+                {
+                    UsageAccountSettings loggedOut = new UsageAccountSettings { Id = "logged-out", Runtime = AgentRuntimeEnum.ClaudeCode, HomeDirectory = home, CaptainIds = new List<string> { "first" } };
+                    UsageAccountSettings drained = new UsageAccountSettings
+                    {
+                        Id = "drained", CaptainIds = new List<string> { "second" },
+                        ManualSnapshot = new ProviderUsageSnapshot { ObservedUtc = DateTime.UtcNow, Source = "operator", Windows = new List<ProviderUsageWindow> { new ProviderUsageWindow { Name = "weekly", RemainingPercent = 0 } } }
+                    };
+                    List<Captain> captains = new List<Captain> { new Captain("first") { Id = "first" }, new Captain("second") { Id = "second" } };
+                    UsageRoutingService service = new UsageRoutingService { LoginProbeExecutable = _ => Path.Combine(home, "no-such-cli") };
+
+                    UsageRoutingSettings loginPolicy = new UsageRoutingSettings
+                    {
+                        Enabled = true, Accounts = new List<UsageAccountSettings> { loggedOut, drained },
+                        PersonaRoutes = new Dictionary<string, List<UsageRouteSettings>> { ["Worker"] = new List<UsageRouteSettings> { new UsageRouteSettings { AccountId = "logged-out" } } }
+                    };
+                    UsageRoutingDecision login = service.Select(loginPolicy, new Mission { Persona = "Worker" }, captains, Array.Empty<string>(), DateTime.UtcNow);
+                    AssertEqual(0, login.Candidates.Count);
+                    AssertEqual(CaptainAccountLaunch.ReasonLoginMissing, login.Reason);
+
+                    UsageRoutingSettings shortagePolicy = new UsageRoutingSettings
+                    {
+                        Enabled = true, Accounts = new List<UsageAccountSettings> { loggedOut, drained },
+                        PersonaRoutes = new Dictionary<string, List<UsageRouteSettings>> { ["Worker"] = new List<UsageRouteSettings> { new UsageRouteSettings { AccountId = "drained" } } }
+                    };
+                    UsageRoutingDecision shortage = service.Select(shortagePolicy, new Mission { Persona = "Worker" }, captains, Array.Empty<string>(), DateTime.UtcNow);
+                    AssertEqual(0, shortage.Candidates.Count);
+                    AssertEqual("usage_reserve_exhaustion_or_account_capacity", shortage.Reason, "an exhausted allowance is not an account login problem");
+
+                    service.MarkAccountExhausted("drained", DateTime.UtcNow.AddMinutes(30));
+                    drained.ManualSnapshot!.Windows[0].RemainingPercent = 80;
+                    AssertEqual("account_provider_failure", service.Select(shortagePolicy, new Mission { Persona = "Worker" }, captains, Array.Empty<string>(), DateTime.UtcNow).Reason, "a provider-failure hold names itself");
                 }
                 finally { Directory.Delete(home, true); }
             });

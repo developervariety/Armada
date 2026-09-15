@@ -149,8 +149,12 @@ accept billing terms.
   account `Exhausted` with reason `account_home_missing`,
   `account_login_missing`, or `account_launch_credential_unavailable`. This is
   visible in settings status and the usage preview, and blocks assignment when
-  routing is enabled. A launch that still reaches such an account fails with
-  the same reason; it never falls back to the shared login.
+  routing is enabled. When no approved route is left, the routing decision
+  `reason` is the first such account code rather than
+  `usage_reserve_exhaustion_or_account_capacity`; the preview returns it, and
+  the scheduler logs it for the mission that waits as
+  `WaitingForProviderUsage`. A launch that still reaches such an account fails
+  with the same reason; it never falls back to the shared login.
 
 ### Login status probe
 
