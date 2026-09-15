@@ -1,9 +1,13 @@
 namespace Armada.Test.Automated.Suites
 {
     using System;
+    using System.Collections.Generic;
     using System.Linq;
     using System.Net;
     using System.Net.Http;
+    using System.Text;
+    using System.Text.Json;
+    using System.Text.Json.Nodes;
     using System.Threading.Tasks;
     using Armada.Core.Models;
     using Armada.Test.Common;
@@ -43,6 +47,37 @@ namespace Armada.Test.Automated.Suites
         #endregion
 
         #region Private-Methods
+
+        private static JsonElement Prop(JsonElement element, string name)
+        {
+            foreach (JsonProperty property in element.EnumerateObject())
+                if (String.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase)) return property.Value;
+            throw new InvalidOperationException("Property '" + name + "' not found; present: " + String.Join(", ", element.EnumerateObject().Select(p => p.Name)));
+        }
+
+        private static string NodeKey(JsonObject node, string name)
+        {
+            foreach (KeyValuePair<string, JsonNode?> entry in node)
+                if (String.Equals(entry.Key, name, StringComparison.OrdinalIgnoreCase)) return entry.Key;
+            return name;
+        }
+
+        private async Task<JsonElement> ReadSettingsAsync()
+        {
+            using (HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/settings").ConfigureAwait(false))
+            {
+                response.EnsureSuccessStatusCode();
+                using (JsonDocument document = JsonDocument.Parse(await response.Content.ReadAsStringAsync().ConfigureAwait(false)))
+                    return document.RootElement.Clone();
+            }
+        }
+
+        private async Task PutSettingsJsonAsync(string json)
+        {
+            using (StringContent content = new StringContent(json, Encoding.UTF8, "application/json"))
+            using (HttpResponseMessage response = await _AuthClient.PutAsync("/api/v1/settings", content).ConfigureAwait(false))
+                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+        }
 
         private async Task<Captain> CreateCaptainAsync(string name)
         {
@@ -216,6 +251,61 @@ namespace Armada.Test.Automated.Suites
                 using (StringContent invalid = JsonHelper.ToJsonContent(new { usageRouting = new { refreshIntervalMinutes = 0 } }))
                 using (HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/settings/usage-preview", invalid).ConfigureAwait(false))
                     AssertEqual(HttpStatusCode.BadRequest, response.StatusCode);
+            }).ConfigureAwait(false);
+
+            // A settings update applies each supplied field and leaves every absent field as stored, so
+            // the dashboard's model routing policy and Routing V2 parts can save without replacing each other.
+            await RunTest("UpdateSettings_TierListOnly_LeavesUsageRoutingAndModelProviders", async () =>
+            {
+                JsonElement before = await ReadSettingsAsync().ConfigureAwait(false);
+                JsonElement modelTier = Prop(before, "modelTier");
+                string usageRoutingBefore = Prop(modelTier, "usageRouting").GetRawText();
+                string modelProvidersBefore = Prop(before, "modelProviders").GetRawText();
+                string midTierBefore = Prop(modelTier, "midTierModels").GetRawText();
+                JsonArray changed = JsonNode.Parse(midTierBefore)!.AsArray();
+                string marker = "partial-save-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                changed.Add(marker);
+                try
+                {
+                    await PutSettingsJsonAsync("{\"modelTier\":{\"midTierModels\":" + changed.ToJsonString() + "}}").ConfigureAwait(false);
+                    JsonElement after = await ReadSettingsAsync().ConfigureAwait(false);
+                    AssertTrue(Prop(Prop(after, "modelTier"), "midTierModels").GetRawText().Contains(marker));
+                    AssertEqual(usageRoutingBefore, Prop(Prop(after, "modelTier"), "usageRouting").GetRawText());
+                    AssertEqual(modelProvidersBefore, Prop(after, "modelProviders").GetRawText());
+                }
+                finally
+                {
+                    await PutSettingsJsonAsync("{\"modelTier\":{\"midTierModels\":" + midTierBefore + "}}").ConfigureAwait(false);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("UpdateSettings_UsageRoutingOnly_LeavesTierListsAndModelProviders", async () =>
+            {
+                JsonElement before = await ReadSettingsAsync().ConfigureAwait(false);
+                JsonElement modelTier = Prop(before, "modelTier");
+                string usageRoutingBefore = Prop(modelTier, "usageRouting").GetRawText();
+                string modelProvidersBefore = Prop(before, "modelProviders").GetRawText();
+                string midTierBefore = Prop(modelTier, "midTierModels").GetRawText();
+                string highTierBefore = Prop(modelTier, "highTierModels").GetRawText();
+                string specialistsBefore = Prop(modelTier, "specialistPersonas").GetRawText();
+                JsonObject changed = JsonNode.Parse(usageRoutingBefore)!.AsObject();
+                string currency = changed[NodeKey(changed, "currency")]?.GetValue<string>() == "EUR" ? "GBP" : "EUR";
+                changed[NodeKey(changed, "currency")] = currency;
+                try
+                {
+                    await PutSettingsJsonAsync("{\"modelTier\":{\"usageRouting\":" + changed.ToJsonString() + "}}").ConfigureAwait(false);
+                    JsonElement after = await ReadSettingsAsync().ConfigureAwait(false);
+                    JsonElement afterTier = Prop(after, "modelTier");
+                    AssertEqual(currency, Prop(Prop(afterTier, "usageRouting"), "currency").GetString());
+                    AssertEqual(midTierBefore, Prop(afterTier, "midTierModels").GetRawText());
+                    AssertEqual(highTierBefore, Prop(afterTier, "highTierModels").GetRawText());
+                    AssertEqual(specialistsBefore, Prop(afterTier, "specialistPersonas").GetRawText());
+                    AssertEqual(modelProvidersBefore, Prop(after, "modelProviders").GetRawText());
+                }
+                finally
+                {
+                    await PutSettingsJsonAsync("{\"modelTier\":{\"usageRouting\":" + usageRoutingBefore + "}}").ConfigureAwait(false);
+                }
             }).ConfigureAwait(false);
 
             #region Status-Endpoint
