@@ -66,6 +66,41 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // Only WorkProduced and LandingFailed missions land through a retry. A Review mission is refused whether
+            // or not it has a review gate, so the dashboard offers no Land action for it.
+            await RunTest("RetryLandingAsync_ReviewMissionWithoutReviewGate_IsRefusedAndStaysInReview", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    ArmadaSettings settings = CreateSettings();
+                    StubGitService git = new StubGitService();
+                    LandingService service = CreateService(testDb.Driver, settings, git);
+
+                    Vessel vessel = new Vessel("retry-review-vessel", "https://github.com/test/retry-review.git");
+                    vessel.LocalPath = Path.Combine(Path.GetTempPath(), "armada_retry_review_bare_" + Guid.NewGuid().ToString("N"));
+                    vessel.DefaultBranch = "main";
+                    await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Mission mission = new Mission("retry review mission", "retry");
+                    mission.VesselId = vessel.Id;
+                    mission.BranchName = "armada/retry-review/branch";
+                    mission.Status = MissionStatusEnum.Review;
+                    mission.RequiresReview = false;
+                    await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+
+                    bool retried = await service.RetryLandingAsync(mission.Id).ConfigureAwait(false);
+                    AssertFalse(retried, "A Review mission is not landed by a retry");
+
+                    Mission? after = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertNotNull(after, "The refused mission still exists");
+                    AssertEqual(MissionStatusEnum.Review, after!.Status, "A refused retry leaves the mission in Review");
+
+                    EnumerationResult<ArmadaEvent> events = await testDb.Driver.Events.EnumerateAsync(
+                        new EnumerationQuery { MissionId = mission.Id, EventType = "mission.landing_retry" }).ConfigureAwait(false);
+                    AssertEqual(0, events.Objects.Count, "A refused retry records no retry event");
+                }
+            });
+
             await RunTest("MergeInDedicatedWorktreeAsync_CleanMerge_PushesFromTempWorktreeAndCleansUp", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
