@@ -2,7 +2,9 @@ namespace Armada.Test.Unit
 {
     using System.Text.Json;
     using Armada.Server.Mcp;
+    using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
+    using Armada.Test.Unit.TestHelpers;
 
     /// <summary>
     /// Tests for <see cref="McpToolArgumentNormalizer"/>: the schema-keyed tolerance applied once
@@ -153,6 +155,61 @@ namespace Armada.Test.Unit
                 JsonElement r = McpToolArgumentNormalizer.Normalize(args, (object?)null, _JsonOpts)!.Value;
                 AssertTrue(r.TryGetProperty("afterUtc", out _), "without a schema nothing is dropped");
                 return Task.CompletedTask;
+            });
+
+            await RunTest("EmptyString_ForPropertyDeclaringEmptyStringClears_IsKept", () =>
+            {
+                object schema = new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        clearable = new { type = "string", emptyStringClears = true },
+                        plain = new { type = "string" }
+                    }
+                };
+                JsonElement args = JsonSerializer.SerializeToElement(new { clearable = "", plain = "" }, _JsonOpts);
+                JsonElement r = McpToolArgumentNormalizer.Normalize(args, schema, _JsonOpts)!.Value;
+                AssertTrue(r.TryGetProperty("clearable", out JsonElement kept), "\"\" reaches the handler when the schema says it clears");
+                AssertEqual("", kept.GetString(), "the clearing value is unchanged");
+                AssertFalse(r.TryGetProperty("plain", out _), "an optional string without the keyword is still omitted");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("UpdateCaptainSchema_EmptyStringForDocumentedClearingFields_IsKept", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    object? schema = null;
+                    McpCaptainTools.Register(
+                        (name, _, inputSchema, _) => { if (name == "armada_update_captain") schema = inputSchema; },
+                        testDb.Driver,
+                        null!,
+                        null);
+                    AssertNotNull(schema, "armada_update_captain must be registered with a schema");
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        captainId = "cpt_example",
+                        apiKey = "",
+                        apiBaseUrl = "",
+                        muxConfigDirectory = "",
+                        muxEndpoint = "",
+                        muxBaseUrl = "",
+                        muxAdapterType = "",
+                        muxSystemPromptPath = "",
+                        muxApprovalPolicy = "",
+                        reasoningEffort = "",
+                        preferredPersona = ""
+                    }, _JsonOpts);
+                    JsonElement r = McpToolArgumentNormalizer.Normalize(args, schema, _JsonOpts)!.Value;
+                    foreach (string clearing in new[] { "apiKey", "apiBaseUrl", "muxConfigDirectory", "muxEndpoint", "muxBaseUrl", "muxAdapterType", "muxSystemPromptPath", "muxApprovalPolicy", "reasoningEffort" })
+                    {
+                        AssertTrue(r.TryGetProperty(clearing, out JsonElement value), clearing + " sent as \"\" must reach the handler, whose schema says \"\" clears it");
+                        AssertEqual("", value.GetString(), clearing + " keeps its clearing value");
+                    }
+                    AssertFalse(r.TryGetProperty("preferredPersona", out _), "a field whose schema gives \"\" no meaning is still omitted");
+                }
             });
         }
 

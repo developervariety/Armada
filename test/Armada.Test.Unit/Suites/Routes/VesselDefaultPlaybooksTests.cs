@@ -139,7 +139,7 @@ namespace Armada.Test.Unit.Suites.Routes
                     AssertNotNull(getHandler, "armada_get_vessel handler must be registered");
 
                     JsonElement getArgs = JsonSerializer.SerializeToElement(new { vesselId = vessel.Id });
-                    object result = await getHandler!(getArgs).ConfigureAwait(false);
+                    object result = await McpTestCaller.Wrap(getHandler!)(getArgs).ConfigureAwait(false);
                     string resultJson = JsonSerializer.Serialize(result);
                     AssertContains("DefaultPlaybooks", resultJson, "armada_get_vessel must return DefaultPlaybooks field");
                     AssertContains("pbk_abc", resultJson, "Returned defaultPlaybooks must contain persisted playbook ID");

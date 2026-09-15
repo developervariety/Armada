@@ -32,7 +32,7 @@ namespace Armada.Test.Unit.Suites.Services
                 (name, _, _, h) => { if (name == "armada_update_vessel_context") handler = h; },
                 testDb.Driver);
             AssertNotNull(handler, "armada_update_vessel_context handler must be registered");
-            return handler!;
+            return McpTestCaller.Wrap(handler!);
         }
 
         private Func<JsonElement?, Task<object>> CaptureUpdateHandler(TestDatabase testDb)
@@ -506,6 +506,63 @@ namespace Armada.Test.Unit.Suites.Services
                         "an omitted inlineFullContent must not erase the stored body");
                     AssertTrue(playbooks[0].DeliveryMode == PlaybookDeliveryModeEnum.InstructionWithReference,
                         "the field the caller did supply must be applied");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("GetVesselAndUpdateContext_CallerOutsideVesselOwner_IsRefusedWithoutChange", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = new Vessel("owned-vessel", "https://github.com/test/repo.git");
+                    vessel.TenantId = Armada.Core.Constants.DefaultTenantId;
+                    vessel.UserId = Armada.Core.Constants.DefaultUserId;
+                    vessel.ProjectContext = "OWNER context";
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? getHandler = null;
+                    Func<JsonElement?, Task<object>>? contextHandler = null;
+                    McpVesselTools.Register(
+                        (name, _, _, h) =>
+                        {
+                            if (name == "armada_get_vessel") getHandler = h;
+                            if (name == "armada_update_vessel_context") contextHandler = h;
+                        },
+                        testDb.Driver);
+                    AssertNotNull(getHandler, "armada_get_vessel handler must be registered");
+                    AssertNotNull(contextHandler, "armada_update_vessel_context handler must be registered");
+
+                    JsonElement getArgs = JsonSerializer.SerializeToElement(new { vesselId = vessel.Id });
+                    JsonElement contextArgs = JsonSerializer.SerializeToElement(new { vesselId = vessel.Id, projectContext = "FOREIGN overwrite" });
+
+                    List<AuthContext> foreignCallers = new List<AuthContext>
+                    {
+                        AuthContext.Authenticated("ten_other", "usr_other", false, false, "Test"),
+                        AuthContext.Authenticated("ten_other", "usr_other_admin", false, true, "Test")
+                    };
+                    foreach (AuthContext foreign in foreignCallers)
+                    {
+                        string getJson;
+                        string contextJson;
+                        using (McpCallerContext.Begin(foreign))
+                        {
+                            getJson = JsonSerializer.Serialize(await getHandler!(getArgs).ConfigureAwait(false));
+                            contextJson = JsonSerializer.Serialize(await contextHandler!(contextArgs).ConfigureAwait(false));
+                        }
+                        AssertContains("Vessel not found", getJson, "another tenant's caller cannot read the vessel");
+                        AssertFalse(getJson.Contains("OWNER context", StringComparison.Ordinal), "another tenant's caller sees none of the vessel's content");
+                        AssertContains("Vessel not found", contextJson, "another tenant's caller cannot update the vessel's context");
+                    }
+
+                    Vessel? after = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                    AssertEqual("OWNER context", after!.ProjectContext, "a refused context update leaves the vessel unchanged");
+
+                    AuthContext owner = AuthContext.Authenticated(Armada.Core.Constants.DefaultTenantId, Armada.Core.Constants.DefaultUserId, false, false, "Test");
+                    string ownerJson;
+                    using (McpCallerContext.Begin(owner))
+                    {
+                        ownerJson = JsonSerializer.Serialize(await getHandler!(getArgs).ConfigureAwait(false));
+                    }
+                    AssertContains("OWNER context", ownerJson, "the owning user still reads the vessel");
                 }
             }).ConfigureAwait(false);
         }

@@ -44,7 +44,7 @@ namespace Armada.Test.Unit.Suites.Routes
                         modelContext = "some accumulated context"
                     });
 
-                    object result = await handler!(args).ConfigureAwait(false);
+                    object result = await McpTestCaller.Wrap(handler!)(args).ConfigureAwait(false);
                     string resultJson = JsonSerializer.Serialize(result);
                     AssertContains("Error", resultJson, "Response must contain an Error field");
                     AssertContains("modelContext", resultJson, "Error message must reference modelContext");
@@ -76,7 +76,7 @@ namespace Armada.Test.Unit.Suites.Routes
                         projectContext = "new project context"
                     });
 
-                    object result = await handler!(args).ConfigureAwait(false);
+                    object result = await McpTestCaller.Wrap(handler!)(args).ConfigureAwait(false);
                     string resultJson = JsonSerializer.Serialize(result);
                     AssertDoesNotContain("\"Error\"", resultJson, "Omitting modelContext must not produce an error");
                     AssertContains("new project context", resultJson, "Updated projectContext must appear in response");
@@ -107,7 +107,7 @@ namespace Armada.Test.Unit.Suites.Routes
                         modelContext = "raw context injection"
                     });
 
-                    object result = await handler!(args).ConfigureAwait(false);
+                    object result = await McpTestCaller.Wrap(handler!)(args).ConfigureAwait(false);
                     string resultJson = JsonSerializer.Serialize(result);
                     AssertContains("Error", resultJson, "Response must contain an Error field");
                     AssertContains("modelContext", resultJson, "Error message must reference modelContext");
@@ -139,7 +139,7 @@ namespace Armada.Test.Unit.Suites.Routes
                         styleGuide = "updated style guide"
                     });
 
-                    object result = await handler!(args).ConfigureAwait(false);
+                    object result = await McpTestCaller.Wrap(handler!)(args).ConfigureAwait(false);
                     string resultJson = JsonSerializer.Serialize(result);
                     AssertDoesNotContain("\"Error\"", resultJson, "Omitting modelContext must not produce an error");
                     AssertContains("updated style guide", resultJson, "Updated styleGuide must appear in response");

@@ -545,6 +545,7 @@ namespace Armada.Server
                 _WebSocketHub.BroadcastObjectiveChange(objective);
                 _ObjectiveScheduler.NotifyObjectiveChanged(objective);
             };
+            _ObjectiveService.OnObjectiveDeleted = _WebSocketHub.BroadcastObjectiveDeleted;
             _DeploymentService.OnDeploymentChanged = _WebSocketHub.BroadcastDeploymentChange;
             _IncidentService.OnIncidentChanged = _WebSocketHub.BroadcastIncidentChange;
             _RunbookService.OnRunbookExecutionChanged = _WebSocketHub.BroadcastRunbookExecutionChange;

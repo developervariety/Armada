@@ -125,6 +125,20 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   table record by mission identity, in any window. A usage whose record and
   event fall on opposite sides of a window edge is counted once, in the window
   of its record.
+- Deleting an objective broadcasts an `objective.deleted` WebSocket event to
+  the objective's owner scope, carrying its id, tenant and user.
+- The WebSocket API reference documents the exact data of
+  `objective-refinement-session.summary.created` (`sessionId`, `messageId`,
+  `summary`) and `objective-refinement-session.applied` (`sessionId`,
+  `objectiveId`, `summary`), including the fields of the summary object.
+- A tool schema property can declare `emptyStringClears`; the MCP argument
+  normaliser then passes an empty string through instead of treating it as
+  omitted. `armada_update_captain` declares it on every field whose
+  description says an empty string clears it, so those clears reach the
+  handler. An empty Mux option string is stored as cleared.
+- `armada_get_vessel` and `armada_update_vessel_context` read the vessel within
+  the caller's scope, so a caller outside the owning tenant or user gets
+  "Vessel not found" and changes nothing.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 

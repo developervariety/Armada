@@ -32,6 +32,12 @@ namespace Armada.Core.Services
         /// </summary>
         public Action<Objective>? OnObjectiveChanged { get; set; }
 
+        /// <summary>
+        /// Optional callback invoked after an objective is deleted. The argument is the deleted record, or,
+        /// when only orphan snapshots remained, a record carrying the id and the snapshot owner.
+        /// </summary>
+        public Action<Objective>? OnObjectiveDeleted { get; set; }
+
         private readonly DatabaseDriver _Database;
         private readonly LoggingModule? _Logging;
         private const string _Header = "[ObjectiveService] ";
@@ -956,6 +962,14 @@ namespace Armada.Core.Services
             // Durable guard: even if a snapshot escapes the purge, the tombstone keeps the objective
             // deleted across both resurrection paths until something deliberately re-persists the id.
             await WriteTombstoneAsync(id, token).ConfigureAwait(false);
+
+            Objective deleted = existing ?? new Objective
+            {
+                Id = id,
+                TenantId = snapshots[0].TenantId,
+                UserId = snapshots[0].UserId
+            };
+            OnObjectiveDeleted?.Invoke(deleted);
         }
 
         /// <summary>

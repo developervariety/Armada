@@ -42,6 +42,7 @@ If the selected deployment disconnects or the tunnel drops, the proxy closes the
   - [voyage.changed](#voyagechanged)
   - [captain.changed](#captainchanged)
   - [objective.changed](#objectivechanged)
+  - [objective.deleted](#objectivedeleted)
   - [objective-refinement-session.changed](#objective-refinement-sessionchanged)
   - [objective-refinement-session.message.created](#objective-refinement-sessionmessagecreated)
   - [objective-refinement-session.message.updated](#objective-refinement-sessionmessageupdated)
@@ -248,7 +249,7 @@ the snapshot, and `stream.ready`. If complete replay is not possible, it sends
 `event.gap` before the snapshot. Old clients that send only `Route` continue to
 work.
 
-After the initial snapshot, the client will receive all broadcast events ([`mission.changed`](#missionchanged), [`voyage.changed`](#voyagechanged), [`captain.changed`](#captainchanged), [`objective.changed`](#objectivechanged), [`objective-refinement-session.changed`](#objective-refinement-sessionchanged), [`objective-refinement-session.message.created`](#objective-refinement-sessionmessagecreated), [`objective-refinement-session.message.updated`](#objective-refinement-sessionmessageupdated), [`objective-refinement-session.summary.created`](#objective-refinement-sessionsummarycreated), [`objective-refinement-session.applied`](#objective-refinement-sessionapplied), [`check-run.changed`](#check-runchanged), [`deployment.changed`](#deploymentchanged), [`deployment.progress`](#deploymentprogress), [`environment.health`](#environmenthealth), [`approval-needed`](#approval-needed), and [generic events](#generic-events)) as they occur.
+After the initial snapshot, the client will receive all broadcast events ([`mission.changed`](#missionchanged), [`voyage.changed`](#voyagechanged), [`captain.changed`](#captainchanged), [`objective.changed`](#objectivechanged), [`objective.deleted`](#objectivedeleted), [`objective-refinement-session.changed`](#objective-refinement-sessionchanged), [`objective-refinement-session.message.created`](#objective-refinement-sessionmessagecreated), [`objective-refinement-session.message.updated`](#objective-refinement-sessionmessageupdated), [`objective-refinement-session.summary.created`](#objective-refinement-sessionsummarycreated), [`objective-refinement-session.applied`](#objective-refinement-sessionapplied), [`check-run.changed`](#check-runchanged), [`deployment.changed`](#deploymentchanged), [`deployment.progress`](#deploymentprogress), [`environment.health`](#environmenthealth), [`approval-needed`](#approval-needed), and [generic events](#generic-events)) as they occur.
 
 ---
 
@@ -461,6 +462,32 @@ Broadcast when an objective or backlog record is created or updated.
 
 ---
 
+### objective.deleted
+
+Broadcast when an objective or backlog record is deleted, through the REST API or MCP. It reaches the sessions that could read the objective (its owner scope and global administrators). Remove the objective from any list the client holds.
+
+```json
+{
+  "type": "objective.deleted",
+  "data": {
+    "id": "obj_abc123def456ghi789jk",
+    "tenantId": "ten_abc123def456ghi789jk",
+    "userId": "usr_abc123def456ghi789jk"
+  },
+  "timestamp": "2026-03-07T12:35:00.000Z"
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `type` | string | Always `"objective.deleted"` |
+| `data.id` | string | Deleted objective ID (prefix `obj_`) |
+| `data.tenantId` | string \| null | Tenant that owned the objective |
+| `data.userId` | string \| null | User that owned the objective |
+| `timestamp` | string | ISO 8601 UTC timestamp |
+
+---
+
 ### objective-refinement-session.changed
 
 Broadcast when a backlog refinement session changes state.
@@ -568,12 +595,22 @@ Broadcast when Armada creates a structured refinement summary from the transcrip
     "sessionId": "ors_abc123def456ghi789jk",
     "messageId": "orm_def456ghi789jkl012mn",
     "summary": {
-      "summary": "Stabilize rollback and verification sequencing."
+      "sessionId": "ors_abc123def456ghi789jk",
+      "messageId": "orm_def456ghi789jkl012mn",
+      "summary": "Stabilize rollback and verification sequencing.",
+      "acceptanceCriteria": ["Rollback completes in under five minutes"],
+      "nonGoals": [],
+      "rolloutConstraints": ["Staging first"],
+      "suggestedPipelineId": null,
+      "preparation": null,
+      "method": "runtime-json"
     }
   },
   "timestamp": "2026-03-07T12:35:00.000Z"
 }
 ```
+
+The event data is exactly `{ sessionId, messageId, summary }`. `data.summary` is the refinement summary object, not a string; its own `summary` field holds the summary text.
 
 | Field | Type | Description |
 |---|---|---|
@@ -581,7 +618,16 @@ Broadcast when Armada creates a structured refinement summary from the transcrip
 | `message` | string | Human-readable event label |
 | `data.sessionId` | string | Refinement session ID (prefix `ors_`) |
 | `data.messageId` | string | Source transcript message ID (prefix `orm_`) |
-| `data.summary` | object | Serialized `ObjectiveRefinementSummaryResponse` payload |
+| `data.summary` | object | Serialized `ObjectiveRefinementSummaryResponse` |
+| `data.summary.sessionId` | string | Refinement session ID |
+| `data.summary.messageId` | string \| null | Source transcript message ID |
+| `data.summary.summary` | string | Summary text |
+| `data.summary.acceptanceCriteria` | string[] | Proposed acceptance criteria |
+| `data.summary.nonGoals` | string[] | Proposed non-goals |
+| `data.summary.rolloutConstraints` | string[] | Proposed rollout constraints |
+| `data.summary.suggestedPipelineId` | string \| null | Suggested pipeline ID (prefix `ppl_`) |
+| `data.summary.preparation` | object \| null | Proposed objective preparation |
+| `data.summary.method` | string | How the summary was produced: `runtime-json` or `assistant-fallback` |
 | `timestamp` | string | ISO 8601 UTC timestamp |
 
 ---
@@ -598,12 +644,22 @@ Broadcast when Armada applies a refinement summary back to the linked backlog it
     "sessionId": "ors_abc123def456ghi789jk",
     "objectiveId": "obj_abc123def456ghi789jk",
     "summary": {
-      "summary": "Stabilize rollback and verification sequencing."
+      "sessionId": "ors_abc123def456ghi789jk",
+      "messageId": "orm_def456ghi789jkl012mn",
+      "summary": "Stabilize rollback and verification sequencing.",
+      "acceptanceCriteria": ["Rollback completes in under five minutes"],
+      "nonGoals": [],
+      "rolloutConstraints": ["Staging first"],
+      "suggestedPipelineId": null,
+      "preparation": null,
+      "method": "runtime-json"
     }
   },
   "timestamp": "2026-03-07T12:35:00.000Z"
 }
 ```
+
+The event data is exactly `{ sessionId, objectiveId, summary }`. It carries no `messageId` at the top level; the applied message is `data.summary.messageId`. `data.summary` has the same shape as in [`objective-refinement-session.summary.created`](#objective-refinement-sessionsummarycreated). The updated objective itself arrives separately as [`objective.changed`](#objectivechanged).
 
 | Field | Type | Description |
 |---|---|---|
@@ -611,7 +667,7 @@ Broadcast when Armada applies a refinement summary back to the linked backlog it
 | `message` | string | Human-readable event label |
 | `data.sessionId` | string | Refinement session ID (prefix `ors_`) |
 | `data.objectiveId` | string | Linked backlog/objective ID (prefix `obj_`) |
-| `data.summary` | object | Serialized `ObjectiveRefinementSummaryResponse` payload |
+| `data.summary` | object | Serialized `ObjectiveRefinementSummaryResponse` (fields listed under `summary.created`) |
 | `timestamp` | string | ISO 8601 UTC timestamp |
 
 ---

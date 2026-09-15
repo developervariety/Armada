@@ -152,19 +152,19 @@ namespace Armada.Server.Mcp.Tools
                         runtime = new { type = "string", description = "New agent runtime: ClaudeCode, Codex, Gemini, Cursor, OpenCode, Mux, or Custom" },
                         systemInstructions = new { type = "string", description = "New system instructions for this captain" },
                         model = new { type = "string", description = "New AI model identifier; null means runtime default" },
-                        apiKey = new { type = "string", description = "New per-captain provider credential override for external-provider-served models; empty string clears it" },
-                        apiBaseUrl = new { type = "string", description = "New per-captain provider base URL override for external-provider-served models; empty string clears it" },
+                        apiKey = new { type = "string", emptyStringClears = true, description = "New per-captain provider credential override for external-provider-served models; empty string clears it" },
+                        apiBaseUrl = new { type = "string", emptyStringClears = true, description = "New per-captain provider base URL override for external-provider-served models; empty string clears it" },
                         allowedPersonas = new { type = "string", description = "JSON array of persona names this captain can fill, e.g. [\"Worker\",\"Judge\"]. Null means any persona." },
                         preferredPersona = new { type = "string", description = "Preferred persona for dispatch routing priority" },
-                        muxConfigDirectory = new { type = "string", description = "Optional Mux config directory override; empty string clears it" },
-                        muxEndpoint = new { type = "string", description = "Named Mux endpoint; empty string clears it" },
-                        muxBaseUrl = new { type = "string", description = "Optional Mux base URL override; empty string clears it" },
-                        muxAdapterType = new { type = "string", description = "Optional Mux adapter type override; empty string clears it" },
+                        muxConfigDirectory = new { type = "string", emptyStringClears = true, description = "Optional Mux config directory override; empty string clears it" },
+                        muxEndpoint = new { type = "string", emptyStringClears = true, description = "Named Mux endpoint; empty string clears it" },
+                        muxBaseUrl = new { type = "string", emptyStringClears = true, description = "Optional Mux base URL override; empty string clears it" },
+                        muxAdapterType = new { type = "string", emptyStringClears = true, description = "Optional Mux adapter type override; empty string clears it" },
                         muxTemperature = new { type = "number", description = "Optional Mux temperature override" },
                         muxMaxTokens = new { type = "integer", description = "Optional Mux max tokens override" },
-                        muxSystemPromptPath = new { type = "string", description = "Optional Mux system prompt file path; empty string clears it" },
-                        muxApprovalPolicy = new { type = "string", description = "Optional Mux approval policy override; empty string clears it" },
-                        reasoningEffort = new { type = "string", description = "Reasoning-effort / thinking-budget tier (low|medium|high). Empty string clears it; null leaves it unchanged." },
+                        muxSystemPromptPath = new { type = "string", emptyStringClears = true, description = "Optional Mux system prompt file path; empty string clears it" },
+                        muxApprovalPolicy = new { type = "string", emptyStringClears = true, description = "Optional Mux approval policy override; empty string clears it" },
+                        reasoningEffort = new { type = "string", emptyStringClears = true, description = "Reasoning-effort / thinking-budget tier (low|medium|high). Empty string clears it; null leaves it unchanged." },
                         defaultPlaybooks = DefaultPlaybooksSchema()
                     },
                     required = new[] { "captainId" }
@@ -660,14 +660,14 @@ namespace Armada.Server.Mcp.Tools
             // Switching away from Mux clears Mux fields but preserves reasoningEffort.
             if (captain.Runtime == AgentRuntimeEnum.Mux)
             {
-                if (request.MuxConfigDirectory != null) options.ConfigDirectory = request.MuxConfigDirectory;
-                if (request.MuxEndpoint != null) options.Endpoint = request.MuxEndpoint;
-                if (request.MuxBaseUrl != null) options.BaseUrl = request.MuxBaseUrl;
-                if (request.MuxAdapterType != null) options.AdapterType = request.MuxAdapterType;
+                if (request.MuxConfigDirectory != null) options.ConfigDirectory = EmptyAsNull(request.MuxConfigDirectory);
+                if (request.MuxEndpoint != null) options.Endpoint = EmptyAsNull(request.MuxEndpoint);
+                if (request.MuxBaseUrl != null) options.BaseUrl = EmptyAsNull(request.MuxBaseUrl);
+                if (request.MuxAdapterType != null) options.AdapterType = EmptyAsNull(request.MuxAdapterType);
                 if (request.MuxTemperature.HasValue) options.Temperature = request.MuxTemperature;
                 if (request.MuxMaxTokens.HasValue) options.MaxTokens = request.MuxMaxTokens;
-                if (request.MuxSystemPromptPath != null) options.SystemPromptPath = request.MuxSystemPromptPath;
-                if (request.MuxApprovalPolicy != null) options.ApprovalPolicy = request.MuxApprovalPolicy;
+                if (request.MuxSystemPromptPath != null) options.SystemPromptPath = EmptyAsNull(request.MuxSystemPromptPath);
+                if (request.MuxApprovalPolicy != null) options.ApprovalPolicy = EmptyAsNull(request.MuxApprovalPolicy);
             }
             else
             {
@@ -692,6 +692,11 @@ namespace Armada.Server.Mcp.Tools
                 return new CaptainOptions();
 
             return CaptainRuntimeOptions.GetCaptainOptions(captain) ?? new CaptainOptions();
+        }
+
+        private static string? EmptyAsNull(string value)
+        {
+            return value.Length == 0 ? null : value;
         }
 
         private static bool HasAnyOptions(CaptainOptions options)

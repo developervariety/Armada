@@ -239,6 +239,33 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("DeleteAsync reports the deleted objective to the deletion callback", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ObjectiveService objectives = new ObjectiveService(testDb.Driver);
+                    string tenantId = "ten_objective_delete";
+                    string userId = "usr_objective_delete";
+                    await EnsureTenantAndUserAsync(testDb, tenantId, userId).ConfigureAwait(false);
+                    AuthContext auth = AuthContext.Authenticated(tenantId, userId, false, true, "UnitTest");
+
+                    Objective created = await objectives.CreateAsync(auth, new ObjectiveUpsertRequest
+                    {
+                        Title = "Objective to delete",
+                        Status = ObjectiveStatusEnum.Scoped
+                    }).ConfigureAwait(false);
+
+                    List<Objective> deleted = new List<Objective>();
+                    objectives.OnObjectiveDeleted = objective => deleted.Add(objective);
+                    await objectives.DeleteAsync(auth, created.Id).ConfigureAwait(false);
+
+                    AssertEqual(1, deleted.Count, "one deletion is reported once");
+                    AssertEqual(created.Id, deleted[0].Id, "the callback names the deleted objective");
+                    AssertEqual(tenantId, deleted[0].TenantId, "the callback carries the owning tenant for delivery scope");
+                    AssertEqual(userId, deleted[0].UserId, "the callback carries the owning user for delivery scope");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("LinkIncidentAsync is an annotation: a never-dispatched objective stays auto-dispatch eligible", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

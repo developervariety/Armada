@@ -47,7 +47,7 @@ namespace Armada.Server.Mcp.Tools
                 {
                     VesselIdArgs request = JsonSerializer.Deserialize<VesselIdArgs>(args!.Value, _JsonOptions)!;
                     string vesselId = request.VesselId;
-                    Vessel? vessel = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
+                    Vessel? vessel = await ReadVisibleVesselAsync(database, McpCallerContext.Require(), vesselId).ConfigureAwait(false);
                     if (vessel == null) return (object)new { Error = "Vessel not found" };
                     return (object)vessel;
                 });
@@ -497,7 +497,7 @@ namespace Armada.Server.Mcp.Tools
                     string vesselId = request.VesselId;
                     if (!String.IsNullOrEmpty(request.ModelContext) && !request.OperatorOverride)
                         return (object)new { Error = "Direct modelContext mutation is blocked for captains. Emit a [CLAUDE.MD-PROPOSAL] block in your final response to propose changes; the orchestrator applies approved proposals with operatorOverride=true." };
-                    Vessel? vessel = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
+                    Vessel? vessel = await ReadVisibleVesselAsync(database, McpCallerContext.Require(), vesselId).ConfigureAwait(false);
                     if (vessel == null) return (object)new { Error = "Vessel not found" };
                     if (request.ProjectContext != null)
                         vessel.ProjectContext = request.ProjectContext;
@@ -508,6 +508,27 @@ namespace Armada.Server.Mcp.Tools
                     vessel = await database.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
                     return (object)vessel;
                 });
+        }
+
+        /// <summary>
+        /// Read a vessel the caller may see under the shared ownership rule: a global administrator sees
+        /// every vessel, a tenant administrator the tenant's vessels, and any other caller only the vessels
+        /// it owns. A vessel outside that scope reads as absent, so its existence is not disclosed.
+        /// </summary>
+        /// <param name="database">Database driver.</param>
+        /// <param name="caller">Authenticated caller.</param>
+        /// <param name="vesselId">Vessel ID.</param>
+        /// <returns>The vessel, or null when it does not exist within the caller's scope.</returns>
+        internal static async Task<Vessel?> ReadVisibleVesselAsync(DatabaseDriver database, AuthContext caller, string vesselId)
+        {
+            if (database == null) throw new ArgumentNullException(nameof(database));
+            if (caller == null) throw new ArgumentNullException(nameof(caller));
+            if (String.IsNullOrWhiteSpace(vesselId)) return null;
+            if (caller.IsAdmin) return await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
+            if (String.IsNullOrWhiteSpace(caller.TenantId)) return null;
+            if (caller.IsTenantAdmin) return await database.Vessels.ReadAsync(caller.TenantId, vesselId).ConfigureAwait(false);
+            if (String.IsNullOrWhiteSpace(caller.UserId)) return null;
+            return await database.Vessels.ReadAsync(caller.TenantId, caller.UserId, vesselId).ConfigureAwait(false);
         }
 
         /// <summary>

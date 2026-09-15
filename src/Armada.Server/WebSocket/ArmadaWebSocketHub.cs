@@ -309,6 +309,28 @@ namespace Armada.Server.WebSocket
         }
 
         /// <summary>
+        /// Broadcast an objective deletion to the sessions that could read the objective.
+        /// </summary>
+        /// <param name="objective">Deleted objective; only its identity and owner are sent.</param>
+        public void BroadcastObjectiveDeleted(Objective objective)
+        {
+            if (objective == null) throw new ArgumentNullException(nameof(objective));
+            WebSocketEventEnvelope payload = new WebSocketEventEnvelope
+            {
+                Type = "objective.deleted",
+                Data = new ObjectiveDeletedEventData
+                {
+                    Id = objective.Id,
+                    TenantId = objective.TenantId,
+                    UserId = objective.UserId
+                },
+                Timestamp = DateTime.UtcNow
+            };
+
+            BroadcastEvent(payload, WebSocketDeliveryScope.ForOwner(objective.TenantId, objective.UserId));
+        }
+
+        /// <summary>
         /// Broadcast a deployment change to the sessions that may read the deployment.
         /// </summary>
         /// <param name="deployment">Changed deployment.</param>
