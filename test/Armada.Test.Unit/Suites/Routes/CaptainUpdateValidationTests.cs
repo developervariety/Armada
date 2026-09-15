@@ -600,7 +600,7 @@ namespace Armada.Test.Unit.Suites.Routes
                 {
                     if (name == "armada_create_captain")
                     {
-                        createHandler = handler;
+                        createHandler = Armada.Test.Unit.TestHelpers.McpTestCaller.Wrap(handler);
                     }
                 },
                 database,

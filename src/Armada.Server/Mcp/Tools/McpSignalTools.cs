@@ -46,8 +46,11 @@ namespace Armada.Server.Mcp.Tools
                     SignalSendArgs request = JsonSerializer.Deserialize<SignalSendArgs>(args!.Value, _JsonOptions)!;
                     string captainId = request.CaptainId;
                     string message = request.Message;
+                    // The signal is owned by the authenticated caller, exactly as a REST create is.
+                    AuthContext sendCaller = McpCallerContext.Require();
                     Signal signal = new Signal(SignalTypeEnum.Mail, message);
-                    signal.TenantId = ArmadaConstants.DefaultTenantId;
+                    signal.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(sendCaller);
+                    signal.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(sendCaller);
                     signal.ToCaptainId = captainId;
                     signal = await database.Signals.CreateAsync(signal).ConfigureAwait(false);
                     return (object)signal;
@@ -155,8 +158,10 @@ namespace Armada.Server.Mcp.Tools
                         CreatedBy = ArmadaMcpHttpServer.CurrentParticipantKey ?? request.CreatedBy
                     };
 
+                    AuthContext nudgeCaller = McpCallerContext.Require();
                     Signal signal = new Signal(signalType, JsonSerializer.Serialize(payload, _JsonOptions));
-                    signal.TenantId = ArmadaConstants.DefaultTenantId;
+                    signal.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(nudgeCaller);
+                    signal.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(nudgeCaller);
                     signal = await database.Signals.CreateAsync(signal).ConfigureAwait(false);
                     return (object)signal;
                 });

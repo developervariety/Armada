@@ -78,6 +78,76 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("CreateMission_IsOwnedByTheCaller", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    TenantMetadata tenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("mission-owner-tenant")).ConfigureAwait(false);
+                    UserMaster user = await testDb.Driver.Users.CreateAsync(new UserMaster(tenant.Id, "mission-owner@example.com", "password")).ConfigureAwait(false);
+                    AuthContext caller = AuthContext.Authenticated(tenant.Id, user.Id, false, false, "Test");
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                    Func<JsonElement?, Task<object>>? createHandler = null;
+                    McpMissionTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_create_mission") createHandler = handler; },
+                        testDb.Driver,
+                        admiralDouble,
+                        null,
+                        null);
+                    AssertNotNull(createHandler, "armada_create_mission handler must be registered");
+
+                    using (McpCallerContext.Begin(caller))
+                    {
+                        await createHandler!(JsonSerializer.SerializeToElement(new { title = "owned", description = "owned mission", vesselId = "vsl_owned" })).ConfigureAwait(false);
+                    }
+
+                    AssertNotNull(admiralDouble.LastDispatched, "the mission reaches dispatch");
+                    AssertEqual(tenant.Id, admiralDouble.LastDispatched!.TenantId, "the mission belongs to the caller's tenant");
+                    AssertEqual(user.Id, admiralDouble.LastDispatched.UserId, "the mission belongs to the calling user");
+                }
+            });
+
+            await RunTest("RestartMission_ProgressSignalIsOwnedLikeTheMission", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    TenantMetadata tenant = await testDb.Driver.Tenants.CreateAsync(new TenantMetadata("restart-owner-tenant")).ConfigureAwait(false);
+                    UserMaster user = await testDb.Driver.Users.CreateAsync(new UserMaster(tenant.Id, "restart-owner@example.com", "password")).ConfigureAwait(false);
+                    Vessel vessel = new Vessel("restart-vessel", "https://github.com/test/restart.git");
+                    vessel.TenantId = tenant.Id;
+                    vessel.UserId = user.Id;
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("restart owned")
+                    {
+                        TenantId = tenant.Id,
+                        UserId = user.Id,
+                        VesselId = vessel.Id,
+                        Status = MissionStatusEnum.Failed
+                    }).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? restartHandler = null;
+                    McpMissionTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_restart_mission") restartHandler = handler; },
+                        testDb.Driver,
+                        new RecordingAdmiralDouble(),
+                        null,
+                        null);
+                    AssertNotNull(restartHandler, "armada_restart_mission handler must be registered");
+
+                    string json;
+                    using (McpCallerContext.Begin(McpTestCaller.Operator))
+                    {
+                        json = JsonSerializer.Serialize(await restartHandler!(JsonSerializer.SerializeToElement(new { missionId = mission.Id })).ConfigureAwait(false));
+                    }
+
+                    List<Signal> signals = await testDb.Driver.Signals.EnumerateRecentAsync(100).ConfigureAwait(false);
+                    Signal? restarted = signals.Find(s => (s.Payload ?? String.Empty).Contains(mission.Id + " restarted", StringComparison.Ordinal));
+                    AssertNotNull(restarted, "the restart writes a progress signal: " + json);
+                    AssertEqual(tenant.Id, restarted!.TenantId, "the restart signal belongs to the mission's tenant");
+                    AssertEqual(user.Id, restarted.UserId, "the restart signal belongs to the mission's user");
+                }
+            });
+
             await RunTest("MissionOutput_ReturnsPersistedDigestBackedPage", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -125,7 +195,7 @@ namespace Armada.Test.Unit.Suites.Services
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
                     Func<JsonElement?, Task<object>>? createHandler = null;
                     McpMissionTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_create_mission") createHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_create_mission") createHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null,
@@ -163,7 +233,7 @@ namespace Armada.Test.Unit.Suites.Services
                     RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
                     Func<JsonElement?, Task<object>>? createHandler = null;
                     McpMissionTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_create_mission") createHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_create_mission") createHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
                         null,

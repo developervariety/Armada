@@ -411,7 +411,7 @@ namespace Armada.Test.Unit.Suites.Routes
             ArmadaSettings settings = new ArmadaSettings();
             CaptainQuarantineService quarantine = new CaptainQuarantineService(database, settings, logging);
             McpCaptainTools.Register(
-                (name, _, _, handler) => tools[name] = handler,
+                (name, _, _, handler) => tools[name] = Armada.Test.Unit.TestHelpers.McpTestCaller.Wrap(handler),
                 database,
                 null!,
                 settings,

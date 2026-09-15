@@ -277,7 +277,18 @@ Every MCP request authenticates through the same service as the REST API. There
 is no anonymous or default identity. A missing credential, an invalid
 credential or a server without an authenticator gets HTTP `401`, and no tool
 handler runs. Each tool reads the authenticated caller of its own request.
-Records it creates carry that caller's tenant and user.
+Records it creates carry that caller's tenant and user, as the matching REST
+create does. That covers `armada_create_fleet`, `armada_add_vessel`,
+`armada_create_captain`, `armada_create_mission`, `armada_send_signal`,
+`armada_nudge_voyage`, `armada_enqueue_merge`, `create_persona`,
+`create_pipeline`, `create_playbook`, `create_prompt_template`, a new name
+written by `update_prompt_template`, `create_workflow_profile` and the
+service-backed creates (objectives, backlog items, incidents, releases,
+deployments, environments, runbooks and memories). `create_playbook` checks
+file-name uniqueness inside the caller's tenant. `create_workflow_profile`
+keeps a tenant named in the record only for a global administrator. A progress
+signal a tool writes about an existing mission, such as the one from
+`armada_restart_mission`, belongs to that mission's owner.
 
 What a caller may use:
 

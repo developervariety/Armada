@@ -174,8 +174,11 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     MissionCreateArgs request = JsonSerializer.Deserialize<MissionCreateArgs>(args!.Value, _JsonOptions)!;
+                    // The mission is owned by the authenticated caller, exactly as a REST create is.
+                    AuthContext createCaller = McpCallerContext.Require();
                     Mission mission = new Mission();
-                    mission.TenantId = ArmadaConstants.DefaultTenantId;
+                    mission.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(createCaller);
+                    mission.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(createCaller);
                     mission.Title = request.Title;
                     mission.Description = request.Description;
                     mission.VesselId = request.VesselId;
@@ -535,8 +538,10 @@ namespace Armada.Server.Mcp.Tools
                         };
                     }
 
+                    // The restart signal belongs to the mission it reports, so the mission's owner sees it.
                     Signal signal = new Signal(SignalTypeEnum.Progress, "Mission " + missionId + " restarted");
-                    signal.TenantId = ArmadaConstants.DefaultTenantId;
+                    signal.TenantId = mission.TenantId;
+                    signal.UserId = mission.UserId;
                     await database.Signals.CreateAsync(signal).ConfigureAwait(false);
 
                     return (object)SanitizeMissionForStatus(mission);

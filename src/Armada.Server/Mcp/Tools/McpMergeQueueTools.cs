@@ -74,7 +74,11 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     MergeEnqueueArgs request = JsonSerializer.Deserialize<MergeEnqueueArgs>(args!.Value, _JsonOptions)!;
+                    // The entry is owned by the authenticated caller, exactly as a REST enqueue is.
+                    AuthContext enqueueCaller = McpCallerContext.Require();
                     MergeEntry entry = new MergeEntry();
+                    entry.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(enqueueCaller);
+                    entry.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(enqueueCaller);
                     entry.VesselId = request.VesselId;
                     entry.BranchName = request.BranchName;
                     if (request.MissionId != null)

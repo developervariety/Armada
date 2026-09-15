@@ -77,13 +77,16 @@ namespace Armada.Server.Mcp.Tools
                         Description = request.Description,
                         Active = request.Active ?? true
                     };
-                    playbook.TenantId = Constants.DefaultTenantId;
-                    playbook.UserId = Constants.DefaultUserId;
+                    // The playbook is owned by the authenticated caller and its file name is unique within the
+                    // caller's tenant, exactly as a REST create is.
+                    AuthContext createCaller = McpCallerContext.Require();
+                    playbook.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(createCaller);
+                    playbook.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(createCaller);
 
                     PlaybookService service = new PlaybookService(database, logging);
                     service.Validate(playbook);
 
-                    if (await database.Playbooks.ExistsByFileNameAsync(Constants.DefaultTenantId, playbook.FileName).ConfigureAwait(false))
+                    if (await database.Playbooks.ExistsByFileNameAsync(playbook.TenantId, playbook.FileName).ConfigureAwait(false))
                     {
                         return (object)new { Error = "A playbook with that file name already exists." };
                     }

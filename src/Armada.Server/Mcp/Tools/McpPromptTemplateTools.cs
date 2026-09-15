@@ -155,7 +155,11 @@ namespace Armada.Server.Mcp.Tools
                     }
                     else
                     {
+                        // A template this upsert creates is owned by the authenticated caller, as create_prompt_template is.
+                        AuthContext upsertCaller = McpCallerContext.Require();
                         PromptTemplate template = new PromptTemplate(name, request.Content);
+                        template.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(upsertCaller);
+                        template.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(upsertCaller);
                         if (request.Description != null)
                             template.Description = request.Description;
                         PromptTemplate created = await database.PromptTemplates.CreateAsync(template).ConfigureAwait(false);

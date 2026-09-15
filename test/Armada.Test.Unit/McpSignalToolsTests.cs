@@ -109,7 +109,7 @@ namespace Armada.Test.Unit
                 {
                     Func<JsonElement?, Task<object>>? handler = null;
                     McpSignalTools.Register(
-                        (name, _, _, h) => { if (name == "armada_nudge_voyage") handler = h; },
+                        (name, _, _, h) => { if (name == "armada_nudge_voyage") handler = McpTestCaller.Wrap(h); },
                         testDb.Driver);
                     AssertNotNull(handler, "armada_nudge_voyage handler must be registered");
 
@@ -126,7 +126,7 @@ namespace Armada.Test.Unit
                 {
                     Func<JsonElement?, Task<object>>? handler = null;
                     McpSignalTools.Register(
-                        (name, _, _, h) => { if (name == "armada_nudge_voyage") handler = h; },
+                        (name, _, _, h) => { if (name == "armada_nudge_voyage") handler = McpTestCaller.Wrap(h); },
                         testDb.Driver);
 
                     JsonElement args = JsonSerializer.SerializeToElement(new
@@ -151,7 +151,7 @@ namespace Armada.Test.Unit
 
                     Func<JsonElement?, Task<object>>? handler = null;
                     McpSignalTools.Register(
-                        (name, _, _, h) => { if (name == "armada_nudge_voyage") handler = h; },
+                        (name, _, _, h) => { if (name == "armada_nudge_voyage") handler = McpTestCaller.Wrap(h); },
                         testDb.Driver);
 
                     JsonElement args = JsonSerializer.SerializeToElement(new
@@ -175,7 +175,7 @@ namespace Armada.Test.Unit
 
                     Func<JsonElement?, Task<object>>? handler = null;
                     McpSignalTools.Register(
-                        (name, _, _, h) => { if (name == "armada_nudge_voyage") handler = h; },
+                        (name, _, _, h) => { if (name == "armada_nudge_voyage") handler = McpTestCaller.Wrap(h); },
                         testDb.Driver);
 
                     JsonElement args = JsonSerializer.SerializeToElement(new
@@ -196,7 +196,7 @@ namespace Armada.Test.Unit
                 {
                     Func<JsonElement?, Task<object>>? handler = null;
                     McpSignalTools.Register(
-                        (name, _, _, h) => { if (name == "armada_nudge_voyage") handler = h; },
+                        (name, _, _, h) => { if (name == "armada_nudge_voyage") handler = McpTestCaller.Wrap(h); },
                         testDb.Driver);
 
                     JsonElement args = JsonSerializer.SerializeToElement(new
@@ -217,7 +217,7 @@ namespace Armada.Test.Unit
                 {
                     Func<JsonElement?, Task<object>>? handler = null;
                     McpSignalTools.Register(
-                        (name, _, _, h) => { if (name == "armada_nudge_voyage") handler = h; },
+                        (name, _, _, h) => { if (name == "armada_nudge_voyage") handler = McpTestCaller.Wrap(h); },
                         testDb.Driver);
 
                     JsonElement args = JsonSerializer.SerializeToElement(new
@@ -241,7 +241,7 @@ namespace Armada.Test.Unit
 
                     Func<JsonElement?, Task<object>>? handler = null;
                     McpSignalTools.Register(
-                        (name, _, _, h) => { if (name == "armada_nudge_voyage") handler = h; },
+                        (name, _, _, h) => { if (name == "armada_nudge_voyage") handler = McpTestCaller.Wrap(h); },
                         testDb.Driver);
 
                     JsonElement args = JsonSerializer.SerializeToElement(new
@@ -281,7 +281,7 @@ namespace Armada.Test.Unit
 
                     Func<JsonElement?, Task<object>>? handler = null;
                     McpSignalTools.Register(
-                        (name, _, _, h) => { if (name == "armada_nudge_voyage") handler = h; },
+                        (name, _, _, h) => { if (name == "armada_nudge_voyage") handler = McpTestCaller.Wrap(h); },
                         testDb.Driver);
 
                     JsonElement args = JsonSerializer.SerializeToElement(new
@@ -314,7 +314,7 @@ namespace Armada.Test.Unit
 
                     Func<JsonElement?, Task<object>>? handler = null;
                     McpSignalTools.Register(
-                        (name, _, _, h) => { if (name == "armada_nudge_voyage") handler = h; },
+                        (name, _, _, h) => { if (name == "armada_nudge_voyage") handler = McpTestCaller.Wrap(h); },
                         testDb.Driver);
 
                     JsonElement args = JsonSerializer.SerializeToElement(new

@@ -73,8 +73,11 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     FleetCreateArgs request = JsonSerializer.Deserialize<FleetCreateArgs>(args!.Value, _JsonOptions)!;
+                    // The fleet is owned by the authenticated caller, exactly as a REST create is.
+                    AuthContext caller = McpCallerContext.Require();
                     Fleet fleet = new Fleet();
-                    fleet.TenantId = ArmadaConstants.DefaultTenantId;
+                    fleet.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(caller);
+                    fleet.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(caller);
                     fleet.Name = request.Name;
                     fleet.Description = request.Description ?? "";
                     fleet = await database.Fleets.CreateAsync(fleet).ConfigureAwait(false);

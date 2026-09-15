@@ -97,8 +97,14 @@ namespace Armada.Server.Mcp.Tools
                 async args =>
                 {
                     WorkflowProfile profile = ReadProfile(args);
-                    profile.TenantId ??= Constants.DefaultTenantId;
-                    profile.UserId ??= Constants.DefaultUserId;
+                    // Ownership follows the REST create: a global administrator may name the tenant, every other
+                    // caller creates in its own tenant, and the calling user owns the profile.
+                    AuthContext createCaller = McpCallerContext.Require();
+                    string callerTenant = Armada.Core.Authorization.OwnershipPolicy.TenantOf(createCaller);
+                    profile.TenantId = createCaller.IsAdmin && !String.IsNullOrWhiteSpace(profile.TenantId)
+                        ? profile.TenantId
+                        : callerTenant;
+                    profile.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(createCaller);
                     WorkflowProfileValidationResult validation = await workflowProfiles.ValidateAsync(profile).ConfigureAwait(false);
                     if (!validation.IsValid) return (object)new { Error = String.Join(" ", validation.Errors), Validation = validation };
                     await ClearOtherDefaultsAsync(database, profile).ConfigureAwait(false);

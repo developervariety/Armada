@@ -77,6 +77,11 @@ that is counted from events, and leaves the rescue budget untouched. Only an
 exit code the runtime reports counts, never the health check's missing-process
 value.
 
+MCP create tools record the authenticated caller as the owner, as upstream
+now does and as the fork's REST creates always did. The fork applies its shared
+ownership policy, so a global administrator's profile tenant choice and the
+per-tenant playbook name rule match REST exactly.
+
 Features first developed in the fork now also exist upstream: boundary
 scanning, auto-land, quarantine, model tiers, OpenCode, no-op handling,
 reasoning effort, mission modes, acceptance gates, recovery, stage hardening,

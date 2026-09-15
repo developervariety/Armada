@@ -32,6 +32,20 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   interruption. That process may have completed after its exit record was
   pruned, so re-running it could repeat finished work.
 
+### MCP create tools record the caller as owner
+
+- `armada_create_fleet`, `armada_create_captain`, `armada_create_mission`,
+  `armada_send_signal`, `armada_nudge_voyage`, `create_playbook`,
+  `create_workflow_profile`, `armada_enqueue_merge` and the create branch of
+  `update_prompt_template` now record the authenticated caller's tenant and
+  user as the owner, as the matching REST create does. Before, most wrote the
+  default tenant with no user, so a scoped caller could not see its own record.
+- `create_playbook` checks file-name uniqueness inside the caller's tenant.
+- `create_workflow_profile` keeps a tenant named in the record only for a
+  global administrator, as the REST create does.
+- The progress signal from `armada_restart_mission` belongs to the restarted
+  mission's tenant and user.
+
 ### Incident lifecycle sweep reaches every open incident
 
 - The incident lifecycle sweep now reads only non-terminal incidents. It no

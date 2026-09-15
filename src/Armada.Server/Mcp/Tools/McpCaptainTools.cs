@@ -119,7 +119,10 @@ namespace Armada.Server.Mcp.Tools
                     if (reasoningValidationError != null) return CreateToolErrorResponse(reasoningValidationError);
                     ApplyCaptainOptions(captain, request);
                     captain = CaptainInputMapping.ForCreate(captain);
-                    captain.TenantId = ArmadaConstants.DefaultTenantId;
+                    // The captain is owned by the authenticated caller, exactly as a REST create is.
+                    AuthContext createCaller = McpCallerContext.Require();
+                    captain.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(createCaller);
+                    captain.UserId = Armada.Core.Authorization.OwnershipPolicy.UserOf(createCaller);
 
                     if (agentLifecycle != null)
                     {
