@@ -4,6 +4,8 @@ import { getTokenUsageSummary } from '../api/client';
 import type { TokenUsageModelBreakdown, TokenUsageSummaryResult } from '../types/models';
 import { useLocale } from '../context/LocaleContext';
 import { copySvgToClipboard } from '../lib/chartImage';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 
 // Bucket counts per range: hour = 2/min (120), day = 4/hour (96), week = 12/day (84), month = 4/day (120).
 const TIME_RANGES = [
@@ -76,6 +78,15 @@ function modelCachedTokens(model: TokenUsageModelBreakdown): number {
   return (model.cacheReadTokens ?? 0) + (model.cacheWriteTokens ?? 0);
 }
 
+/** The breakdown is per runtime and model, so one model under two runtimes is two rows. */
+function modelKey(model: Pick<TokenUsageModelBreakdown, 'runtime' | 'model'>): string {
+  return `${model.runtime ?? ''}/${model.model}`;
+}
+
+function modelLabel(model: Pick<TokenUsageModelBreakdown, 'runtime' | 'model'>): string {
+  return model.runtime ? `${model.model} (${model.runtime})` : model.model;
+}
+
 export default function TokenUsage() {
   const { t } = useLocale();
   const [timeRange, setTimeRange] = useState<TimeRangeValue>('day');
@@ -107,17 +118,27 @@ export default function TokenUsage() {
     setTipPos({ left, top });
   }, [tooltip]);
 
+  // Each auto-refresh tick re-reads the summary for a window that ends now.
+  const [refreshTick, setRefreshTick] = useState(0);
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('token-usage', () => setRefreshTick((tick) => tick + 1));
+  const loadedRangeRef = useRef<string | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     const end = new Date();
     const start = new Date(end.getTime() - range.hours * 3600000);
-    setLoading(true);
+    // Show the loading state for a new time range, not for a refresh of the one on screen.
+    if (loadedRangeRef.current !== timeRange) setLoading(true);
     getTokenUsageSummary({ fromUtc: start.toISOString(), toUtc: end.toISOString(), bucketMinutes: range.stepMinutes })
-      .then((result) => { if (!cancelled) setData(result); })
+      .then((result) => {
+        if (cancelled) return;
+        setData(result);
+        loadedRangeRef.current = timeRange;
+      })
       .catch(() => { if (!cancelled) setData(null); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [range.hours, range.stepMinutes, timeRange]);
+  }, [range.hours, range.stepMinutes, timeRange, refreshTick]);
 
   const bucketTimestamps = useMemo<number[]>(
     () => (data?.buckets || []).map(b => new Date(b.bucketStartUtc).getTime()),
@@ -132,14 +153,14 @@ export default function TokenUsage() {
         { key: 'cached', label: t('Cached'), color: TYPE_COLORS.cached },
       ];
     }
-    return (data?.byModel || []).map((m, i) => ({ key: m.model, label: m.model, color: MODEL_COLORS[i % MODEL_COLORS.length] }));
+    return (data?.byModel || []).map((m, i) => ({ key: modelKey(m), label: modelLabel(m), color: MODEL_COLORS[i % MODEL_COLORS.length] }));
   }, [data, metric, t]);
 
   const bucketValues = useMemo<number[][]>(() => {
     const buckets = data?.buckets || [];
     if (metric === 'byType') return buckets.map(b => [b.inputTokens, b.outputTokens, b.cachedTokens]);
     return buckets.map(b => series.map(s => {
-      const entry = b.models.find(m => m.model === s.key);
+      const entry = b.models.find(m => modelKey(m) === s.key);
       return entry ? entry.totalTokens : 0;
     }));
   }, [data, metric, series]);
@@ -206,6 +227,7 @@ export default function TokenUsage() {
           <button className={'mission-history-time-tab' + (shape === 'bars' ? ' active' : '')} onClick={() => setShape('bars')}>{t('Stacked bars')}</button>
           <button className={'mission-history-time-tab' + (shape === 'lines' ? ' active' : '')} onClick={() => setShape('lines')}>{t('Lines')}</button>
         </div>
+        <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
       </div>
 
       <div className="mission-history-stats token-usage-stats">
@@ -310,15 +332,15 @@ export default function TokenUsage() {
                   : [{ v: m.totalTokens, c: 'var(--accent)' }];
                 let cursor = modelBarX;
                 return (
-                  <g key={m.model}
-                    onMouseMove={(e) => showTip(e.clientX, e.clientY, m.model, [
+                  <g key={modelKey(m)}
+                    onMouseMove={(e) => showTip(e.clientX, e.clientY, modelLabel(m), [
                       { label: t('Input'), color: TYPE_COLORS.input, value: m.inputTokens },
                       { label: t('Output'), color: TYPE_COLORS.output, value: m.outputTokens },
                       { label: t('Cached'), color: TYPE_COLORS.cached, value: modelCachedTokens(m) },
                     ], m.totalTokens)}
                     onMouseLeave={hideTip}>
                     <rect x={0} y={y} width={800} height={rowH} fill="transparent" />
-                    <text x={labelW - 4} y={cy + 2.5} textAnchor="end" fontSize="7.5" fill="var(--text)">{truncate(m.model, 28)}</text>
+                    <text x={labelW - 4} y={cy + 2.5} textAnchor="end" fontSize="7.5" fill="var(--text)">{truncate(modelLabel(m), 28)}</text>
                     {segs.map((seg, si) => {
                       if (seg.v <= 0) return null;
                       const w = (seg.v / maxModelTotal) * modelBarW;

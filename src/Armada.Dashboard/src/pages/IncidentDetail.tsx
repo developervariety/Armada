@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   createIncident,
@@ -28,6 +28,7 @@ import type {
 import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { RESYNC_MESSAGE_TYPE, useWebSocket } from '../context/WebSocketContext';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import CopyButton from '../components/shared/CopyButton';
 import MissionRecoveryPanel from '../components/shared/MissionRecoveryPanel';
@@ -55,6 +56,53 @@ function toUtcValue(value: string) {
   if (!value.trim()) return null;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+/** The editable fields of the form, as strings, so the form can be compared with the stored record. */
+interface IncidentFormState {
+  vesselId: string;
+  environmentId: string;
+  environmentName: string;
+  deploymentId: string;
+  releaseId: string;
+  missionId: string;
+  voyageId: string;
+  rollbackDeploymentId: string;
+  title: string;
+  summary: string;
+  status: IncidentStatus;
+  severity: IncidentSeverity;
+  impact: string;
+  rootCause: string;
+  recoveryNotes: string;
+  postmortem: string;
+  detectedUtc: string;
+  mitigatedUtc: string;
+  closedUtc: string;
+}
+
+function formStateFromIncident(result: Incident): IncidentFormState {
+  return {
+    vesselId: result.vesselId || '',
+    environmentId: result.environmentId || '',
+    environmentName: result.environmentName || '',
+    deploymentId: result.deploymentId || '',
+    releaseId: result.releaseId || '',
+    missionId: result.missionId || '',
+    voyageId: result.voyageId || '',
+    rollbackDeploymentId: result.rollbackDeploymentId || '',
+    title: result.title,
+    summary: result.summary || '',
+    status: result.status,
+    severity: result.severity,
+    impact: result.impact || '',
+    rootCause: result.rootCause || '',
+    recoveryNotes: result.recoveryNotes || '',
+    postmortem: result.postmortem || '',
+    detectedUtc: toInputDateTime(result.detectedUtc),
+    mitigatedUtc: toInputDateTime(result.mitigatedUtc),
+    closedUtc: toInputDateTime(result.closedUtc),
+  };
 }
 
 function buildIncidentPrompt(incidentTitle: string, summary: string, impact: string, environmentName: string, deploymentId: string, releaseId: string) {
@@ -135,10 +183,10 @@ export default function IncidentDetail() {
     let cancelled = false;
 
     Promise.all([
-      listVessels({ pageSize: 9999 }),
-      listEnvironments({ pageSize: 9999 }),
-      listDeployments({ pageSize: 9999 }),
-      listReleases({ pageSize: 9999 }),
+      listVessels({ pageSize: 1000 }),
+      listEnvironments({ pageSize: 500 }),
+      listDeployments({ pageSize: 500 }),
+      listReleases({ pageSize: 500 }),
     ]).then(([vesselResult, environmentResult, deploymentResult, releaseResult]) => {
       if (cancelled) return;
       setVessels(vesselResult.objects || []);
@@ -205,47 +253,79 @@ export default function IncidentDetail() {
     return () => { active = false; };
   }, [recoveryMissionId, t]);
 
-  useEffect(() => {
+  const applyIncident = useCallback((result: Incident) => {
+    const form = formStateFromIncident(result);
+    setIncident(result);
+    setVesselId(form.vesselId);
+    setEnvironmentId(form.environmentId);
+    setEnvironmentName(form.environmentName);
+    setDeploymentId(form.deploymentId);
+    setReleaseId(form.releaseId);
+    setMissionId(form.missionId);
+    setVoyageId(form.voyageId);
+    setRollbackDeploymentId(form.rollbackDeploymentId);
+    setTitle(form.title);
+    setSummary(form.summary);
+    setStatus(form.status);
+    setSeverity(form.severity);
+    setImpact(form.impact);
+    setRootCause(form.rootCause);
+    setRecoveryNotes(form.recoveryNotes);
+    setPostmortem(form.postmortem);
+    setDetectedUtc(form.detectedUtc);
+    setMitigatedUtc(form.mitigatedUtc);
+    setClosedUtc(form.closedUtc);
+    setServerChange(null);
+  }, []);
+
+  // A newer copy of the incident that arrived while the form held unsaved edits.
+  const [serverChange, setServerChange] = useState<Incident | null>(null);
+
+  const currentForm: IncidentFormState = {
+    vesselId, environmentId, environmentName, deploymentId, releaseId, missionId, voyageId, rollbackDeploymentId,
+    title, summary, status, severity, impact, rootCause, recoveryNotes, postmortem, detectedUtc, mitigatedUtc, closedUtc,
+  };
+  const dirty = !createMode && incident !== null
+    && JSON.stringify(currentForm) !== JSON.stringify(formStateFromIncident(incident));
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+
+  const loadIncident = useCallback(async (showLoading: boolean) => {
     if (createMode || !id) return;
-    let mounted = true;
-    const incidentId = id;
-
-    async function loadIncident() {
-      try {
-        setLoading(true);
-        const result = await getIncident(incidentId);
-        if (!mounted) return;
-        setIncident(result);
-        setVesselId(result.vesselId || '');
-        setEnvironmentId(result.environmentId || '');
-        setEnvironmentName(result.environmentName || '');
-        setDeploymentId(result.deploymentId || '');
-        setReleaseId(result.releaseId || '');
-        setMissionId(result.missionId || '');
-        setVoyageId(result.voyageId || '');
-        setRollbackDeploymentId(result.rollbackDeploymentId || '');
-        setTitle(result.title);
-        setSummary(result.summary || '');
-        setStatus(result.status);
-        setSeverity(result.severity);
-        setImpact(result.impact || '');
-        setRootCause(result.rootCause || '');
-        setRecoveryNotes(result.recoveryNotes || '');
-        setPostmortem(result.postmortem || '');
-        setDetectedUtc(toInputDateTime(result.detectedUtc));
-        setMitigatedUtc(toInputDateTime(result.mitigatedUtc));
-        setClosedUtc(toInputDateTime(result.closedUtc));
-        setError('');
-      } catch (err: unknown) {
-        if (mounted) setError(err instanceof Error ? err.message : t('Failed to load incident.'));
-      } finally {
-        if (mounted) setLoading(false);
-      }
+    try {
+      if (showLoading) setLoading(true);
+      const result = await getIncident(id);
+      if (dirtyRef.current) setServerChange(result);
+      else applyIncident(result);
+      setError('');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('Failed to load incident.'));
+    } finally {
+      if (showLoading) setLoading(false);
     }
+  }, [applyIncident, createMode, id, t]);
 
-    void loadIncident();
-    return () => { mounted = false; };
-  }, [createMode, id, t]);
+  useEffect(() => {
+    void loadIncident(true);
+  }, [loadIncident]);
+
+  // Live updates: another session or the server may change this incident while it is open. A change
+  // replaces the form only when it holds no unsaved edits; otherwise the page says so and waits.
+  const { subscribe } = useWebSocket();
+  useEffect(() => {
+    if (createMode || !id) return undefined;
+    return subscribe((msg) => {
+      if (msg.type === RESYNC_MESSAGE_TYPE) {
+        void loadIncident(false);
+        return;
+      }
+      if (msg.type !== 'incident.changed') return;
+      const data = msg.data as Incident | undefined;
+      if (!data || data.id !== id) return;
+      if (dirtyRef.current) setServerChange(data);
+      else applyIncident(data);
+    });
+  }, [applyIncident, createMode, id, loadIncident, subscribe]);
 
   useEffect(() => {
     if (createMode || !id) {
@@ -254,7 +334,7 @@ export default function IncidentDetail() {
     }
 
     let cancelled = false;
-    listRunbookExecutions({ incidentId: id, pageSize: 9999 }).then((result) => {
+    listRunbookExecutions({ incidentId: id, pageSize: 500 }).then((result) => {
       if (!cancelled) setExecutions(result.objects || []);
     }).catch(() => {
       if (!cancelled) setExecutions([]);
@@ -327,7 +407,7 @@ export default function IncidentDetail() {
 
       if (!id) return;
       const updated = await updateIncident(id, payload);
-      setIncident(updated);
+      applyIncident(updated);
       pushToast('success', t('Incident "{{title}}" saved.', { title: updated.title }));
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t('Save failed.'));
@@ -473,6 +553,13 @@ export default function IncidentDetail() {
         onConfirm={confirm.onConfirm}
         onCancel={() => setConfirm((current) => ({ ...current, open: false }))}
       />
+
+      {serverChange && (
+        <div className="alert alert-warning" role="status" style={{ marginBottom: '1rem' }}>
+          {t('This incident changed on the server while you were editing. Your edits are kept.')}{' '}
+          <button className="btn btn-sm" onClick={() => applyIncident(serverChange)}>{t('Discard my edits and load the change')}</button>
+        </div>
+      )}
 
       <div className="detail-grid">
         <section className="card detail-panel">

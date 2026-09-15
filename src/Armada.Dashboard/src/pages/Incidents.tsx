@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import PageHeader from '../components/shared/PageHeader';
 import {
@@ -30,6 +30,7 @@ import JsonViewer from '../components/shared/JsonViewer';
 import RecordDetailModal from '../components/shared/RecordDetailModal';
 import RefreshButton from '../components/shared/RefreshButton';
 import StatusBadge from '../components/shared/StatusBadge';
+import Pagination from '../components/shared/Pagination';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 
@@ -55,9 +56,16 @@ export default function Incidents() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  // The search sent to the server; it follows the input after a short pause so typing does not send a request per key.
+  const [appliedSearch, setAppliedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | IncidentStatus>('all');
   const [severityFilter, setSeverityFilter] = useState<'all' | IncidentSeverity>('all');
-  const [colFilters, setColFilters] = useState({ title: '', environmentName: '' });
+  // Filters and pages run on the server (a page holds at most 500), so totals cover every incident.
+  const [pageNumber, setPageNumber] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalRecords, setTotalRecords] = useState(0);
+  const [statusCounts, setStatusCounts] = useState<Record<string, number>>({});
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
   const [viewRecord, setViewRecord] = useState<Record<string, unknown> | null>(null);
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({
@@ -139,17 +147,31 @@ export default function Incidents() {
     }
   }
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
-      const [incidentResult, vesselResult, environmentResult, deploymentResult, releaseResult] = await Promise.all([
-        listIncidents({ pageSize: 9999 }),
-        listVessels({ pageSize: 9999 }),
-        listEnvironments({ pageSize: 9999 }),
-        listDeployments({ pageSize: 9999 }),
-        listReleases({ pageSize: 9999 }),
+      // Status totals are unfiltered counts read from each status query's total, so the cards
+      // do not depend on which page is loaded. The page request goes last.
+      const countRequests = INCIDENT_STATUSES.map((status) => listIncidents({ status, pageSize: 1 }));
+      const pageRequest = listIncidents({
+        pageNumber,
+        pageSize,
+        status: statusFilter === 'all' ? undefined : statusFilter,
+        severity: severityFilter === 'all' ? undefined : severityFilter,
+        search: appliedSearch.trim() || undefined,
+      });
+      const [vesselResult, environmentResult, deploymentResult, releaseResult, countResults, incidentResult] = await Promise.all([
+        listVessels({ pageSize: 1000 }),
+        listEnvironments({ pageSize: 500 }),
+        listDeployments({ pageSize: 500 }),
+        listReleases({ pageSize: 500 }),
+        Promise.all(countRequests),
+        pageRequest,
       ]);
       setIncidents(incidentResult.objects || []);
+      setTotalPages(incidentResult.totalPages || 1);
+      setTotalRecords(incidentResult.totalRecords || 0);
+      setStatusCounts(Object.fromEntries(INCIDENT_STATUSES.map((status, index) => [status, countResults[index]?.totalRecords ?? 0])));
       setVessels(vesselResult.objects || []);
       setEnvironments(environmentResult.objects || []);
       setDeployments(deploymentResult.objects || []);
@@ -160,11 +182,21 @@ export default function Incidents() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [appliedSearch, pageNumber, pageSize, severityFilter, statusFilter, t]);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setAppliedSearch((current) => {
+        if (current !== search) setPageNumber(1);
+        return search;
+      });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
 
   const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('incidents', load);
 
@@ -173,25 +205,14 @@ export default function Incidents() {
   const deploymentMap = useMemo(() => new Map(deployments.map((deployment) => [deployment.id, deployment.title])), [deployments]);
   const releaseMap = useMemo(() => new Map(releases.map((release) => [release.id, release.title])), [releases]);
 
-  const filtered = useMemo(() => incidents.filter((incident) => {
-    const normalizedSearch = search.trim().toLowerCase();
-    const matchesSearch = normalizedSearch.length === 0
-      || incident.title.toLowerCase().includes(normalizedSearch)
-      || (incident.summary || '').toLowerCase().includes(normalizedSearch)
-      || (incident.environmentName || '').toLowerCase().includes(normalizedSearch)
-      || (incident.impact || '').toLowerCase().includes(normalizedSearch)
-      || incident.id.toLowerCase().includes(normalizedSearch);
-    const matchesStatus = statusFilter === 'all' || incident.status === statusFilter;
-    const matchesSeverity = severityFilter === 'all' || incident.severity === severityFilter;
-    const matchesColFilters = (!colFilters.title || incident.title.toLowerCase().includes(colFilters.title.toLowerCase()))
-      && (!colFilters.environmentName || (incident.environmentName ?? '').toLowerCase().includes(colFilters.environmentName.toLowerCase()));
-    return matchesSearch && matchesStatus && matchesSeverity && matchesColFilters;
-  }), [colFilters, incidents, search, severityFilter, statusFilter]);
+  const filtered = incidents;
 
-  const openCount = incidents.filter((incident) => incident.status === 'Open').length;
-  const monitoringCount = incidents.filter((incident) => incident.status === 'Monitoring').length;
-  const mitigatedCount = incidents.filter((incident) => incident.status === 'Mitigated').length;
-  const closedCount = incidents.filter((incident) => incident.status === 'Closed' || incident.status === 'RolledBack').length;
+  const openCount = statusCounts.Open ?? 0;
+  const monitoringCount = statusCounts.Monitoring ?? 0;
+  const mitigatedCount = statusCounts.Mitigated ?? 0;
+  const closedCount = (statusCounts.Closed ?? 0) + (statusCounts.RolledBack ?? 0);
+  // Every incident has exactly one status, so the status totals add up to all incidents.
+  const allIncidentsCount = INCIDENT_STATUSES.reduce((sum, status) => sum + (statusCounts[status] ?? 0), 0);
 
   function handleDelete(incident: Incident) {
     setConfirm({
@@ -322,7 +343,7 @@ export default function Incidents() {
       <div className="playbook-overview-grid">
         <div className="card playbook-overview-card">
           <span>{t('Total Incidents')}</span>
-          <strong>{incidents.length}</strong>
+          <strong>{allIncidentsCount}</strong>
         </div>
         <div className="card playbook-overview-card">
           <span>{t('Open')}</span>
@@ -350,13 +371,13 @@ export default function Incidents() {
             onChange={(event) => setSearch(event.target.value)}
             placeholder={t('Search by title, summary, impact, environment, or ID...')}
           />
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}>
+          <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as typeof statusFilter); setPageNumber(1); }}>
             <option value="all">{t('All statuses')}</option>
             {INCIDENT_STATUSES.map((status) => (
               <option key={status} value={status}>{status}</option>
             ))}
           </select>
-          <select value={severityFilter} onChange={(event) => setSeverityFilter(event.target.value as typeof severityFilter)}>
+          <select value={severityFilter} onChange={(event) => { setSeverityFilter(event.target.value as typeof severityFilter); setPageNumber(1); }}>
             <option value="all">{t('All severities')}</option>
             {INCIDENT_SEVERITIES.map((severity) => (
               <option key={severity} value={severity}>{severity}</option>
@@ -373,6 +394,9 @@ export default function Incidents() {
           <span>{canManage ? t('Create incidents from deployments or environments to preserve hotfix and rollback context.') : t('Ask a tenant administrator to create and manage incident records.')}</span>
         </div>
       ) : (
+        <>
+        <Pagination pageNumber={pageNumber} pageSize={pageSize} totalPages={totalPages} totalRecords={totalRecords}
+          onPageChange={(page) => setPageNumber(page)} onPageSizeChange={(size) => { setPageSize(Math.min(size, 500)); setPageNumber(1); }} />
         <div className="table-wrap">
           <table>
             <thead>
@@ -385,16 +409,6 @@ export default function Incidents() {
                 <th>{t('Release')}</th>
                 <th>{t('Last Updated')}</th>
                 <th className="text-right">{t('Actions')}</th>
-              </tr>
-              <tr className="column-filter-row">
-                <td><input type="text" className="col-filter" value={colFilters.title} onChange={e => setColFilters(f => ({ ...f, title: e.target.value }))} placeholder={t('Filter...')} /></td>
-                <td></td>
-                <td></td>
-                <td><input type="text" className="col-filter" value={colFilters.environmentName} onChange={e => setColFilters(f => ({ ...f, environmentName: e.target.value }))} placeholder={t('Filter...')} /></td>
-                <td></td>
-                <td></td>
-                <td></td>
-                <td></td>
               </tr>
             </thead>
             <tbody>
@@ -428,6 +442,7 @@ export default function Incidents() {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   );

@@ -170,6 +170,16 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - The Merge Queue filters by status on the server. Delete on an active entry
   says the entry is cancelled, because the server cancels an active entry and
   deletes only a finished one.
+- The Incidents list filters by status, severity and search on the server
+  and pages through every incident. Its total and status cards come from
+  server totals, not from the first 500 incidents.
+- Incident detail applies a live change to the open incident. When the form
+  holds unsaved edits, it keeps them and says the incident changed.
+- The Signals type filter uses the parameter the server reads for signals and
+  lists Heartbeat and Wake. The send form still offers only the types an
+  operator sends by hand.
+- Token Usage refreshes on the chosen interval and shows one model under two
+  runtimes as two separate series.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 

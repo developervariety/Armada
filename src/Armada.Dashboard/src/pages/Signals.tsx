@@ -21,7 +21,13 @@ import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 
-const SIGNAL_TYPES = ['Nudge', 'Mail', 'Assignment', 'Progress', 'Completion', 'Error'] as const;
+/** Every signal type the server defines, for filtering. */
+const SIGNAL_TYPES = ['Nudge', 'Mail', 'Assignment', 'Progress', 'Completion', 'Error', 'Heartbeat', 'Wake'] as const;
+/**
+ * Types an operator sends by hand. Heartbeat is captain liveness and Wake starts registered agent
+ * sessions, so the send form does not offer them.
+ */
+const SENDABLE_SIGNAL_TYPES = ['Nudge', 'Mail', 'Assignment', 'Progress', 'Completion', 'Error'] as const;
 
 type SortDir = 'asc' | 'desc';
 
@@ -76,7 +82,8 @@ export default function Signals() {
     setLoading(true);
     try {
       const filters: Record<string, string> = {};
-      if (filterType) filters.type = filterType;
+      // The enumeration query maps `type` to the event type; signals are filtered by `signalType`.
+      if (filterType) filters.signalType = filterType;
       if (filterToCaptain) filters.toCaptainId = filterToCaptain;
       if (filterUnreadOnly) filters.unreadOnly = 'true';
       const result = await listSignals({ pageNumber: page, pageSize, filters });
@@ -333,7 +340,7 @@ export default function Signals() {
             <label>
               {t('Type')}
               <select value={sendForm.type} onChange={e => setSendForm({ ...sendForm, type: e.target.value })} style={{ marginTop: 4 }}>
-                {SIGNAL_TYPES.map(signalType => <option key={signalType} value={signalType}>{t(signalType)}</option>)}
+                {SENDABLE_SIGNAL_TYPES.map(signalType => <option key={signalType} value={signalType}>{t(signalType)}</option>)}
               </select>
             </label>
             <label>
