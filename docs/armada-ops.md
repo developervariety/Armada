@@ -1686,7 +1686,11 @@ version, or apply and record the migration by hand after review. Never insert
 a ledger row without its schema change.
 
 `scripts/common/verify-fork-migrations.py` is the source-side check. It
-refuses a new declaration at or below the fixed manifest baseline. It cannot
+refuses a new declaration at or below the fixed manifest baseline. For MySQL
+and SQL Server it also hashes each `TableQueries` member that a protected
+declaration, the initial statement assembly or the ledger table references,
+and names the member when its body changes or it disappears. A new member with
+a new migration passes. It cannot
 see two unlanded branches that both number above that baseline; the startup
 rule covers that case.
 

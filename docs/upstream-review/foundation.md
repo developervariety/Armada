@@ -27,16 +27,21 @@ vendor, built-output and archive exclusions. This is a path/capability census,
 not a review of every line or proof of runtime behavior.
 
 [The migration manifest](fork-migrations.json) records every declared version,
-its existing description (semantic owner), source path and token digest. Its
-fixed baseline is the full commit ID in `baselineCommit`. All 274 declarations
-also match the original fork review commit.
+its existing description (semantic owner), source path and token digest. It
+also records the token digest of each referenced MySQL and SQL Server
+`TableQueries` member. Its fixed baseline is the full commit ID in
+`baselineCommit`, the deployed main commit. Before that baseline was written,
+every referenced member body at `24a23b966` was compared with it token for
+token (78 MySQL and 14 SQL Server members); none differed. The 274
+declarations present at `24a23b966` also match the original fork review
+commit.
 
 | Provider | Declarations | Maximum | Minimum new version at this checkpoint |
 | --- | ---: | ---: | ---: |
-| SQLite | 82 | 82 | 83 |
-| PostgreSQL | 68 | 83 | 84 |
-| MySQL | 62 | 74 | 75 |
-| SQL Server | 62 | 77 | 78 |
+| SQLite | 99 | 99 | 100 |
+| PostgreSQL | 85 | 100 | 101 |
+| MySQL | 79 | 91 | 92 |
+| SQL Server | 79 | 94 | 95 |
 
 These are lower bounds, not reserved numbers. Re-read the current tree before
 each addition. Each driver selects work above `MAX(version)`; a gap below the
@@ -51,12 +56,19 @@ python3 scripts/common/verify-fork-migrations.py
 python3 scripts/common/test-verify-fork-migrations.py
 ```
 
-The gate rejects changed, removed or reused historical declarations. It also
-protects the initial SQL and statement assembly referenced by MySQL and SQL
-Server. Comments and C# spacing outside string literals do not affect hashes;
-SQL string contents do. Nine controls cover the current tree, changed SQL,
-removed history, a reused gap, accepted append, and both providers' referenced
-SQL/assembly. The pinned upstream tree is rejected. This is a source check,
+The gate rejects changed, removed or reused historical declarations. For
+MySQL and SQL Server it also protects the initial statement assembly and each
+`TableQueries` member that a protected declaration, that assembly or the
+ledger table references, including members those members reference. Each
+member has its own digest, and a failure names the member that changed or
+disappeared. A new member with a new migration passes. Comments and C# spacing
+outside string literals do not affect hashes; SQL string contents do. Fifteen
+controls run in a scratch Git repository against a manifest written there, so
+they measure the rules and not the committed baseline. They cover an unchanged
+tree, changed SQL, removed history, a duplicate version, a reused gap, accepted
+append, both providers' referenced SQL and assembly, a new member with its
+migration on both providers, and an edited, an indirectly referenced and a
+removed MySQL member. The pinned upstream tree is rejected. This is a source check,
 not a SQL parser, migration-runner check or security boundary. It does not
 protect unrelated service behavior. Keep the reviewed manifest fixed; do not
 regenerate it to accept a port. `--write-manifest --ref <fixed-commit>` is for

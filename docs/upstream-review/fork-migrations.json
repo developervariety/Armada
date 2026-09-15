@@ -1,10 +1,10 @@
 {
-  "baselineCommit": "24a23b966c836c67f126ae187973c3bb4363ce57",
+  "baselineCommit": "498a06b994cb7d27194ecbaf4318dc6ed639309b",
   "scope": "Immutable declarations; not provider runtime proof",
   "providers": {
     "Sqlite": {
       "source": "src/Armada.Core/Database/Sqlite/Queries/TableQueries.cs",
-      "maximumVersion": 82,
+      "maximumVersion": 99,
       "migrations": [
         {
           "version": 1,
@@ -203,12 +203,12 @@
         },
         {
           "version": 40,
-          "description": "Add a mission id column and a threshold column to vessels",
+          "description": "Add reflection tracking columns to vessels",
           "sha256": "f3c7ebbff31667886485fea9e6fbced4ac7223faa79c267377c8e1dd57eb0940"
         },
         {
           "version": 41,
-          "description": "Add a threshold column to vessels",
+          "description": "Add reorganize_threshold column to vessels",
           "sha256": "871fd0f661add959d48aae801e3c211a1bf676d84a7991751e8766c5cac94142"
         },
         {
@@ -218,17 +218,17 @@
         },
         {
           "version": 43,
-          "description": "Add a vessel hint table and a threshold column to vessels",
+          "description": "Add vessel_pack_hints table and pack_curate_threshold column to vessels (v2-F1)",
           "sha256": "fe64cd3a82eb2219a15126d20f4f884cd8a77e98bf250d3f8eed5f8a2d80a3a6"
         },
         {
           "version": 44,
-          "description": "Add playbook and threshold columns to personas and captains",
+          "description": "Add identity-memory columns to personas and captains (Reflections v2-F2)",
           "sha256": "956ae83ea08fefcb9d3610558eab1352485b7faf688ce77dfb9849e81ce487af"
         },
         {
           "version": 45,
-          "description": "Add playbook and threshold columns to fleets",
+          "description": "Add fleet-memory columns to fleets (Reflections v2-F3)",
           "sha256": "e01a4c2027183195ff269c5940f282a6d1cff6cf9b778d5c0633744b9ff3341e"
         },
         {
@@ -415,12 +415,97 @@
           "version": 82,
           "description": "Preserve planning objective linkage through dispatch",
           "sha256": "bceb73b6f3a79f6c5ea692942a3a63e79a48fb17c6c49ed9c258c61bd76279dc"
+        },
+        {
+          "version": 83,
+          "description": "Persist vessel preview configuration",
+          "sha256": "6c50e68aa0baa972be8be58d05a9105e2b19f02edbdeb05e1e7209198d4f48cd"
+        },
+        {
+          "version": 84,
+          "description": "Persist routing metadata and planning provenance",
+          "sha256": "1c7c3c0041ca09f6cf851db6679b7da783461c33831db2d159f642b5b6533719"
+        },
+        {
+          "version": 85,
+          "description": "Persist bounded dock Git anchors",
+          "sha256": "0462b6bc70fdbe5eda0afc2084c3db9243ea15e26416426f2471dc2ca24a2f0a"
+        },
+        {
+          "version": 86,
+          "description": "Add native captain memory",
+          "sha256": "7f9d0d2084770e189ffcaba2f7525389d68755c75d1ef584b10b49caa7210a8d"
+        },
+        {
+          "version": 87,
+          "description": "Persist last admission observations",
+          "sha256": "80c0f4853673a847971f6b00951bf79bdbeec19954db44c513a7f2eb4743414a"
+        },
+        {
+          "version": 88,
+          "description": "Persist managed model endpoints",
+          "sha256": "755f561af6b3e5201a4b0b5d179d434db21a8fc7d3c3dd05194e001e852f7079"
+        },
+        {
+          "version": 89,
+          "description": "Persist captain model endpoint links",
+          "sha256": "033780dc26c89f0bc120e70753a427b6c8ef6b6826d448b9310c9dc408b6e6c8"
+        },
+        {
+          "version": 90,
+          "description": "Persist Harbor runner enrollments",
+          "sha256": "cb697b6a9afcd24f0baad22fb2d493520ecfd5ab1be79a6998cc23225f39ea0d"
+        },
+        {
+          "version": 91,
+          "description": "Persist project authorization policy",
+          "sha256": "e7649f7651a2495acf5557586d8b30a0a44d70b3e9a0245814138a01fb2fa65e"
+        },
+        {
+          "version": 92,
+          "description": "Move terminal objectives out of dispatchable backlog states",
+          "sha256": "c6d0f6fccc78c9b9d935561caf3ac2915b8be608edd576d8a35654a3ad592bed"
+        },
+        {
+          "version": 93,
+          "description": "Remove learned-facts data, pack hints and reflection columns",
+          "sha256": "6f0c5893c9b454a5ba6d541f74f3049cb5c03135c6311399a1b07f2e4c48e25b"
+        },
+        {
+          "version": 94,
+          "description": "Persist mission attempt facts",
+          "sha256": "e48de374d824429f893507060ef0c4c091649d4679a9d99f41391f4abf708d18"
+        },
+        {
+          "version": 95,
+          "description": "Persist Check regression links",
+          "sha256": "58126d5af2e1052836233b347d6eb5f5a7021771d4516652e35165e3dd468edd"
+        },
+        {
+          "version": 96,
+          "description": "Persist preparation claim observations",
+          "sha256": "93c90a86a96ba3babd8ed95c2b9c0f78980a8a11d2213c08a8f1c1241a1fee2b"
+        },
+        {
+          "version": 97,
+          "description": "Persist lane state transitions and Check slot requests",
+          "sha256": "30954f0abb85c2b79bcfedd3a0e1d6de2ec64e48b6c661079bae96d7ff3b1885"
+        },
+        {
+          "version": 98,
+          "description": "Persist configuration record ownership",
+          "sha256": "bcae5b8c15c20774395e46d73b8c5c2ebc6434ea721180d70c56586911769ffd"
+        },
+        {
+          "version": 99,
+          "description": "Persist Harbor job records",
+          "sha256": "b286bc1a90e28a874ae9501695d2940eb3ddcee5dd65a2a94ad3b1b40bfcb7c1"
         }
       ]
     },
     "Postgresql": {
       "source": "src/Armada.Core/Database/Postgresql/Queries/TableQueries.cs",
-      "maximumVersion": 83,
+      "maximumVersion": 100,
       "migrations": [
         {
           "version": 1,
@@ -554,12 +639,12 @@
         },
         {
           "version": 40,
-          "description": "Add a mission id column and a threshold column to vessels",
+          "description": "Add reflection tracking columns to vessels",
           "sha256": "bf05c8cee5fd46facfd6219b5188ef5e0b338c514573e359dfe82fb494697a7b"
         },
         {
           "version": 41,
-          "description": "Add a threshold column to vessels",
+          "description": "Add reorganize_threshold column to vessels",
           "sha256": "d64e6e1d0ef14e19d47400c19bf2cbd193731697dbe176ee38a294c74c211235"
         },
         {
@@ -569,17 +654,17 @@
         },
         {
           "version": 43,
-          "description": "Add a vessel hint table and a threshold column to vessels",
+          "description": "Add vessel_pack_hints table and pack_curate_threshold column to vessels (v2-F1)",
           "sha256": "78fd979b817e0ed0eaea550628e9c3f07fe6cc5197ee6f825e0590f6d3939f32"
         },
         {
           "version": 44,
-          "description": "Add playbook and threshold columns to personas and captains",
+          "description": "Add identity-memory columns to personas and captains (Reflections v2-F2)",
           "sha256": "ad31ecd925e0eba097eea59605de6ebbb6ce1c391b4d0690527e5e22cae62a22"
         },
         {
           "version": 45,
-          "description": "Add playbook and threshold columns to fleets",
+          "description": "Add fleet-memory columns to fleets (Reflections v2-F3)",
           "sha256": "7158017e4cdb77c4db4fe1a63fd1782ff5d102708368bae5580e66ed2cae0194"
         },
         {
@@ -761,12 +846,97 @@
           "version": 83,
           "description": "Add objective preparation",
           "sha256": "c1743a8f67d90de887b15efde25c5a12b4c86fbf8d4672b2825d347422d238ed"
+        },
+        {
+          "version": 84,
+          "description": "Persist vessel preview configuration",
+          "sha256": "f6ca47dff02b649d76fd64703230f859232d889ede470e94763bbbde9770523a"
+        },
+        {
+          "version": 85,
+          "description": "Persist routing metadata and planning provenance",
+          "sha256": "ddbfda44593516c0ca930dbc67b3eacee562cdf4f8d18819a5aa00e4d6c1cc9c"
+        },
+        {
+          "version": 86,
+          "description": "Persist bounded dock Git anchors",
+          "sha256": "60d377f034fae9af7c41915ed1f4bbf849873ab472f54947fdfe4dc3422b9564"
+        },
+        {
+          "version": 87,
+          "description": "Add native captain memory",
+          "sha256": "8bb4c1e570a3422ca7bca9a9a16871b805b77f3869be9a1244956cafd4e67dcb"
+        },
+        {
+          "version": 88,
+          "description": "Persist last admission observations",
+          "sha256": "afb23bd060f6395ad979c8e91e62268cc7e80fdd71b1ec0c50522de55876654d"
+        },
+        {
+          "version": 89,
+          "description": "Persist managed model endpoints",
+          "sha256": "e8ecf8be343fa9a118b918fc30757d7f3ba288c541da56db1c55f10f9fb75d7e"
+        },
+        {
+          "version": 90,
+          "description": "Persist captain model endpoint links",
+          "sha256": "1ddc4f1513e3f6261545ef0421005eab1d3d53d9566fd2c971f65d5224e7c694"
+        },
+        {
+          "version": 91,
+          "description": "Persist Harbor runner enrollments",
+          "sha256": "567ba695ab978b3ed9eed48581c1cf0b2912349df25d4a2aa066ad45462683dc"
+        },
+        {
+          "version": 92,
+          "description": "Persist project authorization policy",
+          "sha256": "a3baa9b68c322990e7a13992e830ce365ff0677ec2889ce9cdbeba110261328f"
+        },
+        {
+          "version": 93,
+          "description": "Move terminal objectives out of dispatchable backlog states",
+          "sha256": "df04b4a98d6d51cbad0b90802d6a8ee5d38fff9e92ea58df7f7514396eb1eccf"
+        },
+        {
+          "version": 94,
+          "description": "Remove learned-facts data, pack hints and reflection columns",
+          "sha256": "d61bef9c4815202b17654a767e1a38622cc1a5c4ad83887f5108aee52442a108"
+        },
+        {
+          "version": 95,
+          "description": "Persist mission attempt facts",
+          "sha256": "ca687887ae94a9c547d7f09e58e28bdc40dc4d1d4fdebf47ef89ec51fd57ffc8"
+        },
+        {
+          "version": 96,
+          "description": "Persist Check regression links",
+          "sha256": "1fdfcfcec475769b1ab2769ee35a985fe04d755ef9f2aa862b2d9bcc37d24759"
+        },
+        {
+          "version": 97,
+          "description": "Persist preparation claim observations",
+          "sha256": "1d3e0d7b7929305a93d3754db0cc4e4b4d476ba3dcb128e1f7de0d4f5c6d15a2"
+        },
+        {
+          "version": 98,
+          "description": "Persist lane state transitions and Check slot requests",
+          "sha256": "2ed97035097ece5f90955ad5c87942c9b73a966a08ea8860a43a9ed9e8d342e9"
+        },
+        {
+          "version": 99,
+          "description": "Persist configuration record ownership",
+          "sha256": "192c33c56287f9844b21f94b04651b0dd57084949279761b81ebeb612680c92b"
+        },
+        {
+          "version": 100,
+          "description": "Persist Harbor job records",
+          "sha256": "3e51e59b79fe420a705e4cea500bcc6d065eb3498b23710690caced82184fc4d"
         }
       ]
     },
     "SqlServer": {
       "source": "src/Armada.Core/Database/SqlServer/Queries/TableQueries.cs",
-      "maximumVersion": 77,
+      "maximumVersion": 94,
       "migrations": [
         {
           "version": 1,
@@ -900,12 +1070,12 @@
         },
         {
           "version": 40,
-          "description": "Add a mission id column and a threshold column to vessels",
+          "description": "Add reflection tracking columns to vessels",
           "sha256": "2c4c91090ffbbe7b4bd664e4ce25a7f7f3b2afc6c8c77e6e5d459191b58d6929"
         },
         {
           "version": 41,
-          "description": "Add a threshold column to vessels",
+          "description": "Add reorganize_threshold column to vessels",
           "sha256": "f40122e583423536fd9b4a614616faf330777c46490a86436361230b74241f89"
         },
         {
@@ -915,17 +1085,17 @@
         },
         {
           "version": 43,
-          "description": "Add a vessel hint table and a threshold column to vessels",
+          "description": "Add vessel_pack_hints table and pack_curate_threshold column to vessels (v2-F1)",
           "sha256": "756a2a5777dd593a82ef9a4c5081af10b5ddd7fb0265f25825588a9b94c5030e"
         },
         {
           "version": 44,
-          "description": "Add playbook and threshold columns to personas and captains",
+          "description": "Add identity-memory columns to personas and captains (Reflections v2-F2)",
           "sha256": "110e9b3ba9ab81046341e3451a526d237e53787768250123850f895e4a1dfcf8"
         },
         {
           "version": 45,
-          "description": "Add playbook and threshold columns to fleets",
+          "description": "Add fleet-memory columns to fleets (Reflections v2-F3)",
           "sha256": "33b13933415554479d37c15982a8d9a4c8d4f87573b02b91dcf59a7142f5139c"
         },
         {
@@ -1077,12 +1247,97 @@
           "version": 77,
           "description": "Add objective preparation",
           "sha256": "b5263acea3bf58a31dd639e64ea7b0531eda70e90099fbb77aabb4fba6945d4a"
+        },
+        {
+          "version": 78,
+          "description": "Persist vessel preview configuration",
+          "sha256": "0665dd2689b85bf3d44769917975be7af07889506e55d8fba87b42880d1f66ff"
+        },
+        {
+          "version": 79,
+          "description": "Persist routing metadata and planning provenance",
+          "sha256": "c0b6e4ff6f12a14aaba6bcbd1daaab7463695df6dcadddd30093f94aa0159417"
+        },
+        {
+          "version": 80,
+          "description": "Persist bounded dock Git anchors",
+          "sha256": "223058e8bd2a27b2e0a3c35ae39c48a1eb1c1781fd1a170118a190fbe4c85845"
+        },
+        {
+          "version": 81,
+          "description": "Add native captain memory",
+          "sha256": "91693cbc3cdb5a1745c574e936a4b54ea7750fd5bda6c7d18b558a67eb63e451"
+        },
+        {
+          "version": 82,
+          "description": "Persist last admission observations",
+          "sha256": "9bab23fda8189cf2bb3373ae4deb5599745a93c09264483018033bf20406afa6"
+        },
+        {
+          "version": 83,
+          "description": "Persist managed model endpoints",
+          "sha256": "8b7a4ff3cd92b32d41ecb8d501d59ce587606add4667bb1137325dd2dd4abe52"
+        },
+        {
+          "version": 84,
+          "description": "Persist captain model endpoint links",
+          "sha256": "90999a15a9ef45b61d0b67cd01510899cc62d1e72f1763338193ca840b5d9f0f"
+        },
+        {
+          "version": 85,
+          "description": "Persist Harbor runner enrollments",
+          "sha256": "ff0c98210c4af1b300d641db5c14623874c22db9e62f0434fe13151d205e5882"
+        },
+        {
+          "version": 86,
+          "description": "Persist project authorization policy",
+          "sha256": "0c16dd70f6a5db6b70c3c2b4aedc4130489510a733226e746d8c2e5572e339b2"
+        },
+        {
+          "version": 87,
+          "description": "Move terminal objectives out of dispatchable backlog states",
+          "sha256": "e919605ce27c91512b1b146e9e9c9b237de2aa390fe4b9b5b3a5269310bcc17c"
+        },
+        {
+          "version": 88,
+          "description": "Remove learned-facts data, pack hints and reflection columns",
+          "sha256": "0758c1a28cd28992dfca16bbad70e7abca2973eba910cf0a36d26548ecc918c1"
+        },
+        {
+          "version": 89,
+          "description": "Persist mission attempt facts",
+          "sha256": "ac07475787b98d3c7951520ee9aaec5d4bc1833d4e7fe78218861f5fc6ef61ff"
+        },
+        {
+          "version": 90,
+          "description": "Persist Check regression links",
+          "sha256": "d34c5d8952558ab7a3dfc047bedf832d384dea1f8fee5b9b392bfa9046b95df9"
+        },
+        {
+          "version": 91,
+          "description": "Persist preparation claim observations",
+          "sha256": "0b185a81193fc8b6d897906c4aa2c5334b7ae823ac5604d4a8a0e7aa7bd19b53"
+        },
+        {
+          "version": 92,
+          "description": "Persist lane state transitions and Check slot requests",
+          "sha256": "3825cd2a7fe54e20c100770b25b88233757b93737e544037875f17f9e36d4065"
+        },
+        {
+          "version": 93,
+          "description": "Persist configuration record ownership",
+          "sha256": "ee960d6e1f4f2505c7d3bd56a1b42d0412e6b657e29e130b335bf87a5b13f65a"
+        },
+        {
+          "version": 94,
+          "description": "Persist Harbor job records",
+          "sha256": "7e51f3df098dde4993b5912fac6de4fba4dbacfdff5e3c766156d2a751eb82f2"
         }
       ]
     },
     "Mysql": {
       "source": "src/Armada.Core/Database/Mysql/MysqlDatabaseDriver.cs",
-      "maximumVersion": 74,
+      "maximumVersion": 91,
       "migrations": [
         {
           "version": 1,
@@ -1226,12 +1481,12 @@
         },
         {
           "version": 40,
-          "description": "Add a mission id column and a threshold column to vessels",
+          "description": "Add reflection tracking columns to vessels",
           "sha256": "d5038fcc1e37326fe636d3a592c391b6749ffb7de936c895f6dcec6b6a8201eb"
         },
         {
           "version": 41,
-          "description": "Add a threshold column to vessels",
+          "description": "Add reorganize_threshold column to vessels",
           "sha256": "78d7485c33ed24467e4a4041319d2b11d05876356b38c3ba96571c5a2d5e187a"
         },
         {
@@ -1241,17 +1496,17 @@
         },
         {
           "version": 43,
-          "description": "Add a vessel hint table and a threshold column to vessels",
+          "description": "Add vessel_pack_hints table and pack_curate_threshold column to vessels (v2-F1)",
           "sha256": "ffc8c78a9f033391e84c8f8daa37a6cdda35ec4b0f708e84757c79e330e584a8"
         },
         {
           "version": 44,
-          "description": "Add playbook and threshold columns to personas and captains",
+          "description": "Add identity-memory columns to personas and captains (Reflections v2-F2)",
           "sha256": "13ce4f5c62fd76f8131f83c4dc7b7a9a2728bfeecfdaa604848b05aaec76a31b"
         },
         {
           "version": 45,
-          "description": "Add playbook and threshold columns to fleets",
+          "description": "Add fleet-memory columns to fleets (Reflections v2-F3)",
           "sha256": "4dab933de6d94b56006b01f64b715a8f32d8769e39f5e4594cabe016ec43283d"
         },
         {
@@ -1393,18 +1648,208 @@
           "version": 74,
           "description": "Add objective preparation",
           "sha256": "ad36bcd50827f5c53741a3b93d03edae11a0590ea87a174963a6edac8b1e006c"
+        },
+        {
+          "version": 75,
+          "description": "Persist vessel preview configuration",
+          "sha256": "0561082b70662b411d859824e9894ec778168bea8a79fe3d3912bf348f8f2a9e"
+        },
+        {
+          "version": 76,
+          "description": "Persist routing metadata and planning provenance",
+          "sha256": "816bd6a4b84c348843afe56ccd6093c692f0592e5f4df0ff3f7967234868c536"
+        },
+        {
+          "version": 77,
+          "description": "Persist bounded dock Git anchors",
+          "sha256": "d5be460f55b1504fa199069ddff09d7acdbe726e040fc77911032c182977597e"
+        },
+        {
+          "version": 78,
+          "description": "Add native captain memory",
+          "sha256": "dfa9816802c584aad1a83dd2d465d48f65a16358593b39158d9dca3f1c353482"
+        },
+        {
+          "version": 79,
+          "description": "Persist last admission observations",
+          "sha256": "e93262a8a897833de678c3608489552e85913419b3334efa83630cc29a97f0e3"
+        },
+        {
+          "version": 80,
+          "description": "Persist managed model endpoints",
+          "sha256": "7c6d49f211c005b53fbbbb1a82b00abebbc72a7633154236b611d49b81e5ee50"
+        },
+        {
+          "version": 81,
+          "description": "Persist captain model endpoint links",
+          "sha256": "db1e7358760e082cee6d9d5bec4e510c8c7d926b131d95dc88f7daf90be4e007"
+        },
+        {
+          "version": 82,
+          "description": "Persist Harbor runner enrollments",
+          "sha256": "17aa6c4c2962dc020429267ef0b54416da67522c33f4c738fb40788c440817e0"
+        },
+        {
+          "version": 83,
+          "description": "Persist project authorization policy",
+          "sha256": "f13262dcbfd7a3c8c07e38f43dd40b1d456f2f4873955188e40a4999a2734383"
+        },
+        {
+          "version": 84,
+          "description": "Move terminal objectives out of dispatchable backlog states",
+          "sha256": "56719eb23ce007508aff6b3930340b4f62813e8f5d2a7aea37fba68e22a20bcb"
+        },
+        {
+          "version": 85,
+          "description": "Remove learned-facts data, pack hints and reflection columns",
+          "sha256": "0cfbcea0379e42fbd2e88c3750f7f647f6387362fa35f745dbc60de31e6f32ce"
+        },
+        {
+          "version": 86,
+          "description": "Persist mission attempt facts",
+          "sha256": "15d25a00c29ff28152853f125a6022f09aa7b973cfbb6d49ca500fb67605fa5b"
+        },
+        {
+          "version": 87,
+          "description": "Persist Check regression links",
+          "sha256": "1386661d6823b357c229103a43a9573fd6decc20f493e9c0e352a5ff94ddf9a5"
+        },
+        {
+          "version": 88,
+          "description": "Persist preparation claim observations",
+          "sha256": "f3f83b1b98c19710bd8a1d091d99089355e2b1118fbea6a55a1d4378d3150f8a"
+        },
+        {
+          "version": 89,
+          "description": "Persist lane state transitions and Check slot requests",
+          "sha256": "e5042cf6b23ab2b9cd5c13a4243c5a801528f0c868ee3404adb4c377a4442a4f"
+        },
+        {
+          "version": 90,
+          "description": "Persist configuration record ownership",
+          "sha256": "854c7a46d1001706eaf6290fe15a9ca06f46bc07758bcb41a27418fb52b07dc9"
+        },
+        {
+          "version": 91,
+          "description": "Persist Harbor job records",
+          "sha256": "4d81175f10a5c02a07fffa9e759c4096c37a0ed1d8061ca09ddc4eef85e55172"
         }
       ]
     }
   },
   "referencedMysqlDdl": {
     "source": "src/Armada.Core/Database/Mysql/Queries/TableQueries.cs",
-    "sha256": "9321a353c17a6c7f824a2e3968c1ee5286b04a99ae81aa1a9d01205c82c7e48a",
-    "initializerSha256": "50cc8e80a003a0e1c151631917b866307844a1bbdb1ac873648c546d7714a36a"
+    "initializerSha256": "50cc8e80a003a0e1c151631917b866307844a1bbdb1ac873648c546d7714a36a",
+    "members": {
+      "SchemaMigrations": "f30fde1c1ebcda4bb0dfaa5bfd363c95b34a9293aa1073d4064f185c965588e6",
+      "Fleets": "73b322f993ca91f41af3c7ac3390ebed2565b7e6ca4752a9a0e7adb6abfd7768",
+      "Vessels": "976b982b0e36fa79c8e6b1a23a7fe5d1d980fa30250449e794e20abdd0c0992f",
+      "Captains": "eb55952ca5bbbe897612c837895eb0966f4f10827a83266dbaf304a4012505b0",
+      "Voyages": "c1930368719f06d1d5055849cf4ba566d4afe704f48fc426b51a3e8da4c7576d",
+      "Missions": "df3c6d81702f6876bfd1ac305042d3c8fdc808c112e62ceef384770b6ac52939",
+      "Docks": "5b95953112ce3a53486492332b5318a304c97d9562947f6aae57b29f45665218",
+      "Signals": "e17ffbc022cdfba4c3c463d5bc5027b97e8ca8e7dc6d098156b420273689f8c8",
+      "Events": "2075ab99c279eb1f17bbb8e5256e84af440e2f32a613b86fba1be5c56bf479b1",
+      "MergeEntries": "817e446302a3d67845cae32b1948c104509236df1c883857c332f6162344104c",
+      "Tenants": "23469560a5d0c9abf68331a5ebafb0bb8a54432e4fd27c473999a07c701b29bd",
+      "Users": "16a613f97266f4924a0600e84c2c37096999a39c070543bbbcae6dee760c9538",
+      "Credentials": "35940355774fb2f1f1af1f9d53a4ae4cf037e90b1f99604f6cdfcf29a920238b",
+      "MigrationV3Statements": "8e68628c4ca15ec11e1167e0a51e3f0885818fb783ba019ef74b1250512425e5",
+      "MigrationV4Statements": "d1daa449d11c6a178536712ac52b18fde753e61d56a2a987ec73495308a50a2c",
+      "MigrationV5Statements": "68135f2a8c740b46fd96daa2d542cd21df69bbe4ee164ac3da1ab3b04d8771cd",
+      "MigrationV6Statements": "2bfccd0c3b08abc411f264c7384c40ee25182a30c0ea189f0f888f93bb3c874b",
+      "MigrationV7Statements": "182939d485aad8083276f6d55931fb01c5a3dc5620ecc8a9c893e58cc29f3d57",
+      "MigrationV8Statements": "a656d726aa1f2a0f167979ea9ec30d150337b5f719435956759298dc8be96326",
+      "PromptTemplates": "83df5c9bf0eb5888b911c9aa39c6bad6d85dedeefd6470caddb3f6e444a6be76",
+      "Personas": "b7a35a085779a63783ef0aa577afbe3fbfebf3864e85489290b8b5dc1abdf685",
+      "Pipelines": "169cffb65ec2368e5b8be08e841cfc23cd23429600dc81027ea6089b7eb122e6",
+      "PipelineStages": "5f5c602f2909e30f40432a0023c93daacdf945634c33ad8a1a5479616e4843c2",
+      "MigrationV9Statements": "07f5a8e4e0b4d1b35892326dec78cd3b974a5111e2f99a15a67671e38283b74b",
+      "MigrationV10Statements": "8d6432312a43cd3595dfdb3cd4c9014134b19965b9ef411c2cf41776f0f68ad6",
+      "MigrationV11Statements": "e3bb8f3b811bbc74176d07cdda787e22a6d714115589e330dda84088a8070d6d",
+      "MigrationV12Statements": "f9dc53b737a594d6007a74e6ee286f7d5353eb32228a36a8705c4984e82dd266",
+      "MigrationV13Statements": "6e7469ae8f71c5345021ddf110cf080f974f8d0d24b104d116636f886a10d20d",
+      "MigrationV14Statements": "e6643d3873fc4e92c5fea69948df0a804fa36d0872d35996d6137e29d358c653",
+      "MigrationV15Statements": "1e63741e976c3282370545d829787321e005ee149c53bbfb988ff1424f04d416",
+      "MigrationV26Statements": "aecbe2c57f5cc9857aa1c9b9583b702e31742d9e7e39e381bd15ca5cf47a627b",
+      "MigrationV27Statements": "611d58cc2f181425d6bfb3cdae1efa1440d3780878db940838c44e3496c68d5f",
+      "MigrationV28Statements": "cde355874d74f666a9effa5a49b3db00fbceb980bc3e2b0bc49f9b877a807998",
+      "MigrationV29Statements": "b8137e5b2fa611544109173924f8500dd513184895dbbba3d7a2de0304f67062",
+      "MigrationV30Statements": "a8f38f7e351f3cf9cca6054289af9dd650516a2e1724dd34426b53b509025f88",
+      "MigrationV31Statements": "fd1c5b0f9835c8917b817568b87f795d5da8a5f36ba8aff25d61ddeffbf8af1c",
+      "MigrationV32Statements": "f3679eab0fd1e8392062e704a9f8a6010d71737bd1d3b0f0985d790a44455005",
+      "MigrationV33Statements": "cb4d648354c26975498efb907ab532f60938fd7e4b4d06417bfe74a1ebb7a0f0",
+      "MigrationV34Statements": "dcec464624247e13bb2af282ae427308c0f650d1aa0c3ca2d7e980b2ee573be3",
+      "MigrationV35Statements": "88967809a6d7605faa82592128e00c30d3abae8f243c20360f7e9d7bb00dc1f4",
+      "MigrationV36Statements": "8481b66eed345a070e9b50aeaab262c0ecb64205a8bc67a5ff1056c73f17b46d",
+      "MigrationV38Statements": "1e93dc336983f63a64854b173548ab497b89475619dd18809b2792204859e651",
+      "MigrationV39Statements": "385c49e97e9310ef5f1326e67bfa18930cb0a1a66053473c4dbdff19c1557429",
+      "MigrationV40Statements": "4d27fc8a682efc5892a1c47fd90e8966daf07b51bfc90c099c0ec5f8b0d5247e",
+      "MigrationV41Statements": "755475ab841f99691458f6ed3b5a140db43c501fc56d4945969eb0d8c35aa0a2",
+      "MigrationV42Statements": "23ca82d9110d8f1caaaa327955a51c3e3dc9b68bbc94f7d3126e403b984355d0",
+      "MigrationV43Statements": "7e601e9249289e46d241a812657334a4ffd306561908bc822b02d7db709d52cd",
+      "MigrationV44Statements": "660ca4d379396536430fa8d5d57ccd0489dd21ca0d4d302fcab5920ccebd635f",
+      "MigrationV45Statements": "aba66e01f789ca5a75e6d3b32507b9ffef0f39fed87d9f6cb885aede9467872c",
+      "MigrationV46Statements": "33c237fa0eef2e2cc3f208d0a44cd85055315ecf70031683e83259b969bdbe0b",
+      "MigrationV48Statements": "1e744ee75e660db798351890b89dbb5283efea931b7de391333b928ae10fff7e",
+      "MigrationV49Statements": "1430e417d6c1ecd09bc3be3b58f0053cc33d36ca82af89abf7a1df7f970922ca",
+      "MigrationV50Statements": "a62f3426163f590967b0716f5cea4eff90c49b60bc452f7debc7f43411777d95",
+      "MigrationV51Statements": "13c84de21407e601b37a346f9a740ca81b1ee5a852b514a4e87c134a97cd11d6",
+      "MigrationV52Statements": "8854b4e47a5b86ccc1318278039cfeb269ba96a1105807ae9fedac51855a44db",
+      "MigrationV53Statements": "dc6b2a393e2aa594b2b795ac77d925f87a9c555976191f2583e305c9b123d3a3",
+      "MigrationV54Statements": "5aa88379031bc6ba7047bc702562f74dd9d768b2271d12b873aab0065eb46396",
+      "MigrationV55Statements": "a1ac9bc501a1fed2bbdc934220ae7189640a09598d674ca3facba33e8c9a6551",
+      "MigrationV56Statements": "b35eeb7b8be084fe80fb8a9dc069a777977d5cb3789f6953bafcdbefec7133af",
+      "MigrationV57Statements": "df6bd043248e3542de655209dbe58a1f2cff51e5194c49d7e03b2454d5f9d08e",
+      "MigrationV58Statements": "5a5c0a4965d575bcb2b52ad988c57da9065aad9ccadf9670058c5a38f8b3b704",
+      "MigrationV59Statements": "94108b6931ee74f8d510b840773adfc66e8080eaec73b3e6f38f3cb46366e802",
+      "MigrationV60Statements": "7a2fac797f494b08658f83305a5a939f961fefe7c4bdeb9ad57c1e7b040a6bd5",
+      "MigrationV61Statements": "d273c3538c1184138f0c178c84ef01e7aea00da55bb304c9643239973862fb2c",
+      "MigrationV62Statements": "eed20718ad044939bae576f5ae4779b41ddbb6b1bd06f057c7f55d034d27b9eb",
+      "MigrationV63Statements": "6863c1b0b09adcd5f62f21f12632cfc2da16bf92890c04c23d52a8185f53a383",
+      "MigrationV64Statements": "91cefd41d4b8f2247713ab5fd391c40640747d663126a9967b9ce2f7b8e70a83",
+      "MigrationV65Statements": "33b071a150870ef9bc5e628830fc46ce293fc820c98348ed0c9a1ba39fbad2b3",
+      "MigrationV66Statements": "5ffb4343b2d9cde7f900f6163625c2101f08ef5973013f16da67004b6133e7af",
+      "MigrationV67Statements": "6214bd73dfc67940eb2ca0c48aeae70452292239a0a815d8b6d585970074e2cd",
+      "MigrationV68Statements": "3bf30285f7b2f395b3c51de0ae7fcccdd7251a9162fbc76cb4d51019ec8a17ac",
+      "MigrationV69Statements": "9b87d52aab1349452cdc9961d49ebd69047e8e4dd6b5bf5602b4ac6193ee19c7",
+      "MigrationV70Statements": "1e5bad4b932ea6d41a571ffa5a3477f16fa449fa82594f66bb779527a1c506e3",
+      "MigrationV71Statements": "a4c9bde50f3b3c1d56f608ae9bbe3ac5e0d70aeabee7861ef4c8a2e83551064c",
+      "MigrationV72Statements": "98acd3a998e45e9af6fb2f4d4147156e085770275ef920c0b10a8a3103614572",
+      "MigrationV73Statements": "800ed0b141a93fae31ab0f3902616d791f900a770012f78e283aba5cefc804b1",
+      "MigrationV74Statements": "6f08f8d9e1d41463d40fd26c61555471a85527229de510c76d04887520ef03c7",
+      "MigrationV80Statements": "92596e8703d3f66e65b2f2a96a3741fe3a1a6958db3366255217a6be90e70da4",
+      "MigrationV81Statements": "80ee40af6fca2c0d08572eff2df4687a0f9566edbc489bc853b7f2cc4882458b",
+      "MigrationV82Statements": "98d605a6eab97d97ac4ccca79688000103f9e5976cce373628dd958ab754d35d",
+      "MigrationV83Statements": "1752b514004a05faa8d6b48a35be03a40e677ed7c2ddce96b4b7a90573cb7534",
+      "MigrationV84Statements": "2c54a296b848ef7dab24eea297097ee0c5bf575f7616d85b932052e8cc790daa",
+      "MigrationV86Statements": "768f39bec414f505ef423a67625b06fe0a0844cd3a5ed09520144419e68717d6",
+      "MigrationV87Statements": "e56d7c2b849263e97175464aa37c9731e29dbed15e0ca40e32b70720296fc19c",
+      "MigrationV88Statements": "0f5a222670423d66ce72c02b6e9da3ee110eb341401cff88f890c261c80e6b2b",
+      "MigrationV89Statements": "1a96494d26710a2887c0caa2fafe08ea7f556d8ee937b8034e7fb0d71f6f19af",
+      "MigrationV90Statements": "f48b17a49e2fc1a601e1605205af2f2009ba74a1d2eeb0a12a0ebc5fd1c9cd06",
+      "MigrationV91Statements": "48cb478581a7cbb071358cd006f069a298cf60ffdad80b3df9c3bad806cb1653",
+      "Indexes": "4930721dc6696d186cdf9338b319d53611924f98bd8607cdfcd9e22491694307"
+    }
   },
   "referencedSqlServerDdl": {
     "source": "src/Armada.Core/Database/SqlServer/Queries/TableQueries.cs",
-    "sha256": "3786b7bb2e28c323d8d2c52772b5999e57d8180fd4c19a1ea68d91d75a11f686",
-    "initializerSha256": "40808c82dff080a451f635058be591b26cb79211698e4276f2b465ac7932f83f"
+    "initializerSha256": "40808c82dff080a451f635058be591b26cb79211698e4276f2b465ac7932f83f",
+    "members": {
+      "SchemaMigrations": "eb03dd3e778e3f93db82ca2095abe357e33cedb708b21ea3d967331b013d76cc",
+      "Tenants": "bcf08765a74ced8454382dce948ebe2219e5c7ff20a31e33303188f680547e1d",
+      "Users": "9daef0cb5482e133eafa3db0ee261c9e636d431dbc1f09844bc487c815e85253",
+      "Credentials": "ecd256437a8d4c0c7dc6bfa16aae3b096c22097bf7c4173448ecb57d75e7707a",
+      "Fleets": "5517f03cfd0798666439d86277d9490f5db538c581c61c11f288c8f0af8c11ec",
+      "Vessels": "9dbf5a0bf37ea7b3c0cac6a49661e3de25144ba2b2957c3f39badd3f06774362",
+      "Captains": "0732cbebe63cda2822fd94534a8a0cf49b3c7711dd78cb42a1e7b09f9e3cc70b",
+      "Voyages": "668e0f0feb3286fe37a8d9d9c861c1919fcc8fffdce986ec8b0c152f57285a79",
+      "Missions": "7d178fea9c5791371029a882da4baa91e0762af1ff82ac9b54ab195661212e71",
+      "Docks": "cfbe346bf3aa4258918a6ee975d26abf9080210ff6f2e53c4c8aece0093342e8",
+      "Signals": "b6ae5f77a321f41569fe5c2bdc06ae03ff93c359b0652713b22c5e91f9c0757f",
+      "Events": "ea55f4c3887cc4333b33c191c2c18c0402aceaf7966462848dd45db03d99d100",
+      "MergeEntries": "af6da3f6436c8e3d4a91e8a71ea89dd735d08b098e2a79bf623926707596a062",
+      "Indexes": "59e0bc6c66d0bad7bb44282f8db26ecea2466885494d78811e7bf23641100ba5"
+    }
   }
 }

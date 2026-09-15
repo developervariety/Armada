@@ -1994,6 +1994,11 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 
 - Add a fixed four-provider migration manifest and a source check that rejects
   changed history, reused numbers and altered initial SQL inputs.
+- The migration source check protects each MySQL and SQL Server `TableQueries`
+  member that historical migrations, the initial statement assembly or the
+  ledger table reference, and names the member that changed or disappeared. A
+  new member with a new migration now passes; before, every addition to the
+  MySQL query file failed the check.
 - Add repeat-startup and non-default Mission persistence cases to the existing
   database runner. Raise schema checks to the preserved fork baseline.
 - Record fresh-install failures for three server providers and unresolved
