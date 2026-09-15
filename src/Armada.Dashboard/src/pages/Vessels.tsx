@@ -14,7 +14,6 @@ import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { autoLandFormFromPredicate, autoLandPredicatePayload, EMPTY_AUTO_LAND_FORM, type AutoLandForm } from '../lib/vesselAutoLand';
 import { buildVesselUpdatePayload } from '../lib/vesselUpdatePayload';
-import { LANDING_MODE_OPTIONS, landingModeHelp } from '../lib/landingModes';
 import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
@@ -57,6 +56,18 @@ export default function Vessels() {
   const navigate = useNavigate();
   const { t } = useLocale();
   const { pushToast } = useNotifications();
+
+
+  // Landing-mode metadata: a short self-describing label and a full explanation of what each mode does to
+  // completed mission work. Shared by the edit modal, the filter, and the table so wording stays consistent.
+  const landingModes: { value: string; label: string; short: string; description: string }[] = [
+    { value: '', label: t('Default (use global setting)'), short: t('global default'), description: t('Uses the global default landing mode configured for the Admiral.') },
+    { value: 'LocalMerge', label: t('Local Merge -- into your working directory'), short: t('local working dir'), description: t('Merges the mission branch directly into your local working directory. Requires the vessel to have a working directory and local path configured.') },
+    { value: 'PullRequest', label: t('Pull Request -- push and open a PR'), short: t('opens a PR'), description: t('Pushes the mission branch and opens a pull request on the remote. The mission stays open until the PR is merged.') },
+    { value: 'MergeQueue', label: t('Merge Queue -- validated sequential merge'), short: t('merge queue'), description: t('Enqueues the mission branch for a validated merge. The merge queue runs tests and merges branches one at a time per vessel.') },
+    { value: 'None', label: t('None -- manual integration'), short: t('manual only'), description: t('No automatic landing. Work stays as WorkProduced and the branch is kept in the repository for you to integrate manually.') },
+  ];
+  const landingModeInfo = (mode: string | null | undefined) => landingModes.find(m => m.value === (mode ?? '')) ?? landingModes[0];
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [fleets, setFleets] = useState<Fleet[]>([]);
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
@@ -284,17 +295,14 @@ export default function Vessels() {
         subtitle={t('Git repositories registered with Armada')}
         actions={(
           <>
-            <button className="btn btn-sm" onClick={() => navigate('/workspace')}>
-              {t('Workspace')}
-            </button>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+            <RefreshButton onRefresh={load} title="Refresh vessel data" />
             {table.selected.length > 0 && (
               <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
                 {t('Delete Selected')} ({table.selected.length})
               </button>
             )}
             <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Vessel')}</button>
-            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
-            <RefreshButton onRefresh={load} title="Refresh vessel data" />
           </>
         )}
       />
@@ -304,7 +312,7 @@ export default function Vessels() {
       {/* Create/Edit Modal */}
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
-          <form className="modal" style={{ width: 'min(1080px, 95vw)', maxWidth: 'min(1080px, 95vw)', maxHeight: '92vh', overflowY: 'auto', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
+          <form className="modal" style={{ width: 'min(1080px, 95vw)', maxWidth: 'min(1080px, 95vw)', maxHeight: '92vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
             <h3>{editing ? t('Edit Vessel') : t('Create Vessel')}</h3>
 
             {/* Row 1: Name + Fleet + Repo URL (3 cols) */}
@@ -359,11 +367,13 @@ export default function Vessels() {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0 1.5rem' }}>
               <label title={t('How completed mission work is integrated.')}>{t('Landing Mode')}
                 <select value={form.landingMode} onChange={e => setForm({ ...form, landingMode: e.target.value })}>
-                  {LANDING_MODE_OPTIONS.map(option => (
-                    <option key={option.value || 'default'} value={option.value}>{t(option.label)}</option>
+                  {landingModes.map(m => (
+                    <option key={m.value || 'default'} value={m.value}>{m.label}</option>
                   ))}
                 </select>
-                <span className="text-dim" style={{ display: 'block', fontSize: '0.8rem', marginTop: '0.25rem' }}>{t(landingModeHelp(form.landingMode))}</span>
+                <small className="text-dim" style={{ display: 'block', marginTop: '0.25rem', fontWeight: 'normal' }}>
+                  {landingModeInfo(form.landingMode).description}
+                </small>
               </label>
               <label title={t('When and how mission branches are deleted after successful landing.')}>{t('Branch Cleanup')}
                 <select value={form.branchCleanupPolicy} onChange={e => setForm({ ...form, branchCleanupPolicy: e.target.value })}>
@@ -443,18 +453,18 @@ export default function Vessels() {
             </div>
 
             {/* Context textareas always 3 cols -- fills remaining vertical space */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0 1.5rem', flex: 1, minHeight: 0 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0 1.5rem' }}>
               <label style={{ display: 'flex', flexDirection: 'column' }}>
                 {t('Project Context')}
-                <textarea value={form.projectContext} onChange={e => setForm({ ...form, projectContext: e.target.value })} style={{ flex: 1, minHeight: '150px', resize: 'none' }} />
+                <textarea value={form.projectContext} onChange={e => setForm({ ...form, projectContext: e.target.value })} style={{ minHeight: '150px', resize: 'vertical' }} />
               </label>
               <label style={{ display: 'flex', flexDirection: 'column' }}>
                 {t('Style Guide')}
-                <textarea value={form.styleGuide} onChange={e => setForm({ ...form, styleGuide: e.target.value })} style={{ flex: 1, minHeight: '150px', resize: 'none' }} />
+                <textarea value={form.styleGuide} onChange={e => setForm({ ...form, styleGuide: e.target.value })} style={{ minHeight: '150px', resize: 'vertical' }} />
               </label>
               <label style={{ display: 'flex', flexDirection: 'column' }}>
                 {t('Model Context')}
-                <textarea value={form.modelContext} onChange={e => setForm({ ...form, modelContext: e.target.value })} placeholder={form.enableModelContext ? t('Agent-accumulated context...') : t('Enable Model Context to use')} disabled={!form.enableModelContext} style={{ flex: 1, minHeight: '150px', resize: 'none', ...(form.enableModelContext ? {} : { opacity: 0.4 }) }} />
+                <textarea value={form.modelContext} onChange={e => setForm({ ...form, modelContext: e.target.value })} placeholder={form.enableModelContext ? t('Agent-accumulated context...') : t('Enable Model Context to use')} disabled={!form.enableModelContext} style={{ minHeight: '150px', resize: 'vertical', ...(form.enableModelContext ? {} : { opacity: 0.4 }) }} />
               </label>
             </div>
 
@@ -526,10 +536,9 @@ export default function Vessels() {
                   <td>
                     <select className="col-filter" title={t('Filter vessels by landing mode')} value={landingModeFilter} onChange={e => { setLandingModeFilter(e.target.value); table.setPageNumber(1); }}>
                       <option value="">{t('All Modes')}</option>
-                      <option value="LocalMerge">LocalMerge</option>
-                      <option value="PullRequest">PullRequest</option>
-                      <option value="MergeQueue">MergeQueue</option>
-                      <option value="None">None</option>
+                      {landingModes.filter(m => m.value).map(m => (
+                        <option key={m.value} value={m.value} title={m.description}>{m.value} -- {m.short}</option>
+                      ))}
                     </select>
                   </td>
                   <td></td>
@@ -570,7 +579,10 @@ export default function Vessels() {
                         <CopyButton text={v.defaultBranch || 'main'} onClick={e => e.stopPropagation()} title="Copy branch" />
                       </span>
                     </td>
-                    <td className="text-dim" title={v.landingMode === 'LocalMerge' ? t('Merge into local working directory') : v.landingMode === 'PullRequest' ? t('Push and create pull request') : v.landingMode === 'MergeQueue' ? t('Enqueue for validated merge') : v.landingMode === 'None' ? t('No automatic landing') : t('Uses global setting')}>{v.landingMode || '-'}</td>
+                    <td title={landingModeInfo(v.landingMode).description}>
+                      <div>{v.landingMode || t('Default')}</div>
+                      <div className="text-dim" style={{ fontSize: '0.75rem' }}>{landingModeInfo(v.landingMode).short}</div>
+                    </td>
                     <td>
                       {(() => {
                         const gs = gitStatus[v.id];

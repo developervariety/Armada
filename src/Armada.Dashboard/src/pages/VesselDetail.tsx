@@ -3,8 +3,6 @@ import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom'
 import { listVessels, listFleets, listMissionSummaries, listPipelines, createVessel, updateVessel, deleteVessel, getVesselReadiness, getVesselLandingPreview } from '../api/client';
 import { buildVesselUpdatePayload } from '../lib/vesselUpdatePayload';
 import { autoLandFormFromPredicate, describeAutoLand } from '../lib/vesselAutoLand';
-import { landingModeHelp } from '../lib/landingModes';
-import LandingPreviewCard from '../components/shared/LandingPreviewCard';
 import VesselBranchPanel from '../components/shared/VesselBranchPanel';
 import type { Fleet, Vessel, MissionSummary, Pipeline, VesselReadinessResult, LandingPreviewResult } from '../types/models';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -366,7 +364,7 @@ export default function VesselDetail() {
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" checked={form.requirePassingChecksToLand} onChange={e => setForm({ ...form, requirePassingChecksToLand: e.target.checked })} style={{ width: 'auto' }} />
-              {t('Require Passing Checks To Land (advisory preview)')}
+              {t('Require Passing Checks To Land')}
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <input type="checkbox" checked={form.requirePullRequestForProtectedBranches} onChange={e => setForm({ ...form, requirePullRequestForProtectedBranches: e.target.checked })} style={{ width: 'auto' }} />
@@ -402,13 +400,61 @@ export default function VesselDetail() {
         emptyMessage={t('Readiness data is not available for this vessel yet.')}
       />
 
-      <LandingPreviewCard
-        preview={landingPreview}
-        loading={loadingLandingPreview}
-        meta={landingPreview?.sourceBranch ? `${landingPreview.sourceBranch} -> ${landingPreview.targetBranch}` : landingPreview?.targetBranch || t('No branch selected')}
-        unavailableMessage={t('Landing preview is not available for this vessel yet.')}
-        noIssuesMessage={t('This preview found no issues for this vessel.')}
-      />
+      <div className="card landing-preview-card">
+        <div className="readiness-panel-header">
+          <div>
+            <h3>{t('Landing Preview')}</h3>
+            <div className="readiness-panel-meta">
+              {landingPreview?.sourceBranch ? `${landingPreview.sourceBranch} -> ${landingPreview.targetBranch}` : landingPreview?.targetBranch || t('No branch selected')}
+            </div>
+          </div>
+          <span className={`readiness-pill ${landingPreview?.isReadyToLand ? 'ready' : 'warning'}`}>
+            {landingPreview?.isReadyToLand ? t('Ready To Land') : t('Needs Review')}
+          </span>
+        </div>
+        {loadingLandingPreview ? (
+          <div className="text-dim">{t('Calculating landing preview...')}</div>
+        ) : !landingPreview ? (
+          <div className="text-dim">{t('Landing preview is not available for this vessel yet.')}</div>
+        ) : (
+          <>
+            <div className="readiness-summary-row">
+              <span>{t('Branch category')}: {landingPreview.branchCategory}</span>
+              <span>{t('Landing mode')}: {landingPreview.landingMode || t('Inherited')}</span>
+              <span>{t('Cleanup')}: {landingPreview.branchCleanupPolicy || t('Inherited')}</span>
+              {landingPreview.expectedLandingAction && <span>{t('Action')}: {landingPreview.expectedLandingAction}</span>}
+              <span>{landingPreview.requirePassingChecksToLand ? t('Passing checks required') : t('Passing checks optional')}</span>
+            </div>
+            <div className="readiness-summary-row">
+              <span>{landingPreview.targetBranchProtected ? t('Protected target branch') : t('Target branch not protected')}</span>
+              {landingPreview.protectedBranchMatch && <span>{t('Policy')}: <span className="mono">{landingPreview.protectedBranchMatch}</span></span>}
+              {landingPreview.requirePullRequestForProtectedBranches && <span>{t('PR required for protected branches')}</span>}
+              {landingPreview.requireMergeQueueForReleaseBranches && <span>{t('Merge queue required for release branches')}</span>}
+            </div>
+            {landingPreview.latestCheckSummary && (
+              <div className="landing-preview-latest-check">
+                <strong>{t('Latest check')}</strong>
+                <div className="text-dim">{landingPreview.latestCheckSummary}</div>
+              </div>
+            )}
+            {landingPreview.issues.length > 0 ? (
+              <div className="readiness-issues">
+                {landingPreview.issues.map((issue, index) => (
+                  <div key={`${issue.code}-${index}`} className={`readiness-issue ${issue.severity.toLowerCase()}`}>
+                    <div className="readiness-issue-title-row">
+                      <strong>{issue.title}</strong>
+                      <span className={`readiness-issue-severity ${issue.severity.toLowerCase()}`}>{issue.severity}</span>
+                    </div>
+                    <div className="text-dim">{issue.message}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="readiness-success-copy">{t('No landing blockers are currently predicted for this vessel.')}</div>
+            )}
+          </>
+        )}
+      </div>
 
       <VesselBranchPanel vesselId={vessel.id} />
 
@@ -437,12 +483,12 @@ export default function VesselDetail() {
         <div className="detail-field"><span className="detail-label">{t('Default Branch')}</span><span>{vessel.defaultBranch || 'main'}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Local Path')}</span><span className="mono" title={t('Path to the bare git repository clone used by Armada')}>{vessel.localPath || '-'}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Working Directory')}</span><span className="mono" title={t('Your local checkout where completed missions are merged')}>{vessel.workingDirectory || '-'}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Landing Mode')}</span><span title={t(landingModeHelp(vessel.landingMode))}>{vessel.landingMode || t('Default')}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Landing Mode')}</span><span>{vessel.landingMode || '-'}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Branch Cleanup Policy')}</span><span>{vessel.branchCleanupPolicy || '-'}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Auto-Land')}</span><span>{describeAutoLand(autoLandFormFromPredicate(vessel.autoLandPredicate))}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Release Branch Prefix')}</span><span className="mono">{vessel.releaseBranchPrefix || 'release/'}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Hotfix Branch Prefix')}</span><span className="mono">{vessel.hotfixBranchPrefix || 'hotfix/'}</span></div>
-        <div className="detail-field"><span className="detail-label">{t('Require Passing Checks To Land (advisory preview)')}</span><span>{vessel.requirePassingChecksToLand ? t('Yes') : t('No')}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Require Passing Checks To Land')}</span><span>{vessel.requirePassingChecksToLand ? t('Yes') : t('No')}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Require PR For Protected Branches')}</span><span>{vessel.requirePullRequestForProtectedBranches ? t('Yes') : t('No')}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Require Merge Queue For Release Branches')}</span><span>{vessel.requireMergeQueueForReleaseBranches ? t('Yes') : t('No')}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Allow Concurrent Missions')}</span><span>{vessel.allowConcurrentMissions ? t('Yes') : t('No')}</span></div>

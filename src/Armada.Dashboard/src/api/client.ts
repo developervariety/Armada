@@ -1111,11 +1111,11 @@ export const getTokenUsageSummary = (params?: TokenUsageSummaryQuery) => {
 // ==================== Captain Chat and Vessel Context ====================
 /** A chat turn runs the captain's model, so it needs far longer than the default request timeout. */
 export const chatWithCaptain = (captainId: string, body: CaptainChatRequest, opts?: { signal?: AbortSignal }) =>
-  post<CaptainChatResponse>(`/api/v1/captains/${encodeURIComponent(captainId)}/chat`, body, { timeout: 600000, signal: opts?.signal });
+  post<CaptainChatResponse>(`/api/v1/captains/${encodeURIComponent(captainId)}/chat`, body, { timeout: 330000, signal: opts?.signal });
 
 /** Building a Model Context provisions a worktree and runs a captain over it; minutes, not seconds. */
 export const buildVesselContext = (vesselId: string, body: VesselBuildContextRequest) =>
-  post<Vessel>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/build-context`, body, { timeout: 1800000 });
+  post<Vessel>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/build-context`, body, { timeout: 900000 });
 
 // ==================== Coordination Board ====================
 export const listCoordinationRooms = () => get<CoordinationRoom[]>('/api/v1/coordination/rooms');

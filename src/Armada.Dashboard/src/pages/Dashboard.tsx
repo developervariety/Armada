@@ -2,7 +2,6 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   getStatus,
-  getMission,
   getVoyageMissionSummary,
   listMissionSummaries,
   listVessels,
@@ -308,20 +307,9 @@ export default function Dashboard() {
     }
   };
 
-  // The home page holds only summaries; read the full mission when its JSON is requested.
-  const openMissionJson = async (m: MissionSummary) => {
-    try {
-      const full = await getMission(m.id);
-      setJsonViewer({ open: true, title: `Mission: ${m.title}`, data: full });
-    } catch {
-      setError(t('Failed to load mission detail.'));
-    }
-  };
-
   const copyId = (id: string) => {
     copyToClipboard(id);
   };
-  void copyId;
 
   const missionStatuses = [
     'Pending',
@@ -439,7 +427,7 @@ export default function Dashboard() {
 
         <div
           className="card clickable"
-          onClick={() => navigate('/voyages')}
+          onClick={() => navigate('/missions?tab=voyages')}
           title={t('Click to view all voyages')}
         >
           <div className="card-label">{t('Active Voyages')}</div>
@@ -643,7 +631,8 @@ export default function Dashboard() {
                           },
                           {
                             label: 'View JSON',
-                            onClick: () => { void openMissionJson(m); },
+                            onClick: () =>
+                              setJsonViewer({ open: true, title: `Mission: ${m.title}`, data: m }),
                           },
                           ...(m.status === 'Failed' || m.status === 'Cancelled' || m.status === 'LandingFailed' ? [{
                             label: 'Restart',

@@ -6,8 +6,7 @@ import {
   restartMission, retryMissionLanding, transitionMission, getMissionDiff, getMissionLog,
   listVessels, listCaptains, listVoyages,
 } from '../api/client';
-import type { MissionMode, MissionSummary, Vessel, Captain, Voyage } from '../types/models';
-import MissionModeSelect from '../components/shared/MissionModeSelect';
+import type { MissionSummary, Vessel, Captain, Voyage, MissionMode } from '../types/models';
 import Pagination from '../components/shared/Pagination';
 import LoadingIndicator from '../components/shared/LoadingIndicator';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -298,14 +297,14 @@ export default function Missions() {
               <option value="">{t('All Statuses')}</option>
               {MISSION_STATUSES.map(s => <option key={s} value={s}>{t(s)}</option>)}
             </select>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+            <RefreshButton onRefresh={load} title="Refresh mission data" />
             {selected.length > 0 && (
               <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
                 {t('Delete Selected')} ({selected.length})
               </button>
             )}
             <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Mission')}</button>
-            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
-            <RefreshButton onRefresh={load} title="Refresh mission data" />
           </>
         )}
       />
@@ -325,7 +324,13 @@ export default function Missions() {
                 {vessels.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
               </select>
             </label>
-            <MissionModeSelect value={formData.mode} onChange={mode => setFormData({ ...formData, mode })} />
+            <label>{t('Mode')}
+              <select value={formData.mode} onChange={e => setFormData({ ...formData, mode: e.target.value as MissionMode })}>
+                <option value="Implementation">{t('Implementation')}</option>
+                <option value="Audit">{t('Audit (read-only)')}</option>
+                <option value="Research">{t('Research (read-only)')}</option>
+              </select>
+            </label>
             <label>{t('Priority')}<input type="number" value={formData.priority} onChange={e => setFormData({ ...formData, priority: Number(e.target.value) })} /></label>
             <div className="modal-actions">
               <button type="submit" className="btn btn-primary">{t('Create')}</button>
