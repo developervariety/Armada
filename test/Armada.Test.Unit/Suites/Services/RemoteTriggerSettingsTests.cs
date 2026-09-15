@@ -355,11 +355,9 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
-            await RunTest("DeliveryMode_LegacyMcpNotificationSpelling_StillLoads", () =>
+            await RunTest("DeliveryMode_UnknownSpelling_IsRejectedWithClearError", () =>
             {
-                // Settings files written before the rename carry "McpNotification". That
-                // name promised an MCP server push this transport cannot carry, but an
-                // existing file must keep loading. Both real load paths are pinned here:
+                // Only the declared member names load. Both real load paths are pinned here:
                 // ArmadaSettings uses its own options, Program.cs builds its own and adds
                 // JsonStringEnumConverter, which resolves ahead of a type-level attribute.
                 JsonSerializerOptions armadaSettingsStyle = new JsonSerializerOptions
@@ -372,9 +370,20 @@ namespace Armada.Test.Unit.Suites.Services
 
                 foreach (JsonSerializerOptions options in new[] { armadaSettingsStyle, programStyle })
                 {
-                    AgentWakeSettings legacy = JsonSerializer.Deserialize<AgentWakeSettings>(
-                        "{\"deliveryMode\":\"McpNotification\"}", options)!;
-                    AssertEqual(AgentWakeDeliveryMode.StoredWake, legacy.DeliveryMode, "legacy spelling must still load");
+                    foreach (string unknown in new[] { "PushNotification", "StoredWakeRow" })
+                    {
+                        JsonException? rejected = null;
+                        try
+                        {
+                            JsonSerializer.Deserialize<AgentWakeSettings>("{\"deliveryMode\":\"" + unknown + "\"}", options);
+                        }
+                        catch (JsonException ex)
+                        {
+                            rejected = ex;
+                        }
+                        AssertNotNull(rejected, "an undeclared delivery mode must be rejected: " + unknown);
+                        AssertContains("SpawnProcess, StoredWake, or Both", rejected!.Message, "the error names the accepted modes");
+                    }
 
                     AgentWakeSettings current = JsonSerializer.Deserialize<AgentWakeSettings>(
                         "{\"deliveryMode\":\"StoredWake\"}", options)!;
@@ -385,7 +394,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(AgentWakeDeliveryMode.SpawnProcess, spawn.DeliveryMode, "other modes must be unaffected");
                 }
 
-                // Writing uses the corrected name, so a file round-trips to the accurate one.
+                // Writing uses the declared name, so a saved file loads again unchanged.
                 AssertContains(
                     "StoredWake",
                     JsonSerializer.Serialize(

@@ -108,12 +108,6 @@ namespace Armada.Server.Mcp
         public Func<AuthContext, string, bool>? ToolAuthorizer { get; set; } = null;
 
         /// <summary>
-        /// Optional server-assigned participant identity. When set, the server rejects a different
-        /// request header and does not trust the caller to select its Armada identity.
-        /// </summary>
-        public string? FixedParticipantKey { get; set; } = null;
-
-        /// <summary>
         /// Optional audit sink. It receives each tool outcome and, when required,
         /// a Started record before the handler runs.
         /// </summary>
@@ -232,17 +226,7 @@ namespace Armada.Server.Mcp
                     return;
                 }
 
-                string? suppliedParticipant = ReadParticipantHeader(context);
-                if (!String.IsNullOrEmpty(FixedParticipantKey)
-                    && !String.IsNullOrEmpty(suppliedParticipant)
-                    && !String.Equals(FixedParticipantKey, suppliedParticipant, StringComparison.Ordinal))
-                {
-                    context.Response.StatusCode = StatusCodes.Status403Forbidden;
-                    await context.Response.WriteAsync("The participant identity is assigned by the server.").ConfigureAwait(false);
-                    return;
-                }
-
-                _RequestParticipantKey.Value = FixedParticipantKey ?? suppliedParticipant;
+                _RequestParticipantKey.Value = ReadParticipantHeader(context);
                 try
                 {
                     using (McpCallerContext.Begin(caller))

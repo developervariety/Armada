@@ -60,12 +60,6 @@ namespace Armada.Core.Settings
         /// Operators can also list rows with <c>armada_enumerate
         /// entityType=signals signalType=Wake unreadOnly=true</c>. Acknowledge
         /// with <c>armada_mark_signal_read</c>.
-        /// <para>
-        /// Named <c>McpNotification</c> before the transport was examined. That
-        /// spelling never described anything: the MCP transport is stateless and
-        /// cannot carry a server push. It is still accepted in settings files by
-        /// <see cref="AgentWakeDeliveryModeConverter"/>.
-        /// </para>
         /// </summary>
         StoredWake,
 
@@ -126,8 +120,8 @@ namespace Armada.Core.Settings
         /// The converter is attached to the PROPERTY, not only to the enum. A converter
         /// in <c>JsonSerializerOptions.Converters</c> outranks a type-level attribute, so
         /// any caller that registers a generic enum converter would otherwise shadow it
-        /// and reject the legacy <c>McpNotification</c> spelling. A property attribute
-        /// outranks both, which keeps this working whatever options a caller builds.
+        /// and accept values the converter rejects. A property attribute outranks both,
+        /// which keeps the parsing rule the same whatever options a caller builds.
         /// </para>
         /// </summary>
         [JsonConverter(typeof(AgentWakeDeliveryModeConverter))]

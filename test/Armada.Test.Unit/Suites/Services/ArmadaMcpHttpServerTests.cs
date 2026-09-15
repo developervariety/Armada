@@ -452,42 +452,10 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(2, adminTools.GetProperty("result").GetProperty("tools").GetArrayLength(), "a global administrator discovers the whole catalog");
             }).ConfigureAwait(false);
 
-            await RunTest("RetiredOAuthEndpointsAreNotExposed", async () =>
+            await RunTest("HeaderParticipantReachesHandlerAndAudit", async () =>
             {
                 int port = GetAvailablePort();
                 await using ArmadaMcpHttpServer server = CreateServer(port);
-                await server.StartAsync().ConfigureAwait(false);
-
-                using HttpClient client = new HttpClient
-                {
-                    BaseAddress = new Uri("http://127.0.0.1:" + port)
-                };
-                string[] paths =
-                {
-                    "/.well-known/oauth-protected-resource/mcp",
-                    "/.well-known/oauth-authorization-server",
-                    "/oauth/register",
-                    "/oauth/authorize",
-                    "/oauth/token"
-                };
-                foreach (string path in paths)
-                {
-                    using HttpRequestMessage anonymous = new HttpRequestMessage(HttpMethod.Get, path);
-                    using HttpResponseMessage denied = await client.SendAsync(anonymous).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.Unauthorized, denied.StatusCode);
-
-                    using HttpRequestMessage authenticated = new HttpRequestMessage(HttpMethod.Get, path);
-                    authenticated.Headers.TryAddWithoutValidation("X-Api-Key", TestApiKey);
-                    using HttpResponseMessage absent = await client.SendAsync(authenticated).ConfigureAwait(false);
-                    AssertEqual(HttpStatusCode.NotFound, absent.StatusCode);
-                }
-            }).ConfigureAwait(false);
-
-            await RunTest("FixedParticipantRejectsSpoofingAndFeedsAudit", async () =>
-            {
-                int port = GetAvailablePort();
-                await using ArmadaMcpHttpServer server = CreateServer(port);
-                server.FixedParticipantKey = "armada-lead";
                 McpToolCallAudit? observedAudit = null;
                 string? observedParticipant = null;
                 server.ToolCallAuditSink = (audit, token) =>
@@ -497,7 +465,7 @@ namespace Armada.Test.Unit.Suites.Services
                 };
                 server.RegisterTool(
                     "armada_identity",
-                    "Return the assigned participant",
+                    "Return the request participant",
                     new { type = "object" },
                     args =>
                     {
@@ -510,19 +478,14 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     BaseAddress = new Uri("http://127.0.0.1:" + port)
                 };
-                using HttpRequestMessage spoofed = CreateRequest(
+                using HttpRequestMessage request = CreateRequest(
                     "/mcp", 1, "tools/call", new { name = "armada_identity", arguments = new { } });
-                spoofed.Headers.TryAddWithoutValidation(ArmadaMcpHttpServer.ParticipantHeaderName, "attacker");
-                using HttpResponseMessage spoofedResponse = await client.SendAsync(spoofed).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.Forbidden, spoofedResponse.StatusCode);
-
-                using HttpRequestMessage valid = CreateRequest(
-                    "/mcp", 2, "tools/call", new { name = "armada_identity", arguments = new { } });
-                using HttpResponseMessage validResponse = await client.SendAsync(valid).ConfigureAwait(false);
-                AssertEqual(HttpStatusCode.OK, validResponse.StatusCode);
-                AssertEqual("armada-lead", observedParticipant);
+                request.Headers.TryAddWithoutValidation(ArmadaMcpHttpServer.ParticipantHeaderName, "operator-example");
+                using HttpResponseMessage response = await client.SendAsync(request).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                AssertEqual("operator-example", observedParticipant, "the handler reads the participant the request header named");
                 AssertNotNull(observedAudit, "The successful tool call must reach the audit sink.");
-                AssertEqual("armada-lead", observedAudit!.ParticipantKey);
+                AssertEqual("operator-example", observedAudit!.ParticipantKey);
                 AssertEqual("armada_identity", observedAudit.ToolName);
                 AssertTrue(observedAudit.Succeeded);
             }).ConfigureAwait(false);

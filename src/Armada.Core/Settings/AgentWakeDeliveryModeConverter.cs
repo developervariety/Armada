@@ -5,27 +5,11 @@ namespace Armada.Core.Settings
     using System.Text.Json.Serialization;
 
     /// <summary>
-    /// Reads and writes <see cref="AgentWakeDeliveryMode"/>, accepting the legacy
-    /// <c>McpNotification</c> spelling of <see cref="AgentWakeDeliveryMode.StoredWake"/>.
-    /// <para>
-    /// The old name claimed an MCP notification. Armada's MCP transport is stateless and
-    /// cannot carry a server push, so no notification was ever sent; the mode stores a Wake
-    /// row that a session collects at its next tool call. The name is corrected, and this
-    /// converter keeps every settings file written before the rename loading unchanged.
-    /// </para>
+    /// Reads and writes <see cref="AgentWakeDeliveryMode"/> by its declared member names. An unknown,
+    /// empty or non-string value is rejected with an error that lists the accepted names.
     /// </summary>
     public sealed class AgentWakeDeliveryModeConverter : JsonConverter<AgentWakeDeliveryMode>
     {
-        #region Public-Members
-
-        /// <summary>
-        /// The pre-rename spelling of <see cref="AgentWakeDeliveryMode.StoredWake"/>. Still
-        /// accepted on read so an existing settings file keeps working.
-        /// </summary>
-        public const string LegacyStoredWakeName = "McpNotification";
-
-        #endregion
-
         #region Public-Methods
 
         /// <summary>
@@ -48,9 +32,6 @@ namespace Armada.Core.Settings
                 throw new JsonException("AgentWake deliveryMode must not be empty.");
 
             string trimmed = value!.Trim();
-            if (String.Equals(trimmed, LegacyStoredWakeName, StringComparison.OrdinalIgnoreCase))
-                return AgentWakeDeliveryMode.StoredWake;
-
             if (Enum.TryParse(trimmed, ignoreCase: true, out AgentWakeDeliveryMode parsed))
                 return parsed;
 
@@ -59,7 +40,7 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// Write a delivery mode to JSON using its current name.
+        /// Write a delivery mode to JSON using its declared name.
         /// </summary>
         /// <param name="writer">JSON writer.</param>
         /// <param name="value">Value to write.</param>
