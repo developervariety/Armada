@@ -154,7 +154,10 @@ namespace Armada.Core.Services
                 {
                     await _Git.PruneWorktreesAsync(repoPath, token).ConfigureAwait(false);
                 }
-                catch { }
+                catch (Exception pruneEx)
+                {
+                    _Logging.Warn(_Header + "worktree prune failed for " + repoPath + "; stale registrations may block provisioning: " + pruneEx.Message);
+                }
 
                 // Clean up stale worktree directories under this vessel's dock directory.
                 // Only removes directories that are NOT associated with any active dock record.
@@ -227,7 +230,10 @@ namespace Armada.Core.Services
                                 {
                                     await _Git.RemoveWorktreeAsync(checkoutDir, token).ConfigureAwait(false);
                                 }
-                                catch { }
+                                catch (Exception removeEx)
+                                {
+                                    _Logging.Warn(_Header + "git worktree remove failed for stale " + checkoutDir + "; removing the directory directly: " + removeEx.Message);
+                                }
                             }
                             else
                             {
@@ -249,7 +255,10 @@ namespace Armada.Core.Services
                             {
                                 await _Git.PruneWorktreesAsync(repoPath, token).ConfigureAwait(false);
                             }
-                            catch { }
+                            catch (Exception repruneEx)
+                            {
+                                _Logging.Warn(_Header + "worktree re-prune failed for " + repoPath + " after removing " + checkoutDir + ": " + repruneEx.Message);
+                            }
                         }
                     }
                 }
@@ -1064,10 +1073,18 @@ namespace Armada.Core.Services
             if (String.IsNullOrWhiteSpace(sibling.VesselRef)) return;
 
             Vessel? siblingVessel = null;
-            try { siblingVessel = await _Database.Vessels.ReadAsync(sibling.VesselRef, token).ConfigureAwait(false); } catch { }
+            try { siblingVessel = await _Database.Vessels.ReadAsync(sibling.VesselRef, token).ConfigureAwait(false); }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "sibling vessel " + sibling.VesselRef + " could not be read by id for artifact provisioning (database error): " + ex.Message);
+            }
             if (siblingVessel == null)
             {
-                try { siblingVessel = await _Database.Vessels.ReadByNameAsync(sibling.VesselRef, token).ConfigureAwait(false); } catch { }
+                try { siblingVessel = await _Database.Vessels.ReadByNameAsync(sibling.VesselRef, token).ConfigureAwait(false); }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "sibling vessel " + sibling.VesselRef + " could not be read by name for artifact provisioning (database error): " + ex.Message);
+                }
             }
 
             if (siblingVessel == null || String.IsNullOrWhiteSpace(siblingVessel.WorkingDirectory))
@@ -1138,7 +1155,7 @@ namespace Armada.Core.Services
         /// tree: the copy is built beside the destination, the old tree is renamed out of the way,
         /// the new tree is renamed into place, and only then is the old tree deleted.
         /// </summary>
-        private static void RefreshDirectoryAtomically(string sourceDir, string destDir)
+        private void RefreshDirectoryAtomically(string sourceDir, string destDir)
         {
             string parent = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(destDir)) ?? destDir;
             string name = Path.GetFileName(Path.TrimEndingDirectorySeparator(destDir));
@@ -1149,7 +1166,11 @@ namespace Armada.Core.Services
             CopyDirectoryRecursive(sourceDir, staging);
             Directory.Move(destDir, retired);
             Directory.Move(staging, destDir);
-            try { Directory.Delete(retired, true); } catch { }
+            try { Directory.Delete(retired, true); }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "refreshed " + destDir + " but could not delete the retired copy " + retired + "; it remains on disk: " + ex.Message);
+            }
         }
 
         /// <summary>
@@ -1248,11 +1269,17 @@ namespace Armada.Core.Services
             if (!String.IsNullOrWhiteSpace(sibling.VesselRef))
             {
                 try { siblingVessel = await _Database.Vessels.ReadAsync(sibling.VesselRef, token).ConfigureAwait(false); }
-                catch { }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "sibling vessel " + sibling.VesselRef + " could not be read by id; falling back to the declared URL (database error): " + ex.Message);
+                }
                 if (siblingVessel == null)
                 {
                     try { siblingVessel = await _Database.Vessels.ReadByNameAsync(sibling.VesselRef, token).ConfigureAwait(false); }
-                    catch { }
+                    catch (Exception ex)
+                    {
+                        _Logging.Warn(_Header + "sibling vessel " + sibling.VesselRef + " could not be read by name; falling back to the declared URL (database error): " + ex.Message);
+                    }
                 }
             }
 

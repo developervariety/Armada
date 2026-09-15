@@ -233,11 +233,6 @@ namespace Armada.Core.Models
         /// </summary>
         public int UnverifiedDeploymentsCount { get; set; } = 0;
 
-        /// <summary>
-        /// Count of overdue runbook executions, when that surface can be computed cheaply.
-        /// </summary>
-        public int OverdueRunbookExecutionsCount { get; set; } = 0;
-
         private Dictionary<string, int> _ObjectivesByStatus = new Dictionary<string, int>();
         private Dictionary<string, int> _BacklogByState = new Dictionary<string, int>();
         private Dictionary<string, int> _CheckRunsByStatus = new Dictionary<string, int>();

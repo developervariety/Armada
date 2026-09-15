@@ -80,6 +80,22 @@ namespace Armada.Test.Unit
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("Cancelling a voyage cancels its Pending armed Checks with a named reason", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Voyage voyage = await SeedVoyageAsync(testDb, VoyageStatusEnum.InProgress).ConfigureAwait(false);
+                CheckRun pending = await SeedCheckAsync(testDb, voyage, CheckRunTypeEnum.Build, CheckRunStatusEnum.Pending, null).ConfigureAwait(false);
+                CheckRun passed = await SeedCheckAsync(testDb, voyage, CheckRunTypeEnum.UnitTest, CheckRunStatusEnum.Passed, CommitA).ConfigureAwait(false);
+
+                await VoyageCancellation.CancelVoyageAsync(testDb.Driver, voyage, "operator cancel").ConfigureAwait(false);
+
+                CheckRun? pendingAfter = await testDb.Driver.CheckRuns.ReadAsync(pending.Id).ConfigureAwait(false);
+                CheckRun? passedAfter = await testDb.Driver.CheckRuns.ReadAsync(passed.Id).ConfigureAwait(false);
+                AssertEqual(CheckRunStatusEnum.Canceled, pendingAfter!.Status, "a Pending armed Check cannot outlive its cancelled voyage");
+                AssertContains(VoyageCheckDiscard.VoyageCancelledReason, pendingAfter.Summary ?? String.Empty, "the cancel names why the Check never ran");
+                AssertEqual(CheckRunStatusEnum.Passed, passedAfter!.Status, "a finished Check is history and stays as it was");
+            }).ConfigureAwait(false);
+
             DateTime earlier = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
             DateTime later = earlier.AddHours(1);
 

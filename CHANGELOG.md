@@ -280,15 +280,45 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   An unreachable origin, a rejected push or an authentication failure is still
   reported with git's reason, and the merge-queue purge now logs it at Warn
   instead of Debug.
+- A genuine terminal process-exit failure that halts its voyage opens one High
+  incident for the mission. Recovery skips missions of cancelled voyages, so
+  before, such a failure never reached incident triage.
+- A mission that no captain of its tenant can ever serve (persona or tier)
+  records one `mission.unassignable_by_construction` event, and opens one High
+  incident after 10 consecutive assignment passes. Before, it logged a Warn every
+  tick forever and read as a capacity problem.
+- Cancelling or halting a voyage marks its `Pending` armed Checks `Canceled`
+  with the reason `voyage_cancelled`. The check executor applies the same rule
+  to `Pending` records of any `Cancelled` or `Failed` voyage (`voyage_cancelled`
+  or `voyage_failed`). These records no longer sit `Pending` forever or count in
+  `PendingChecksRequired`.
+- The landing-drain safety net no longer diffs the vessel's default-branch
+  checkout when a mission has no dock worktree; that diff was always empty. It
+  records a named no-dock outcome, logs it at Warn, flags the branch for review,
+  and the sweep summary counts unmeasured branches (no dock, diff failed). A
+  failed diff also logs at Warn instead of Debug.
+- `ArmadaStatus.OverdueRunbookExecutionsCount` is removed. Runbook executions
+  have no due time, so the field was never computed and always read 0, which
+  read as "none overdue".
 - A bad enum value on `armada_list_incidents`, `armada_create_incident`,
   `armada_update_incident` or `update_release` returns the field name and every
   valid value, through the same helper the check tools use. Before, the call
   failed with a bare deserialization error. The deployment tools take no enum
   arguments.
+- An "insufficient balance" provider failure benches the captain like a credit
+  failure. Quota reset parsing also reads a numeric `Retry-After` in seconds,
+  "try again in / resets in N seconds, minutes, hours or days", and an ISO-8601
+  reset instant, with no upper bound on the window. The stderr log gate keeps
+  every line those forms appear on.
 - The captain MCP connectivity probe accepts both `application/json` and
   `text/event-stream` and reads SSE `data:` bodies. Before, a Streamable HTTP
   server rejected the probe or its SSE answer failed to parse, and a connected
   captain read as having no Armada tools.
+- Empty catches in landing retry, process-exit handling, the definition-of-done
+  gate, dock provisioning, voyage cancel and mission delete, merge recovery,
+  captain recovery, agent lifecycle and the base agent runtime now log the
+  failure at Warn with what failed and what state it may have left. Behaviour is
+  otherwise unchanged.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 

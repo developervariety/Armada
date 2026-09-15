@@ -228,7 +228,11 @@ namespace Armada.Core.Recovery
                     rebase.CompletedUtc = DateTime.UtcNow;
                     rebase.LastUpdateUtc = DateTime.UtcNow;
                     try { await _Database.Missions.UpdateAsync(rebase, CancellationToken.None).ConfigureAwait(false); }
-                    catch { }
+                    catch (Exception cancelEx)
+                    {
+                        _Logging.Warn(_Header + "rebase mission " + rebase.Id + " for " + mission.Id
+                            + " was created but could not be marked Cancelled; it may remain Pending: " + cancelEx.Message);
+                    }
                 }
                 _Logging.Warn(_Header + "CreateAsync failed for rebase mission of " + mission.Id + ": " + ex.Message);
                 await SurfaceAsync(entry, "recovery_unstartable", token).ConfigureAwait(false);

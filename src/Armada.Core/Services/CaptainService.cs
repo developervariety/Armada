@@ -287,7 +287,11 @@ namespace Armada.Core.Services
                     string unexpectedReason = "Auto-recovery failed unexpectedly: " + ex.Message;
                     await FinalizeRecoveryFailureAsync(captain, mission, unexpectedReason, token).ConfigureAwait(false);
                 }
-                catch { }
+                catch (Exception finalizeEx)
+                {
+                    _Logging.Warn(_Header + "could not finalize the recovery failure for captain " + captain.Id
+                        + "; its captain and mission state may be stale: " + finalizeEx.Message);
+                }
             }
         }
 

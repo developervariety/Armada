@@ -213,13 +213,17 @@ namespace Armada.Runtimes
 
             process.Exited += (sender, e) =>
             {
-                try { readersAttached.Wait(TimeSpan.FromSeconds(10)); } catch { }
-                try { process.WaitForExit(); } catch { }
+                try { readersAttached.Wait(TimeSpan.FromSeconds(10)); }
+                catch (Exception ex) { WarnSwallowed("waiting for output readers before draining exit", ex); }
+                try { process.WaitForExit(); }
+                catch (Exception ex) { WarnSwallowed("draining output after process exit", ex); }
 
                 int? code = null;
                 int processId = 0;
-                try { processId = process.Id; } catch { }
-                try { code = ((Process?)sender)?.ExitCode; } catch { }
+                try { processId = process.Id; }
+                catch (Exception ex) { WarnSwallowed("reading the exited process id", ex); }
+                try { code = ((Process?)sender)?.ExitCode; }
+                catch (Exception ex) { WarnSwallowed("reading the exit code of process " + processId + "; recording it as unknown", ex); }
 
                 CompleteExit(processId, code, logWriter, capturedFinalMessageFilePath);
 
@@ -227,7 +231,7 @@ namespace Armada.Runtimes
                 // On Windows, undisposed Process objects hold handles on the WorkingDirectory
                 // which prevents dock worktree directories from being deleted.
                 try { process.Dispose(); }
-                catch { }
+                catch (Exception ex) { WarnSwallowed("disposing exited process " + processId + "; its working-directory handle may stay open", ex); }
             };
             process.EnableRaisingEvents = true;
 
@@ -291,13 +295,16 @@ namespace Armada.Runtimes
                 // disposing before signalling deadlocks the two against each other until the wait
                 // times out -- a fixed 10-second stall on every failed launch. Set() is idempotent
                 // and is still called in the finally below.
-                try { readersAttached.Set(); } catch { }
+                try { readersAttached.Set(); }
+                catch (Exception ex) { WarnSwallowed("releasing the exit handler after a failed launch", ex); }
 
                 // Dispose the writer + process here to release the file/pipe handles. Note the
                 // process MAY be alive or already exited: the earlier assumption that a launch can
                 // only fail before the process starts is not true for a fast-exiting agent.
-                try { logWriter?.Dispose(); } catch { }
-                try { process.Dispose(); } catch { }
+                try { logWriter?.Dispose(); }
+                catch (Exception ex) { WarnSwallowed("closing the log after a failed launch", ex); }
+                try { process.Dispose(); }
+                catch (Exception ex) { WarnSwallowed("disposing the process after a failed launch", ex); }
                 throw;
             }
             finally
@@ -606,9 +613,21 @@ namespace Armada.Runtimes
         protected void PublishTokenUsage(int processId, RuntimeTokenUsage usage)
         {
             try { OnTokenUsageReceived?.Invoke(processId, usage); }
-            catch { }
+            catch (Exception ex) { WarnSwallowed("OnTokenUsageReceived handler for process " + processId, ex); }
             try { OnProviderProgressReceived?.Invoke(processId, usage); }
-            catch { }
+            catch (Exception ex) { WarnSwallowed("OnProviderProgressReceived handler for process " + processId, ex); }
+        }
+
+        /// <summary>
+        /// Log a failure the runtime deliberately does not propagate, naming what failed, so a swallowed
+        /// exception is never silent.
+        /// </summary>
+        /// <param name="operation">What was being attempted.</param>
+        /// <param name="ex">The swallowed exception.</param>
+        private void WarnSwallowed(string operation, Exception ex)
+        {
+            try { _Logging.Warn(_Header + operation + " failed: " + ex.Message); }
+            catch (ObjectDisposedException) { }
         }
 
         private static void ApplySharedCaptainEnvironment(ProcessStartInfo startInfo)
@@ -655,7 +674,7 @@ namespace Armada.Runtimes
             // process, deleting it now lets us reopen it cleanly. Failures are silent; the open
             // below will either succeed (we win the race) or throw (we fall through to the suffix path).
             try { if (File.Exists(logFilePath)) File.Delete(logFilePath); }
-            catch { }
+            catch (Exception ex) { WarnSwallowed("deleting stale log " + logFilePath + " (the open below falls back to a suffixed path if it is locked)", ex); }
 
             try
             {
@@ -730,12 +749,12 @@ namespace Armada.Runtimes
                 catch (ObjectDisposedException) { }
 
                 try { OnOutputReceived?.Invoke(processId, outputLine); }
-                catch { }
+                catch (Exception ex) { WarnSwallowed("OnOutputReceived handler for process " + processId, ex); }
 
                 // Raised only here, never from the stderr handler below. An interactive
                 // consumer capturing a reply must not pick up CLI banners and prompt echoes.
                 try { OnStdoutReceived?.Invoke(processId, outputLine); }
-                catch { }
+                catch (Exception ex) { WarnSwallowed("OnStdoutReceived handler for process " + processId, ex); }
             }
         }
 
@@ -759,10 +778,9 @@ namespace Armada.Runtimes
             bool quotaSignal = ProviderQuotaLimitDetector.IsQuotaLimitSignal(line);
             // Preserve standalone reset-time lines so the admiral's failure-lifecycle
             // code can later call TryParseRetryAfterUtc on the full stderr text and
-            // compute an accurate quarantine deadline. The gate uses a lightweight
-            // substring check rather than the full parser to avoid doing expensive
-            // regex/DateTime work inside the process stderr event handler.
-            bool resetTimeLine = line.Contains("try again at", StringComparison.OrdinalIgnoreCase);
+            // compute an accurate quarantine deadline. The detector owns which lines
+            // carry a parseable reset, so the gate and the parser cannot drift apart.
+            bool resetTimeLine = ProviderQuotaLimitDetector.IsResetTimeLine(line);
             if (WriteStderrToLogFile || quotaSignal || resetTimeLine)
             {
                 try { logWriter?.WriteLine("[stderr] " + line); }
@@ -772,7 +790,7 @@ namespace Armada.Runtimes
             // Treat stderr as runtime output for heartbeat/progress/output capture.
             // Some agent CLIs emit useful diagnostics or status lines on stderr.
             try { OnOutputReceived?.Invoke(processId, line); }
-            catch { }
+            catch (Exception ex) { WarnSwallowed("OnOutputReceived handler for stderr of process " + processId, ex); }
         }
 
         /// <summary>
@@ -795,7 +813,7 @@ namespace Armada.Runtimes
                     catch (ObjectDisposedException) { }
 
                     try { OnOutputReceived?.Invoke(processId, exitRecord); }
-                    catch { }
+                    catch (Exception ex) { WarnSwallowed("OnOutputReceived handler for an exit record of process " + processId, ex); }
                 }
             }
             catch (Exception ex) { _Logging.Warn(_Header + "error building process-exit records: " + ex.Message); }
@@ -819,7 +837,7 @@ namespace Armada.Runtimes
                         }
                     }
                 }
-                catch (Exception) { }
+                catch (Exception ex) { WarnSwallowed("echoing the final message of process " + processId + " into the mission log", ex); }
             }
 
             try { logWriter?.WriteLine("[" + DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") + "] Agent exited with code " + (code?.ToString() ?? "unknown")); }

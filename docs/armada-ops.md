@@ -717,6 +717,15 @@ gate reads every Check attached to the voyage and to the Judge mission:
 | None attached | PASS is rejected unless the review carries `[JUDGE-CHECK-EXCLUSION]` |
 | `Canceled` | Ignored |
 
+A voyage that ends before its armed Checks run does not keep them `Pending`.
+Cancelling a voyage (every cancel surface and the halt after a terminal mission
+failure) marks each `Pending` Check of that voyage `Canceled` with the summary
+`voyage_cancelled: the voyage ended before this Check ran.` The check executor
+applies the same rule to any `Pending` record it finds on a `Cancelled` or
+`Failed` voyage (`voyage_cancelled` or `voyage_failed`), which covers voyages
+ended by any other path and records left from before the rule. Such a record is
+no longer counted in `PendingChecksRequired`. A re-dispatch arms fresh Checks.
+
 The table applies to voyages that contain implementation work. A fully
 report-only voyage has no implementation Checks by design. Its Judge validates
 the report structure and evidence, not a code diff or a green Build and
@@ -1203,6 +1212,22 @@ landing failures. Authentication, quota, review, protected-path, dependency,
 and exhausted-recovery failures remain for operator action. While the dispatch
 hold is engaged, a rescue is deferred and named on the incident, not
 dispatched (section 8.18).
+
+Recovery never selects a mission whose voyage is `Cancelled`. When a captain
+process exits with a genuine, non-recoverable failure and no committed work,
+the admiral halts (cancels) the voyage, so the process-exit path itself opens
+one High incident for the mission (`mission.failed_incident_opened`). It carries
+the failure reason as its root cause and says that no rescue will run. An
+active incident already linked to the mission is kept, not duplicated.
+
+A mission that no captain of its tenant can ever serve (no captain allows its
+persona, or none that does serves its tier) is not waiting for capacity. The
+first assignment pass that finds this records one
+`mission.unassignable_by_construction` event with the reason. If the mission is
+still unassignable after 10 consecutive assignment passes, one High incident
+opens. Busy, benched or quarantined captains that could serve the mission do
+not count as unassignable. The mission itself is not changed: give a captain the
+persona and tier, or cancel and re-dispatch at a tier a captain serves.
 
 The recovery incident is linked to each objective that already owns the failed
 mission or its voyage. This annotation preserves the objective's existing

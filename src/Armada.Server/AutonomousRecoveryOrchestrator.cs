@@ -49,6 +49,8 @@ namespace Armada.Server
         private readonly ProviderProgressTracker? _ProviderProgress;
         private readonly ConcurrentDictionary<string, SemaphoreSlim> _MissionLocks = new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal);
         private readonly SemaphoreSlim _SweepLock = new SemaphoreSlim(1, 1);
+        private int _LandingDrainNoDockCount = 0;
+        private int _LandingDrainDiffFailedCount = 0;
         private readonly CheckRunService? _CheckRuns;
         private readonly Func<Mission, string, string?, CancellationToken, Task<JudgeFollowUp>> _CaptureJudgeFollowUp;
         private readonly DispatchHold? _DispatchHold;
@@ -290,6 +292,16 @@ namespace Armada.Server
         /// </summary>
         public int HoldDeferredRescueCount => _HoldDeferredRescues.Count;
 
+        /// <summary>
+        /// Branches the last landing-drain sweep could not measure because no dock worktree held them.
+        /// </summary>
+        public int LastLandingDrainNoDockCount { get; private set; } = 0;
+
+        /// <summary>
+        /// Branches the last landing-drain sweep could not measure because git failed reading the diff.
+        /// </summary>
+        public int LastLandingDrainDiffFailedCount { get; private set; } = 0;
+
         private async Task ReevaluateHoldDeferredRescuesAsync(CancellationToken token)
         {
             if (_HoldDeferredRescues.IsEmpty) return;
@@ -382,6 +394,8 @@ namespace Armada.Server
 
             int processed = 0;
             int maxVoyages = _Settings.AutonomousRecovery.LandingDrainMaxVoyagesPerSweep;
+            Interlocked.Exchange(ref _LandingDrainNoDockCount, 0);
+            Interlocked.Exchange(ref _LandingDrainDiffFailedCount, 0);
 
             foreach (Voyage voyage in candidates.OrderBy(item => item.LastUpdateUtc))
             {
@@ -413,6 +427,15 @@ namespace Armada.Server
                 {
                     _Logging.Warn(_Header + "landing-drain failed for voyage " + voyage.Id + ": " + ex.Message);
                 }
+            }
+
+            LastLandingDrainNoDockCount = Interlocked.CompareExchange(ref _LandingDrainNoDockCount, 0, 0);
+            LastLandingDrainDiffFailedCount = Interlocked.CompareExchange(ref _LandingDrainDiffFailedCount, 0, 0);
+            if (processed > 0 || LastLandingDrainNoDockCount > 0 || LastLandingDrainDiffFailedCount > 0)
+            {
+                _Logging.Info(_Header + "landing-drain sweep complete: voyages drained " + processed
+                    + ", branches unmeasured (no dock) " + LastLandingDrainNoDockCount
+                    + ", branches unmeasured (diff failed) " + LastLandingDrainDiffFailedCount);
             }
         }
 
@@ -450,7 +473,8 @@ namespace Armada.Server
                 // propagates so the sweep can be torn down cleanly.
                 try
                 {
-                    string? diff = await TryLoadSafetyNetDiffAsync(mission, vessel, token).ConfigureAwait(false);
+                    SafetyNetDiffLoad diffLoad = await TryLoadSafetyNetDiffAsync(mission, vessel, token).ConfigureAwait(false);
+                    string? diff = diffLoad.Diff;
                     SafetyNetEnqueueResult result = await _MergeQueue!.TrySafetyNetEnqueueAsync(
                         mission,
                         vessel,
@@ -740,14 +764,14 @@ namespace Armada.Server
             return true;
         }
 
-        private async Task<string?> TryLoadSafetyNetDiffAsync(Mission mission, Vessel vessel, CancellationToken token)
+        private async Task<SafetyNetDiffLoad> TryLoadSafetyNetDiffAsync(Mission mission, Vessel vessel, CancellationToken token)
         {
-            if (_Git == null) return null;
+            if (_Git == null)
+                return new SafetyNetDiffLoad { Outcome = SafetyNetDiffOutcomeEnum.GitUnavailable, Detail = "no git service configured" };
 
-            // Prefer the captain's dock worktree, which is checked out on the mission branch.
-            // The vessel WorkingDirectory/LocalPath is the default-branch checkout and always
-            // produces an empty diff; using it biases the safety net toward flag-for-review for
-            // every candidate branch regardless of actual size.
+            // Only the captain's dock worktree is checked out on the mission branch. The vessel
+            // WorkingDirectory/LocalPath is the default-branch checkout and always diffs empty, so it is
+            // never used as a stand-in: an unmeasured branch is reported as such and flagged for review.
             string? repoPath = null;
             if (!String.IsNullOrWhiteSpace(mission.DockId))
             {
@@ -757,18 +781,27 @@ namespace Armada.Server
             }
 
             if (String.IsNullOrWhiteSpace(repoPath))
-                repoPath = vessel.WorkingDirectory ?? vessel.LocalPath;
-
-            if (String.IsNullOrWhiteSpace(repoPath)) return null;
+            {
+                Interlocked.Increment(ref _LandingDrainNoDockCount);
+                _Logging.Warn(_Header + "landing-drain cannot measure mission " + mission.Id
+                    + ": no dock worktree holds branch " + (mission.BranchName ?? "(none)") + "; the branch is flagged for review unmeasured");
+                return new SafetyNetDiffLoad { Outcome = SafetyNetDiffOutcomeEnum.NoDock, Detail = "no dock worktree for mission " + mission.Id };
+            }
 
             try
             {
-                return await _Git.DiffAsync(repoPath, vessel.DefaultBranch ?? "main", token).ConfigureAwait(false);
+                string diff = await _Git.DiffAsync(repoPath, vessel.DefaultBranch ?? "main", token).ConfigureAwait(false);
+                return new SafetyNetDiffLoad { Outcome = SafetyNetDiffOutcomeEnum.Loaded, Diff = diff };
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
-                _Logging.Debug(_Header + "landing-drain diff unavailable for mission " + mission.Id + ": " + ex.Message);
-                return null;
+                Interlocked.Increment(ref _LandingDrainDiffFailedCount);
+                _Logging.Warn(_Header + "landing-drain diff failed for mission " + mission.Id + " in " + repoPath + ": " + ex.Message);
+                return new SafetyNetDiffLoad { Outcome = SafetyNetDiffOutcomeEnum.DiffFailed, Detail = ex.Message };
             }
         }
 

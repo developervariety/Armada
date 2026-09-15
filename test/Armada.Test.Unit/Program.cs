@@ -410,6 +410,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new WebSocketDeliveryScopeTests());
             runner.AddSuite(new CaptainRuntimeToolCatalogHttpProbeTests());
             runner.AddSuite(new McpEnumArgumentFailureTests());
+            runner.AddSuite(new MissionUnassignableEscalationTests());
 
             runner.VerifyRegistration(typeof(Program).Assembly);
 

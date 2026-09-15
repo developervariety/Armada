@@ -1845,7 +1845,11 @@ namespace Armada.Core.Services
                 {
                     isAlive = false;
                     try { exitCode = process.ExitCode; }
-                    catch { }
+                    catch (Exception exitCodeEx)
+                    {
+                        _Logging.Warn(_Header + "exit code of exited process " + processId + " for captain " + captain.Id
+                            + " is unreadable; recording -1: " + exitCodeEx.Message);
+                    }
                 }
                 else
                 {
@@ -2897,6 +2901,10 @@ namespace Armada.Core.Services
                     if (!String.IsNullOrEmpty(mission.VoyageId))
                     {
                         await HaltVoyageAsync(mission.VoyageId, mission.Id, failureReason, token).ConfigureAwait(false);
+
+                        // Autonomous recovery never selects a mission whose voyage is Cancelled, so after the
+                        // halt nothing else will ever open an incident for this failure.
+                        await OpenHaltedVoyageIncidentAsync(mission, failureReason, token).ConfigureAwait(false);
                     }
                 }
             }
@@ -2933,6 +2941,65 @@ namespace Armada.Core.Services
             Signal signal = new Signal(SignalTypeEnum.Error, signalMessage);
             signal.FromCaptainId = captain.Id;
             await _Database.Signals.CreateAsync(signal, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Open one High incident for a mission whose terminal failure halted its voyage. Recovery skips
+        /// missions of cancelled voyages, so this is the only place such a failure reaches incident triage.
+        /// An active incident already linked to the mission is kept instead of duplicated.
+        /// </summary>
+        private async Task OpenHaltedVoyageIncidentAsync(Mission mission, string failureReason, CancellationToken token)
+        {
+            try
+            {
+                IncidentService incidents = new IncidentService(_Database);
+                AuthContext auth = AuthContext.Authenticated(
+                    mission.TenantId ?? Constants.DefaultTenantId,
+                    mission.UserId ?? Constants.DefaultUserId,
+                    false,
+                    true,
+                    "Admiral",
+                    principalDisplay: "Armada Admiral");
+
+                EnumerationResult<Incident> existing = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = mission.Id,
+                    PageNumber = 1,
+                    PageSize = 25
+                }, token).ConfigureAwait(false);
+                if (existing.Objects.Any(item => item.Status != IncidentStatusEnum.Closed && item.Status != IncidentStatusEnum.RolledBack))
+                    return;
+
+                string title = mission.Title ?? mission.Id;
+                if (title.Length > 96) title = title.Substring(0, 96);
+                Incident created = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Mission failed: " + title,
+                    Summary = "Mission " + mission.Id + " failed on process exit and halted voyage " + mission.VoyageId + ". Reason: " + failureReason,
+                    Status = IncidentStatusEnum.Open,
+                    Severity = IncidentSeverityEnum.High,
+                    VesselId = mission.VesselId,
+                    MissionId = mission.Id,
+                    VoyageId = mission.VoyageId,
+                    Impact = "The voyage was cancelled; autonomous recovery does not act on missions of a cancelled voyage.",
+                    RootCause = failureReason,
+                    RecoveryNotes = "Opened by the terminal process-exit path. No autonomous rescue will run for this failure: read the mission log, then re-dispatch the work or close this incident with the reason.",
+                    DetectedUtc = mission.CompletedUtc ?? DateTime.UtcNow
+                }, token).ConfigureAwait(false);
+
+                await EmitEventAsync("mission.failed_incident_opened",
+                    "Incident " + created.Id + " opened for mission " + mission.Id + " whose failure halted voyage " + mission.VoyageId,
+                    entityType: "incident", entityId: created.Id,
+                    missionId: mission.Id, vesselId: mission.VesselId, voyageId: mission.VoyageId, token: token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not open an incident for failed mission " + mission.Id + " of halted voyage " + mission.VoyageId + ": " + ex.Message);
+            }
         }
 
         /// <summary>
@@ -3379,6 +3446,10 @@ namespace Armada.Core.Services
             voyage.CompletedUtc = DateTime.UtcNow;
             voyage.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
+
+            int discardedChecks = await VoyageCheckDiscard.DiscardPendingAsync(_Database, voyage.Id, VoyageCheckDiscard.VoyageCancelledReason, token).ConfigureAwait(false);
+            if (discardedChecks > 0)
+                _Logging.Info(_Header + "voyage " + voyage.Id + " halted: discarded " + discardedChecks + " pending armed Check(s) (" + VoyageCheckDiscard.VoyageCancelledReason + ")");
 
             List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(voyageId, token).ConfigureAwait(false);
             foreach (Mission otherMission in voyageMissions)

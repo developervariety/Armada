@@ -1673,6 +1673,48 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            // Autonomous recovery never selects a mission whose voyage is Cancelled, and the halt above
+            // cancels the voyage. The terminal exit path therefore owns the incident for this failure;
+            // otherwise the failure is recorded nowhere an operator triages.
+            await RunTest("HandleProcessExitAsync GenuineUnrecoverableFailure OpensIncidentForHaltedVoyage", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MinIdleCaptains = 0;
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, new StubGitService());
+
+                    Voyage voyage = new Voyage("Incident Voyage");
+                    voyage.Status = VoyageStatusEnum.InProgress;
+                    await db.Voyages.CreateAsync(voyage);
+
+                    Mission mission = new Mission("Incident Mission");
+                    mission.VoyageId = voyage.Id;
+                    mission.Status = MissionStatusEnum.InProgress;
+                    mission.ProcessId = 7300;
+                    await db.Missions.CreateAsync(mission);
+
+                    Captain captain = new Captain("incident-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = mission.Id;
+                    captain.ProcessId = 7300;
+                    await db.Captains.CreateAsync(captain);
+
+                    await service.HandleProcessExitAsync(7300, 1, captain.Id, mission.Id).ConfigureAwait(false);
+                    await service.HandleProcessExitAsync(7300, 1, captain.Id, mission.Id).ConfigureAwait(false);
+
+                    EnumerationResult<Incident> incidents = await new IncidentService(db).EnumerateAsync(
+                        Armada.Test.Unit.TestHelpers.McpTestCaller.Operator,
+                        new IncidentQuery { MissionId = mission.Id, PageNumber = 1, PageSize = 25 }).ConfigureAwait(false);
+                    List<Incident> open = incidents.Objects.Where(i => i.Status != IncidentStatusEnum.Closed).ToList();
+                    AssertEqual(1, open.Count, "a genuine terminal exit that halts its voyage must open exactly one incident");
+                    AssertEqual(voyage.Id, open[0].VoyageId, "the incident names the halted voyage");
+                    AssertContains("exited with code", open[0].RootCause ?? String.Empty, "the incident carries the failure reason");
+                }
+            });
+
             // A mission that failed with a non-zero exit but whose
             // captain branch exists in the vessel bare repo holds RECOVERABLE committed work. The
             // branch must be preserved (no reap), the voyage must NOT be cascade-cancelled, and only

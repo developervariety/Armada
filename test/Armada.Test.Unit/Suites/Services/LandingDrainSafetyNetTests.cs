@@ -104,6 +104,32 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, mergeQueue.EnqueueCalls.Count, "Active merge entry should prevent a second enqueue.");
             }).ConfigureAwait(false);
 
+            await RunTest("SweepAsync_NoDock_DoesNotDiffTheDefaultBranchCheckout", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                vessel.WorkingDirectory = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "example-working-checkout");
+                vessel.AutoLandPredicate = "{\"enabled\":true,\"maxFiles\":10}";
+                await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
+                Mission worker = await CreateWorkProducedMissionAsync(testDb, vessel, voyage, "armada/worker-nodock", "Worker").ConfigureAwait(false);
+                await CreateCompleteJudgeAsync(testDb, vessel, voyage, worker.Id, pass: true).ConfigureAwait(false);
+
+                RecordingMergeQueueService mergeQueue = new RecordingMergeQueueService();
+                StubGitService git = new StubGitService { DiffResult = "+++ b/src/A.cs\n+line1\n" };
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, mergeQueue, git: git);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(0, git.DiffCalls.Count, "the default-branch checkout always diffs empty, so it must never stand in for a missing dock");
+                AssertEqual(1, mergeQueue.EnqueueCalls.Count, "the branch is still enqueued");
+                AssertEqual(SafetyNetEnqueueOutcomeEnum.EnqueuedFlaggedForReview, mergeQueue.LastOutcome, "an unmeasured branch is flagged for review");
+                AssertEqual(1, orchestrator.LastLandingDrainNoDockCount, "the sweep counts the branch it could not measure");
+            }).ConfigureAwait(false);
+
             await RunTest("SweepAsync_PredicateFail_FlagsForReview", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -1117,7 +1143,7 @@ namespace Armada.Test.Unit.Suites.Services
                     "Diff must not fall back to vessel WorkingDirectory when dock worktree is available.");
             }).ConfigureAwait(false);
 
-            await RunTest("TryLoadSafetyNetDiff_NoDock_FallsBackToVesselPath", async () =>
+            await RunTest("TryLoadSafetyNetDiff_NoDock_ReportsNoDockInsteadOfDiffingVesselPath", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
@@ -1125,7 +1151,8 @@ namespace Armada.Test.Unit.Suites.Services
                 Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
                 Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
 
-                // Mission has no DockId -- the fallback to vessel.WorkingDirectory must fire.
+                // Mission has no DockId. The vessel WorkingDirectory is the default-branch checkout, whose
+                // diff is always empty, so it must never be read as the branch's size.
                 Mission worker = await CreateWorkProducedMissionAsync(testDb, vessel, voyage, "armada/worker-no-dock", "Worker").ConfigureAwait(false);
                 await CreateCompleteJudgeAsync(testDb, vessel, voyage, worker.Id, pass: true).ConfigureAwait(false);
 
@@ -1136,12 +1163,13 @@ namespace Armada.Test.Unit.Suites.Services
                 await orchestrator.SweepAsync().ConfigureAwait(false);
 
                 AssertEqual(1, mergeQueue.EnqueueCalls.Count, "Expected one safety-net enqueue.");
-                AssertTrue(
-                    git.DiffCalls.Contains(vessel.WorkingDirectory!),
-                    "Without a dock worktree, diff must fall back to vessel WorkingDirectory.");
+                AssertFalse(
+                    git.DiffCalls.Contains(vessel.WorkingDirectory ?? String.Empty),
+                    "Without a dock worktree, the vessel default-branch checkout must not be diffed.");
+                AssertEqual(1, orchestrator.LastLandingDrainNoDockCount, "The unmeasured branch is counted as no-dock.");
             }).ConfigureAwait(false);
 
-            await RunTest("TryLoadSafetyNetDiff_DockRowMissing_FallsBackToVesselPath", async () =>
+            await RunTest("TryLoadSafetyNetDiff_DockRowMissing_ReportsNoDock", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
@@ -1150,8 +1178,8 @@ namespace Armada.Test.Unit.Suites.Services
                 Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
 
                 // DockId points at a row that does not exist (dock pruned/deleted). ReadAsync returns
-                // null, so the resolver must fall back to the vessel working directory rather than
-                // diffing a null/empty path.
+                // null, so there is no worktree on the mission branch: the load reports no-dock rather
+                // than diffing a null/empty path or the default-branch checkout.
                 Mission worker = await testDb.Driver.Missions.CreateAsync(new Mission
                 {
                     TenantId = vessel.TenantId,
@@ -1174,12 +1202,11 @@ namespace Armada.Test.Unit.Suites.Services
                 await orchestrator.SweepAsync().ConfigureAwait(false);
 
                 AssertEqual(1, mergeQueue.EnqueueCalls.Count, "Expected one safety-net enqueue.");
-                AssertTrue(
-                    git.DiffCalls.Contains(vessel.WorkingDirectory!),
-                    "A missing dock row must fall back to the vessel WorkingDirectory.");
+                AssertEqual(0, git.DiffCalls.Count, "A missing dock row must not diff any path.");
+                AssertEqual(1, orchestrator.LastLandingDrainNoDockCount, "A missing dock row is counted as no-dock.");
             }).ConfigureAwait(false);
 
-            await RunTest("TryLoadSafetyNetDiff_DockWorktreePathEmpty_FallsBackToVesselPath", async () =>
+            await RunTest("TryLoadSafetyNetDiff_DockWorktreePathEmpty_ReportsNoDock", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
@@ -1188,7 +1215,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
 
                 // Dock row exists but has no worktree path (e.g. worktree already removed). The
-                // resolver must treat a whitespace WorktreePath as "no worktree" and fall back.
+                // resolver must treat a whitespace WorktreePath as "no worktree" and report no-dock.
                 Dock dock = await testDb.Driver.Docks.CreateAsync(new Dock
                 {
                     TenantId = vessel.TenantId,
@@ -1221,9 +1248,8 @@ namespace Armada.Test.Unit.Suites.Services
                 await orchestrator.SweepAsync().ConfigureAwait(false);
 
                 AssertEqual(1, mergeQueue.EnqueueCalls.Count, "Expected one safety-net enqueue.");
-                AssertTrue(
-                    git.DiffCalls.Contains(vessel.WorkingDirectory!),
-                    "An empty dock worktree path must fall back to the vessel WorkingDirectory.");
+                AssertEqual(0, git.DiffCalls.Count, "An empty dock worktree path must not diff any path.");
+                AssertEqual(1, orchestrator.LastLandingDrainNoDockCount, "An empty dock worktree path is counted as no-dock.");
             }).ConfigureAwait(false);
 
             await RunTest("SweepAsync_DiffUnavailableEmpty_FlagsForReview", async () =>

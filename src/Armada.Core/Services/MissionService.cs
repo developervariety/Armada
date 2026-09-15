@@ -112,6 +112,20 @@ namespace Armada.Core.Services
         // Last requested-captain outcome recorded per waiting mission; cleared when the mission is assigned.
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _RequestedCaptainNotices =
             new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, int> _UnassignableTicks =
+            new System.Collections.Concurrent.ConcurrentDictionary<string, int>(StringComparer.Ordinal);
+        private int _UnassignableIncidentTickThreshold = 10;
+
+        /// <summary>
+        /// Consecutive assignment passes a mission may stay unassignable by construction before an incident
+        /// opens. Clamped to at least 1.
+        /// </summary>
+        public int UnassignableIncidentTickThreshold
+        {
+            get { return _UnassignableIncidentTickThreshold; }
+            set { _UnassignableIncidentTickThreshold = value < 1 ? 1 : value; }
+        }
+
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _CaptainReservations =
             new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
 
@@ -689,8 +703,11 @@ namespace Armada.Core.Services
                     mission.AssignmentState = MissionAssignmentStateEnum.WaitingForIdleCaptain;
                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "mission " + mission.Id + " assignment state -> " + mission.AssignmentState);
+                await TrackUnassignableByConstructionAsync(mission, token).ConfigureAwait(false);
                 return false;
             }
+
+            _UnassignableTicks.TryRemove(mission.Id, out int _);
 
             // Downstream pipeline stages continue on the upstream branch prepared during handoff,
             // which copies the upstream mission's branch name onto the dependent. Standalone
@@ -8070,6 +8087,154 @@ namespace Armada.Core.Services
         private static string AssignmentTenantOf(Mission mission)
         {
             return Armada.Core.Authorization.OwnershipPolicy.TenantOfRecord(mission.TenantId);
+        }
+
+        /// <summary>
+        /// Name a mission that no captain can ever serve. Waiting for an idle captain is normal capacity
+        /// pressure; waiting when no captain of the mission's tenant accepts its persona and tier is a
+        /// permanent state that otherwise logs one Warn per tick forever. The first pass that sees it emits
+        /// one named event; after <see cref="UnassignableIncidentTickThreshold"/> consecutive passes one
+        /// incident opens. The mission itself is not changed.
+        /// </summary>
+        private async Task TrackUnassignableByConstructionAsync(Mission mission, CancellationToken token)
+        {
+            string? reason;
+            try
+            {
+                reason = await DescribeUnassignableByConstructionAsync(mission, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not evaluate whether mission " + mission.Id + " is unassignable by construction: " + ex.Message);
+                return;
+            }
+
+            if (reason == null)
+            {
+                _UnassignableTicks.TryRemove(mission.Id, out int _);
+                return;
+            }
+
+            int ticks = _UnassignableTicks.AddOrUpdate(mission.Id, 1, (_, count) => count + 1);
+            if (ticks == 1)
+            {
+                _Logging.Warn(_Header + "mission " + mission.Id + " is unassignable by construction: " + reason);
+                try
+                {
+                    ArmadaEvent evt = new ArmadaEvent("mission.unassignable_by_construction",
+                        "Mission " + mission.Id + " cannot be assigned by any captain: " + reason);
+                    EventOwnerScope.ApplyFromMission(evt, mission);
+                    evt.EntityType = "mission";
+                    evt.EntityId = mission.Id;
+                    evt.MissionId = mission.Id;
+                    evt.VesselId = mission.VesselId;
+                    evt.VoyageId = mission.VoyageId;
+                    evt.Payload = JsonSerializer.Serialize(new { missionId = mission.Id, persona = mission.Persona, preferredModel = mission.PreferredModel, reason });
+                    await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "could not record mission.unassignable_by_construction for " + mission.Id + ": " + ex.Message);
+                }
+            }
+
+            if (ticks != UnassignableIncidentTickThreshold) return;
+
+            try
+            {
+                IncidentService incidents = new IncidentService(_Database);
+                AuthContext auth = AuthContext.Authenticated(
+                    mission.TenantId ?? Constants.DefaultTenantId,
+                    mission.UserId ?? Constants.DefaultUserId,
+                    false,
+                    true,
+                    "MissionAssignment",
+                    principalDisplay: "Armada Mission Assignment");
+                EnumerationResult<Incident> existing = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = mission.Id,
+                    PageNumber = 1,
+                    PageSize = 25
+                }, token).ConfigureAwait(false);
+                if (existing.Objects.Any(item => item.Status != IncidentStatusEnum.Closed && item.Status != IncidentStatusEnum.RolledBack))
+                    return;
+
+                string title = mission.Title ?? mission.Id;
+                if (title.Length > 96) title = title.Substring(0, 96);
+                await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Mission unassignable: " + title,
+                    Summary = "Mission " + mission.Id + " stayed unassignable for " + ticks + " assignment passes: " + reason,
+                    Status = IncidentStatusEnum.Open,
+                    Severity = IncidentSeverityEnum.High,
+                    VesselId = mission.VesselId,
+                    MissionId = mission.Id,
+                    VoyageId = mission.VoyageId,
+                    Impact = "The mission waits forever while captains sit idle; this is not a capacity problem.",
+                    RootCause = reason,
+                    RecoveryNotes = "Give a captain of this tenant the mission's persona and tier, or cancel the mission and re-dispatch it at a tier a captain serves.",
+                    DetectedUtc = DateTime.UtcNow
+                }, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not open the unassignable-mission incident for " + mission.Id + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Returns why no captain of the mission's tenant, in any state, can ever serve the mission, or null
+        /// when at least one could. Quarantine, benching and busy captains are temporary and do not count.
+        /// Usage routing owns selection when it is enabled, so no verdict is given then.
+        /// </summary>
+        private async Task<string?> DescribeUnassignableByConstructionAsync(Mission mission, CancellationToken token)
+        {
+            if (_Settings.ModelTier.UsageRouting.Enabled) return null;
+
+            string assignmentTenant = AssignmentTenantOf(mission);
+            List<Captain> all = await _Database.Captains.EnumerateAsync(token).ConfigureAwait(false);
+            List<Captain> tenantCaptains = all
+                .Where(item => String.Equals(Armada.Core.Authorization.OwnershipPolicy.TenantOfRecord(item.TenantId), assignmentTenant, StringComparison.Ordinal))
+                .ToList();
+            if (tenantCaptains.Count == 0)
+                return "no captain belongs to the mission's tenant";
+
+            List<Captain> personaCaptains = tenantCaptains.Where(item => CaptainAllowsPersona(item, mission.Persona)).ToList();
+            if (personaCaptains.Count == 0)
+                return "no captain of the tenant allows persona " + (mission.Persona ?? "(none)");
+
+            string? preferredModel = mission.PreferredModel;
+            if (String.IsNullOrEmpty(preferredModel)) return null;
+
+            string? tier = PreferredModelTierSelector.IsTierSelector(preferredModel)
+                ? preferredModel
+                : null;
+            if (tier == null)
+            {
+                if (personaCaptains.Any(item => String.Equals(item.Model, preferredModel, StringComparison.OrdinalIgnoreCase)))
+                    return null;
+                tier = PreferredModelTierSelector.ClassifyModel(preferredModel, _Settings.ModelTier);
+                if (tier == null) return null;
+            }
+
+            string? servable = PreferredModelTierSelector.SelectModel(
+                tier, personaCaptains, mission.Persona, n => 0,
+                _Settings.ModelTier.SpecialistPersonas, _Settings.ModelTier.WithinTierPreferenceOrder, _Settings.ModelTier, mission.CapabilityHint);
+            return servable == null
+                ? "no captain of the tenant that allows persona " + (mission.Persona ?? "(none)") + " serves tier " + tier
+                : null;
         }
 
         private async Task<Captain?> FindAvailableCaptainAsync(Mission mission, CancellationToken token)

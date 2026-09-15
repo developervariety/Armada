@@ -75,6 +75,26 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all armed-check eligibility tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("A pending armed check of an already cancelled voyage is discarded, not left Pending", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                    Voyage voyage = new Voyage("ended-voyage");
+                    voyage.Status = VoyageStatusEnum.Cancelled;
+                    voyage = await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+                    CheckRun armed = await ArmCheckAsync(testDb, vessel, voyage).ConfigureAwait(false);
+
+                    AutomaticCheckRunOrchestrator orchestrator = BuildOrchestrator(testDb);
+                    bool eligible = await orchestrator.IsEligibleAsync(armed, default).ConfigureAwait(false);
+
+                    CheckRun? after = await testDb.Driver.CheckRuns.ReadAsync(armed.Id).ConfigureAwait(false);
+                    AssertFalse(eligible, "a check of an ended voyage never runs");
+                    AssertEqual(CheckRunStatusEnum.Canceled, after!.Status, "a check of an ended voyage must not stay Pending and count as required");
+                    AssertContains(VoyageCheckDiscard.VoyageCancelledReason, after.Summary ?? String.Empty, "the discard names its reason");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Armed check is eligible once a stage commits work to a branch", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

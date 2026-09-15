@@ -543,6 +543,76 @@ namespace Armada.Test.Unit.Suites.Services
                     "null output should not match the codex crash signature");
                 return Task.CompletedTask;
             });
+
+            await RunTest("IsCreditAuthBenchSignal_InsufficientBalance_ReturnsTrue", () =>
+            {
+                AssertTrue(
+                    ProviderQuotaLimitDetector.IsCreditAuthBenchSignal("API Error: 402 Insufficient balance. Please top up your account."),
+                    "an insufficient-balance failure must bench the captain like a credit failure");
+                return Task.CompletedTask;
+            });
+
+            DateTime reference = new DateTime(2026, 9, 15, 12, 0, 0, DateTimeKind.Utc);
+
+            await RunTest("TryParseRetryAfterUtc_NumericRetryAfterSeconds_ReturnsOffset", () =>
+            {
+                DateTime? parsed = ProviderQuotaLimitDetector.TryParseRetryAfterUtc("HTTP 429 Too Many Requests. Retry-After: 120", reference);
+                AssertEqual(reference.AddSeconds(120), parsed, "Retry-After seconds must resolve relative to the reference instant");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("TryParseRetryAfterUtc_RelativeSeconds_ReturnsOffset", () =>
+            {
+                DateTime? parsed = ProviderQuotaLimitDetector.TryParseRetryAfterUtc("Rate limit reached. Please try again in 30 seconds.", reference);
+                AssertEqual(reference.AddSeconds(30), parsed, "relative seconds must resolve");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("TryParseRetryAfterUtc_RelativeMinutes_ReturnsOffset", () =>
+            {
+                DateTime? parsed = ProviderQuotaLimitDetector.TryParseRetryAfterUtc("Usage limit reached, try again in 15 min", reference);
+                AssertEqual(reference.AddMinutes(15), parsed, "relative minutes must resolve");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("TryParseRetryAfterUtc_RelativeHours_ReturnsOffset", () =>
+            {
+                DateTime? parsed = ProviderQuotaLimitDetector.TryParseRetryAfterUtc("Quota exhausted; resets in 3 hours", reference);
+                AssertEqual(reference.AddHours(3), parsed, "relative hours must resolve");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("TryParseRetryAfterUtc_RelativeBeyondOneDay_IsNotCapped", () =>
+            {
+                DateTime? parsed = ProviderQuotaLimitDetector.TryParseRetryAfterUtc("Weekly limit reached. Try again in 72 hours.", reference);
+                AssertEqual(reference.AddHours(72), parsed, "a multi-day provider reset must not be discarded by a 24h cap");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("TryParseRetryAfterUtc_IsoTimestamp_ReturnsInstant", () =>
+            {
+                DateTime? parsed = ProviderQuotaLimitDetector.TryParseRetryAfterUtc("rate_limit_error: retry after 2026-09-15T18:30:00Z", reference);
+                AssertEqual(new DateTime(2026, 9, 15, 18, 30, 0, DateTimeKind.Utc), parsed, "an ISO reset timestamp must resolve to that instant");
+                AssertEqual(DateTimeKind.Utc, parsed!.Value.Kind, "the ISO instant must be UTC");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("TryParseRetryAfterUtc_RetryAfterZero_ReturnsNull", () =>
+            {
+                DateTime? parsed = ProviderQuotaLimitDetector.TryParseRetryAfterUtc("Retry-After: 0", reference);
+                AssertNull(parsed, "a reset that is not in the future is not a usable deadline");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("IsResetTimeLine_EveryParsedForm_IsPreservedByStderrGate", () =>
+            {
+                AssertTrue(ProviderQuotaLimitDetector.IsResetTimeLine("try again at 7:22 AM"), "clock form");
+                AssertTrue(ProviderQuotaLimitDetector.IsResetTimeLine("Please try again in 30 seconds"), "relative form");
+                AssertTrue(ProviderQuotaLimitDetector.IsResetTimeLine("retry-after: 120"), "retry-after form");
+                AssertTrue(ProviderQuotaLimitDetector.IsResetTimeLine("limit resets in 3 hours"), "resets-in form");
+                AssertFalse(ProviderQuotaLimitDetector.IsResetTimeLine("compiling project"), "ordinary output");
+                return Task.CompletedTask;
+            });
         }
     }
 }

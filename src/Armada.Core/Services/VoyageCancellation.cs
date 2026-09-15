@@ -61,6 +61,9 @@ namespace Armada.Core.Services
             voyage.LastUpdateUtc = DateTime.UtcNow;
             await database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
 
+            // A cancelled voyage never runs its armed Checks; leaving them Pending counts them as required forever.
+            await VoyageCheckDiscard.DiscardPendingAsync(database, voyage.Id, VoyageCheckDiscard.VoyageCancelledReason, token).ConfigureAwait(false);
+
             foreach (Mission mission in missions)
             {
                 if (mission.Status == MissionStatusEnum.Pending

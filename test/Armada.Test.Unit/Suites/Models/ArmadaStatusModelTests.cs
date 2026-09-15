@@ -32,6 +32,15 @@ namespace Armada.Test.Unit.Suites.Models
                 AssertEqual(0, status.StructuredDelivery.ObjectivesByStatus.Count);
             });
 
+            await RunTest("ArmadaStatus carries no overdue-runbook count, because runbook executions have no due time", () =>
+            {
+                // A count that nothing computes always reads 0, which an operator reads as "none overdue".
+                AssertNull(typeof(ArmadaStatus).GetProperty("OverdueRunbookExecutionsCount"),
+                    "a status field with no computation behind it must not exist");
+                AssertNull(typeof(RunbookExecution).GetProperty("DueUtc"),
+                    "if runbook executions gain a due time, compute the overdue count instead of removing it");
+            });
+
             await RunTest("ArmadaStatus MissionsByStatus NullSetterResetsToEmpty", () =>
             {
                 ArmadaStatus status = new ArmadaStatus();

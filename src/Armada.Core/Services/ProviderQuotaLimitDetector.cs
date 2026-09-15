@@ -29,6 +29,7 @@ namespace Armada.Core.Services
             return normalized.Contains("credit", StringComparison.OrdinalIgnoreCase) ||
                 normalized.Contains("billing", StringComparison.OrdinalIgnoreCase) ||
                 normalized.Contains("payment", StringComparison.OrdinalIgnoreCase) ||
+                normalized.Contains("balance", StringComparison.OrdinalIgnoreCase) ||
                 normalized.Contains("insufficient_credits", StringComparison.OrdinalIgnoreCase) ||
                 normalized.Contains("invalid_api_key", StringComparison.OrdinalIgnoreCase) ||
                 normalized.Contains("unauthorized", StringComparison.OrdinalIgnoreCase) ||
@@ -149,6 +150,25 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Returns true when a single output line carries a reset-time hint that
+        /// <see cref="TryParseRetryAfterUtc"/> can read, so a log gate that suppresses ordinary stderr keeps it.
+        /// </summary>
+        /// <param name="line">One output line.</param>
+        /// <returns>True when the line names a reset time.</returns>
+        public static bool IsResetTimeLine(string? line)
+        {
+            if (String.IsNullOrWhiteSpace(line)) return false;
+
+            // Substring checks only: this runs inside the process stderr event handler, once per line.
+            return line.Contains("try again", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("retry-after", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("retry after", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("resets in", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("reset in", StringComparison.OrdinalIgnoreCase)
+                || line.Contains("resets at", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
         /// Parses a provider-published retry time when present; otherwise returns null.
         /// </summary>
         /// <param name="text">Runtime stderr or failure reason text.</param>
@@ -177,6 +197,22 @@ namespace Armada.Core.Services
                 return epochUtc.UtcDateTime;
             }
 
+            // An explicit ISO-8601 instant after a reset/retry cue. Checked before the dated and
+            // retry-after forms: "retry after 2026-09-15T18:30:00Z" would otherwise read as 2026 seconds.
+            Match isoMatch = _IsoResetPattern.Match(normalized);
+            if (isoMatch.Success)
+            {
+                if (DateTime.TryParse(
+                        isoMatch.Groups["iso"].Value,
+                        CultureInfo.InvariantCulture,
+                        DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                        out DateTime isoRetry))
+                {
+                    DateTime isoUtc = DateTime.SpecifyKind(isoRetry, DateTimeKind.Utc);
+                    return isoUtc > referenceUtc ? isoUtc : null;
+                }
+            }
+
             // Providers publish two shapes of retry hint. Prefer the dated one: Codex emits
             // "try again at Jul 25th, 2026 7:22 AM", where the clock-only pattern below does not
             // match at all (it hits "Jul", not a digit), so the caller previously fell back to the
@@ -201,32 +237,49 @@ namespace Armada.Core.Services
             }
 
             Match match = _RetryAtPattern.Match(normalized);
-            if (!match.Success)
+            if (match.Success)
             {
-                return null;
+                string timeToken = match.Groups[1].Value.Trim();
+                if (DateTime.TryParse(timeToken, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out DateTime localTime))
+                {
+                    DateTime candidate = new DateTime(
+                        referenceUtc.Year,
+                        referenceUtc.Month,
+                        referenceUtc.Day,
+                        localTime.Hour,
+                        localTime.Minute,
+                        localTime.Second,
+                        DateTimeKind.Utc);
+
+                    if (candidate <= referenceUtc)
+                    {
+                        candidate = candidate.AddDays(1);
+                    }
+
+                    return candidate;
+                }
             }
 
-            string timeToken = match.Groups[1].Value.Trim();
-            if (!DateTime.TryParse(timeToken, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out DateTime localTime))
+            // An HTTP-style Retry-After in seconds.
+            Match secondsMatch = _RetryAfterSecondsPattern.Match(normalized);
+            if (secondsMatch.Success && Int64.TryParse(secondsMatch.Groups["seconds"].Value, out long retrySeconds))
             {
-                return null;
+                return retrySeconds > 0 ? referenceUtc.AddSeconds(retrySeconds) : null;
             }
 
-            DateTime candidate = new DateTime(
-                referenceUtc.Year,
-                referenceUtc.Month,
-                referenceUtc.Day,
-                localTime.Hour,
-                localTime.Minute,
-                localTime.Second,
-                DateTimeKind.Utc);
-
-            if (candidate <= referenceUtc)
+            // A relative "try again in / resets in N <unit>" phrase. No upper bound is applied: providers
+            // publish multi-day resets, and discarding one releases the captain into a still-exhausted account.
+            Match relativeMatch = _RelativeResetPattern.Match(normalized);
+            if (relativeMatch.Success && Int64.TryParse(relativeMatch.Groups["amount"].Value, out long amount) && amount > 0)
             {
-                candidate = candidate.AddDays(1);
+                string unit = relativeMatch.Groups["unit"].Value.ToLowerInvariant();
+                if (unit.StartsWith("d", StringComparison.Ordinal)) return referenceUtc.AddDays(amount);
+                if (unit.StartsWith("h", StringComparison.Ordinal)) return referenceUtc.AddHours(amount);
+                if (unit.StartsWith("m", StringComparison.Ordinal)) return referenceUtc.AddMinutes(amount);
+                return referenceUtc.AddSeconds(amount);
             }
 
-            return candidate;
+            return null;
         }
 
         /// <summary>
@@ -300,6 +353,27 @@ namespace Armada.Core.Services
         /// </summary>
         private static readonly Regex _RetryAtDatedPattern = new Regex(
             _RetryPhrase + @"\s+(?<token>[^.\r\n]{4,60}?)\s*(?=[.\r\n]|$)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        /// <summary>
+        /// An ISO-8601 reset instant after a reset/retry cue ("retry after 2026-09-15T18:30:00Z").
+        /// </summary>
+        private static readonly Regex _IsoResetPattern = new Regex(
+            @"(?:reset|retry|available|try\s+again)[^0-9]{0,20}(?<iso>\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        /// <summary>
+        /// An HTTP-style Retry-After header value in seconds ("Retry-After: 120").
+        /// </summary>
+        private static readonly Regex _RetryAfterSecondsPattern = new Regex(
+            @"retry[-\s]?after\s*[:=]?\s*(?<seconds>\d{1,9})\b",
+            RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+        /// <summary>
+        /// A relative reset ("try again in 30 seconds", "resets in 3 hours", "try again in 15 min").
+        /// </summary>
+        private static readonly Regex _RelativeResetPattern = new Regex(
+            @"(?:resets?|retry|try\s+again|available)\s+in\s+(?<amount>\d{1,6})\s*(?<unit>seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|s|m|h|d)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         /// <summary>

@@ -249,7 +249,16 @@ namespace Armada.Server
                 Voyage? voyage = await _Database.Voyages.ReadAsync(run.VoyageId, token).ConfigureAwait(false);
                 if (voyage == null) return false;
                 if (voyage.Status == VoyageStatusEnum.Complete) return true;
-                if (voyage.Status == VoyageStatusEnum.Cancelled || voyage.Status == VoyageStatusEnum.Failed) return false;
+                string? endedReason = VoyageCheckDiscard.ReasonFor(voyage.Status);
+                if (endedReason != null)
+                {
+                    // Never run, never counted: a Check whose voyage ended is discarded with its reason, so it
+                    // does not sit Pending forever and inflate the required-pending count. Covers every path
+                    // that ends a voyage, including those that set the status directly.
+                    if (await VoyageCheckDiscard.DiscardAsync(_Database, run, endedReason, token).ConfigureAwait(false))
+                        _Logging.Info(_Header + "discarded pending check " + run.Id + " of ended voyage " + voyage.Id + " (" + endedReason + ")");
+                    return false;
+                }
 
                 // Waiting for the voyage to COMPLETE is a condition this Check itself prevents: a
                 // Judge PASS requires a green independent Check, so the voyage cannot complete until

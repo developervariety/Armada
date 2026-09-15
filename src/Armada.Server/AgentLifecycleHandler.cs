@@ -553,7 +553,8 @@ namespace Armada.Server
             }
             catch (Exception ex)
             {
-                try { Directory.Delete(validationDirectory, true); } catch { }
+                try { Directory.Delete(validationDirectory, true); }
+                catch (Exception deleteEx) { _Logging.Warn(_Header + "could not delete model-validation directory " + validationDirectory + ": " + deleteEx.Message); }
                 return "Unable to create runtime " + runtimeType + " for model validation: " + ex.Message;
             }
 
@@ -646,10 +647,14 @@ namespace Armada.Server
                     {
                         await runtime.StopAsync(processId.Value, token).ConfigureAwait(false);
                     }
-                    catch { }
+                    catch (Exception stopEx)
+                    {
+                        _Logging.Warn(_Header + "could not stop model-validation process " + processId.Value + " for " + runtimeType + "; it may still be running: " + stopEx.Message);
+                    }
                 }
 
-                try { Directory.Delete(validationDirectory, true); } catch { }
+                try { Directory.Delete(validationDirectory, true); }
+                catch (Exception deleteEx) { _Logging.Warn(_Header + "could not delete model-validation directory " + validationDirectory + ": " + deleteEx.Message); }
             }
         }
 
@@ -713,7 +718,11 @@ namespace Armada.Server
                 if (File.Exists(finalMessageFilePath))
                     File.Delete(finalMessageFilePath);
             }
-            catch { }
+            catch (Exception deleteEx)
+            {
+                _Logging.Warn(_Header + "could not delete stale final-message file " + finalMessageFilePath
+                    + " for mission " + mission.Id + "; the previous attempt's final message may be read: " + deleteEx.Message);
+            }
             _MissionFinalMessageFiles[mission.Id] = finalMessageFilePath;
             string captainLogDir = Path.Combine(_Settings.LogDirectory, "captains");
             Directory.CreateDirectory(captainLogDir);
@@ -938,13 +947,20 @@ namespace Armada.Server
                         // UpdateHeartbeatAsync on the same interval as the stall threshold is
                         // measured against, which is why no captain was ever detected as stalled.
                         try { await _Database.Captains.UpdateProcessAliveAsync(captainId).ConfigureAwait(false); }
-                        catch { }
+                        catch (Exception aliveEx)
+                        {
+                            _Logging.Warn(_Header + "could not record process liveness for captain " + captainId + ": " + aliveEx.Message);
+                        }
 
                         // The mission-side call is kept: it advances the mission's last_update_utc and
                         // touches the voyage, which the WorkProduced and assignment-age watchdogs read.
                         // It does not feed stall detection, so it is not part of the masking above.
                         try { await _Database.Missions.UpdateHeartbeatAsync(missionId).ConfigureAwait(false); }
-                        catch { }
+                        catch (Exception heartbeatEx)
+                        {
+                            _Logging.Warn(_Header + "could not record mission heartbeat for " + missionId
+                                + "; WorkProduced and assignment-age watchdogs read a stale time: " + heartbeatEx.Message);
+                        }
 
                         if (await EnforceTerminalMarkerGraceAsync(processId, captainId, missionId, DateTime.UtcNow, token).ConfigureAwait(false))
                             break;

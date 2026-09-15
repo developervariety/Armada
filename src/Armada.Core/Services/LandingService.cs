@@ -387,7 +387,11 @@ namespace Armada.Core.Services
                     if (conflicts.Count > 0)
                         failureReason = "Landing retry failed with merge conflicts in: " + String.Join(", ", conflicts);
                 }
-                catch { }
+                catch (Exception conflictEx)
+                {
+                    _Logging.Warn(_Header + "could not list merge-conflict files for mission " + missionId + " in " + repoPath
+                        + "; the failure reason will not name them: " + conflictEx.Message);
+                }
 
                 // Ensure mission goes back to LandingFailed with the captured reason
                 try
@@ -403,7 +407,11 @@ namespace Armada.Core.Services
                         await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                     }
                 }
-                catch { }
+                catch (Exception restoreEx)
+                {
+                    _Logging.Warn(_Header + "landing retry failed for mission " + missionId
+                        + " and its status could not be restored to LandingFailed; the mission may show a stale status: " + restoreEx.Message);
+                }
 
                 return false;
             }

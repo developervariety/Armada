@@ -339,11 +339,16 @@ namespace Armada.Server.Mcp.Tools
                                     if (onStopCaptain != null)
                                     {
                                         try { await onStopCaptain(captain.Id).ConfigureAwait(false); }
-                                        catch { /* best-effort; we still want to reset DB state */ }
+                                        catch (Exception stopEx)
+                                        {
+                                            // The DB state is still reset below; the process may outlive the cancel.
+                                            logging?.Warn("[McpVoyageTools] could not stop captain " + captain.Id + " while cancelling mission " + m.Id + "; its process may still be running: " + stopEx.Message);
+                                        }
                                     }
                                     try { await admiral.RecallCaptainAsync(captain.Id).ConfigureAwait(false); }
-                                    catch
+                                    catch (Exception recallEx)
                                     {
+                                        logging?.Warn("[McpVoyageTools] recall of captain " + captain.Id + " failed while cancelling mission " + m.Id + "; resetting its state directly: " + recallEx.Message);
                                         // Fall back to direct DB reset if Admiral recall blew up.
                                         captain.State = CaptainStateEnum.Idle;
                                         captain.CurrentMissionId = null;
@@ -404,7 +409,7 @@ namespace Armada.Server.Mcp.Tools
 
                     foreach (Mission m in missions)
                     {
-                        await CleanupMissionResourcesAsync(m, database, settings).ConfigureAwait(false);
+                        await CleanupMissionResourcesAsync(m, database, settings, logging).ConfigureAwait(false);
                         await database.Missions.DeleteAsync(m.Id).ConfigureAwait(false);
                     }
 
@@ -458,7 +463,7 @@ namespace Armada.Server.Mcp.Tools
                         }
                         foreach (Mission m in missions)
                         {
-                            await CleanupMissionResourcesAsync(m, database, settings).ConfigureAwait(false);
+                            await CleanupMissionResourcesAsync(m, database, settings, logging).ConfigureAwait(false);
                             await database.Missions.DeleteAsync(m.Id).ConfigureAwait(false);
                         }
                         await database.Voyages.DeleteAsync(id).ConfigureAwait(false);
@@ -476,7 +481,7 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="mission">The mission being deleted.</param>
         /// <param name="database">Database driver.</param>
         /// <param name="settings">Optional settings for log/diff paths.</param>
-        private static async Task CleanupMissionResourcesAsync(Mission mission, DatabaseDriver database, ArmadaSettings? settings)
+        private static async Task CleanupMissionResourcesAsync(Mission mission, DatabaseDriver database, ArmadaSettings? settings, LoggingModule? logging)
         {
             // Clean up associated dock/worktree
             if (!String.IsNullOrEmpty(mission.DockId))
@@ -489,12 +494,18 @@ namespace Armada.Server.Mcp.Tools
                         if (!String.IsNullOrEmpty(dock.WorktreePath) && Directory.Exists(dock.WorktreePath))
                         {
                             try { Directory.Delete(dock.WorktreePath, true); }
-                            catch { }
+                            catch (Exception deleteEx)
+                            {
+                                logging?.Warn("[McpVoyageTools] could not delete worktree " + dock.WorktreePath + " of deleted mission " + mission.Id + "; the directory remains on disk: " + deleteEx.Message);
+                            }
                         }
                         await database.Docks.DeleteAsync(dock.Id).ConfigureAwait(false);
                     }
                 }
-                catch { }
+                catch (Exception dockEx)
+                {
+                    logging?.Warn("[McpVoyageTools] could not remove dock " + mission.DockId + " of deleted mission " + mission.Id + "; the dock record may remain: " + dockEx.Message);
+                }
             }
 
             // Clean up log and diff files
@@ -505,13 +516,19 @@ namespace Armada.Server.Mcp.Tools
                     string logPath = Path.Combine(settings.LogDirectory, "missions", mission.Id + ".log");
                     if (File.Exists(logPath)) File.Delete(logPath);
                 }
-                catch { }
+                catch (Exception logEx)
+                {
+                    logging?.Warn("[McpVoyageTools] could not delete the log of deleted mission " + mission.Id + ": " + logEx.Message);
+                }
                 try
                 {
                     string diffPath = Path.Combine(settings.LogDirectory, "diffs", mission.Id + ".diff");
                     if (File.Exists(diffPath)) File.Delete(diffPath);
                 }
-                catch { }
+                catch (Exception diffEx)
+                {
+                    logging?.Warn("[McpVoyageTools] could not delete the diff of deleted mission " + mission.Id + ": " + diffEx.Message);
+                }
             }
         }
 

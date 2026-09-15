@@ -669,7 +669,11 @@ namespace Armada.Core.Services
                     ? await _Database.Vessels.ReadAsync(tenantId, vesselId, token).ConfigureAwait(false)
                     : await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
             }
-            catch { return null; }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "vessel " + vesselId + " could not be read (database error, not a missing vessel): " + ex.Message);
+                return null;
+            }
         }
 
         private async Task<List<Vessel>> EnumerateVesselsAsync(string? tenantId, CancellationToken token)
@@ -680,7 +684,11 @@ namespace Armada.Core.Services
                     ? await _Database.Vessels.EnumerateAsync(tenantId, token).ConfigureAwait(false)
                     : await _Database.Vessels.EnumerateAsync(token).ConfigureAwait(false);
             }
-            catch { return new List<Vessel>(); }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "vessels could not be enumerated (database error); consumer builds for this change are not checked: " + ex.Message);
+                return new List<Vessel>();
+            }
         }
 
         private async Task<Vessel?> ResolveSiblingVesselAsync(SiblingRepo sibling, bool allowNull, CancellationToken token)
@@ -689,11 +697,17 @@ namespace Armada.Core.Services
 
             Vessel? vessel = null;
             try { vessel = await _Database.Vessels.ReadAsync(sibling.VesselRef!, token).ConfigureAwait(false); }
-            catch { }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "sibling vessel " + sibling.VesselRef + " could not be read by id (database error): " + ex.Message);
+            }
             if (vessel == null)
             {
                 try { vessel = await _Database.Vessels.ReadByNameAsync(sibling.VesselRef!, token).ConfigureAwait(false); }
-                catch { }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "sibling vessel " + sibling.VesselRef + " could not be read by name (database error): " + ex.Message);
+                }
             }
             return vessel;
         }
