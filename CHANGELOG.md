@@ -101,6 +101,27 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   on its next start. FullPipeline is unchanged, so existing FullPipeline users
   see no new stage.
 - In an Audit or Research mission the Linter reports findings and does not edit.
+### Mission statuses, escalation triggers and settings hold only live values
+
+- The mission status set is `Pending`, `Assigned`, `InProgress`,
+  `WorkProduced`, `PullRequestOpen`, `Testing`, `Review`, `Complete`,
+  `Failed`, `LandingFailed` and `Cancelled`. REST, WebSocket and MCP status
+  transitions accept only these names. The capacity, recovery,
+  voyage-completion and dependency-cancellation checks, the Helm table
+  renderer and the watch script read only these statuses.
+- The escalation triggers are `CaptainStalled`, `MissionOverdue`,
+  `MissionFailed`, `RecoveryExhausted` and `PoolExhausted`. A settings file
+  whose escalation rule names another trigger does not load; remove that rule.
+- The settings model has no mission input-block cap. A settings file that
+  carries a key the model does not define still loads, and a save does not
+  write the key back.
+- A schema migration (SQLite 102, PostgreSQL 103, MySQL 94, SQL Server 97)
+  sets each mission stored with the `WaitingForInput` status to `Cancelled`.
+  The mission keeps its last update time, takes that time as its completion
+  time when it has none, and records the reason `Cancelled while waiting for
+  operator input` ahead of any earlier failure reason. Other missions do not
+  change.
+- The voyage nudge tool and the orchestrator-notes handoff drain do not change.
 
 ### Incident lifecycle sweep reaches every open incident
 
@@ -801,8 +822,8 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   processed inside that window, whichever path returned the mission for another
   attempt: a Judge Check-hold or missing-verdict re-run, a refusal or safeguard
   continuation, a transient requeue or quota re-route, an operator restart, a
-  review denial, a merge-recovery redispatch, a stale-captain reset, a stall
-  relaunch, or an operator transition from WaitingForInput to Pending. Before, a requeued mission that completed again inside the window
+  review denial, a merge-recovery redispatch, a stale-captain reset, or a stall
+  relaunch. Before, a requeued mission that completed again inside the window
   stayed InProgress with its completion silently dropped.
 - A launch is identified by the mission's start time and agent process. One
   rule decides it for every path, and the refusal continuation's private

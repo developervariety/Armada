@@ -92,7 +92,7 @@ namespace Test.Shared.Infrastructure
             SharedCaseDisposition.DuplicateOf("Services.MissionPrompt.generate_claude_md_async_strips_stale_armada_mission_blocks_from_existing_instructions",
                 UnitServiceSuites + "MissionPromptTests.cs", "GenerateClaudeMdAsync strips stale Armada mission blocks from existing instructions", "generated instructions are written under .armada/instructions"),
             SharedCaseDisposition.DuplicateOf("Services.MissionStatusTransition.all_expected_statuses_defined",
-                UnitServiceSuites + "MissionStatusTransitionTests.cs", "All expected statuses defined", "the mission status set includes WaitingForInput"),
+                UnitServiceSuites + "MissionStatusTransitionTests.cs", "All expected statuses defined", "the legacy case owns the mission status set assertion"),
             SharedCaseDisposition.DuplicateOf("Services.PipelineDispatch.architect_fan_out_clones_full_downstream_chain_and_lands_only_terminal_stage",
                 UnitServiceSuites + "PipelineDispatchTests.cs", "Architect fan-out clones full downstream chain and lands only terminal stage", "Architect-derived briefs carry the plan-block label rule and stages need verified completion"),
             SharedCaseDisposition.DuplicateOf("Services.PipelineDispatch.architect_fan_out_honors_explicit_mission_dependencies_across_worker_chains",

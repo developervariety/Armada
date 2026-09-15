@@ -1,18 +1,19 @@
 namespace Armada.Test.Unit
 {
     using System;
+    using System.IO;
     using Armada.Core.Enums;
     using Armada.Core.Services;
     using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
 
     /// <summary>
-    /// Pins every mission-transition entry point to one table. The transition rules were copied into
-    /// the MCP helper and the agent lifecycle handler beside the authoritative table in
-    /// <see cref="MissionStateMachine"/>, and the copies drifted apart: one omitted every
-    /// PullRequestOpen transition, another carried WaitingForInput transitions the table lacked. A
-    /// caller's answer then depended on which copy it happened to reach, so these tests assert the
-    /// specific pairs that drifted and then assert agreement across the whole enum.
+    /// Pins every mission-transition entry point to one table. <see cref="MissionStateMachine"/> owns the
+    /// transition rules; the MCP helper, the agent lifecycle handler and the operator transition service
+    /// delegate to it, and the REST, WebSocket and MCP transitions delegate to the operator transition
+    /// service. A second copy of the rules would give a caller an answer that depends on which copy it
+    /// reaches, so these tests assert the PullRequestOpen pairs, agreement across the whole enum, and the
+    /// delegation of every entry point.
     /// </summary>
     public sealed class MissionTransitionTableAgreementTests : TestSuite
     {
@@ -52,35 +53,6 @@ namespace Armada.Test.Unit
                     "PullRequestOpen to Cancelled must be allowed");
             });
 
-            // === The WaitingForInput gap: absent from the authoritative table ===
-
-            await RunTest("State machine allows InProgress to WaitingForInput", () =>
-            {
-                Assert(
-                    MissionStateMachine.IsValidTransition(MissionStatusEnum.InProgress, MissionStatusEnum.WaitingForInput),
-                    "A running mission must be able to block on input");
-            });
-
-            await RunTest("State machine treats WaitingForInput as non-terminal", () =>
-            {
-                Assert(
-                    MissionStateMachine.IsValidTransition(MissionStatusEnum.WaitingForInput, MissionStatusEnum.Pending),
-                    "A blocked mission returns to Pending to be dispatched again");
-                Assert(
-                    MissionStateMachine.IsValidTransition(MissionStatusEnum.WaitingForInput, MissionStatusEnum.Failed),
-                    "A blocked mission may fail");
-                Assert(
-                    MissionStateMachine.IsValidTransition(MissionStatusEnum.WaitingForInput, MissionStatusEnum.Cancelled),
-                    "A blocked mission may be cancelled");
-            });
-
-            await RunTest("State machine still rejects WaitingForInput to Complete", () =>
-            {
-                Assert(
-                    !MissionStateMachine.IsValidTransition(MissionStatusEnum.WaitingForInput, MissionStatusEnum.Complete),
-                    "A blocked mission must not complete without running again");
-            });
-
             // === Whole-table agreement, so a future copy cannot drift unnoticed ===
 
             await RunTest("MCP helper agrees with the state machine for every status pair", () =>
@@ -104,6 +76,63 @@ namespace Armada.Test.Unit
 
                 Assert(compared == statuses.Length * statuses.Length, "Every status pair was compared");
             });
+
+            // === Delegation: no entry point keeps its own transition rules ===
+            // The validators below are private or live in projects this suite does not reference, so these
+            // guards assert that each entry point calls the shared rule rather than restating it.
+
+            await RunTest("AgentLifecycleHandler validator delegates to the shared state machine", () =>
+            {
+                string contents = ReadSource(Path.Combine("src", "Armada.Server", "AgentLifecycleHandler.cs"));
+                AssertContains("return MissionStateMachine.IsValidTransition(current, target);", contents, "Delegates to MissionStateMachine");
+            });
+
+            await RunTest("MissionStatusTransitionService validator delegates to the shared state machine", () =>
+            {
+                string contents = ReadSource(Path.Combine("src", "Armada.Server", "MissionStatusTransitionService.cs"));
+                AssertContains("MissionStateMachine.IsValidTransition(mission.Status, newStatus)", contents, "Delegates to MissionStateMachine");
+            });
+
+            await RunTest("WebSocketCommandHandler status transition delegates to the shared transition service", () =>
+            {
+                string contents = ReadSource(Path.Combine("src", "Armada.Server", "WebSocket", "WebSocketCommandHandler.cs"));
+                AssertContains("_StatusTransitions.TransitionAsync(tmMission, tmNewStatus)", contents, "Delegates to MissionStatusTransitionService");
+                Assert(!contents.Contains("IsValidTransition("), "No local transition validator remains");
+                Assert(!contents.Contains("tmMission.Status = tmNewStatus"), "No local status write bypasses the completion gates");
+            });
+
+            await RunTest("MissionRoutes status transition delegates to the shared transition service", () =>
+            {
+                string contents = ReadSource(Path.Combine("src", "Armada.Server", "Routes", "MissionRoutes.cs"));
+                AssertContains("_statusTransitions.TransitionAsync(", contents, "Delegates to MissionStatusTransitionService");
+                Assert(!contents.Contains("IsValidTransition("), "No local transition validator remains");
+                Assert(!contents.Contains("ManualCompletionProofService"), "No local copy of the completion gate remains");
+            });
+
+            await RunTest("McpMissionTools status transition delegates to the shared transition service", () =>
+            {
+                string contents = ReadSource(Path.Combine("src", "Armada.Server", "Mcp", "Tools", "McpMissionTools.cs"));
+                AssertContains("statusTransitions.TransitionAsync(mission, newStatus)", contents, "Delegates to MissionStatusTransitionService");
+                Assert(!contents.Contains("McpToolHelpers.IsValidTransition("), "No local transition validator remains");
+                Assert(!contents.Contains("mission.Status = newStatus"), "No local status write bypasses the completion gates");
+            });
+        }
+
+        private static string ReadSource(string relativePath)
+        {
+            DirectoryInfo? current = new DirectoryInfo(AppContext.BaseDirectory);
+            while (current != null)
+            {
+                if (Directory.Exists(Path.Combine(current.FullName, "src"))
+                    && Directory.Exists(Path.Combine(current.FullName, "test")))
+                {
+                    return File.ReadAllText(Path.Combine(current.FullName, relativePath));
+                }
+
+                current = current.Parent;
+            }
+
+            throw new DirectoryNotFoundException("Could not locate repository root from test base directory.");
         }
     }
 }

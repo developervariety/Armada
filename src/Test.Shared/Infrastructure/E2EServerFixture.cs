@@ -276,8 +276,7 @@ namespace Test.Shared.Infrastructure
                 || status == MissionStatusEnum.WorkProduced
                 || status == MissionStatusEnum.PullRequestOpen
                 || status == MissionStatusEnum.Testing
-                || status == MissionStatusEnum.Review
-                || status == MissionStatusEnum.WaitingForInput;
+                || status == MissionStatusEnum.Review;
         }
 
         private async Task StartAsync(Action<ArmadaSettings>? configure = null)

@@ -161,8 +161,6 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CaptainProcessLivenessTests());
             runner.AddSuite(new MissionTransitionTableAgreementTests());
             runner.AddSuite(new StageBranchInheritanceTests());
-            runner.AddSuite(new MissionWaitingForInputStatusTests());
-            runner.AddSuite(new WaitingForInputLifecycleTests());
             runner.AddSuite(new LandingPipelineTests());
             runner.AddSuite(new LandingServiceTests());
             runner.AddSuite(new LandingStateMachineTests());

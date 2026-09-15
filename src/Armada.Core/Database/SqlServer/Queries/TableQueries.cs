@@ -988,7 +988,8 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_harbor_jobs_tenant_user' AND object_id=OBJECT_ID('harbor_jobs')) CREATE INDEX idx_harbor_jobs_tenant_user ON harbor_jobs(tenant_id, user_id);"
                 ),
                 new SchemaMigration(95, "Record terminal-voyage reconciliation on the mission row", MigrationV95Statements),
-                new SchemaMigration(96, "Delete unreferenced built-in reviewer personas and their templates", ReviewerPersonaPruneSchema.SqlServerStatements)
+                new SchemaMigration(96, "Delete unreferenced built-in reviewer personas and their templates", ReviewerPersonaPruneSchema.SqlServerStatements),
+                new SchemaMigration(97, "Cancel missions stored with the WaitingForInput status", MissionInputWaitCancelSchema.SqlServerStatements)
             };
         }
 

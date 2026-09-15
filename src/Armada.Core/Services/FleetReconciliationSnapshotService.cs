@@ -193,8 +193,7 @@ namespace Armada.Core.Services
             MissionStatusEnum.PullRequestOpen,
             MissionStatusEnum.Testing,
             MissionStatusEnum.Review,
-            MissionStatusEnum.LandingFailed,
-            MissionStatusEnum.WaitingForInput
+            MissionStatusEnum.LandingFailed
         };
 
         private static async Task<List<T>> ReadPagesAsync<T>(

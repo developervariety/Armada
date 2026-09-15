@@ -205,7 +205,7 @@ export async function watch(options = {}) {
   const isActionableSnapshotState = (event) => {
     const state = event?.data?.status ?? event?.data?.state;
     if (event?.type === "mission.changed")
-      return ["Failed", "LandingFailed", "WaitingForInput"].includes(state);
+      return ["Failed", "LandingFailed"].includes(state);
     if (event?.type === "captain.changed") return state === "Stalled";
     if (event?.type === "check-run.changed") return state === "Failed";
     return false;

@@ -24,7 +24,6 @@ describe('missionList', () => {
   it('lists the landing and pull request statuses the server defines', () => {
     expect(MISSION_STATUSES).toContain('LandingFailed');
     expect(MISSION_STATUSES).toContain('PullRequestOpen');
-    expect(MISSION_STATUSES).not.toContain('WaitingForInput');
   });
 
   it('pages on the server only for the creation-time order with no text filter', () => {

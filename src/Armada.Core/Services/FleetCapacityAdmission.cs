@@ -193,8 +193,7 @@ namespace Armada.Core.Services
                 || status == MissionStatusEnum.WorkProduced
                 || status == MissionStatusEnum.PullRequestOpen
                 || status == MissionStatusEnum.Testing
-                || status == MissionStatusEnum.Review
-                || status == MissionStatusEnum.WaitingForInput;
+                || status == MissionStatusEnum.Review;
         }
 
         private sealed class CapacitySnapshot

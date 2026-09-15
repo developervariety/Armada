@@ -94,6 +94,8 @@ namespace Armada.Test.Database
                 await new CatalogAndColumnPruneMigrationTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
             if (scenario == "reviewer-persona-prune")
                 await new ReviewerPersonaPruneMigrationTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
+            if (scenario == "mission-input-wait-cancel")
+                await new MissionInputWaitCancelMigrationTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
             if (scenario == "ownership-migration")
                 await new ConfigurationOwnershipMigrationTests(_Settings).VerifyAsync(token).ConfigureAwait(false);
 
@@ -133,7 +135,7 @@ namespace Armada.Test.Database
                     await Task.WhenAll(firstStart, secondStart).ConfigureAwait(false);
                 }
             }
-            else if (scenario != "fresh" && scenario != "catalog-guards" && scenario != "mysql-compat" && scenario != "sqlserver-corrections" && scenario != "preview-migration" && scenario != "backend-migration" && scenario != "anchor-migration" && scenario != "memory-migration" && scenario != "ownership-migration" && scenario != "catalog-column-prune" && scenario != "reviewer-persona-prune" && scenario != "postgres-legacy" && scenario != "admission-migration" && scenario != "model-endpoint-migration")
+            else if (scenario != "fresh" && scenario != "catalog-guards" && scenario != "mysql-compat" && scenario != "sqlserver-corrections" && scenario != "preview-migration" && scenario != "backend-migration" && scenario != "anchor-migration" && scenario != "memory-migration" && scenario != "ownership-migration" && scenario != "catalog-column-prune" && scenario != "reviewer-persona-prune" && scenario != "mission-input-wait-cancel" && scenario != "postgres-legacy" && scenario != "admission-migration" && scenario != "model-endpoint-migration")
             {
                 int anchorVersion = _Settings.Type switch
                 {

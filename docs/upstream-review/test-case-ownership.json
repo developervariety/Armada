@@ -12411,8 +12411,8 @@
       "executable": "Test.Unit",
       "provider": null,
       "actualDriver": null,
-      "retainedCount": 3676,
-      "executedCount": 3736,
+      "retainedCount": 3651,
+      "executedCount": 3711,
       "registeredSuites": [
         {
           "SuiteId": "Armada.Test.Unit.Suites.Services.TestRunnerContractTests",
@@ -13095,18 +13095,6 @@
         {
           "SuiteId": "Armada.Test.Unit.StageBranchInheritanceTests",
           "Name": "Stage Branch Inheritance",
-          "Selected": true,
-          "Disposition": "selected"
-        },
-        {
-          "SuiteId": "Armada.Test.Unit.MissionWaitingForInputStatusTests",
-          "Name": "Mission WaitingForInput Status",
-          "Selected": true,
-          "Disposition": "selected"
-        },
-        {
-          "SuiteId": "Armada.Test.Unit.WaitingForInputLifecycleTests",
-          "Name": "Mission WaitingForInput Lifecycle",
           "Selected": true,
           "Disposition": "selected"
         },
@@ -15475,8 +15463,8 @@
           "case": "MCP helper agrees with the state machine for every status pair",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/MissionTransitionTableAgreementTests.cs",
-          "line": 86,
-          "sourceSha256": "0cda69ba00908de0fa4f5471ca39173687936f9296deb7b7b2c004bfc8e13653",
+          "line": 58,
+          "sourceSha256": "89ca1674b3c16f6f3c615d16d6b85bd5591993ab7e008ca17cdf0f7f29c3fa7e",
           "baselineSourceSha256": "0cda69ba00908de0fa4f5471ca39173687936f9296deb7b7b2c004bfc8e13653"
         },
         {
@@ -15484,8 +15472,8 @@
           "case": "MCP helper allows PullRequestOpen to Cancelled",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/MissionTransitionTableAgreementTests.cs",
-          "line": 48,
-          "sourceSha256": "0cda69ba00908de0fa4f5471ca39173687936f9296deb7b7b2c004bfc8e13653",
+          "line": 49,
+          "sourceSha256": "89ca1674b3c16f6f3c615d16d6b85bd5591993ab7e008ca17cdf0f7f29c3fa7e",
           "baselineSourceSha256": "0cda69ba00908de0fa4f5471ca39173687936f9296deb7b7b2c004bfc8e13653"
         },
         {
@@ -15493,8 +15481,8 @@
           "case": "MCP helper allows PullRequestOpen to Complete",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/MissionTransitionTableAgreementTests.cs",
-          "line": 34,
-          "sourceSha256": "0cda69ba00908de0fa4f5471ca39173687936f9296deb7b7b2c004bfc8e13653",
+          "line": 35,
+          "sourceSha256": "89ca1674b3c16f6f3c615d16d6b85bd5591993ab7e008ca17cdf0f7f29c3fa7e",
           "baselineSourceSha256": "0cda69ba00908de0fa4f5471ca39173687936f9296deb7b7b2c004bfc8e13653"
         },
         {
@@ -15502,8 +15490,8 @@
           "case": "MCP helper allows PullRequestOpen to LandingFailed",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/MissionTransitionTableAgreementTests.cs",
-          "line": 41,
-          "sourceSha256": "0cda69ba00908de0fa4f5471ca39173687936f9296deb7b7b2c004bfc8e13653",
+          "line": 42,
+          "sourceSha256": "89ca1674b3c16f6f3c615d16d6b85bd5591993ab7e008ca17cdf0f7f29c3fa7e",
           "baselineSourceSha256": "0cda69ba00908de0fa4f5471ca39173687936f9296deb7b7b2c004bfc8e13653"
         },
         {
@@ -15511,153 +15499,9 @@
           "case": "MCP helper allows WorkProduced to PullRequestOpen",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/MissionTransitionTableAgreementTests.cs",
-          "line": 27,
-          "sourceSha256": "0cda69ba00908de0fa4f5471ca39173687936f9296deb7b7b2c004bfc8e13653",
+          "line": 28,
+          "sourceSha256": "89ca1674b3c16f6f3c615d16d6b85bd5591993ab7e008ca17cdf0f7f29c3fa7e",
           "baselineSourceSha256": "0cda69ba00908de0fa4f5471ca39173687936f9296deb7b7b2c004bfc8e13653"
-        },
-        {
-          "suite": "Armada.Test.Unit.MissionTransitionTableAgreementTests",
-          "case": "State machine allows InProgress to WaitingForInput",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/MissionTransitionTableAgreementTests.cs",
-          "line": 57,
-          "sourceSha256": "0cda69ba00908de0fa4f5471ca39173687936f9296deb7b7b2c004bfc8e13653",
-          "baselineSourceSha256": "0cda69ba00908de0fa4f5471ca39173687936f9296deb7b7b2c004bfc8e13653"
-        },
-        {
-          "suite": "Armada.Test.Unit.MissionTransitionTableAgreementTests",
-          "case": "State machine still rejects WaitingForInput to Complete",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/MissionTransitionTableAgreementTests.cs",
-          "line": 77,
-          "sourceSha256": "0cda69ba00908de0fa4f5471ca39173687936f9296deb7b7b2c004bfc8e13653",
-          "baselineSourceSha256": "0cda69ba00908de0fa4f5471ca39173687936f9296deb7b7b2c004bfc8e13653"
-        },
-        {
-          "suite": "Armada.Test.Unit.MissionTransitionTableAgreementTests",
-          "case": "State machine treats WaitingForInput as non-terminal",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/MissionTransitionTableAgreementTests.cs",
-          "line": 64,
-          "sourceSha256": "0cda69ba00908de0fa4f5471ca39173687936f9296deb7b7b2c004bfc8e13653",
-          "baselineSourceSha256": "0cda69ba00908de0fa4f5471ca39173687936f9296deb7b7b2c004bfc8e13653"
-        },
-        {
-          "suite": "Armada.Test.Unit.MissionWaitingForInputStatusTests",
-          "case": "InProgress to WaitingForInput is valid",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/MissionWaitingForInputStatusTests.cs",
-          "line": 66,
-          "sourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa",
-          "baselineSourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa"
-        },
-        {
-          "suite": "Armada.Test.Unit.MissionWaitingForInputStatusTests",
-          "case": "MaxMissionInputBlocks accepts zero and positive values",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/MissionWaitingForInputStatusTests.cs",
-          "line": 116,
-          "sourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa",
-          "baselineSourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa"
-        },
-        {
-          "suite": "Armada.Test.Unit.MissionWaitingForInputStatusTests",
-          "case": "MaxMissionInputBlocks defaults to 3",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/MissionWaitingForInputStatusTests.cs",
-          "line": 110,
-          "sourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa",
-          "baselineSourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa"
-        },
-        {
-          "suite": "Armada.Test.Unit.MissionWaitingForInputStatusTests",
-          "case": "MaxMissionInputBlocks rejects negative values",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/MissionWaitingForInputStatusTests.cs",
-          "line": 125,
-          "sourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa",
-          "baselineSourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa"
-        },
-        {
-          "suite": "Armada.Test.Unit.MissionWaitingForInputStatusTests",
-          "case": "MissionAwaitingInput escalation trigger exists",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/MissionWaitingForInputStatusTests.cs",
-          "line": 32,
-          "sourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa",
-          "baselineSourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa"
-        },
-        {
-          "suite": "Armada.Test.Unit.MissionWaitingForInputStatusTests",
-          "case": "Pending to WaitingForInput remains invalid",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/MissionWaitingForInputStatusTests.cs",
-          "line": 101,
-          "sourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa",
-          "baselineSourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa"
-        },
-        {
-          "suite": "Armada.Test.Unit.MissionWaitingForInputStatusTests",
-          "case": "SQLite mission round-trips WaitingForInput status",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/MissionWaitingForInputStatusTests.cs",
-          "line": 50,
-          "sourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa",
-          "baselineSourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa"
-        },
-        {
-          "suite": "Armada.Test.Unit.MissionWaitingForInputStatusTests",
-          "case": "WaitingForInput SerializesAsString",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/MissionWaitingForInputStatusTests.cs",
-          "line": 40,
-          "sourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa",
-          "baselineSourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa"
-        },
-        {
-          "suite": "Armada.Test.Unit.MissionWaitingForInputStatusTests",
-          "case": "WaitingForInput enum value exists and is distinct from Review",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/MissionWaitingForInputStatusTests.cs",
-          "line": 24,
-          "sourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa",
-          "baselineSourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa"
-        },
-        {
-          "suite": "Armada.Test.Unit.MissionWaitingForInputStatusTests",
-          "case": "WaitingForInput to Cancelled is valid",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/MissionWaitingForInputStatusTests.cs",
-          "line": 87,
-          "sourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa",
-          "baselineSourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa"
-        },
-        {
-          "suite": "Armada.Test.Unit.MissionWaitingForInputStatusTests",
-          "case": "WaitingForInput to Complete remains invalid",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/MissionWaitingForInputStatusTests.cs",
-          "line": 94,
-          "sourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa",
-          "baselineSourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa"
-        },
-        {
-          "suite": "Armada.Test.Unit.MissionWaitingForInputStatusTests",
-          "case": "WaitingForInput to Failed is valid",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/MissionWaitingForInputStatusTests.cs",
-          "line": 80,
-          "sourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa",
-          "baselineSourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa"
-        },
-        {
-          "suite": "Armada.Test.Unit.MissionWaitingForInputStatusTests",
-          "case": "WaitingForInput to Pending is valid",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/MissionWaitingForInputStatusTests.cs",
-          "line": 73,
-          "sourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa",
-          "baselineSourceSha256": "5833eaf067a5ba2f3871d31860f8a0195fd39c642a31e7b07b108f3649c41eaa"
         },
         {
           "suite": "Armada.Test.Unit.ProjectProfileBriefInjectionTests",
@@ -38074,8 +37918,8 @@
           "case": "All expected statuses defined",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionStatusTransitionTests.cs",
-          "line": 97,
-          "sourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9",
+          "line": 98,
+          "sourceSha256": "f1e5cac4aadd4a5d955dd34fbaae0b709aaec91d53fff8938716b12c5e9b523e",
           "baselineSourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9"
         },
         {
@@ -38083,8 +37927,8 @@
           "case": "GetStatusAsync counts WorkProduced and LandingFailed",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionStatusTransitionTests.cs",
-          "line": 460,
-          "sourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9",
+          "line": 503,
+          "sourceSha256": "f1e5cac4aadd4a5d955dd34fbaae0b709aaec91d53fff8938716b12c5e9b523e",
           "baselineSourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9"
         },
         {
@@ -38092,8 +37936,8 @@
           "case": "HandleCompletion clears ProcessId",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionStatusTransitionTests.cs",
-          "line": 179,
-          "sourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9",
+          "line": 222,
+          "sourceSha256": "f1e5cac4aadd4a5d955dd34fbaae0b709aaec91d53fff8938716b12c5e9b523e",
           "baselineSourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9"
         },
         {
@@ -38101,8 +37945,8 @@
           "case": "HandleCompletion clears a superseded FailureReason from an earlier attempt",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionStatusTransitionTests.cs",
-          "line": 149,
-          "sourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9",
+          "line": 192,
+          "sourceSha256": "f1e5cac4aadd4a5d955dd34fbaae0b709aaec91d53fff8938716b12c5e9b523e",
           "baselineSourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9"
         },
         {
@@ -38110,8 +37954,8 @@
           "case": "HandleCompletion emits work_produced event",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionStatusTransitionTests.cs",
-          "line": 208,
-          "sourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9",
+          "line": 251,
+          "sourceSha256": "f1e5cac4aadd4a5d955dd34fbaae0b709aaec91d53fff8938716b12c5e9b523e",
           "baselineSourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9"
         },
         {
@@ -38120,7 +37964,7 @@
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionStatusTransitionTests.cs",
           "line": 117,
-          "sourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9",
+          "sourceSha256": "f1e5cac4aadd4a5d955dd34fbaae0b709aaec91d53fff8938716b12c5e9b523e",
           "baselineSourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9"
         },
         {
@@ -38128,8 +37972,8 @@
           "case": "HandleCompletion with no current mission is no-op",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionStatusTransitionTests.cs",
-          "line": 253,
-          "sourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9",
+          "line": 296,
+          "sourceSha256": "f1e5cac4aadd4a5d955dd34fbaae0b709aaec91d53fff8938716b12c5e9b523e",
           "baselineSourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9"
         },
         {
@@ -38137,8 +37981,8 @@
           "case": "HandleCompletion with null captain throws",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionStatusTransitionTests.cs",
-          "line": 234,
-          "sourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9",
+          "line": 277,
+          "sourceSha256": "f1e5cac4aadd4a5d955dd34fbaae0b709aaec91d53fff8938716b12c5e9b523e",
           "baselineSourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9"
         },
         {
@@ -38146,8 +37990,8 @@
           "case": "LandingFailed enum value exists",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionStatusTransitionTests.cs",
-          "line": 85,
-          "sourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9",
+          "line": 86,
+          "sourceSha256": "f1e5cac4aadd4a5d955dd34fbaae0b709aaec91d53fff8938716b12c5e9b523e",
           "baselineSourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9"
         },
         {
@@ -38155,8 +37999,8 @@
           "case": "LandingFailed is distinct from Failed",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionStatusTransitionTests.cs",
-          "line": 288,
-          "sourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9",
+          "line": 331,
+          "sourceSha256": "f1e5cac4aadd4a5d955dd34fbaae0b709aaec91d53fff8938716b12c5e9b523e",
           "baselineSourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9"
         },
         {
@@ -38164,8 +38008,8 @@
           "case": "PullRequestOpen enum value exists",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionStatusTransitionTests.cs",
-          "line": 91,
-          "sourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9",
+          "line": 92,
+          "sourceSha256": "f1e5cac4aadd4a5d955dd34fbaae0b709aaec91d53fff8938716b12c5e9b523e",
           "baselineSourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9"
         },
         {
@@ -38173,8 +38017,8 @@
           "case": "PullRequestOpen is not a terminal state",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionStatusTransitionTests.cs",
-          "line": 295,
-          "sourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9",
+          "line": 338,
+          "sourceSha256": "f1e5cac4aadd4a5d955dd34fbaae0b709aaec91d53fff8938716b12c5e9b523e",
           "baselineSourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9"
         },
         {
@@ -38182,8 +38026,8 @@
           "case": "VoyageService counts LandingFailed as failed",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionStatusTransitionTests.cs",
-          "line": 378,
-          "sourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9",
+          "line": 421,
+          "sourceSha256": "f1e5cac4aadd4a5d955dd34fbaae0b709aaec91d53fff8938716b12c5e9b523e",
           "baselineSourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9"
         },
         {
@@ -38191,8 +38035,8 @@
           "case": "VoyageService counts PullRequestOpen as in-progress",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionStatusTransitionTests.cs",
-          "line": 330,
-          "sourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9",
+          "line": 373,
+          "sourceSha256": "f1e5cac4aadd4a5d955dd34fbaae0b709aaec91d53fff8938716b12c5e9b523e",
           "baselineSourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9"
         },
         {
@@ -38200,8 +38044,8 @@
           "case": "VoyageService counts Review as in-progress",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionStatusTransitionTests.cs",
-          "line": 354,
-          "sourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9",
+          "line": 397,
+          "sourceSha256": "f1e5cac4aadd4a5d955dd34fbaae0b709aaec91d53fff8938716b12c5e9b523e",
           "baselineSourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9"
         },
         {
@@ -38209,8 +38053,8 @@
           "case": "VoyageService counts WorkProduced as completed",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionStatusTransitionTests.cs",
-          "line": 306,
-          "sourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9",
+          "line": 349,
+          "sourceSha256": "f1e5cac4aadd4a5d955dd34fbaae0b709aaec91d53fff8938716b12c5e9b523e",
           "baselineSourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9"
         },
         {
@@ -38218,8 +38062,8 @@
           "case": "VoyageService mixed statuses counted correctly",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionStatusTransitionTests.cs",
-          "line": 402,
-          "sourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9",
+          "line": 445,
+          "sourceSha256": "f1e5cac4aadd4a5d955dd34fbaae0b709aaec91d53fff8938716b12c5e9b523e",
           "baselineSourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9"
         },
         {
@@ -38227,8 +38071,8 @@
           "case": "WorkProduced enum value exists",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionStatusTransitionTests.cs",
-          "line": 79,
-          "sourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9",
+          "line": 80,
+          "sourceSha256": "f1e5cac4aadd4a5d955dd34fbaae0b709aaec91d53fff8938716b12c5e9b523e",
           "baselineSourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9"
         },
         {
@@ -38236,8 +38080,8 @@
           "case": "WorkProduced is not a terminal state",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionStatusTransitionTests.cs",
-          "line": 279,
-          "sourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9",
+          "line": 322,
+          "sourceSha256": "f1e5cac4aadd4a5d955dd34fbaae0b709aaec91d53fff8938716b12c5e9b523e",
           "baselineSourceSha256": "5c7916dcdd789f07ef5ca9e5c85f32b05d51aaa2b02171b6d0186c7f0380a4d9"
         },
         {
@@ -47835,111 +47679,30 @@
           "baselineSourceSha256": "b9deec489429468cb86c338eb1d1b9a8c40029cb85df85bd6c52826481489a0e"
         },
         {
-          "suite": "Armada.Test.Unit.WaitingForInputLifecycleTests",
+          "suite": "Armada.Test.Unit.MissionTransitionTableAgreementTests",
           "case": "AgentLifecycleHandler validator delegates to the shared state machine",
           "ownership": "retained",
-          "source": "test/Armada.Test.Unit/WaitingForInputLifecycleTests.cs",
-          "line": 283,
-          "sourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5",
+          "source": "test/Armada.Test.Unit/MissionTransitionTableAgreementTests.cs",
+          "line": 84,
+          "sourceSha256": "89ca1674b3c16f6f3c615d16d6b85bd5591993ab7e008ca17cdf0f7f29c3fa7e",
           "baselineSourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5"
         },
         {
-          "suite": "Armada.Test.Unit.WaitingForInputLifecycleTests",
-          "case": "ApproveReview rejects mission in WaitingForInput",
+          "suite": "Armada.Test.Unit.MissionTransitionTableAgreementTests",
+          "case": "MissionRoutes status transition delegates to the shared transition service",
           "ownership": "retained",
-          "source": "test/Armada.Test.Unit/WaitingForInputLifecycleTests.cs",
-          "line": 206,
-          "sourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5",
+          "source": "test/Armada.Test.Unit/MissionTransitionTableAgreementTests.cs",
+          "line": 104,
+          "sourceSha256": "89ca1674b3c16f6f3c615d16d6b85bd5591993ab7e008ca17cdf0f7f29c3fa7e",
           "baselineSourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5"
         },
         {
-          "suite": "Armada.Test.Unit.WaitingForInputLifecycleTests",
-          "case": "DenyReview FailPipeline cancels WaitingForInput dependent",
+          "suite": "Armada.Test.Unit.MissionTransitionTableAgreementTests",
+          "case": "WebSocketCommandHandler status transition delegates to the shared transition service",
           "ownership": "retained",
-          "source": "test/Armada.Test.Unit/WaitingForInputLifecycleTests.cs",
-          "line": 77,
-          "sourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5",
-          "baselineSourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5"
-        },
-        {
-          "suite": "Armada.Test.Unit.WaitingForInputLifecycleTests",
-          "case": "DenyReview rejects mission in WaitingForInput",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/WaitingForInputLifecycleTests.cs",
-          "line": 224,
-          "sourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5",
-          "baselineSourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5"
-        },
-        {
-          "suite": "Armada.Test.Unit.WaitingForInputLifecycleTests",
-          "case": "MissionAwaitingInput serializes as string",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/WaitingForInputLifecycleTests.cs",
-          "line": 263,
-          "sourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5",
-          "baselineSourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5"
-        },
-        {
-          "suite": "Armada.Test.Unit.WaitingForInputLifecycleTests",
-          "case": "MissionRoutes validator delegates to the shared state machine",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/WaitingForInputLifecycleTests.cs",
-          "line": 301,
-          "sourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5",
-          "baselineSourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5"
-        },
-        {
-          "suite": "Armada.Test.Unit.WaitingForInputLifecycleTests",
-          "case": "SQLite update path round-trips WaitingForInput",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/WaitingForInputLifecycleTests.cs",
-          "line": 244,
-          "sourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5",
-          "baselineSourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5"
-        },
-        {
-          "suite": "Armada.Test.Unit.WaitingForInputLifecycleTests",
-          "case": "TableRenderer maps WaitingForInput to ASCII-safe color and icon",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/WaitingForInputLifecycleTests.cs",
-          "line": 310,
-          "sourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5",
-          "baselineSourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5"
-        },
-        {
-          "suite": "Armada.Test.Unit.WaitingForInputLifecycleTests",
-          "case": "Voyage reaches Failed after WaitingForInput dependent is cancelled",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/WaitingForInputLifecycleTests.cs",
-          "line": 110,
-          "sourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5",
-          "baselineSourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5"
-        },
-        {
-          "suite": "Armada.Test.Unit.WaitingForInputLifecycleTests",
-          "case": "VoyageService CheckCompletions leaves WaitingForInput voyage active",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/WaitingForInputLifecycleTests.cs",
-          "line": 179,
-          "sourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5",
-          "baselineSourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5"
-        },
-        {
-          "suite": "Armada.Test.Unit.WaitingForInputLifecycleTests",
-          "case": "WaitingForInput sibling keeps voyage non-terminal after pipeline failure",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/WaitingForInputLifecycleTests.cs",
-          "line": 143,
-          "sourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5",
-          "baselineSourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5"
-        },
-        {
-          "suite": "Armada.Test.Unit.WaitingForInputLifecycleTests",
-          "case": "WebSocketCommandHandler validator delegates to the shared state machine",
-          "ownership": "retained",
-          "source": "test/Armada.Test.Unit/WaitingForInputLifecycleTests.cs",
-          "line": 292,
-          "sourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5",
+          "source": "test/Armada.Test.Unit/MissionTransitionTableAgreementTests.cs",
+          "line": 96,
+          "sourceSha256": "89ca1674b3c16f6f3c615d16d6b85bd5591993ab7e008ca17cdf0f7f29c3fa7e",
           "baselineSourceSha256": "9f85c4a709694e2d52b7f6b24659a17f936cdb9f011fd2c03e0e474aa1ed5fd5"
         }
       ]

@@ -1650,7 +1650,8 @@ namespace Armada.Core.Database.Sqlite.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_harbor_jobs_tenant_user ON harbor_jobs(tenant_id, user_id);"
                 ),
                 new SchemaMigration(100, "Record terminal-voyage reconciliation on the mission row", MigrationV100Statements),
-                new SchemaMigration(101, "Delete unreferenced built-in reviewer personas and their templates", ReviewerPersonaPruneSchema.SqliteStatements)
+                new SchemaMigration(101, "Delete unreferenced built-in reviewer personas and their templates", ReviewerPersonaPruneSchema.SqliteStatements),
+                new SchemaMigration(102, "Cancel missions stored with the WaitingForInput status", MissionInputWaitCancelSchema.SqliteStatements)
             };
         }
 

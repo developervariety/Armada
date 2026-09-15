@@ -1121,7 +1121,8 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_harbor_jobs_tenant_user ON harbor_jobs(tenant_id, user_id);"
                 ),
                 new SchemaMigration(101, "Record terminal-voyage reconciliation on the mission row", MigrationV101Statements),
-                new SchemaMigration(102, "Delete unreferenced built-in reviewer personas and their templates", ReviewerPersonaPruneSchema.PostgresqlStatements)
+                new SchemaMigration(102, "Delete unreferenced built-in reviewer personas and their templates", ReviewerPersonaPruneSchema.PostgresqlStatements),
+                new SchemaMigration(103, "Cancel missions stored with the WaitingForInput status", MissionInputWaitCancelSchema.PostgresqlStatements)
             };
         }
 

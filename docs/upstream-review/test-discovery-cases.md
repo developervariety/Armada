@@ -176,7 +176,7 @@ Dependencies: SQLite; real Mission/Captain/Admiral/Dock services; DirCreatingGit
 | Reviewed stage enters Review and blocks downstream dispatch | 49 | REPAIR | REPAIR fixture cleanup: temporary docks/repos/work paths have no disposal cleanup. Retain review wait, captain release, inactive nonterminal dock and unassigned downstream assertions. |
 | Approving review completes reviewed stage and assigns downstream mission | 75 | REPAIR | REPAIR fixture cleanup. Current ApproveReviewAsync completes upstream, performs handoff and dispatches pending. Keep branch and prior-output assertions; do not replace approved persona/model/routing rules if fixture needs adjustment. |
 | Denying review retries same stage on existing branch with feedback | 105 | REPAIR | REPAIR fixture cleanup. Preserve same-branch retry, reviewer/comment and downstream blocking; allow runtime verification to expose richer recovery requirements rather than changing service to smaller upstream behavior. |
-| Denying review can fail pipeline and cancel downstream stages | 134 | REPAIR | REPAIR fixture cleanup. Complementary to WaitingForInputLifecycleTests and terminal branch-reap tests, not an exact duplicate: this case begins with dispatch/completion review transition. |
+| Denying review can fail pipeline and cancel downstream stages | 134 | REPAIR | REPAIR fixture cleanup. Complementary to terminal branch-reap tests, not an exact duplicate: this case begins with dispatch/completion review transition. |
 | Single-stage reviewed Worker pipeline retains dock until approval and then lands | 160 | REPAIR | REPAIR fixture cleanup and claim/name: OnMissionComplete is replaced with a direct Complete database write. Assert callback/reclaim orchestration, not actual immutable landing/Check acceptance; retain independent landing gate suites. |
 
 ## Cross-case repair details
@@ -188,7 +188,6 @@ Dependencies: SQLite; real Mission/Captain/Admiral/Dock services; DirCreatingGit
 
 ## Existing coverage retained
 
-- WaitingForInputLifecycleTests: review denial across waiting lifecycle states.
 - MissionServiceTerminalBranchReapTests: denial-triggered branch cleanup.
 - MissionDatabaseTests and PipelineServiceTests: persisted review gate fields.
 - AuthorizationConfigTests: request-history route auth configuration.
@@ -348,7 +347,7 @@ The review-gate race is timing-dependent: before the fix, between three and all 
 | `Services.MissionPrompt.template_resolved_claude_md_de_duplicates_shared_context_sections` | Duplicate of executed legacy case | `test/Armada.Test.Unit/Suites/Services/MissionPromptTests.cs` :: Template-resolved CLAUDE.md de-duplicates shared context sections | generated instructions no longer carry a Model Context section in this template |
 | `Services.MissionPrompt.template_resolved_persona_prompts_require_structured_test_and_judge_analysis` | Duplicate of executed legacy case | `test/Armada.Test.Unit/Suites/Services/MissionPromptTests.cs` :: Template-resolved persona prompts require structured test and judge analysis | generated instructions are written under .armada/instructions |
 | `Services.MissionPrompt.generate_claude_md_async_strips_stale_armada_mission_blocks_from_existing_instructions` | Duplicate of executed legacy case | `test/Armada.Test.Unit/Suites/Services/MissionPromptTests.cs` :: GenerateClaudeMdAsync strips stale Armada mission blocks from existing instructions | generated instructions are written under .armada/instructions |
-| `Services.MissionStatusTransition.all_expected_statuses_defined` | Duplicate of executed legacy case | `test/Armada.Test.Unit/Suites/Services/MissionStatusTransitionTests.cs` :: All expected statuses defined | the mission status set includes WaitingForInput |
+| `Services.MissionStatusTransition.all_expected_statuses_defined` | Duplicate of executed legacy case | `test/Armada.Test.Unit/Suites/Services/MissionStatusTransitionTests.cs` :: All expected statuses defined | the legacy case owns the mission status set assertion |
 | `Services.PipelineDispatch.architect_fan_out_clones_full_downstream_chain_and_lands_only_terminal_stage` | Duplicate of executed legacy case | `test/Armada.Test.Unit/Suites/Services/PipelineDispatchTests.cs` :: Architect fan-out clones full downstream chain and lands only terminal stage | Architect-derived briefs carry the plan-block label rule and stages need verified completion |
 | `Services.PipelineDispatch.architect_fan_out_honors_explicit_mission_dependencies_across_worker_chains` | Duplicate of executed legacy case | `test/Armada.Test.Unit/Suites/Services/PipelineDispatchTests.cs` :: Architect fan-out honors explicit mission dependencies across worker chains | stage completion now requires a structured result and a green voyage Check |
 | `Services.PipelineDispatch.judge_parser_accepts_structured_armada_verdict_signal` | Duplicate of executed legacy case | `test/Armada.Test.Unit/Suites/Services/PipelineDispatchTests.cs` :: Judge parser accepts structured ARMADA verdict signal | stage completion now requires a structured result and a green voyage Check |

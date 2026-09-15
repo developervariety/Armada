@@ -669,7 +669,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(90, "Persist configuration record ownership", TableQueries.MigrationV90Statements),
                 new SchemaMigration(91, "Persist Harbor job records", TableQueries.MigrationV91Statements),
                 new SchemaMigration(92, "Record terminal-voyage reconciliation on the mission row", TableQueries.MigrationV92Statements),
-                new SchemaMigration(93, "Delete unreferenced built-in reviewer personas and their templates", ReviewerPersonaPruneSchema.MysqlStatements)
+                new SchemaMigration(93, "Delete unreferenced built-in reviewer personas and their templates", ReviewerPersonaPruneSchema.MysqlStatements),
+                new SchemaMigration(94, "Cancel missions stored with the WaitingForInput status", MissionInputWaitCancelSchema.MysqlStatements)
             };
         }
 

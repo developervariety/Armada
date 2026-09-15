@@ -27,7 +27,7 @@
       "built-dashboard": 185,
       "vendor": 5413,
       "dashboard": 136,
-      "tests": 525
+      "tests": 523
     },
     "tips": {
       "other": 8,
@@ -39,7 +39,7 @@
       "built-dashboard": 164,
       "vendor": 5715,
       "dashboard": 88,
-      "tests": 496
+      "tests": 494
     }
   },
   "files": {
@@ -9775,10 +9775,6 @@
         "area": "tests"
       },
       {
-        "path": "test/Armada.Test.Unit/MissionWaitingForInputStatusTests.cs",
-        "area": "tests"
-      },
-      {
         "path": "test/Armada.Test.Unit/Program.cs",
         "area": "tests"
       },
@@ -10904,10 +10900,6 @@
       },
       {
         "path": "test/Armada.Test.Unit/VoyageReportOnlyClassifierTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/WaitingForInputLifecycleTests.cs",
         "area": "tests"
       },
       {
@@ -16257,10 +16249,6 @@
         "area": "tests"
       },
       {
-        "path": "test/Armada.Test.Unit/MissionWaitingForInputStatusTests.cs",
-        "area": "tests"
-      },
-      {
         "path": "test/Armada.Test.Unit/Program.cs",
         "area": "tests"
       },
@@ -17494,10 +17482,6 @@
       },
       {
         "path": "test/Armada.Test.Unit/VoyageReportOnlyClassifierTests.cs",
-        "area": "tests"
-      },
-      {
-        "path": "test/Armada.Test.Unit/WaitingForInputLifecycleTests.cs",
         "area": "tests"
       },
       {

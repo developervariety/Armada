@@ -6048,8 +6048,7 @@ namespace Armada.Core.Services
                  m.Status == MissionStatusEnum.Assigned ||
                  m.Status == MissionStatusEnum.InProgress ||
                  m.Status == MissionStatusEnum.Testing ||
-                 m.Status == MissionStatusEnum.Review ||
-                 m.Status == MissionStatusEnum.WaitingForInput)).ToList();
+                 m.Status == MissionStatusEnum.Review)).ToList();
 
             foreach (Mission dependent in directDependents)
             {
@@ -6080,7 +6079,6 @@ namespace Armada.Core.Services
                 m.Status == MissionStatusEnum.InProgress ||
                 m.Status == MissionStatusEnum.Testing ||
                 m.Status == MissionStatusEnum.Review ||
-                m.Status == MissionStatusEnum.WaitingForInput ||
                 m.Status == MissionStatusEnum.PullRequestOpen);
 
             if (anyActive) return;

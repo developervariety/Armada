@@ -1702,8 +1702,6 @@ namespace Armada.Server
         private static bool IsValidTransition(MissionStatusEnum current, MissionStatusEnum target)
         {
             // Delegated to the single authoritative table so this handler and the services agree.
-            // A local copy drifted from it before: it carried the WaitingForInput transitions the
-            // table lacked, while the table carried PullRequestOpen transitions a third copy lacked.
             return MissionStateMachine.IsValidTransition(current, target);
         }
 

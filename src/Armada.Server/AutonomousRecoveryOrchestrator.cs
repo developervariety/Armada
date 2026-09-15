@@ -834,8 +834,7 @@ namespace Armada.Server
             return status == MissionStatusEnum.InProgress ||
                 status == MissionStatusEnum.Assigned ||
                 status == MissionStatusEnum.Testing ||
-                status == MissionStatusEnum.Review ||
-                status == MissionStatusEnum.WaitingForInput;
+                status == MissionStatusEnum.Review;
         }
 
         private static bool IsVoyageDrainTerminalStatus(MissionStatusEnum status)
@@ -870,7 +869,7 @@ namespace Armada.Server
             return ProcessSupervisor.IsTrackedProcessAlive(processId.Value);
         }
 
-        // True when a mission is actively executing: InProgress/Testing/Review/WaitingForInput,
+        // True when a mission is actively executing: InProgress/Testing/Review,
         // or Assigned with a live captain process. Assigned with a dead process is NOT actively
         // running and may be a stuck-voyage candidate.
         private static bool IsMissionActivelyRunning(MissionSummary summary)
@@ -878,7 +877,6 @@ namespace Armada.Server
             return summary.Status == MissionStatusEnum.InProgress ||
                 summary.Status == MissionStatusEnum.Testing ||
                 summary.Status == MissionStatusEnum.Review ||
-                summary.Status == MissionStatusEnum.WaitingForInput ||
                 (summary.Status == MissionStatusEnum.Assigned && IsMissionProcessAlive(summary.ProcessId));
         }
 

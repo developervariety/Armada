@@ -1339,7 +1339,6 @@ new launch:
 | Review denied with retry | review decision | released by the next launch |
 | Merge failure routed to redispatch | merge recovery | released by the next launch |
 | Captain process gone | stale-captain cleanup | released by the next launch |
-| Operator transition from WaitingForInput to Pending (REST, WebSocket or MCP) | shared status transition service | released by the next launch |
 | Stall recovery | relaunch in place (same start time, new process) | released by the new process |
 
 Assignment rollbacks (Assigned back to Pending when a launch fails) and the
