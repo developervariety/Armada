@@ -4,7 +4,6 @@ namespace Armada.Server.Mcp
 {
     using System;
     using System.Collections.Generic;
-    using System.Linq;
     using System.Text.Json;
     using System.Threading.Tasks;
     using Armada.Server;
@@ -30,12 +29,6 @@ namespace Armada.Server.Mcp
     /// </summary>
     public static class McpToolRegistrar
     {
-        private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-        };
-
         /// <summary>
         /// Register all Armada tools using the provided registration delegate.
         /// </summary>
@@ -155,78 +148,6 @@ namespace Armada.Server.Mcp
             if (diskLifecycle != null) McpDiskLifecycleTools.Register(register, diskLifecycle, longRunningJobs);
             if (terminalVoyageMissions != null) McpTerminalVoyageMissionTools.Register(register, terminalVoyageMissions, longRunningJobs);
             if (harborJobs != null) McpHarborJobTools.Register(register, harborJobs);
-        }
-
-        /// <summary>
-        /// Describe the Armada MCP tool catalog that would be registered for the supplied services.
-        /// </summary>
-        /// <returns>Tool summaries ordered by name.</returns>
-        public static List<CaptainToolSummary> DescribeAll(
-            DatabaseDriver database,
-            IAdmiralService admiral,
-            ArmadaSettings? settings = null,
-            IGitService? git = null,
-            IMergeQueueService? mergeQueue = null,
-            IDockService? dockService = null,
-            ILandingService? landingService = null,
-            CheckRunService? checkRunService = null,
-            ObjectiveService? objectiveService = null,
-            PlanningSessionCoordinator? planningSessionCoordinator = null,
-            ObjectiveRefinementCoordinator? objectiveRefinementCoordinator = null,
-            ReleaseService? releaseService = null,
-            IReleaseWebhookDispatcher? cdWebhookDispatcher = null,
-            DeploymentService? deploymentService = null,
-            RunbookService? runbookService = null,
-            IncidentService? incidentService = null,
-            Action? onStop = null,
-            Func<string, Task>? onStopCaptain = null,
-            AgentLifecycleHandler? agentLifecycle = null,
-            IPromptTemplateService? templateService = null,
-            LoggingModule? logging = null,
-            IRemoteTriggerService? remoteTriggerService = null,
-            ICodeIndexService? codeIndexService = null,
-            ObjectiveDispatchPreviewService? objectiveDispatchPreviewService = null)
-        {
-            List<CaptainToolSummary> tools = new List<CaptainToolSummary>();
-
-            RegisterAll(
-                (name, description, inputSchema, handler) =>
-                {
-                    tools.Add(new CaptainToolSummary
-                    {
-                        Name = name,
-                        Description = description,
-                        InputSchemaJson = inputSchema == null ? null : JsonSerializer.Serialize(inputSchema, _JsonOptions)
-                    });
-                },
-                database,
-                admiral,
-                settings,
-                git,
-                mergeQueue,
-                dockService,
-                landingService,
-                onStop,
-                onStopCaptain,
-                agentLifecycle,
-                templateService,
-                logging,
-                remoteTriggerService,
-                codeIndexService,
-                checkRunService,
-                objectiveService,
-                planningSessionCoordinator,
-                objectiveRefinementCoordinator,
-                releaseService,
-                cdWebhookDispatcher,
-                deploymentService,
-                runbookService,
-                incidentService,
-                objectiveDispatchPreviewService: objectiveDispatchPreviewService);
-
-            return tools
-                .OrderBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
-                .ToList();
         }
     }
 }
