@@ -1,22 +1,26 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { listCaptains, createCaptain, updateCaptain, deleteCaptain, stopCaptain, stopAllCaptains, restartCaptain, getCaptainTools, quarantineCaptain, unquarantineCaptain } from '../api/client';
-import type { Captain, CaptainQuarantineRequest, CaptainToolAccessResult } from '../types/models';
+import { listCaptains, createCaptain, updateCaptain, deleteCaptain, stopCaptain, stopAllCaptains, restartCaptain, getCaptainTools, listModelEndpoints, quarantineCaptain, unquarantineCaptain } from '../api/client';
+import type { Captain, CaptainQuarantineRequest, CaptainToolAccessResult, ModelEndpoint } from '../types/models';
 import CaptainQuarantineDialog from '../components/captains/CaptainQuarantineDialog';
 import Pagination from '../components/shared/Pagination';
 import ActionMenu from '../components/shared/ActionMenu';
 import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import MuxRuntimeFields from '../components/captains/MuxRuntimeFields';
+import CaptainTierBadge from '../components/shared/CaptainTierBadge';
 import CaptainToolViewer from '../components/captains/CaptainToolViewer';
 import JsonViewer from '../components/shared/JsonViewer';
 import CopyButton from '../components/shared/CopyButton';
 import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
+import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { canCaptainStartPlanning } from '../lib/captains';
-import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, muxFormFromCaptain, type MuxCaptainFormFields } from '../lib/mux';
+import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, muxFormFromCaptain, type MuxCaptainFormFields } from '../lib/mux';
 import { EMPTY_CAPTAIN_CREDENTIAL_FORM, credentialFormFromCaptain, normalizeCredential, type CaptainCredentialFormFields } from '../lib/captainCredential';
 import ProviderCredentialFields from '../components/captains/ProviderCredentialFields';
 import { buildCaptainDuplicatePayload } from '../lib/duplicates';
@@ -28,9 +32,16 @@ type CaptainFormState = {
   runtime: string;
   systemInstructions: string;
   model: string;
+  modelEndpointId: string;
+  tier: string;
   allowedPersonas: string;
   preferredPersona: string;
 } & MuxCaptainFormFields & CaptainCredentialFormFields;
+
+const EMPTY_CAPTAIN_FORM: CaptainFormState = {
+  name: '', runtime: '', systemInstructions: '', model: '', modelEndpointId: '', tier: '', allowedPersonas: '', preferredPersona: '',
+  ...EMPTY_MUX_CAPTAIN_FORM, ...EMPTY_CAPTAIN_CREDENTIAL_FORM,
+};
 
 export default function Captains() {
   const navigate = useNavigate();
@@ -43,7 +54,9 @@ export default function Captains() {
   // Modal state
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Captain | null>(null);
-  const [form, setForm] = useState<CaptainFormState>({ name: '', runtime: '', systemInstructions: '', model: '', allowedPersonas: '', preferredPersona: '', ...EMPTY_MUX_CAPTAIN_FORM, ...EMPTY_CAPTAIN_CREDENTIAL_FORM });
+  const [form, setForm] = useState<CaptainFormState>(EMPTY_CAPTAIN_FORM);
+  const [saving, setSaving] = useState(false);
+  const [inferenceEndpoints, setInferenceEndpoints] = useState<ModelEndpoint[]>([]);
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -88,6 +101,7 @@ export default function Captains() {
   }, [t]);
 
   useEffect(() => { load(); }, [load]);
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('captains', load);
 
   // Filtered rows
   const filtered = useMemo(() => {
@@ -143,9 +157,16 @@ export default function Captains() {
   function selectAll() { setSelected(filtered.map(c => c.id)); }
   function clearSelection() { setSelected([]); }
 
+  // Load the configured inference endpoints so an API-endpoint captain can be pointed at one.
+  useEffect(() => {
+    listModelEndpoints()
+      .then(result => setInferenceEndpoints((result ?? []).filter(e => e.kind === 'Inference')))
+      .catch(() => setInferenceEndpoints([]));
+  }, []);
+
   // CRUD
   function openCreate() {
-    setForm({ name: '', runtime: '', systemInstructions: '', model: '', allowedPersonas: '', preferredPersona: '', ...EMPTY_MUX_CAPTAIN_FORM, ...EMPTY_CAPTAIN_CREDENTIAL_FORM });
+    setForm(EMPTY_CAPTAIN_FORM);
     setEditing(null);
     setShowForm(true);
   }
@@ -156,6 +177,8 @@ export default function Captains() {
       runtime: c.runtime,
       systemInstructions: c.systemInstructions ?? '',
       model: c.model ?? '',
+      modelEndpointId: c.modelEndpointId ?? '',
+      tier: c.tier ?? '',
       allowedPersonas: c.allowedPersonas ?? '',
       preferredPersona: c.preferredPersona ?? '',
       ...muxFormFromCaptain(c),
@@ -167,10 +190,24 @@ export default function Captains() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (saving) return;
     try {
+      if (isMuxRuntime(form.runtime) && !form.muxEndpoint.trim()) {
+        setError(t('Mux captains require a named Mux endpoint.'));
+        return;
+      }
+
+      if (form.runtime === 'ApiEndpoint' && !form.modelEndpointId) {
+        setError(t('API-endpoint captains require an inference endpoint. Select one, or add it under Configuration > Endpoints.'));
+        return;
+      }
+
+      setSaving(true);
       const payload = { ...form } as Record<string, unknown>;
       if (!payload.systemInstructions) delete payload.systemInstructions;
       payload.model = form.model.trim() ? form.model.trim() : null;
+      payload.modelEndpointId = form.runtime === 'ApiEndpoint' ? (form.modelEndpointId || null) : null;
+      payload.tier = form.tier ? form.tier : null;
       payload.allowedPersonas = form.allowedPersonas.trim() ? form.allowedPersonas.trim() : null;
       payload.preferredPersona = form.preferredPersona.trim() ? form.preferredPersona.trim() : null;
       payload.apiKey = normalizeCredential(form.apiKey);
@@ -193,6 +230,8 @@ export default function Captains() {
       load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : t('Save failed.'));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -253,22 +292,6 @@ export default function Captains() {
     });
   }
 
-  function handleRestart(id: string, name: string) {
-    setConfirm({
-      open: true,
-      title: t('Restart Captain'),
-      message: t('Restart captain "{{name}}"? The captain will be deleted and recreated with the same saved configuration.', { name }),
-      onConfirm: async () => {
-        setConfirm(c => ({ ...c, open: false }));
-        try {
-          await restartCaptain(id);
-          pushToast('success', t('Captain "{{name}}" restarted.', { name }));
-          load();
-        } catch { setError(t('Restart failed.')); }
-      },
-    });
-  }
-
   async function handleQuarantineSubmit(request: CaptainQuarantineRequest) {
     if (!quarantineTarget) return;
     const target = quarantineTarget;
@@ -294,6 +317,22 @@ export default function Captains() {
     } catch (e) {
       setError(e instanceof Error ? e.message : t('Failed to lift quarantine.'));
     }
+  }
+
+  function handleRestart(id: string, name: string) {
+    setConfirm({
+      open: true,
+      title: t('Restart Captain'),
+      message: t('Restart captain "{{name}}"? The captain will be deleted and recreated with the same saved configuration.', { name }),
+      onConfirm: async () => {
+        setConfirm(c => ({ ...c, open: false }));
+        try {
+          await restartCaptain(id);
+          pushToast('success', t('Captain "{{name}}" restarted.', { name }));
+          load();
+        } catch { setError(t('Restart failed.')); }
+      },
+    });
   }
 
   function handleStopAll() {
@@ -361,45 +400,84 @@ export default function Captains() {
 
   return (
     <div>
-      <div className="view-header">
-        <div>
-          <h2>{t('Captains')}</h2>
-          <p className="text-dim view-subtitle">{t('AI agent processes that execute missions. Monitor heartbeat, state, and manage captain lifecycle.')}</p>
-        </div>
-        <div className="view-actions">
-          {selected.length > 0 && (
-            <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
-              {t('Delete Selected')} ({selected.length})
-            </button>
-          )}
-          <button className="btn btn-sm btn-danger" onClick={handleStopAll} title={t('Stop all captain processes')}>{t('Stop All')}</button>
-          <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Captain')}</button>
-          <RefreshButton onRefresh={load} title={t('Refresh captain data')} />
-        </div>
-      </div>
+      <PageHeader
+        title={t('Captains')}
+        subtitle={t('AI agent harness processes that execute missions. Monitor state, current mission, and captain lifecycle.')}
+        actions={(
+          <>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+            <RefreshButton onRefresh={load} title={t('Refresh captain data')} />
+            {selected.length > 0 && (
+              <button className="btn btn-sm btn-danger" onClick={handleBulkDelete}>
+                {t('Delete Selected')} ({selected.length})
+              </button>
+            )}
+            <button className="btn btn-sm btn-danger" onClick={handleStopAll} title={t('Stop all captain processes')}>{t('Stop All')}</button>
+            <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Captain')}</button>
+          </>
+        )}
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 
       {/* Create/Edit Modal */}
       {showForm && (
         <div className="modal-overlay" onClick={() => setShowForm(false)}>
-          <form className="modal" onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
+          <form className={`modal modal-captain${isMuxRuntime(form.runtime) ? ' modal-mux' : ''}`} onClick={e => e.stopPropagation()} onSubmit={handleSubmit}>
             <h3>{editing ? t('Edit Captain') : t('Create Captain')}</h3>
             <label>{t('Name')}<input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required /></label>
-            <label title={t('The AI agent runtime this captain will use')}>{t('Runtime')}
-              <select value={form.runtime} onChange={e => setForm({ ...form, runtime: e.target.value })} required>
-                <option value="">{t('Select runtime...')}</option>
-                <option value="ClaudeCode">Claude Code</option>
-                <option value="Codex">Codex</option>
-                <option value="Gemini">Gemini</option>
-                <option value="Cursor">Cursor</option>
-                <option value="OpenCode">OpenCode</option>
-                <option value="Mux">Mux</option>
-              </select>
-            </label>
-            <label title={t('Optional AI model identifier. Leave blank to let the runtime choose its default model.')}>
-              {t('Model')}
-              <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder={t('e.g., gpt-5.4-mini')} />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1rem' }}>
+              <label title={t('The AI agent runtime this captain will use')}>{t('Runtime')}
+                <select value={form.runtime} onChange={e => setForm({ ...form, runtime: e.target.value })} required>
+                  <option value="">{t('Select runtime...')}</option>
+                  <option value="ClaudeCode">Claude Code</option>
+                  <option value="Codex">Codex</option>
+                  <option value="Gemini">Gemini</option>
+                  <option value="Cursor">Cursor</option>
+                  <option value="Mux">Mux</option>
+                  <option value="OpenCode">OpenCode</option>
+                  <option value="ApiEndpoint">API Endpoint</option>
+                </select>
+              </label>
+              <label title={t('Optional AI model identifier. Leave blank to let the runtime choose its default model.')}>
+                {t('Model')}
+                <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder={form.runtime === 'ApiEndpoint' ? t('Optional; overrides the endpoint model') : t('e.g., gpt-5.4-mini')} />
+              </label>
+            </div>
+            {form.runtime === 'ApiEndpoint' && (
+              <label title={t('The configured inference endpoint this captain drives. Manage endpoints under Configuration > Endpoints.')}>
+                {t('Inference Endpoint')}
+                <select value={form.modelEndpointId} onChange={e => setForm({ ...form, modelEndpointId: e.target.value })} required>
+                  <option value="">{t('Select an inference endpoint...')}</option>
+                  {inferenceEndpoints.map(ep => (
+                    <option key={ep.id} value={ep.id}>{ep.name} ({ep.provider}{ep.model ? ' / ' + ep.model : ''})</option>
+                  ))}
+                </select>
+                {inferenceEndpoints.length === 0 && (
+                  <small className="text-dim" style={{ display: 'block', marginTop: '0.25rem' }}>
+                    {t('No inference endpoints configured. Add one under Configuration > Endpoints first.')}
+                  </small>
+                )}
+              </label>
+            )}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 1rem' }}>
+              <label title={t('Persona preferred for dispatch routing priority.')}>
+                {t('Preferred Persona')}
+                <input value={form.preferredPersona} onChange={e => setForm({ ...form, preferredPersona: e.target.value })} placeholder={t('e.g., Worker')} />
+              </label>
+              <label title={t('Missions requiring a tier route to captains at or above it. Leave on Auto to classify from the model name.')}>
+                {t('Capability tier')}
+                <select value={form.tier} onChange={e => setForm({ ...form, tier: e.target.value })}>
+                  <option value="">{t('Auto (classify from model)')}</option>
+                  <option value="Economy">{t('Economy')}</option>
+                  <option value="Standard">{t('Standard')}</option>
+                  <option value="Premium">{t('Premium')}</option>
+                </select>
+              </label>
+            </div>
+            <label title={t('JSON array of persona names this captain may fill. Null means any persona.')}>
+              {t('Allowed Personas (JSON array)')}
+              <textarea value={form.allowedPersonas} onChange={e => setForm({ ...form, allowedPersonas: e.target.value })} rows={2} placeholder={t('["Worker", "Judge"]')} />
             </label>
             <ProviderCredentialFields
               form={form}
@@ -412,21 +490,13 @@ export default function Captains() {
               onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
               t={t}
             />
-            <label title={t('Optional instructions injected into every mission prompt for this captain. Use this to specialize behavior, add guardrails, or provide persistent context.')}>
+            <label className="captain-instructions-field" title={t('Optional instructions injected into every mission prompt for this captain. Use this to specialize behavior, add guardrails, or provide persistent context.')}>
               {t('System Instructions')}
               <textarea value={form.systemInstructions} onChange={e => setForm({ ...form, systemInstructions: e.target.value })} rows={4} placeholder={t('e.g., You are a testing specialist. Always run tests before committing...')} />
             </label>
-            <label title={t('JSON array of persona names this captain may fill. Null means any persona.')}>
-              {t('Allowed Personas (JSON array)')}
-              <textarea value={form.allowedPersonas} onChange={e => setForm({ ...form, allowedPersonas: e.target.value })} rows={2} placeholder={t('["Worker", "Judge"]')} />
-            </label>
-            <label title={t('Persona preferred for dispatch routing priority.')}>
-              {t('Preferred Persona')}
-              <input value={form.preferredPersona} onChange={e => setForm({ ...form, preferredPersona: e.target.value })} placeholder={t('e.g., Worker')} />
-            </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">{t('Save')}</button>
-              <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Save')}</button>
+              <button type="button" className="btn" onClick={() => setShowForm(false)} disabled={saving}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
@@ -506,7 +576,7 @@ export default function Captains() {
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
                       <input type="checkbox" checked={selected.includes(c.id)} onChange={() => toggleSelect(c.id)} title={t('Select this captain')} />
                     </td>
-                    <td><strong>{c.name}</strong></td>
+                    <td><strong>{c.name}</strong>{c.tier ? <> <CaptainTierBadge tier={c.tier} /></> : null}</td>
                     <td className="mono text-dim table-id-cell">
                       <span className="id-display">
                         <span className="id-value" title={c.id}>{c.id}</span>
@@ -517,10 +587,9 @@ export default function Captains() {
                     <td>
                       <StatusBadge status={c.state} />
                       {c.state === 'Quarantined' && (
-                        <div className="text-dim" style={{ fontSize: '0.75rem' }}>
-                          {c.quarantineReason || t('quarantined')}
-                          {c.quarantineUntilUtc ? ` (${t('until')} ${formatDateTime(c.quarantineUntilUtc)})` : ` (${t('until released')})`}
-                        </div>
+                        <span className="tag stalled" title={c.quarantineReason || undefined} style={{ marginLeft: '0.35rem' }}>
+                          {c.quarantineUntilUtc ? t('until {{time}}', { time: formatRelativeTime(c.quarantineUntilUtc) }) : t('quarantined')}
+                        </span>
                       )}
                     </td>
                     <td className="mono text-dim" onClick={e => e.stopPropagation()}>
@@ -540,6 +609,7 @@ export default function Captains() {
                         { label: 'Duplicate', onClick: () => void handleDuplicate(c) },
                         { label: 'View Tools', onClick: () => void handleViewTools(c) },
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Captain')}: ${c.name}`, data: c }) },
+                        { label: 'View Notifications', onClick: () => navigate('/inbox') },
                         ...(c.state === 'Quarantined'
                           ? [{ label: 'Lift Quarantine', onClick: () => void handleLiftQuarantine(c.id, c.name) }]
                           : [{ label: 'Quarantine', onClick: () => setQuarantineTarget(c) }]),

@@ -160,6 +160,8 @@ export interface Captain {
   recoveryAttempts: number;
   /** Capability tier used for tier-based routing and fallback. */
   tier?: CaptainTier | null;
+  /** Inference endpoint an ApiEndpoint-runtime captain drives. */
+  modelEndpointId?: string | null;
   /** Advances only on real agent output; stall detection measures its age. */
   lastHeartbeatUtc: string | null;
   /** Last time the OS process was observed alive. Distinct from lastHeartbeatUtc: a running but
@@ -354,6 +356,19 @@ export interface Voyage {
   sourcePlanningMessageId?: string | null;
   selectedPlaybooks?: SelectedPlaybook[];
   captainOverridesJson?: string | null;
+}
+
+/** Endpoint role: embedding endpoints serve the code index, inference endpoints serve API-endpoint captains. */
+export type ModelEndpointKind = 'Embedding' | 'Inference';
+
+/** Configured model endpoint, as listed by GET /api/v1/model-endpoints. Only the fields the dashboard reads. */
+export interface ModelEndpoint {
+  id: string;
+  name: string;
+  kind: ModelEndpointKind;
+  provider: string;
+  model: string | null;
+  enabled: boolean;
 }
 
 /** Capability tier used for fallback routing when a preferred captain is busy. */

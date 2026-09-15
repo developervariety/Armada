@@ -14,6 +14,7 @@ import type {
   BranchMergeStrategy,
   BranchWriteResult,
   Captain,
+  ModelEndpoint,
   CaptainToolAccessResult,
   Mission,
   MissionSummary,
@@ -731,6 +732,7 @@ export const deleteObjectiveRefinementSession = (sessionId: string) =>
 export const listCaptains = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
   get<EnumerationResult<Captain>>(`/api/v1/captains${buildQuery(params)}`);
 export const getCaptain = (id: string) => get<Captain>(`/api/v1/captains/${id}`);
+export const listModelEndpoints = () => get<ModelEndpoint[]>('/api/v1/model-endpoints');
 // The runtime tool probe launches the CLI and can take tens of seconds; allow well
 // beyond the default 30s so slow probes resolve instead of aborting and reading as "unknown".
 export const getCaptainTools = (id: string) => get<CaptainToolAccessResult>(`/api/v1/captains/${id}/tools`, { timeout: 120000 });

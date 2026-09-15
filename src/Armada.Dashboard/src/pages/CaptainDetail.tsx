@@ -1,10 +1,11 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   createCaptain,
   getCaptain,
   getCaptainTools,
   getCaptainLog,
+  listModelEndpoints,
   stopCaptain,
   quarantineCaptain,
   unquarantineCaptain,
@@ -13,7 +14,7 @@ import {
   updateCaptain,
   deleteCaptain,
 } from '../api/client';
-import type { Captain, CaptainQuarantineRequest, Mission, MissionSummary, LogResult, FormattedLogEntry, CaptainToolAccessResult } from '../types/models';
+import type { Captain, CaptainQuarantineRequest, ModelEndpoint, Mission, MissionSummary, LogResult, FormattedLogEntry, CaptainToolAccessResult } from '../types/models';
 import RuntimeLogEntries from '../components/shared/RuntimeLogEntries';
 import CaptainQuarantineDialog from '../components/captains/CaptainQuarantineDialog';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -22,7 +23,11 @@ import CaptainToolViewer from '../components/captains/CaptainToolViewer';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import ErrorModal from '../components/shared/ErrorModal';
 import JsonViewer from '../components/shared/JsonViewer';
+import PageHeader from '../components/shared/PageHeader';
 import StatusBadge from '../components/shared/StatusBadge';
+import CaptainTierBadge from '../components/shared/CaptainTierBadge';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import CopyButton from '../components/shared/CopyButton';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
@@ -31,12 +36,14 @@ import { EMPTY_CAPTAIN_CREDENTIAL_FORM, credentialFormFromCaptain, normalizeCred
 import ProviderCredentialFields from '../components/captains/ProviderCredentialFields';
 import { buildCaptainDuplicatePayload } from '../lib/duplicates';
 
-const RUNTIMES = ['ClaudeCode', 'Codex', 'Gemini', 'Cursor', 'OpenCode', 'Mux', 'Custom'];
+const RUNTIMES = ['ClaudeCode', 'Codex', 'Gemini', 'Cursor', 'Mux', 'OpenCode', 'ApiEndpoint', 'Custom'];
 type CaptainDetailFormState = {
   name: string;
   runtime: string;
   systemInstructions: string;
   model: string;
+  modelEndpointId: string;
+  tier: string;
   allowedPersonas: string;
   preferredPersona: string;
 } & MuxCaptainFormFields & CaptainCredentialFormFields;
@@ -51,12 +58,16 @@ export default function CaptainDetail() {
   const [missions, setMissions] = useState<MissionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notFound, setNotFound] = useState(false);
+  const captainLoadedRef = useRef(false);
   const [quarantineOpen, setQuarantineOpen] = useState(false);
   const [quarantining, setQuarantining] = useState(false);
 
   // Edit
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<CaptainDetailFormState>({ name: '', runtime: 'ClaudeCode', systemInstructions: '', model: '', allowedPersonas: '', preferredPersona: '', ...EMPTY_MUX_CAPTAIN_FORM, ...EMPTY_CAPTAIN_CREDENTIAL_FORM });
+  const [form, setForm] = useState<CaptainDetailFormState>({ name: '', runtime: 'ClaudeCode', systemInstructions: '', model: '', modelEndpointId: '', tier: '', allowedPersonas: '', preferredPersona: '', ...EMPTY_MUX_CAPTAIN_FORM, ...EMPTY_CAPTAIN_CREDENTIAL_FORM });
+  const [saving, setSaving] = useState(false);
+  const [inferenceEndpoints, setInferenceEndpoints] = useState<ModelEndpoint[]>([]);
 
   // Log viewer
   const [logText, setLogText] = useState<string | null>(null);
@@ -79,13 +90,16 @@ export default function CaptainDetail() {
   // Confirm
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
+  // The spinner shows only on the first load, so an auto-refresh keeps the page on screen.
   const load = useCallback(async () => {
     if (!id) return;
+    const isInitialLoad = !captainLoadedRef.current;
+    if (isInitialLoad) setLoading(true);
     try {
-      setLoading(true);
-      const isInitialLoad = !captain;
       const cap = await getCaptain(id);
       setCaptain(cap);
+      setNotFound(false);
+      captainLoadedRef.current = true;
       // Load current mission if set
       if (cap.currentMissionId) {
         try {
@@ -101,14 +115,27 @@ export default function CaptainDetail() {
         setMissions(mResult.objects || []);
       } catch { setMissions([]); }
       if (isInitialLoad) setError('');
-    } catch {
-      setError(t('Failed to load captain.'));
+    } catch (e: unknown) {
+      if ((e as { status?: number } | null)?.status === 404) {
+        setCaptain(null);
+        setNotFound(true);
+      } else if (isInitialLoad) {
+        setError(t('Failed to load captain.'));
+      }
     } finally {
       setLoading(false);
     }
   }, [id, t]);
 
   useEffect(() => { load(); }, [load]);
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('captain-detail', load);
+
+  // Load the configured inference endpoints so an API-endpoint captain can be pointed at one.
+  useEffect(() => {
+    listModelEndpoints()
+      .then(result => setInferenceEndpoints((result ?? []).filter(e => e.kind === 'Inference')))
+      .catch(() => setInferenceEndpoints([]));
+  }, []);
 
   function openEdit() {
     if (!captain) return;
@@ -117,6 +144,8 @@ export default function CaptainDetail() {
       runtime: captain.runtime || 'ClaudeCode',
       systemInstructions: captain.systemInstructions ?? '',
       model: captain.model ?? '',
+      modelEndpointId: captain.modelEndpointId ?? '',
+      tier: captain.tier ?? '',
       allowedPersonas: captain.allowedPersonas ?? '',
       preferredPersona: captain.preferredPersona ?? '',
       ...muxFormFromCaptain(captain),
@@ -127,11 +156,24 @@ export default function CaptainDetail() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!captain) return;
+    if (!captain || saving) return;
     try {
+      if (isMuxRuntime(form.runtime) && !form.muxEndpoint.trim()) {
+        setError(t('Mux captains require a named Mux endpoint.'));
+        return;
+      }
+
+      if (form.runtime === 'ApiEndpoint' && !form.modelEndpointId) {
+        setError(t('API-endpoint captains require an inference endpoint. Select one, or add it under Configuration > Endpoints.'));
+        return;
+      }
+
+      setSaving(true);
       const payload = { ...form } as Record<string, unknown>;
       if (!payload.systemInstructions) delete payload.systemInstructions;
       payload.model = form.model.trim() ? form.model.trim() : null;
+      payload.modelEndpointId = form.runtime === 'ApiEndpoint' ? (form.modelEndpointId || null) : null;
+      payload.tier = form.tier ? form.tier : null;
       payload.apiKey = normalizeCredential(form.apiKey);
       payload.apiBaseUrl = normalizeCredential(form.apiBaseUrl);
       if (!payload.allowedPersonas) delete payload.allowedPersonas;
@@ -151,6 +193,8 @@ export default function CaptainDetail() {
       load();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : t('Save failed.'));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -300,23 +344,26 @@ export default function CaptainDetail() {
 
   if (loading) return <p className="text-dim">{t('Loading...')}</p>;
   if (error && !captain) return <ErrorModal error={error} onClose={() => setError('')} />;
-  if (!captain) return <p className="text-dim">{t('Captain not found.')}</p>;
+  if (notFound || !captain) return <p className="text-dim">{t('Captain not found.')}</p>;
 
   const muxOptions = parseMuxCaptainOptions(captain.runtimeOptionsJson);
 
   return (
     <div>
-      {/* Breadcrumb */}
-      <div className="breadcrumb">
-        <Link to="/captains">{t('Captains')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{captain.name}</span>
-      </div>
-
-      <div className="detail-header">
-        <h2>{captain.name}</h2>
-        <div className="inline-actions">
-          <ActionMenu id={`captain-${captain.id}`} items={getActionItems()} />
-        </div>
-      </div>
+      <PageHeader
+        breadcrumb={
+          <>
+            <Link to="/captains">{t('Captains')}</Link> <span className="breadcrumb-sep">&gt;</span> <span>{captain.name}</span>
+          </>
+        }
+        title={captain.name}
+        actions={
+          <>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+            <ActionMenu id={`captain-${captain.id}`} items={getActionItems()} />
+          </>
+        }
+      />
 
       <ErrorModal error={error} onClose={() => setError('')} />
 
@@ -337,7 +384,35 @@ export default function CaptainDetail() {
             </label>
             <label title={t('Optional AI model identifier. Leave blank to let the runtime choose its default model.')}>
               {t('Model')}
-              <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder={t('e.g., gpt-5.4-mini')} />
+              <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder={form.runtime === 'ApiEndpoint' ? t('Optional; overrides the endpoint model') : t('e.g., gpt-5.4-mini')} />
+            </label>
+            {form.runtime === 'ApiEndpoint' && (
+              <label title={t('The configured inference endpoint this captain drives. Manage endpoints under Configuration > Endpoints.')}>
+                {t('Inference Endpoint')}
+                <select value={form.modelEndpointId} onChange={e => setForm({ ...form, modelEndpointId: e.target.value })} required>
+                  <option value="">{t('Select an inference endpoint...')}</option>
+                  {inferenceEndpoints.map(ep => (
+                    <option key={ep.id} value={ep.id}>{ep.name} ({ep.provider}{ep.model ? ' / ' + ep.model : ''})</option>
+                  ))}
+                </select>
+                {inferenceEndpoints.length === 0 && (
+                  <small className="text-dim" style={{ display: 'block', marginTop: '0.25rem' }}>
+                    {t('No inference endpoints configured. Add one under Configuration > Endpoints first.')}
+                  </small>
+                )}
+              </label>
+            )}
+            <label>
+              {t('Capability tier')}
+              <select value={form.tier} onChange={e => setForm({ ...form, tier: e.target.value })}>
+                <option value="">{t('Auto (classify from model)')}</option>
+                <option value="Economy">{t('Economy')}</option>
+                <option value="Standard">{t('Standard')}</option>
+                <option value="Premium">{t('Premium')}</option>
+              </select>
+              <span className="text-dim" style={{ fontSize: '0.72rem' }}>
+                {t('Missions requiring a tier route to captains at or above it. Leave on Auto to classify from the model name.')}
+              </span>
             </label>
             <ProviderCredentialFields
               form={form}
@@ -359,8 +434,8 @@ export default function CaptainDetail() {
               <input value={form.preferredPersona} onChange={e => setForm({ ...form, preferredPersona: e.target.value })} placeholder={t('e.g., Worker')} />
             </label>
             <div className="modal-actions">
-              <button type="submit" className="btn btn-primary">{t('Save')}</button>
-              <button type="button" className="btn" onClick={() => setShowForm(false)}>{t('Cancel')}</button>
+              <button type="submit" className="btn btn-primary" disabled={saving}>{saving ? t('Saving...') : t('Save')}</button>
+              <button type="button" className="btn" onClick={() => setShowForm(false)} disabled={saving}>{t('Cancel')}</button>
             </div>
           </form>
         </div>
@@ -398,6 +473,7 @@ export default function CaptainDetail() {
         <div className="detail-field"><span className="detail-label">{t('Name')}</span><span>{captain.name}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Tenant ID')}</span><span className="mono">{captain.tenantId || '-'}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Runtime')}</span><span>{captain.runtime || 'ClaudeCode'}</span></div>
+        <div className="detail-field"><span className="detail-label">{t('Capability tier')}</span><span>{captain.tier ? <CaptainTierBadge tier={captain.tier} /> : <span className="text-dim">{t('Auto (classify from model)')}</span>}</span></div>
       </div>
       {isMuxRuntime(captain.runtime) && (
         <div className="detail-grid">
