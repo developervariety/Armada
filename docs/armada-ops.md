@@ -1333,7 +1333,7 @@ new launch:
 | Refusal in the captain output | completion handler, continuation on another runtime | released by the next launch |
 | Provider safeguard block on exit | process-exit failure, continuation | released by the next launch |
 | Probable resource kill or captain unavailable | process-exit failure, transient requeue | released by the next launch |
-| Runtime-reported interruption (negative exit code) | process-exit handler, interrupted re-dispatch | released by the next launch |
+| Runtime-reported interruption (exit code -1) | process-exit handler, interrupted re-dispatch | released by the next launch |
 | Provider quota, credit or spend limit | process-exit failure, re-route | released by the next launch |
 | Operator restart | restart of a Failed, Cancelled or LandingFailed mission | released by the next launch |
 | Review denied with retry | review decision | released by the next launch |
@@ -1352,10 +1352,11 @@ the new launch when a completion inside the window is processed.
 
 ### An interrupted run is re-dispatched within a budget
 
-A runtime reports a cancelled run as a negative exit code. A stop, a shutdown
-or an Admiral restart causes it; an agent, model or configuration failure
-exits with a positive code. The process-exit handler treats a negative code as
-an interruption:
+A runtime reports a cancelled run as exit code -1. A stop, a shutdown or an
+Admiral restart causes it. Every other code is a failure, including other
+negative values: a native crash status reads as a large negative number on
+Windows and on Harbor runners. The process-exit handler treats -1 as an
+interruption:
 
 1. An explicit `[ARMADA:RESULT] COMPLETE` still wins and completes the stage.
 2. A Cancelled mission is not re-dispatched.

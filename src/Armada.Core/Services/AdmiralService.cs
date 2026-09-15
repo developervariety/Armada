@@ -1569,8 +1569,8 @@ namespace Armada.Core.Services
                     return;
                 }
 
-                // A negative exit code reported by the runtime is an interruption (a stop, shutdown or restart
-                // cancelled the run), not a failure of the work. The mission is re-dispatched within its budget
+                // Exit code -1 reported by the runtime is an interruption (a stop, shutdown or restart cancelled
+                // the run), not a failure of the work. Other negative codes, such as a native crash status, fail. The mission is re-dispatched within its budget
                 // and never marked Failed, so autonomous recovery opens no rescue for the same exit.
                 if (IsInterruptedExitCode(exitCode)
                     && await TryRedispatchInterruptedMissionAsync(captain, mission, missionId, exitCode!.Value, token).ConfigureAwait(false))
@@ -1764,6 +1764,9 @@ namespace Armada.Core.Services
         private CaptainStallEvaluator? _StallEvaluator;
 
         private const string _InterruptedRedispatchEventType = "mission.interrupted_redispatched";
+
+        // The exit code a runtime reports for a cancelled run.
+        private const int _InterruptedExitCode = -1;
 
         // Upper bound on the mission events read to count interrupted re-dispatches. Far above any budget the
         // setting allows, so older unrelated events cannot hide a re-dispatch from the count.
@@ -3115,14 +3118,15 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// True when a runtime-reported exit code means the run was interrupted rather than failed. Runtimes
-        /// report a cancelled run as a negative code; agent, model and configuration failures exit positive.
+        /// True when a runtime-reported exit code means the run was interrupted rather than failed. A runtime
+        /// reports a cancelled run as exactly -1. Every other code fails, including other negative values: a
+        /// native crash status reads as a large negative number on Windows and on Harbor runners.
         /// </summary>
         /// <param name="exitCode">Exit code reported by the runtime, or null when unknown.</param>
-        /// <returns>True for a negative exit code.</returns>
+        /// <returns>True only for exit code -1.</returns>
         internal static bool IsInterruptedExitCode(int? exitCode)
         {
-            return exitCode.HasValue && exitCode.Value < 0;
+            return exitCode.HasValue && exitCode.Value == _InterruptedExitCode;
         }
 
         /// <summary>
@@ -3135,7 +3139,7 @@ namespace Armada.Core.Services
         /// <param name="captain">Captain whose process exited.</param>
         /// <param name="mission">Mission the process was running.</param>
         /// <param name="missionId">Mission identifier.</param>
-        /// <param name="exitCode">Negative exit code reported by the runtime.</param>
+        /// <param name="exitCode">Interrupted exit code reported by the runtime.</param>
         /// <param name="token">Cancellation token.</param>
         /// <returns>True when the mission was re-dispatched.</returns>
         private async Task<bool> TryRedispatchInterruptedMissionAsync(

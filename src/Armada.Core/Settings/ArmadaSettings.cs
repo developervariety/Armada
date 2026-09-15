@@ -135,8 +135,8 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// How many times a mission is re-dispatched after its runtime reports an interrupted run (a negative
-        /// exit code from a stop, shutdown or restart) before the next interruption fails it. Counted per
+        /// How many times a mission is re-dispatched after its runtime reports an interrupted run (exit code -1
+        /// from a stop, shutdown or restart) before the next interruption fails it. Counted per
         /// mission from its <c>mission.interrupted_redispatched</c> events and separate from the
         /// autonomous-rescue budget. Clamped to [0, 10]; 0 fails every interrupted run. Default 2.
         /// </summary>

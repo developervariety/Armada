@@ -71,11 +71,12 @@ are not shipped features.
 | Execution and deployment | Local runtime execution and process supervision; the fork self-deploy gate requires backup, restore and candidate proof; the native four-provider preflight is the default and refuses cutover when unavailable; supervised cutover uses verified process identity, immutable artifacts, bounded health rollback and restart recovery, and fails closed inside containers; local container rebuilds can retain and verify both prior image references before building | Model endpoint persistence is adapted across all four providers with Unicode IDs, scoped storage and disabled defaults. Harbor runners are available behind a disabled-by-default setting: a credential-authenticated link binds each connection and job to the enrolled runner, tenant, user and connection generation, revalidates durable enrollment on every frame, and rejects replayed, foreign, revoked and stale reports. Captains or vessels opt into Harbor mission execution through explicit routes; jobs run through the same lifecycle, stall and recovery rules as local processes, persist on all four providers, fail by name after an Admiral restart, and are listed and stopped through REST and MCP. Scoped endpoint services and captain links now enforce private ownership, write-only credentials, conditional health updates and deletion protection. API captains run a bounded in-process workspace tool loop against operator-hosted endpoints; hosted OpenAI, Anthropic and Gemini endpoints stay refused until `apiCaptainCloudProviders` lists them, and Azure OpenAI, Vertex AI and Bedrock are unavailable. Live provider runs and Harbor mission execution still need acceptance before use; upstream A/B rebuild slots are rejected for the container deployment. |
 | Repository context and autonomy | Supplied repository context and shared git-anchor concepts | The fork adds code index, symbol graph, context packs, bounded objective scheduling, prepared claims and sibling lanes. Dock snapshots preserve bounded evidence from the actual provisioning commit. |
 
-Interrupted captain runs follow upstream's rule and are re-dispatched instead
-of failing the voyage. The fork bounds them with its own per-mission budget
-that is counted from events, and leaves the rescue budget untouched. Only an
-exit code the runtime reports counts, never the health check's missing-process
-value.
+Interrupted captain runs are re-dispatched instead of failing the voyage, as
+upstream now does. The fork bounds them with its own per-mission budget that is
+counted from events, and leaves the rescue budget untouched. Upstream treats
+every negative exit code as an interruption; the fork counts only -1 reported by
+the runtime, so a native crash code and the health check's missing-process value
+still fail.
 
 MCP create tools record the authenticated caller as the owner, as upstream
 now does and as the fork's REST creates always did. The fork applies its shared

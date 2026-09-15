@@ -16,8 +16,8 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 
 ### An interrupted captain run is re-dispatched, not failed
 
-- A negative exit code that a runtime reports means a stop, shutdown or
-  Admiral restart cancelled the run. The process-exit handler now returns
+- Exit code -1 that a runtime reports means a stop, shutdown or Admiral
+  restart cancelled the run. The process-exit handler now returns
   that mission to Pending, releases the captain to Idle, keeps the voyage
   running and emits `mission.interrupted_redispatched`. Before, every
   non-zero exit failed the mission and halted the voyage.
@@ -27,7 +27,9 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   does not spend the autonomous-rescue budget. The next interruption after
   the budget fails the mission through the normal terminal path.
 - An interrupted run is never marked Failed, so autonomous recovery opens no
-  incident or rescue for the same exit. A positive exit code still fails.
+  incident or rescue for the same exit. Every other exit code still fails,
+  including a native crash status that reads as a large negative number on
+  Windows and on Harbor runners.
 - The health check's `-1` for a process it cannot find is not treated as an
   interruption. That process may have completed after its exit record was
   pruned, so re-running it could repeat finished work.

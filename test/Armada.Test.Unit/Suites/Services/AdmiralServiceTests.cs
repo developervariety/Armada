@@ -1845,6 +1845,43 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("HandleProcessExitAsync NativeCrashExitCode IsNotAnInterruption", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SqliteDatabaseDriver db = testDb.Driver;
+                    ArmadaSettings settings = CreateSettings();
+                    settings.MinIdleCaptains = 0;
+                    settings.LogDirectory = Path.Combine(Path.GetTempPath(), "armada_test_logs_" + Guid.NewGuid().ToString("N"));
+                    AdmiralService service = CreateAdmiralService(CreateLogging(), db, settings, new StubGitService());
+
+                    Voyage voyage = await db.Voyages.CreateAsync(new Voyage("Native crash voyage") { Status = VoyageStatusEnum.InProgress }).ConfigureAwait(false);
+                    Mission mission = await db.Missions.CreateAsync(new Mission("Native crash mission")
+                    {
+                        VoyageId = voyage.Id,
+                        Status = MissionStatusEnum.InProgress,
+                        AssignmentState = MissionAssignmentStateEnum.Assigned,
+                        ProcessId = 7402,
+                        StartedUtc = DateTime.UtcNow.AddSeconds(-5)
+                    }).ConfigureAwait(false);
+                    Captain captain = new Captain("native-crash-captain");
+                    captain.State = CaptainStateEnum.Working;
+                    captain.CurrentMissionId = mission.Id;
+                    captain.ProcessId = 7402;
+                    await db.Captains.CreateAsync(captain).ConfigureAwait(false);
+
+                    // A Windows process that crashes with an access violation exits with NTSTATUS 0xC0000005, which
+                    // reads as a negative signed code. It is a failure of the run, not a cancellation.
+                    await service.HandleProcessExitAsync(7402, -1073741819, captain.Id, mission.Id).ConfigureAwait(false);
+
+                    Mission? updatedMission = await db.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    List<ArmadaEvent> events = await db.Events.EnumerateByMissionAsync(mission.Id, 100).ConfigureAwait(false);
+
+                    AssertEqual(MissionStatusEnum.Failed, updatedMission!.Status, "a native crash exit fails the mission");
+                    AssertFalse(events.Any(e => e.EventType == "mission.interrupted_redispatched"), "a native crash exit is never re-dispatched as an interruption");
+                }
+            });
+
             await RunTest("HandleProcessExitAsync InterruptedExit BudgetExhausted FailsTerminally", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
