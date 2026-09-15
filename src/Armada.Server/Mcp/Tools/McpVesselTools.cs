@@ -68,7 +68,7 @@ namespace Armada.Server.Mcp.Tools
                         styleGuide = new { type = "string", description = "Style guide describing naming conventions, patterns, and library preferences" },
                         workingDirectory = new { type = "string", description = "Optional local directory where completed mission changes will be pulled after merge" },
                         allowConcurrentMissions = new { type = "boolean", description = "Allow multiple concurrent missions on this vessel (default false)" },
-                        enableModelContext = new { type = "boolean", description = "Enable model context injection into mission briefs (default false)" },
+                        enableModelContext = new { type = "boolean", description = "Enable model context injection into mission briefs (default true)" },
                         defaultPipelineId = new { type = "string", description = "Default pipeline ID for dispatches to this vessel (ppl_ prefix)" },
                         gitHubTokenOverride = new { type = "string", description = "Optional per-vessel GitHub token. Write-only: no tool result returns it; results carry HasGitHubTokenOverride instead." },
                         protectedPaths = new

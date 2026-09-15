@@ -92,6 +92,34 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("AddVessel_EnableModelContext_SchemaDefaultMatchesCreatedVessel", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Func<JsonElement?, Task<object>>? handler = null;
+                    object? schema = null;
+                    McpVesselTools.Register(
+                        (name, _, s, h) => { if (name == "armada_add_vessel") { handler = h; schema = s; } },
+                        testDb.Driver);
+                    AssertNotNull(handler, "armada_add_vessel handler must be registered");
+
+                    ToolSchemaDocument? document = JsonSerializer.Deserialize<ToolSchemaDocument>(JsonSerializer.Serialize(schema), _TransportJsonOptions);
+                    ToolSchemaProperty? property = null;
+                    document?.Properties?.TryGetValue("enableModelContext", out property);
+                    AssertContains("(default true)", property?.Description ?? "", "the enableModelContext schema names the default the handler applies");
+
+                    Fleet fleet = await testDb.Driver.Fleets.CreateAsync(new Fleet("default-context-fleet")).ConfigureAwait(false);
+                    object result = await CallAsAsync(handler!, McpTestCaller.Operator, new
+                    {
+                        name = "default-context-vessel",
+                        repoUrl = "https://github.com/test/default-context.git",
+                        fleetId = fleet.Id
+                    }).ConfigureAwait(false);
+                    Vessel created = (Vessel)result;
+                    AssertTrue(created.EnableModelContext, "a vessel added without enableModelContext has model context enabled");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("AddVessel_GitHubTokenOverride_IsStoredTrimmedOwnedByCallerAndNeverEchoed", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -565,6 +593,16 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("OWNER context", ownerJson, "the owning user still reads the vessel");
                 }
             }).ConfigureAwait(false);
+        }
+
+        private sealed class ToolSchemaDocument
+        {
+            public Dictionary<string, ToolSchemaProperty>? Properties { get; set; }
+        }
+
+        private sealed class ToolSchemaProperty
+        {
+            public string? Description { get; set; }
         }
     }
 }
