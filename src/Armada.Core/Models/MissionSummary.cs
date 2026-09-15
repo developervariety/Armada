@@ -110,6 +110,16 @@ namespace Armada.Core.Models
         public string? FailureReason { get; set; } = null;
 
         /// <summary>
+        /// When terminal-voyage reconciliation gave this mission its Failed or Cancelled status, or null.
+        /// </summary>
+        public DateTime? ReconciledUtc { get; set; } = null;
+
+        /// <summary>
+        /// Reason code terminal-voyage reconciliation recorded with <see cref="ReconciledUtc"/>.
+        /// </summary>
+        public string? ReconciledReason { get; set; } = null;
+
+        /// <summary>
         /// Whether this mission requires explicit review approval.
         /// </summary>
         public bool RequiresReview { get; set; } = false;

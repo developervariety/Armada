@@ -320,11 +320,172 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(TerminalVoyageMissionRule.IsReconciledFailureReason(reason), "a genuine failure reason must not be recognised: " + (reason ?? "<null>"));
                 }
 
-                AssertTrue(TerminalVoyageMissionRule.IsReconciledOutcome(MissionStatusEnum.Failed, stored[0]), "a reconciled Failed mission is a reconciled outcome");
-                AssertTrue(TerminalVoyageMissionRule.IsReconciledOutcome(MissionStatusEnum.Cancelled, stored[3]), "a reconciled Cancelled mission is a reconciled outcome");
-                AssertFalse(TerminalVoyageMissionRule.IsReconciledOutcome(MissionStatusEnum.LandingFailed, stored[0]), "only the statuses the rule writes count");
-                AssertFalse(TerminalVoyageMissionRule.IsReconciledOutcome(MissionStatusEnum.Failed, genuine[2]), "a genuine failure is not a reconciled outcome");
                 return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("The reconciled outcome reads only the durable marker", () =>
+            {
+                DateTime marked = _Now;
+                AssertTrue(TerminalVoyageMissionRule.IsReconciledOutcome(MissionStatusEnum.Failed, marked, TerminalVoyageMissionRule.ReasonWorkUnlanded), "a marked Failed mission is a reconciled outcome");
+                AssertTrue(TerminalVoyageMissionRule.IsReconciledOutcome(MissionStatusEnum.Cancelled, marked, TerminalVoyageMissionRule.ReasonNoCommit), "a marked Cancelled mission is a reconciled outcome");
+                AssertFalse(TerminalVoyageMissionRule.IsReconciledOutcome(MissionStatusEnum.LandingFailed, marked, TerminalVoyageMissionRule.ReasonWorkUnlanded), "only the statuses the rule writes count");
+                AssertFalse(TerminalVoyageMissionRule.IsReconciledOutcome(MissionStatusEnum.Failed, null, TerminalVoyageMissionRule.ReasonWorkUnlanded), "a reason code without a marker time is not a marker");
+                AssertFalse(TerminalVoyageMissionRule.IsReconciledOutcome(MissionStatusEnum.Failed, marked, null), "a marker time without a reason code is not a marker");
+                AssertFalse(TerminalVoyageMissionRule.IsReconciledOutcome(MissionStatusEnum.Failed, marked, TerminalVoyageMissionRule.ReasonWorkLanded), "a landed code is never a Failed or Cancelled marker");
+
+                Mission genuine = new Mission { Status = MissionStatusEnum.Failed };
+                genuine.FailureReason = TerminalVoyageMissionRule.FormatReconciledFailureReason(VoyageStatusEnum.Failed, TerminalVoyageMissionRule.ReasonCommitAbsent, null);
+                AssertFalse(TerminalVoyageMissionRule.IsReconciledOutcome(genuine), "reason text alone never makes a reconciled outcome");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("A later failure-reason rewrite keeps a reconciled outcome on the row and the summary; clearing the marker ends it", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("vsl_reconciled_marker", "https://example.test/reconciled.git")
+                    {
+                        Id = "vsl_reconciled_marker",
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId
+                    }).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = vessel.Id,
+                        Title = "Reconciled stage",
+                        Status = MissionStatusEnum.WorkProduced,
+                        FailureReason = "Judge verdict: FAIL"
+                    }).ConfigureAwait(false);
+
+                    TerminalVoyageMissionRule.RecordReconciledOutcome(mission, VoyageStatusEnum.Failed, TerminalVoyageMissionRule.ReasonWorkUnlanded, _Now);
+                    mission.Status = MissionStatusEnum.Failed;
+                    AssertEqual(TerminalVoyageMissionRule.FormatReconciledFailureReason(VoyageStatusEnum.Failed, TerminalVoyageMissionRule.ReasonWorkUnlanded, "Judge verdict: FAIL"),
+                        mission.FailureReason, "the human-readable reason is still written as before");
+                    await testDb.Driver.Missions.UpdateAsync(mission).ConfigureAwait(false);
+
+                    Mission stored = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(_Now, stored.ReconciledUtc, "the marker time persists");
+                    AssertEqual(TerminalVoyageMissionRule.ReasonWorkUnlanded, stored.ReconciledReason, "the marker reason code persists");
+
+                    stored.FailureReason = "Operator note: branch retained for manual review";
+                    await testDb.Driver.Missions.UpdateAsync(stored).ConfigureAwait(false);
+
+                    Mission rewritten = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    MissionSummary summary = (await testDb.Driver.Missions.EnumerateMissionSummariesAsync(new EnumerationQuery { PageNumber = 1, PageSize = 1000 }).ConfigureAwait(false))
+                        .Objects.Single(item => item.Id == mission.Id);
+                    AssertFalse(TerminalVoyageMissionRule.IsReconciledFailureReason(rewritten.FailureReason), "the rewritten text no longer carries the reconciliation reason");
+                    AssertTrue(TerminalVoyageMissionRule.IsReconciledOutcome(rewritten), "the full row is still a reconciled outcome after the rewrite");
+                    AssertTrue(TerminalVoyageMissionRule.IsReconciledOutcome(summary), "the summary the sweep reads is still a reconciled outcome after the rewrite");
+
+                    LoggingModule restartLogging = new LoggingModule();
+                    restartLogging.Settings.EnableConsole = false;
+                    Armada.Core.Settings.ArmadaSettings settings = new Armada.Core.Settings.ArmadaSettings();
+                    settings.AutonomousObjectiveScheduler.MaxConcurrentVoyages = 4;
+                    settings.AutonomousObjectiveScheduler.MaxConcurrentVoyagesPerVessel = 4;
+                    await new MissionRestartService(testDb.Driver, settings, restartLogging).RestartAsync(rewritten).ConfigureAwait(false);
+
+                    Mission restarted = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertEqual(MissionStatusEnum.Pending, restarted.Status, "the restart succeeded");
+                    AssertFalse(restarted.ReconciledUtc.HasValue, "a restart clears the marker time");
+                    AssertNull(restarted.ReconciledReason, "a restart clears the marker reason code");
+
+                    restarted.Status = MissionStatusEnum.Failed;
+                    restarted.FailureReason = "Agent process exited with code 1";
+                    await testDb.Driver.Missions.UpdateAsync(restarted).ConfigureAwait(false);
+                    Mission failedAgain = (await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false))!;
+                    AssertFalse(TerminalVoyageMissionRule.IsReconciledOutcome(failedAgain), "a later failure of its own after a restart is recovered normally");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("The SQLite backfill marks exactly the rows the reason rule recognises, once", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    string[] reasons =
+                    {
+                        "Voyage ended Failed and the mission's work is not on the default branch (terminal_voyage_commit_absent)",
+                        "Voyage ended Failed and the mission's work is not on the default branch (terminal_voyage_work_unlanded)",
+                        "Voyage ended Cancelled and the mission's work is not on the default branch (terminal_voyage_no_commit)",
+                        "Voyage ended Failed and the mission's work is not on the default branch (terminal_voyage_work_unlanded); previous reason: Judge verdict: FAIL",
+                        "Voyage ended Failed and the mission's work is not on the default branch (terminal_voyage_no_commit); previous reason: a; previous reason: (terminal_voyage_commit_absent)",
+                        null!,
+                        "",
+                        "Agent process exited with code 1",
+                        "terminal_voyage_work_unlanded",
+                        "(terminal_voyage_no_commit)",
+                        "Voyage ended Failed (TERMINAL_VOYAGE_NO_COMMIT)",
+                        "Voyage ended Failed (terminal_voyage_no_commit) ",
+                        "Judge verdict: FAIL; previous reason: Voyage ended Failed and the mission's work is not on the default branch (terminal_voyage_no_commit)"
+                    };
+                    MissionStatusEnum[] statuses = { MissionStatusEnum.Failed, MissionStatusEnum.Cancelled, MissionStatusEnum.LandingFailed, MissionStatusEnum.Complete };
+                    DateTime completed = new DateTime(2030, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+
+                    List<Mission> seeded = new List<Mission>();
+                    foreach (string reason in reasons)
+                    {
+                        foreach (MissionStatusEnum status in statuses)
+                        {
+                            Mission created = await testDb.Driver.Missions.CreateAsync(new Mission
+                            {
+                                Title = "Backfill seed",
+                                Status = status,
+                                FailureReason = reason,
+                                CompletedUtc = status == MissionStatusEnum.Cancelled ? null : completed
+                            }).ConfigureAwait(false);
+                            // Compare against the stored row: the provider stores an empty reason as null.
+                            Mission stored = (await testDb.Driver.Missions.ReadAsync(created.Id).ConfigureAwait(false))!;
+                            AssertFalse(stored.ReconciledUtc.HasValue, "a seeded mission carries no marker before the backfill");
+                            seeded.Add(stored);
+                        }
+                    }
+
+                    List<string> backfill = Armada.Core.Database.Sqlite.Queries.TableQueries.MigrationV100Statements
+                        .Where(statement => statement.StartsWith("UPDATE ", StringComparison.Ordinal)).ToList();
+                    AssertEqual(3, backfill.Count, "one backfill statement per unlanded reason code");
+
+                    Dictionary<string, DateTime?> firstPass = new Dictionary<string, DateTime?>();
+                    for (int pass = 0; pass < 2; pass++)
+                    {
+                        using (Microsoft.Data.Sqlite.SqliteConnection connection = new Microsoft.Data.Sqlite.SqliteConnection(testDb.ConnectionString))
+                        {
+                            await connection.OpenAsync().ConfigureAwait(false);
+                            foreach (string statement in backfill)
+                            {
+                                using (Microsoft.Data.Sqlite.SqliteCommand command = connection.CreateCommand())
+                                {
+                                    command.CommandText = statement;
+                                    await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+                                }
+                            }
+                        }
+
+                        foreach (Mission seed in seeded)
+                        {
+                            Mission after = (await testDb.Driver.Missions.ReadAsync(seed.Id).ConfigureAwait(false))!;
+                            bool expected = (seed.Status == MissionStatusEnum.Failed || seed.Status == MissionStatusEnum.Cancelled)
+                                && TerminalVoyageMissionRule.IsReconciledFailureReason(seed.FailureReason);
+                            string label = seed.Status + " / " + (seed.FailureReason ?? "<null>");
+                            AssertEqual(expected, after.ReconciledUtc.HasValue, "backfill agrees with the reason rule: " + label);
+                            AssertEqual(expected, TerminalVoyageMissionRule.IsReconciledOutcome(after), "backfilled outcome agrees with the reason rule: " + label);
+                            if (expected)
+                            {
+                                string head = seed.FailureReason!.Split(TerminalVoyageMissionRule.PreviousReasonSeparator)[0];
+                                AssertTrue(head.EndsWith("(" + after.ReconciledReason + ")", StringComparison.Ordinal), "the recorded code is the one closing the reason: " + label);
+                                AssertEqual(after.CompletedUtc ?? after.LastUpdateUtc, after.ReconciledUtc!.Value, "the marker time is the completion time, or the last update when none: " + label);
+                            }
+                            else
+                            {
+                                AssertNull(after.ReconciledReason, "an unmarked row keeps no reason code: " + label);
+                            }
+                            AssertEqual(seed.FailureReason, after.FailureReason, "the backfill never changes the reason text: " + label);
+
+                            if (pass == 0) firstPass[seed.Id] = after.ReconciledUtc;
+                            else AssertEqual(firstPass[seed.Id], after.ReconciledUtc, "a repeated backfill changes nothing: " + label);
+                        }
+                    }
+                }
             }).ConfigureAwait(false);
 
             await RunTest("The rule never completes unlanded work for any terminal voyage", () =>

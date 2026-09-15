@@ -239,10 +239,7 @@ namespace Armada.Core.Services
 
             DateTime now = DateTime.UtcNow;
             if (target != MissionStatusEnum.Complete)
-            {
-                mission.FailureReason = TerminalVoyageMissionRule.FormatReconciledFailureReason(
-                    voyage.Status, decision.Reason, mission.FailureReason);
-            }
+                TerminalVoyageMissionRule.RecordReconciledOutcome(mission, voyage.Status, decision.Reason, now);
             mission.Status = target;
             mission.ProcessId = null;
             mission.CompletedUtc ??= now;

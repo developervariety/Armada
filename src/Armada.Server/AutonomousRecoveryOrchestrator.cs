@@ -245,7 +245,7 @@ namespace Armada.Server
                 // A mission the terminal-voyage reconciler closed is a record of an ended voyage, not a
                 // failure of its own; it never enters recovery. Checked on the summary so the sweep reads
                 // no full row for it, and again in ApplyFailurePolicyAsync for every other entry point.
-                if (TerminalVoyageMissionRule.IsReconciledOutcome(candidate.Status, candidate.FailureReason))
+                if (TerminalVoyageMissionRule.IsReconciledOutcome(candidate))
                 {
                     reconciledSkipped++;
                     continue;
@@ -936,7 +936,7 @@ namespace Armada.Server
 
                 // Checked before any write: an incident, a deferral, or a recovery timestamp would each
                 // treat the reconciled record as a fresh failure and keep it inside the sweep's lookback.
-                if (TerminalVoyageMissionRule.IsReconciledOutcome(latest.Status, latest.FailureReason))
+                if (TerminalVoyageMissionRule.IsReconciledOutcome(latest))
                 {
                     _HoldDeferredRescues.TryRemove(latest.Id, out HoldDeferredRescue? _);
                     _Logging.Debug(_Header + "recovery skipped mission " + latest.Id

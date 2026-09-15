@@ -2553,10 +2553,23 @@ anything. It opens no incident, dispatches or defers no rescue, and records no
 recovery attempt. This holds for the failed-mission sweep, for the rescue
 re-check after a dispatch hold clears, and for mission outcome handling. The
 incident lifecycle sweep closes an incident already linked to such a mission
-as superseded, and the note names reconciliation as the cause. The rule
-recognises the failure reason that reconciliation wrote: the reason code in
-parentheses closes the text, before any `; previous reason:` suffix. A genuine
+as superseded, and the note names reconciliation as the cause. A genuine
 failure under a `Failed` voyage still gets its normal incident and rescue.
+
+The decision reads a durable marker on the mission row, not the failure reason
+text. Reconciliation writes `reconciled_utc` (the time of the change) and
+`reconciled_reason` (the unlanded reason code) together with the reason text,
+which it still writes for people. Every reader calls the same rule, and the
+sweep reads the marker from the mission summary. A later writer can replace
+`FailureReason` without returning the mission to recovery. Restarting the
+mission clears the marker, so a later failure of its own is recovered normally.
+
+The migration that adds the marker also backfills it. It marks a `Failed` or
+`Cancelled` mission when its failure reason ends, before any
+`; previous reason:` suffix, with `(terminal_voyage_work_unlanded)`,
+`(terminal_voyage_commit_absent)` or `(terminal_voyage_no_commit)`. The marker
+time is the completion time, or the last update time when there is none. The
+migration versions are SQLite 100, PostgreSQL 101, MySQL 92 and SQL Server 95.
 
 The rule keeps a mission unchanged in these cases, and counts each by reason:
 

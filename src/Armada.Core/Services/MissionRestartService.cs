@@ -57,6 +57,7 @@ namespace Armada.Core.Services
             mission.ProcessId = null;
             mission.DiffSnapshot = null;
             mission.FailureReason = null;
+            TerminalVoyageMissionRule.ClearReconciledOutcome(mission);
             mission.StartedUtc = null;
             mission.CompletedUtc = null;
             mission.LastUpdateUtc = DateTime.UtcNow;

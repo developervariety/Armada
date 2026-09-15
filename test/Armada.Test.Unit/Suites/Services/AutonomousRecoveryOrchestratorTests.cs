@@ -1265,6 +1265,35 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, await CountIncidentsAsync(incidents, vessel, reconciled.Id).ConfigureAwait(false), "No incident after the hold clears.");
             }).ConfigureAwait(false);
 
+            await RunTest("A later failure-reason rewrite does not return a reconciler-failed mission to recovery", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_reconciled_rewrite", "usr_auto_reconciled_rewrite").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_reconciled_rewrite", "usr_auto_reconciled_rewrite").ConfigureAwait(false);
+
+                Mission reconciled = await CreateReconciledMissionAsync(testDb, vessel, VoyageStatusEnum.Failed).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Failed, reconciled.Status, "The reconciler fails unlanded work under a Failed voyage.");
+
+                // Any later writer may replace the human-readable reason; the outcome must not depend on it.
+                reconciled.FailureReason = "Operator note: branch retained for manual review";
+                await testDb.Driver.Missions.UpdateAsync(reconciled).ConfigureAwait(false);
+                Mission rewritten = (await testDb.Driver.Missions.ReadAsync(reconciled.Id).ConfigureAwait(false))!;
+                AssertEqual("Operator note: branch retained for manual review", rewritten.FailureReason, "The rewrite persisted.");
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+                await orchestrator.HandleMissionOutcomeAsync(rewritten, false).ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchedMissions.Count, "A rewritten reason does not make a reconciled mission rescuable.");
+                AssertEqual(0, await CountIncidentsAsync(incidents, vessel, reconciled.Id).ConfigureAwait(false), "A rewritten reason does not open an incident.");
+                AssertFalse((await testDb.Driver.Missions.ReadAsync(reconciled.Id).ConfigureAwait(false))!.LastRecoveryActionUtc.HasValue,
+                    "Recovery records no action on a reconciled mission whose reason was rewritten.");
+            }).ConfigureAwait(false);
+
             await RunTest("Sweep processes a failed mission with no parent voyage", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

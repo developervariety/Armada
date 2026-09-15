@@ -1286,6 +1286,20 @@ namespace Armada.Core.Database.Mysql.Queries
         };
 
         /// <summary>
+        /// Migration 92: the durable terminal-voyage reconciliation marker on missions. The backfill marks
+        /// Failed and Cancelled missions whose failure reason ends, before any previous-reason suffix, in an
+        /// unlanded reason code, exactly as TerminalVoyageMissionRule.IsReconciledFailureReason decides.
+        /// </summary>
+        public static readonly string[] MigrationV92Statements = new string[]
+        {
+            @"ALTER TABLE missions ADD COLUMN reconciled_utc DATETIME(6) NULL;",
+            @"ALTER TABLE missions ADD COLUMN reconciled_reason VARCHAR(64) NULL;",
+            @"UPDATE missions SET reconciled_utc = COALESCE(completed_utc, last_update_utc), reconciled_reason = 'terminal_voyage_work_unlanded' WHERE reconciled_utc IS NULL AND status IN ('Failed', 'Cancelled') AND failure_reason IS NOT NULL AND LENGTH((CASE WHEN LOCATE(CAST('; previous reason: ' AS BINARY), CAST(failure_reason AS BINARY)) > 0 THEN LEFT(CAST(failure_reason AS BINARY), LOCATE(CAST('; previous reason: ' AS BINARY), CAST(failure_reason AS BINARY)) - 1) ELSE CAST(failure_reason AS BINARY) END)) > 31 AND RIGHT((CASE WHEN LOCATE(CAST('; previous reason: ' AS BINARY), CAST(failure_reason AS BINARY)) > 0 THEN LEFT(CAST(failure_reason AS BINARY), LOCATE(CAST('; previous reason: ' AS BINARY), CAST(failure_reason AS BINARY)) - 1) ELSE CAST(failure_reason AS BINARY) END), 31) = CAST('(terminal_voyage_work_unlanded)' AS BINARY);",
+            @"UPDATE missions SET reconciled_utc = COALESCE(completed_utc, last_update_utc), reconciled_reason = 'terminal_voyage_commit_absent' WHERE reconciled_utc IS NULL AND status IN ('Failed', 'Cancelled') AND failure_reason IS NOT NULL AND LENGTH((CASE WHEN LOCATE(CAST('; previous reason: ' AS BINARY), CAST(failure_reason AS BINARY)) > 0 THEN LEFT(CAST(failure_reason AS BINARY), LOCATE(CAST('; previous reason: ' AS BINARY), CAST(failure_reason AS BINARY)) - 1) ELSE CAST(failure_reason AS BINARY) END)) > 31 AND RIGHT((CASE WHEN LOCATE(CAST('; previous reason: ' AS BINARY), CAST(failure_reason AS BINARY)) > 0 THEN LEFT(CAST(failure_reason AS BINARY), LOCATE(CAST('; previous reason: ' AS BINARY), CAST(failure_reason AS BINARY)) - 1) ELSE CAST(failure_reason AS BINARY) END), 31) = CAST('(terminal_voyage_commit_absent)' AS BINARY);",
+            @"UPDATE missions SET reconciled_utc = COALESCE(completed_utc, last_update_utc), reconciled_reason = 'terminal_voyage_no_commit' WHERE reconciled_utc IS NULL AND status IN ('Failed', 'Cancelled') AND failure_reason IS NOT NULL AND LENGTH((CASE WHEN LOCATE(CAST('; previous reason: ' AS BINARY), CAST(failure_reason AS BINARY)) > 0 THEN LEFT(CAST(failure_reason AS BINARY), LOCATE(CAST('; previous reason: ' AS BINARY), CAST(failure_reason AS BINARY)) - 1) ELSE CAST(failure_reason AS BINARY) END)) > 27 AND RIGHT((CASE WHEN LOCATE(CAST('; previous reason: ' AS BINARY), CAST(failure_reason AS BINARY)) > 0 THEN LEFT(CAST(failure_reason AS BINARY), LOCATE(CAST('; previous reason: ' AS BINARY), CAST(failure_reason AS BINARY)) - 1) ELSE CAST(failure_reason AS BINARY) END), 27) = CAST('(terminal_voyage_no_commit)' AS BINARY);"
+        };
+
+        /// <summary>
         /// Index DDL statements for all tables.
         /// </summary>
         public static readonly string[] Indexes = new string[]

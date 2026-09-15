@@ -10,6 +10,20 @@ namespace Armada.Core.Database.SqlServer.Queries
         #region Public-Methods
 
         /// <summary>
+        /// Migration 95: the durable terminal-voyage reconciliation marker on missions. The backfill marks
+        /// Failed and Cancelled missions whose failure reason ends, before any previous-reason suffix, in an
+        /// unlanded reason code, exactly as TerminalVoyageMissionRule.IsReconciledFailureReason decides.
+        /// </summary>
+        public static readonly string[] MigrationV95Statements = new string[]
+        {
+            @"IF COL_LENGTH('missions', 'reconciled_utc') IS NULL ALTER TABLE missions ADD reconciled_utc NVARCHAR(450) NULL;",
+            @"IF COL_LENGTH('missions', 'reconciled_reason') IS NULL ALTER TABLE missions ADD reconciled_reason NVARCHAR(64) NULL;",
+            @"UPDATE missions SET reconciled_utc = COALESCE(completed_utc, last_update_utc), reconciled_reason = N'terminal_voyage_work_unlanded' WHERE reconciled_utc IS NULL AND status IN (N'Failed', N'Cancelled') AND failure_reason IS NOT NULL AND LEN((CASE WHEN CHARINDEX(N'; previous reason: ' COLLATE Latin1_General_BIN2, failure_reason) > 0 THEN LEFT(failure_reason, CHARINDEX(N'; previous reason: ' COLLATE Latin1_General_BIN2, failure_reason) - 1) ELSE failure_reason END)) > 31 AND RIGHT((CASE WHEN CHARINDEX(N'; previous reason: ' COLLATE Latin1_General_BIN2, failure_reason) > 0 THEN LEFT(failure_reason, CHARINDEX(N'; previous reason: ' COLLATE Latin1_General_BIN2, failure_reason) - 1) ELSE failure_reason END), 31) COLLATE Latin1_General_BIN2 = N'(terminal_voyage_work_unlanded)';",
+            @"UPDATE missions SET reconciled_utc = COALESCE(completed_utc, last_update_utc), reconciled_reason = N'terminal_voyage_commit_absent' WHERE reconciled_utc IS NULL AND status IN (N'Failed', N'Cancelled') AND failure_reason IS NOT NULL AND LEN((CASE WHEN CHARINDEX(N'; previous reason: ' COLLATE Latin1_General_BIN2, failure_reason) > 0 THEN LEFT(failure_reason, CHARINDEX(N'; previous reason: ' COLLATE Latin1_General_BIN2, failure_reason) - 1) ELSE failure_reason END)) > 31 AND RIGHT((CASE WHEN CHARINDEX(N'; previous reason: ' COLLATE Latin1_General_BIN2, failure_reason) > 0 THEN LEFT(failure_reason, CHARINDEX(N'; previous reason: ' COLLATE Latin1_General_BIN2, failure_reason) - 1) ELSE failure_reason END), 31) COLLATE Latin1_General_BIN2 = N'(terminal_voyage_commit_absent)';",
+            @"UPDATE missions SET reconciled_utc = COALESCE(completed_utc, last_update_utc), reconciled_reason = N'terminal_voyage_no_commit' WHERE reconciled_utc IS NULL AND status IN (N'Failed', N'Cancelled') AND failure_reason IS NOT NULL AND LEN((CASE WHEN CHARINDEX(N'; previous reason: ' COLLATE Latin1_General_BIN2, failure_reason) > 0 THEN LEFT(failure_reason, CHARINDEX(N'; previous reason: ' COLLATE Latin1_General_BIN2, failure_reason) - 1) ELSE failure_reason END)) > 27 AND RIGHT((CASE WHEN CHARINDEX(N'; previous reason: ' COLLATE Latin1_General_BIN2, failure_reason) > 0 THEN LEFT(failure_reason, CHARINDEX(N'; previous reason: ' COLLATE Latin1_General_BIN2, failure_reason) - 1) ELSE failure_reason END), 27) COLLATE Latin1_General_BIN2 = N'(terminal_voyage_no_commit)';"
+        };
+
+        /// <summary>
         /// Get all schema migrations for the Armada SQL Server database.
         /// </summary>
         /// <returns>List of schema migrations.</returns>
@@ -972,7 +986,8 @@ namespace Armada.Core.Database.SqlServer.Queries
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_harbor_jobs_runner' AND object_id=OBJECT_ID('harbor_jobs')) CREATE INDEX idx_harbor_jobs_runner ON harbor_jobs(runner_id);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_harbor_jobs_state' AND object_id=OBJECT_ID('harbor_jobs')) CREATE INDEX idx_harbor_jobs_state ON harbor_jobs(state);",
                     @"IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name='idx_harbor_jobs_tenant_user' AND object_id=OBJECT_ID('harbor_jobs')) CREATE INDEX idx_harbor_jobs_tenant_user ON harbor_jobs(tenant_id, user_id);"
-                )
+                ),
+                new SchemaMigration(95, "Record terminal-voyage reconciliation on the mission row", MigrationV95Statements)
             };
         }
 

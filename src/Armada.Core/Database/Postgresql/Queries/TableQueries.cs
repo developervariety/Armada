@@ -10,6 +10,20 @@ namespace Armada.Core.Database.Postgresql.Queries
         #region Public-Methods
 
         /// <summary>
+        /// Migration 101: the durable terminal-voyage reconciliation marker on missions. The backfill marks
+        /// Failed and Cancelled missions whose failure reason ends, before any previous-reason suffix, in an
+        /// unlanded reason code, exactly as TerminalVoyageMissionRule.IsReconciledFailureReason decides.
+        /// </summary>
+        public static readonly string[] MigrationV101Statements = new string[]
+        {
+            @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS reconciled_utc TIMESTAMP NULL;",
+            @"ALTER TABLE missions ADD COLUMN IF NOT EXISTS reconciled_reason TEXT NULL;",
+            @"UPDATE missions SET reconciled_utc = COALESCE(completed_utc, last_update_utc), reconciled_reason = 'terminal_voyage_work_unlanded' WHERE reconciled_utc IS NULL AND status IN ('Failed', 'Cancelled') AND failure_reason IS NOT NULL AND length((CASE WHEN strpos(failure_reason, '; previous reason: ') > 0 THEN substr(failure_reason, 1, strpos(failure_reason, '; previous reason: ') - 1) ELSE failure_reason END)) > 31 AND right((CASE WHEN strpos(failure_reason, '; previous reason: ') > 0 THEN substr(failure_reason, 1, strpos(failure_reason, '; previous reason: ') - 1) ELSE failure_reason END), 31) = '(terminal_voyage_work_unlanded)';",
+            @"UPDATE missions SET reconciled_utc = COALESCE(completed_utc, last_update_utc), reconciled_reason = 'terminal_voyage_commit_absent' WHERE reconciled_utc IS NULL AND status IN ('Failed', 'Cancelled') AND failure_reason IS NOT NULL AND length((CASE WHEN strpos(failure_reason, '; previous reason: ') > 0 THEN substr(failure_reason, 1, strpos(failure_reason, '; previous reason: ') - 1) ELSE failure_reason END)) > 31 AND right((CASE WHEN strpos(failure_reason, '; previous reason: ') > 0 THEN substr(failure_reason, 1, strpos(failure_reason, '; previous reason: ') - 1) ELSE failure_reason END), 31) = '(terminal_voyage_commit_absent)';",
+            @"UPDATE missions SET reconciled_utc = COALESCE(completed_utc, last_update_utc), reconciled_reason = 'terminal_voyage_no_commit' WHERE reconciled_utc IS NULL AND status IN ('Failed', 'Cancelled') AND failure_reason IS NOT NULL AND length((CASE WHEN strpos(failure_reason, '; previous reason: ') > 0 THEN substr(failure_reason, 1, strpos(failure_reason, '; previous reason: ') - 1) ELSE failure_reason END)) > 27 AND right((CASE WHEN strpos(failure_reason, '; previous reason: ') > 0 THEN substr(failure_reason, 1, strpos(failure_reason, '; previous reason: ') - 1) ELSE failure_reason END), 27) = '(terminal_voyage_no_commit)';"
+        };
+
+        /// <summary>
         /// Get all schema migrations for the Armada PostgreSQL database.
         /// </summary>
         /// <returns>List of schema migrations.</returns>
@@ -1105,7 +1119,8 @@ namespace Armada.Core.Database.Postgresql.Queries
                     @"CREATE INDEX IF NOT EXISTS idx_harbor_jobs_runner ON harbor_jobs(runner_id);",
                     @"CREATE INDEX IF NOT EXISTS idx_harbor_jobs_state ON harbor_jobs(state);",
                     @"CREATE INDEX IF NOT EXISTS idx_harbor_jobs_tenant_user ON harbor_jobs(tenant_id, user_id);"
-                )
+                ),
+                new SchemaMigration(101, "Record terminal-voyage reconciliation on the mission row", MigrationV101Statements)
             };
         }
 

@@ -206,6 +206,18 @@ namespace Armada.Core.Models
         public string? FailureReason { get; set; } = null;
 
         /// <summary>
+        /// When terminal-voyage reconciliation gave this mission its Failed or Cancelled status. Null when the
+        /// mission reached its status any other way. This, not the failure reason text, decides whether the
+        /// mission is a record of an ended voyage.
+        /// </summary>
+        public DateTime? ReconciledUtc { get; set; } = null;
+
+        /// <summary>
+        /// Reason code terminal-voyage reconciliation recorded with <see cref="ReconciledUtc"/>.
+        /// </summary>
+        public string? ReconciledReason { get; set; } = null;
+
+        /// <summary>
         /// Whether this mission requires an explicit review approval before the pipeline may continue.
         /// Copied from the owning pipeline stage when the mission is created.
         /// </summary>

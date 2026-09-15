@@ -98,6 +98,10 @@ namespace Armada.Test.Database
                     DatabaseAssert.Equal(MissionStatusEnum.Failed, unlandedAfter.Status, "Unlanded work is Failed after reopen");
                     DatabaseAssert.True((unlandedAfter.FailureReason ?? String.Empty).Contains(TerminalVoyageMissionRule.ReasonWorkUnlanded, StringComparison.Ordinal),
                         "The reason survives reopen");
+                    DatabaseAssert.True(unlandedAfter.ReconciledUtc.HasValue, "The reconciliation marker time survives reopen");
+                    DatabaseAssert.Equal(TerminalVoyageMissionRule.ReasonWorkUnlanded, unlandedAfter.ReconciledReason, "The reconciliation marker code survives reopen");
+                    DatabaseAssert.True(TerminalVoyageMissionRule.IsReconciledOutcome(unlandedAfter), "The reopened row is a reconciled outcome");
+                    DatabaseAssert.True(!landedAfter.ReconciledUtc.HasValue, "Landed work carries no reconciliation marker");
                     DatabaseAssert.True(unlandedAfter.CompletedUtc.HasValue, "Completion time is recorded");
                     DatabaseAssert.Equal(MissionStatusEnum.WorkProduced,
                         DatabaseAssert.NotNull(await reopened.Missions.ReadAsync(inFlight.Id, token).ConfigureAwait(false), "In-flight mission").Status,

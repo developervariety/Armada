@@ -74,8 +74,38 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
-        /// The failure reason recorded on a mission this rule moved to Failed or Cancelled. It is the only
-        /// writer of that text; <see cref="IsReconciledFailureReason"/> is the only reader.
+        /// Record that this rule moved a mission to Failed or Cancelled. It is the only writer of the durable
+        /// marker (<see cref="Mission.ReconciledUtc"/> and <see cref="Mission.ReconciledReason"/>) and it also
+        /// writes the human-readable failure reason. The marker decides the outcome, so any later writer may
+        /// replace the reason text without returning the mission to recovery.
+        /// </summary>
+        /// <param name="mission">Mission being moved to its terminal status.</param>
+        /// <param name="voyageStatus">Status of the ended voyage.</param>
+        /// <param name="reason">One of the unlanded reason codes.</param>
+        /// <param name="nowUtc">Time of the reconciliation.</param>
+        public static void RecordReconciledOutcome(Mission mission, VoyageStatusEnum voyageStatus, string reason, DateTime nowUtc)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            mission.FailureReason = FormatReconciledFailureReason(voyageStatus, reason, mission.FailureReason);
+            mission.ReconciledUtc = nowUtc;
+            mission.ReconciledReason = reason;
+        }
+
+        /// <summary>
+        /// Remove the reconciliation marker from a mission that is leaving its terminal status, so a later
+        /// failure of its own is recovered normally.
+        /// </summary>
+        /// <param name="mission">Mission being restarted.</param>
+        public static void ClearReconciledOutcome(Mission mission)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            mission.ReconciledUtc = null;
+            mission.ReconciledReason = null;
+        }
+
+        /// <summary>
+        /// The failure reason text recorded on a mission this rule moved to Failed or Cancelled. It is written
+        /// for people; no decision reads it.
         /// </summary>
         /// <param name="voyageStatus">Status of the ended voyage.</param>
         /// <param name="reason">One of the unlanded reason codes.</param>
@@ -91,7 +121,9 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Whether a failure reason was written by <see cref="FormatReconciledFailureReason"/>.
+        /// Whether a failure reason was written by <see cref="FormatReconciledFailureReason"/>. No runtime
+        /// decision reads it. It defines which rows written before the marker existed the schema backfill
+        /// marks; each provider's backfill SQL must select exactly the rows this method accepts.
         /// </summary>
         /// <param name="failureReason">Mission failure reason.</param>
         /// <returns>True when the reason ends, before any previous reason, in an unlanded reason code.</returns>
@@ -114,15 +146,44 @@ namespace Armada.Core.Services
         /// <summary>
         /// Whether a mission reached its status through this rule rather than through a failure of its own.
         /// Such a mission is a record of an ended voyage: recovery must not open an incident for it, rescue
-        /// it, defer a rescue, or write to it.
+        /// it, defer a rescue, or write to it. The decision reads only the durable marker, never the failure
+        /// reason text, so rewriting the reason cannot change it.
         /// </summary>
         /// <param name="status">Mission status.</param>
-        /// <param name="failureReason">Mission failure reason.</param>
-        /// <returns>True for a Failed or Cancelled mission whose reason this rule wrote.</returns>
-        public static bool IsReconciledOutcome(MissionStatusEnum status, string? failureReason)
+        /// <param name="reconciledUtc">Marker time recorded by <see cref="RecordReconciledOutcome"/>.</param>
+        /// <param name="reconciledReason">Marker reason code recorded by <see cref="RecordReconciledOutcome"/>.</param>
+        /// <returns>True for a Failed or Cancelled mission that carries a reconciliation marker.</returns>
+        public static bool IsReconciledOutcome(MissionStatusEnum status, DateTime? reconciledUtc, string? reconciledReason)
         {
             return (status == MissionStatusEnum.Failed || status == MissionStatusEnum.Cancelled)
-                && IsReconciledFailureReason(failureReason);
+                && reconciledUtc.HasValue
+                && reconciledReason != null
+                && Array.IndexOf(_UnlandedReasons, reconciledReason) >= 0;
+        }
+
+        /// <summary>
+        /// Whether a mission reached its status through this rule. See
+        /// <see cref="IsReconciledOutcome(MissionStatusEnum, DateTime?, string?)"/>.
+        /// </summary>
+        /// <param name="mission">Mission.</param>
+        /// <returns>True for a Failed or Cancelled mission that carries a reconciliation marker.</returns>
+        public static bool IsReconciledOutcome(Mission mission)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            return IsReconciledOutcome(mission.Status, mission.ReconciledUtc, mission.ReconciledReason);
+        }
+
+        /// <summary>
+        /// Whether a mission summary describes a mission that reached its status through this rule, so a sweep
+        /// can decide without reading the full row. See
+        /// <see cref="IsReconciledOutcome(MissionStatusEnum, DateTime?, string?)"/>.
+        /// </summary>
+        /// <param name="summary">Mission summary.</param>
+        /// <returns>True for a Failed or Cancelled mission that carries a reconciliation marker.</returns>
+        public static bool IsReconciledOutcome(MissionSummary summary)
+        {
+            if (summary == null) throw new ArgumentNullException(nameof(summary));
+            return IsReconciledOutcome(summary.Status, summary.ReconciledUtc, summary.ReconciledReason);
         }
 
         /// <summary>

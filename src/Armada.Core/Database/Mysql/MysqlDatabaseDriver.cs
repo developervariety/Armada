@@ -667,7 +667,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(88, "Persist preparation claim observations", TableQueries.MigrationV88Statements),
                 new SchemaMigration(89, "Persist lane state transitions and Check slot requests", TableQueries.MigrationV89Statements),
                 new SchemaMigration(90, "Persist configuration record ownership", TableQueries.MigrationV90Statements),
-                new SchemaMigration(91, "Persist Harbor job records", TableQueries.MigrationV91Statements)
+                new SchemaMigration(91, "Persist Harbor job records", TableQueries.MigrationV91Statements),
+                new SchemaMigration(92, "Record terminal-voyage reconciliation on the mission row", TableQueries.MigrationV92Statements)
             };
         }
 

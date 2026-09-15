@@ -59,6 +59,13 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - One rule writes the reconciliation failure reason and recognises it, so the
   reconciler and every reader cannot drift apart. A genuine failure under a
   Failed voyage keeps its normal incident and rescue.
+- Reconciliation now records a durable marker on the mission row
+  (`reconciled_utc` and `reconciled_reason`), and the rule decides from that
+  marker, not from the failure reason text. A later writer that replaces the
+  reason no longer returns the mission to recovery. The reason text is still
+  written for people. Restarting the mission clears the marker. The migration
+  (SQLite 100, PostgreSQL 101, MySQL 92, SQL Server 95) backfills the marker on
+  existing Failed and Cancelled missions whose reason the rule recognised.
 
 ### WebSocket command events reach the record's owner
 
