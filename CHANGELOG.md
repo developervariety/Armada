@@ -1999,6 +1999,11 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   ledger table reference, and names the member that changed or disappeared. A
   new member with a new migration now passes; before, every addition to the
   MySQL query file failed the check.
+- The migration source check also protects statements that historical
+  migrations take from shared schema classes, on all four providers, and names
+  the changed, missing or renamed member. `--explain` reports whether a changed
+  declaration kept identical statement content and changed only its
+  description or member names.
 - Add repeat-startup and non-default Mission persistence cases to the existing
   database runner. Raise schema checks to the preserved fork baseline.
 - Record fresh-install failures for three server providers and unresolved

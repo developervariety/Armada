@@ -27,14 +27,17 @@ vendor, built-output and archive exclusions. This is a path/capability census,
 not a review of every line or proof of runtime behavior.
 
 [The migration manifest](fork-migrations.json) records every declared version,
-its existing description (semantic owner), source path and token digest. It
-also records the token digest of each referenced MySQL and SQL Server
-`TableQueries` member. Its fixed baseline is the full commit ID in
-`baselineCommit`, the deployed main commit. Before that baseline was written,
-every referenced member body at `24a23b966` was compared with it token for
-token (78 MySQL and 14 SQL Server members); none differed. The 274
-declarations present at `24a23b966` also match the original fork review
-commit.
+its existing description (semantic owner), source path and token digest. For
+each protected declaration, and for the MySQL and SQL Server initial
+statements, it also lists every class member that supplies statements, in the
+order the gate reaches them, with two digests: the exact member tokens, and
+the statement content with member, local and parameter names made neutral. Its
+fixed baseline is the full commit ID in `baselineCommit`, the deployed main
+commit. Before that baseline was written, every declaration protected at
+`24a23b966` was compared with it: all 274 declarations, 67 MySQL member
+references and the 11 MySQL and 14 SQL Server initial-statement members were
+identical. The 274 declarations present at `24a23b966` also match the original
+fork review commit.
 
 | Provider | Declarations | Maximum | Minimum new version at this checkpoint |
 | --- | ---: | ---: | ---: |
@@ -56,19 +59,32 @@ python3 scripts/common/verify-fork-migrations.py
 python3 scripts/common/test-verify-fork-migrations.py
 ```
 
-The gate rejects changed, removed or reused historical declarations. For
-MySQL and SQL Server it also protects the initial statement assembly and each
-`TableQueries` member that a protected declaration, that assembly or the
-ledger table references, including members those members reference. Each
-member has its own digest, and a failure names the member that changed or
-disappeared. A new member with a new migration passes. Comments and C# spacing
-outside string literals do not affect hashes; SQL string contents do. Fifteen
-controls run in a scratch Git repository against a manifest written there, so
-they measure the rules and not the committed baseline. They cover an unchanged
-tree, changed SQL, removed history, a duplicate version, a reused gap, accepted
-append, both providers' referenced SQL and assembly, a new member with its
-migration on both providers, and an edited, an indirectly referenced and a
-removed MySQL member. The pinned upstream tree is rejected. This is a source check,
+The gate rejects changed, removed or reused historical declarations. On all
+four providers it also protects every class member under
+`src/Armada.Core/Database` that supplies statements to a protected
+declaration: fields, properties and methods, in the provider's own classes or
+in shared schema classes, including members those members use. For MySQL and
+SQL Server it also protects the initial statement assembly and the members it
+and the ledger table use. A failure names the member that changed, disappeared
+or was renamed. A new member with a new migration passes. Comments and C#
+spacing outside string literals do not affect hashes; SQL string contents do.
+
+`--explain` classifies each changed protected declaration. It states whether
+the statement content is unchanged, whether the description changed, which
+member names changed, and in which members only declared names changed. The
+content digest ignores member, local, parameter and single lambda-parameter
+names but keeps every other identifier, so a changed external name still reads
+as a content change. A rename with unchanged content still fails; accepting it
+means a reviewed manifest rewrite.
+
+Nineteen controls run in a scratch Git repository against a manifest written
+there, so they measure the rules and not the committed baseline. They cover an
+unchanged tree, changed SQL, removed history, a duplicate version, a reused
+gap, accepted append, both providers' referenced SQL and assembly, a new
+member with its migration on MySQL and SQL Server, an edited, an indirectly
+referenced and a removed MySQL member, an edited shared schema member named on
+every provider, an edited external MySQL schema member, and `--explain` on a
+rename-only change and on a rename with a content change. The pinned upstream tree is rejected. This is a source check,
 not a SQL parser, migration-runner check or security boundary. It does not
 protect unrelated service behavior. Keep the reviewed manifest fixed; do not
 regenerate it to accept a port. `--write-manifest --ref <fixed-commit>` is for

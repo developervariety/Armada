@@ -13,15 +13,28 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / 'docs/upstream-review/fork-migrations.json'
+DATABASE = 'src/Armada.Core/Database'
 SOURCES = {
-    provider: f'src/Armada.Core/Database/{provider}/Queries/TableQueries.cs'
+    provider: f'{DATABASE}/{provider}/Queries/TableQueries.cs'
     for provider in ('Sqlite', 'Postgresql', 'SqlServer')
 }
-SOURCES['Mysql'] = 'src/Armada.Core/Database/Mysql/MysqlDatabaseDriver.cs'
-MYSQL_DDL = 'src/Armada.Core/Database/Mysql/Queries/TableQueries.cs'
+SOURCES['Mysql'] = f'{DATABASE}/Mysql/MysqlDatabaseDriver.cs'
+# The class that holds each provider's declarations; bare member names in a declaration resolve there.
+CONTEXT_CLASS = {'Sqlite': 'TableQueries', 'Postgresql': 'TableQueries', 'SqlServer': 'TableQueries', 'Mysql': 'MysqlDatabaseDriver'}
+INITIALIZERS = {'Mysql': 'private static List<SchemaMigration> GetMigrations()', 'SqlServer': 'GetMigrations()'}
 # The migration runner creates its ledger table from this member before any migration runs.
-LEDGER_MEMBER = 'SchemaMigrations'
+LEDGER = ['TableQueries', '.', 'SchemaMigrations']
+HEAD_FIELDS = ('version', 'description', 'sha256')
 TOKEN = re.compile(r'//[^\n]*|/\*[\s\S]*?\*/|@"(?:[^"]|"")*"|"(?:\\.|[^"\\])*"|\x27(?:\\.|[^\x27\\])*\x27|[A-Za-z_][A-Za-z_0-9]*|[0-9]+|[^\s]', re.MULTILINE)
+DIRECTIVE = re.compile(r'^[ \t]*#[ \t]*(?:region|endregion|if|elif|else|endif|pragma|nullable|define|undef|warning|error|line)\b.*$', re.MULTILINE)
+IDENT = re.compile(r'[A-Za-z_][A-Za-z_0-9]*$')
+MODIFIERS = {'public', 'private', 'internal', 'protected', 'static', 'readonly', 'const', 'partial', 'override',
+             'virtual', 'sealed', 'extern', 'unsafe', 'volatile', 'abstract', 'async'}
+KEYWORDS = {'return', 'new', 'in', 'case', 'throw', 'else', 'is', 'as', 'out', 'ref', 'await', 'yield', 'using',
+            'goto', 'when', 'where', 'select', 'from', 'not', 'and', 'or', 'typeof', 'nameof', 'sizeof', 'default',
+            'checked', 'unchecked', 'lock', 'if', 'while', 'for', 'foreach', 'switch', 'catch', 'do', 'try', 'finally',
+            'break', 'continue', 'operator', 'this', 'base', 'null', 'true', 'false', 'orderby', 'group', 'by',
+            'into', 'let', 'join', 'on', 'equals', 'ascending', 'descending'}
 
 
 def tokens(source):
@@ -66,114 +79,361 @@ def declarations(source):
     return result
 
 
-def members(source):
-    """Map each static readonly member of the TableQueries class to its name-through-semicolon tokens."""
-    items = tokens(source)
-    for start in range(len(items) - 2):
-        if items[start:start + 3] == ['class', 'TableQueries', '{']:
-            break
-    else:
-        raise ValueError('TableQueries class not found')
-    result = {}
-    depth = 1
-    index = start + 3
-    while index < len(items) and depth:
-        item = items[index]
-        if item == '{':
-            depth += 1
-        elif item == '}':
-            depth -= 1
-        elif depth == 1 and item == 'static' and items[index + 1:index + 2] == ['readonly']:
-            equals = items.index('=', index)
-            name = items[equals - 1]
-            nesting = 0
-            end = equals
-            while end < len(items) and not (items[end] == ';' and nesting == 0):
-                if items[end] in '({':
-                    nesting += 1
-                elif items[end] in ')}':
-                    nesting -= 1
-                end += 1
-            if end == len(items):
-                raise ValueError(f'Unterminated TableQueries member {name}')
-            if name in result:
-                raise ValueError(f'Duplicate TableQueries member {name}')
-            result[name] = items[equals - 1:end + 1]
-            index = end
-        index += 1
-    return result
-
-
-def referenced_names(items, names):
-    """Member names used as `TableQueries.Name` or as a bare identifier (same-class use)."""
-    found = []
-    for index, item in enumerate(items):
-        if item not in names or item in found:
-            continue
-        qualified = index >= 2 and items[index - 1] == '.' and items[index - 2] == 'TableQueries'
-        if qualified or (index == 0 or items[index - 1] != '.'):
-            found.append(item)
-    return found
-
-
-def referenced_members(ddl_source, root_items):
-    """Digest every TableQueries member the roots reference, following member-to-member references."""
-    bodies = members(ddl_source)
-    pending = referenced_names(root_items + [LEDGER_MEMBER], bodies)
-    protected = []
-    while pending:
-        name = pending.pop(0)
-        if name in protected:
-            continue
-        protected.append(name)
-        pending.extend(referenced_names(bodies[name][1:], bodies))
-    order = list(bodies)
-    return {name: digest(bodies[name]) for name in sorted(protected, key=order.index)}
-
-
 def read_source(path, ref, root):
     if ref:
         return subprocess.check_output(['git', 'show', f'{ref}:{path}'], cwd=root).decode()
     return (root / path).read_text()
 
 
-def initializer_items(source, marker):
-    return tokens(source.split(marker, 1)[1].split('new SchemaMigration', 1)[0])
+def read_database_tree(ref, root):
+    """Every C# source under the database folder, from a Git tree or the working files."""
+    if not ref:
+        return {path.relative_to(root).as_posix(): path.read_text()
+                for path in (root / DATABASE).rglob('*.cs') if not path.name.startswith('._')}
+    names = [name for name in subprocess.check_output(['git', 'ls-tree', '-r', '--name-only', ref, '--', DATABASE],
+                                                      cwd=root, text=True).splitlines() if name.endswith('.cs')]
+    output = subprocess.run(['git', 'cat-file', '--batch'], input=''.join(f'{ref}:{name}\n' for name in names).encode(),
+                            cwd=root, capture_output=True, check=True).stdout
+    files = {}
+    position = 0
+    for name in names:
+        end = output.index(b'\n', position)
+        header = output[position:end].split()
+        if header[-1] == b'missing':
+            raise ValueError(f'{name} is missing from {ref}')
+        size = int(header[2])
+        files[name] = output[end + 1:end + 1 + size].decode()
+        position = end + 1 + size + 1
+    return files
 
 
-def collect(ref, root, protected_versions=None):
-    """Read declarations and the referenced DDL inputs; protected_versions limits the reference roots."""
-    current = {provider: declarations(read_source(path, ref, root)) for provider, path in SOURCES.items()}
+def matching_brace(items, opening):
+    depth = 0
+    for index in range(opening, len(items)):
+        if items[index] == '{':
+            depth += 1
+        elif items[index] == '}':
+            depth -= 1
+            if not depth:
+                return index
+    raise ValueError('Unbalanced braces')
 
-    def roots(provider, initializer):
-        limit = None if protected_versions is None else protected_versions[provider]
-        items = list(initializer)
-        for row in current[provider]:
+
+def class_bodies(items, name):
+    return [(items.index('{', index + 2), matching_brace(items, items.index('{', index + 2)))
+            for index in range(len(items) - 1) if items[index] == 'class' and items[index + 1] == name]
+
+
+def name_before(items, index):
+    """Index of the identifier before position index, skipping a generic parameter list."""
+    index -= 1
+    if items[index] == '>':
+        depth = 0
+        while index >= 0:
+            if items[index] == '>':
+                depth += 1
+            elif items[index] == '<':
+                depth -= 1
+                if not depth:
+                    break
+            index -= 1
+        index -= 1
+    return index
+
+
+def split_members(items, opening, closing):
+    """Yield (name, tokens without leading modifiers, name index) for each member of a class body."""
+    index = opening + 1
+    while index < closing:
+        start = index
+        depth = 0
+        assigned = False
+        name = None
+        while index < closing:
+            item = items[index]
+            if item == '{' and not depth and not assigned:
+                if name is None:
+                    name = name_before(items, index)
+                index = matching_brace(items, index) + 1
+                if index < closing and items[index] == '=':
+                    assigned = True
+                    continue
+                break
+            if item in ('(', '[', '{'):
+                if item == '(' and not depth and name is None and not assigned:
+                    name = name_before(items, index)
+                depth += 1
+            elif item in (')', ']', '}'):
+                depth -= 1
+            elif not depth and item == '=' and not assigned:
+                assigned = True
+                if name is None:
+                    name = index - 1
+            elif not depth and item == ';':
+                if name is None:
+                    name = index - 1
+                index += 1
+                break
+            index += 1
+        if name is None or name < start:
+            continue
+        skip = start
+        while skip < name and items[skip] in MODIFIERS:
+            skip += 1
+        yield items[name], items[skip:index], name - skip
+
+
+def generic_close(items, index):
+    depth = 0
+    for position in range(index, max(index - 16, -1), -1):
+        item = items[position]
+        if item == '>':
+            depth += 1
+        elif item == '<':
+            depth -= 1
+            if not depth:
+                return position > 0 and IDENT.match(items[position - 1]) is not None
+        elif not (IDENT.match(item) or item in (',', '.', '[', ']', '?')):
+            return False
+    return False
+
+
+def declared_locals(items):
+    """Names declared inside a member: locals, parameters and single lambda parameters."""
+    found = []
+    for index in range(1, len(items) - 1):
+        item = items[index]
+        if not IDENT.match(item) or item in KEYWORDS or items[index - 1] == '.':
+            continue
+        before, after = items[index - 1], items[index + 1]
+        further = items[index + 2] if index + 2 < len(items) else ''
+        if after == '=' and further == '>':
+            declared = before in ('(', ',')
+        elif after == '=' and further == '=':
+            declared = False
+        elif after in ('=', ';', ',', ')', 'in'):
+            declared = ((IDENT.match(before) is not None and before not in KEYWORDS) or before == ']'
+                        or (before == '>' and generic_close(items, index - 1)))
+        else:
+            declared = False
+        if declared and item not in found:
+            found.append(item)
+    return found
+
+
+class DatabaseTree:
+    """Resolves class members referenced by migration declarations within one source tree."""
+
+    def __init__(self, ref, root):
+        self.files = read_database_tree(ref, root)
+        self._items = {}
+        self._candidates = None
+        self._classes = {}
+        self._members = {}
+
+    def text(self, path):
+        if path not in self.files:
+            raise ValueError(f'{path} not found')
+        return self.files[path]
+
+    def items(self, path):
+        if path not in self._items:
+            self._items[path] = tokens(DIRECTIVE.sub('', self.text(path)))
+        return self._items[path]
+
+    def resolve_class(self, name, provider):
+        if self._candidates is None:
+            self._candidates = {}
+            for path, text in self.files.items():
+                for candidate in set(re.findall(r'\bclass\s+([A-Za-z_][A-Za-z_0-9]*)', text)):
+                    self._candidates.setdefault(candidate, []).append(path)
+        key = (name, provider)
+        if key not in self._classes:
+            paths = sorted(path for path in self._candidates.get(name, ())
+                           if class_bodies(self.items(path), name))
+            scoped = [path for path in paths if path.startswith(f'{DATABASE}/{provider}/')] or paths
+            folders = {path.rsplit('/', 1)[0] for path in scoped}
+            if len(folders) > 1:
+                raise ValueError(f'Class {name} is ambiguous for {provider}: {", ".join(sorted(folders))}')
+            self._classes[key] = (name, tuple(scoped)) if scoped else None
+        return self._classes[key]
+
+    def members(self, cls):
+        if cls not in self._members:
+            result = {}
+            name, paths = cls
+            for path in paths:
+                items = self.items(path)
+                for opening, closing in class_bodies(items, name):
+                    for member, member_items, name_index in split_members(items, opening, closing):
+                        result.setdefault(member, []).append((member_items, name_index))
+            self._members[cls] = result
+        return self._members[cls]
+
+    def references(self, items, provider, context):
+        """Yield (qualifier index or None, member index, class, member) for each class member reference."""
+        context_members = self.members(context)
+        for index, item in enumerate(items):
+            if not IDENT.match(item) or item in KEYWORDS or (index and items[index - 1] == '.'):
+                continue
+            if items[index + 1:index + 2] == ['.'] and index + 2 < len(items) and IDENT.match(items[index + 2]):
+                cls = self.resolve_class(item, provider)
+                if cls is not None:
+                    yield index, index + 2, cls, items[index + 2]
+                    continue
+            if item in context_members:
+                yield None, index, context, item
+
+    def normalize(self, provider, cls, items, name_index, enqueue):
+        """Replace member references, the member's own name and names it declares with positional placeholders."""
+        output = list(items)
+        replaced = set()
+        placeholders = {}
+        edges = []
+        for qualifier, index, target, member in self.references(items, provider, cls):
+            if index == name_index:
+                continue
+            key = (target, member)
+            if key not in placeholders:
+                placeholders[key] = f'R{len(placeholders) + 1}'
+                edges.append(str(enqueue(key)))
+            if qualifier is not None:
+                output[qualifier] = 'CLASS'
+                replaced.add(qualifier)
+            output[index] = placeholders[key]
+            replaced.add(index)
+        own = None
+        if name_index is not None:
+            own = items[name_index]
+            output[name_index] = 'SELF'
+            replaced.add(name_index)
+        local_names = {}
+        for name in declared_locals(items):
+            if name != own:
+                local_names.setdefault(name, f'L{len(local_names) + 1}')
+        for index, item in enumerate(items):
+            if index not in replaced and item in local_names and (not index or items[index - 1] != '.'):
+                output[index] = local_names[item]
+        return output, edges
+
+    def statements(self, provider, root_items, context):
+        """Digest the statement content a root reaches and list each referenced member in discovery order."""
+        order = []
+        positions = {}
+
+        def enqueue(key):
+            if key not in positions:
+                positions[key] = len(order)
+                order.append(key)
+            return positions[key]
+
+        root, edges = self.normalize(provider, context, root_items, None, enqueue)
+        shape = root + ['|'] + edges
+        entries = []
+        position = 0
+        while position < len(order):
+            cls, member = order[position]
+            position += 1
+            display = f'{cls[0]}.{member}'
+            parts = self.members(cls).get(member)
+            if parts is None:
+                entries.append({'member': display, 'sha256': None, 'contentSha256': None})
+                shape += ['|', 'missing']
+                continue
+            exact, content, member_edges = [], [], []
+            for member_items, name_index in parts:
+                exact += member_items
+                normalized, part_edges = self.normalize(provider, cls, member_items, name_index, enqueue)
+                content += normalized
+                member_edges += part_edges
+            entry = {'member': display, 'sha256': digest(exact), 'contentSha256': digest(content)}
+            entries.append(entry)
+            shape += ['|', entry['contentSha256']] + member_edges
+        return digest(shape), entries
+
+
+def collect(ref, root, limits=None):
+    """Declarations per provider, with statement content for versions at or below limits (all when None)."""
+    tree = DatabaseTree(ref, root)
+    result = {}
+    for provider, path in SOURCES.items():
+        source = tree.text(path)
+        context = tree.resolve_class(CONTEXT_CLASS[provider], provider)
+        if context is None:
+            raise ValueError(f'{CONTEXT_CLASS[provider]} not found for {provider}')
+        limit = None if limits is None else limits.get(provider)
+        rows = []
+        for row in declarations(source):
+            entry = {field: row[field] for field in HEAD_FIELDS}
             if limit is None or row['version'] <= limit:
-                items.extend(row['tokens'])
-        return items
-
-    mysql_source = read_source(SOURCES['Mysql'], ref, root)
-    mysql_initializer = initializer_items(mysql_source, 'private static List<SchemaMigration> GetMigrations()')
-    sqlserver_source = read_source(SOURCES['SqlServer'], ref, root)
-    sqlserver_initializer = initializer_items(sqlserver_source, 'GetMigrations()')
-    referenced = {
-        'referencedMysqlDdl': {
-            'source': MYSQL_DDL,
-            'initializerSha256': digest(mysql_initializer),
-            'members': referenced_members(read_source(MYSQL_DDL, ref, root), roots('Mysql', mysql_initializer))},
-        'referencedSqlServerDdl': {
-            'source': SOURCES['SqlServer'],
-            'initializerSha256': digest(sqlserver_initializer),
-            'members': referenced_members(sqlserver_source, roots('SqlServer', sqlserver_initializer))},
-    }
-    return current, referenced
+                statement_items = row['tokens'][:5] + row['tokens'][6:]
+                entry['statementSha256'], entry['statements'] = tree.statements(provider, statement_items, context)
+            rows.append(entry)
+        initial = None
+        if provider in INITIALIZERS:
+            items = tokens(source.split(INITIALIZERS[provider], 1)[1].split('new SchemaMigration', 1)[0])
+            statement_sha, entries = tree.statements(provider, items + LEDGER, context)
+            initial = {'initializerSha256': digest(items), 'statementSha256': statement_sha, 'statements': entries}
+        result[provider] = {'rows': rows, 'initial': initial}
+    return result
 
 
-def ddl_members(ref, root, key):
-    """Current digests of every TableQueries member, for comparison against the manifest."""
-    path = MYSQL_DDL if key == 'referencedMysqlDdl' else SOURCES['SqlServer']
-    return {name: digest(body) for name, body in members(read_source(path, ref, root)).items()}
+def compare_statements(label, saved, now):
+    """Name each referenced statement member that changed, disappeared or was renamed."""
+    old, new = saved['statements'], now['statements']
+    failures = []
+    if len(old) == len(new):
+        for before, after in zip(old, new):
+            if after['sha256'] is None:
+                failures.append(f"{label} statement member {after['member']} disappeared")
+            elif before['member'] != after['member']:
+                if before['contentSha256'] == after['contentSha256']:
+                    failures.append(f"{label} statement member {before['member']} renamed to {after['member']}; statement content unchanged")
+                else:
+                    failures.append(f"{label} statement member {before['member']} changed and renamed to {after['member']}")
+            elif before['contentSha256'] != after['contentSha256']:
+                failures.append(f"{label} statement member {before['member']} changed")
+            elif before['sha256'] != after['sha256']:
+                failures.append(f"{label} statement member {before['member']} changed names only; statement content unchanged")
+    else:
+        found = {entry['member']: entry for entry in new}
+        for before in old:
+            after = found.get(before['member'])
+            if after is None or after['sha256'] is None:
+                failures.append(f"{label} statement member {before['member']} disappeared")
+            elif before['contentSha256'] != after['contentSha256']:
+                failures.append(f"{label} statement member {before['member']} changed")
+        known = {entry['member'] for entry in old}
+        failures += [f"{label} references new statement member {entry['member']}" for entry in new if entry['member'] not in known]
+    if not failures and saved['statementSha256'] != now['statementSha256']:
+        failures.append(f'{label} statement content changed outside referenced member bodies')
+    return failures
+
+
+def explain(label, saved, now):
+    """Classify a changed declaration: description, names, or statement content."""
+    if now is None:
+        return f'EXPLAIN: {label}: declaration disappeared'
+    old, new = saved['statements'], now['statements']
+    parts = []
+    if saved['statementSha256'] == now['statementSha256']:
+        parts.append('statement content unchanged')
+    else:
+        if len(old) == len(new):
+            changed = [after['member'] for before, after in zip(old, new) if before['contentSha256'] != after['contentSha256']]
+        else:
+            changed = sorted({entry['member'] for entry in new} ^ {entry['member'] for entry in old})
+        parts.append('statement content changed in ' + (', '.join(changed) if changed else 'the declaration or its references'))
+    if 'description' in saved:
+        parts.append('description changed' if saved['description'] != now['description'] else 'description unchanged')
+    renames = [f"{before['member']} -> {after['member']}" for before, after in zip(old, new)
+               if len(old) == len(new) and before['member'] != after['member']]
+    parts.append('names changed: ' + (', '.join(renames) if renames else 'none'))
+    local = [after['member'] for before, after in zip(old, new) if len(old) == len(new) and after['sha256']
+             and before['contentSha256'] == after['contentSha256'] and before['sha256'] != after['sha256']]
+    if local:
+        parts.append('declared names changed inside: ' + ', '.join(local))
+    return f"EXPLAIN: {label}: {'; '.join(parts)}"
 
 
 def main():
@@ -181,46 +441,63 @@ def main():
     parser.add_argument('--ref', help='Check a Git tree instead of working files')
     parser.add_argument('--root', type=Path, default=ROOT, help='Source checkout or isolated candidate tree')
     parser.add_argument('--write-manifest', action='store_true', help='Generate the initial manifest from an explicit fixed --ref')
+    parser.add_argument('--explain', action='store_true',
+                        help='Classify each changed protected declaration as a description, name or statement content change')
     args = parser.parse_args()
     if args.write_manifest and not args.ref:
         parser.error('--write-manifest requires an explicit fixed --ref')
     try:
         if args.write_manifest:
-            current, referenced = collect(args.ref, args.root)
+            current = collect(args.ref, args.root)
             commit = subprocess.check_output(['git', 'rev-parse', args.ref], cwd=args.root, text=True).strip()
-            providers = {provider: {'source': SOURCES[provider], 'maximumVersion': rows[-1]['version'],
-                                    'migrations': [{key: row[key] for key in ('version', 'description', 'sha256')}
-                                                   for row in rows]}
-                         for provider, rows in current.items()}
+            providers = {}
+            for provider, found in current.items():
+                providers[provider] = {'source': SOURCES[provider], 'maximumVersion': found['rows'][-1]['version'],
+                                       'migrations': found['rows']}
+                if found['initial'] is not None:
+                    providers[provider]['initialStatements'] = found['initial']
             MANIFEST.write_text(json.dumps({'baselineCommit': commit, 'scope': 'Immutable declarations; not provider runtime proof',
-                'providers': providers, **referenced}, indent=2) + '\n')
+                                            'providers': providers}, indent=2) + '\n')
             print('Wrote fixed migration manifest')
             return 0
         baseline = json.loads(MANIFEST.read_text())
-        current, referenced = collect(args.ref, args.root)
+        limits = {provider: saved['maximumVersion'] for provider, saved in baseline['providers'].items()}
+        current = collect(args.ref, args.root, limits)
         failures = []
+        explanations = []
         for provider, saved in baseline['providers'].items():
-            found = {row['version']: {key: row[key] for key in ('version', 'description', 'sha256')}
-                     for row in current[provider]}
+            found = {row['version']: row for row in current[provider]['rows']}
             expected = {row['version']: row for row in saved['migrations']}
+            members = set()
             for version, row in expected.items():
-                if found.get(version) != row:
-                    failures.append(f'{provider} historical migration {version} changed or disappeared')
+                now = found.get(version)
+                label = f'{provider} historical migration {version}'
+                changed = []
+                if now is None or {field: now[field] for field in HEAD_FIELDS} != {field: row[field] for field in HEAD_FIELDS}:
+                    changed.append(f'{label} changed or disappeared')
+                if now is not None:
+                    changed += compare_statements(label, row, now)
+                    members.update(entry['member'] for entry in now['statements'])
+                failures += changed
+                if args.explain and changed:
+                    explanations.append(explain(f'{provider} {version}', row, now))
             for version in found.keys() - expected.keys():
                 if version <= saved['maximumVersion']:
                     failures.append(f'{provider} reuses historical migration slot {version}')
-            print(f"{provider}: {len(current[provider])} declarations; maximum {max(found)}; protected {len(expected)}")
-        for key, provider, label in (('referencedMysqlDdl', 'Mysql', 'MySQL'), ('referencedSqlServerDdl', 'SqlServer', 'SQL Server')):
-            saved = baseline[key]
-            if referenced[key]['initializerSha256'] != saved['initializerSha256']:
-                failures.append(f'{label} historical initial statement assembly changed')
-            found = ddl_members(args.ref, args.root, key)
-            for name, sha in saved['members'].items():
-                if name not in found:
-                    failures.append(f'{provider} referenced TableQueries member {name} disappeared')
-                elif found[name] != sha:
-                    failures.append(f'{provider} referenced TableQueries member {name} changed; append feature SQL in a new member and migration')
-            print(f"{provider} TableQueries: {len(found)} members; protected {len(saved['members'])}")
+            print(f"{provider}: {len(found)} declarations; maximum {max(found)}; protected {len(expected)}; "
+                  f"statement members {len(members)}")
+            if 'initialStatements' in saved:
+                label = f'{provider} initial statements'
+                now = current[provider]['initial']
+                changed = []
+                if now['initializerSha256'] != saved['initialStatements']['initializerSha256']:
+                    changed.append(f'{provider} historical initial statement assembly changed')
+                changed += compare_statements(label, saved['initialStatements'], now)
+                failures += changed
+                if args.explain and changed:
+                    explanations.append(explain(label, saved['initialStatements'], now))
+        for line in explanations:
+            print(line)
         for failure in failures:
             print('FAIL: ' + failure, file=sys.stderr)
         if failures:
