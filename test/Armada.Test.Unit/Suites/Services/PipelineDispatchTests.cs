@@ -3182,8 +3182,15 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<string?> GetHeadCommitHashAsync(string worktreePath, CancellationToken token = default) => Task.FromResult<string?>("abc123def456");
 
             /// <inheritdoc />
+            /// <summary>
+            /// Files the simulated captain changed since its dock was provisioned. A producing stage in
+            /// these pipelines stands for a captain that committed, so one changed file is the default.
+            /// </summary>
+            public IReadOnlyList<string> ChangedFilesSinceResult { get; set; } = new string[] { "src/Simulated/Change.cs" };
+
+            /// <inheritdoc />
             public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default)
-                => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+                => Task.FromResult(ChangedFilesSinceResult);
 
             /// <inheritdoc />
             public Task<bool> BranchExistsAsync(string repoPath, string branchName, CancellationToken token = default)

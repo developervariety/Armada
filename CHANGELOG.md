@@ -214,6 +214,20 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - A command named by a shell variable is resolved at run time, so it is not
   probed. A genuinely missing binary, inside a loop body or outside one, is
   still reported as a blocking readiness error.
+### A claimed completion with no change is a no-op, however long it ran
+
+- The no-op completion gate now fails an Implementation mission whose persona
+  must produce a commit when nothing changed since its dock was provisioned,
+  whatever its runtime and however long its output. Before, a captain that ran
+  for minutes, narrated at length and printed the completion marker passed the
+  gate with an empty diff, and the empty result reached the pipeline as
+  progress.
+- The rule reads the same persona set as the landing gate, so reviewer stages
+  that approve without committing are untouched, and Audit and Research
+  missions stay exempt because their deliverable is a report.
+- A dock whose start commit cannot be read gives an unknown, not a proven empty
+  result. An unknown never fails a mission; the existing short-run rule still
+  decides there.
 
 ### Incident lifecycle sweep reaches every open incident
 

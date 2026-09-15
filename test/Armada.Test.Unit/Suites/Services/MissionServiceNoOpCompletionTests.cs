@@ -334,6 +334,104 @@ namespace Armada.Test.Unit.Suites.Services
                     "with a short run is its normal outcome and must be exempt like the Architect.");
             }).ConfigureAwait(false);
 
+            await RunTest("DetectNoOpCompletion_WorkerClaimedLongRunWithNoChangesSinceDockStart_Detects", () =>
+            {
+                string output = "[ARMADA:RESULT] COMPLETE\n" + new String('s', 1775);
+                Mission mission = new Mission
+                {
+                    Id = "msn_test_claimed_empty",
+                    Persona = "Worker",
+                    Mode = MissionModeEnum.Implementation,
+                    AgentOutput = output,
+                };
+                TimeSpan runtime = TimeSpan.FromMinutes(10);
+                bool detected = MissionService.DetectNoOpCompletion(mission, runtime, 0, 1800, true, false, true);
+                AssertTrue(detected,
+                    "An Implementation Worker that ran ten minutes, wrote 1,800 characters and printed the completion marker " +
+                    "but changed nothing since dock start delivered no commit. Runtime and narration length cannot stand in for the diff.");
+            }).ConfigureAwait(false);
+
+            await RunTest("DetectNoOpCompletion_DefaultPersonaClaimedLongRunWithNoChangesSinceDockStart_Detects", () =>
+            {
+                Mission mission = new Mission
+                {
+                    Id = "msn_test_claimed_empty_default",
+                    Mode = MissionModeEnum.Implementation,
+                    AgentOutput = "[ARMADA:RESULT] COMPLETE\n" + new String('s', 1775),
+                };
+                mission.Persona = null;
+                bool detected = MissionService.DetectNoOpCompletion(mission, TimeSpan.FromMinutes(10), 0, 1800, true, false, true);
+                AssertTrue(detected,
+                    "A blank persona is a Worker, so it must commit like one.");
+            }).ConfigureAwait(false);
+
+            await RunTest("DetectNoOpCompletion_WorkerClaimedLongRunWithChanges_ReturnsFalse", () =>
+            {
+                Mission mission = new Mission
+                {
+                    Id = "msn_test_claimed_changes",
+                    Persona = "Worker",
+                    Mode = MissionModeEnum.Implementation,
+                    AgentOutput = "[ARMADA:RESULT] COMPLETE\n" + new String('s', 1775),
+                };
+                bool detected = MissionService.DetectNoOpCompletion(mission, TimeSpan.FromMinutes(10), 40, 1800, true, true, true);
+                AssertFalse(detected, "A Worker that changed files since dock start produced work and must pass.");
+            }).ConfigureAwait(false);
+
+            await RunTest("DetectNoOpCompletion_ReadOnlyClaimedReportWithNoChanges_ReturnsFalse", () =>
+            {
+                foreach (MissionModeEnum mode in new MissionModeEnum[] { MissionModeEnum.Audit, MissionModeEnum.Research })
+                {
+                    Mission mission = new Mission
+                    {
+                        Id = "msn_test_readonly_report_" + mode,
+                        Persona = "Worker",
+                        Mode = mode,
+                        AgentOutput = "[ARMADA:RESULT] COMPLETE\n" + new String('s', 1775),
+                    };
+                    bool detected = MissionService.DetectNoOpCompletion(mission, TimeSpan.FromMinutes(10), 0, 1800, true, false, true);
+                    AssertFalse(detected, "A " + mode + " mission delivers a report, so an empty diff must not fail it.");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("DetectNoOpCompletion_ReviewerStagesClaimedWithNoChanges_ReturnsFalse", () =>
+            {
+                foreach (string persona in new string[] { "Judge", "Test Engineer" })
+                {
+                    string output = persona == "Judge"
+                        ? "## Completeness\n" + new String('r', 1700) + "\n[ARMADA:VERDICT] PASS"
+                        : "## Coverage Added\n" + new String('r', 1700) + "\n[ARMADA:RESULT] COMPLETE";
+                    Mission mission = new Mission
+                    {
+                        Id = "msn_test_reviewer_" + persona.Replace(" ", ""),
+                        Persona = persona,
+                        Mode = MissionModeEnum.Implementation,
+                        AgentOutput = output,
+                    };
+                    bool detected = MissionService.DetectNoOpCompletion(mission, TimeSpan.FromMinutes(10), 0, output.Length, true, false, true);
+                    AssertFalse(detected,
+                        "A " + persona + " stage is not required to commit, so the must-commit rule must not reach it.");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("DetectNoOpCompletion_WorkerClaimedLongRunWithUnknownDockStart_KeepsLegacyRule", () =>
+            {
+                Mission mission = new Mission
+                {
+                    Id = "msn_test_claimed_unknown",
+                    Persona = "Worker",
+                    Mode = MissionModeEnum.Implementation,
+                    AgentOutput = "[ARMADA:RESULT] COMPLETE\n" + new String('s', 1775),
+                };
+                bool detected = MissionService.DetectNoOpCompletion(mission, TimeSpan.FromMinutes(10), 0, 1800, true, false, true, false);
+                AssertFalse(detected,
+                    "When the dock start commit cannot be read, no change is UNKNOWN, not absent. The mission must not fail on an unknown.");
+
+                bool shortDetected = MissionService.DetectNoOpCompletion(mission, TimeSpan.FromSeconds(8), 0, 113, true, false, true, false);
+                AssertTrue(shortDetected,
+                    "With an unknown dock start the legacy short-run rule still applies.");
+            }).ConfigureAwait(false);
+
             await RunTest("BuildNoOpCompletionFailureReason_ContainsRuntimeAndOutputLength", () =>
             {
                 Mission mission = new Mission

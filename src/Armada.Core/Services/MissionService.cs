@@ -1486,7 +1486,16 @@ namespace Armada.Core.Services
         /// </summary>
         internal static bool DetectNoOpCompletion(Mission mission, TimeSpan runtime, int diffLineCount, int agentOutputLength, bool hasAgentOutput)
         {
-            return DetectNoOpCompletion(mission, runtime, diffLineCount, agentOutputLength, hasAgentOutput, diffLineCount > 0);
+            // No dock metadata reaches this overload, so an empty branch diff is unknown, not proven.
+            return DetectNoOpCompletion(
+                mission,
+                runtime,
+                diffLineCount,
+                agentOutputLength,
+                hasAgentOutput,
+                diffLineCount > 0,
+                HasCompletionMarker(mission?.AgentOutput),
+                diffLineCount > 0);
         }
 
         /// <summary>
@@ -1530,6 +1539,39 @@ namespace Armada.Core.Services
             bool hasChangesSinceDockStart,
             bool hasCompletionMarker)
         {
+            return DetectNoOpCompletion(
+                mission,
+                runtime,
+                diffLineCount,
+                agentOutputLength,
+                hasAgentOutput,
+                hasChangesSinceDockStart,
+                hasCompletionMarker,
+                true);
+        }
+
+        /// <summary>
+        /// Detect a false completion, stating whether the change read since dock start is known.
+        /// </summary>
+        /// <param name="mission">Mission under completion.</param>
+        /// <param name="runtime">Captain runtime.</param>
+        /// <param name="diffLineCount">Captured branch diff line count, kept for diagnostics.</param>
+        /// <param name="agentOutputLength">Captured AgentOutput length.</param>
+        /// <param name="hasAgentOutput">Whether a real captain wrote output.</param>
+        /// <param name="hasChangesSinceDockStart">Whether files changed since the dock was provisioned.</param>
+        /// <param name="hasCompletionMarker">Whether the captain claimed completion.</param>
+        /// <param name="dockChangesKnown">False when the dock start commit could not be read and no change was seen, so an empty result is unknown rather than proven.</param>
+        /// <returns>True when the completion is a no-op.</returns>
+        internal static bool DetectNoOpCompletion(
+            Mission mission,
+            TimeSpan runtime,
+            int diffLineCount,
+            int agentOutputLength,
+            bool hasAgentOutput,
+            bool hasChangesSinceDockStart,
+            bool hasCompletionMarker,
+            bool dockChangesKnown)
+        {
             if (mission == null) return false;
 
             // A persona whose deliverable is not a repository commit is always exempt: the
@@ -1569,6 +1611,12 @@ namespace Armada.Core.Services
             // Neither runtime nor output length can discriminate here, because a stream that
             // dies mid-run leaves a long runtime and a long truncated narration behind.
             if (!hasCompletionMarker) return true;
+
+            // A persona that must commit and changed nothing since its dock was provisioned
+            // delivered nothing, whatever it claimed. Neither runtime nor narration length can
+            // stand in for the diff. An unreadable dock start leaves the empty result unknown,
+            // so only the short-run rule below may decide then.
+            if (dockChangesKnown && PersonaMustProduceChanges(mission.Persona)) return true;
 
             // The captain claims it finished with nothing committed. That flavor of
             // false-complete ends within seconds and writes only an acknowledgment.
@@ -1782,10 +1830,11 @@ namespace Armada.Core.Services
                     : mission.DiffSnapshot.Split('\n').Length;
                 int agentOutputLength = mission.AgentOutput?.Length ?? 0;
                 bool hasAgentOutput = !String.IsNullOrEmpty(mission.AgentOutput);
-                bool hasChangesSinceDockStart = await HasChangesSinceDockStartAsync(dock, diffLineCount, token).ConfigureAwait(false);
+                bool? changesSinceDockStart = await HasChangesSinceDockStartAsync(dock, diffLineCount, token).ConfigureAwait(false);
+                bool hasChangesSinceDockStart = changesSinceDockStart == true;
                 dockProducedChanges = hasChangesSinceDockStart;
                 bool hasCompletionMarker = HasCompletionMarker(mission.AgentOutput);
-                if (DetectNoOpCompletion(mission, runtime, diffLineCount, agentOutputLength, hasAgentOutput, hasChangesSinceDockStart, hasCompletionMarker))
+                if (DetectNoOpCompletion(mission, runtime, diffLineCount, agentOutputLength, hasAgentOutput, hasChangesSinceDockStart, hasCompletionMarker, changesSinceDockStart.HasValue))
                 {
                     failedForNoOpCompletion = true;
                     mission.Status = MissionStatusEnum.Failed;
@@ -7417,11 +7466,16 @@ namespace Armada.Core.Services
             return "head equals dock start commit " + startCommit.Trim();
         }
 
-        private async Task<bool> HasChangesSinceDockStartAsync(Dock? dock, int fallbackDiffLineCount, CancellationToken token)
+        /// <summary>
+        /// Reads whether files changed since the dock was provisioned. Returns null when the dock start
+        /// commit cannot be read and the captured branch diff is empty: that is an unknown, not proof that
+        /// nothing changed, so a completion gate must not fail a mission on it.
+        /// </summary>
+        private async Task<bool?> HasChangesSinceDockStartAsync(Dock? dock, int fallbackDiffLineCount, CancellationToken token)
         {
             if (dock == null || String.IsNullOrWhiteSpace(dock.WorktreePath))
             {
-                return fallbackDiffLineCount > 0;
+                return FallbackDockChanges(fallbackDiffLineCount);
             }
 
             string? startCommit = TryReadDockStartCommit(dock.Id);
@@ -7429,7 +7483,7 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "no dock start commit metadata for " + dock.Id +
                     "; falling back to the captured branch diff for no-op validation");
-                return fallbackDiffLineCount > 0;
+                return FallbackDockChanges(fallbackDiffLineCount);
             }
 
             try
@@ -7444,8 +7498,18 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "could not compare mission changes with dock start commit for " +
                     dock.Id + ": " + ex.Message + "; falling back to the captured branch diff");
-                return fallbackDiffLineCount > 0;
+                return FallbackDockChanges(fallbackDiffLineCount);
             }
+        }
+
+        /// <summary>
+        /// The dock-change reading when the dock start commit is unavailable: a captured branch diff
+        /// proves changes, and an empty one proves nothing, because the diff may be absent for its own
+        /// reasons. Null carries that unknown to the caller instead of reading as "nothing changed".
+        /// </summary>
+        private static bool? FallbackDockChanges(int fallbackDiffLineCount)
+        {
+            return fallbackDiffLineCount > 0 ? true : (bool?)null;
         }
 
         private static string NormalizeMissionPath(string path)

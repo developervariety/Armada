@@ -2570,6 +2570,16 @@ Three operator facts:
   same way they exempt the Architect, so a Recorder stage is safe as the terminal
   stage of an implementing pipeline such as `ProductDevelopment`, not only in a
   fully report-only voyage.
+- **A persona that must commit fails the completion gate when nothing
+  changed.** For an Implementation mission whose persona is required to produce
+  a commit, no change since the dock was provisioned is a no-op completion, even
+  when the captain ran for a long time, wrote a long narration and printed its
+  completion marker. Runtime and output length measure narration, not work. The
+  gate reads the same persona set as the landing gate, so a reviewer stage that
+  approves without committing is not affected, and an Audit or Research mission
+  is exempt because its deliverable is a report. When the dock start commit
+  cannot be read and no branch diff was captured, the result is unknown rather
+  than empty, and an unknown never fails the mission.
 - **The Recorder never writes shared memory.** It writes native memory only, and
   hands anything that belongs in the shared external memory repository to the
   operator as a proposal in its summary.
