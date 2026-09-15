@@ -326,9 +326,10 @@ namespace Armada.Core.Services
             if (readOnly)
             {
                 string normalized = PersonaCatalog.NormalizeName(persona);
-                if (normalized == PersonaCatalog.Worker || normalized == PersonaCatalog.TestEngineer)
+                if (normalized == PersonaCatalog.Worker || normalized == PersonaCatalog.TestEngineer || normalized == PersonaCatalog.Linter)
                 {
-                    return "You are an Armada " + (normalized == PersonaCatalog.TestEngineer ? "test engineer" : "worker") +
+                    string role = normalized == PersonaCatalog.TestEngineer ? "test engineer" : (normalized == PersonaCatalog.Linter ? "linter" : "worker");
+                    return "You are an Armada " + role +
                         " agent on a " + mode + " mission. Your deliverable is a report, not a code change: " +
                         "do not edit, commit, or push. End with a standalone [ARMADA:RESULT] COMPLETE line followed by a brief plain-text summary.";
                 }
@@ -341,6 +342,7 @@ namespace Armada.Core.Services
                 PersonaCatalog.UsabilityEngineer => "You are an Armada usability engineer agent. Include `## Usability`, `## Consistency`, `## Edge Cases`, and `## Residual Risks` sections before a standalone [ARMADA:RESULT] COMPLETE line.",
                 PersonaCatalog.Worker => "You are an Armada worker agent. End with a standalone [ARMADA:RESULT] COMPLETE line followed by a brief plain-text summary.",
                 PersonaCatalog.TestEngineer => "You are an Armada test engineer agent. Include `## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections before a standalone [ARMADA:RESULT] COMPLETE line.",
+                PersonaCatalog.Linter => "You are an Armada linter agent. Evaluate the changed code and documentation for style and correctness, fix clear in-scope violations, and include `## Code Style`, `## Code Correctness`, `## Documentation`, `## Fixes Applied`, and `## Residual Issues` sections before a standalone [ARMADA:RESULT] COMPLETE line.",
                 PersonaCatalog.Judge => "You are an Armada judge agent. Include `## Completeness`, `## Correctness`, `## Tests`, `## Failure Modes`, and `## Verdict` sections, and end with exactly one standalone [ARMADA:VERDICT] PASS, [ARMADA:VERDICT] FAIL, or [ARMADA:VERDICT] NEEDS_REVISION line. Emit that verdict line before any completion signal or exit; a review without it is discarded and re-run.",
                 _ => "You are an Armada captain executing a mission."
             };
@@ -533,7 +535,8 @@ namespace Armada.Core.Services
                 // Reviewer personas already have report-shaped contracts that do not ask for changes,
                 // so they are left alone. Only the producing personas need the read-only wording.
                 if (normalizedForMode == PersonaCatalog.Worker ||
-                    normalizedForMode == PersonaCatalog.TestEngineer)
+                    normalizedForMode == PersonaCatalog.TestEngineer ||
+                    normalizedForMode == PersonaCatalog.Linter)
                 {
                     return
                         "This is a " + mode + " mission: your deliverable is a report, not a code change. " +
@@ -555,6 +558,8 @@ namespace Armada.Core.Services
                     "Stay within scope, make the requested changes, and end with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
                 PersonaCatalog.TestEngineer =>
                     "Before your result line, include short `## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections. End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
+                PersonaCatalog.Linter =>
+                    "Evaluate the changed code and documentation for style and correctness, staying strictly inside the files this mission changed. Fix clear in-scope violations and flag judgment calls. Before your result line, include `## Code Style`, `## Code Correctness`, `## Documentation`, `## Fixes Applied`, and `## Residual Issues` sections. End with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary.",
                 PersonaCatalog.Judge =>
                     "Your response must contain these exact section headings: `## Completeness`, `## Correctness`, `## Tests`, `## Failure Modes`, and `## Verdict`. Do not reply with only a verdict line or brief summary. Run the test suite in the FOREGROUND and wait for it to finish before reaching a verdict -- never launch tests as a background task and schedule a wakeup, and never terminate before the verdict is emitted. Emit your verdict synchronously: the very last thing you do must be to print exactly one standalone line `[ARMADA:VERDICT] PASS`, `[ARMADA:VERDICT] FAIL`, or `[ARMADA:VERDICT] NEEDS_REVISION`. Before you exit, verify that your response already contains the standalone verdict line. If it does not, emit it immediately. A review without that line is discarded and re-run." + BuildJudgeLensDirective(judgePrimaryLens),
                 _ => String.Empty
@@ -570,6 +575,7 @@ namespace Armada.Core.Services
                 PersonaCatalog.UsabilityEngineer => "You are an Armada usability engineer agent. Improve the work through the lens of usability, consistency, and edge-case handling, include `## Usability`, `## Consistency`, `## Edge Cases`, and `## Residual Risks` sections, and end with a standalone [ARMADA:RESULT] COMPLETE line.",
                 PersonaCatalog.Worker => "You are an Armada worker agent. Implement the requested code changes carefully, stay within scope, and end with a standalone [ARMADA:RESULT] COMPLETE line.",
                 PersonaCatalog.TestEngineer => "You are an Armada test engineer agent. Write tests for the current mission scope, cover negative and edge paths for validation, timeout, cancellation, retry, cleanup, and error-handling changes when applicable, include `## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections, and end with a standalone [ARMADA:RESULT] COMPLETE line.",
+                PersonaCatalog.Linter => "You are an Armada linter agent. Evaluate the changed code and documentation for style and correctness, fix clear in-scope violations and flag judgment calls, include `## Code Style`, `## Code Correctness`, `## Documentation`, `## Fixes Applied`, and `## Residual Issues` sections, and end with a standalone [ARMADA:RESULT] COMPLETE line.",
                 PersonaCatalog.Judge => "You are an Armada judge agent. Review the completed work for completeness, correctness, test adequacy, and failure modes. Assume there may be a hidden bug. Use `## Completeness`, `## Correctness`, `## Tests`, `## Failure Modes`, and `## Verdict` sections, and end with exactly one standalone [ARMADA:VERDICT] PASS, [ARMADA:VERDICT] FAIL, or [ARMADA:VERDICT] NEEDS_REVISION line. Emit that verdict line before any completion signal or exit; a review without it is discarded and re-run." + JudgeLensAndBoundedRule,
                 _ => "You are an Armada captain executing a mission. Follow these instructions carefully."
             };

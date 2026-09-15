@@ -206,6 +206,7 @@ Built-in personas:
 - `Usability Engineer`
 - `Judge`
 - `TestEngineer`
+- `Linter`
 - `Recorder`
 
 Specialist reviewer personas (`DiagnosticProtocolReviewer`,
@@ -233,7 +234,7 @@ Built-in pipelines:
 | `Reviewed` | Worker, Judge |
 | `Tested` | Worker, TestEngineer, Judge |
 | `FullPipeline` | Architect, Worker, TestEngineer, Judge |
-| `ProductDevelopment` | Product Manager, Architect, Worker, Usability Engineer, TestEngineer, Judge, Recorder |
+| `ProductDevelopment` | Product Manager, Architect, Worker, Usability Engineer, TestEngineer, Linter, Judge, Recorder |
 | `Recorded` | Worker, Recorder |
 
 Specialist-tested pipelines (`DiagnosticProtocolTested`,

@@ -97,6 +97,11 @@ project profiles, captain assignment, jobs, token accounting, friction reports
 and coordination leases. A shared feature name does not imply equal behavior.
 The fork's recovery and Judge gates remain more complete.
 
+The Linter persona runs in ProductDevelopment, between the TestEngineer and the
+Judge. Upstream also adds it to FullPipeline. The fork keeps FullPipeline
+unchanged, because startup reconciliation rewrites a built-in pipeline and would
+add the stage to every existing FullPipeline without notice.
+
 Mission history uses upstream's status rule: a mission counts as complete once
 it has produced work (WorkProduced, PullRequestOpen, Testing, Review or
 Complete), so reviewed work reads as done when landing is off.

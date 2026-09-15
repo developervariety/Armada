@@ -21,6 +21,8 @@ namespace Armada.Test.Unit.Suites.Services
         /// </summary>
         public override string Name => "Persona Seed Service";
 
+        private const string LinterPersonaName = "Linter";
+
         /// <summary>
         /// Run all tests.
         /// </summary>
@@ -90,16 +92,18 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertPipelineStages(
                         pipeline,
-                        new List<string> { "Product Manager", "Architect", "Worker", "Usability Engineer", "TestEngineer", "Judge", "Recorder" },
+                        new List<string> { "Product Manager", "Architect", "Worker", "Usability Engineer", "TestEngineer", "Linter", "Judge", "Recorder" },
                         "ProductDevelopment");
 
                     List<PipelineStage> ordered = pipeline.Stages.OrderBy(s => s.Order).ToList();
                     AssertEqual("high", ordered[0].PreferredModel, "Product Manager should prefer high tier");
                     AssertEqual("high", ordered[1].PreferredModel, "Architect should prefer high tier");
                     AssertEqual("high", ordered[3].PreferredModel, "Usability Engineer should prefer high tier");
-                    AssertEqual("high", ordered[5].PreferredModel, "Judge should prefer high tier");
-                    AssertEqual("Recorder", ordered[6].PersonaName, "The final stage should be the Recorder");
-                    AssertEqual("mid", ordered[6].PreferredModel, "The Recorder should run at mid tier so it never competes for high-tier captains");
+                    AssertEqual("Linter", ordered[5].PersonaName, "The Linter runs after the TestEngineer and before the Judge");
+                    AssertEqual("mid", ordered[5].PreferredModel, "The Linter should run at mid tier");
+                    AssertEqual("high", ordered[6].PreferredModel, "Judge should prefer high tier");
+                    AssertEqual("Recorder", ordered[7].PersonaName, "The final stage should be the Recorder");
+                    AssertEqual("mid", ordered[7].PreferredModel, "The Recorder should run at mid tier so it never competes for high-tier captains");
                 }
             });
 
@@ -136,7 +140,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("Usability Engineer", pipeline!.Description ?? "", "Pipeline description should be canonical");
                     AssertPipelineStages(
                         pipeline,
-                        new List<string> { "Product Manager", "Architect", "Worker", "Usability Engineer", "TestEngineer", "Judge", "Recorder" },
+                        new List<string> { "Product Manager", "Architect", "Worker", "Usability Engineer", "TestEngineer", "Linter", "Judge", "Recorder" },
                         "ProductDevelopment");
                 }
             });
@@ -342,16 +346,74 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Pipeline? pipeline = await testDb.Driver.Pipelines.ReadByNameAsync("ProductDevelopment").ConfigureAwait(false);
                     AssertNotNull(pipeline, "ProductDevelopment pipeline should exist after a repeat seed");
-                    AssertEqual(7, pipeline!.Stages.Count, "A repeat seed must not add a second Recorder stage");
+                    AssertEqual(8, pipeline!.Stages.Count, "A repeat seed must not add a second Recorder stage");
 
                     int recorderStages = 0;
                     foreach (PipelineStage stage in pipeline.Stages)
                         if (PersonaCatalog.Matches(stage.PersonaName, PersonaCatalog.Recorder)) recorderStages++;
                     AssertEqual(1, recorderStages, "ProductDevelopment carries exactly one Recorder stage");
 
-                    PipelineStage last = pipeline.Stages.OrderBy(s => s.Order).ToList()[6];
+                    PipelineStage last = pipeline.Stages.OrderBy(s => s.Order).ToList()[7];
                     AssertTrue(PersonaCatalog.Matches(last.PersonaName, PersonaCatalog.Recorder), "The last stage is the Recorder");
                     AssertEqual("mid", last.PreferredModel, "The Recorder stays at mid tier after reconciliation");
+                }
+            });
+
+            await RunTest("Seed upgrades a database seeded by the previous build: ProductDevelopment gains one Linter stage and one Linter persona", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    await WritePreviousBuildSeedAsync(testDb).ConfigureAwait(false);
+                    Pipeline? before = await testDb.Driver.Pipelines.ReadByNameAsync("ProductDevelopment").ConfigureAwait(false);
+                    AssertNotNull(before, "The previous build seeded ProductDevelopment");
+                    AssertEqual(7, before!.Stages.Count, "The previous build seeded seven ProductDevelopment stages");
+                    AssertNull(await testDb.Driver.Personas.ReadByNameAsync(LinterPersonaName).ConfigureAwait(false), "The previous build seeded no Linter persona");
+                    int personasBefore = (await testDb.Driver.Personas.EnumerateAsync().ConfigureAwait(false)).Count;
+
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    List<Persona> personasAfter = await testDb.Driver.Personas.EnumerateAsync().ConfigureAwait(false);
+                    AssertEqual(personasBefore + 1, personasAfter.Count, "The upgrade adds exactly one persona and duplicates none");
+                    AssertEqual(1, personasAfter.Count(p => String.Equals(p.Name, LinterPersonaName, StringComparison.Ordinal)), "Exactly one Linter persona exists after two seeds");
+                    foreach (Persona persona in personasAfter)
+                        AssertEqual(1, personasAfter.Count(p => String.Equals(p.Name, persona.Name, StringComparison.Ordinal)), "Persona name is unique: " + persona.Name);
+
+                    Persona? linter = await testDb.Driver.Personas.ReadByNameAsync(LinterPersonaName).ConfigureAwait(false);
+                    AssertNotNull(linter, "The Linter persona is seeded on upgrade");
+                    AssertEqual("persona.linter", linter!.PromptTemplateName, "Linter prompt template");
+                    AssertTrue(linter.IsBuiltIn, "The Linter is built in");
+                    AssertTrue(linter.Active, "The Linter is active");
+
+                    Pipeline? after = await testDb.Driver.Pipelines.ReadByNameAsync("ProductDevelopment").ConfigureAwait(false);
+                    AssertEqual(before.Id, after!.Id, "The upgrade keeps the same ProductDevelopment record");
+                    AssertPipelineStages(
+                        after,
+                        new List<string> { "Product Manager", "Architect", "Worker", "Usability Engineer", "TestEngineer", "Linter", "Judge", "Recorder" },
+                        "Upgraded ProductDevelopment");
+                    AssertEqual(1, after.Stages.Count(s => PersonaCatalog.Matches(s.PersonaName, LinterPersonaName)), "ProductDevelopment carries exactly one Linter stage");
+                }
+            });
+
+            await RunTest("Seed adds the Linter stage only to ProductDevelopment and never to FullPipeline", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    await WritePreviousBuildSeedAsync(testDb).ConfigureAwait(false);
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Pipeline? full = await testDb.Driver.Pipelines.ReadByNameAsync("FullPipeline").ConfigureAwait(false);
+                    AssertPipelineStages(full, new List<string> { "Architect", "Worker", "TestEngineer", "Judge" }, "FullPipeline");
+
+                    List<Pipeline> pipelines = await testDb.Driver.Pipelines.EnumerateAsync().ConfigureAwait(false);
+                    foreach (Pipeline pipeline in pipelines)
+                    {
+                        bool carriesLinter = pipeline.Stages.Any(s => PersonaCatalog.Matches(s.PersonaName, LinterPersonaName));
+                        AssertEqual(String.Equals(pipeline.Name, "ProductDevelopment", StringComparison.Ordinal), carriesLinter,
+                            "Only ProductDevelopment carries a Linter stage: " + pipeline.Name);
+                    }
                 }
             });
 
@@ -362,6 +424,57 @@ namespace Armada.Test.Unit.Suites.Services
             LoggingModule logging = new LoggingModule();
             logging.Settings.EnableConsole = false;
             return logging;
+        }
+
+        /// <summary>
+        /// Write the personas and pipelines exactly as the build before the Linter seeded them, so an upgrade
+        /// test starts from a database that build left behind.
+        /// </summary>
+        private static async Task WritePreviousBuildSeedAsync(TestDatabase testDb)
+        {
+            string[][] personas = new string[][]
+            {
+                new string[] { "Worker", "Standard mission executor -- writes code, makes changes, commits work.", "persona.worker" },
+                new string[] { "Architect", "Plans voyages and decomposes work into right-sized missions.", "persona.architect" },
+                new string[] { "Product Manager", "Shapes the whole product picture, clarifies user outcomes, and turns dispatched work into durable requirements.", "persona.product_manager" },
+                new string[] { "Usability Engineer", "Improves usability, edge-case experience, and consistency with the surrounding product.", "persona.usability_engineer" },
+                new string[] { "Judge", "Reviews completed mission diffs for correctness and completeness.", "persona.judge" },
+                new string[] { "TestEngineer", "Writes and updates tests for mission changes.", "persona.test_engineer" },
+                new string[] { "Recorder", "Reviews the finished work of a voyage and records what is worth remembering into native captain memory.", "persona.recorder" }
+            };
+            foreach (string[] entry in personas)
+            {
+                Persona persona = new Persona(entry[0], entry[2]);
+                persona.TenantId = Constants.DefaultTenantId;
+                persona.Description = entry[1];
+                persona.IsBuiltIn = true;
+                await testDb.Driver.Personas.CreateAsync(persona).ConfigureAwait(false);
+            }
+
+            await WritePreviousBuildPipelineAsync(testDb, "FullPipeline", "Architect then Worker then TestEngineer then Judge.",
+                new List<PipelineStage> { new PipelineStage(1, "Architect"), new PipelineStage(2, "Worker"), new PipelineStage(3, "TestEngineer"), new PipelineStage(4, "Judge") }).ConfigureAwait(false);
+            await WritePreviousBuildPipelineAsync(testDb, "ProductDevelopment", "Product Manager then Architect then Worker then Usability Engineer then TestEngineer then Judge then Recorder.",
+                new List<PipelineStage>
+                {
+                    new PipelineStage(1, "Product Manager") { PreferredModel = "high" },
+                    new PipelineStage(2, "Architect") { PreferredModel = "high" },
+                    new PipelineStage(3, "Worker"),
+                    new PipelineStage(4, "Usability Engineer") { PreferredModel = "high" },
+                    new PipelineStage(5, "TestEngineer"),
+                    new PipelineStage(6, "Judge") { PreferredModel = "high" },
+                    new PipelineStage(7, "Recorder") { PreferredModel = "mid" }
+                }).ConfigureAwait(false);
+        }
+
+        private static async Task WritePreviousBuildPipelineAsync(TestDatabase testDb, string name, string description, List<PipelineStage> stages)
+        {
+            Pipeline pipeline = new Pipeline(name);
+            pipeline.TenantId = Constants.DefaultTenantId;
+            pipeline.Description = description;
+            pipeline.IsBuiltIn = true;
+            pipeline.Stages = stages;
+            foreach (PipelineStage stage in stages) stage.PipelineId = pipeline.Id;
+            await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
         }
 
         private static PersonaSeedService NewFleetService(TestDatabase testDb)

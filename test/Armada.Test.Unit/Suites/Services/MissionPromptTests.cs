@@ -756,7 +756,7 @@ namespace Armada.Test.Unit.Suites.Services
                 // failure reason is a whole gate log, a second handoff onto that rescue, operator captain
                 // instructions and multi-byte text. Every persona must still receive a brief within the
                 // byte budget, and must still see the head of its brief and the newest handoff block.
-                foreach (string persona in new[] { "Judge", "Architect", "Worker", "TestEngineer" })
+                foreach (string persona in new[] { "Judge", "Architect", "Worker", "TestEngineer", "Linter" })
                 {
                     using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                     {

@@ -69,6 +69,17 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   is a local clone (a `file://` URL or a rooted path to a directory with a
   `.git` entry, or a bare repository) and no `workingDirectory` is given.
   `LocalPath` stays unset, because vessel removal deletes that directory.
+### Linter persona in the ProductDevelopment pipeline
+
+- A built-in Linter persona now checks the code and documentation a mission
+  changed for style and correctness. It fixes clear in-scope violations, flags
+  judgment calls, and reports `## Code Style`, `## Code Correctness`,
+  `## Documentation`, `## Fixes Applied` and `## Residual Issues`.
+- ProductDevelopment runs the Linter at the mid tier after the TestEngineer and
+  before the Judge. An upgraded database gains the stage and one Linter persona
+  on its next start. FullPipeline is unchanged, so existing FullPipeline users
+  see no new stage.
+- In an Audit or Research mission the Linter reports findings and does not edit.
 
 ### Incident lifecycle sweep reaches every open incident
 

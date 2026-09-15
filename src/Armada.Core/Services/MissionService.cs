@@ -4887,6 +4887,27 @@ namespace Armada.Core.Services
                         "`## Coverage Added`, `## Negative Paths`, and `## Residual Risks` sections. " +
                         "End with a standalone `[ARMADA:RESULT] COMPLETE` line and a short summary.\n\n";
 
+                case PersonaCatalog.Linter:
+                    if (reportOnly)
+                    {
+                        return "## Your Role: Linter (Report Style and Correctness Findings)\n\n" +
+                            "This is a report-only " + mode + " mission: do not edit, commit, or push. Evaluate the prior stage " +
+                            "output below for style and correctness in code and documentation, and report every finding with its " +
+                            "file. Include `## Code Style`, `## Code Correctness`, `## Documentation`, `## Fixes Applied` (write " +
+                            "\"None\"), and `## Residual Issues` sections, then end with a standalone `[ARMADA:RESULT] COMPLETE` " +
+                            "line and a short summary.\n\n";
+                    }
+
+                    return "## Your Role: Linter (Style and Correctness)\n\n" +
+                        "You are evaluating the completed work, code and documentation, for style and correctness. " +
+                        "Review the diff below against this mission only, not sibling missions in the same voyage. " +
+                        "Stay strictly inside the files this mission changed: tidy and flag, do not redesign or change " +
+                        "behavior. Fix clear, safe, in-scope violations (formatting, obvious typos, broken links, stale " +
+                        "references, missing doc comments) and report every judgment call as a finding. Include " +
+                        "`## Code Style`, `## Code Correctness`, `## Documentation`, `## Fixes Applied`, and " +
+                        "`## Residual Issues` sections, then end with a standalone `[ARMADA:RESULT] COMPLETE` line and a " +
+                        "short summary.\n\n";
+
                 case "Judge":
                     if (reportOnly)
                     {

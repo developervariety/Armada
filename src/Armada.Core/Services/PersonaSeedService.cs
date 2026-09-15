@@ -70,6 +70,7 @@ namespace Armada.Core.Services
             await SeedPersonaAsync("Usability Engineer", "Improves usability, edge-case experience, and consistency with the surrounding product.", "persona.usability_engineer", token).ConfigureAwait(false);
             await SeedPersonaAsync("Judge", "Reviews completed mission diffs for correctness and completeness.", "persona.judge", token).ConfigureAwait(false);
             await SeedPersonaAsync("TestEngineer", "Writes and updates tests for mission changes.", "persona.test_engineer", token).ConfigureAwait(false);
+            await SeedPersonaAsync(PersonaCatalog.Linter, "Evaluates changed code and documentation for style and correctness, fixes clear in-scope violations, and reports findings.", "persona.linter", token).ConfigureAwait(false);
             await SeedPersonaAsync(PersonaCatalog.Recorder, "Reviews the finished work of a voyage and records what is worth remembering into native captain memory.", "persona.recorder", token).ConfigureAwait(false);
 
             foreach (AdditionalPersonaSettings extra in _AdditionalPersonas)
@@ -138,12 +139,17 @@ namespace Armada.Core.Services
                 new List<PipelineStage> { new PipelineStage(1, "Architect"), new PipelineStage(2, "Worker"), new PipelineStage(3, "TestEngineer"), new PipelineStage(4, "Judge") },
                 token).ConfigureAwait(false);
 
+            // The Linter tidies and flags the changed code and documentation before the Judge reviews it.
+            // It commits only mechanical in-scope fixes, so it runs at the mid tier like the Worker.
+            // FullPipeline does not gain a Linter: startup reconciliation rewrites a non-canonical
+            // built-in pipeline, so adding a stage there would silently change existing deployments.
+            //
             // The final Recorder stage distils the finished product work into durable native memory.
             // It writes memory, not code, so it produces no commit; it runs at the mid tier so it
             // never competes for the scarce high-tier specialist and Judge captains.
             await SeedPipelineAsync(
                 "ProductDevelopment",
-                "Product Manager then Architect then Worker then Usability Engineer then TestEngineer then Judge then Recorder.",
+                "Product Manager then Architect then Worker then Usability Engineer then TestEngineer then Linter then Judge then Recorder.",
                 new List<PipelineStage>
                 {
                     new PipelineStage(1, "Product Manager") { PreferredModel = "high" },
@@ -151,8 +157,9 @@ namespace Armada.Core.Services
                     new PipelineStage(3, "Worker"),
                     new PipelineStage(4, "Usability Engineer") { PreferredModel = "high" },
                     new PipelineStage(5, "TestEngineer"),
-                    new PipelineStage(6, "Judge") { PreferredModel = "high" },
-                    new PipelineStage(7, PersonaCatalog.Recorder) { PreferredModel = "mid" }
+                    new PipelineStage(6, PersonaCatalog.Linter) { PreferredModel = "mid" },
+                    new PipelineStage(7, "Judge") { PreferredModel = "high" },
+                    new PipelineStage(8, PersonaCatalog.Recorder) { PreferredModel = "mid" }
                 },
                 token).ConfigureAwait(false);
 

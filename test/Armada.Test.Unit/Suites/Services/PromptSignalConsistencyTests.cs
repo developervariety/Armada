@@ -270,7 +270,36 @@ namespace Armada.Test.Unit.Suites.Services
                     await AssertResultPersonaSignalsAsync(templates, "Product Manager", "persona.product_manager").ConfigureAwait(false);
                     await AssertResultPersonaSignalsAsync(templates, "Usability Engineer", "persona.usability_engineer").ConfigureAwait(false);
                     await AssertResultPersonaSignalsAsync(templates, "Test Engineer", "persona.test_engineer").ConfigureAwait(false);
+                    await AssertResultPersonaSignalsAsync(templates, "Linter", "persona.linter").ConfigureAwait(false);
                     await AssertJudgeSignalsAsync(templates).ConfigureAwait(false);
+                }
+            });
+
+            await RunTest("Linter prompt surfaces require the lint report sections", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = CreateLogging();
+                    PromptTemplateService templates = new PromptTemplateService(testDb.Driver, logging);
+                    string embeddedPrompt = await ResolveTemplateContentAsync(templates, "persona.linter").ConfigureAwait(false);
+                    PromptFixtureResult fixture = CreatePromptFixture("Linter");
+                    Dictionary<string, string> templateParams = MissionPromptBuilder.BuildTemplateParams(fixture.Mission, fixture.Vessel, fixture.Captain, fixture.Dock);
+                    string fallbackPrompt = await MissionPromptBuilder.ResolvePersonaPromptAsync("Linter", templateParams, null).ConfigureAwait(false);
+                    string launchPrompt = await MissionPromptBuilder.BuildLaunchPromptAsync(fixture.Mission, fixture.Vessel, fixture.Captain, fixture.Dock, null).ConfigureAwait(false);
+                    string handoffPreamble = MissionService.BuildPersonaPreamble("Linter", MissionModeEnum.Implementation);
+
+                    foreach (string section in new[] { "## Code Style", "## Code Correctness", "## Documentation", "## Fixes Applied", "## Residual Issues" })
+                    {
+                        AssertContains(section, embeddedPrompt, "persona.linter embedded template");
+                        AssertContains(section, templateParams["CaptainInstructions"], "Linter captain instructions");
+                        AssertContains(section, fallbackPrompt, "Linter fallback prompt");
+                        AssertContains(section, launchPrompt, "Linter launch prompt");
+                        AssertContains(section, handoffPreamble, "Linter handoff preamble");
+                    }
+
+                    AssertContains("## Your Role: Linter", handoffPreamble, "Linter handoff preamble names the role");
+                    AssertContains("## Recall Existing Memory", embeddedPrompt, "The Linter is a working persona and reads memory");
+                    AssertContains("linter agent", launchPrompt, "The launch prompt role line names the Linter");
                 }
             });
         }

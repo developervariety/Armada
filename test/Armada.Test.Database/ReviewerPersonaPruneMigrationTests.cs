@@ -47,7 +47,9 @@ namespace Armada.Test.Database
             await rows.CreateTemplateAsync("persona.performance_memory_reviewer", "persona", true, token).ConfigureAwait(false);
             await rows.CreateTemplateAsync("persona.frontend_workflow_reviewer", "persona", true, token).ConfigureAwait(false);
             await rows.CreateTemplateAsync("persona.operator_reviewer", "persona", false, token).ConfigureAwait(false);
+            await rows.CreateTemplateAsync("persona.linter", "persona", true, token).ConfigureAwait(false);
 
+            await rows.CreatePersonaAsync("Linter", "persona.linter", true, null, token).ConfigureAwait(false);
             await rows.CreatePersonaAsync("MigrationDataReviewer", "persona.migration_data_reviewer", true, null, token).ConfigureAwait(false);
             await rows.CreatePersonaAsync("PerformanceMemoryReviewer", "persona.performance_memory_reviewer", true, null, token).ConfigureAwait(false);
             await rows.CreatePersonaAsync("FrontendWorkflowReviewer", "persona.frontend_workflow_reviewer", true, null, token).ConfigureAwait(false);
@@ -98,6 +100,11 @@ namespace Armada.Test.Database
 
             DatabaseAssert.NotNull(await driver.Personas.ReadByNameAsync("OperatorReviewer", token).ConfigureAwait(false), "An operator persona is kept");
             DatabaseAssert.NotNull(await driver.PromptTemplates.ReadByNameAsync("persona.operator_reviewer", token).ConfigureAwait(false), "An operator template is kept");
+
+            // The prune names its three reviewer personas explicitly, so a built-in persona outside that list survives
+            // even when no pipeline stage or captain references it.
+            DatabaseAssert.NotNull(await driver.Personas.ReadByNameAsync("Linter", token).ConfigureAwait(false), "An unreferenced built-in Linter persona is kept");
+            DatabaseAssert.NotNull(await driver.PromptTemplates.ReadByNameAsync("persona.linter", token).ConfigureAwait(false), "The built-in Linter template is kept");
         }
 
         private async Task StopAtAsync(int version, int ordinal, CancellationToken token)

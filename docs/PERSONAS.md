@@ -9,7 +9,8 @@ A persona has a stable ID, tenant, unique name, description, prompt-template
 name, built-in flag, active flag, and default playbooks. A prompt template has
 its own versioned content. A pipeline stage refers to a persona by name.
 
-Armada seeds 13 built-in personas on startup:
+Armada seeds eight built-in personas on startup. The three specialist
+reviewers in this table are seeded only from settings:
 
 | Persona | Purpose |
 | --- | --- |
@@ -19,6 +20,7 @@ Armada seeds 13 built-in personas on startup:
 | `Usability Engineer` | Review usability and product consistency. |
 | `Judge` | Review correctness and completeness. |
 | `TestEngineer` | Add or update tests and verify behavior. |
+| `Linter` | Check the changed code and documentation for style and correctness, fix clear in-scope violations, and report findings. Runs in ProductDevelopment only. |
 | `DiagnosticProtocolReviewer` | Review binary protocols and hardware-risk paths. |
 | `TenantSecurityReviewer` | Review authentication, authorization, isolation, and secrets. |
 | `PortingReferenceAnalyst` | Compare approved references and parity evidence. |
