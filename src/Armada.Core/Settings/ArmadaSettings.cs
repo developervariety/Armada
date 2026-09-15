@@ -549,7 +549,8 @@ namespace Armada.Core.Settings
         /// <summary>
         /// Path to the external web dashboard directory (React build output).
         /// When set, the server serves static files from this directory at /dashboard.
-        /// When null/empty, falls back to embedded wwwroot resources (legacy dashboard).
+        /// When null/empty, the server looks for a dashboard directory holding index.html in the data
+        /// directory, next to the executable, and in the source React build output.
         /// </summary>
         public string? DashboardPath { get; set; } = null;
 

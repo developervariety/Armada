@@ -361,7 +361,7 @@ namespace Armada.Helm.Commands
                     else if (hasExistingDeployedDashboard)
                         AnsiConsole.MarkupLine("[gold1]Dashboard build skipped because local dashboard tools are unavailable. Keeping the existing deployed React dashboard.[/]");
                     else
-                        AnsiConsole.MarkupLine("[gold1]Dashboard build skipped because local dashboard tools are unavailable. React dashboard unavailable; server will fall back to the legacy embedded dashboard.[/]");
+                        AnsiConsole.MarkupLine("[gold1]Dashboard build skipped because local dashboard tools are unavailable. React dashboard unavailable; /dashboard serves nothing until a dashboard build exists.[/]");
                     return;
                 }
 
@@ -393,7 +393,7 @@ namespace Armada.Helm.Commands
                     else if (hasExistingDeployedDashboard)
                         AnsiConsole.MarkupLine("[gold1]Dashboard build failed. Keeping the existing deployed React dashboard.[/]");
                     else
-                        AnsiConsole.MarkupLine("[gold1]Dashboard build failed. React dashboard unavailable; server will fall back to the legacy embedded dashboard.[/]");
+                        AnsiConsole.MarkupLine("[gold1]Dashboard build failed. React dashboard unavailable; /dashboard serves nothing until a dashboard build exists.[/]");
 
                     if (!string.IsNullOrEmpty(tscStderr))
                         AnsiConsole.MarkupLine($"[dim]{Markup.Escape(tscStderr.Trim())}[/]");
@@ -430,7 +430,7 @@ namespace Armada.Helm.Commands
                     else if (hasExistingDeployedDashboard)
                         AnsiConsole.MarkupLine("[gold1]Dashboard build failed. Keeping the existing deployed React dashboard.[/]");
                     else
-                        AnsiConsole.MarkupLine("[gold1]Dashboard build failed. React dashboard unavailable; server will fall back to the legacy embedded dashboard.[/]");
+                        AnsiConsole.MarkupLine("[gold1]Dashboard build failed. React dashboard unavailable; /dashboard serves nothing until a dashboard build exists.[/]");
 
                     if (!string.IsNullOrEmpty(viteStderr))
                         AnsiConsole.MarkupLine($"[dim]{Markup.Escape(viteStderr.Trim())}[/]");

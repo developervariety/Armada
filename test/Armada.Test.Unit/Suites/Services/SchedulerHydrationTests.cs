@@ -511,15 +511,6 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertFalse(failedMissionSection.Contains("EnumerateByStatusAsync", StringComparison.Ordinal), "Doctor failed mission check must not enumerate failed mission rows");
                 AssertFalse(failedMissionSection.Contains("EnumerateAsync", StringComparison.Ordinal), "Doctor failed mission check must not enumerate full mission rows");
             });
-
-            await RunTest("DashboardRefresh_SourceGuard_DoctorRefreshIsViewGated", async () =>
-            {
-                string source = ReadRepoFile(System.IO.Path.Combine("src", "Armada.Server", "wwwroot", "js", "dashboard.js"));
-                string refreshMethod = ExtractMethodBody(source, "async refresh()");
-
-                AssertContains("this.view === 'doctor' ? this.refreshDoctorStatus() : Promise.resolve()", refreshMethod, "Background refresh should call doctor only on the doctor view");
-                AssertFalse(source.Contains("setInterval(() => this.refreshDoctorStatus()", StringComparison.Ordinal), "Dashboard timer must not poll doctor directly");
-            });
         }
     }
 }

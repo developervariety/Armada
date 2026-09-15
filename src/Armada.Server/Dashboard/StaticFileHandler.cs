@@ -7,16 +7,12 @@ namespace Armada.Server.Dashboard
     using Armada.Core;
 
     /// <summary>
-    /// Serves static files for the web dashboard.
-    /// Checks an external directory first (React build output),
-    /// then falls back to embedded wwwroot resources (legacy dashboard).
+    /// Serves static files for the web dashboard from the dashboard directory (the React build
+    /// output). A path that does not exist in that directory is not served.
     /// </summary>
     public static class StaticFileHandler
     {
         #region Private-Members
-
-        private static readonly Assembly _Assembly = typeof(StaticFileHandler).Assembly;
-        private static readonly string _Prefix = "Armada.Server.wwwroot.";
 
         private static readonly Dictionary<string, string> _ContentTypes = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -44,8 +40,7 @@ namespace Armada.Server.Dashboard
         #region Public-Methods
 
         /// <summary>
-        /// Set the external dashboard directory path.
-        /// When set, files are served from this directory before falling back to embedded resources.
+        /// Set the dashboard directory path.
         /// </summary>
         /// <param name="path">Absolute path to the dashboard build output directory (e.g., dist/).</param>
         public static void SetExternalPath(string? path)
@@ -61,8 +56,7 @@ namespace Armada.Server.Dashboard
         }
 
         /// <summary>
-        /// Try to read a static file for the given URL path.
-        /// Checks external dashboard directory first, then falls back to embedded resources.
+        /// Try to read a static file for the given URL path from the dashboard directory.
         /// </summary>
         /// <param name="urlPath">URL path (e.g., "/dashboard/index.html").</param>
         /// <param name="content">File content bytes.</param>
@@ -75,6 +69,7 @@ namespace Armada.Server.Dashboard
 
             if (String.IsNullOrEmpty(urlPath)) return false;
             EnsureExternalPathResolved();
+            if (_ExternalDashboardPath == null) return false;
 
             // Strip leading /dashboard/ prefix
             string relativePath = urlPath;
@@ -90,15 +85,7 @@ namespace Armada.Server.Dashboard
             relativePath = relativePath.Replace('\\', '/');
             if (relativePath.Contains("..")) return false;
 
-            // Try external directory first
-            if (_ExternalDashboardPath != null)
-            {
-                if (TryGetExternalFile(relativePath, out content, out contentType))
-                    return true;
-            }
-
-            // Fall back to embedded resources
-            return TryGetEmbeddedFile(relativePath, out content, out contentType);
+            return TryGetExternalFile(relativePath, out content, out contentType);
         }
 
         /// <summary>
@@ -114,18 +101,9 @@ namespace Armada.Server.Dashboard
         }
 
         /// <summary>
-        /// Returns true if an external dashboard directory is configured and exists.
+        /// Returns true if a dashboard directory is configured and exists.
         /// </summary>
         public static bool HasExternalDashboard => _ExternalDashboardPath != null;
-
-        /// <summary>
-        /// List all embedded resource names (for debugging).
-        /// </summary>
-        /// <returns>All embedded resource names.</returns>
-        public static string[] ListResources()
-        {
-            return _Assembly.GetManifestResourceNames();
-        }
 
         #endregion
 
@@ -174,34 +152,6 @@ namespace Armada.Server.Dashboard
             content = File.ReadAllBytes(filePath);
 
             string ext = Path.GetExtension(filePath);
-            if (!String.IsNullOrEmpty(ext) && _ContentTypes.TryGetValue(ext, out string? ct))
-            {
-                contentType = ct;
-            }
-
-            return true;
-        }
-
-        private static bool TryGetEmbeddedFile(string relativePath, out byte[] content, out string contentType)
-        {
-            content = Array.Empty<byte>();
-            contentType = "application/octet-stream";
-
-            // Convert URL path to resource name (replace / with .)
-            string resourceName = _Prefix + relativePath.Replace('/', '.').Replace('\\', '.');
-
-            using (Stream? stream = _Assembly.GetManifestResourceStream(resourceName))
-            {
-                if (stream == null) return false;
-
-                using (MemoryStream ms = new MemoryStream())
-                {
-                    stream.CopyTo(ms);
-                    content = ms.ToArray();
-                }
-            }
-
-            string ext = Path.GetExtension(relativePath);
             if (!String.IsNullOrEmpty(ext) && _ContentTypes.TryGetValue(ext, out string? ct))
             {
                 contentType = ct;

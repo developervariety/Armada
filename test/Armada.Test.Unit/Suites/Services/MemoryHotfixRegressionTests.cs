@@ -91,15 +91,6 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("mission.AgentOutput = null", detailEndpoint, "Mission detail responses should not return persisted agent output.");
             });
 
-            await RunTest("EmbeddedDashboardRefresh CoalescesAndAvoidsBackgroundMergeQueueLoad", () =>
-            {
-                string dashboard = ReadRepositoryFile("src", "Armada.Server", "wwwroot", "js", "dashboard.js");
-
-                AssertContains("refreshInFlight", dashboard, "Embedded dashboard refresh should use single-flight coalescing.");
-                AssertContains("refreshQueued", dashboard, "Embedded dashboard refresh should queue one follow-up refresh after bursts.");
-                AssertContains("this.view === 'merge-queue' ? this.loadMergeQueue() : Promise.resolve()", dashboard, "Embedded dashboard should not enrich merge queue entries while viewing unrelated pages.");
-            });
-
             await RunTest("SqliteMissionSummaries DoNotSelectHeavyMissionColumns", () =>
             {
                 string methods = ReadRepositoryFile("src", "Armada.Core", "Database", "Sqlite", "Implementations", "MissionMethods.cs");

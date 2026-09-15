@@ -20,10 +20,6 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <TargetPath>dashboard\%(RecursiveDir)%(Filename)%(Extension)</TargetPath>
     </Content>
-    <Content Include="..\Armada.Server\wwwroot\i18n\armada.json">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <TargetPath>dashboard\i18n\armada.json</TargetPath>
-    </Content>
   </ItemGroup>
 
 </Project>

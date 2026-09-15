@@ -141,15 +141,15 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains(
                     "TryFindSourceDashboardDist()",
                     contents,
-                    "ArmadaServer should fall back to the source React dashboard build before using the embedded legacy dashboard");
+                    "ArmadaServer should look for the source React dashboard build");
                 AssertContains(
                     "src\", \"Armada.Dashboard\", \"dist",
                     contents,
                     "Source dashboard auto-detection should look for src/Armada.Dashboard/dist so direct /dashboard/code-index loads in repo runs");
                 AssertTrue(
                     contents.IndexOf("TryFindSourceDashboardDist()", StringComparison.Ordinal) <
-                    contents.IndexOf("using embedded legacy dashboard", StringComparison.Ordinal),
-                    "Source React dashboard detection must happen before the legacy embedded dashboard fallback");
+                    contents.IndexOf("no dashboard directory found", StringComparison.Ordinal),
+                    "Source React dashboard detection must happen before the no-dashboard warning");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
 
