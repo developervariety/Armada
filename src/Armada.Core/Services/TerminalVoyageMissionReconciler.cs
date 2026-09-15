@@ -240,11 +240,8 @@ namespace Armada.Core.Services
             DateTime now = DateTime.UtcNow;
             if (target != MissionStatusEnum.Complete)
             {
-                string reason = "Voyage ended " + voyage.Status + " and the mission's work is not on the default branch ("
-                    + decision.Reason + ")";
-                mission.FailureReason = String.IsNullOrWhiteSpace(mission.FailureReason)
-                    ? reason
-                    : reason + "; previous reason: " + mission.FailureReason;
+                mission.FailureReason = TerminalVoyageMissionRule.FormatReconciledFailureReason(
+                    voyage.Status, decision.Reason, mission.FailureReason);
             }
             mission.Status = target;
             mission.ProcessId = null;

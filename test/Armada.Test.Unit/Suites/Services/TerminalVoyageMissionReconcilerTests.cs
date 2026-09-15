@@ -274,6 +274,59 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
             }).ConfigureAwait(false);
 
+            await RunTest("The reconciled failure reason is recognised in every stored form and never in a genuine failure", () =>
+            {
+                string[] stored =
+                {
+                    "Voyage ended Failed and the mission's work is not on the default branch (terminal_voyage_commit_absent)",
+                    "Voyage ended Failed and the mission's work is not on the default branch (terminal_voyage_work_unlanded)",
+                    "Voyage ended Failed and the mission's work is not on the default branch (terminal_voyage_no_commit)",
+                    "Voyage ended Cancelled and the mission's work is not on the default branch (terminal_voyage_work_unlanded)",
+                    "Voyage ended Complete and the mission's work is not on the default branch (terminal_voyage_work_unlanded)",
+                    "Voyage ended Failed and the mission's work is not on the default branch (terminal_voyage_work_unlanded); previous reason: Judge verdict: FAIL"
+                };
+                foreach (string reason in stored)
+                {
+                    AssertTrue(TerminalVoyageMissionRule.IsReconciledFailureReason(reason), "stored reconciliation reason must be recognised: " + reason);
+                }
+
+                foreach (VoyageStatusEnum voyageStatus in new[] { VoyageStatusEnum.Failed, VoyageStatusEnum.Cancelled, VoyageStatusEnum.Complete })
+                {
+                    foreach (string code in new[] { TerminalVoyageMissionRule.ReasonWorkUnlanded, TerminalVoyageMissionRule.ReasonCommitAbsent, TerminalVoyageMissionRule.ReasonNoCommit })
+                    {
+                        foreach (string? previous in new[] { null, "Agent process exited with code 1" })
+                        {
+                            string formatted = TerminalVoyageMissionRule.FormatReconciledFailureReason(voyageStatus, code, previous);
+                            AssertTrue(TerminalVoyageMissionRule.IsReconciledFailureReason(formatted), "the formatter and the recogniser must agree: " + formatted);
+                        }
+                    }
+                }
+                AssertEqual(stored[0], TerminalVoyageMissionRule.FormatReconciledFailureReason(VoyageStatusEnum.Failed, TerminalVoyageMissionRule.ReasonCommitAbsent, null),
+                    "the formatter still writes the stored form");
+
+                string[] genuine =
+                {
+                    null!,
+                    "",
+                    "Agent process exited with code 1",
+                    "Voyage halted after mission msn_x failed: Judge verdict: FAIL",
+                    "Blocked by failed dependency; the voyage ended Failed",
+                    "Mission failed: the voyage's default branch moved (merge conflict)",
+                    "terminal_voyage_work_unlanded",
+                    "Judge verdict: FAIL; previous reason: Voyage ended Failed and the mission's work is not on the default branch (terminal_voyage_no_commit)"
+                };
+                foreach (string reason in genuine)
+                {
+                    AssertFalse(TerminalVoyageMissionRule.IsReconciledFailureReason(reason), "a genuine failure reason must not be recognised: " + (reason ?? "<null>"));
+                }
+
+                AssertTrue(TerminalVoyageMissionRule.IsReconciledOutcome(MissionStatusEnum.Failed, stored[0]), "a reconciled Failed mission is a reconciled outcome");
+                AssertTrue(TerminalVoyageMissionRule.IsReconciledOutcome(MissionStatusEnum.Cancelled, stored[3]), "a reconciled Cancelled mission is a reconciled outcome");
+                AssertFalse(TerminalVoyageMissionRule.IsReconciledOutcome(MissionStatusEnum.LandingFailed, stored[0]), "only the statuses the rule writes count");
+                AssertFalse(TerminalVoyageMissionRule.IsReconciledOutcome(MissionStatusEnum.Failed, genuine[2]), "a genuine failure is not a reconciled outcome");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
             await RunTest("The rule never completes unlanded work for any terminal voyage", () =>
             {
                 TerminalVoyageLandingProbeEnum[] unlanded =

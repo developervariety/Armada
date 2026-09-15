@@ -186,6 +186,54 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("cancelled voyage", updated.RecoveryNotes ?? "", "Expected cancelled-voyage evidence.");
             }).ConfigureAwait(false);
 
+            await RunTest("An incident linked to a reconciler-failed mission closes as superseded", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_inc_life_reconciled", "usr_inc_life_reconciled").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_inc_life_reconciled", "usr_inc_life_reconciled").ConfigureAwait(false);
+                Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Failed pipeline voyage")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Failed,
+                    CompletedUtc = DateTime.UtcNow.AddHours(-2),
+                    LastUpdateUtc = DateTime.UtcNow.AddHours(-2)
+                }).ConfigureAwait(false);
+                Mission produced = await CreateMissionAsync(testDb, vessel, MissionStatusEnum.WorkProduced, "Upstream stage").ConfigureAwait(false);
+                produced.VoyageId = voyage.Id;
+                produced.CommitHash = null;
+                produced.FailureReason = null;
+                await testDb.Driver.Missions.UpdateAsync(produced).ConfigureAwait(false);
+
+                SyslogLogging.LoggingModule logging = new SyslogLogging.LoggingModule();
+                logging.Settings.EnableConsole = false;
+                await new Armada.Core.Services.TerminalVoyageMissionReconciler(logging, testDb.Driver, new Armada.Core.Services.GitService(logging))
+                    .ReconcileAsync(new TerminalVoyageMissionReconciliationRequest { DryRun = false, IncludeHistorical = true, VoyageId = voyage.Id })
+                    .ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Failed, (await testDb.Driver.Missions.ReadAsync(produced.Id).ConfigureAwait(false))!.Status,
+                    "The reconciler fails unlanded work under a Failed voyage.");
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
+                Incident incident = await incidents.CreateAsync(auth, new IncidentUpsertRequest
+                {
+                    Title = "Mission failed: Upstream stage",
+                    Status = IncidentStatusEnum.Open,
+                    Severity = IncidentSeverityEnum.Medium,
+                    VesselId = vessel.Id,
+                    MissionId = produced.Id,
+                    DetectedUtc = DateTime.UtcNow.AddMinutes(-3)
+                }).ConfigureAwait(false);
+
+                IncidentLifecycleOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, incidents);
+                AssertEqual(1, await orchestrator.RunSweepAsync().ConfigureAwait(false));
+
+                Incident? updated = await incidents.ReadAsync(auth, incident.Id).ConfigureAwait(false);
+                AssertTrue(updated != null, "Expected incident.");
+                AssertEqual(IncidentStatusEnum.Closed, updated!.Status, "An incident opened for a reconciled mission is superseded.");
+                AssertContains("terminal-voyage reconciliation", updated.RecoveryNotes ?? "", "The close names reconciliation as the cause.");
+            }).ConfigureAwait(false);
+
             await RunTest("New failed matching check reopens mitigated incident and raises severity", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

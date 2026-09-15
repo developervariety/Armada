@@ -297,6 +297,11 @@ namespace Armada.Server
             if (mission.Status != MissionStatusEnum.Failed && mission.Status != MissionStatusEnum.LandingFailed)
                 return IncidentEvidence.ActiveWork("Linked mission is still " + mission.Status + ": " + mission.Id + ".");
 
+            // A mission closed by terminal-voyage reconciliation records an ended voyage, not a failure to
+            // recover, so an incident opened for it has nothing left to track.
+            if (Armada.Core.Services.TerminalVoyageMissionRule.IsReconciledOutcome(mission.Status, mission.FailureReason))
+                return IncidentEvidence.Superseded("Linked mission was closed by terminal-voyage reconciliation, not by a failure of its own, so the incident is superseded: " + mission.Id + ".");
+
             if (await IsMissionVoyageCancelledAsync(mission, token).ConfigureAwait(false))
                 return IncidentEvidence.Superseded("Linked mission belongs to a cancelled voyage and is superseded: " + mission.Id + ".");
 

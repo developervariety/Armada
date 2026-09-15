@@ -2539,6 +2539,17 @@ event with the voyage status, landing probe and commit. The mission keeps its
 commit and branch. The pass never deletes branches, refs or commits, and it
 runs no rescue or wake.
 
+A reconciled `Failed` or `Cancelled` mission is a record of an ended voyage, not
+a failure to recover. Autonomous recovery checks this before it writes
+anything. It opens no incident, dispatches or defers no rescue, and records no
+recovery attempt. This holds for the failed-mission sweep, for the rescue
+re-check after a dispatch hold clears, and for mission outcome handling. The
+incident lifecycle sweep closes an incident already linked to such a mission
+as superseded, and the note names reconciliation as the cause. The rule
+recognises the failure reason that reconciliation wrote: the reason code in
+parentheses closes the text, before any `; previous reason:` suffix. A genuine
+failure under a `Failed` voyage still gets its normal incident and rescue.
+
 The rule keeps a mission unchanged in these cases, and counts each by reason:
 
 - `ancestry_unknown`: there is no vessel or repository, the default branch does

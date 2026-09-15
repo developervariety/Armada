@@ -14,6 +14,22 @@ replaced.
 
 Focus: operator signal fidelity - make a failure say what actually failed.
 
+### Recovery ignores missions closed by terminal-voyage reconciliation
+
+- A mission that terminal-voyage reconciliation moved to Failed or Cancelled is
+  no longer treated as a fresh failure. Recovery skips it before any write. It
+  opens no incident, dispatches or defers no rescue, and records no recovery
+  attempt. The failed-mission sweep, the rescue re-check after a dispatch hold
+  clears, and mission outcome handling all apply the same rule. Before, the
+  repair's fresh update time put every reconciled Failed mission inside the
+  sweep's 24-hour window, so recovery opened incidents and dispatched rescues
+  for work whose voyage had already ended.
+- An incident already linked to such a mission closes as superseded, with a
+  note that names reconciliation as the cause.
+- One rule writes the reconciliation failure reason and recognises it, so the
+  reconciler and every reader cannot drift apart. A genuine failure under a
+  Failed voyage keeps its normal incident and rescue.
+
 ### WebSocket command events reach the record's owner
 
 - The mission and voyage change events that the WebSocket `cancel_voyage`,

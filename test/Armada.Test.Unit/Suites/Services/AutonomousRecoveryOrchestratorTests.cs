@@ -1174,6 +1174,97 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, incidentPage.Objects.Count, "Excluded terminal-voyage candidate must not open an incident.");
             }).ConfigureAwait(false);
 
+            await RunTest("Sweep leaves a reconciler-failed mission untouched and still rescues a genuine failure under a failed voyage", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_reconciled", "usr_auto_reconciled").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_reconciled", "usr_auto_reconciled").ConfigureAwait(false);
+
+                Mission reconciled = await CreateReconciledMissionAsync(testDb, vessel, VoyageStatusEnum.Failed).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Failed, reconciled.Status, "The reconciler fails unlanded work under a Failed voyage.");
+                AssertTrue(reconciled.LastUpdateUtc > DateTime.UtcNow.AddMinutes(-5), "The reconciled mission is fresh, inside the failed-mission lookback.");
+
+                Voyage genuineVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Genuinely failed voyage")
+                {
+                    TenantId = vessel.TenantId,
+                    UserId = vessel.UserId,
+                    Status = VoyageStatusEnum.Failed,
+                    CompletedUtc = DateTime.UtcNow.AddMinutes(-1),
+                    LastUpdateUtc = DateTime.UtcNow.AddMinutes(-1)
+                }).ConfigureAwait(false);
+                Mission genuine = await CreateFailedMissionAsync(testDb, vessel, "Agent process exited with code 1").ConfigureAwait(false);
+                genuine.VoyageId = genuineVoyage.Id;
+                await testDb.Driver.Missions.UpdateAsync(genuine).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+                await orchestrator.HandleMissionOutcomeAsync(reconciled, false).ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchedMissions.Count, "Only the genuine failure is rescued.");
+                AssertEqual(genuine.Id, admiral.DispatchedMissions[0].ParentMissionId, "The rescue belongs to the genuine failure.");
+                AssertEqual(0, await CountIncidentsAsync(incidents, vessel, reconciled.Id).ConfigureAwait(false), "A reconciler-failed mission opens no incident.");
+                AssertEqual(1, await CountIncidentsAsync(incidents, vessel, genuine.Id).ConfigureAwait(false), "A genuine failure under a Failed voyage still opens its incident.");
+
+                Mission reconciledAfter = (await testDb.Driver.Missions.ReadAsync(reconciled.Id).ConfigureAwait(false))!;
+                AssertFalse(reconciledAfter.LastRecoveryActionUtc.HasValue, "Recovery records no action on a reconciled mission.");
+                AssertEqual(0, reconciledAfter.RecoveryAttempts, "Recovery spends no budget on a reconciled mission.");
+                AssertTrue(Math.Abs((reconciledAfter.LastUpdateUtc - reconciled.LastUpdateUtc).TotalMilliseconds) < 5,
+                    "Recovery never writes a reconciled mission, so it cannot keep it inside the lookback window.");
+            }).ConfigureAwait(false);
+
+            await RunTest("A reconciler-cancelled mission opens no incident and dispatches no rescue", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_reconciled_cancel", "usr_auto_reconciled_cancel").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_reconciled_cancel", "usr_auto_reconciled_cancel").ConfigureAwait(false);
+
+                Mission reconciled = await CreateReconciledMissionAsync(testDb, vessel, VoyageStatusEnum.Complete).ConfigureAwait(false);
+                AssertEqual(MissionStatusEnum.Cancelled, reconciled.Status, "The reconciler cancels superseded work under a Complete voyage.");
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks);
+
+                await orchestrator.HandleMissionOutcomeAsync(reconciled, false).ConfigureAwait(false);
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchedMissions.Count, "No rescue for a reconciler-cancelled mission.");
+                AssertEqual(0, await CountIncidentsAsync(incidents, vessel, reconciled.Id).ConfigureAwait(false), "No incident for a reconciler-cancelled mission.");
+            }).ConfigureAwait(false);
+
+            await RunTest("A dispatch hold neither defers nor later rescues a reconciler-failed mission", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_auto_reconciled_hold", "usr_auto_reconciled_hold").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_auto_reconciled_hold", "usr_auto_reconciled_hold").ConfigureAwait(false);
+
+                Mission reconciled = await CreateReconciledMissionAsync(testDb, vessel, VoyageStatusEnum.Failed).ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                DispatchHold hold = new DispatchHold();
+                AutonomousRecoveryOrchestrator orchestrator = new AutonomousRecoveryOrchestrator(
+                    testDb.Driver, admiral, incidents, runbooks, new ArmadaSettings(), new LoggingModule(),
+                    null, null, null, null, null, null, null, null, hold);
+
+                hold.Engage("redeploy window", "session-hold");
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+                AssertEqual(0, orchestrator.HoldDeferredRescueCount, "A reconciled mission is never deferred for the hold.");
+                AssertEqual(0, await CountIncidentsAsync(incidents, vessel, reconciled.Id).ConfigureAwait(false), "A held sweep opens no incident for a reconciled mission.");
+
+                hold.Clear();
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+                AssertEqual(0, admiral.DispatchedMissions.Count, "Clearing the hold dispatches no rescue for a reconciled mission.");
+                AssertEqual(0, orchestrator.HoldDeferredRescueCount, "Nothing is left deferred.");
+                AssertEqual(0, await CountIncidentsAsync(incidents, vessel, reconciled.Id).ConfigureAwait(false), "No incident after the hold clears.");
+            }).ConfigureAwait(false);
+
             await RunTest("Sweep processes a failed mission with no parent voyage", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -2555,6 +2646,57 @@ namespace Armada.Test.Unit.Suites.Services
             };
 
             return await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+        }
+
+        // Produces a mission the way production does: a WorkProduced stage with no commit under an ended
+        // voyage, moved to its terminal status by the real terminal-voyage reconciler.
+        private static async Task<Mission> CreateReconciledMissionAsync(TestDatabase testDb, Vessel vessel, VoyageStatusEnum voyageStatus)
+        {
+            Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("Ended voyage")
+            {
+                TenantId = vessel.TenantId,
+                UserId = vessel.UserId,
+                Status = voyageStatus,
+                CompletedUtc = DateTime.UtcNow.AddHours(-2),
+                LastUpdateUtc = DateTime.UtcNow.AddHours(-2)
+            }).ConfigureAwait(false);
+
+            Mission produced = await testDb.Driver.Missions.CreateAsync(new Mission
+            {
+                TenantId = vessel.TenantId,
+                UserId = vessel.UserId,
+                VesselId = vessel.Id,
+                VoyageId = voyage.Id,
+                Persona = "Worker",
+                Title = "Upstream stage",
+                Description = "Original mission description",
+                Status = MissionStatusEnum.WorkProduced,
+                LastUpdateUtc = DateTime.UtcNow.AddHours(-2)
+            }).ConfigureAwait(false);
+
+            LoggingModule logging = new LoggingModule();
+            logging.Settings.EnableConsole = false;
+            await new TerminalVoyageMissionReconciler(logging, testDb.Driver, new GitService(logging))
+                .ReconcileAsync(new TerminalVoyageMissionReconciliationRequest
+                {
+                    DryRun = false,
+                    IncludeHistorical = true,
+                    VoyageId = voyage.Id
+                }).ConfigureAwait(false);
+
+            return (await testDb.Driver.Missions.ReadAsync(produced.Id).ConfigureAwait(false))!;
+        }
+
+        private static async Task<int> CountIncidentsAsync(IncidentService incidents, Vessel vessel, string missionId)
+        {
+            AuthContext auth = AuthContext.Authenticated(vessel.TenantId!, vessel.UserId!, false, true, "UnitTest");
+            EnumerationResult<Incident> page = await incidents.EnumerateAsync(auth, new IncidentQuery
+            {
+                MissionId = missionId,
+                PageNumber = 1,
+                PageSize = 10
+            }).ConfigureAwait(false);
+            return page.Objects.Count;
         }
 
         private static async Task<Captain> CreateCaptainAsync(TestDatabase testDb, Vessel vessel, string name, AgentRuntimeEnum runtime)

@@ -233,6 +233,7 @@ namespace Armada.Server
             // full mission rows.
             Dictionary<string, bool> terminalVoyageCache = new Dictionary<string, bool>(StringComparer.Ordinal);
             int processed = 0;
+            int reconciledSkipped = 0;
 
             foreach (MissionSummary candidate in candidates
                 .Where(item => item.LastUpdateUtc >= cutoff)
@@ -240,6 +241,15 @@ namespace Armada.Server
             {
                 if (processed >= 10) break;
                 token.ThrowIfCancellationRequested();
+
+                // A mission the terminal-voyage reconciler closed is a record of an ended voyage, not a
+                // failure of its own; it never enters recovery. Checked on the summary so the sweep reads
+                // no full row for it, and again in ApplyFailurePolicyAsync for every other entry point.
+                if (TerminalVoyageMissionRule.IsReconciledOutcome(candidate.Status, candidate.FailureReason))
+                {
+                    reconciledSkipped++;
+                    continue;
+                }
 
                 if (await IsTerminalVoyageAsync(candidate.VoyageId, terminalVoyageCache, token).ConfigureAwait(false))
                     continue;
@@ -266,6 +276,12 @@ namespace Armada.Server
 
                 if (await ApplyFailurePolicyAsync(candidate.TenantId, candidate.Id, token).ConfigureAwait(false))
                     processed++;
+            }
+
+            if (reconciledSkipped > 0)
+            {
+                _Logging.Debug(_Header + "failed-mission sweep skipped " + reconciledSkipped
+                    + " mission(s) closed by terminal-voyage reconciliation");
             }
         }
 
@@ -917,6 +933,16 @@ namespace Armada.Server
                 Mission? latest = await ReadMissionAsync(tenantId, missionId, token).ConfigureAwait(false);
                 if (latest == null || !IsRecoverableTerminalStatus(latest.Status))
                     return false;
+
+                // Checked before any write: an incident, a deferral, or a recovery timestamp would each
+                // treat the reconciled record as a fresh failure and keep it inside the sweep's lookback.
+                if (TerminalVoyageMissionRule.IsReconciledOutcome(latest.Status, latest.FailureReason))
+                {
+                    _HoldDeferredRescues.TryRemove(latest.Id, out HoldDeferredRescue? _);
+                    _Logging.Debug(_Header + "recovery skipped mission " + latest.Id
+                        + ": closed by terminal-voyage reconciliation, not a failure of its own");
+                    return false;
+                }
 
                 if (await SuppressCancelledVoyageRecoveryAsync(latest, token).ConfigureAwait(false))
                     return true;

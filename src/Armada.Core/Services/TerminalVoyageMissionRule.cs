@@ -58,9 +58,72 @@ namespace Armada.Core.Services
         /// <summary>The mission left WorkProduced between the scan and the write.</summary>
         public const string ReasonStatusChanged = "status_changed";
 
+        /// <summary>
+        /// Separator between a reconciliation failure reason and the reason the mission carried before.
+        /// </summary>
+        public const string PreviousReasonSeparator = "; previous reason: ";
+
+        #endregion
+
+        #region Private-Members
+
+        private static readonly string[] _UnlandedReasons = { ReasonWorkUnlanded, ReasonCommitAbsent, ReasonNoCommit };
+
         #endregion
 
         #region Public-Methods
+
+        /// <summary>
+        /// The failure reason recorded on a mission this rule moved to Failed or Cancelled. It is the only
+        /// writer of that text; <see cref="IsReconciledFailureReason"/> is the only reader.
+        /// </summary>
+        /// <param name="voyageStatus">Status of the ended voyage.</param>
+        /// <param name="reason">One of the unlanded reason codes.</param>
+        /// <param name="previousReason">Failure reason the mission carried before, if any.</param>
+        /// <returns>The failure reason to store.</returns>
+        public static string FormatReconciledFailureReason(VoyageStatusEnum voyageStatus, string reason, string? previousReason)
+        {
+            if (Array.IndexOf(_UnlandedReasons, reason) < 0)
+                throw new ArgumentException("not an unlanded reason code: " + reason, nameof(reason));
+
+            string text = "Voyage ended " + voyageStatus + " and the mission's work is not on the default branch (" + reason + ")";
+            return String.IsNullOrWhiteSpace(previousReason) ? text : text + PreviousReasonSeparator + previousReason;
+        }
+
+        /// <summary>
+        /// Whether a failure reason was written by <see cref="FormatReconciledFailureReason"/>.
+        /// </summary>
+        /// <param name="failureReason">Mission failure reason.</param>
+        /// <returns>True when the reason ends, before any previous reason, in an unlanded reason code.</returns>
+        public static bool IsReconciledFailureReason(string? failureReason)
+        {
+            if (String.IsNullOrEmpty(failureReason)) return false;
+
+            // The reconciliation text comes first and a previous reason, when there is one, follows the
+            // separator, so the reason code closes the text before the first separator.
+            int separator = failureReason.IndexOf(PreviousReasonSeparator, StringComparison.Ordinal);
+            string head = separator >= 0 ? failureReason.Substring(0, separator) : failureReason;
+            foreach (string code in _UnlandedReasons)
+            {
+                string token = "(" + code + ")";
+                if (head.Length > token.Length && head.EndsWith(token, StringComparison.Ordinal)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Whether a mission reached its status through this rule rather than through a failure of its own.
+        /// Such a mission is a record of an ended voyage: recovery must not open an incident for it, rescue
+        /// it, defer a rescue, or write to it.
+        /// </summary>
+        /// <param name="status">Mission status.</param>
+        /// <param name="failureReason">Mission failure reason.</param>
+        /// <returns>True for a Failed or Cancelled mission whose reason this rule wrote.</returns>
+        public static bool IsReconciledOutcome(MissionStatusEnum status, string? failureReason)
+        {
+            return (status == MissionStatusEnum.Failed || status == MissionStatusEnum.Cancelled)
+                && IsReconciledFailureReason(failureReason);
+        }
 
         /// <summary>
         /// Whether a voyage status is terminal.
