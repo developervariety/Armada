@@ -62,7 +62,7 @@ The fetched fork and local checkout matched. Git reports 1,187 fork-only and 324
 | Database and migration scripts | 126 | 164 | 174 |
 | Dashboard source/config | 137 | 136 | 88 |
 | Platform/runtime/CLI/build | 162 | 118 | 139 |
-| Tests | 302 | 524 | 495 |
+| Tests | 302 | 525 | 496 |
 | Documentation | 40 | 39 | 47 |
 | Other source/configuration | 6 | 6 | 8 |
 | Built dashboard | 192 | 185 | 164 |

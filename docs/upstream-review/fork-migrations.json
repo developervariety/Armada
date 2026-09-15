@@ -88,7 +88,7 @@
         },
         {
           "version": 17,
-          "description": "Add a boolean flag column and a text column to vessels",
+          "description": "Add enable_model_context and model_context to vessels",
           "sha256": "242a5b7993e232db29d09448f4d203b9cea4a6f45648970ba6c39e3ff2429236"
         },
         {
@@ -444,7 +444,7 @@
         },
         {
           "version": 5,
-          "description": "Add a boolean flag column and a text column to vessels",
+          "description": "Add enable_model_context and model_context to vessels",
           "sha256": "a3d70d62d5a6ee249aed41c23c4b18d61dd2eb57b4fff12dcf95a5cb4e040e38"
         },
         {
@@ -790,7 +790,7 @@
         },
         {
           "version": 5,
-          "description": "Add a boolean flag column and a text column to vessels",
+          "description": "Add enable_model_context and model_context to vessels",
           "sha256": "ccf795626ab5a966e3bffc6f8344f951c431702ba8b504357ed51926c491d756"
         },
         {
@@ -1116,7 +1116,7 @@
         },
         {
           "version": 7,
-          "description": "Add a boolean flag column and a text column to vessels",
+          "description": "Add enable_model_context and model_context to vessels",
           "sha256": "5c3d4a773610dc148bf5d69ab2cd724ccf147a72f6be56ee7af817e2454d5775"
         },
         {

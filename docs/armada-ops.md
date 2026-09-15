@@ -2429,7 +2429,8 @@ Two boundaries decide what belongs here:
   rules. When a brief carries a Shared Memory section, an external rule wins over
   a native record on conflict, and a captain reports the conflict instead of
   rewriting either side.
-- The memory tools never write to that repository or to repository files.
+- The memory tools never write to that repository, to repository files, or to the
+  vessel model context.
 
 The MCP surface carries no per-request identity, so the memory tools act as an
 administrator of the default tenant: they reach every record of that tenant and
@@ -2461,7 +2462,8 @@ Three operator facts:
   operator as a proposal in its summary.
 
 Every other built-in persona template carries a Recall Existing Memory section
-telling the agent to search memory before it acts. Startup adds that section once to a built-in persona template that lacks
+telling the agent to read the vessel model context and search memory before it
+acts. Startup adds that section once to a built-in persona template that lacks
 it and changes nothing else, so an operator edit is kept.
 
 ### 8.25 Branch Cleanup Sweep

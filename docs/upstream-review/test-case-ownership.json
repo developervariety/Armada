@@ -12411,8 +12411,8 @@
       "executable": "Test.Unit",
       "provider": null,
       "actualDriver": null,
-      "retainedCount": 3664,
-      "executedCount": 3724,
+      "retainedCount": 3676,
+      "executedCount": 3736,
       "registeredSuites": [
         {
           "SuiteId": "Armada.Test.Unit.Suites.Services.TestRunnerContractTests",
@@ -12998,7 +12998,7 @@
         },
         {
           "SuiteId": "Armada.Test.Unit.Suites.Services.MissionPromptTests",
-          "Name": "Mission Prompt (ProjectContext/StyleGuide)",
+          "Name": "Mission Prompt (ProjectContext/StyleGuide/ModelContext)",
           "Selected": true,
           "Disposition": "selected"
         },
@@ -13557,6 +13557,12 @@
         {
           "SuiteId": "Armada.Test.Unit.Suites.Routes.VesselDefaultPlaybooksTests",
           "Name": "Vessel DefaultPlaybooks",
+          "Selected": true,
+          "Disposition": "selected"
+        },
+        {
+          "SuiteId": "Armada.Test.Unit.Suites.Routes.VesselModelContextBoundaryTests",
+          "Name": "Vessel ModelContext Boundary",
           "Selected": true,
           "Disposition": "selected"
         },
@@ -21844,6 +21850,42 @@
           "line": 50,
           "sourceSha256": "950a6fb90972df4ad53c11f70cb7983926b19fce2c54996e9b529119af39489b",
           "baselineSourceSha256": "bc461d928bd8dcb76465a8a1a26036aa2b5b46d23522b6aa110872b02cc7933b"
+        },
+        {
+          "suite": "Armada.Test.Unit.Suites.Routes.VesselModelContextBoundaryTests",
+          "case": "ArmadaUpdateVesselContext_EmptyModelContext_AllowsOtherFields",
+          "ownership": "retained",
+          "source": "test/Armada.Test.Unit/Suites/Routes/VesselModelContextBoundaryTests.cs",
+          "line": 55,
+          "sourceSha256": "2c00a24aef8780ce25075074c58841bf935dcc18111472ebd89a0325b11a9ac4",
+          "baselineSourceSha256": "2c00a24aef8780ce25075074c58841bf935dcc18111472ebd89a0325b11a9ac4"
+        },
+        {
+          "suite": "Armada.Test.Unit.Suites.Routes.VesselModelContextBoundaryTests",
+          "case": "ArmadaUpdateVesselContext_NonEmptyModelContext_ReturnsBlockedError",
+          "ownership": "retained",
+          "source": "test/Armada.Test.Unit/Suites/Routes/VesselModelContextBoundaryTests.cs",
+          "line": 23,
+          "sourceSha256": "2c00a24aef8780ce25075074c58841bf935dcc18111472ebd89a0325b11a9ac4",
+          "baselineSourceSha256": "2c00a24aef8780ce25075074c58841bf935dcc18111472ebd89a0325b11a9ac4"
+        },
+        {
+          "suite": "Armada.Test.Unit.Suites.Routes.VesselModelContextBoundaryTests",
+          "case": "ArmadaUpdateVessel_NoModelContext_OtherFieldsMutate",
+          "ownership": "retained",
+          "source": "test/Armada.Test.Unit/Suites/Routes/VesselModelContextBoundaryTests.cs",
+          "line": 118,
+          "sourceSha256": "2c00a24aef8780ce25075074c58841bf935dcc18111472ebd89a0325b11a9ac4",
+          "baselineSourceSha256": "2c00a24aef8780ce25075074c58841bf935dcc18111472ebd89a0325b11a9ac4"
+        },
+        {
+          "suite": "Armada.Test.Unit.Suites.Routes.VesselModelContextBoundaryTests",
+          "case": "ArmadaUpdateVessel_NonEmptyModelContext_ReturnsBlockedError",
+          "ownership": "retained",
+          "source": "test/Armada.Test.Unit/Suites/Routes/VesselModelContextBoundaryTests.cs",
+          "line": 86,
+          "sourceSha256": "2c00a24aef8780ce25075074c58841bf935dcc18111472ebd89a0325b11a9ac4",
+          "baselineSourceSha256": "2c00a24aef8780ce25075074c58841bf935dcc18111472ebd89a0325b11a9ac4"
         },
         {
           "suite": "Armada.Test.Unit.Suites.Routes.VesselSiblingReposRoutesTests",
@@ -31225,6 +31267,24 @@
         },
         {
           "suite": "Armada.Test.Unit.Suites.Services.DockBoundaryScannerTests",
+          "case": "ModelContext path is blocked by built-in protected paths",
+          "ownership": "retained",
+          "source": "test/Armada.Test.Unit/Suites/Services/DockBoundaryScannerTests.cs",
+          "line": 166,
+          "sourceSha256": "e4e69bde4370e4d5c9bf3df383e909643201cf9959e4bd27247d00d3d17911c9",
+          "baselineSourceSha256": "e4e69bde4370e4d5c9bf3df383e909643201cf9959e4bd27247d00d3d17911c9"
+        },
+        {
+          "suite": "Armada.Test.Unit.Suites.Services.DockBoundaryScannerTests",
+          "case": "Nested ModelContext path is blocked by built-in protected paths",
+          "ownership": "retained",
+          "source": "test/Armada.Test.Unit/Suites/Services/DockBoundaryScannerTests.cs",
+          "line": 177,
+          "sourceSha256": "e4e69bde4370e4d5c9bf3df383e909643201cf9959e4bd27247d00d3d17911c9",
+          "baselineSourceSha256": "e4e69bde4370e4d5c9bf3df383e909643201cf9959e4bd27247d00d3d17911c9"
+        },
+        {
+          "suite": "Armada.Test.Unit.Suites.Services.DockBoundaryScannerTests",
           "case": "Normal source file is not blocked by built-in paths",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/DockBoundaryScannerTests.cs",
@@ -35122,6 +35182,24 @@
         },
         {
           "suite": "Armada.Test.Unit.Suites.Services.McpVesselToolsTests",
+          "case": "ModelContextWrite_WithOperatorOverride_IsApplied",
+          "ownership": "retained",
+          "source": "test/Armada.Test.Unit/Suites/Services/McpVesselToolsTests.cs",
+          "line": 79,
+          "sourceSha256": "c6f9c1336e636aad9c04b86b9b93a17b3533bb01342ef44c8c252ee7f3c8d6f6",
+          "baselineSourceSha256": "c6f9c1336e636aad9c04b86b9b93a17b3533bb01342ef44c8c252ee7f3c8d6f6"
+        },
+        {
+          "suite": "Armada.Test.Unit.Suites.Services.McpVesselToolsTests",
+          "case": "ModelContextWrite_WithoutOperatorOverride_IsBlocked",
+          "ownership": "retained",
+          "source": "test/Armada.Test.Unit/Suites/Services/McpVesselToolsTests.cs",
+          "line": 58,
+          "sourceSha256": "c6f9c1336e636aad9c04b86b9b93a17b3533bb01342ef44c8c252ee7f3c8d6f6",
+          "baselineSourceSha256": "c6f9c1336e636aad9c04b86b9b93a17b3533bb01342ef44c8c252ee7f3c8d6f6"
+        },
+        {
+          "suite": "Armada.Test.Unit.Suites.Services.McpVesselToolsTests",
           "case": "ProjectContextWrite_WithoutOverride_IsAllowed",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/McpVesselToolsTests.cs",
@@ -36868,6 +36946,15 @@
         },
         {
           "suite": "Armada.Test.Unit.Suites.Services.MissionPromptTests",
+          "case": "GenerateClaudeMdAsync includes ModelContext when enabled and set",
+          "ownership": "retained",
+          "source": "test/Armada.Test.Unit/Suites/Services/MissionPromptTests.cs",
+          "line": 1000,
+          "sourceSha256": "876f9666a15a8888b90b1cb9e973ce2b1a06bb486270015aff0ee783c2c42364",
+          "baselineSourceSha256": "876f9666a15a8888b90b1cb9e973ce2b1a06bb486270015aff0ee783c2c42364"
+        },
+        {
+          "suite": "Armada.Test.Unit.Suites.Services.MissionPromptTests",
           "case": "GenerateClaudeMdAsync includes Objective Scope once when the voyage links an objective",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionPromptTests.cs",
@@ -36913,10 +37000,28 @@
         },
         {
           "suite": "Armada.Test.Unit.Suites.Services.MissionPromptTests",
+          "case": "GenerateClaudeMdAsync includes update instructions even when ModelContext is empty",
+          "ownership": "retained",
+          "source": "test/Armada.Test.Unit/Suites/Services/MissionPromptTests.cs",
+          "line": 1167,
+          "sourceSha256": "876f9666a15a8888b90b1cb9e973ce2b1a06bb486270015aff0ee783c2c42364",
+          "baselineSourceSha256": "876f9666a15a8888b90b1cb9e973ce2b1a06bb486270015aff0ee783c2c42364"
+        },
+        {
+          "suite": "Armada.Test.Unit.Suites.Services.MissionPromptTests",
           "case": "GenerateClaudeMdAsync leaves prompt-budget telemetry unflagged when under budget",
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionPromptTests.cs",
           "line": 624,
+          "sourceSha256": "876f9666a15a8888b90b1cb9e973ce2b1a06bb486270015aff0ee783c2c42364",
+          "baselineSourceSha256": "876f9666a15a8888b90b1cb9e973ce2b1a06bb486270015aff0ee783c2c42364"
+        },
+        {
+          "suite": "Armada.Test.Unit.Suites.Services.MissionPromptTests",
+          "case": "GenerateClaudeMdAsync omits ModelContext when disabled",
+          "ownership": "retained",
+          "source": "test/Armada.Test.Unit/Suites/Services/MissionPromptTests.cs",
+          "line": 1132,
           "sourceSha256": "876f9666a15a8888b90b1cb9e973ce2b1a06bb486270015aff0ee783c2c42364",
           "baselineSourceSha256": "876f9666a15a8888b90b1cb9e973ce2b1a06bb486270015aff0ee783c2c42364"
         },
@@ -37259,6 +37364,15 @@
           "ownership": "retained",
           "source": "test/Armada.Test.Unit/Suites/Services/MissionPromptTests.cs",
           "line": 1204,
+          "sourceSha256": "876f9666a15a8888b90b1cb9e973ce2b1a06bb486270015aff0ee783c2c42364",
+          "baselineSourceSha256": "876f9666a15a8888b90b1cb9e973ce2b1a06bb486270015aff0ee783c2c42364"
+        },
+        {
+          "suite": "Armada.Test.Unit.Suites.Services.MissionPromptTests",
+          "case": "Template-resolved CLAUDE.md contains model context updates when enabled",
+          "ownership": "retained",
+          "source": "test/Armada.Test.Unit/Suites/Services/MissionPromptTests.cs",
+          "line": 1453,
           "sourceSha256": "876f9666a15a8888b90b1cb9e973ce2b1a06bb486270015aff0ee783c2c42364",
           "baselineSourceSha256": "876f9666a15a8888b90b1cb9e973ce2b1a06bb486270015aff0ee783c2c42364"
         },

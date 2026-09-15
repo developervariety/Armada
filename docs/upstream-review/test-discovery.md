@@ -65,7 +65,7 @@ it does not certify these adapters or authorize their fixture cleanup behavior.
 
 The baseline identity run uses the foundation commit's suite registrations and
 case bodies with the current result recorder and corrected exception assertions.
-It records 3,664 Unit, 907 API and 183 runtime identities. Unit reports one
+It records 3,676 Unit, 907 API and 183 runtime identities. Unit reports one
 failure: the old Postman mutation did not alter its intended JSON input. This
 baseline run is identity evidence, not a passing baseline certification. The
 current fixture correction preserves that case and its negative assertion.
