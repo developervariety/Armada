@@ -14,7 +14,7 @@ import {
   listWorkflowProfiles,
 } from '../api/client';
 import MuxRuntimeFields from './captains/MuxRuntimeFields';
-import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, type MuxCaptainFormFields } from '../lib/mux';
+import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, type MuxCaptainFormFields } from '../lib/mux';
 import { EMPTY_CAPTAIN_CREDENTIAL_FORM, normalizeCredential, type CaptainCredentialFormFields } from '../lib/captainCredential';
 import ProviderCredentialFields from './captains/ProviderCredentialFields';
 import type { Captain, DeploymentEnvironment, Fleet, Mission, Vessel, VesselReadinessResult, WorkflowProfile } from '../types/models';
@@ -38,7 +38,11 @@ export function markSetupComplete(): void {
   }
 }
 
-/** Forget that setup was completed, so the wizard can be re-run from the sidebar. */
+/**
+ * Clear the "setup complete" flag. Used when the deployment is found to be empty (e.g. after a
+ * factory-reset), so a browser that finished setup against a previous deployment does not permanently
+ * suppress the wizard on the fresh one.
+ */
 export function clearSetupComplete(): void {
   try {
     localStorage.removeItem(STORAGE_KEY);
@@ -124,7 +128,7 @@ const tooltips = {
   model: 'Optional runtime-specific model override. Leave blank to use the runtime default.',
   systemInstructions: 'Optional instructions injected into every mission handled by this captain.',
   muxConfigDirectory: 'Optional mux config directory override for loading saved endpoints.',
-  muxEndpoint: 'Optional legacy Mux endpoint name.',
+  muxEndpoint: 'Required named mux endpoint when the captain runtime is Mux.',
   missionTitle: 'Short title for the direct setup mission created by dispatch.',
   missionDescription: 'Full task instructions sent to the captain for this setup dispatch.',
   priority: 'Scheduling priority for the mission. Lower values are higher priority in Armada.',
@@ -329,12 +333,15 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
   }, [loadResources]);
 
   useEffect(() => {
+    // Highlights map to consolidated nav destinations: Fleets/Workspace fold
+    // into Vessels, Backlog into Dispatch, config pages into Configuration, and
+    // Environments/Checks into Delivery.
     const highlightsByStep: Record<number, string[]> = {
-      1: ['/fleets'],
+      1: ['/vessels'],
       2: ['/vessels'],
       3: ['/captains'],
       4: ['/dispatch'],
-      5: ['/vessels', '/workspace', '/backlog', '/planning', '/workflow-profiles', '/environments', '/checks', '/playbooks'],
+      5: ['/vessels', '/dispatch', '/planning', '/configuration', '/delivery'],
     };
 
     onHighlightChange?.(highlightsByStep[current] || []);
@@ -514,6 +521,11 @@ export default function SetupWizard({ onClose, onHighlightChange }: SetupWizardP
       setResult({ kind: 'error', message: t('Choose a captain runtime.') });
       return;
     }
+    if (isMuxRuntime(captainForm.runtime) && !captainForm.muxEndpoint.trim()) {
+      setResult({ kind: 'error', message: t('Mux captains require a named Mux endpoint.') });
+      return;
+    }
+
     try {
       setBusy(true);
       const captain = await createCaptain({

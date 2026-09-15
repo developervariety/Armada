@@ -58,12 +58,6 @@ const ProjectProfileDetail = lazy(() => import('./pages/ProjectProfileDetail'));
 const Skills = lazy(() => import('./pages/Skills'));
 const SkillDetail = lazy(() => import('./pages/SkillDetail'));
 const AskArmada = lazy(() => import('./pages/AskArmada'));
-// Fork-only: code index has no upstream counterpart, so it keeps a standalone route.
-const CodeIndex = lazy(() => import('./pages/CodeIndex'));
-// Fork-only: upstream folds /notifications into the inbox and drops this page. The fork keeps it,
-// because the two are different surfaces -- the inbox is what needs attention, this is delivered
-// notification history with read state, mark-all-read, and clear-history.
-const Notifications = lazy(() => import('./pages/Notifications'));
 const Inbox = lazy(() => import('./pages/Inbox'));
 const CheckRuns = lazy(() => import('./pages/CheckRuns'));
 const CheckRunDetail = lazy(() => import('./pages/CheckRunDetail'));
@@ -170,13 +164,6 @@ export default function App() {
                       <Route path="skills" element={<Navigate to="/configuration?tab=skills" replace />} />
                       <Route path="skills/:id" element={<SkillDetail />} />
                       <Route path="ask" element={<AskArmada />} />
-
-                      {/* Fork-only page; upstream has no code index and therefore no hub tab for it. */}
-                      <Route path="code-index" element={<CodeIndex />} />
-
-                      {/* Token usage lives in the Activity hub upstream; keep the old path working.
-                          The Activity hub keys its tabs on ?source=, not ?tab=. */}
-                      <Route path="token-usage" element={<Navigate to="/activity?source=tokens" replace />} />
                       <Route path="inbox" element={<Inbox />} />
                       <Route path="delivery" element={<DeliveryHub />} />
                       <Route path="checks" element={<Navigate to="/delivery?tab=checks" replace />} />
@@ -197,7 +184,7 @@ export default function App() {
                       <Route path="api-explorer" element={<ApiExplorer />} />
                       <Route path="api-explorer/:operationId" element={<ApiExplorer />} />
 
-                      <Route path="notifications" element={<Notifications />} />
+                      <Route path="notifications" element={<Navigate to="/inbox" replace />} />
 
                       <Route path="admin/tenants" element={<Navigate to="/server?tab=tenants" replace />} />
                       <Route path="admin/users" element={<Navigate to="/server?tab=users" replace />} />

@@ -5,14 +5,8 @@ import { dashboardItem, askArmadaItem, navSections, flattenNavCommands } from '.
  * Locks the consolidated navigation model so regressions cannot silently
  * re-add or re-nest the pages the consolidation folded away.
  *
- * This fork carries three destinations upstream's nav does not. Code Index is a
- * fork-only feature with no upstream counterpart and therefore no hub tab to
- * fold into. Notifications is deliberately kept: upstream folded it away and
- * its NotificationBell navigates to the source record rather than to the page,
- * which leaves the full notifications page routed but unreachable. The bell is
- * the better surface for a single notification and is kept as well; the nav
- * item is what keeps the page itself reachable. Chatroom is the shared
- * coordination board where operator sessions see who is doing what.
+ * This fork carries one destination upstream's nav does not: Chatroom, the
+ * shared coordination board where operator sessions see who is doing what.
  */
 describe('navConfig', () => {
   const commands = flattenNavCommands();
@@ -32,19 +26,20 @@ describe('navConfig', () => {
       '/', '/ask', '/inbox', '/planning', '/dispatch', '/missions',
       '/delivery', '/vessels', '/captains', '/configuration', '/activity',
       '/jobs', '/api-explorer', '/server',
-      // Fork-only additions; see the file comment for why each one stays.
-      '/code-index', '/notifications', '/chatroom',
+      // Fork-only addition; see the file comment.
+      '/chatroom',
     ];
     for (const target of present) {
       expect(allTargets).toContain(target);
     }
-    // Upstream's 14 consolidated destinations plus this fork's Code Index,
-    // Notifications, and Chatroom; admin lives as tabs under Settings.
-    expect(commands).toHaveLength(17);
+    // Upstream's 14 consolidated destinations plus this fork's Chatroom;
+    // admin lives as tabs under Settings.
+    expect(commands).toHaveLength(15);
   });
 
   it('no longer surfaces the folded-away pages as nav items', () => {
     const removed = [
+      '/notifications', '/code-index', '/token-usage',
       '/docks', '/doctor', '/fleets', '/workspace',
       '/history', '/requests', '/events', '/signals',
       '/workflow-profiles', '/project-profiles', '/skills', '/personas',

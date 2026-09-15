@@ -56,6 +56,4 @@ export const icons: Record<string, ReactNode> = {
   tenants: svg(<><path d="M3 21h18" /><path d="M5 21V7l7-4 7 4v14" /><path d="M9 9h.01" /><path d="M9 13h.01" /><path d="M15 9h.01" /><path d="M15 13h.01" /></>),
   users: svg(<><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M23 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></>),
   credentials: svg(<><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1 7.78 7.78l-3.19-3.19" /><path d="M5.5 12.5 2 16l6 6 3.5-3.5" /><path d="m14.5 8.5 1 1" /><path d="m10.5 12.5 1 1" /></>),
-  // Fork-only: upstream has no code index, so this icon has no upstream counterpart.
-  codeIndex: svg(<><polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" /></>),
 };

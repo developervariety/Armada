@@ -12,9 +12,8 @@ function fmtMs(ms: number | null | undefined): string {
 /**
  * Per-turn statistics shown behind an (i) affordance rather than a strip under every reply.
  * Time to first token, streaming time, tokens/sec, token count, total time, and -- when the turn
- * called any tools -- the number of completed tool calls and the time summed across them appear in a
- * small popover on click. Tool time is the sum of each call's elapsed time, not wall-clock time.
- * Token count prefers completion tokens and falls back to the runtime's estimate.
+ * called any tools -- the number of tool calls and the total time spent in them appear in a small
+ * popover on click. Token count prefers completion tokens and falls back to the runtime's estimate.
  */
 export default function ChatMetricsInfo({ metrics, tools }: { metrics: CaptainChatMetrics; tools?: ToolEvent[] }) {
   const { t } = useLocale();
@@ -46,9 +45,11 @@ export default function ChatMetricsInfo({ metrics, tools }: { metrics: CaptainCh
     [t('total'), fmtMs(metrics.totalMs)],
   ];
 
-  const completedTools = (tools ?? []).filter((tool) => tool.status !== 'running');
+  // When the turn invoked tools, report how many and the total time spent in them (summed across every
+  // completed tool call). Only shown when at least one tool ran this turn.
+  const completedTools = (tools ?? []).filter((tl) => tl.status !== 'running');
   if (completedTools.length > 0) {
-    const toolMs = completedTools.reduce((sum, tool) => sum + (tool.elapsedMs ?? 0), 0);
+    const toolMs = completedTools.reduce((sum, tl) => sum + (tl.elapsedMs ?? 0), 0);
     rows.push([t('tool calls'), String(completedTools.length)]);
     rows.push([t('tool time'), fmtMs(toolMs)]);
   }

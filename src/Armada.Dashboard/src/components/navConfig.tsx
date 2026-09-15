@@ -71,12 +71,10 @@ export const navSections: NavSection[] = [
   {
     key: 'fleet',
     label: 'BUILD',
-    matchers: ['/fleets', '/vessels', '/workspace', '/captains', '/docks', '/code-index'],
+    matchers: ['/fleets', '/vessels', '/workspace', '/captains', '/docks'],
     items: [
       { to: '/vessels', label: 'Vessels', tooltip: 'Repositories grouped by fleet, plus the vessel workspace, on one surface', icon: icons.vessels },
       { to: '/captains', label: 'Captains', tooltip: 'AI coding agents that execute missions', icon: icons.captains },
-      // Fork-only. Upstream has no code index and therefore no hub tab to fold it into.
-      { to: '/code-index', label: 'Code Index', tooltip: 'Indexed repository symbols and semantic search across vessels', icon: icons.codeIndex },
     ],
   },
   {
@@ -90,12 +88,10 @@ export const navSections: NavSection[] = [
   {
     key: 'activity',
     label: 'ACTIVITY',
-    matchers: ['/activity', '/history', '/requests', '/events', '/signals', '/jobs', '/notifications'],
+    matchers: ['/activity', '/history', '/requests', '/events', '/signals', '/jobs'],
     items: [
       { to: '/activity', label: 'Activity', tooltip: 'One log across requests, events, signals, and history; filter by source type', icon: icons.activity },
       { to: '/jobs', label: 'Jobs', tooltip: 'Background jobs and their status', icon: icons.activity },
-      // Fork-only. Upstream folds no notifications surface into the Activity hub.
-      { to: '/notifications', label: 'Notifications', tooltip: 'Delivered notifications and their read state', icon: icons.notifications },
     ],
   },
   {

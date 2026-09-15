@@ -101,13 +101,6 @@ import type {
   WorkspaceExecResult,
   WorkspaceDiffResult,
   InboxItem,
-  CodeGraphExploreResponse,
-  CodeGraphFileStructureResponse,
-  CodeGraphNodeResponse,
-  CodeGraphSymbolSearchResponse,
-  CodeIndexStatus,
-  CodeSearchRequest,
-  CodeSearchResponse,
   RequestHistoryEntry,
   RequestHistoryQuery,
   RequestHistoryRecord,
@@ -945,7 +938,6 @@ export const updateRelease = (id: string, data: ReleaseUpsertRequest) => put<Rel
 export const refreshRelease = (id: string) => post<Release>(`/api/v1/releases/${encodeURIComponent(id)}/refresh`, {});
 export const deleteRelease = (id: string) => del<void>(`/api/v1/releases/${encodeURIComponent(id)}`);
 export const getReleaseGitHubPullRequests = (id: string) => get<GitHubPullRequestDetail[]>(`/api/v1/releases/${encodeURIComponent(id)}/github/pull-requests`);
-export const getReleaseWebhookEvents = (id: string) => get<ArmadaEvent[]>(`/api/v1/releases/${encodeURIComponent(id)}/webhook-events`);
 
 // ==================== Check Runs ====================
 export const listCheckRuns = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>
@@ -977,22 +969,6 @@ export const listDocks = (params?: { pageNumber?: number; pageSize?: number; fil
   get<EnumerationResult<Dock>>(`/api/v1/docks${buildQuery(params)}`);
 export const getDock = (id: string) => get<Dock>(`/api/v1/docks/${id}`);
 export const deleteDock = (id: string) => del<void>(`/api/v1/docks/${id}`);
-
-// ==================== Code Index ====================
-export const getCodeIndexStatus = (vesselId: string) =>
-  get<CodeIndexStatus>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/code-index/status`);
-export const updateCodeIndex = (vesselId: string) =>
-  post<CodeIndexStatus>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/code-index/update`, {}, { timeout: 10 * 60 * 1000 });
-export const searchCodeIndex = (vesselId: string, data: CodeSearchRequest) =>
-  post<CodeSearchResponse>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/code-index/search`, data);
-export const searchCodeGraphSymbols = (vesselId: string, query: string, limit = 20, kind?: string, pathPrefix?: string) =>
-  post<CodeGraphSymbolSearchResponse>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/code-index/search-symbols`, { query, limit, kind, pathPrefix });
-export const getCodeGraphFiles = (vesselId: string, pathPrefix = '', limit = 100, includeSymbols = true) =>
-  post<CodeGraphFileStructureResponse>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/code-index/files`, { pathPrefix, limit, includeSymbols });
-export const exploreCodeGraph = (vesselId: string, query: string, maxDepth = 2, maxResults = 25, includeSource = true) =>
-  post<CodeGraphExploreResponse>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/code-index/explore`, { query, maxDepth, maxResults, includeSource });
-export const getCodeGraphNode = (vesselId: string, symbol: string, includeSource = true, sourcePadding = 2) =>
-  post<CodeGraphNodeResponse>(`/api/v1/vessels/${encodeURIComponent(vesselId)}/code-index/node`, { symbol, includeSource, sourcePadding });
 
 // ==================== Signals ====================
 export const listSignals = (params?: { pageNumber?: number; pageSize?: number; filters?: Record<string, string> }) =>

@@ -43,6 +43,8 @@ interface CaptainChatPanelProps {
   inputDisabled?: boolean;
   /** Optional per-turn footer (e.g. Planning's "Open in Dispatch" action) rendered under the bubble. */
   renderTurnFooter?: (turn: ChatTurn, index: number) => ReactNode;
+  /** Optional runtime label shown on each tool card (e.g. "ApiEndpoint", "Mux"). */
+  toolRuntimeLabel?: string;
   /** Optional external ref to the scrolling chat window (callers that need to scroll it themselves). */
   windowRef?: RefObject<HTMLDivElement | null>;
   /** Optional small, always-visible notice shown at the top of the message window (e.g. a streaming caveat). */
@@ -51,8 +53,6 @@ interface CaptainChatPanelProps {
   onClear?: () => void;
   /** Disables the clear button (e.g. while busy or when there is nothing to clear). */
   clearDisabled?: boolean;
-  /** Runtime of the captain that runs the tools, shown on each tool card when known. */
-  toolRuntimeLabel?: string;
 }
 
 /**
@@ -86,8 +86,8 @@ export default function CaptainChatPanel(props: CaptainChatPanelProps) {
   } = props;
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  // Whether the reader is at the bottom, so new content is followed. Updated on every scroll: scrolling up
-  // to read stops following, and scrolling back down resumes it.
+  // Whether the user is currently "stuck" to the bottom (we then follow new content). Updated on every
+  // scroll; when the user scrolls up to read we stop following, and when they scroll back down we resume.
   const stickToBottomRef = useRef(true);
 
   // Merge the internal scroll-container ref with any external windowRef the caller passed.
@@ -103,10 +103,11 @@ export default function CaptainChatPanel(props: CaptainChatPanelProps) {
     stickToBottomRef.current = distanceFromBottom < 140;
   };
 
-  // Keep the newest content in view as it grows: streamed reply text and tool-call cards, which enlarge the
-  // transcript without changing the reply text. A DOM mutation observer re-pins on any change, but only
-  // while the reader is at the bottom. Scroll ONLY this container (never scrollIntoView, which also
-  // scrolls every scrollable ancestor and drags the whole Planning page down).
+  // Keep the newest content in view as it grows -- streamed reply text AND tool-call cards, which enlarge
+  // the transcript without changing the reply text (so a text-only dependency misses them). We observe DOM
+  // mutations so any height change re-pins the view, but only while the user is stuck to the bottom, so a
+  // user who has scrolled up to read is never yanked back down. Scroll ONLY this container (never
+  // scrollIntoView, which also scrolls every ancestor and drags the whole Planning page down).
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return undefined;
@@ -117,7 +118,7 @@ export default function CaptainChatPanel(props: CaptainChatPanelProps) {
     return () => observer.disconnect();
   }, []);
 
-  // A new turn (typically the reader's own message) follows the conversation again.
+  // A new turn (typically the user's own message) means we should follow the conversation again.
   useEffect(() => {
     stickToBottomRef.current = true;
     const el = scrollRef.current;
