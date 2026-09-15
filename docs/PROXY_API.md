@@ -162,7 +162,7 @@ Behavior when session state is missing:
 - `/api/v1/*` without a selected deployment returns `409`
 - `/ws` requires both an authenticated proxy session and a selected deployment
 
-The dashboard bundle served from `/dashboard` is the same built output from `src/Armada.Dashboard/dist`, plus the shared `i18n/armada.json` catalog.
+The dashboard bundle served from `/dashboard` is the same built output from `src/Armada.Dashboard/dist`, which carries the `i18n/armada.json` catalog.
 
 ## Relay Policy
 

@@ -28,18 +28,19 @@ This starts two containers:
 
 | Service | Port | Description |
 |---------|------|-------------|
-| `armada-server` | 7890 | REST API, Admiral-served React dashboard, and WebSocket at /ws |
+| `armada-server` | 7890 | REST API, React dashboard from the dashboard directory, and WebSocket at /ws |
 | `armada-server` | 7891 | MCP (agent communication) |
 | `armada-dashboard` | 3000 | Standalone React dashboard |
 
-Open the dashboard at **http://localhost:3000** (React SPA) or **http://localhost:7890/dashboard** (served by the Admiral).
+Open the dashboard at **http://localhost:3000** (React SPA) or **http://localhost:7890/dashboard** (served by the Admiral when a dashboard build is deployed).
 
-> **Rebuilding either image does not rebuild the other.** `armada-server` does
-> not contain the React dashboard; it is built separately
-> (`src/Armada.Dashboard`). For the standalone compose topology, rebuild the
-> `armada-dashboard` image as well. For deployments where the Admiral serves
-> the React dashboard from the data directory (`~/.armada/dashboard`), run
-> `scripts/common/deploy-dashboard.sh` after the server image rebuild.
+> **Rebuilding either image does not rebuild the other.** `armada-server` embeds
+> no dashboard; the React dashboard is built separately
+> (`src/Armada.Dashboard`) and served from the dashboard directory. For the
+> standalone compose topology, rebuild the `armada-dashboard` image as well. For
+> deployments where the Admiral serves the React dashboard from the data
+> directory (`~/.armada/dashboard`), run `scripts/common/deploy-dashboard.sh`
+> after the server image rebuild.
 
 ### Default Credentials
 
@@ -216,8 +217,7 @@ resume state. OpenCode starts fresh for every wake, so the note must carry the
 complete task and the session must read the board and durable memory. Confirm
 the effective owner with `armada_agentwake_status`.
 
-Use `StoredWake` when a resident
-operator only needs Wake rows. Use
+Use `StoredWake` when a resident operator only needs Wake rows. Use
 `SpawnProcess` or `Both` only after a controlled spawn test. Do not run a host
 service-managed Admiral beside the containerized Admiral; two service graphs
 can consume the same settings and state with different registrations.

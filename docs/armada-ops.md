@@ -2323,6 +2323,8 @@ configured key, effective key, delivery mode, runtime, and transient session.
 
 Nothing is pushed under any delivery mode. The row waits until the session next
 calls a tool, and the participant header above is what lets that call carry it.
+Settings accept only `SpawnProcess`, `StoredWake`, or `Both`; any other value is
+rejected with an error that lists them.
 
 OpenCode does not resume an earlier conversation for AgentWake. It starts a
 fresh session by design. Put the complete task in the addressed note and make

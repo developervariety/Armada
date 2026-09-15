@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy these keys into the live settings.json to reproduce the former hardcoded routing, guard, and specialist-reviewer assets. Product defaults are empty and policy-neutral.",
+  "_comment": "Copy these keys into the live settings.json to apply this routing, guard, and specialist-reviewer configuration. Product defaults are empty and policy-neutral.",
   "modelTier": {
     "specialistPersonas": [
       "Judge",

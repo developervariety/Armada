@@ -202,7 +202,8 @@ registers one in-memory process target with a concrete `runtime` (`Claude`,
 working directory, and client name. A registration key overrides the configured
 key until restart. The settings file controls delivery:
 `SpawnProcess`, `StoredWake`, or `Both`. `StoredWake` stores the wake row and
-sends no MCP notification, because this transport cannot carry one.
+sends no MCP notification, because this transport cannot carry one. Any other
+delivery-mode value is rejected when settings load.
 
 An addressed board note always retains a Wake signal. When its key matches the
 effective participant key and delivery is `SpawnProcess` or `Both`, Armada also
