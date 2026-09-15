@@ -82,6 +82,9 @@ now does and as the fork's REST creates always did. The fork applies its shared
 ownership policy, so a global administrator's profile tenant choice and the
 per-tenant playbook name rule match REST exactly.
 
+Ask chat uses upstream's honest system prompt. The fork seeds it as the
+built-in `ask.system` template, which it previously resolved but never seeded.
+
 Features first developed in the fork now also exist upstream: boundary
 scanning, auto-land, quarantine, model tiers, OpenCode, no-op handling,
 reasoning effort, mission modes, acceptance gates, recovery, stage hardening,

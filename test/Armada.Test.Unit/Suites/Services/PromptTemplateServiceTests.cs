@@ -54,6 +54,26 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Seed defaults includes an Ask system prompt that forbids claiming tools it lacks", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging);
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    PromptTemplate? ask = await service.ResolveAsync("ask.system").ConfigureAwait(false);
+                    AssertNotNull(ask, "ask.system is seeded, so every Ask chat turn carries the guard");
+                    AssertTrue(ask!.IsBuiltIn, "ask.system is a built-in template that Reset restores");
+                    AssertContains("Only use tools that are actually provided to you in this session", ask.Content, "the prompt limits the assistant to tools it was given");
+                    AssertContains("Never claim to have tools", ask.Content, "the prompt forbids claiming tool access");
+                    AssertContains("say so in one sentence", ask.Content, "the prompt tells the assistant how to answer when it has no tool");
+                    AssertEqual(ask.Content, service.GetEmbeddedDefault("ask.system"), "the seeded content is the embedded default");
+                }
+            });
+
             await RunTest("Seed defaults includes specialist persona templates", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

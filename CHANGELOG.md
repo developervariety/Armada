@@ -46,6 +46,17 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - The progress signal from `armada_restart_mission` belongs to the restarted
   mission's tenant and user.
 
+### Ask chat is told to use only the tools it has
+
+- A built-in `ask.system` prompt template is now seeded. Every Ask Armada chat
+  turn starts with it. It tells the assistant to use only tools provided in
+  that session, never to claim tool or MCP access it cannot use, and to say in
+  one sentence when it has no tool for a request and name the MCP captain,
+  dashboard or CLI instead. Before, no `ask.system` template was seeded, so an
+  Ask turn carried no system prompt unless an operator wrote one.
+- An operator who already created an `ask.system` template keeps its content;
+  seeding only marks it built-in, so **Reset** restores the new default.
+
 ### Incident lifecycle sweep reaches every open incident
 
 - The incident lifecycle sweep now reads only non-terminal incidents. It no
