@@ -25,9 +25,6 @@ export default function VoyageCreate() {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [vesselId, setVesselId] = useState('');
-  const [autoPush, setAutoPush] = useState(false);
-  const [autoCreatePRs, setAutoCreatePRs] = useState(false);
-  const [autoMergePRs, setAutoMergePRs] = useState(false);
   const [selectedPlaybooks, setSelectedPlaybooks] = useState<SelectedPlaybook[]>([]);
 
   // Mission rows
@@ -144,24 +141,10 @@ export default function VoyageCreate() {
             </select>
           </label>
 
-          {/* Checkboxes */}
-          <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
-              <input type="checkbox" checked={autoPush} onChange={e => setAutoPush(e.target.checked)}
-                style={{ width: 'auto', margin: 0 }} />
-              {t('Auto-Push')}
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
-              <input type="checkbox" checked={autoCreatePRs} onChange={e => setAutoCreatePRs(e.target.checked)}
-                style={{ width: 'auto', margin: 0 }} />
-              {t('Auto-Create PRs')}
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer' }}>
-              <input type="checkbox" checked={autoMergePRs} onChange={e => setAutoMergePRs(e.target.checked)}
-                style={{ width: 'auto', margin: 0 }} />
-              {t('Auto-Merge PRs')}
-            </label>
-          </div>
+          {/* Landing policy (push, pull requests, merge) comes from the vessel; the voyage request carries none. */}
+          <p className="text-muted" style={{ fontSize: 12, margin: 0 }}>
+            {t('Landing (push, pull requests and merge) follows the vessel settings.')}
+          </p>
         </div>
 
         <PlaybookSelector value={selectedPlaybooks} onChange={setSelectedPlaybooks} disabled={submitting} />

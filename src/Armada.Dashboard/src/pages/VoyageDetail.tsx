@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import {
   getVoyage,
@@ -20,25 +20,14 @@ import JsonViewer from '../components/shared/JsonViewer';
 import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
 import CopyButton from '../components/shared/CopyButton';
+import RefreshButton from '../components/shared/RefreshButton';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { summarizeVoyageProgress } from '../lib/voyageProgress';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 
 // ── Helper utilities ──
-
-function formatTimeAbsolute(utc: string | null | undefined): string {
-  if (!utc) return '-';
-  return new Date(utc).toLocaleString();
-}
-
-function formatTimeRelative(utc: string | null | undefined): string {
-  if (!utc) return '';
-  const d = new Date(utc);
-  const diff = Date.now() - d.getTime();
-  if (diff < 60000) return 'just now';
-  if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
-  if (diff < 86400000) return Math.floor(diff / 3600000) + 'h ago';
-  return Math.floor(diff / 86400000) + 'd ago';
-}
 
 function formatDeliveryMode(value: string): string {
   return value
@@ -84,9 +73,11 @@ export default function VoyageDetail() {
   const vesselName = useCallback((vid: string | null | undefined) => vid ? vesselMap.get(vid) || vid.slice(0, 8) : '-', [vesselMap]);
   const captainName = useCallback((cid: string | null | undefined) => cid ? captainMap.get(cid) || cid.slice(0, 8) : '-', [captainMap]);
 
+  // The loading state replaces the page only on the first read; a refresh keeps it on screen.
+  const loadedRef = useRef(false);
   const loadVoyage = useCallback(async () => {
     if (!id) return;
-    setLoading(true);
+    if (!loadedRef.current) setLoading(true);
     try {
       const v = await getVoyage(id);
       // The API may return { voyage, missions } or just the voyage object
@@ -105,6 +96,7 @@ export default function VoyageDetail() {
           setMissions([]);
         }
       }
+      loadedRef.current = true;
     } catch (e: unknown) {
       setError(t('Failed to load voyage: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
     } finally {
@@ -113,15 +105,18 @@ export default function VoyageDetail() {
   }, [id, t]);
 
   useEffect(() => {
+    loadedRef.current = false;
     loadVoyage();
     listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
     listCaptains({ pageSize: 1000 }).then(r => setCaptains(r.objects || [])).catch(() => {});
   }, [loadVoyage]);
 
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('voyage-detail', () => { void loadVoyage(); });
+
   // Progress
-  const completedCount = missions.filter(m => m.status === 'Complete').length;
+  const progress = summarizeVoyageProgress(missions);
+  // Retry recreates missions that failed their work; a landing failure is recovered by landing, not by redoing the work.
   const failedCount = missions.filter(m => m.status === 'Failed').length;
-  const progressPct = missions.length > 0 ? Math.round((completedCount / missions.length) * 100) : 0;
   const voyageSnapshots: MissionPlaybookSnapshot[] = missions[0]?.playbookSnapshots || [];
   const voyageSelections: SelectedPlaybook[] = voyage?.selectedPlaybooks || [];
 
@@ -236,7 +231,7 @@ export default function VoyageDetail() {
     if (logModal.missionId) fetchLog(logModal.missionId, lines);
   }, [logModal.missionId, fetchLog]);
 
-  if (loading) return <p className="text-muted">{t('Loading...')}</p>;
+  if (loading && !voyage) return <p className="text-muted">{t('Loading...')}</p>;
   if (!voyage) return <ErrorModal error={error || t('Voyage not found.')} onClose={() => nav('/voyages')} />;
 
   return (
@@ -253,6 +248,10 @@ export default function VoyageDetail() {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
         <h2>{voyage.title || voyage.id}</h2>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
+          <RefreshButton onRefresh={loadVoyage} title="Refresh voyage" />
+        </div>
       </div>
 
       {/* Action buttons */}
@@ -358,10 +357,16 @@ export default function VoyageDetail() {
       {missions.length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ height: 10, background: '#e0e0e8', borderRadius: 5, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${progressPct}%`, background: 'var(--primary)', transition: 'width 0.3s' }} />
+            <div style={{ height: '100%', width: `${progress.percent}%`, background: 'var(--primary)', transition: 'width 0.3s' }} />
           </div>
           <span className="text-muted" style={{ fontSize: 12, marginTop: 4, display: 'inline-block' }}>
-            {t('{{completed}}/{{total}} complete, {{failed}} failed', { completed: completedCount, total: missions.length, failed: failedCount })}
+            {t('{{finished}}/{{total}} finished: {{completed}} complete, {{failed}} failed, {{cancelled}} cancelled', {
+              finished: progress.finished,
+              total: progress.total,
+              completed: progress.completed,
+              failed: progress.failed,
+              cancelled: progress.cancelled,
+            })}
           </span>
         </div>
       )}

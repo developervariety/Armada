@@ -160,6 +160,16 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - Fleet detail reads the fleet by id, refreshes, and shows "not found" for a
   fleet that does not exist. A fleet edit sends the default playbooks back, so
   the update keeps them.
+- The Voyages list filters by status on the server and keeps the server's
+  order and record count, so its filter and pages cover every voyage.
+- Voyage detail refreshes on a timer or on request, and a refresh keeps the
+  page on screen. Its progress line counts landing failures as failed and
+  cancelled missions as finished.
+- Create Voyage no longer shows Auto-Push, Auto-Create PRs and Auto-Merge PRs.
+  The voyage request never carried them; landing follows the vessel settings.
+- The Merge Queue filters by status on the server. Delete on an active entry
+  says the entry is cancelled, because the server cancels an active entry and
+  deletes only a finished one.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 

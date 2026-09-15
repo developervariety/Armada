@@ -18,6 +18,9 @@ import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { useResourceTable } from '../lib/useResourceTable';
 
+/** Voyage statuses the server filters on. */
+const VOYAGE_STATUSES = ['Open', 'InProgress', 'Complete', 'Failed', 'Cancelled'] as const;
+
 export default function Voyages() {
   const navigate = useNavigate();
   const { t } = useLocale();
@@ -26,11 +29,12 @@ export default function Voyages() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Pagination (server-side)
+  // Pagination and the status filter run on the server, so pages and totals cover every voyage.
   const [pageNumber, setPageNumber] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [totalPages, setTotalPages] = useState(1);
   const [totalRecords, setTotalRecords] = useState(0);
+  const [statusFilter, setStatusFilter] = useState('');
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -41,23 +45,20 @@ export default function Voyages() {
   // Confirm dialog
   const [confirm, setConfirm] = useState<{ open: boolean; title: string; message: string; onConfirm: () => void }>({ open: false, title: '', message: '', onConfirm: () => {} });
 
+  // Selection only: rows keep the server's order. Sorting or filtering one server page here would
+  // present a partial set as the whole list.
   const table = useResourceTable({
     rows: voyages,
     getId: (v) => v.id,
-    columnValues: {
-      title: (v) => v.title.toLowerCase(),
-      status: (v) => (v.status ?? '').toLowerCase(),
-      createdUtc: (v) => v.createdUtc,
-    },
-    initialSortField: 'createdUtc',
-    initialSortDir: 'desc',
-    initialPageSize: 25,
+    initialPageSize: 1000,
   });
 
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const result = await listVoyages({ pageNumber, pageSize });
+      const filters: Record<string, string> = {};
+      if (statusFilter) filters.status = statusFilter;
+      const result = await listVoyages({ pageNumber, pageSize, filters });
       setVoyages(result.objects || []);
       setTotalPages(result.totalPages || 1);
       setTotalRecords(result.totalRecords || 0);
@@ -67,7 +68,7 @@ export default function Voyages() {
     } finally {
       setLoading(false);
     }
-  }, [pageNumber, pageSize, t]);
+  }, [pageNumber, pageSize, statusFilter, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -172,8 +173,16 @@ export default function Voyages() {
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+        <select className="filter-select" title={t('Filter by status')} value={statusFilter}
+          onChange={e => { setStatusFilter(e.target.value); setPageNumber(1); }}>
+          <option value="">{t('All Statuses')}</option>
+          {VOYAGE_STATUSES.map(status => <option key={status} value={status}>{t(status)}</option>)}
+        </select>
+      </div>
+
       {loading && voyages.length === 0 && <p className="text-dim">{t('Loading...')}</p>}
-      {!loading && voyages.length === 0 && <p className="text-dim">{t('No voyages found.')}</p>}
+      {!loading && voyages.length === 0 && <p className="text-dim">{statusFilter ? t('No voyages match the current filters.') : t('No voyages found.')}</p>}
 
       {voyages.length > 0 && (
         <>
@@ -188,31 +197,17 @@ export default function Voyages() {
                   <th className="col-checkbox">
                     <input type="checkbox" checked={table.allSelected} onChange={e => e.target.checked ? table.selectAll() : table.clearSelection()} title={t('Select all voyages')} />
                   </th>
-                  <th className="sortable" onClick={() => table.handleSort('title')} title={t('Voyage title -- click to sort')}>
-                    {t('Title')}{table.sortIcon('title')}
-                  </th>
+                  <th>{t('Title')}</th>
                   <th>{t('ID')}</th>
-                  <th className="sortable" onClick={() => table.handleSort('status')} title={t('Status -- click to sort')}>
-                    {t('Status')}{table.sortIcon('status')}
-                  </th>
+                  <th>{t('Status')}</th>
                   <th>{t('Auto Push')}</th>
                   <th>{t('Auto Create PRs')}</th>
                   <th>{t('Landing Mode')}</th>
                   <th className="text-right">{t('Actions')}</th>
                 </tr>
-                <tr className="column-filter-row">
-                  <td></td>
-                  <td><input type="text" className="col-filter" value={table.colFilters.title ?? ''} onChange={e => table.setColFilter('title', e.target.value)} placeholder={t('Search...')} /></td>
-                  <td></td>
-                  <td><input type="text" className="col-filter" value={table.colFilters.status ?? ''} onChange={e => table.setColFilter('status', e.target.value)} placeholder={t('Search...')} /></td>
-                  <td></td>
-                  <td></td>
-                  <td></td>
-                  <td></td>
-                </tr>
               </thead>
               <tbody>
-                {table.sorted.map(v => (
+                {voyages.map(v => (
                   <tr key={v.id} className="clickable" onClick={() => setViewRecord(v as unknown as Record<string, unknown>)}>
                     <td className="col-checkbox" onClick={e => e.stopPropagation()}>
                       <input type="checkbox" checked={table.selected.includes(v.id)} onChange={() => table.toggleSelect(v.id)} title={t('Select this voyage')} />
@@ -241,9 +236,6 @@ export default function Voyages() {
                     </td>
                   </tr>
                 ))}
-                {table.sorted.length === 0 && (
-                  <tr><td colSpan={8} className="text-dim">{t('No voyages match the current filters.')}</td></tr>
-                )}
               </tbody>
             </table>
           </div>

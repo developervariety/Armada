@@ -22,6 +22,7 @@ import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
+import { MERGE_STATUSES, mergeDeleteOutcome } from '../lib/mergeQueueOutcome';
 
 type SortDir = 'asc' | 'desc';
 type SortField = 'branchName' | 'targetBranch' | 'status' | 'priority' | 'createdUtc';
@@ -70,7 +71,9 @@ export default function MergeQueue() {
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   // Column filters
-  const [colFilters, setColFilters] = useState({ branchName: '', targetBranch: '', status: '', vesselId: '' });
+  const [colFilters, setColFilters] = useState({ branchName: '', targetBranch: '', vesselId: '' });
+  // Status is filtered by the server so it covers every entry, not only the loaded page.
+  const [statusFilter, setStatusFilter] = useState('');
 
   const vesselName = useCallback((id: string | null) => {
     if (!id) return '-';
@@ -81,7 +84,9 @@ export default function MergeQueue() {
   const load = useCallback(async () => {
     try {
       setLoading(true);
-      const result = await listMergeQueue({ pageNumber, pageSize });
+      const filters: Record<string, string> = {};
+      if (statusFilter) filters.status = statusFilter;
+      const result = await listMergeQueue({ pageNumber, pageSize, filters });
       setEntries(result.objects || []);
       setTotalPages(result.totalPages || 1);
       setTotalRecords(result.totalRecords || 0);
@@ -92,7 +97,7 @@ export default function MergeQueue() {
     } finally {
       setLoading(false);
     }
-  }, [pageNumber, pageSize, t]);
+  }, [pageNumber, pageSize, statusFilter, t]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -107,7 +112,6 @@ export default function MergeQueue() {
     return entries.filter(e =>
       (!colFilters.branchName || e.branchName.toLowerCase().includes(colFilters.branchName.toLowerCase())) &&
       (!colFilters.targetBranch || e.targetBranch.toLowerCase().includes(colFilters.targetBranch.toLowerCase())) &&
-      (!colFilters.status || (e.status ?? '').toLowerCase().includes(colFilters.status.toLowerCase())) &&
       (!colFilters.vesselId || e.vesselId === colFilters.vesselId)
     );
   }, [entries, colFilters]);
@@ -218,17 +222,23 @@ export default function MergeQueue() {
     });
   }
 
-  // Delete
-  function handleDelete(id: string) {
+  // Delete. The route deletes a terminal entry and cancels an active one; say which will happen.
+  function handleDelete(entry: MergeEntry) {
+    const id = entry.id;
+    const outcome = mergeDeleteOutcome(entry.status);
     setConfirm({
       open: true,
-      title: t('Delete Entry'),
-      message: t('Delete merge entry {{id}}? This cannot be undone.', { id }),
+      title: outcome === 'deleted' ? t('Delete Entry') : t('Cancel Entry'),
+      message: outcome === 'deleted'
+        ? t('Delete merge entry {{id}}? This cannot be undone.', { id })
+        : t('Merge entry {{id}} is still active, so it will be cancelled, not deleted. Continue?', { id }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         try {
           await deleteMergeEntry(id);
-          pushToast('warning', t('Merge entry {{id}} deleted.', { id }));
+          pushToast('warning', outcome === 'deleted'
+            ? t('Merge entry {{id}} deleted.', { id })
+            : t('Merge entry {{id}} cancelled.', { id }));
           load();
         } catch { setError(t('Delete failed.')); }
       },
@@ -245,16 +255,21 @@ export default function MergeQueue() {
         const ids = [...selected];
         setSelected([]);
         let failed = 0;
+        let deleted = 0;
+        let cancelled = 0;
         for (const id of ids) {
-          try { await deleteMergeEntry(id); } catch { failed++; }
+          const outcome = mergeDeleteOutcome(entries.find(e => e.id === id)?.status);
+          try {
+            await deleteMergeEntry(id);
+            if (outcome === 'deleted') deleted++;
+            else cancelled++;
+          } catch { failed++; }
         }
-        const deleted = ids.length - failed;
-        if (deleted > 0) {
-          pushToast(failed > 0 ? 'warning' : 'success', failed > 0
-            ? t('Deleted {{deleted}} merge entries. {{failed}} failed.', { deleted, failed })
-            : t('Deleted {{deleted}} merge entries.', { deleted }));
+        if (deleted + cancelled > 0) {
+          pushToast(failed > 0 ? 'warning' : 'success',
+            t('Deleted {{deleted}} and cancelled {{cancelled}} merge entries. {{failed}} failed.', { deleted, cancelled, failed }));
         }
-        if (failed > 0) setError(t('Deleted {{deleted}} entries, {{failed}} failed.', { deleted: ids.length - failed, failed }));
+        if (failed > 0) setError(t('Deleted {{deleted}} entries, {{failed}} failed.', { deleted, failed }));
         load();
       },
     });
@@ -371,9 +386,10 @@ export default function MergeQueue() {
       />
 
       {loading && entries.length === 0 && <p className="text-dim">{t('Loading...')}</p>}
-      {!loading && entries.length === 0 && <p className="text-dim">{t('Merge queue is empty.')}</p>}
+      {!loading && entries.length === 0 && !statusFilter && <p className="text-dim">{t('Merge queue is empty.')}</p>}
 
-      {entries.length > 0 && (
+      {/* Keep the table while a status filter is set, so its filter control stays reachable. */}
+      {(entries.length > 0 || statusFilter) && (
         <>
           <Pagination pageNumber={pageNumber} pageSize={pageSize} totalPages={totalPages}
             totalRecords={totalRecords}
@@ -408,7 +424,12 @@ export default function MergeQueue() {
                   <td></td>
                   <td><input type="text" className="col-filter" value={colFilters.branchName} onChange={e => setColFilters(f => ({ ...f, branchName: e.target.value }))} placeholder={t('Filter...')} /></td>
                   <td><input type="text" className="col-filter" value={colFilters.targetBranch} onChange={e => setColFilters(f => ({ ...f, targetBranch: e.target.value }))} placeholder={t('Filter...')} /></td>
-                  <td><input type="text" className="col-filter" value={colFilters.status} onChange={e => setColFilters(f => ({ ...f, status: e.target.value }))} placeholder={t('Filter...')} /></td>
+                  <td>
+                    <select className="col-filter" title={t('Filter by status')} value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPageNumber(1); }}>
+                      <option value="">{t('All Statuses')}</option>
+                      {MERGE_STATUSES.map(status => <option key={status} value={status}>{status}</option>)}
+                    </select>
+                  </td>
                   <td></td>
                   <td></td>
                   <td>
@@ -474,7 +495,7 @@ export default function MergeQueue() {
                           { label: 'Mission Log', onClick: () => handleMissionLog(entry.missionId!) },
                         ] : []),
                         { label: 'View JSON', onClick: () => setJsonData({ open: true, title: `${t('Merge Entry')}: ${entry.id}`, data: entry }) },
-                        { label: 'Delete', danger: true as const, onClick: () => handleDelete(entry.id) },
+                        { label: 'Delete', danger: true as const, onClick: () => handleDelete(entry) },
                       ]} />
                     </td>
                   </tr>
