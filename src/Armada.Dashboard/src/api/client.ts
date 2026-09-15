@@ -139,6 +139,7 @@ import type {
   CaptainQuarantineRequest,
   CaptainQuarantineResult,
 } from '../types/models';
+import { listAllPages } from '../lib/listAllPages';
 
 const BASE_URL = import.meta.env.VITE_ARMADA_SERVER_URL || '';
 
@@ -693,6 +694,9 @@ export const deleteObjective = (id: string) => del<void>(`/api/v1/objectives/${e
 export const importObjectiveFromGitHub = (data: GitHubObjectiveImportRequest) => post<Objective>('/api/v1/objectives/import/github', data);
 export const listBacklog = (params?: ObjectiveQuery) =>
   get<EnumerationResult<Objective>>(`/api/v1/backlog${buildObjectiveQuery(params)}`);
+/** Every backlog item matching the query; the route caps a page at 500, so this reads each page. */
+export const listAllBacklog = (params?: Omit<ObjectiveQuery, 'pageNumber' | 'pageSize'>) =>
+  listAllPages((pageNumber) => listBacklog({ ...params, pageNumber, pageSize: 500 }));
 export const enumerateBacklog = (query?: ObjectiveQuery) =>
   post<EnumerationResult<Objective>>('/api/v1/backlog/enumerate', query || {});
 export const reorderBacklog = (data: ObjectiveReorderRequest) => post<Objective[]>('/api/v1/backlog/reorder', data);

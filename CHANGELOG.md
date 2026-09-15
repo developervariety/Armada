@@ -180,6 +180,8 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   operator sends by hand.
 - Token Usage refreshes on the chosen interval and shows one model under two
   runtimes as two separate series.
+- The Backlog list reads every page of backlog items, so its counts, filters
+  and rank moves cover the whole backlog, not the first 500 items.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 
