@@ -10,6 +10,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services;
+    using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
@@ -69,6 +70,78 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(BranchCleanupSweepService.BuildSummary(new BranchCleanupSweepResult { RemoteAlreadyAbsent = 3 }).Contains("origin refs already absent 3"),
                     "the sweep summary counts absent origin refs apart from removals and failures");
                 return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("A landed origin branch deleted by someone else between listing and delete counts as already absent", async () =>
+            {
+                string rootDir = NewTempDir();
+                try
+                {
+                    SweepRepo repo = await CreateSweepRepoAsync(rootDir, remote: true).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        Vessel vessel = new Vessel("sweep-vessel-race", "https://github.com/test/sweep.git");
+                        vessel.LocalPath = repo.Repo;
+                        vessel.WorkingDirectory = repo.Working;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalAndRemote;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        // The listing still names the merged branch; origin loses it before the delete runs.
+                        RemoteRefVanishesAfterListingGitService git = new RemoteRefVanishesAfterListingGitService(
+                            logging, repo.Remote!, "armada/claude-1/msn_merged001");
+                        BranchCleanupSweepService service = new BranchCleanupSweepService(logging, testDb.Driver, new ArmadaSettings(), git);
+
+                        BranchCleanupSweepResult result = await service.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+
+                        AssertTrue(git.Vanished, "precondition: the branch was removed from origin after the listing");
+                        AssertEqual(0, result.Failed, "a ref already gone from origin is the desired end state, not a failed operation");
+                        AssertEqual(1, result.RemoteAlreadyAbsent, "the vanished ref is counted as already absent");
+                        AssertEqual(0, result.SweptRemote, "this run did not remove it");
+                    }
+                }
+                finally
+                {
+                    TryDelete(rootDir);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A landed origin branch moved to another commit after listing still fails the lease delete", async () =>
+            {
+                string rootDir = NewTempDir();
+                try
+                {
+                    SweepRepo repo = await CreateSweepRepoAsync(rootDir, remote: true).ConfigureAwait(false);
+
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        LoggingModule logging = CreateLogging();
+                        Vessel vessel = new Vessel("sweep-vessel-moved", "https://github.com/test/sweep.git");
+                        vessel.LocalPath = repo.Repo;
+                        vessel.WorkingDirectory = repo.Working;
+                        vessel.DefaultBranch = "main";
+                        vessel.BranchCleanupPolicy = BranchCleanupPolicyEnum.LocalAndRemote;
+                        await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                        // Same lease rejection ("stale info"), but the ref still exists at a new commit: never absent.
+                        RemoteRefVanishesAfterListingGitService git = new RemoteRefVanishesAfterListingGitService(
+                            logging, repo.Remote!, "armada/claude-1/msn_merged001", moveInsteadOfDelete: true);
+                        BranchCleanupSweepService service = new BranchCleanupSweepService(logging, testDb.Driver, new ArmadaSettings(), git);
+
+                        BranchCleanupSweepResult result = await service.SweepAsync(CancellationToken.None).ConfigureAwait(false);
+
+                        AssertEqual(1, result.Failed, "a ref that moved is a genuine lease failure");
+                        AssertEqual(0, result.RemoteAlreadyAbsent, "a moved ref is not absent");
+                        string remoteBranches = await RunGitAsync(repo.Remote!, "for-each-ref", "refs/heads/armada/claude-1/msn_merged001").ConfigureAwait(false);
+                        AssertFalse(String.IsNullOrWhiteSpace(remoteBranches), "the moved branch must survive on origin");
+                    }
+                }
+                finally
+                {
+                    TryDelete(rootDir);
+                }
             }).ConfigureAwait(false);
 
             await RunTest("Deleting a remote branch from an unreachable origin still reports the failure", async () =>
@@ -855,6 +928,41 @@ namespace Armada.Test.Unit.Suites.Services
             }
             catch
             {
+            }
+        }
+
+        /// <summary>
+        /// Real git, except that listing origin's refs then changes origin behind the sweep's back: the named
+        /// branch is deleted (or moved to a new commit), so the sweep's lease delete races a concurrent writer.
+        /// </summary>
+        private sealed class RemoteRefVanishesAfterListingGitService : GitService, IBranchInventory
+        {
+            private readonly string _RemoteBare;
+            private readonly string _Branch;
+            private readonly bool _Move;
+
+            public RemoteRefVanishesAfterListingGitService(LoggingModule logging, string remoteBare, string branch, bool moveInsteadOfDelete = false)
+                : base(logging)
+            {
+                _RemoteBare = remoteBare;
+                _Branch = branch;
+                _Move = moveInsteadOfDelete;
+            }
+
+            public bool Vanished { get; private set; } = false;
+
+            async Task<IReadOnlyList<GitRefTip>> IBranchInventory.EnumerateRemoteRefTipsAsync(string repoPath, string remoteName, CancellationToken token)
+            {
+                IReadOnlyList<GitRefTip> tips = await EnumerateRemoteRefTipsAsync(repoPath, remoteName, token).ConfigureAwait(false);
+                if (!Vanished && tips.Any(tip => tip.RefName == "refs/heads/" + _Branch))
+                {
+                    if (_Move)
+                        await RunGitAsync(_RemoteBare, "update-ref", "refs/heads/" + _Branch, "refs/heads/main").ConfigureAwait(false);
+                    else
+                        await RunGitAsync(_RemoteBare, "update-ref", "-d", "refs/heads/" + _Branch).ConfigureAwait(false);
+                    Vanished = true;
+                }
+                return tips;
             }
         }
 

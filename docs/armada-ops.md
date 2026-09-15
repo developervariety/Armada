@@ -2511,7 +2511,11 @@ Armada never pushes mission branches, so on most vessels the remote half of
 cleanup finds nothing to delete. Every cleanup path (landing cleanup, the
 merge-queue purge, terminal reaping, dock reclaim and this sweep) reads git's
 "remote ref does not exist" outcome through one rule and treats the ref as
-already deleted. Landing cleanup records no
+already deleted. The sweep deletes with a lease on the listed commit, and git
+reports a ref removed after the listing the same way as a ref moved to another
+commit ("stale info"), so when that delete fails the sweep lists origin again: a
+ref origin no longer holds counts as already absent, and a ref that moved stays
+a failed operation and is kept. Landing cleanup records no
 `merge_queue.branch_cleanup_failed` event for it, and the sweep counts it as
 `origin refs already absent`, not as a removal or a failure. An unreachable
 origin, a rejected push or an authentication failure still records

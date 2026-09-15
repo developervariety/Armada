@@ -281,6 +281,9 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   "remote ref does not exist" outcome for landing cleanup, the merge-queue
   purge, terminal reaping, dock reclaim and the branch cleanup sweep. The sweep
   summary counts `origin refs already absent` apart from removals and failures.
+  When its lease delete fails, the sweep lists origin again, so a ref another
+  writer removed after the listing counts as absent, while a ref that moved to
+  another commit stays a failed operation and is kept.
   An unreachable origin, a rejected push or an authentication failure is still
   reported with git's reason, and the merge-queue purge now logs it at Warn
   instead of Debug.

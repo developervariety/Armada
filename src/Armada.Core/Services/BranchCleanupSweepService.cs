@@ -615,15 +615,42 @@ namespace Armada.Core.Services
             {
                 throw;
             }
-            catch (Exception ex) when (GitRemoteRefRule.IsRemoteRefAbsent(ex.Message))
+            catch (Exception ex)
             {
-                result.RemoteAlreadyAbsent++;
-                _Logging.Info(_Header + tip.RefName + " was already absent from origin for vessel " + vessel.Id + "; nothing to delete");
+                // The lease delete cannot tell a ref another writer already removed from one it moved: git
+                // reports both as "stale info". Origin itself answers which, so re-list before counting.
+                if (GitRemoteRefRule.IsRemoteRefAbsent(ex.Message)
+                    || await IsRemoteRefAbsentAsync(vessel, tip.RefName, token).ConfigureAwait(false))
+                {
+                    result.RemoteAlreadyAbsent++;
+                    _Logging.Info(_Header + tip.RefName + " was already absent from origin for vessel " + vessel.Id + "; nothing to delete");
+                    return;
+                }
+
+                result.Failed++;
+                _Logging.Warn(_Header + "failed to delete " + tip.RefName + " from origin for vessel " + vessel.Id + ": " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// True only when origin was listed and does not hold <paramref name="refName"/>. A listing failure
+        /// answers false, so an unreachable origin stays a failure.
+        /// </summary>
+        private async Task<bool> IsRemoteRefAbsentAsync(Vessel vessel, string refName, CancellationToken token)
+        {
+            try
+            {
+                IReadOnlyList<GitRefTip> tips = await _Inventory.EnumerateRemoteRefTipsAsync(vessel.WorkingDirectory!, _RemoteName, token).ConfigureAwait(false);
+                return !tips.Any(item => String.Equals(item.RefName, refName, StringComparison.Ordinal));
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
-                result.Failed++;
-                _Logging.Warn(_Header + "failed to delete " + tip.RefName + " from origin for vessel " + vessel.Id + ": " + ex.Message);
+                _Logging.Warn(_Header + "could not re-list origin for vessel " + vessel.Id + " to check " + refName + ": " + ex.Message);
+                return false;
             }
         }
 
