@@ -48,7 +48,7 @@ namespace Armada.Test.Unit
         // self-contained and the default roster can change without breaking them.
         private static readonly string[] _MidMembers = new string[]
         {
-            "pref-primary", "audit-strong", "audit-mid", "opencode-go/qwen3.8-max", "opencode-go/deepseek-v4-flash"
+            "pref-primary", "audit-strong", "audit-mid", "example/mid-audit", "opencode-go/deepseek-v4-flash"
         };
 
         private static ModelTierSettings SettingsWith(Dictionary<string, ModelCapabilityProfile> profiles)
@@ -70,7 +70,7 @@ namespace Armada.Test.Unit
                 { "pref-primary", Profile(92, 58) },
                 { "audit-strong", Profile(95, 55) },
                 { "audit-mid", Profile(78, 70) },
-                { "opencode-go/qwen3.8-max", Profile(65, 68) },
+                { "example/mid-audit", Profile(65, 68) },
                 { "opencode-go/deepseek-v4-flash", Profile(58, 70) }
             };
         }
@@ -79,7 +79,7 @@ namespace Armada.Test.Unit
         {
             return new Dictionary<string, List<string>>(System.StringComparer.OrdinalIgnoreCase)
             {
-                { "mid", new List<string> { "pref-primary", "audit-strong", "audit-mid", "opencode-go/deepseek-v4-flash", "opencode-go/qwen3.8-max" } },
+                { "mid", new List<string> { "pref-primary", "audit-strong", "audit-mid", "opencode-go/deepseek-v4-flash", "example/mid-audit" } },
                 { "high", new List<string> { "claude-opus-5", "claude-fable-5" } }
             };
         }
@@ -115,7 +115,7 @@ namespace Armada.Test.Unit
                 {
                     MakeCaptain("opencode-go/deepseek-v4-flash"),
                     MakeCaptain("audit-strong"),
-                    MakeCaptain("opencode-go/qwen3.8-max")
+                    MakeCaptain("example/mid-audit")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel(
@@ -134,7 +134,7 @@ namespace Armada.Test.Unit
                 {
                     MakeCaptain("audit-strong"),
                     MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("opencode-go/qwen3.8-max")
+                    MakeCaptain("example/mid-audit")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel(
@@ -150,7 +150,7 @@ namespace Armada.Test.Unit
                 {
                     MakeCaptain("audit-strong"),
                     MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("opencode-go/qwen3.8-max")
+                    MakeCaptain("example/mid-audit")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel(
@@ -183,12 +183,12 @@ namespace Armada.Test.Unit
                 List<Captain> captains = new List<Captain>
                 {
                     MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("opencode-go/qwen3.8-max")
+                    MakeCaptain("example/mid-audit")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel(
                     "mid", captains, "Worker", _ => 0, null, DefaultMidOrder(), SettingsWith(MidProfiles()), "audit");
-                AssertEqual("opencode-go/qwen3.8-max", selected, "with the top audit model busy, the next-best idle profiled model is chosen");
+                AssertEqual("example/mid-audit", selected, "with the top audit model busy, the next-best idle profiled model is chosen");
                 return Task.CompletedTask;
             });
 
@@ -523,7 +523,7 @@ namespace Armada.Test.Unit
                 {
                     MakeCaptain("audit-strong"),
                     MakeCaptain("opencode-go/deepseek-v4-flash"),
-                    MakeCaptain("opencode-go/qwen3.8-max")
+                    MakeCaptain("example/mid-audit")
                 };
 
                 string? selected = PreferredModelTierSelector.SelectModel(

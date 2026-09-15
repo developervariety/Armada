@@ -40,12 +40,12 @@ namespace Armada.Test.Unit.Suites.Services
         //   audit-strong   AuditReasoningFit=95 MechanicalThroughput=55  (mid order rank 2)
         //   audit-mid      AuditReasoningFit=78 MechanicalThroughput=70  (mid order rank 3)
         //   composer-2.5   AuditReasoningFit=58 MechanicalThroughput=70  (mid order rank 4)
-        //   grok-4.5       AuditReasoningFit=65 MechanicalThroughput=68  (mid order rank 5)
+        //   example/mid-audit       AuditReasoningFit=65 MechanicalThroughput=68  (mid order rank 5)
         private const string _PreferencePrimary = "pref-primary";
         private const string _HighAudit = "audit-strong";
         private const string _MidAudit = "audit-mid";
         private const string _Throughput = "opencode-go/deepseek-v4-flash";
-        private const string _LowAudit = "opencode-go/qwen3.8-max";
+        private const string _LowAudit = "example/mid-audit";
         private const string _Opus = "claude-opus-5";
 
         private static LoggingModule CreateLogging()
@@ -167,10 +167,10 @@ namespace Armada.Test.Unit.Suites.Services
                     CaptainQuarantineService quarantine = new CaptainQuarantineService(db, settings, CreateLogging());
 
                     Vessel vessel = await SeedVesselAsync(db, settings).ConfigureAwait(false);
-                    // Idle set is audit-strong, composer, grok (no pref-primary).
+                    // Idle set is audit-strong, composer, mid-audit (no pref-primary).
                     // The mid preference order lists audit-strong before composer, so a
                     // no-hint call would pick it. The mechanical hint maps to MechanicalThroughput,
-                    // where deepseek (75) beats qwen (68) and audit-strong (55), proving a
+                    // where deepseek (75) beats mid-audit (68) and audit-strong (55), proving a
                     // different dimension drives a different production assignment.
                     Captain highAudit = await SeedCaptainAsync(db, "cpt-high-audit", _HighAudit, CaptainStateEnum.Idle).ConfigureAwait(false);
                     Captain composer = await SeedCaptainAsync(db, "cpt-composer", _Throughput, CaptainStateEnum.Idle).ConfigureAwait(false);
@@ -293,7 +293,7 @@ namespace Armada.Test.Unit.Suites.Services
                     Vessel vessel = await SeedVesselAsync(db, settings).ConfigureAwait(false);
                     // An unrecognized hint must degrade to the no-hint within-tier preference result
                     // through the real seam, never throwing mid-assignment. Of these two models
-                    // the default ranking places composer-2.5 (rank 4) ahead of grok-4.5 (rank 5).
+                    // the default ranking places composer-2.5 (rank 4) ahead of example/mid-audit (rank 5).
                     Captain lowAudit = await SeedCaptainAsync(db, "cpt-low-audit", _LowAudit, CaptainStateEnum.Idle).ConfigureAwait(false);
                     Captain composer = await SeedCaptainAsync(db, "cpt-composer", _Throughput, CaptainStateEnum.Idle).ConfigureAwait(false);
 

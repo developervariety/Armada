@@ -174,7 +174,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 // The owner heartbeats now: it is inside the presence window, so its pause stands.
                 await coordination.HeartbeatAsync(CoordinationService.DefaultRoomKey, "deploy-session", "Deploy Session").ConfigureAwait(false);
-                string present = JsonSerializer.Serialize(await handlers["armada_objective_scheduler_clear_stale_pause"](Args("{\"clearedBy\":\"armada-lead\"}")).ConfigureAwait(false), _JsonOptions);
+                string present = JsonSerializer.Serialize(await handlers["armada_objective_scheduler_clear_stale_pause"](Args("{\"clearedBy\":\"operator-session\"}")).ConfigureAwait(false), _JsonOptions);
                 AssertContains("\"cleared\":false", present);
                 AssertContains("\"canClear\":false", present);
                 AssertContains("inside the 30-minute", present);
@@ -183,7 +183,7 @@ namespace Armada.Test.Unit.Suites.Services
                 // An unattributed pause is an operator's to clear.
                 scheduler.Resume();
                 scheduler.Pause();
-                string unattributed = JsonSerializer.Serialize(await handlers["armada_objective_scheduler_clear_stale_pause"](Args("{\"clearedBy\":\"armada-lead\"}")).ConfigureAwait(false), _JsonOptions);
+                string unattributed = JsonSerializer.Serialize(await handlers["armada_objective_scheduler_clear_stale_pause"](Args("{\"clearedBy\":\"operator-session\"}")).ConfigureAwait(false), _JsonOptions);
                 AssertContains("\"cleared\":false", unattributed);
                 AssertContains("operator", unattributed);
                 AssertTrue(scheduler.Paused, "An unattributed pause is not cleared.");
@@ -205,12 +205,12 @@ namespace Armada.Test.Unit.Suites.Services
                 Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(testDb.Driver, scheduler, null, coordination);
 
                 // The owner has never heartbeated, so absence is measured from the 45-minute-old pause.
-                string dry = JsonSerializer.Serialize(await handlers["armada_objective_scheduler_clear_stale_pause"](Args("{\"clearedBy\":\"armada-lead\",\"dryRun\":true}")).ConfigureAwait(false), _JsonOptions);
+                string dry = JsonSerializer.Serialize(await handlers["armada_objective_scheduler_clear_stale_pause"](Args("{\"clearedBy\":\"operator-session\",\"dryRun\":true}")).ConfigureAwait(false), _JsonOptions);
                 AssertContains("\"cleared\":false", dry);
                 AssertContains("\"canClear\":true", dry);
                 AssertTrue(scheduler.Paused, "A dry run changes nothing.");
 
-                string cleared = JsonSerializer.Serialize(await handlers["armada_objective_scheduler_clear_stale_pause"](Args("{\"clearedBy\":\"armada-lead\"}")).ConfigureAwait(false), _JsonOptions);
+                string cleared = JsonSerializer.Serialize(await handlers["armada_objective_scheduler_clear_stale_pause"](Args("{\"clearedBy\":\"operator-session\"}")).ConfigureAwait(false), _JsonOptions);
                 AssertContains("\"cleared\":true", cleared);
                 AssertFalse(scheduler.Paused, "The stale pause is cleared.");
                 AssertTrue(scheduler.Enabled, "Clearing a pause never touches Enabled.");
@@ -218,12 +218,12 @@ namespace Armada.Test.Unit.Suites.Services
 
                 List<CoordinationMessage> notes = await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);
                 AssertEqual(1, notes.Count, "Exactly one announcement.");
-                AssertContains("Stale pause cleared by armada-lead", notes[0].Content);
+                AssertContains("Stale pause cleared by operator-session", notes[0].Content);
                 AssertContains("codex-deploy", notes[0].Content);
                 AssertContains("deploying build X", notes[0].Content);
                 AssertContains("absent 45 minutes", notes[0].Content);
 
-                string again = JsonSerializer.Serialize(await handlers["armada_objective_scheduler_clear_stale_pause"](Args("{\"clearedBy\":\"armada-lead\"}")).ConfigureAwait(false), _JsonOptions);
+                string again = JsonSerializer.Serialize(await handlers["armada_objective_scheduler_clear_stale_pause"](Args("{\"clearedBy\":\"operator-session\"}")).ConfigureAwait(false), _JsonOptions);
                 AssertContains("\"cleared\":false", again);
                 AssertContains("not paused", again);
                 notes = await coordination.ReadMessagesAsync(CoordinationService.DefaultRoomKey).ConfigureAwait(false);

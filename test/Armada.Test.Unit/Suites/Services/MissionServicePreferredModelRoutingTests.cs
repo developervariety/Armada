@@ -455,7 +455,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    await CreateCaptainAsync(testDb.Driver, "grok-captain", "opencode-go/qwen3.8-max").ConfigureAwait(false);
+                    await CreateCaptainAsync(testDb.Driver, "mid-audit-captain", "example/mid-audit").ConfigureAwait(false);
                     Captain lunaCaptain = await CreateCaptainAsync(testDb.Driver, "luna-captain", "gpt-5.6-luna").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "worker mission", "mid", "Worker").ConfigureAwait(false);
 
@@ -479,7 +479,7 @@ namespace Armada.Test.Unit.Suites.Services
                     ArmadaSettings settings = CreateSettings();
                     MissionService missions = CreateMissionService(testDb.Driver, settings);
                     Vessel vessel = await CreateVesselAsync(testDb.Driver, settings).ConfigureAwait(false);
-                    Captain grokCaptain = await CreateCaptainAsync(testDb.Driver, "grok-captain", "opencode-go/qwen3.8-max").ConfigureAwait(false);
+                    Captain midAuditCaptain = await CreateCaptainAsync(testDb.Driver, "mid-audit-captain", "example/mid-audit").ConfigureAwait(false);
                     await CreateCaptainAsync(testDb.Driver, "luna-captain", "gpt-5.6-luna").ConfigureAwait(false);
                     Mission mission = await CreateMissionAsync(testDb.Driver, vessel, "worker mission", "mid", "Worker").ConfigureAwait(false);
 

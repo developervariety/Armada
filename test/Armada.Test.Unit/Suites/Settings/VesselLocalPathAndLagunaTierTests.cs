@@ -71,18 +71,18 @@ namespace Armada.Test.Unit.Suites.Settings
             {
                 ModelTierSettings fleet = FleetRoutingSettings.CreateModelTier();
                 AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("gpt-5.6-luna", fleet), "gpt-5.6-luna stays mid");
-                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("opencode-go/qwen3.8-max", fleet), "qwen stays mid");
+                AssertEqual("mid", PreferredModelTierSelector.ClassifyModel("example/mid-audit", fleet), "example/mid-audit stays mid");
                 AssertEqual("high", PreferredModelTierSelector.ClassifyModel("claude-opus-4-7", fleet), "opus-4-7 stays high");
                 return Task.CompletedTask;
             });
 
             await RunTest("ChallengerPool_AllRoutable_AsMidTier", () =>
             {
-                // The mid-tier roster is luna (native), deepseek (opencode-go), and qwen (opencode-go).
+                // The mid-tier roster is luna (native), deepseek (opencode-go), and example/mid-audit.
                 ModelTierSettings fleet = FleetRoutingSettings.CreateModelTier();
                 string[] challengers =
                 {
-                    "gpt-5.6-luna", "opencode-go/deepseek-v4-flash", "opencode-go/qwen3.8-max"
+                    "gpt-5.6-luna", "opencode-go/deepseek-v4-flash", "example/mid-audit"
                 };
                 foreach (string m in challengers)
                 {
@@ -123,7 +123,7 @@ namespace Armada.Test.Unit.Suites.Settings
                 foreach (string m in new[]
                 {
                     "opencode-go/deepseek-v4-flash",
-                    "gpt-5.6-luna", "opencode-go/deepseek-v4-flash", "opencode-go/qwen3.8-max",
+                    "gpt-5.6-luna", "opencode-go/deepseek-v4-flash", "example/mid-audit",
                     "claude-fable-5", "claude-opus-5", "gpt-5.6-sol"
                 })
                 {
@@ -138,7 +138,7 @@ namespace Armada.Test.Unit.Suites.Settings
                 string[] models = new string[]
                 {
                     "gpt-5.6-luna",
-                    "opencode-go/deepseek-v4-flash", "opencode-go/qwen3.8-max",
+                    "opencode-go/deepseek-v4-flash", "example/mid-audit",
                     "claude-fable-5",
                     "claude-opus-4-7", "claude-opus-4-8", "claude-opus-5",
                     "gpt-5.6-sol"
