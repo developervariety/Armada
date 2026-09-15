@@ -295,7 +295,12 @@ namespace Armada.Server
                     if (File.Exists(finalMessageFilePath))
                     {
                         string finalMessage = File.ReadAllText(finalMessageFilePath).Trim();
-                        try { File.Delete(finalMessageFilePath); } catch { }
+                        try { File.Delete(finalMessageFilePath); }
+                        catch (Exception deleteEx)
+                        {
+                            _Logging.Warn(_Header + "read the final message of mission " + missionId + " but could not delete " + finalMessageFilePath
+                                + "; a later attempt clears it before launch: " + deleteEx.Message);
+                        }
                         if (!String.IsNullOrEmpty(finalMessage))
                             return finalMessage;
                     }
@@ -990,7 +995,10 @@ namespace Armada.Server
             if (_ProcessHeartbeatLoops.TryRemove(processId, out CancellationTokenSource? cts))
             {
                 try { cts.Cancel(); }
-                catch { }
+                catch (Exception cancelEx)
+                {
+                    _Logging.Warn(_Header + "could not cancel the liveness heartbeat loop for process " + processId + "; it stops on its next mapping check: " + cancelEx.Message);
+                }
                 cts.Dispose();
             }
         }
@@ -1112,7 +1120,11 @@ namespace Armada.Server
             _ = Task.Run(async () =>
             {
                 try { await _Database.Captains.UpdateHeartbeatAsync(captainId).ConfigureAwait(false); }
-                catch { }
+                catch (Exception captainEx)
+                {
+                    _Logging.Warn(_Header + "could not record the output heartbeat for captain " + captainId
+                        + "; stall detection reads a stale time: " + captainEx.Message);
+                }
 
                 if (!persistMissionHeartbeat || String.IsNullOrEmpty(missionId)) return;
 
@@ -1120,9 +1132,11 @@ namespace Armada.Server
                 {
                     await _Database.Missions.UpdateHeartbeatAsync(missionId).ConfigureAwait(false);
                 }
-                catch
+                catch (Exception missionEx)
                 {
+                    // Forget the throttle stamp so the next output line retries the write.
                     _MissionHeartbeatWrites.TryRemove(missionId, out _);
+                    _Logging.Warn(_Header + "could not record the output heartbeat for mission " + missionId + "; the next output retries: " + missionEx.Message);
                 }
             });
         }

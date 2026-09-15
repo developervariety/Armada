@@ -1573,13 +1573,19 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "failed to seed empty repo for " + vessel.Name + ": " + ex.Message);
                 // Clean up any debris
                 try { if (Directory.Exists(repoPath)) await ForceRemoveDirectoryAsync(repoPath, token).ConfigureAwait(false); }
-                catch { }
+                catch (Exception cleanupEx)
+                {
+                    _Logging.Warn(_Header + "could not remove the partial repository " + repoPath + " after the failed seed; the next provisioning may find debris: " + cleanupEx.Message);
+                }
                 throw new InvalidOperationException("Repository " + vessel.Name + " is empty and could not be initialized: " + ex.Message);
             }
             finally
             {
                 try { if (Directory.Exists(tempPath)) Directory.Delete(tempPath, true); }
-                catch { }
+                catch (Exception tempEx)
+                {
+                    _Logging.Warn(_Header + "could not delete the seed staging directory " + tempPath + "; it remains on disk: " + tempEx.Message);
+                }
             }
         }
 
@@ -2298,7 +2304,11 @@ namespace Armada.Core.Services
                                 if ((attrs & FileAttributes.ReadOnly) != 0)
                                     File.SetAttributes(file, attrs & ~FileAttributes.ReadOnly);
                             }
-                            catch { }
+                            catch (Exception attrEx)
+                            {
+                                // The delete below still runs; a file left read-only makes it fail with its own reason.
+                                _Logging.Warn(_Header + "could not clear the read-only attribute on " + file + " before removing " + path + ": " + attrEx.Message);
+                            }
                         }
                     }
 

@@ -1970,7 +1970,16 @@ namespace Armada.Core.Services
             catch (OperationCanceledException)
             {
                 processWatch.Stop();
-                try { process.Kill(entireProcessTree: true); } catch { }
+                try { process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException)
+                {
+                    // Silent by rule: Kill throws InvalidOperationException only when the process has
+                    // already exited, which is the state the kill wants.
+                }
+                catch (Exception killEx)
+                {
+                    _Logging.Warn(_Header + "could not kill timed-out or cancelled git process " + command + "; it may still be running: " + killEx.Message);
+                }
 
                 // A caller-initiated cancel is not a timeout -- surface it as cancellation so the
                 // caller-cancel-wins semantics are preserved and the log is not misleading.

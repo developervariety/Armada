@@ -322,7 +322,11 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   gate, dock provisioning, voyage cancel and mission delete, merge recovery,
   captain recovery, agent lifecycle and the base agent runtime now log the
   failure at Warn with what failed and what state it may have left. Behaviour is
-  otherwise unchanged.
+  otherwise unchanged. This now also covers repository seeding cleanup, the
+  Windows read-only attribute pass before a directory delete, final-message file
+  deletion, heartbeat-loop cancellation and captain and mission output heartbeat
+  writes. Killing a timed-out git process stays silent only when the process has
+  already exited; any other kill failure logs at Warn.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 
