@@ -57,9 +57,19 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
-                    IncidentQuery query = args.HasValue
-                        ? JsonSerializer.Deserialize<IncidentQuery>(args.Value, _JsonOptions) ?? new IncidentQuery()
-                        : new IncidentQuery();
+                    IncidentQuery query;
+                    try
+                    {
+                        query = args.HasValue
+                            ? JsonSerializer.Deserialize<IncidentQuery>(args.Value, _JsonOptions) ?? new IncidentQuery()
+                            : new IncidentQuery();
+                    }
+                    catch (JsonException ex)
+                    {
+                        McpInvalidEnumArgumentResult? invalid = McpEnumArgument.TryDescribe("armada_list_incidents", ex, typeof(IncidentQuery));
+                        if (invalid == null) throw;
+                        return invalid;
+                    }
                     if (McpResultPreview.WantsDefaultPageSize(args)) query.PageSize = McpResultPreview.DefaultMcpPageSize;
                     AuthContext auth = McpCallerContext.Require();
                     object result = await incidentService.EnumerateAsync(auth, query).ConfigureAwait(false);
@@ -98,8 +108,18 @@ namespace Armada.Server.Mcp.Tools
                 BuildIncidentUpsertSchema(requireTitle: true),
                 async (args) =>
                 {
-                    IncidentUpsertRequest request = JsonSerializer.Deserialize<IncidentUpsertRequest>(args!.Value, _JsonOptions)
-                        ?? throw new InvalidOperationException("Could not deserialize IncidentUpsertRequest.");
+                    IncidentUpsertRequest request;
+                    try
+                    {
+                        request = JsonSerializer.Deserialize<IncidentUpsertRequest>(args!.Value, _JsonOptions)
+                            ?? throw new InvalidOperationException("Could not deserialize IncidentUpsertRequest.");
+                    }
+                    catch (JsonException ex)
+                    {
+                        McpInvalidEnumArgumentResult? invalid = McpEnumArgument.TryDescribe("armada_create_incident", ex, typeof(IncidentUpsertRequest));
+                        if (invalid == null) throw;
+                        return invalid;
+                    }
                     AuthContext auth = McpCallerContext.Require();
                     await ValidateObjectiveLinksAsync(auth, objectiveService, request.ObjectiveIds).ConfigureAwait(false);
                     Incident incident = await incidentService.CreateAsync(auth, request).ConfigureAwait(false);
@@ -113,8 +133,18 @@ namespace Armada.Server.Mcp.Tools
                 BuildIncidentUpdateSchema(),
                 async (args) =>
                 {
-                    IncidentUpdateArgs request = JsonSerializer.Deserialize<IncidentUpdateArgs>(args!.Value, _JsonOptions)
-                        ?? throw new InvalidOperationException("Could not deserialize IncidentUpdateArgs.");
+                    IncidentUpdateArgs request;
+                    try
+                    {
+                        request = JsonSerializer.Deserialize<IncidentUpdateArgs>(args!.Value, _JsonOptions)
+                            ?? throw new InvalidOperationException("Could not deserialize IncidentUpdateArgs.");
+                    }
+                    catch (JsonException ex)
+                    {
+                        McpInvalidEnumArgumentResult? invalid = McpEnumArgument.TryDescribe("armada_update_incident", ex, typeof(IncidentUpdateArgs));
+                        if (invalid == null) throw;
+                        return invalid;
+                    }
                     if (String.IsNullOrWhiteSpace(request.IncidentId)) return (object)new { Error = "incidentId is required" };
                     AuthContext auth = McpCallerContext.Require();
                     IncidentUpsertRequest update = request.ToUpsertRequest();

@@ -692,7 +692,7 @@ namespace Armada.Server
             }
         }
 
-        private async Task<List<CaptainToolSummary>> ProbeHttpToolsAsync(RuntimeMcpServerDefinition server, CancellationToken token)
+        internal async Task<List<CaptainToolSummary>> ProbeHttpToolsAsync(RuntimeMcpServerDefinition server, CancellationToken token)
         {
             if (String.IsNullOrWhiteSpace(server.Url))
             {
@@ -720,7 +720,7 @@ namespace Armada.Server
             using (HttpRequestMessage initializeRequest = BuildHttpRequest(server, initializePayload, sessionId))
             using (HttpResponseMessage initializeResponse = await _HttpClient.SendAsync(initializeRequest, token).ConfigureAwait(false))
             {
-                string initializeContent = await initializeResponse.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+                string initializeContent = NormalizeSseJson(await initializeResponse.Content.ReadAsStringAsync(token).ConfigureAwait(false));
                 if (!initializeResponse.IsSuccessStatusCode)
                 {
                     throw new InvalidOperationException(FirstNonEmptyLine(initializeContent, initializeResponse.ReasonPhrase));
@@ -768,7 +768,7 @@ namespace Armada.Server
 
                 using HttpRequestMessage request = BuildHttpRequest(server, payload, sessionId);
                 using HttpResponseMessage response = await _HttpClient.SendAsync(request, token).ConfigureAwait(false);
-                string content = await response.Content.ReadAsStringAsync(token).ConfigureAwait(false);
+                string content = NormalizeSseJson(await response.Content.ReadAsStringAsync(token).ConfigureAwait(false));
                 if (!response.IsSuccessStatusCode)
                 {
                     throw new InvalidOperationException(FirstNonEmptyLine(content, response.ReasonPhrase));
@@ -980,7 +980,10 @@ namespace Armada.Server
         {
             HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Post, server.Url);
             request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+            // A Streamable HTTP MCP server requires the client to accept BOTH shapes, and rejects a request
+            // that offers only application/json.
             request.Headers.Accept.ParseAdd("application/json");
+            request.Headers.Accept.ParseAdd("text/event-stream");
 
             if (!String.IsNullOrWhiteSpace(sessionId))
             {
@@ -993,6 +996,30 @@ namespace Armada.Server
             }
 
             return request;
+        }
+
+        /// <summary>
+        /// Return the JSON payload of a Streamable HTTP response, which is either a plain JSON body or an SSE
+        /// body whose payload is carried on "data:" lines.
+        /// </summary>
+        internal static string NormalizeSseJson(string content)
+        {
+            if (String.IsNullOrWhiteSpace(content)) return content;
+
+            string trimmed = content.TrimStart();
+            if (trimmed.StartsWith("{", StringComparison.Ordinal) || trimmed.StartsWith("[", StringComparison.Ordinal))
+                return content;
+
+            StringBuilder builder = new StringBuilder();
+            foreach (string rawLine in content.Split('\n'))
+            {
+                string line = rawLine.TrimEnd('\r');
+                if (line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                    builder.Append(line.Substring(5).TrimStart());
+            }
+
+            string joined = builder.ToString().Trim();
+            return joined.Length > 0 ? joined : content;
         }
 
         private async Task<CommandExecutionResult> RunProcessAsync(
@@ -2063,7 +2090,7 @@ namespace Armada.Server
             public List<CaptainToolSummary> Tools { get; set; } = new List<CaptainToolSummary>();
         }
 
-        private sealed class RuntimeMcpServerDefinition
+        internal sealed class RuntimeMcpServerDefinition
         {
             public string Name { get; set; } = String.Empty;
             public bool Enabled { get; set; } = true;

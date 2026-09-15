@@ -98,8 +98,19 @@ namespace Armada.Server.Mcp.Tools
 
             Func<JsonElement?, Task<object>> updateReleaseHandler = async (args) =>
             {
-                ReleaseUpdateArgs request = JsonSerializer.Deserialize<ReleaseUpdateArgs>(args!.Value, _JsonOptions)
-                    ?? throw new InvalidOperationException("Could not deserialize ReleaseUpdateArgs.");
+                ReleaseUpdateArgs request;
+                try
+                {
+                    request = JsonSerializer.Deserialize<ReleaseUpdateArgs>(args!.Value, _JsonOptions)
+                        ?? throw new InvalidOperationException("Could not deserialize ReleaseUpdateArgs.");
+                }
+                catch (JsonException ex)
+                {
+                    McpInvalidEnumArgumentResult? invalid = McpEnumArgument.TryDescribe("update_release", ex, typeof(ReleaseUpdateArgs));
+                    if (invalid == null) throw;
+                    return invalid;
+                }
+
                 AuthContext auth = McpCallerContext.Require();
                 try
                 {
@@ -107,7 +118,7 @@ namespace Armada.Server.Mcp.Tools
                 }
                 catch (Exception ex) when (ex is JsonException || ex is InvalidOperationException || ex is ArgumentException)
                 {
-                    return (object)new { Error = ex.Message, ValidStatusValues = Enum.GetNames<Armada.Core.Enums.ReleaseStatusEnum>() };
+                    return (object)new { Error = ex.Message, ValidStatusValues = McpEnumArgument.ValidValues<Armada.Core.Enums.ReleaseStatusEnum>() };
                 }
             };
 

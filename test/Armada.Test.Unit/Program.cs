@@ -408,6 +408,8 @@ namespace Armada.Test.Unit
             runner.AddSuite(new McpMemoryToolsTests());
             runner.AddSuite(new OwnershipScopeTests());
             runner.AddSuite(new WebSocketDeliveryScopeTests());
+            runner.AddSuite(new CaptainRuntimeToolCatalogHttpProbeTests());
+            runner.AddSuite(new McpEnumArgumentFailureTests());
 
             runner.VerifyRegistration(typeof(Program).Assembly);
 

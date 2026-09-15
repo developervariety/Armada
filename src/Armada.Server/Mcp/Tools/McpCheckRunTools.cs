@@ -112,13 +112,13 @@ namespace Armada.Server.Mcp.Tools
                     {
                         return BuildFailure("run_check", "check_run_request_invalid", ex.Message,
                             "Use a valid check type and include vesselId. Valid type values are returned with this response.",
-                            validTypeValues: Enum.GetNames<CheckRunTypeEnum>());
+                            validTypeValues: McpEnumArgument.ValidValues<CheckRunTypeEnum>());
                     }
                     catch (Exception ex) when (IsExpectedToolFailure(ex))
                     {
                         return BuildFailure("run_check", "check_run_failed", ex.Message,
                             "Verify vesselId, workflowProfileId, environmentName, and commandOverride; use armada_resolve_check when the command was executed externally.",
-                            validTypeValues: Enum.GetNames<CheckRunTypeEnum>());
+                            validTypeValues: McpEnumArgument.ValidValues<CheckRunTypeEnum>());
                     }
                 });
 
@@ -175,7 +175,7 @@ namespace Armada.Server.Mcp.Tools
                 {
                     return BuildFailure("resolve_check", "check_resolve_request_invalid", ex.Message,
                         "Provide checkRunId and a valid status.",
-                        validStatusValues: Enum.GetNames<CheckRunStatusEnum>());
+                        validStatusValues: McpEnumArgument.ValidValues<CheckRunStatusEnum>());
                 }
 
                 if (!Enum.TryParse(request.Status, true, out CheckRunStatusEnum status))
@@ -183,7 +183,7 @@ namespace Armada.Server.Mcp.Tools
                     return BuildFailure("resolve_check", "check_status_invalid", "Invalid status: " + request.Status,
                         "Use one of the ValidStatusValues returned with this response.",
                         checkRunId: request.CheckRunId,
-                        validStatusValues: Enum.GetNames<CheckRunStatusEnum>());
+                        validStatusValues: McpEnumArgument.ValidValues<CheckRunStatusEnum>());
                 }
 
                 CheckRun? run = await database.CheckRuns.ReadAsync(request.CheckRunId).ConfigureAwait(false);

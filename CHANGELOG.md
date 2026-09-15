@@ -280,6 +280,15 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   An unreachable origin, a rejected push or an authentication failure is still
   reported with git's reason, and the merge-queue purge now logs it at Warn
   instead of Debug.
+- A bad enum value on `armada_list_incidents`, `armada_create_incident`,
+  `armada_update_incident` or `update_release` returns the field name and every
+  valid value, through the same helper the check tools use. Before, the call
+  failed with a bare deserialization error. The deployment tools take no enum
+  arguments.
+- The captain MCP connectivity probe accepts both `application/json` and
+  `text/event-stream` and reads SSE `data:` bodies. Before, a Streamable HTTP
+  server rejected the probe or its SSE answer failed to parse, and a connected
+  captain read as having no Armada tools.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 
