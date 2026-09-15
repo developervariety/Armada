@@ -23,6 +23,8 @@ interface MissionHistoryChartProps {
   vessels: Vessel[];
   fleets: Fleet[];
   onRefresh?: () => void;
+  /** Changes whenever the host page refreshes, so the chart reloads on the same cycle. */
+  refreshKey?: number;
 }
 
 function computeYTicks(max: number): number[] {
@@ -46,7 +48,7 @@ function formatTooltipTime(ts: number): string {
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-export default function MissionHistoryChart({ vessels, fleets, onRefresh }: MissionHistoryChartProps) {
+export default function MissionHistoryChart({ vessels, fleets, onRefresh, refreshKey = 0 }: MissionHistoryChartProps) {
   const { t } = useLocale();
   const [timeRange, setTimeRange] = useState<TimeRangeValue>('week');
   const [fleetId, setFleetId] = useState('');
@@ -54,6 +56,8 @@ export default function MissionHistoryChart({ vessels, fleets, onRefresh }: Miss
   const [hoveredBar, setHoveredBar] = useState<number | null>(null);
   const [history, setHistory] = useState<MissionHistorySummaryResult | null>(null);
   const [loading, setLoading] = useState(true);
+  // The chart's own refresh button advances this key when no host refresh is given.
+  const [localRefreshKey, setLocalRefreshKey] = useState(0);
 
   const filteredVessels = useMemo(() => {
     if (!fleetId) return vessels;
@@ -94,7 +98,7 @@ export default function MissionHistoryChart({ vessels, fleets, onRefresh }: Miss
     return () => {
       cancelled = true;
     };
-  }, [fleetId, range.hours, range.stepMinutes, timeRange, vesselId]);
+  }, [fleetId, range.hours, range.stepMinutes, timeRange, vesselId, refreshKey, localRefreshKey]);
 
   const buckets = useMemo<Bucket[]>(() => {
     return (history?.buckets || []).map(bucket => ({
@@ -117,21 +121,11 @@ export default function MissionHistoryChart({ vessels, fleets, onRefresh }: Miss
   const barAreaHeight = chartHeight - padTop - padBot;
   const barAreaWidth = 800 - padLeft - padRight;
 
+  // With a host refresh, the host reloads and advances refreshKey, which reloads the chart once. Without one, the
+  // chart reloads itself.
   const refresh = () => {
-    onRefresh?.();
-    const end = new Date();
-    const start = new Date(end.getTime() - range.hours * 3600000);
-    setLoading(true);
-    getMissionHistory({
-      fromUtc: start.toISOString(),
-      toUtc: end.toISOString(),
-      bucketMinutes: range.stepMinutes,
-      fleetId: fleetId || undefined,
-      vesselId: vesselId || undefined,
-    })
-      .then(setHistory)
-      .catch(() => setHistory(null))
-      .finally(() => setLoading(false));
+    if (onRefresh) onRefresh();
+    else setLocalRefreshKey(key => key + 1);
   };
 
   return (

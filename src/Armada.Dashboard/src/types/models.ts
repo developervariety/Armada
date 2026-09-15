@@ -1695,6 +1695,16 @@ export interface MergeEntry {
   lastUpdateUtc: string;
   testStartedUtc: string | null;
   completedUtc: string | null;
+  /** Pull request URL when the entry landed through a pull request. */
+  prUrl?: string | null;
+  /** Base branch of that pull request. */
+  prBaseBranch?: string | null;
+  /** Why the last merge attempt failed, when it failed. */
+  mergeFailureClass?: 'StaleBase' | 'TextConflict' | 'TestFailureAfterMerge' | 'TestFailureBeforeMerge' | 'Unknown' | null;
+  /** Files git reported as conflicted in the last merge attempt. */
+  conflictedFiles?: string | null;
+  /** Short description of the last merge failure. */
+  mergeFailureSummary?: string | null;
 }
 
 export interface Signal {

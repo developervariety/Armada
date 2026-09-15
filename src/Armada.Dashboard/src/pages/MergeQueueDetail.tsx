@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { getMergeEntry, deleteMergeEntry, processMergeEntry, cancelMergeEntry, listVessels, getMissionDiff, getMissionLog, getVesselLandingPreview } from '../api/client';
 import type { MergeEntry, Vessel, LandingPreviewResult } from '../types/models';
@@ -14,6 +14,11 @@ import ErrorModal from '../components/shared/ErrorModal';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 
+/** Statuses in which the merge queue is still working the entry, so the page polls for the outcome. */
+const IN_FLIGHT_STATUSES = ['Testing', 'Rebasing', 'Merging', 'Pushing', 'CreatingPR'];
+/** Poll interval while the entry is in flight. */
+const IN_FLIGHT_REFRESH_MS = 5000;
+
 export default function MergeQueueDetail() {
   const { t, formatDateTime, formatRelativeTime } = useLocale();
   const { pushToast } = useNotifications();
@@ -25,6 +30,7 @@ export default function MergeQueueDetail() {
   const [loadingLandingPreview, setLoadingLandingPreview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const entryLoadedRef = useRef(false);
 
   // JSON viewer
   const [jsonData, setJsonData] = useState<{ open: boolean; title: string; data: unknown }>({ open: false, title: '', data: null });
@@ -45,14 +51,16 @@ export default function MergeQueueDetail() {
 
   const load = useCallback(async () => {
     if (!id) return;
+    // A ref, not the entry state: the callback is created once per id, so a captured entry would stay null.
+    const isInitialLoad = !entryLoadedRef.current;
     try {
-      setLoading(true);
-      const isInitialLoad = !entry;
+      if (isInitialLoad) setLoading(true);
       const [e, vResult] = await Promise.all([getMergeEntry(id), listVessels({ pageSize: 1000 })]);
       setEntry(e);
+      entryLoadedRef.current = true;
       setVessels(vResult.objects);
       if (e.vesselId) {
-        setLoadingLandingPreview(true);
+        if (isInitialLoad) setLoadingLandingPreview(true);
         getVesselLandingPreview(e.vesselId, e.branchName)
           .then((result) => setLandingPreview(result))
           .catch(() => setLandingPreview(null))
@@ -62,13 +70,20 @@ export default function MergeQueueDetail() {
       }
       if (isInitialLoad) setError('');
     } catch {
-      setError(t('Failed to load merge entry.'));
+      if (isInitialLoad) setError(t('Failed to load merge entry.'));
     } finally {
       setLoading(false);
     }
   }, [id, t]);
 
   useEffect(() => { load(); }, [load]);
+
+  const inFlight = entry != null && IN_FLIGHT_STATUSES.includes(entry.status);
+  useEffect(() => {
+    if (!inFlight) return undefined;
+    const timer = window.setInterval(() => { void load(); }, IN_FLIGHT_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [inFlight, load]);
 
   function handleProcess() {
     if (!entry) return;
@@ -290,6 +305,16 @@ export default function MergeQueueDetail() {
             ? <Link to={`/missions/${entry.missionId}`} className="mono">{entry.missionId}</Link>
             : <span>-</span>}
         </div>
+        <div className="detail-field">
+          <span className="detail-label">{t('Pull Request')}</span>
+          {entry.prUrl
+            ? <a href={entry.prUrl} target="_blank" rel="noreferrer" className="mono">{entry.prUrl}</a>
+            : <span>-</span>}
+        </div>
+        {entry.prBaseBranch && (
+          <div className="detail-field"><span className="detail-label">{t('PR Base Branch')}</span><span className="mono">{entry.prBaseBranch}</span></div>
+        )}
+        <div className="detail-field"><span className="detail-label">{t('Failure Class')}</span><span>{entry.mergeFailureClass || '-'}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Batch ID')}</span><span className="mono">{entry.batchId || '-'}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Test Exit Code')}</span><span>{entry.testExitCode ?? '-'}</span></div>
         <div className="detail-field"><span className="detail-label">{t('Tenant ID')}</span><span className="mono">{entry.tenantId || '-'}</span></div>
@@ -311,6 +336,20 @@ export default function MergeQueueDetail() {
           <span>{formatRelativeTime(entry.lastUpdateUtc)} <span className="text-dim">({formatDateTime(entry.lastUpdateUtc)})</span></span>
         </div>
       </div>
+
+      {/* Merge Failure */}
+      {(entry.mergeFailureSummary || entry.conflictedFiles) && (
+        <div className="detail-context-section">
+          <h4>{t('Merge Failure')}</h4>
+          {entry.mergeFailureSummary && <pre className="detail-context-block">{entry.mergeFailureSummary}</pre>}
+          {entry.conflictedFiles && (
+            <>
+              <h4>{t('Conflicted Files')}</h4>
+              <pre className="detail-context-block">{entry.conflictedFiles}</pre>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Test Command */}
       {entry.testCommand && (

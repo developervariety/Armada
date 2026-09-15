@@ -1,5 +1,5 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import Dashboard from './Dashboard';
 import {
   getStatus,
@@ -56,8 +56,12 @@ vi.mock('../context/LocaleContext', () => {
   return { useLocale: () => locale };
 });
 
+const chartRefreshKeys: Array<number | undefined> = [];
 vi.mock('../components/MissionHistoryChart', () => ({
-  default: () => null,
+  default: (props: { refreshKey?: number }) => {
+    chartRefreshKeys.push(props.refreshKey);
+    return null;
+  },
 }));
 
 function page<T>(objects: T[]) {
@@ -89,6 +93,7 @@ describe('Dashboard home', () => {
   beforeEach(() => {
     localStorage.clear();
     socketHandlers.length = 0;
+    chartRefreshKeys.length = 0;
     vi.mocked(getStatus).mockResolvedValue(baseStatus as never);
     vi.mocked(listMissions).mockResolvedValue(page([]) as never);
     vi.mocked(listMissionSummaries).mockResolvedValue(page([
@@ -151,6 +156,41 @@ describe('Dashboard home', () => {
     await waitFor(() => expect(getStatus).toHaveBeenCalledTimes(2));
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(getStatus).toHaveBeenCalledTimes(2);
+  });
+
+  it('advances the mission history refresh key on each home refresh after the first load', async () => {
+    renderDashboard();
+    expect(await screen.findByText('Recent mission')).toBeInTheDocument();
+    await waitFor(() => expect(getVoyageMissionSummary).toHaveBeenCalledTimes(1));
+    const firstKey = chartRefreshKeys[chartRefreshKeys.length - 1];
+
+    await waitFor(() => expect(socketHandlers.length).toBeGreaterThan(0));
+    act(() => {
+      socketHandlers.forEach((handler) => handler({ type: 'mission.changed' }));
+    });
+
+    await waitFor(() => expect(chartRefreshKeys[chartRefreshKeys.length - 1]).toBe((firstKey ?? 0) + 1));
+    expect(firstKey).toBe(0);
+  });
+
+  it('opens the Active Voyages card on the voyages tab of the missions page', async () => {
+    function Location() {
+      const location = useLocation();
+      return <div>{`at ${location.pathname}${location.search}`}</div>;
+    }
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="*" element={<Location />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('Older voyage')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTitle('Click to view all voyages'));
+
+    expect(await screen.findByText('at /missions?tab=voyages')).toBeInTheDocument();
   });
 
   it('shows how many pending missions wait for resource pressure on the active voyages card', async () => {

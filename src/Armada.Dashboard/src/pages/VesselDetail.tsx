@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
-import { listVessels, listFleets, listMissionSummaries, listPipelines, createVessel, updateVessel, deleteVessel, getVesselReadiness, getVesselLandingPreview } from '../api/client';
+import { getVessel, listFleets, listMissionSummaries, listPipelines, createVessel, updateVessel, deleteVessel, getVesselReadiness, getVesselLandingPreview } from '../api/client';
 import { buildVesselUpdatePayload } from '../lib/vesselUpdatePayload';
 import { autoLandFormFromPredicate, describeAutoLand } from '../lib/vesselAutoLand';
 import VesselBranchPanel from '../components/shared/VesselBranchPanel';
@@ -9,6 +9,8 @@ import ActionMenu from '../components/shared/ActionMenu';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import PageHeader from '../components/shared/PageHeader';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import StatusBadge from '../components/shared/StatusBadge';
 import CopyButton from '../components/shared/CopyButton';
 import ErrorModal from '../components/shared/ErrorModal';
@@ -58,6 +60,8 @@ export default function VesselDetail() {
   const [loadingLandingPreview, setLoadingLandingPreview] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [notFound, setNotFound] = useState(false);
+  const vesselLoadedRef = useRef(false);
 
   // Edit modal
   const [showForm, setShowForm] = useState(false);
@@ -75,42 +79,54 @@ export default function VesselDetail() {
     return m;
   }, [fleets]);
 
+  // The vessel is read by id; the spinner shows only on the first load, so an auto-refresh keeps the page on screen.
   const load = useCallback(async () => {
     if (!id) return;
+    const isInitialLoad = !vesselLoadedRef.current;
+    if (isInitialLoad) setLoading(true);
     try {
-      setLoading(true);
-      const isInitialLoad = !vessel;
-      const [vResult, fResult, mResult, pResult] = await Promise.all([
-        listVessels({ pageSize: 9999 }),
+      let found: Vessel;
+      try {
+        found = await getVessel(id);
+      } catch (e: unknown) {
+        if ((e as { status?: number } | null)?.status === 404) {
+          setVessel(null);
+          setNotFound(true);
+          return;
+        }
+        throw e;
+      }
+      const [fResult, mResult, pResult] = await Promise.all([
         listFleets({ pageSize: 9999 }),
         listMissionSummaries({ pageSize: 1000, filters: { vesselId: id } }),
         listPipelines({ pageSize: 9999 }),
       ]);
-      const found = vResult.objects.find(v => v.id === id);
-      if (!found) { setError(t('Vessel not found.')); setLoading(false); return; }
       setVessel(found);
+      setNotFound(false);
+      vesselLoadedRef.current = true;
       setFleets(fResult.objects);
       setMissions(mResult.objects || []);
       setPipelines(pResult.objects);
-      setLoadingReadiness(true);
+      if (isInitialLoad) setLoadingReadiness(true);
       getVesselReadiness(id)
         .then((result) => setReadiness(result))
         .catch(() => setReadiness(null))
         .finally(() => setLoadingReadiness(false));
-      setLoadingLandingPreview(true);
+      if (isInitialLoad) setLoadingLandingPreview(true);
       getVesselLandingPreview(id, found.defaultBranch || null)
         .then((result) => setLandingPreview(result))
         .catch(() => setLandingPreview(null))
         .finally(() => setLoadingLandingPreview(false));
       if (isInitialLoad) setError('');
     } catch {
-      setError(t('Failed to load vessel.'));
+      if (isInitialLoad) setError(t('Failed to load vessel.'));
     } finally {
       setLoading(false);
     }
   }, [id, t]);
 
   useEffect(() => { load(); }, [load]);
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('vessel-detail', load);
 
   function openEdit() {
     if (!vessel) return;
@@ -227,7 +243,7 @@ export default function VesselDetail() {
 
   if (loading) return <p className="text-dim">{t('Loading...')}</p>;
   if (error && !vessel) return <ErrorModal error={error} onClose={() => setError('')} />;
-  if (!vessel) return <p className="text-dim">{t('Vessel not found.')}</p>;
+  if (notFound || !vessel) return <p className="text-dim">{t('Vessel not found.')}</p>;
 
   return (
     <div>
@@ -258,6 +274,7 @@ export default function VesselDetail() {
             <button type="button" className="btn btn-sm" onClick={() => navigate(`/workspace/${vessel.id}`)}>
               {t('Open Workspace')}
             </button>
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <ActionMenu id={`vessel-${vessel.id}`} items={[
               { label: 'Manage Objectives', onClick: handleManageObjectives },
               { label: 'Manage Fleet', onClick: () => navigate(`/fleets/${vessel.fleetId}`), disabled: !vessel.fleetId },

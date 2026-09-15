@@ -79,6 +79,9 @@ export default function Dashboard() {
   const [status, setStatus] = useState<StatusData | null>(null);
   const [recentMissions, setRecentMissions] = useState<MissionSummary[]>([]);
   const [voyageVesselIds, setVoyageVesselIds] = useState<Record<string, string[]>>({});
+  // Advances on every home refresh so the mission history chart reloads on the same cycle.
+  const [historyRefreshKey, setHistoryRefreshKey] = useState(0);
+  const homeLoadedRef = useRef(false);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [fleets, setFleets] = useState<Fleet[]>([]);
   const [captains, setCaptains] = useState<Captain[]>([]);
@@ -181,6 +184,9 @@ export default function Dashboard() {
         if (entry) next[entry.id] = entry.vesselIds;
       }
       setVoyageVesselIds(next);
+      // The chart loads itself on mount, so only later refreshes advance its key.
+      if (homeLoadedRef.current) setHistoryRefreshKey((key) => key + 1);
+      homeLoadedRef.current = true;
     } catch {
       setError(t('Failed to load dashboard data.'));
     } finally {
@@ -463,7 +469,7 @@ export default function Dashboard() {
       </div>
 
       {/* Mission History Chart */}
-      <MissionHistoryChart vessels={vessels} fleets={fleets} onRefresh={loadAll} />
+      <MissionHistoryChart vessels={vessels} fleets={fleets} onRefresh={loadAll} refreshKey={historyRefreshKey} />
 
       {/* Voyage Progress */}
       {status?.voyages && status.voyages.length > 0 && (
