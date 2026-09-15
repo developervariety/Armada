@@ -458,6 +458,30 @@ error that starts with `captain_server_owned_field:` and names every refused fie
 Nothing is written. Change captain state with `armada_stop_captain`,
 `armada_bench_captain` and `armada_unbench_captain`.
 
+## Vessel Writes
+
+`armada_add_vessel` and `armada_update_vessel` accept `gitHubTokenOverride`, the
+per-vessel GitHub token REST accepts on `POST` and `PUT /api/v1/vessels`. It is
+write-only and follows the one rule every vessel write applies (REST, MCP,
+WebSocket and remote control):
+
+- Omitted: the stored value is unchanged.
+- An explicit empty string: the stored value is cleared.
+- Any other value: it replaces the stored value, trimmed.
+
+No tool result, enumeration or event returns the value. Vessel results carry
+`HasGitHubTokenOverride` instead.
+
+The transport normally treats an empty string for an optional argument as
+omitted. A string property whose schema declares `emptyStringClears: true` is
+the exception: its empty value reaches the tool. `gitHubTokenOverride` declares
+it, so `""` clears the override rather than leaving it unchanged.
+
+Both tools run as the authenticated caller. `armada_add_vessel` records the
+caller's tenant and user as the vessel owner, as a REST create does.
+`armada_update_vessel` returns `Vessel not found` for a vessel the caller may not
+change and writes nothing to it, the token override included.
+
 ## Client Names
 
 MCP clients can add a transport prefix to tool names in their own UI or prompt

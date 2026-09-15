@@ -39,10 +39,47 @@ namespace Armada.Test.Unit.Suites.Services
         {
             Func<JsonElement?, Task<object>>? handler = null;
             McpVesselTools.Register(
-                (name, _, _, h) => { if (name == "armada_update_vessel") handler = h; },
+                (name, _, _, h) => { if (name == "armada_update_vessel") handler = McpTestCaller.Wrap(h); },
                 testDb.Driver);
             AssertNotNull(handler, "armada_update_vessel handler must be registered");
             return handler!;
+        }
+
+        private static readonly JsonSerializerOptions _TransportJsonOptions = new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true,
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
+
+        private Func<JsonElement?, Task<object>> CaptureRawHandler(TestDatabase testDb, string toolName)
+        {
+            Func<JsonElement?, Task<object>>? handler = null;
+            McpVesselTools.Register(
+                (name, _, _, h) => { if (name == toolName) handler = h; },
+                testDb.Driver);
+            AssertNotNull(handler, toolName + " handler must be registered");
+            return handler!;
+        }
+
+        private static async Task<object> CallAsAsync(Func<JsonElement?, Task<object>> handler, AuthContext caller, object args)
+        {
+            using (McpCallerContext.Begin(caller))
+            {
+                return await handler(JsonSerializer.SerializeToElement(args)).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Assert a tool result carries neither the token value nor a gitHubTokenOverride key, in either the
+        /// transport's camelCase form or the default form.
+        /// </summary>
+        private void AssertTokenNotEchoed(object result, string token)
+        {
+            foreach (string text in new[] { JsonSerializer.Serialize(result, _TransportJsonOptions), JsonSerializer.Serialize(result) })
+            {
+                AssertFalse(text.Contains(token, StringComparison.Ordinal), "a tool result must never carry the token value: " + text);
+                AssertFalse(text.Contains("\"gitHubTokenOverride\"", StringComparison.OrdinalIgnoreCase), "a tool result must never carry a gitHubTokenOverride key: " + text);
+            }
         }
 
         private static async Task<Vessel> SeedVesselAsync(TestDatabase testDb)
@@ -55,6 +92,151 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("AddVessel_GitHubTokenOverride_IsStoredTrimmedOwnedByCallerAndNeverEchoed", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Func<JsonElement?, Task<object>> add = CaptureRawHandler(testDb, "armada_add_vessel");
+                    Fleet fleet = await testDb.Driver.Fleets.CreateAsync(new Fleet("token-add-fleet")).ConfigureAwait(false);
+                    string token = "ghp_unit_add_" + Guid.NewGuid().ToString("N");
+                    object result = await CallAsAsync(add, McpTestCaller.Operator, new
+                    {
+                        name = "token-add-vessel",
+                        repoUrl = "https://github.com/test/token-add.git",
+                        fleetId = fleet.Id,
+                        gitHubTokenOverride = "  " + token + "  "
+                    }).ConfigureAwait(false);
+
+                    AssertTokenNotEchoed(result, token);
+                    Vessel created = (Vessel)result;
+                    AssertTrue(created.HasGitHubTokenOverride, "the result reports that an override is configured");
+                    Vessel? stored = await testDb.Driver.Vessels.ReadAsync(created.Id).ConfigureAwait(false);
+                    AssertEqual(token, stored!.GitHubTokenOverride, "the supplied override is stored, trimmed");
+                    AssertEqual(McpTestCaller.Operator.TenantId, stored.TenantId, "the vessel belongs to the caller's tenant");
+                    AssertEqual(McpTestCaller.Operator.UserId, stored.UserId, "the vessel belongs to the calling user");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("UpdateVessel_OmittedGitHubTokenOverride_KeepsStoredValue", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Func<JsonElement?, Task<object>> update = CaptureRawHandler(testDb, "armada_update_vessel");
+                    Vessel vessel = await SeedVesselAsync(testDb).ConfigureAwait(false);
+                    vessel.GitHubTokenOverride = "ghp_unit_keep_stored";
+                    await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                    object result = await CallAsAsync(update, McpTestCaller.Operator, new { vesselId = vessel.Id, name = "renamed" }).ConfigureAwait(false);
+
+                    AssertTokenNotEchoed(result, "ghp_unit_keep_stored");
+                    AssertTrue(((Vessel)result).HasGitHubTokenOverride, "the result still reports the stored override");
+                    Vessel? stored = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                    AssertEqual("renamed", stored!.Name, "the other field was applied");
+                    AssertEqual("ghp_unit_keep_stored", stored.GitHubTokenOverride, "an update that omits the override keeps the stored value");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("UpdateVessel_EmptyGitHubTokenOverride_ClearsStoredValue", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Func<JsonElement?, Task<object>> update = CaptureRawHandler(testDb, "armada_update_vessel");
+                    Vessel vessel = await SeedVesselAsync(testDb).ConfigureAwait(false);
+                    vessel.GitHubTokenOverride = "ghp_unit_clear_me";
+                    await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                    object result = await CallAsAsync(update, McpTestCaller.Operator, new { vesselId = vessel.Id, gitHubTokenOverride = "" }).ConfigureAwait(false);
+
+                    AssertTokenNotEchoed(result, "ghp_unit_clear_me");
+                    AssertFalse(((Vessel)result).HasGitHubTokenOverride, "the result reports no override");
+                    Vessel? stored = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                    AssertNull(stored!.GitHubTokenOverride, "an explicit empty override clears the stored value");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("UpdateVessel_EmptyGitHubTokenOverride_SurvivesTransportNormalizationAndClears", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Func<JsonElement?, Task<object>>? handler = null;
+                    object? schema = null;
+                    McpVesselTools.Register(
+                        (name, _, s, h) => { if (name == "armada_update_vessel") { handler = h; schema = s; } },
+                        testDb.Driver);
+                    AssertNotNull(handler, "armada_update_vessel handler must be registered");
+                    Vessel vessel = await SeedVesselAsync(testDb).ConfigureAwait(false);
+                    vessel.GitHubTokenOverride = "ghp_unit_transport_clear";
+                    await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+
+                    // The transport normalizes arguments against the registered schema before the handler runs.
+                    JsonElement raw = JsonSerializer.SerializeToElement(new { vesselId = vessel.Id, gitHubTokenOverride = "" });
+                    JsonElement? normalized = McpToolArgumentNormalizer.Normalize(raw, schema, _TransportJsonOptions);
+                    AssertTrue(normalized!.Value.TryGetProperty("gitHubTokenOverride", out _), "the empty override reaches the handler");
+                    using (McpCallerContext.Begin(McpTestCaller.Operator))
+                    {
+                        await handler!(normalized).ConfigureAwait(false);
+                    }
+
+                    Vessel? stored = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                    AssertNull(stored!.GitHubTokenOverride, "an empty override sent through the transport clears the stored value");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("UpdateVessel_NewGitHubTokenOverride_ReplacesStoredValueWithoutEcho", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Func<JsonElement?, Task<object>> update = CaptureRawHandler(testDb, "armada_update_vessel");
+                    Vessel vessel = await SeedVesselAsync(testDb).ConfigureAwait(false);
+                    vessel.GitHubTokenOverride = "ghp_unit_old_value";
+                    await testDb.Driver.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
+                    string token = "ghp_unit_new_" + Guid.NewGuid().ToString("N");
+
+                    object result = await CallAsAsync(update, McpTestCaller.Operator, new { vesselId = vessel.Id, gitHubTokenOverride = token }).ConfigureAwait(false);
+
+                    AssertTokenNotEchoed(result, token);
+                    AssertTokenNotEchoed(result, "ghp_unit_old_value");
+                    Vessel? stored = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                    AssertEqual(token, stored!.GitHubTokenOverride, "a supplied override replaces the stored value");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("UpdateVessel_CallerWhoCannotEditVessel_CannotSetGitHubTokenOverride", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    TenantMetadata ownerTenant = new TenantMetadata("Vessel Owner Tenant");
+                    await testDb.Driver.Tenants.CreateAsync(ownerTenant).ConfigureAwait(false);
+                    UserMaster owner = new UserMaster(ownerTenant.Id, "owner@example.com", "pass");
+                    await testDb.Driver.Users.CreateAsync(owner).ConfigureAwait(false);
+                    Vessel vessel = new Vessel("owned-vessel", "https://github.com/test/owned.git")
+                    {
+                        TenantId = ownerTenant.Id,
+                        UserId = owner.Id,
+                        GitHubTokenOverride = "ghp_unit_owner_value"
+                    };
+                    vessel = await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>> update = CaptureRawHandler(testDb, "armada_update_vessel");
+                    AuthContext foreignTenantAdmin = AuthContext.Authenticated("ten_foreign", "usr_foreign", false, true, "Test", null, "Foreign tenant admin");
+                    AuthContext sameTenantOtherUser = AuthContext.Authenticated(ownerTenant.Id, "usr_other", false, false, "Test", null, "Other user");
+
+                    foreach (AuthContext caller in new[] { foreignTenantAdmin, sameTenantOtherUser })
+                    {
+                        object result = await CallAsAsync(update, caller, new { vesselId = vessel.Id, gitHubTokenOverride = "ghp_unit_intruder" }).ConfigureAwait(false);
+                        AssertContains("Vessel not found", JsonSerializer.Serialize(result), caller.PrincipalDisplay + " is refused as if the vessel did not exist");
+                        Vessel? stored = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                        AssertEqual("ghp_unit_owner_value", stored!.GitHubTokenOverride, caller.PrincipalDisplay + " cannot change the stored override");
+                    }
+
+                    AuthContext ownerCaller = AuthContext.Authenticated(ownerTenant.Id, owner.Id, false, false, "Test", null, "Owner");
+                    object ownerResult = await CallAsAsync(update, ownerCaller, new { vesselId = vessel.Id, gitHubTokenOverride = "" }).ConfigureAwait(false);
+                    AssertFalse(JsonSerializer.Serialize(ownerResult).Contains("\"Error\""), "the owner may update its vessel: " + JsonSerializer.Serialize(ownerResult));
+                    Vessel? cleared = await testDb.Driver.Vessels.ReadAsync(vessel.Id).ConfigureAwait(false);
+                    AssertNull(cleared!.GitHubTokenOverride, "the owner's explicit empty override clears it");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("ModelContextWrite_WithoutOperatorOverride_IsBlocked", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

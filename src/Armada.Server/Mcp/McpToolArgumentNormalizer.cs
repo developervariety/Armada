@@ -16,7 +16,8 @@ namespace Armada.Server.Mcp
     /// nullable DateTime, enum, or boolean, so the whole call fails on a parameter the caller
     /// did not care about. The normaliser applies three rules, each keyed by the schema:
     /// an empty string for a property the schema does not list as required -- or for any
-    /// non-string, enum-constrained, or formatted property -- is treated as omitted; a string
+    /// non-string, enum-constrained, or formatted property -- is treated as omitted, except a
+    /// plain string property that declares <c>emptyStringClears</c>, whose empty value is kept; a string
     /// spelling of a boolean or number for a boolean, integer, or number property is converted;
     /// everything else is passed through
     /// untouched. A value that cannot be converted is left as it was, so the handler's own
@@ -25,6 +26,12 @@ namespace Armada.Server.Mcp
     /// </summary>
     public static class McpToolArgumentNormalizer
     {
+        /// <summary>
+        /// Schema keyword a plain string property sets to true when an explicit empty string means
+        /// "clear the stored value". Such an empty value is passed through instead of treated as omitted.
+        /// </summary>
+        public const string EmptyStringClearsKeyword = "emptyStringClears";
+
         /// <summary>
         /// Returns the normalised arguments, or the input unchanged when there is nothing to do.
         /// </summary>
@@ -128,11 +135,18 @@ namespace Armada.Server.Mcp
 
                 if (text.Length == 0)
                 {
+                    // A plain string property whose schema declares emptyStringClears gives "" its own
+                    // meaning (clear the stored value), so its empty value reaches the handler.
+                    bool emptyClears = isString && !hasEnum && !hasFormat
+                        && propertySchema.TryGetProperty(EmptyStringClearsKeyword, out JsonElement clearsFlag)
+                        && clearsFlag.ValueKind == JsonValueKind.True;
+                    if (emptyClears) return value;
+
                     if (!isRequired || !isString || hasEnum || hasFormat)
                     {
-                        // An empty string for an OPTIONAL property means "omitted", whatever its type:
-                        // no Armada tool gives an empty optional string a meaning of its own, and the
-                        // clients that send one mean to leave it out. A required string keeps its
+                        // An empty string for an OPTIONAL property means "omitted", whatever its type,
+                        // unless the schema declares emptyStringClears: the clients that send one mean
+                        // to leave it out. A required string keeps its
                         // empty value so the handler's own "is required" error still names it. A
                         // non-string, enum-constrained, or formatted value is dropped even when required,
                         // because "" can never deserialise into it.

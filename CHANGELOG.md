@@ -77,6 +77,26 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - A read-only mission that did commit, and every Implementation mission, keep
   the gate unchanged. When the start or head commit cannot be read, the gate
   runs.
+### MCP and WebSocket gain the two operations only REST had
+
+- `armada_add_vessel` and `armada_update_vessel` accept `gitHubTokenOverride`.
+  Every surface that writes a vessel applies it through one rule: omitted keeps
+  the stored value, an explicit empty string clears it, any other value
+  replaces it, trimmed. The value is write-only. No REST, MCP or WebSocket
+  result returns it; results carry `HasGitHubTokenOverride` instead. A
+  WebSocket `update_vessel` that omits the override now keeps the stored
+  token instead of wiping it.
+- The MCP argument normalizer keeps an empty string for a string property whose
+  schema declares `emptyStringClears: true`, instead of treating it as omitted.
+  `gitHubTokenOverride` declares it, so `""` clears the override over MCP.
+- The MCP vessel tools now run as the authenticated caller. `armada_add_vessel`
+  records the caller's tenant and user as the owner, as a REST create does.
+  `armada_update_vessel` reports a vessel the caller may not change as not
+  found and writes nothing to it, the token override included.
+- The WebSocket command hub serves `list_missions_summary`. It reads through
+  the same caller-scoped query as `GET /api/v1/missions/summaries`, so it
+  returns the same `EnumerationResult<MissionSummary>` shape and the same rows
+  to the same caller. A command without a session caller is refused.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 

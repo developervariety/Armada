@@ -141,8 +141,11 @@ this frame and not in the URL. Query strings appear in request logs.
   closes the session.
 - No authentication within 15 seconds of connecting: the server sends
   `auth.required` and closes the session.
-- `command` requires a global administrator, because the command handler does
+- `command` requires a global administrator, because most command actions do
   not apply tenant or user scope. Other sessions receive `command.error`.
+  `list_missions_summary` is the exception inside the handler: it reads through
+  the same caller-scoped query as `GET /api/v1/missions/summaries`, so it
+  returns exactly what REST returns to the same caller.
 - `subscribe` is open to any authenticated session. Each event carries a
   delivery scope and reaches only the sessions that may read the record it
   describes: the owning user, administrators of the owning tenant, and global
@@ -1249,6 +1252,8 @@ Update an existing vessel.
 | `id` | string | Yes | Vessel ID (prefix `vsl_`) |
 | `data` | object | Yes | Fields to update |
 
+`data.gitHubTokenOverride` is write-only, on `create_vessel` and `update_vessel` alike. Omit it to keep the stored value; pass an empty string to clear it; any other value replaces it, trimmed. No result or event returns the value; vessel results carry `hasGitHubTokenOverride` instead.
+
 ---
 
 #### update_vessel_context
@@ -1498,6 +1503,8 @@ List or enumerate full mission objects with optional pagination and filtering.
 List or enumerate lightweight mission summaries with optional pagination and filtering.
 
 This action returns `MissionSummary` rows instead of full `Mission` objects. Use it for dashboards and status views that need IDs, status, routing fields, timestamps, and payload length hints without transferring `Description`, `DiffSnapshot`, or `AgentOutput`.
+
+The result is an `EnumerationResult<MissionSummary>`, the same shape `GET /api/v1/missions/summaries` returns. The action reads through the same caller-scoped query as that route: a global administrator receives every tenant's summaries, a tenant administrator receives its tenant's, and any other caller receives only its own. A command without an authenticated session caller is refused with `command.error`.
 
 **Request:**
 

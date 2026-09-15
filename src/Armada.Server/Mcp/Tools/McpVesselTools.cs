@@ -70,6 +70,7 @@ namespace Armada.Server.Mcp.Tools
                         allowConcurrentMissions = new { type = "boolean", description = "Allow multiple concurrent missions on this vessel (default false)" },
                         enableModelContext = new { type = "boolean", description = "Enable legacy model context injection into mission briefs (default false)" },
                         defaultPipelineId = new { type = "string", description = "Default pipeline ID for dispatches to this vessel (ppl_ prefix)" },
+                        gitHubTokenOverride = new { type = "string", description = "Optional per-vessel GitHub token. Write-only: no tool result returns it; results carry HasGitHubTokenOverride instead." },
                         protectedPaths = new
                         {
                             type = "array",
@@ -180,8 +181,11 @@ namespace Armada.Server.Mcp.Tools
                             return (object)new { Error = "invalid siblingRepos JSON: " + ex.Message };
                         }
                     }
+                    // The vessel is owned by the authenticated caller, exactly as a REST create is.
+                    AuthContext addCaller = McpCallerContext.Require();
                     Vessel vessel = new Vessel();
-                    vessel.TenantId = ArmadaConstants.DefaultTenantId;
+                    vessel.TenantId = Armada.Core.Authorization.OwnershipPolicy.TenantOf(addCaller);
+                    vessel.UserId = addCaller.UserId;
                     vessel.Name = request.Name;
                     vessel.RepoUrl = request.RepoUrl;
                     vessel.FleetId = request.FleetId;
@@ -196,6 +200,7 @@ namespace Armada.Server.Mcp.Tools
                     vessel.AutoLandPredicate = autoLandPredicateJson;
                     vessel.DefaultPlaybooks = defaultPlaybooksJson;
                     vessel.SiblingRepos = siblingReposJson;
+                    vessel.ApplyGitHubTokenOverride(request.GitHubTokenOverrideSpecified, request.GitHubTokenOverride);
                     vessel = await database.Vessels.CreateAsync(vessel).ConfigureAwait(false);
                     return (object)vessel;
                 });
@@ -221,6 +226,7 @@ namespace Armada.Server.Mcp.Tools
                         modelContext = new { type = "string", description = "Legacy model context retained for backward compatibility. Writing it requires operatorOverride=true." },
                         operatorOverride = new { type = "boolean", description = "Orchestrator/operator only: set true to apply a direct modelContext edit. Captains must NOT set this -- emit [CLAUDE.MD-PROPOSAL] instead." },
                         defaultPipelineId = new { type = "string", description = "Default pipeline ID for dispatches to this vessel (ppl_ prefix)" },
+                        gitHubTokenOverride = new { type = "string", emptyStringClears = true, description = "Per-vessel GitHub token. Write-only: omit to keep the stored value, pass an empty string to clear it. No tool result returns it; results carry HasGitHubTokenOverride instead." },
                         protectedPaths = new
                         {
                             type = "array",
@@ -288,8 +294,13 @@ namespace Armada.Server.Mcp.Tools
                     string vesselId = request.VesselId;
                     if (!String.IsNullOrEmpty(request.ModelContext) && !request.OperatorOverride)
                         return (object)new { Error = "Direct modelContext mutation is blocked for captains. Emit a [CLAUDE.MD-PROPOSAL] block in your final response to propose changes; the orchestrator applies approved proposals with operatorOverride=true." };
+                    // The update runs as the authenticated caller. A vessel the caller may not change is
+                    // reported as missing, so no field -- the token override included -- can be written to it.
+                    AuthContext updateCaller = McpCallerContext.Require();
                     Vessel? vessel = await database.Vessels.ReadAsync(vesselId).ConfigureAwait(false);
-                    if (vessel == null) return (object)new { Error = "Vessel not found" };
+                    if (vessel == null
+                        || !Armada.Core.Authorization.OwnershipPolicy.CanEdit(updateCaller, vessel.TenantId, vessel.UserId, OwnershipScopeEnum.UserSpecific))
+                        return (object)new { Error = "Vessel not found" };
                     if (request.Name != null)
                         vessel.Name = request.Name;
                     if (request.RepoUrl != null)
@@ -391,6 +402,7 @@ namespace Armada.Server.Mcp.Tools
                             }
                         }
                     }
+                    vessel.ApplyGitHubTokenOverride(request.GitHubTokenOverrideSpecified, request.GitHubTokenOverride);
                     vessel = await database.Vessels.UpdateAsync(vessel).ConfigureAwait(false);
                     return (object)vessel;
                 });

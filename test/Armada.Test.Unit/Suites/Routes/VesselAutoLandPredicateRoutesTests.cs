@@ -46,7 +46,7 @@ namespace Armada.Test.Unit.Suites.Routes
 
                     Func<JsonElement?, Task<object>>? addHandler = null;
                     McpVesselTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_add_vessel") addHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_add_vessel") addHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver);
 
                     AssertNotNull(addHandler, "armada_add_vessel handler must be registered");
@@ -80,7 +80,7 @@ namespace Armada.Test.Unit.Suites.Routes
 
                     Func<JsonElement?, Task<object>>? updateHandler = null;
                     McpVesselTools.Register(
-                        (name, _, _, handler) => { if (name == "armada_update_vessel") updateHandler = handler; },
+                        (name, _, _, handler) => { if (name == "armada_update_vessel") updateHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver);
 
                     AssertNotNull(updateHandler, "armada_update_vessel handler must be registered");

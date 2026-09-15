@@ -443,6 +443,44 @@ namespace Test.Shared.Suites.E2E
                 AssertTrue(fetched.HasGitHubTokenOverride);
             }));
 
+            cases.Add(CaseAsync("update_vessel_github_token_override_does_not_echo", "Update Vessel GitHubTokenOverride DoesNotEcho", TestTags.Positive, async () =>
+            {
+                E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);
+                HttpClient authClient = fx.AuthClient;
+                List<string> createdFleetIds = new List<string>();
+                List<string> createdVesselIds = new List<string>();
+
+                string fleetId = await CreateFleetAsync(authClient, createdFleetIds, "EchoGitHubOverrideFleet");
+                HttpResponseMessage createResponse = await authClient.PostAsync("/api/v1/vessels", JsonHelper.ToJsonContent(new
+                {
+                    Name = "EchoGitHubOverride",
+                    FleetId = fleetId,
+                    RepoUrl = "https://github.com/test/echo-override"
+                }));
+                Vessel created = await JsonHelper.DeserializeAsync<Vessel>(createResponse);
+                createdVesselIds.Add(created.Id);
+                AssertFalse(created.HasGitHubTokenOverride);
+
+                string token = "ghp_update_echo_" + Guid.NewGuid().ToString("N").Substring(0, 10);
+                HttpResponseMessage updateResponse = await authClient.PutAsync("/api/v1/vessels/" + created.Id, JsonHelper.ToJsonContent(new
+                {
+                    Name = "EchoGitHubOverride",
+                    FleetId = fleetId,
+                    RepoUrl = "https://github.com/test/echo-override",
+                    GitHubTokenOverride = token
+                }));
+                AssertEqual(HttpStatusCode.OK, updateResponse.StatusCode);
+                string updateText = await updateResponse.Content.ReadAsStringAsync();
+                AssertFalse(updateText.Contains(token, StringComparison.Ordinal));
+                AssertFalse(updateText.Contains("\"gitHubTokenOverride\"", StringComparison.Ordinal));
+                AssertTrue(JsonHelper.Deserialize<Vessel>(updateText).HasGitHubTokenOverride);
+
+                HttpResponseMessage listResponse = await authClient.GetAsync("/api/v1/vessels");
+                string listText = await listResponse.Content.ReadAsStringAsync();
+                AssertFalse(listText.Contains(token, StringComparison.Ordinal));
+                AssertFalse(listText.Contains("\"gitHubTokenOverride\"", StringComparison.Ordinal));
+            }));
+
             cases.Add(CaseAsync("update_vessel_empty_github_token_override_clears_override", "Update Vessel EmptyGitHubTokenOverride ClearsOverride", TestTags.Positive, async () =>
             {
                 E2EServerFixture fx = await E2EServerFixture.AcquireAsync(this);

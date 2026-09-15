@@ -1,6 +1,7 @@
 namespace Armada.Server.Mcp
 {
     using System.Collections.Generic;
+    using System.Text.Json.Serialization;
 
     /// <summary>
     /// MCP tool arguments for updating a vessel.
@@ -90,5 +91,27 @@ namespace Armada.Server.Mcp
         /// no pull request is ever opened, so a fleet that lands locally needs LocalAndRemote.
         /// </summary>
         public string? BranchCleanupPolicy { get; set; }
+
+        /// <summary>
+        /// Optional write-only GitHub token override. Omit to keep the stored value; an empty string clears it.
+        /// No tool result returns it.
+        /// </summary>
+        public string? GitHubTokenOverride
+        {
+            get => _GitHubTokenOverride;
+            set
+            {
+                _GitHubTokenOverride = value;
+                GitHubTokenOverrideSpecified = true;
+            }
+        }
+
+        /// <summary>
+        /// True when the arguments carried gitHubTokenOverride, including an empty value.
+        /// </summary>
+        [JsonIgnore]
+        public bool GitHubTokenOverrideSpecified { get; private set; } = false;
+
+        private string? _GitHubTokenOverride = null;
     }
 }

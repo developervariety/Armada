@@ -524,7 +524,7 @@ namespace Armada.Server.WebSocket
                     }
 
                     WebSocketCommand command = JsonSerializer.Deserialize<WebSocketCommand>(body, _JsonOptions) ?? new WebSocketCommand();
-                    object result = await _CommandHandler.HandleCommandAsync(command.Action, command, body).ConfigureAwait(false);
+                    object result = await _CommandHandler.HandleCommandAsync(command.Action, command, body, connection.Auth).ConfigureAwait(false);
                     EnqueueOrDisconnect(sessionId, JsonSerializer.Serialize(result, _JsonOptions));
                     return;
                 }

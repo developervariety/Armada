@@ -112,15 +112,6 @@ namespace Test.Shared.Infrastructure
             SharedCaseDisposition.DuplicateOf("Services.WorkflowProfileCheckRunService.run_async_parses_structured_test_and_coverage_summaries",
                 UnitServiceSuites + "WorkflowProfileCheckRunServiceTests.cs", "RunAsync parses structured test and coverage summaries", CommittedCheckFixture),
 
-            SharedCaseDisposition.AwaitingOwner("E2E.McpTool.armada_add_vessel_git_hub_token_override_does_not_leak",
-                "the MCP vessel tools do not accept a GitHub token override"),
-            SharedCaseDisposition.AwaitingOwner("E2E.McpTool.armada_update_vessel_empty_git_hub_token_override_clears_override",
-                "the MCP vessel tools do not accept a GitHub token override"),
-            SharedCaseDisposition.AwaitingOwner("E2E.WebSocket.list_mission_summaries_empty_returns_empty_list",
-                "the WebSocket hub does not serve the list_missions_summary command"),
-            SharedCaseDisposition.AwaitingOwner("E2E.WebSocket.list_mission_summaries_with_pagination_respects_page_size",
-                "the WebSocket hub does not serve the list_missions_summary command"),
-
             SharedCaseDisposition.ForkDifference("Services.MissionPrompt.generate_claude_md_async_includes_model_context_when_enabled_and_set",
                 "generated instructions are written under .armada/instructions and carry no Model Context Updates section; " + ForkKeepsInstructionSections),
             SharedCaseDisposition.ForkDifference("Services.MissionPrompt.generate_claude_md_async_includes_update_instructions_even_when_model_context_is_empty",

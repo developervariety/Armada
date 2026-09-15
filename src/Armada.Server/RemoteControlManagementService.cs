@@ -326,11 +326,7 @@ namespace Armada.Server
             existing.StyleGuide = request.Vessel.StyleGuide;
             existing.EnableModelContext = request.Vessel.EnableModelContext;
             existing.ModelContext = request.Vessel.ModelContext;
-            if (request.Vessel.GitHubTokenOverrideSpecified)
-            {
-                existing.GitHubTokenOverride = request.Vessel.GitHubTokenOverride;
-                existing.NormalizeGitHubTokenOverride();
-            }
+            existing.ApplyGitHubTokenOverride(request.Vessel.GitHubTokenOverrideSpecified, request.Vessel.GitHubTokenOverride);
             existing.LandingMode = request.Vessel.LandingMode;
             existing.BranchCleanupPolicy = request.Vessel.BranchCleanupPolicy;
             existing.AllowConcurrentMissions = request.Vessel.AllowConcurrentMissions;

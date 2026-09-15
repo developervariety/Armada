@@ -1,6 +1,7 @@
 namespace Armada.Server.Mcp
 {
     using System.Collections.Generic;
+    using System.Text.Json.Serialization;
 
     /// <summary>
     /// MCP tool arguments for adding a vessel.
@@ -62,5 +63,26 @@ namespace Armada.Server.Mcp
         /// Armada always protects CLAUDE.md and _briefing.
         /// </summary>
         public List<string>? ProtectedPaths { get; set; }
+
+        /// <summary>
+        /// Optional write-only GitHub token override. No tool result returns it.
+        /// </summary>
+        public string? GitHubTokenOverride
+        {
+            get => _GitHubTokenOverride;
+            set
+            {
+                _GitHubTokenOverride = value;
+                GitHubTokenOverrideSpecified = true;
+            }
+        }
+
+        /// <summary>
+        /// True when the arguments carried gitHubTokenOverride, including an empty value.
+        /// </summary>
+        [JsonIgnore]
+        public bool GitHubTokenOverrideSpecified { get; private set; } = false;
+
+        private string? _GitHubTokenOverride = null;
     }
 }

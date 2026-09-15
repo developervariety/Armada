@@ -367,13 +367,36 @@ namespace Armada.Core.Models
         /// </summary>
         public void NormalizeGitHubTokenOverride()
         {
-            if (String.IsNullOrWhiteSpace(GitHubTokenOverride))
-            {
-                GitHubTokenOverride = null;
-                return;
-            }
+            GitHubTokenOverride = ResolveGitHubTokenOverride(GitHubTokenOverride, true, GitHubTokenOverride);
+        }
 
-            GitHubTokenOverride = GitHubTokenOverride.Trim();
+        /// <summary>
+        /// Apply a write-only GitHub token override from a create or update request to this record.
+        /// Every surface that writes a vessel (REST, MCP, WebSocket, remote control) applies the override
+        /// through this rule: an omitted override leaves the stored value unchanged, an explicit empty or
+        /// blank value clears it, and any other value replaces it, trimmed.
+        /// </summary>
+        /// <param name="specified">True when the request supplied the override, including an empty value.</param>
+        /// <param name="value">The supplied override.</param>
+        public void ApplyGitHubTokenOverride(bool specified, string? value)
+        {
+            GitHubTokenOverride = ResolveGitHubTokenOverride(GitHubTokenOverride, specified, value);
+        }
+
+        /// <summary>
+        /// Resolve the GitHub token override a vessel stores after a request.
+        /// An omitted override keeps the stored value, an explicit empty or blank value clears it,
+        /// and any other value replaces it, trimmed.
+        /// </summary>
+        /// <param name="storedValue">The override the record holds now.</param>
+        /// <param name="specified">True when the request supplied the override, including an empty value.</param>
+        /// <param name="value">The supplied override.</param>
+        /// <returns>The override to store, or null for none.</returns>
+        public static string? ResolveGitHubTokenOverride(string? storedValue, bool specified, string? value)
+        {
+            string? chosen = specified ? value : storedValue;
+            if (String.IsNullOrWhiteSpace(chosen)) return null;
+            return chosen.Trim();
         }
 
         #endregion

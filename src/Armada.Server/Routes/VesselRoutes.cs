@@ -239,6 +239,7 @@ namespace Armada.Server.Routes
                 vessel.TenantId = ctx.TenantId;
                 vessel.UserId = ctx.UserId;
                 vessel.AutoLandPredicate = autoLandPredicateJson;
+                vessel.NormalizeGitHubTokenOverride();
                 vessel = await _database.Vessels.CreateAsync(vessel).ConfigureAwait(false);
                 req.Http.Response.StatusCode = 201;
                 return vessel;
@@ -313,8 +314,8 @@ namespace Armada.Server.Routes
                 updated.AutoLandCalibrationLandedCount = existing.AutoLandCalibrationLandedCount;
                 // The token override is write-only, so a client can never echo it back. An update that
                 // omits it keeps the stored credential; only an explicit value (empty clears) replaces it.
-                if (!updated.GitHubTokenOverrideSpecified)
-                    updated.GitHubTokenOverride = existing.GitHubTokenOverride;
+                updated.GitHubTokenOverride = Vessel.ResolveGitHubTokenOverride(
+                    existing.GitHubTokenOverride, updated.GitHubTokenOverrideSpecified, updated.GitHubTokenOverride);
                 updated = await _database.Vessels.UpdateAsync(updated).ConfigureAwait(false);
                 return (object)updated;
             },

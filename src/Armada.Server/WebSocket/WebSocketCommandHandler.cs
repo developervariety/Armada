@@ -102,8 +102,9 @@ namespace Armada.Server.WebSocket
         /// <param name="action">The action string from the command.</param>
         /// <param name="command">The deserialized WebSocket command.</param>
         /// <param name="rawBody">The raw JSON body string for data commands.</param>
+        /// <param name="caller">The authenticated session caller. Commands that read through a caller-scoped query refuse to run without one.</param>
         /// <returns>The result object to serialize and send back to the client.</returns>
-        public async Task<object> HandleCommandAsync(string action, WebSocketCommand command, string rawBody)
+        public async Task<object> HandleCommandAsync(string action, WebSocketCommand command, string rawBody, AuthContext? caller = null)
         {
             switch (action)
             {
@@ -197,6 +198,7 @@ namespace Armada.Server.WebSocket
                     Vessel newVessel = JsonSerializer.Deserialize<WebSocketDataCommand<Vessel>>(rawBody, _JsonOptions)?.Data!;
                     if (String.IsNullOrEmpty(newVessel.RepoUrl))
                         return new { type = "command.error", action = "create_vessel", error = "repoUrl is required when creating a vessel" };
+                    newVessel.NormalizeGitHubTokenOverride();
                     newVessel = await _Database.Vessels.CreateAsync(newVessel).ConfigureAwait(false);
                     return new { type = "command.result", action = "create_vessel", data = (object)newVessel };
 
@@ -209,6 +211,9 @@ namespace Armada.Server.WebSocket
                     {
                         Vessel updVessel = JsonSerializer.Deserialize<WebSocketDataCommand<Vessel>>(rawBody, _JsonOptions)?.Data!;
                         updVessel.Id = updVesselId;
+                        // The token override is write-only: an update that omits it keeps the stored value.
+                        updVessel.GitHubTokenOverride = Vessel.ResolveGitHubTokenOverride(
+                            existVessel.GitHubTokenOverride, updVessel.GitHubTokenOverrideSpecified, updVessel.GitHubTokenOverride);
                         updVessel = await _Database.Vessels.UpdateAsync(updVessel).ConfigureAwait(false);
                         return new { type = "command.result", action = "update_vessel", data = (object)updVessel };
                     }
@@ -468,6 +473,15 @@ namespace Armada.Server.WebSocket
                     EnumerationResult<Mission> missionResult = await _Database.Missions.EnumerateSummariesAsync(missionQuery).ConfigureAwait(false);
                     missionResult.TotalMs = Math.Round(missionSw.Elapsed.TotalMilliseconds, 2);
                     return new { type = "command.result", action = "list_missions", data = (object)missionResult };
+
+                case "list_missions_summary":
+                    // Reads through the same caller-scoped query as REST, so a session receives exactly the
+                    // summaries REST returns to the same caller. There is no default caller to fall back to.
+                    if (caller == null || !caller.IsAuthenticated)
+                        return new { type = "command.error", action = "list_missions_summary", error = "list_missions_summary requires an authenticated caller" };
+                    EnumerationResult<MissionSummary> summaryResult = await MissionSummaryQuery.EnumerateForCallerAsync(
+                        _Database, caller, command.Query ?? new EnumerationQuery()).ConfigureAwait(false);
+                    return new { type = "command.result", action = "list_missions_summary", data = (object)summaryResult };
 
                 case "get_mission":
                     string getMissionId = command.Id ?? "";

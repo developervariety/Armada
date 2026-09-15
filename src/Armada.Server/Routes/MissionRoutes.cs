@@ -314,14 +314,7 @@ namespace Armada.Server.Routes
                 }
                 EnumerationQuery query = new EnumerationQuery();
                 query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
-                Stopwatch sw = Stopwatch.StartNew();
-                EnumerationResult<MissionSummary> result = ctx.IsAdmin
-                    ? await _database.Missions.EnumerateMissionSummariesAsync(query).ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Missions.EnumerateMissionSummariesAsync(ctx.TenantId!, query).ConfigureAwait(false)
-                        : await _database.Missions.EnumerateMissionSummariesAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
-                result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
-                return result;
+                return await MissionSummaryQuery.EnumerateForCallerAsync(_database, ctx, query).ConfigureAwait(false);
             },
             api => api
                 .WithTag("Missions")
@@ -344,14 +337,7 @@ namespace Armada.Server.Routes
                 }
                 EnumerationQuery query = JsonSerializer.Deserialize<EnumerationQuery>(req.Http.Request.DataAsString, _jsonOptions) ?? new EnumerationQuery();
                 query.ApplyQuerystringOverrides(key => req.Query.GetValueOrDefault(key));
-                Stopwatch sw = Stopwatch.StartNew();
-                EnumerationResult<MissionSummary> result = ctx.IsAdmin
-                    ? await _database.Missions.EnumerateMissionSummariesAsync(query).ConfigureAwait(false)
-                    : ctx.IsTenantAdmin
-                        ? await _database.Missions.EnumerateMissionSummariesAsync(ctx.TenantId!, query).ConfigureAwait(false)
-                        : await _database.Missions.EnumerateMissionSummariesAsync(ctx.TenantId!, ctx.UserId!, query).ConfigureAwait(false);
-                result.TotalMs = Math.Round(sw.Elapsed.TotalMilliseconds, 2);
-                return result;
+                return await MissionSummaryQuery.EnumerateForCallerAsync(_database, ctx, query).ConfigureAwait(false);
             },
             api => api
                 .WithTag("Missions")

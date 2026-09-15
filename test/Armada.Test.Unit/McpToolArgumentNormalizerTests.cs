@@ -41,6 +41,27 @@ namespace Armada.Test.Unit
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
+            await RunTest("EmptyString_ForStringPropertyDeclaringEmptyStringClears_IsKept", () =>
+            {
+                object schema = new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        secretOverride = new { type = "string", emptyStringClears = true },
+                        plainOptional = new { type = "string" }
+                    }
+                };
+                JsonElement args = JsonSerializer.SerializeToElement(new { secretOverride = "", plainOptional = "" }, _JsonOpts);
+
+                JsonElement? result = McpToolArgumentNormalizer.Normalize(args, schema, _JsonOpts);
+                AssertNotNull(result, "result present");
+                JsonElement r = result!.Value;
+                AssertTrue(r.TryGetProperty("secretOverride", out JsonElement kept), "an empty value for a property declaring emptyStringClears is kept");
+                AssertEqual(string.Empty, kept.GetString(), "the kept value is still the empty string");
+                AssertFalse(r.TryGetProperty("plainOptional", out _), "an optional string without the keyword is still treated as omitted");
+            });
+
             await RunTest("EmptyString_ForDateTimeEnumBooleanIntegerArray_IsDropped", () =>
             {
                 JsonElement args = JsonSerializer.SerializeToElement(new
