@@ -22,7 +22,6 @@ import {
   listDeployments,
 } from '../api/client';
 import type { Captain, CheckRun, Deployment, FormattedLogEntry, GitHubPullRequestDetail, LandingPreviewResult, Mission, Vessel } from '../types/models';
-import LandingPreviewCard from '../components/shared/LandingPreviewCard';
 import ErrorModal from '../components/shared/ErrorModal';
 import StatusBadge from '../components/shared/StatusBadge';
 import ActionMenu from '../components/shared/ActionMenu';
@@ -32,9 +31,11 @@ import DiffViewer from '../components/shared/DiffViewer';
 import LogViewer from '../components/shared/LogViewer';
 import PageHeader from '../components/shared/PageHeader';
 import CopyButton from '../components/shared/CopyButton';
-import MissionDescriptionCard from '../components/shared/MissionDescriptionCard';
+import Markdown from '../components/shared/Markdown';
 import Button from '../components/shared/Button';
 import CaptainRef from '../components/shared/CaptainRef';
+import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
+import { useAutoRefresh } from '../lib/useAutoRefresh';
 import { useLocale } from '../context/LocaleContext';
 
 const MISSION_STATUSES = [
@@ -132,6 +133,10 @@ export default function MissionDetail() {
   useEffect(() => {
     loadMission();
   }, [loadMission]);
+
+  // A running mission changes status, branch and runtime while the page is open. The refresh reuses loadMission,
+  // which shows the loading spinner only on the first load.
+  const { seconds: refreshSeconds, setSeconds: setRefreshSeconds } = useAutoRefresh('mission-detail', loadMission);
 
   useEffect(() => {
     listVessels({ pageSize: 1000 }).then(r => setVessels(r.objects || [])).catch(() => {});
@@ -357,7 +362,7 @@ export default function MissionDetail() {
         try {
           await purgeMission(mission.id);
           pushToast('warning', t('Mission "{{title}}" purged.', { title: mission.title }));
-          loadMission();
+          navigate('/missions');
         } catch (e: unknown) {
           setError(t('Purge failed: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
         }
@@ -365,20 +370,21 @@ export default function MissionDetail() {
     });
   }
 
-  function handleDelete() {
+  // The mission DELETE route cancels: the record stays with status Cancelled. Purge is the permanent removal.
+  function handleCancel() {
     if (!mission) return;
     setConfirm({
       open: true,
-      title: t('Delete Mission'),
-      message: t('Permanently delete mission "{{title}}"? This cannot be undone.', { title: mission.title }),
+      title: t('Cancel Mission'),
+      message: t('Cancel mission "{{title}}"? The mission will be set to Cancelled status but remains in the database. Use Purge to permanently remove it.', { title: mission.title }),
       onConfirm: async () => {
         setConfirm(c => ({ ...c, open: false }));
         try {
           await deleteMission(mission.id);
-          pushToast('warning', t('Mission "{{title}}" deleted.', { title: mission.title }));
-          navigate('/missions');
+          pushToast('warning', t('Mission "{{title}}" cancelled.', { title: mission.title }));
+          loadMission();
         } catch (e: unknown) {
-          setError(t('Delete failed: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
+          setError(t('Cancel failed: {{message}}', { message: e instanceof Error ? e.message : String(e) }));
         }
       },
     });
@@ -387,6 +393,20 @@ export default function MissionDetail() {
   if (loading) return <p className="text-dim">{t('Loading...')}</p>;
   if (!mission) return <ErrorModal error={error || t('Mission not found.')} onClose={() => navigate('/missions')} />;
   const canResolveReview = mission.status === 'Review' && mission.requiresReview;
+  // Landing is offered only where the server lands the mission: WorkProduced or LandingFailed. A Review mission
+  // is not landable here and cannot be marked Complete: the server refuses both while the mission is in Review,
+  // so it graduates through Resolve Review or a status transition.
+  const canLand = mission.status === 'WorkProduced' || mission.status === 'LandingFailed';
+  const landLabel = mission.status === 'LandingFailed' ? 'Retry Landing' : 'Land';
+  const handleLand = async () => {
+    try {
+      await retryMissionLanding(mission.id);
+      pushToast('success', t('Landing succeeded! Mission status updated.'));
+      loadMission();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t('Landing failed.'));
+    }
+  };
 
   return (
     <div>
@@ -410,9 +430,10 @@ export default function MissionDetail() {
                 {t('Run Check')}
               </button>
             )}
-            {(mission.status === 'WorkProduced' || mission.status === 'LandingFailed') && (
-              <Button className="btn btn-sm btn-primary" onClick={async () => { try { await retryMissionLanding(mission.id); pushToast('success', t('Landing succeeded! Mission status updated.')); loadMission(); } catch (e) { setError(e instanceof Error ? e.message : t('Retry landing failed.')); } }} title={t('Rebase the mission branch and re-attempt merge into the target branch')}>{t('Retry Landing')}</Button>
+            {canLand && (
+              <Button className="btn btn-sm btn-primary" onClick={handleLand} title={t('Rebase the mission branch and merge it into the target branch, then complete the mission')}>{t(landLabel)}</Button>
             )}
+            <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
             <ActionMenu id={`mission-action-${mission.id}`} items={[
               { label: 'Edit', onClick: openEdit },
               ...(canResolveReview ? [
@@ -425,9 +446,9 @@ export default function MissionDetail() {
               { label: 'Transition Status', onClick: () => setShowTransition(true) },
               { label: 'View JSON', onClick: () => setJsonData({ open: true, title: t('Mission: {{title}}', { title: mission.title }), data: mission }) },
               { label: 'Restart', onClick: handleRestart },
-              ...((mission.status === 'WorkProduced' || mission.status === 'LandingFailed') ? [{ label: 'Retry Landing', onClick: async () => { try { await retryMissionLanding(mission.id); pushToast('success', t('Landing succeeded! Mission status updated.')); loadMission(); } catch (e) { setError(e instanceof Error ? e.message : t('Retry landing failed.')); } } }] : []),
+              ...(canLand ? [{ label: landLabel, onClick: () => { void handleLand(); } }] : []),
               { label: 'Purge', danger: true, onClick: handlePurge },
-              { label: 'Delete', danger: true, onClick: handleDelete },
+              { label: 'Cancel', danger: true, onClick: handleCancel },
             ]} />
           </>
         }
@@ -439,13 +460,61 @@ export default function MissionDetail() {
       <ConfirmDialog open={confirm.open} title={confirm.title} message={confirm.message}
         onConfirm={confirm.onConfirm} onCancel={() => setConfirm(c => ({ ...c, open: false }))} />
 
-      <LandingPreviewCard
-        preview={landingPreview}
-        loading={loadingLandingPreview}
-        meta={landingPreview?.sourceBranch ? `${landingPreview.sourceBranch} -> ${landingPreview.targetBranch}` : mission.branchName || t('No branch selected')}
-        unavailableMessage={t('Landing preview is not available for this mission yet.')}
-        noIssuesMessage={t('This preview found no issues for this mission.')}
-      />
+      <div className="card landing-preview-card">
+        <div className="readiness-panel-header">
+          <div>
+            <h3>{t('Landing Preview')}</h3>
+            <div className="readiness-panel-meta">
+              {landingPreview?.sourceBranch ? `${landingPreview.sourceBranch} -> ${landingPreview.targetBranch}` : mission.branchName || t('No branch selected')}
+            </div>
+          </div>
+          <span className={`readiness-pill ${landingPreview?.isReadyToLand ? 'ready' : 'warning'}`}>
+            {landingPreview?.isReadyToLand ? t('Ready To Land') : t('Needs Review')}
+          </span>
+        </div>
+        {loadingLandingPreview ? (
+          <div className="text-dim">{t('Calculating landing preview...')}</div>
+        ) : !landingPreview ? (
+          <div className="text-dim">{t('Landing preview is not available for this mission yet.')}</div>
+        ) : (
+          <>
+            <div className="readiness-summary-row">
+              <span>{t('Branch category')}: {landingPreview.branchCategory}</span>
+              <span>{t('Landing mode')}: {landingPreview.landingMode || t('Inherited')}</span>
+              <span>{t('Cleanup')}: {landingPreview.branchCleanupPolicy || t('Inherited')}</span>
+              {landingPreview.expectedLandingAction && <span>{t('Action')}: {landingPreview.expectedLandingAction}</span>}
+              <span>{landingPreview.requirePassingChecksToLand ? t('Passing checks required') : t('Passing checks optional')}</span>
+            </div>
+            <div className="readiness-summary-row">
+              <span>{landingPreview.targetBranchProtected ? t('Protected target branch') : t('Target branch not protected')}</span>
+              {landingPreview.protectedBranchMatch && <span>{t('Policy')}: <span className="mono">{landingPreview.protectedBranchMatch}</span></span>}
+              {landingPreview.requirePullRequestForProtectedBranches && <span>{t('PR required for protected branches')}</span>}
+              {landingPreview.requireMergeQueueForReleaseBranches && <span>{t('Merge queue required for release branches')}</span>}
+            </div>
+            {landingPreview.latestCheckSummary && (
+              <div className="landing-preview-latest-check">
+                <strong>{t('Latest check')}</strong>
+                <div className="text-dim">{landingPreview.latestCheckSummary}</div>
+              </div>
+            )}
+            {landingPreview.issues.length > 0 ? (
+              <div className="readiness-issues">
+                {landingPreview.issues.map((issue, index) => (
+                  <div key={`${issue.code}-${index}`} className={`readiness-issue ${issue.severity.toLowerCase()}`}>
+                    <div className="readiness-issue-title-row">
+                      <strong>{issue.title}</strong>
+                      <span className={`readiness-issue-severity ${issue.severity.toLowerCase()}`}>{issue.severity}</span>
+                    </div>
+                    <div className="text-dim">{issue.message}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="readiness-success-copy">{t('No landing blockers are currently predicted for this mission.')}</div>
+            )}
+          </>
+        )}
+      </div>
 
       <DiffViewer
         open={diffModal.open}
@@ -825,7 +894,17 @@ export default function MissionDetail() {
       )}
 
       {/* Description */}
-      {mission.description && <MissionDescriptionCard description={mission.description} />}
+      {mission.description && (
+        <div style={{ marginTop: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            <h3 style={{ margin: 0 }}>{t('Description')}</h3>
+            <CopyButton text={mission.description} title={t('Copy raw markdown')} />
+          </div>
+          <div className="card markdown" style={{ padding: '1rem', marginTop: '0.5rem' }}>
+            <Markdown>{mission.description}</Markdown>
+          </div>
+        </div>
+      )}
 
       {mission.playbookSnapshots && mission.playbookSnapshots.length > 0 && (
         <div style={{ marginTop: '1rem' }}>
