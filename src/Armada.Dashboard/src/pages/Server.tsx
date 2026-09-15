@@ -13,6 +13,7 @@ import {
 import RefreshButton from '../components/shared/RefreshButton';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
+import { baseAfterSave, mergeDraft } from '../lib/settingsDraft';
 import PageHeader from '../components/shared/PageHeader';
 import { useWebSocket } from '../context/WebSocketContext';
 import { useNotifications, type Severity } from '../context/NotificationContext';
@@ -166,6 +167,9 @@ export default function Server() {
 
   const [health, setHealth] = useState<HealthInfo | null>(null);
   const [settings, setSettings] = useState<ServerSettings | null>(null);
+  // The server copy the draft in `settings` was last merged against. A reload or a section save merges into
+  // the draft field by field, so fields the operator edited and has not saved keep their draft values.
+  const savedRef = useRef<ServerSettings | null>(null);
   const [proxyContext, setProxyContext] = useState<ProxySessionContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -222,6 +226,14 @@ export default function Server() {
     setRevealedRemoteField(null);
   }
 
+  const applySavedSettings = useCallback((data: ServerSettings, sent?: Partial<ServerSettings>) => {
+    const next = mergeServerSettings(data)!;
+    const previous = savedRef.current;
+    const base = previous ? (sent ? baseAfterSave(previous, sent) : previous) : null;
+    savedRef.current = next;
+    setSettings(current => (current && base ? mergeDraft(base, current, next) : next));
+  }, []);
+
   const loadData = useCallback(async () => {
     try {
       setError('');
@@ -231,7 +243,7 @@ export default function Server() {
         getProxySessionContext().catch(() => null),
       ]);
       if (h) setHealth(h as unknown as HealthInfo);
-      if (s) setSettings(mergeServerSettings(s as unknown as ServerSettings));
+      if (s) applySavedSettings(s as unknown as ServerSettings);
       setProxyContext(proxy);
       if (!h && !s) setError(t('Failed to load server data.'));
       else if (!s) setError(t('Failed to load server settings. Health data is available, but configuration and backup sections could not be loaded.'));
@@ -240,7 +252,7 @@ export default function Server() {
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, applySavedSettings]);
 
   useEffect(() => {
     loadData();
@@ -251,12 +263,13 @@ export default function Server() {
   const handleSaveServerConfig = async () => {
     if (!settings) return;
     try {
-      const updated = await updateSettings({
+      const sent = {
         admiralPort: settings.admiralPort,
         mcpPort: settings.mcpPort,
         maxCaptains: settings.maxCaptains,
-      });
-      setSettings(mergeServerSettings(updated as unknown as ServerSettings));
+      };
+      const updated = await updateSettings(sent);
+      applySavedSettings(updated as unknown as ServerSettings, sent);
       showToast('success', t('Server configuration saved'));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : t('Unknown error');
@@ -267,13 +280,14 @@ export default function Server() {
   const handleSaveAgentSettings = async () => {
     if (!settings) return;
     try {
-      const updated = await updateSettings({
+      const sent = {
         heartbeatIntervalSeconds: settings.heartbeatIntervalSeconds,
         stallThresholdMinutes: settings.stallThresholdMinutes,
         idleCaptainTimeoutSeconds: settings.idleCaptainTimeoutSeconds,
         autoCreatePr: settings.autoCreatePr,
-      });
-      setSettings(mergeServerSettings(updated as unknown as ServerSettings));
+      };
+      const updated = await updateSettings(sent);
+      applySavedSettings(updated as unknown as ServerSettings, sent);
       showToast('success', t('Agent settings saved'));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : t('Unknown error');
@@ -284,12 +298,13 @@ export default function Server() {
   const handleSavePlanningSessionSettings = async () => {
     if (!settings) return;
     try {
-      const updated = await updateSettings({
+      const sent = {
         planningSessionInactivityTimeoutMinutes: settings.planningSessionInactivityTimeoutMinutes,
         planningSessionAbandonmentTimeoutMinutes: settings.planningSessionAbandonmentTimeoutMinutes,
         planningSessionRetentionDays: settings.planningSessionRetentionDays,
-      });
-      setSettings(mergeServerSettings(updated as unknown as ServerSettings));
+      };
+      const updated = await updateSettings(sent);
+      applySavedSettings(updated as unknown as ServerSettings, sent);
       showToast('success', t('Planning session settings saved'));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : t('Unknown error');
@@ -300,10 +315,11 @@ export default function Server() {
   const handleSaveRemoteControlSettings = async () => {
     if (!settings) return;
     try {
-      const updated = await updateSettings({
+      const sent = {
         remoteControl: settings.remoteControl,
-      });
-      setSettings(mergeServerSettings(updated as unknown as ServerSettings));
+      };
+      const updated = await updateSettings(sent);
+      applySavedSettings(updated as unknown as ServerSettings, sent);
       showToast('success', t('Remote control settings saved'));
       const refreshedHealth = (await getHealth()) as unknown as HealthInfo;
       setHealth(refreshedHealth);

@@ -25,7 +25,7 @@ export default function ServerHub() {
 
   const tabs: TabDef[] = [
     { key: 'server', label: 'Server', render: () => panel(<Server />) },
-    { key: 'routing', label: 'Routing V2', hidden: !isAdmin, render: () => panel(<RoutingSettings />) },
+    { key: 'routing', label: 'Routing', hidden: !isAdmin, render: () => panel(<RoutingSettings />) },
     { key: 'diagnostics', label: 'Diagnostics', render: () => panel(<Doctor />) },
     { key: 'tenants', label: 'Tenants', hidden: !isAdmin, render: () => panel(<Tenants />) },
     { key: 'users', label: 'Users', hidden: !admin, render: () => panel(<Users />) },
