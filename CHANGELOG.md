@@ -235,6 +235,40 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - The Vessels page has no Workspace header button, and API Explorer and
   Requests do not link to each other from their headers. Page header buttons
   use the upstream order.
+### Dashboard follows the upstream shell
+
+- `/notifications` opens Needs You, and the notification bell stays in the top
+  bar. The dashboard has no Code Index page and no `/token-usage` path.
+- The sidebar grid, setup wizard highlights, required Mux endpoint, and login
+  fields follow upstream.
+- Home leads with an Ask Armada band that opens Ask, Needs You, Dispatch, and
+  Diagnostics. The blank Ask Armada chat shows a greeting.
+- The stylesheet is the upstream stylesheet plus one block for fork features:
+  the coordination board, workspace code view, and status badges.
+
+### Record ownership and configuration tabs
+
+- Personas, pipelines, and prompt templates show a Visibility column and detail
+  field. An administrator chooses the visibility of a new record. The dashboard
+  hides the create, edit, duplicate, and delete actions the server refuses.
+  Visibility is fixed when a record is created.
+- Configuration has an Endpoints tab: model endpoints with health history,
+  validation, and a health sweep for global administrators. Any user can create
+  a personal endpoint; an administrator can create a tenant-wide one.
+- Configuration has a Memory tab: durable memories with type and text filters.
+  Delete shows only on memories the viewer may change.
+
+### Routing settings keep unsaved edits
+
+- Settings > Routing holds the model routing policy (tier lists, specialist
+  personas, reserved slots, strategy, preference order, family rules, dispatch
+  guard, model providers, additional assets) and Routing V2. Each part saves
+  only its own changed fields, so a save in one part never replaces the other.
+- A refresh, or a save in another section, keeps unsaved edits on the Routing
+  and Server tabs. Fields the operator did not edit take the new server values.
+- `PUT /api/v1/settings` applies each supplied field and keeps absent fields as
+  stored. `modelTier.usageRouting`, `modelProviders`, and each additional asset
+  list replace the stored value whole when supplied.
 
 ### Recovery ignores missions closed by terminal-voyage reconciliation
 

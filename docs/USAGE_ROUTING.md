@@ -212,9 +212,12 @@ recovery state across settings updates.
 
 ## Dashboard and API
 
-The Server settings hub has an admin **Routing V2** tab with an enable control, budget fields, an account template, the
-full editable policy JSON, reported usage, and a draft preview. Save uses the
-existing settings action. The policy hot-reloads; no restart is required.
+The Settings hub has an admin **Routing** tab. Its Routing V2 part has an enable
+control, budget fields, an account template, the full editable policy JSON,
+reported usage, and a draft preview. Its save sends only
+`modelTier.usageRouting`, so it never replaces the model routing policy edited
+in the other part of the tab, and a refresh keeps unsaved edits. The policy
+hot-reloads; no restart is required.
 `monthlyBudget`, `currency`, and account `monthlyCost` are operator-entered
 planning values. They show a total and an over-budget indicator. They do not
 purchase plans, enforce a billing cap, or measure prepaid spending.
