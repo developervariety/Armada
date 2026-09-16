@@ -6,6 +6,23 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- Context retrieval can now supply a captain brief's Shared Memory section,
+  behind the `contextRetrieval.briefSlimmingEnabled` flag (default off). While
+  off, brief generation is byte-for-byte unchanged: the section still names the
+  memory root and tells the captain to read every file under `shared/`. While
+  on, the section carries the always-on core rules inline, the leaves retrieved
+  as relevant to the mission's vessel and persona (its must-retrieve safety
+  leaves always included) within `contextRetrieval.briefLeafBudgetBytes`, and a
+  one-line pointer to the `armada_fetch_context` tool for more by topic, in
+  place of the read-every-file instruction. Fail-safe: when the context index is
+  unavailable or retrieval degrades, the section falls back to the full memory
+  section, so a failure degrades to today's behaviour, never to fewer rules. The
+  slimmed section's core, must-retrieve, and leaf byte counts are recorded on
+  the `mission.prompt_budget` telemetry so the per-persona before/after cost is
+  measurable. Enabling the flag is a separate, deliberate step.
+
 ### Security
 
 - Scoped the captain tools preflight to the requesting viewer. The Ask tools

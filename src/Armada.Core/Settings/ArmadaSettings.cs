@@ -1125,6 +1125,13 @@ namespace Armada.Core.Settings
             // watched settings file without an Admiral restart.
             RemoteTrigger ??= new RemoteTriggerSettings();
             RemoteTrigger.CopyFrom(source.RemoteTrigger);
+
+            // MissionService captures the whole settings instance at construction and reads the
+            // ContextRetrieval section at brief-generation time. Merge it in place so the
+            // brief-slimming flag and its budgets can be turned on or off from the watched settings
+            // file without an Admiral restart.
+            ContextRetrieval ??= new ContextRetrievalSettings();
+            ContextRetrieval.CopyFrom(source.ContextRetrieval);
         }
 
         /// <summary>

@@ -293,7 +293,11 @@ namespace Armada.Server
             // and the process-exit OOM classification see the same capacity/cooldown state.
             ResourcePressureAdmission resourcePressureAdmission = new ResourcePressureAdmission(
                 _Settings.ResourcePressureAdmission, new HostResourcePressureProbe(), _Logging);
-            MissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git, captainQuarantineService, resourcePressureAdmission);
+            // The context retrieval service is built later, in RegisterMcpTools, and held in
+            // _ContextRetrieval. A lazy provider lets MissionService reach it at brief-generation
+            // time (well after startup) without reordering startup; it stays null until built,
+            // and the brief-slimming path (default off) falls back to the full memory section.
+            MissionService missionService = new MissionService(_Logging, _Database, _Settings, dockService, captainService, _PromptTemplateService, _Git, captainQuarantineService, resourcePressureAdmission, () => _ContextRetrieval);
             _MissionService = missionService;
             IVoyageService voyageService = new VoyageService(_Logging, _Database);
             IEscalationService escalationService = new EscalationService(_Logging, _Database, _Settings);

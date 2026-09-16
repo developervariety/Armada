@@ -189,6 +189,35 @@ never travels with the tool. It is enabled by default because it makes no
 external call and returns only already-sanitized memory and docs text.
 
 The service is built in-process at startup by reusing the index generator, so
-it and the written manifest derive from the same source and agree. Retrieval,
-the fetch tool, and their wiring are additive: brief generation and every
-loader are unchanged.
+it and the written manifest derive from the same source and agree.
+
+## Brief slimming (flagged, default off)
+
+By default, a captain brief's Shared Memory section names the memory root and
+tells the captain to read every file under `shared/`. Retrieval can supply that
+section instead, behind `contextRetrieval.briefSlimmingEnabled`:
+
+- **`briefSlimmingEnabled` (default `false`).** While `false`, brief generation
+  is byte-for-byte unchanged from before this flag existed, and no retrieval
+  runs for the brief. Enabling it is a separate, deliberate step.
+- While `true`, the Shared Memory section is built from a retrieval request
+  scoped to the mission's persona and vessel, with a query from the mission's
+  title and description. It carries the always-on core rules inline, the
+  mission's must-retrieve safety leaves and ranked relevant leaves within
+  `contextRetrieval.briefLeafBudgetBytes` (default 24000; core and must-retrieve
+  are exempt), and a one-line pointer to `armada_fetch_context` for anything
+  else by topic. It never tells the captain to read every file under `shared/`.
+- **Fail-safe.** When no context index was built, or retrieval returns a
+  degraded (fail-safe) result or no core, the section falls back to the full
+  read-every-file memory section and logs a warning. A failure therefore
+  degrades to today's behaviour, never to fewer rules, and never to an empty
+  section.
+- **Telemetry.** When the flag is on, the slimmed section's core, must-retrieve,
+  and leaf byte counts (and any fallback) are recorded under `ContextSlimming`
+  on the `mission.prompt_budget` event, so the per-persona before/after cost is
+  measurable.
+
+The flag is runtime-tunable: it is merged in place on a settings hot reload, so
+it can be turned on or off from the watched settings file without an Admiral
+restart. Retrieval, the fetch tool, and their wiring stay additive: with the
+flag off, brief generation and every loader are unchanged.
