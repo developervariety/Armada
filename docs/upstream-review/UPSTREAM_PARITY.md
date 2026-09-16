@@ -15,7 +15,7 @@ Our fork is a divergent SUPERSET of upstream, not behind it. We keep parity by r
 Recorder + native memory + memories REST; Linter persona; ApiEndpoint MCP-in-chat; per-user scope/auth + caller attribution; OpenCode runtime; Audit/Research mission modes; definition-of-done gate; no-op completion rejection; autonomous recovery; papercuts; model-tier routing; the entire dashboard (multi-tenant scoping, Ask Armada, captain-map, token-usage, memory surface, stickiness, setup wizard, jobs — several more developed than upstream); plumbing scripts (framework arg, insecure flag, factory-reset, install-mcp, publish); telemetry (Radiant); ARMADA_DATA_DIR data-directory env override (accepted as ARMADA_DATA_DIRECTORY and the ARMADA_DATA_DIR alias).
 
 ## Deliberate divergences (keep ours; a merge would regress these)
-- Linter is seeded into ProductDevelopment only, NOT FullPipeline: the startup reconcile rewrites canonical built-in pipelines, so adding a stage to a widely-used built-in would silently change deployments. Upstream wired its Linter into FullPipeline.
+- Linter is seeded into the code-producing pipelines (Tested, ReferencePortingTested, ProductDevelopment), NOT FullPipeline: FullPipeline stays the minimal review shape. Upstream wired its Linter into FullPipeline instead.
 - "Harbor" is a name collision: ours is a distributed-runner enrollment/job protocol (server-side); upstream's is a desktop rebuild supervisor. Different concepts.
 - Self-deploy is a headless supervised cutover (SelfDeployPreflight/Build/DatabaseBackup/ReleasePrune/RestartRecord, rehearse-self-deploy-cutover.sh), not upstream's SlotManager A/B slots.
 - ModelEndpoint uses hand-rolled per-provider HTTP contracts, not upstream's PolyPrompt clients.
