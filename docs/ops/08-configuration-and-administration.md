@@ -265,7 +265,9 @@ One decision point reads the objective dispatch preview:
   `objective_preflight_model_flag` — the autonomous scheduler already skips on any
   Error issue and its `objective_scheduler.skipped_dispatch_preflight` event lists
   the code — and a Q13 `needs_owner_ruling` also posts one owner-addressed board
-  note. The model only ADDS issues; it never dispatches, never lands, and never
+  note. The flag is preflight-class: an operator `armada_dispatch` with
+  `forcePreflight: true` passes it, and the `objective.preflight_overridden`
+  event names the flagged question numbers. The model only ADDS issues; it never dispatches, never lands, and never
   removes a deterministic issue. Below the threshold, unavailable, or `Off`
   leaves the deterministic preview unchanged (`Shadow` adds the flags as advisory
   `preflight_q<n>_model` warnings instead).

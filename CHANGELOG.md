@@ -32,6 +32,14 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- The D5 `objective_preflight_model_flag` finding is now preflight-class for the
+  operator dispatch gate: `forcePreflight: true` passes it the same way it
+  passes an incomplete preflight, and any other blocking finding still refuses
+  the dispatch. The `objective.preflight_overridden` event names the
+  model-flagged question numbers, and a refusal lists them as
+  `ModelFlaggedQuestions`. The autonomous scheduler still skips a flagged
+  objective.
+
 - The dashboard is usable on phone-width screens. Below 640px the sidebar
   becomes an off-canvas drawer opened from a top-bar menu button, the content
   spans the full width, and wide tables scroll within their own container. The

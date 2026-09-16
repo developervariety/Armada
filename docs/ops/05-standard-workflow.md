@@ -106,9 +106,11 @@ reports the blocking `objective_preflight_incomplete` finding with the offending
 question numbers, and the autonomous scheduler skips the objective. The preview
 also computes the deterministic questions as facts so a recorded answer can be
 checked against the repository. An operator may set `forcePreflight` on
-`armada_dispatch` to override an incomplete preflight; it overrides only the
-preflight, any other blocking issue still refuses the dispatch, and the override
-is recorded as an `objective.preflight_overridden` event.
+`armada_dispatch` to override an incomplete preflight or a D5
+`objective_preflight_model_flag` finding; it overrides only those
+preflight-class findings, any other blocking issue still refuses the dispatch,
+and the override is recorded as an `objective.preflight_overridden` event that
+names the blocking and the model-flagged question numbers.
 
 Use the vessel's configured pipeline unless the approved work calls for a
 different existing pipeline. Use the full configured persona path. Do not

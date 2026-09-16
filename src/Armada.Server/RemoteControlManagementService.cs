@@ -563,7 +563,7 @@ namespace Armada.Server
                             {
                                 StatusCode = 400,
                                 ErrorCode = ObjectivePreflightGate.IssueCode,
-                                Message = "Objective dispatch preflight is incomplete. Complete it, or set forcePreflight to override.",
+                                Message = ObjectivePreflightGate.RefusalMessage,
                                 Payload = preview
                             };
                         }
@@ -580,7 +580,8 @@ namespace Armada.Server
                         if (outcome == PreflightGateOutcomeEnum.OverriddenPreflight)
                         {
                             ArmadaEvent overrideEvent = ObjectivePreflightGate.BuildOverrideEvent(
-                                bareObjective, ObjectivePreflightGate.OperatorName(objectiveAuth));
+                                bareObjective, ObjectivePreflightGate.OperatorName(objectiveAuth),
+                                ObjectivePreflightGate.ModelFlaggedQuestions(preview));
                             await _EmitEventAsync(
                                 overrideEvent.EventType, overrideEvent.Message, "objective", bareObjective.Id, null, null, null, null).ConfigureAwait(false);
                         }

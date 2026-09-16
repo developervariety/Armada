@@ -144,8 +144,9 @@ is refused while a question is unanswered, a must-be-yes question is no, or the
 open-owner-question is yes; the preview reports `objective_preflight_incomplete`
 with the offending numbers, and the scheduler skips the objective. An operator
 may set `forcePreflight` on `armada_dispatch` to override an incomplete
-preflight only; any other blocking issue still refuses, and the override records
-an `objective.preflight_overridden` event.
+preflight or a D5 `objective_preflight_model_flag` only; any other blocking
+issue still refuses, and the override records an
+`objective.preflight_overridden` event naming the question numbers.
 
 Use the vessel's configured pipeline and the full persona path. Do not remove
 review stages to save time. Dispatch with `preferredModel: "low"`, `"mid"`, or

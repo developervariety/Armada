@@ -62,10 +62,18 @@ namespace Armada.Server
 
         /// <summary>
         /// Operator override that lets a linked objective dispatch despite an incomplete dispatch
-        /// preflight. It overrides only the preflight block; any other blocking issue still refuses the
-        /// dispatch. An override is recorded as an objective event.
+        /// preflight or a D5 preflight model flag. It overrides only those preflight-class blocks; any
+        /// other blocking issue still refuses the dispatch. An override is recorded as an objective event.
         /// </summary>
         public bool ForcePreflight { get; set; } = false;
+
+        /// <summary>
+        /// Question numbers the D5 preflight model flagged in the preview the force flag overrode. Set by
+        /// the precondition check so the override event names them without a second model call; never
+        /// supplied by a caller.
+        /// </summary>
+        [System.Text.Json.Serialization.JsonIgnore]
+        internal List<int> PreflightModelFlaggedQuestions { get; set; } = new List<int>();
 
         /// <summary>
         /// Further objectives admitted and linked in the same operation as <see cref="ObjectiveId"/>.

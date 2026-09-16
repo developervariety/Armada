@@ -179,6 +179,93 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ForcePreflight_OverridesModelFlagAndNamesFlaggedQuestions", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                        "preflight-model-flag-vessel", "https://github.com/test/repo.git")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId
+                    }).ConfigureAwait(false);
+                    Objective created = new Objective
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Title = "Model-flagged objective",
+                        VesselIds = new List<string> { vessel.Id }
+                    };
+                    created.Preparation.Preflight = PreflightTestData.Complete();
+                    Objective objective = await testDb.Driver.Objectives.CreateAsync(created).ConfigureAwait(false);
+                    RecordingObjectiveDispatchPreview preview = new RecordingObjectiveDispatchPreview
+                    {
+                        Result = new ObjectiveDispatchPreview
+                        {
+                            ObjectiveId = objective.Id,
+                            VesselId = vessel.Id,
+                            IsReady = false,
+                            Issues = new List<ObjectiveDispatchPreviewIssue>
+                            {
+                                new ObjectiveDispatchPreviewIssue
+                                {
+                                    Code = PreflightTextAdapter.ModelFlagIssueCode,
+                                    Area = "preflight",
+                                    Severity = ReadinessSeverityEnum.Error,
+                                    Message = "Dispatch preflight model flag on question 4.",
+                                    RelatedValue = "q4"
+                                },
+                                new ObjectiveDispatchPreviewIssue
+                                {
+                                    Code = PreflightTextAdapter.ModelFlagIssueCode,
+                                    Area = "preflight",
+                                    Severity = ReadinessSeverityEnum.Error,
+                                    Message = "Dispatch preflight model flag on question 13.",
+                                    RelatedValue = "q13"
+                                }
+                            }
+                        }
+                    };
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver,
+                        new RecordingAdmiralService(testDb.Driver),
+                        objectiveService: new ObjectiveService(testDb.Driver),
+                        settings: new ArmadaSettings { CodeIndex = { Enabled = false } },
+                        objectiveDispatchPreview: preview);
+
+                    VoyageDispatchResult? refused = await service.ValidatePreconditionsAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "model flag without force",
+                        VesselId = vessel.Id,
+                        ObjectiveId = objective.Id,
+                        ObjectiveAuthContext = McpTestCaller.Operator,
+                        ForcePreflight = false,
+                        Missions = new List<MissionDescription> { new MissionDescription("Do", "The model flag blocks this.") }
+                    }).ConfigureAwait(false);
+                    AssertNotNull(refused, "A model flag without force must be refused.");
+                    AssertContains(ObjectivePreflightGate.IssueCode, JsonSerializer.Serialize(refused!.Value),
+                        "a model flag alone is refused as a preflight block that force may override");
+
+                    VoyageDispatchResult forced = await service.DispatchAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "forced past model flag",
+                        VesselId = vessel.Id,
+                        ObjectiveId = objective.Id,
+                        ObjectiveAuthContext = McpTestCaller.Operator,
+                        ForcePreflight = true,
+                        Missions = new List<MissionDescription> { new MissionDescription("Do", "Force past the model flag.") }
+                    }).ConfigureAwait(false);
+                    AssertTrue(forced.Succeeded, "Force must pass a model flag: " + JsonSerializer.Serialize(forced.Value));
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events
+                        .EnumerateByTypeAsync("objective.preflight_overridden", 50).ConfigureAwait(false);
+                    ArmadaEvent? overrideEvent = events.FirstOrDefault(evt => evt.EntityId == objective.Id);
+                    AssertNotNull(overrideEvent, "the model-flag override must be recorded as objective.preflight_overridden");
+                    AssertContains("model-flagged question(s): 4, 13", overrideEvent!.Message,
+                        "the override event names the flagged question numbers");
+                }
+            });
+
             await RunTest("ForcePreflight_DoesNotBypassOtherBlockingIssue", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
