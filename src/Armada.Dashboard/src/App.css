@@ -8149,3 +8149,22 @@ thead tr.column-filter-row td input.col-filter::placeholder {
     .mobile-nav-toggle { display: inline-flex; }
     .top-bar-collapse-btn { display: none; }
 }
+
+@media (max-width: 640px) {
+    /* The top bar carries too many controls for a phone. Let it wrap instead of
+       clipping, put the menu button on the left, and drop the verbose identity
+       badges, status labels, and the GitHub link. Dots stay; text goes. */
+    .top-bar {
+        justify-content: flex-start;
+        flex-wrap: wrap;
+        height: auto;
+        min-height: var(--shell-chrome-height);
+        gap: 0.4rem 0.5rem;
+        padding: 0.4rem 0.6rem;
+    }
+    .mobile-nav-toggle { margin-right: auto; }
+    .top-bar .top-bar-status-label { display: none; }
+    .top-bar .top-bar-status { display: none; }
+    .top-bar .auth-badge { display: none; }
+    .top-bar .github-link { display: none; }
+}
