@@ -284,9 +284,10 @@ namespace Armada.Core.Services
             int candidateCount = retrieval.Candidates.Count;
             try
             {
-                object state = DecisionStateRedactor.RedactObject(
+                RedactedDecisionState redactedState = DecisionStateRedactor.RedactState(
                     PriorArtDecisionShapes.BuildState(deliverable, retrieval), _Settings.MaxStateChars);
-                redacted = state as string ?? String.Empty;
+                object state = redactedState.State;
+                redacted = redactedState.Text;
                 request = new TypedDecisionRequest
                 {
                     DecisionPoint = DecisionPoint,

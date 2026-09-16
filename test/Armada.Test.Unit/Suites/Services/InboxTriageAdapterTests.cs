@@ -141,7 +141,7 @@ namespace Armada.Test.Unit.Suites.Services
                 // could only happen if the adapter re-ordered by attention rather than severity.
                 FakeTypedDecisionClient client = new FakeTypedDecisionClient(request =>
                 {
-                    string state = request.State as string ?? String.Empty;
+                    string state = FakeTypedDecisionClient.StateText(request);
                     int score = state.Contains("stalled_captain", StringComparison.Ordinal) ? 3
                         : state.Contains("review", StringComparison.Ordinal) ? 1
                         : 0;

@@ -109,6 +109,15 @@ namespace Armada.Test.Unit.TestHelpers
             return new TypedDecisionResult { Available = true, Answers = answers, InputTokens = 10, OutputTokens = 5, LatencyMs = 12 };
         }
 
+        /// <summary>The transmitted state as text: the string itself, or the serialized JSON object.</summary>
+        /// <param name="request">The request the adapter sent.</param>
+        /// <returns>The state text; empty when absent.</returns>
+        public static string StateText(TypedDecisionRequest? request)
+        {
+            if (request?.State == null) return String.Empty;
+            return request.State as string ?? System.Text.Json.JsonSerializer.Serialize(request.State);
+        }
+
         /// <summary>Build an unavailable result.</summary>
         /// <param name="reason">The unavailable reason.</param>
         /// <returns>An unavailable result.</returns>

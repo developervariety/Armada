@@ -2,9 +2,12 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Text;
     using System.Text.Json;
+    using System.Text.Json.Nodes;
     using System.Text.RegularExpressions;
+    using Armada.Core.Models;
 
     /// <summary>
     /// Redacts decision state before it egresses to the typed-decision provider. This is the
@@ -84,34 +87,148 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Redact an arbitrary state object. The object is serialized to JSON and the whole JSON
-        /// text is redacted and truncated, so no string field can egress unredacted. Returns the
-        /// redacted string, suitable as the request state.
+        /// Redact a decision state for egress. A string state is redacted and truncated as text. Any
+        /// other state is sent as a JSON object: every property name and string value is redacted in
+        /// place, and when the serialized object exceeds the budget its longest strings are truncated
+        /// (keeping head, tail, and marker lines) until it fits, so the provider still receives valid,
+        /// structured JSON. A state that cannot fit that way falls back to redacted, truncated text.
         /// </summary>
-        /// <param name="state">The state object. Null is treated as empty.</param>
-        /// <param name="maxChars">Maximum characters retained.</param>
-        /// <returns>The redacted state as a string; never null.</returns>
-        public static object RedactObject(object? state, int maxChars)
+        /// <param name="state">The state. Null is treated as empty.</param>
+        /// <param name="maxChars">Maximum characters of serialized state retained.</param>
+        /// <returns>The value to transmit and its exact serialized text; never null.</returns>
+        public static RedactedDecisionState RedactState(object? state, int maxChars)
         {
-            if (state == null) return String.Empty;
-            if (state is string text) return Redact(text, maxChars);
+            if (maxChars < 1) maxChars = 1;
+            if (state == null) return RedactedDecisionState.FromText(String.Empty);
+            if (state is string text) return RedactedDecisionState.FromText(Redact(text, maxChars));
 
-            string json;
+            JsonNode? node;
             try
             {
-                json = JsonSerializer.Serialize(state);
+                node = JsonSerializer.SerializeToNode(state);
             }
             catch (Exception)
             {
-                json = state.ToString() ?? String.Empty;
+                return RedactedDecisionState.FromText(Redact(state.ToString(), maxChars));
             }
 
-            return Redact(json, maxChars);
+            if (node is not JsonObject && node is not JsonArray)
+                return RedactedDecisionState.FromText(Redact(node?.ToJsonString() ?? String.Empty, maxChars));
+
+            node = RedactNode(node);
+            string json = node!.ToJsonString();
+            if (json.Length > maxChars && !FitToBudget(node, maxChars, out json))
+                return RedactedDecisionState.FromText(Redact(json, maxChars));
+
+            return new RedactedDecisionState(node, json);
         }
 
         #endregion
 
         #region Private-Methods
+
+        // The shortest a string leaf is cut to while fitting an object to its budget; below this a
+        // leaf carries too little to be worth keeping, and the text fallback is used instead.
+        private const int _MinLeafChars = 64;
+
+        private static JsonNode? RedactNode(JsonNode? node)
+        {
+            switch (node)
+            {
+                case JsonObject obj:
+                    JsonObject redactedObject = new JsonObject();
+                    foreach (KeyValuePair<string, JsonNode?> property in obj.ToList())
+                    {
+                        obj.Remove(property.Key);
+                        string key = Redact(property.Key, Int32.MaxValue);
+                        string unique = key;
+                        for (int suffix = 2; redactedObject.ContainsKey(unique); suffix++)
+                            unique = key + "_" + suffix.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                        redactedObject[unique] = RedactNode(property.Value);
+                    }
+                    return redactedObject;
+                case JsonArray array:
+                    JsonArray redactedArray = new JsonArray();
+                    foreach (JsonNode? item in array.ToList())
+                    {
+                        array.Remove(item);
+                        redactedArray.Add(RedactNode(item));
+                    }
+                    return redactedArray;
+                case JsonValue value when value.GetValueKind() == JsonValueKind.String:
+                    return JsonValue.Create(Redact(value.GetValue<string>(), Int32.MaxValue));
+                default:
+                    return node;
+            }
+        }
+
+        private static bool FitToBudget(JsonNode root, int maxChars, out string json)
+        {
+            json = root.ToJsonString();
+            HashSet<JsonValue> exhausted = new HashSet<JsonValue>(ReferenceEqualityComparer.Instance);
+            while (json.Length > maxChars)
+            {
+                JsonValue? longest = null;
+                int longestLength = 0;
+                foreach (JsonValue leaf in StringLeaves(root))
+                {
+                    if (exhausted.Contains(leaf)) continue;
+                    int length = leaf.GetValue<string>().Length;
+                    if (length > longestLength)
+                    {
+                        longest = leaf;
+                        longestLength = length;
+                    }
+                }
+
+                if (longest == null || longestLength <= _MinLeafChars) return false;
+
+                int target = Math.Max(_MinLeafChars, longestLength - (json.Length - maxChars));
+                string cut = Truncate(longest.GetValue<string>(), target);
+                if (cut.Length >= longestLength)
+                {
+                    exhausted.Add(longest);
+                    continue;
+                }
+
+                JsonValue replacement = JsonValue.Create(cut);
+                exhausted.Remove(longest);
+                ReplaceNode(longest, replacement);
+                json = root.ToJsonString();
+            }
+            return true;
+        }
+
+        private static IEnumerable<JsonValue> StringLeaves(JsonNode? node)
+        {
+            switch (node)
+            {
+                case JsonObject obj:
+                    foreach (KeyValuePair<string, JsonNode?> property in obj)
+                        foreach (JsonValue leaf in StringLeaves(property.Value)) yield return leaf;
+                    break;
+                case JsonArray array:
+                    foreach (JsonNode? item in array)
+                        foreach (JsonValue leaf in StringLeaves(item)) yield return leaf;
+                    break;
+                case JsonValue value when value.GetValueKind() == JsonValueKind.String:
+                    yield return value;
+                    break;
+            }
+        }
+
+        private static void ReplaceNode(JsonNode current, JsonNode replacement)
+        {
+            JsonNode? parent = current.Parent;
+            if (parent is JsonObject obj)
+            {
+                obj[current.GetPropertyName()] = replacement;
+            }
+            else if (parent is JsonArray array)
+            {
+                array[current.GetElementIndex()] = replacement;
+            }
+        }
 
         private static string Truncate(string text, int maxChars)
         {

@@ -397,7 +397,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<TypedDecisionResult> DecideAsync(TypedDecisionRequest request, CancellationToken token)
             {
                 CallCount++;
-                LastState = request.State as string ?? request.State?.ToString();
+                LastState = Armada.Test.Unit.TestHelpers.FakeTypedDecisionClient.StateText(request);
                 LastQuestionIds.Clear();
                 foreach (KeyValuePair<string, TypedQuestion> entry in request.Questions)
                     LastQuestionIds.Add(entry.Key);

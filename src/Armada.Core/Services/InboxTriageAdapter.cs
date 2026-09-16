@@ -199,8 +199,9 @@ namespace Armada.Core.Services
             ResolvedTypedDecision cfg,
             CancellationToken token)
         {
-            object state = DecisionStateRedactor.RedactObject(rawState, _Settings.MaxStateChars);
-            string redacted = state as string ?? String.Empty;
+            RedactedDecisionState redactedState = DecisionStateRedactor.RedactState(rawState, _Settings.MaxStateChars);
+            object state = redactedState.State;
+            string redacted = redactedState.Text;
 
             Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
             {

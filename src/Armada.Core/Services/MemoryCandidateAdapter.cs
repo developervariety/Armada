@@ -107,8 +107,9 @@ namespace Armada.Core.Services
 
         private async Task<MemoryCandidateOutcome> DecideAsync(PapercutGroup group, ResolvedTypedDecision cfg, CancellationToken token)
         {
-            object state = DecisionStateRedactor.RedactObject(BuildState(group), _Settings.MaxStateChars);
-            string redacted = state as string ?? String.Empty;
+            RedactedDecisionState redactedState = DecisionStateRedactor.RedactState(BuildState(group), _Settings.MaxStateChars);
+            object state = redactedState.State;
+            string redacted = redactedState.Text;
 
             TypedDecisionResult result = await _Client.DecideAsync(
                 new TypedDecisionRequest

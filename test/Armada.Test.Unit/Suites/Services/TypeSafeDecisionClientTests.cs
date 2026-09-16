@@ -127,6 +127,28 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNull(result.Answers["repeat_likely"].Confidence);
             });
 
+            await RunTest("DecideAsync_ObjectState_SendsStateAsJsonObject", async () =>
+            {
+                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(HttpStatusCode.OK, "{\"answers\":{}}");
+                HttpClient http = new HttpClient(handler);
+                TypeSafeDecisionClient client = new TypeSafeDecisionClient(Settings(), new LoggingModule(), http);
+                RedactedDecisionState state = DecisionStateRedactor.RedactState(
+                    new Dictionary<string, object?> { ["failure_reason"] = "build failed", ["exit_code"] = 1 }, 8000);
+
+                await client.DecideAsync(new TypedDecisionRequest
+                {
+                    DecisionPoint = "failure_cause",
+                    State = state.State,
+                    Questions = SampleRequest().Questions
+                }, CancellationToken.None).ConfigureAwait(false);
+
+                AssertNotNull(handler.LastRequestBody);
+                System.Text.Json.Nodes.JsonObject body = System.Text.Json.Nodes.JsonNode.Parse(handler.LastRequestBody!)!.AsObject();
+                AssertTrue(body["state"] is System.Text.Json.Nodes.JsonObject, "state must be a JSON object on the wire, not an encoded string");
+                AssertEqual("build failed", body["state"]!["failure_reason"]!.GetValue<string>());
+                AssertEqual(state.Text, body["state"]!.ToJsonString(), "the recorded text is exactly what was sent");
+            });
+
             await RunTest("DecideAsync_401_ReturnsUnavailableHttp401", async () =>
             {
                 await AssertUnavailable(HttpStatusCode.Unauthorized, "http_401").ConfigureAwait(false);
