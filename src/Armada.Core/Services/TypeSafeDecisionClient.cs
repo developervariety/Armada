@@ -295,11 +295,10 @@ namespace Armada.Core.Services
             [JsonPropertyName("score")]
             public double? Score { get; set; }
 
-            // The provider sends the score legend as an index-keyed object ({"0": "Low", ...}). It
-            // restates the request's own levels, so it is kept untyped: a strict shape here turns every
-            // score answer into a parse failure.
+            // The provider sends the score legend as an index-keyed object ({"0": "Low", ...}), not a
+            // list. A list shape here makes every response that carries a score answer a parse failure.
             [JsonPropertyName("legend")]
-            public JsonElement? Legend { get; set; }
+            public Dictionary<string, string>? Legend { get; set; }
 
             [JsonPropertyName("noul")]
             public double? Noul { get; set; }
