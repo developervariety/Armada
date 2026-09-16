@@ -1999,6 +1999,23 @@ model, where a rule hard-block always wins. The three wired today are:
 - `runtime_failure` — only a bare Crash is offered for change, and only ever
   upgraded to the more conservative UsageLimit or AuthFailure; a recognised
   signature is never downgraded and a crash is never read as clean.
+Two decision points read the papercut grouping:
+
+- **D6 `papercut_merge`** (ships `Gate`) runs at listing time
+  (`armada_list_papercuts`, grouped mode). It asks whether two groups of the same
+  vessel and category describe the same underlying issue and, at or above the
+  threshold, folds them into one row **in the listing only** — no stored papercut
+  event is changed and no group is deleted, so setting the decision `Off`
+  restores the plain grouping. It considers only the largest groups per vessel
+  and caps the model calls per listing. A merge records a `papercut.merge_proposed`
+  event (recorded but not applied in `Shadow`).
+- **D18 `memory_candidate`** (ships `Off`) asks whether a papercut group is a
+  durable cross-session lesson and, in `Gate` above the threshold, writes a
+  proposal file under `AI-Memory/corpus/memory-candidates/` for the owner to
+  promote or discard. The model never writes memory: the proposals folder is
+  fixed and never under `shared/` or `repos/`, and the proposal text is redacted.
+  When no AI-Memory root is configured the nomination is recorded as an event
+  only.
 
 ### Vessel Workspace
 

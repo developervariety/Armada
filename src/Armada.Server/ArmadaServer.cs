@@ -119,6 +119,7 @@ namespace Armada.Server
         private ITypedDecisionClient _TypedDecisionClient = new NullTypedDecisionClient();
         private TypedDecisionRecorder _TypedDecisionRecorder = null!;
         private HttpClient _TypedDecisionHttpClient = null!;
+        private PapercutMergeAdapter _PapercutMergeAdapter = null!;
         private LongRunningJobService _LongRunningJobs = new LongRunningJobService();
         private ProviderProgressTracker _ProviderProgress = new ProviderProgressTracker();
         private TerminalMarkerTracker _TerminalMarkers = new TerminalMarkerTracker();
@@ -256,6 +257,11 @@ namespace Armada.Server
                     : "no key in " + typedDecisionKeyEnv;
                 _Logging.Info(_Header + "typed decisions: NullTypedDecisionClient (" + why + ")");
             }
+
+            // D6 papercut_merge adapter. Reads the client above, so it is a no-op (the plain grouping)
+            // whenever the null client is in use or the decision is off.
+            _PapercutMergeAdapter = new PapercutMergeAdapter(
+                _Settings.TypedDecisions, _TypedDecisionClient, _TypedDecisionRecorder, _Database, _Logging);
 
             if (_Settings.CodeIndex.Enabled)
             {
@@ -1606,7 +1612,8 @@ namespace Armada.Server
                 harborJobs: _HarborJobService,
                 typedDecisionClient: _TypedDecisionClient,
                 typedDecisionRecorder: _TypedDecisionRecorder,
-                typedDecisionParticipantKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey);
+                typedDecisionParticipantKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey,
+                papercutMergeAdapter: _PapercutMergeAdapter);
 
         }
 

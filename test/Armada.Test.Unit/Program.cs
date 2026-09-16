@@ -314,6 +314,9 @@ namespace Armada.Test.Unit
             runner.AddSuite(new TypedFailureCauseAdapterTests());
             runner.AddSuite(new TypedRefusalAdapterTests());
             runner.AddSuite(new TypedRuntimeFailureAdapterTests());
+            runner.AddSuite(new PapercutMergeAdapterTests());
+            runner.AddSuite(new MemoryCandidateAdapterTests());
+            runner.AddSuite(new FileMemoryCandidateProposalWriterTests());
             runner.AddSuite(new OpenCodeServerInferenceClientTests());
             runner.AddSuite(new OpenCodeServerInferenceClientNegativePathTests());
             runner.AddSuite(new OpenCodeServerLauncherTests());

@@ -31,7 +31,12 @@ namespace Armada.Server.Mcp.Tools
         /// </summary>
         /// <param name="register">Delegate to register each tool.</param>
         /// <param name="database">Database driver for event data access.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database)
+        /// <param name="mergeAdapter">
+        /// The D6 <c>papercut_merge</c> adapter, or null to list without model merging. When present
+        /// it folds same-issue groups together in the grouped listing; the deterministic grouping is
+        /// unchanged when the decision is off or the model is unavailable.
+        /// </param>
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, PapercutMergeAdapter? mergeAdapter = null)
         {
             register(
                 "armada_list_papercuts",
@@ -121,6 +126,13 @@ namespace Armada.Server.Mcp.Tools
                     }
 
                     List<PapercutGroup> groups = PapercutService.Group(papercuts);
+
+                    // D6 papercut_merge: fold same-issue groups together in the listing when the
+                    // decision gates. The rule (the plain grouping) stands when the adapter is absent,
+                    // the decision is off, or the model is unavailable.
+                    if (mergeAdapter != null)
+                        groups = await mergeAdapter.MergeAsync(groups, System.Threading.CancellationToken.None).ConfigureAwait(false);
+
                     return (object)new
                     {
                         Scanned = events.Count,

@@ -1,0 +1,244 @@
+namespace Armada.Test.Unit.Suites.Services
+{
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using Armada.Core.Database;
+    using Armada.Core.Enums;
+    using Armada.Core.Models;
+    using Armada.Core.Services;
+    using Armada.Core.Settings;
+    using Armada.Test.Common;
+    using Armada.Test.Unit.TestHelpers;
+    using SyslogLogging;
+
+    /// <summary>
+    /// Table-driven tests for the D6 papercut_merge adapter: Off, unavailable, below threshold, and
+    /// above threshold, plus the rule-wins and bucketing guards. The deterministic behaviour (the
+    /// plain grouping) is the fallback in every non-gate case.
+    /// </summary>
+    public class PapercutMergeAdapterTests : TestSuite
+    {
+        public override string Name => "Papercut Merge Adapter (D6)";
+
+        private const string _Vessel = "vsl_example";
+
+        protected override async Task RunTestsAsync()
+        {
+            // The table of scenarios exercised against a merge-able pair (same vessel, same category).
+            List<MergeCase> cases = new List<MergeCase>
+            {
+                new MergeCase
+                {
+                    Name = "Off_ReturnsRuleUnmerged_NoCallNoEvent",
+                    GlobalMode = TypedDecisionModeEnum.Off,
+                    DecisionMode = TypedDecisionModeEnum.Gate,
+                    Result = FakeTypedDecisionClient.Noul("same_issue", 0.99),
+                    ExpectMerged = false,
+                    ExpectClientCalls = 0,
+                    ExpectTypedEvent = null,
+                    ExpectMergeProposed = false
+                },
+                new MergeCase
+                {
+                    Name = "Unavailable_ReturnsRuleUnmerged_UnavailableEvent",
+                    GlobalMode = TypedDecisionModeEnum.Gate,
+                    DecisionMode = TypedDecisionModeEnum.Gate,
+                    Result = FakeTypedDecisionClient.Unavailable("http_429"),
+                    ExpectMerged = false,
+                    ExpectClientCalls = 1,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeUnavailable,
+                    ExpectMergeProposed = false
+                },
+                new MergeCase
+                {
+                    Name = "GateBelowThreshold_ReturnsRuleUnmerged_ShadowEvent",
+                    GlobalMode = TypedDecisionModeEnum.Gate,
+                    DecisionMode = TypedDecisionModeEnum.Gate,
+                    Result = FakeTypedDecisionClient.Noul("same_issue", 0.50),
+                    ExpectMerged = false,
+                    ExpectClientCalls = 1,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectMergeProposed = false
+                },
+                new MergeCase
+                {
+                    Name = "GateAboveThreshold_MergesInListing_GatedAndProposedEvents",
+                    GlobalMode = TypedDecisionModeEnum.Gate,
+                    DecisionMode = TypedDecisionModeEnum.Gate,
+                    Result = FakeTypedDecisionClient.Noul("same_issue", 0.97),
+                    ExpectMerged = true,
+                    ExpectClientCalls = 1,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeGated,
+                    ExpectMergeProposed = true
+                },
+                new MergeCase
+                {
+                    Name = "ShadowAboveThreshold_DoesNotMerge_ProposedButNotApplied",
+                    GlobalMode = TypedDecisionModeEnum.Shadow,
+                    DecisionMode = TypedDecisionModeEnum.Gate,
+                    Result = FakeTypedDecisionClient.Noul("same_issue", 0.97),
+                    ExpectMerged = false,
+                    ExpectClientCalls = 1,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectMergeProposed = true
+                }
+            };
+
+            foreach (MergeCase testCase in cases)
+            {
+                await RunTest("Merge_" + testCase.Name, async () =>
+                {
+                    using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient(testCase.Result);
+                    PapercutMergeAdapter adapter = BuildAdapter(testDb.Driver, client, testCase.GlobalMode, testCase.DecisionMode);
+
+                    List<PapercutGroup> input = new List<PapercutGroup>
+                    {
+                        Group("a", "stale sibling not found", 5),
+                        Group("b", "sibling missing on run", 3)
+                    };
+
+                    List<PapercutGroup> output = await adapter.MergeAsync(input, CancellationToken.None).ConfigureAwait(false);
+
+                    AssertEqual(testCase.ExpectClientCalls, client.Calls, "client call count");
+
+                    if (testCase.ExpectMerged)
+                    {
+                        AssertEqual(1, output.Count, "the two groups merge into one row");
+                        AssertEqual(8, output[0].Count, "merged count is the sum");
+                        AssertTrue(output[0].MergedGroupKeys.Count >= 1, "the merged group records the folded key");
+                    }
+                    else
+                    {
+                        AssertEqual(2, output.Count, "the rule stands: two rows, unmerged");
+                    }
+
+                    List<ArmadaEvent> typed = await AllTypedDecisionEventsAsync(testDb.Driver).ConfigureAwait(false);
+                    if (testCase.ExpectTypedEvent == null)
+                    {
+                        AssertEqual(0, typed.Count, "no typed-decision event when the decision is off");
+                    }
+                    else
+                    {
+                        AssertEqual(1, typed.Count, "exactly one typed-decision event for the pair");
+                        AssertEqual(testCase.ExpectTypedEvent, typed[0].EventType, "typed-decision event type");
+                    }
+
+                    List<ArmadaEvent> proposed = await testDb.Driver.Events
+                        .EnumerateByTypeAsync(PapercutMergeAdapter.MergeProposedEventType, 50)
+                        .ConfigureAwait(false);
+                    AssertEqual(testCase.ExpectMergeProposed ? 1 : 0, proposed.Count, "merge_proposed event count");
+                });
+            }
+
+            await RunTest("Merge_DifferentCategories_NeverMerged", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("same_issue", 0.99));
+                PapercutMergeAdapter adapter = BuildAdapter(testDb.Driver, client, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
+
+                PapercutGroup one = Group("a", "same words here", 5);
+                one.Category = PapercutCategoryEnum.BriefContradiction;
+                PapercutGroup two = Group("b", "same words here", 4);
+                two.Category = PapercutCategoryEnum.ToolFailure;
+
+                List<PapercutGroup> output = await adapter.MergeAsync(new List<PapercutGroup> { one, two }, CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(2, output.Count, "groups of different categories are in different buckets");
+                AssertEqual(0, client.Calls, "no pair is even compared across categories");
+            });
+
+            await RunTest("Merge_DifferentVessels_NeverMerged", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("same_issue", 0.99));
+                PapercutMergeAdapter adapter = BuildAdapter(testDb.Driver, client, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
+
+                PapercutGroup one = Group("a", "same words here", 5);
+                one.VesselId = "vsl_one";
+                PapercutGroup two = Group("b", "same words here", 4);
+                two.VesselId = "vsl_two";
+
+                List<PapercutGroup> output = await adapter.MergeAsync(new List<PapercutGroup> { one, two }, CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(2, output.Count, "groups of different vessels are never merged");
+                AssertEqual(0, client.Calls, "no cross-vessel comparison");
+            });
+
+            await RunTest("Merge_ForwardsCallerTokenToClient", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("same_issue", 0.20));
+                PapercutMergeAdapter adapter = BuildAdapter(testDb.Driver, client, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
+
+                using CancellationTokenSource cts = new CancellationTokenSource();
+                await adapter.MergeAsync(new List<PapercutGroup> { Group("a", "x y z", 2), Group("b", "x y z", 1) }, cts.Token).ConfigureAwait(false);
+
+                AssertTrue(client.Calls >= 1, "the client was called");
+                AssertTrue(client.LastToken.Equals(cts.Token), "the adapter forwards the caller's token so the client's timeout applies");
+            });
+
+            await RunTest("Merge_SingleGroup_ReturnsUnchanged_NoCall", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("same_issue", 0.99));
+                PapercutMergeAdapter adapter = BuildAdapter(testDb.Driver, client, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
+
+                List<PapercutGroup> output = await adapter.MergeAsync(new List<PapercutGroup> { Group("a", "only one", 3) }, CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(1, output.Count);
+                AssertEqual(0, client.Calls, "a lone group has nothing to compare against");
+            });
+        }
+
+        private static PapercutMergeAdapter BuildAdapter(DatabaseDriver database, FakeTypedDecisionClient client, TypedDecisionModeEnum globalMode, TypedDecisionModeEnum decisionMode)
+        {
+            TypedDecisionSettings settings = new TypedDecisionSettings { Mode = globalMode };
+            settings.Decisions[PapercutMergeAdapter.DecisionPoint].Mode = decisionMode;
+            settings.Decisions[PapercutMergeAdapter.DecisionPoint].GateThreshold = 0.90;
+            TypedDecisionRecorder recorder = new TypedDecisionRecorder(database, new LoggingModule());
+            return new PapercutMergeAdapter(settings, client, recorder, database, new LoggingModule());
+        }
+
+        private static PapercutGroup Group(string suffix, string title, int count)
+        {
+            return new PapercutGroup
+            {
+                Key = _Vessel + "|BriefContradiction|" + suffix,
+                VesselId = _Vessel,
+                Category = PapercutCategoryEnum.BriefContradiction,
+                HighestSeverity = PapercutSeverityEnum.Medium,
+                SampleTitle = title,
+                SampleDetail = "detail " + suffix,
+                Count = count,
+                DistinctCaptainCount = count,
+                FirstSeenUtc = DateTime.UtcNow.AddHours(-count),
+                LastSeenUtc = DateTime.UtcNow.AddMinutes(-count)
+            };
+        }
+
+        private static async Task<List<ArmadaEvent>> AllTypedDecisionEventsAsync(DatabaseDriver database)
+        {
+            List<ArmadaEvent> all = new List<ArmadaEvent>();
+            all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeGated, 50).ConfigureAwait(false));
+            all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeShadow, 50).ConfigureAwait(false));
+            all.AddRange(await database.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeUnavailable, 50).ConfigureAwait(false));
+            return all;
+        }
+
+        private sealed class MergeCase
+        {
+            public required string Name { get; init; }
+            public required TypedDecisionModeEnum GlobalMode { get; init; }
+            public required TypedDecisionModeEnum DecisionMode { get; init; }
+            public required TypedDecisionResult Result { get; init; }
+            public required bool ExpectMerged { get; init; }
+            public required int ExpectClientCalls { get; init; }
+            public required string? ExpectTypedEvent { get; init; }
+            public required bool ExpectMergeProposed { get; init; }
+        }
+    }
+}

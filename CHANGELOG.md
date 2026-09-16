@@ -72,6 +72,30 @@ All notable changes to Armada are documented in this file.
   settings timeout links to it: a slow decision is unavailable, not late. The
   adapters are wired only when the client is live (mode not Off and the key is
   present); otherwise every seam stays on its deterministic rule.
+### Typed decisions: papercut merge (D6) and memory candidate (D18)
+
+- The papercut listing (`armada_list_papercuts`, grouped mode) now consults the
+  D6 `papercut_merge` typed decision: two groups of the same vessel and category
+  that the model judges to be the same underlying issue are folded into one row
+  in the listing. The merge is listing-only — no stored papercut event is
+  changed and no group is deleted, so turning the decision off restores the plain
+  grouping exactly. It considers only the largest groups per vessel and is
+  bounded in the number of model calls per listing. A merge at or above the
+  threshold records a `papercut.merge_proposed` event (also recorded, but not
+  applied, in Shadow mode) alongside the usual `typed_decision.*` event.
+- The D18 `memory_candidate` decision (ships Off) asks whether a papercut group
+  is a durable cross-session lesson and, in Gate mode above the threshold, writes
+  a proposal file under `AI-Memory/corpus/memory-candidates/` for the owner to
+  promote or discard. The model never writes memory itself: the proposals folder
+  is fixed and never under `shared/` or `repos/`, and a proposal folder that
+  would resolve under a loaded memory folder is refused. Proposal text is
+  redacted before it reaches the file.
+- Both decisions follow the shared adapter contract: the deterministic behaviour
+  (no merge, no nomination) is the fallback for an Off decision, an unavailable
+  model, and a below-threshold answer; every call is bounded by the settings
+  timeout on the caller's token, fails closed to the rule, records a
+  `state_sha256` and byte count but never the state, and never throws into the
+  caller.
 
 ### Dispatch enforces the objective preflight
 

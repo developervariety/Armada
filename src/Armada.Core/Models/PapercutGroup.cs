@@ -76,11 +76,24 @@ namespace Armada.Core.Models
             set => _SampleMissionIds = value ?? new List<string>();
         }
 
+        /// <summary>
+        /// Keys of other groups the typed-decision merge (D6 <c>papercut_merge</c>) folded into this
+        /// one at listing time. Empty when the group was not model-merged. This is a listing-time
+        /// annotation only: the stored papercut events are never changed and no group is deleted, so
+        /// the merge is transparent and reversible by turning the decision off.
+        /// </summary>
+        public List<string> MergedGroupKeys
+        {
+            get => _MergedGroupKeys;
+            set => _MergedGroupKeys = value ?? new List<string>();
+        }
+
         #endregion
 
         #region Private-Members
 
         private List<string> _SampleMissionIds = new List<string>();
+        private List<string> _MergedGroupKeys = new List<string>();
 
         #endregion
 

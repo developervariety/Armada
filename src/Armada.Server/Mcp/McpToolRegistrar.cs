@@ -97,7 +97,8 @@ namespace Armada.Server.Mcp
             Armada.Core.Services.HarborJobService? harborJobs = null,
             Armada.Core.Services.Interfaces.ITypedDecisionClient? typedDecisionClient = null,
             Armada.Core.Services.TypedDecisionRecorder? typedDecisionRecorder = null,
-            Func<string?>? typedDecisionParticipantKeyProvider = null)
+            Func<string?>? typedDecisionParticipantKeyProvider = null,
+            Armada.Core.Services.PapercutMergeAdapter? papercutMergeAdapter = null)
         {
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
             longRunningJobs = longRunningJobs ?? new LongRunningJobService();
@@ -117,7 +118,7 @@ namespace Armada.Server.Mcp
             McpEventTools.Register(register, database);
             McpTokenUsageTools.Register(register, database);
             McpProductionTools.Register(register, database);
-            McpPapercutTools.Register(register, database);
+            McpPapercutTools.Register(register, database, papercutMergeAdapter);
             if (logging != null) McpInboxTools.Register(register, database, logging);
             McpDockTools.Register(register, database, dockService);
             if (logging != null) McpPlaybookTools.Register(register, database, logging);
