@@ -116,6 +116,23 @@ Use the vessel's configured pipeline unless the approved work calls for a
 different existing pipeline. Use the full configured persona path. Do not
 remove review stages only to make a voyage faster.
 
+A stage is skipped only when an operator confirms it. When the preview lists a
+`stage_optional` Warning (the D19 `stage_necessity` decision) and you agree the
+stage adds nothing, pass its persona name in `skipStages` on `armada_dispatch`
+(REST `SkipStages`, WebSocket `create_voyage` `skipStages`), with a
+`skipStagesReason`. The named stages are dropped when the voyage is
+materialised. The remaining stages chain across the gap, so the Judge depends
+on the last kept stage. Armada records one `voyage.stage_skipped` event per
+stage with the persona, reason and confirmer. The Judge can never be skipped
+(`stage_skip_judge_refused`). A name that is not a stage of the effective
+pipeline refuses the dispatch (`stage_skip_unknown_persona`), and a skip that
+leaves only the Judge is refused (`stage_skip_leaves_no_work`). Nothing is
+skipped automatically: auto-skip stays off and no dispatch path infers a skip
+from the classifier. For autonomous dispatch, record the confirmed skip on the
+objective as `preparation.stageSkip` with `stages`, `reason` and `confirmedBy`.
+The scheduler honours it only when `confirmedBy` is set; a list without a
+confirmer skips the objective with `stage_skip_unconfirmed`.
+
 Dispatch with `preferredModel: "low"`, `"mid"`, or `"high"`. Do not put a
 concrete provider model in an ordinary mission brief.
 

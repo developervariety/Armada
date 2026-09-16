@@ -339,6 +339,20 @@ namespace Armada.Core.Services
             List<SelectedPlaybook>? selectedPlaybooks,
             CancellationToken token = default)
         {
+            return await DispatchVoyageAsync(title, description, vesselId, missionDescriptions, pipelineId, selectedPlaybooks, null, token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<Voyage> DispatchVoyageAsync(
+            string title,
+            string description,
+            string vesselId,
+            List<MissionDescription> missionDescriptions,
+            string? pipelineId,
+            List<SelectedPlaybook>? selectedPlaybooks,
+            StageSkipRequest? stageSkip,
+            CancellationToken token = default)
+        {
             if (String.IsNullOrEmpty(title)) throw new ArgumentNullException(nameof(title));
             if (String.IsNullOrEmpty(vesselId)) throw new ArgumentNullException(nameof(vesselId));
             if (missionDescriptions == null || missionDescriptions.Count == 0)
@@ -357,12 +371,19 @@ namespace Armada.Core.Services
             // A read-only dispatch (all missions Audit or Research) never inherits a multi-stage
             // vessel/fleet default pipeline: a four-mission diagnostic probe once became sixteen
             // missions because the vessel default (ReferencePortingTested) expanded every stage.
-            Pipeline? pipeline = await ResolvePipelineAsync(pipelineId, vessel, missionDescriptions, token).ConfigureAwait(false);
+            Pipeline? resolvedPipeline = await ResolvePipelineAsync(pipelineId, vessel, missionDescriptions, token).ConfigureAwait(false);
+
+            // Operator-confirmed stage skips are dropped from the pipeline before anything is created,
+            // so a refused skip leaves no voyage behind and the remaining stages chain across the gap.
+            PipelineStageSkipResult skipResult = PipelineStageSkip.Apply(resolvedPipeline, stageSkip);
+            Pipeline? pipeline = skipResult.Pipeline;
 
             // If pipeline is single-stage Worker (or null), use the standard dispatch path
             if (pipeline == null || (pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker" && !pipeline.Stages[0].RequiresReview))
             {
-                return await DispatchVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, token).ConfigureAwait(false);
+                Voyage workerVoyage = await DispatchVoyageAsync(title, description, vesselId, missionDescriptions, selectedPlaybooks, token).ConfigureAwait(false);
+                await PipelineStageSkip.EmitSkippedEventsAsync(_Database, _Logging, workerVoyage, skipResult, stageSkip, token).ConfigureAwait(false);
+                return workerVoyage;
             }
 
             // Validate request-shaped inputs before creating any durable voyage state.
@@ -475,6 +496,7 @@ namespace Armada.Core.Services
             await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
             await capacityAdmission.VerifyOwnershipAsync(token).ConfigureAwait(false);
             QueueVoyageAssignments(voyage.Id, vessel.Id, assignmentMissionIds);
+            await PipelineStageSkip.EmitSkippedEventsAsync(_Database, _Logging, voyage, skipResult, stageSkip, token).ConfigureAwait(false);
 
             return voyage;
             }
@@ -494,6 +516,20 @@ namespace Armada.Core.Services
             List<MissionDescription> missionDescriptions,
             string? pipelineId,
             List<SelectedPlaybook>? selectedPlaybooks,
+            CancellationToken token = default)
+        {
+            return await DispatchVoyageQueuedAsync(title, description, vesselId, missionDescriptions, pipelineId, selectedPlaybooks, null, token).ConfigureAwait(false);
+        }
+
+        /// <inheritdoc />
+        public async Task<Voyage> DispatchVoyageQueuedAsync(
+            string title,
+            string description,
+            string vesselId,
+            List<MissionDescription> missionDescriptions,
+            string? pipelineId,
+            List<SelectedPlaybook>? selectedPlaybooks,
+            StageSkipRequest? stageSkip,
             CancellationToken token = default)
         {
             if (String.IsNullOrEmpty(title)) throw new ArgumentNullException(nameof(title));
@@ -517,7 +553,9 @@ namespace Armada.Core.Services
             await using FleetCapacityReservation capacityAdmission = await _FleetCapacityAdmission
                 .AcquireAsync(vessel, null, token).ConfigureAwait(false);
 
-            Pipeline? pipeline = await ResolvePipelineAsync(pipelineId, vessel, missionDescriptions, token).ConfigureAwait(false);
+            Pipeline? resolvedPipeline = await ResolvePipelineAsync(pipelineId, vessel, missionDescriptions, token).ConfigureAwait(false);
+            PipelineStageSkipResult skipResult = PipelineStageSkip.Apply(resolvedPipeline, stageSkip);
+            Pipeline? pipeline = skipResult.Pipeline;
             bool isMultiStage = pipeline != null
                 && !(pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker" && !pipeline.Stages[0].RequiresReview);
 
@@ -636,6 +674,7 @@ namespace Armada.Core.Services
             await _Database.Voyages.UpdateAsync(voyage, token).ConfigureAwait(false);
             await capacityAdmission.VerifyOwnershipAsync(token).ConfigureAwait(false);
             QueueVoyageAssignments(voyage.Id, vessel.Id, assignmentMissionIds);
+            await PipelineStageSkip.EmitSkippedEventsAsync(_Database, _Logging, voyage, skipResult, stageSkip, token).ConfigureAwait(false);
 
             return voyage;
             }

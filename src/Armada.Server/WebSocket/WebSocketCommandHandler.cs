@@ -356,7 +356,29 @@ namespace Armada.Server.WebSocket
                     {
                         try
                         {
-                            createdVoyage = await _Admiral.DispatchVoyageAsync(voyTitle, voyDesc, voyVesselId, missionDescs).ConfigureAwait(false);
+                            StageSkipRequest? voyStageSkip = PipelineStageSkip.FromOperator(voyageData.SkipStages, voyageData.SkipStagesReason, caller);
+                            if (voyStageSkip == null)
+                            {
+                                createdVoyage = await _Admiral.DispatchVoyageAsync(voyTitle, voyDesc, voyVesselId, missionDescs).ConfigureAwait(false);
+                            }
+                            else
+                            {
+                                // A stage skip only has meaning against a pipeline, so a create_voyage that
+                                // names skipStages materialises the vessel's effective pipeline minus those
+                                // stages through the same admiral rule the REST and MCP dispatch use.
+                                createdVoyage = await _Admiral.DispatchVoyageAsync(voyTitle, voyDesc, voyVesselId, missionDescs, null, null, voyStageSkip).ConfigureAwait(false);
+                            }
+                        }
+                        catch (StageSkipRefusedException refused)
+                        {
+                            return new
+                            {
+                                type = "command.error",
+                                action = "create_voyage",
+                                error = refused.Message,
+                                code = refused.Code,
+                                persona = refused.Persona
+                            };
                         }
                         catch (FleetCapacityAdmissionException capacity)
                         {

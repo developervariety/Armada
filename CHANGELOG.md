@@ -20,6 +20,20 @@ All notable changes to Armada are documented in this file.
   0.90 and fail closed. The operator tools `armada_list_memory_proposals` and
   `armada_dismiss_memory_proposal` read and close proposals; they are outside
   mission scope and require a global administrator.
+- Operators can skip named pipeline stages at dispatch. `armada_dispatch`
+  (`skipStages`, `skipStagesReason`), REST `POST /api/v1/voyages`
+  (`SkipStages`), WebSocket `create_voyage` and alias dispatch drop the named
+  stages when the voyage is materialised, and the remaining stages chain across
+  the gap so the Judge depends on the last kept stage. The autonomous scheduler
+  applies a skip only from an operator-confirmed `preparation.stageSkip` with a
+  `confirmedBy`; an unconfirmed list skips the objective as
+  `stage_skip_unconfirmed`. All paths share one rule, which refuses the Judge
+  (`stage_skip_judge_refused`), a name outside the effective pipeline
+  (`stage_skip_unknown_persona`), and a skip that leaves only the Judge
+  (`stage_skip_leaves_no_work`). Each dropped stage records a
+  `voyage.stage_skipped` event naming the persona, reason and confirmer.
+  Auto-skip stays off: the D19 `stage_optional` preview Warning is advice, and
+  a refinement summary never writes a stage skip.
 
 - Smart Routing (usage-aware routing) enabled with no configured route for a
   persona now passes the legacy candidate list through unchanged instead of

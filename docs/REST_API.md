@@ -1440,6 +1440,8 @@ Create a new voyage with optional missions. Missions are automatically dispatche
 | `SelectedPlaybooks` | array | no | Ordered [SelectedPlaybook](#selectedplaybook) rows for all missions. Merge hierarchy: vessel defaults < voyage `SelectedPlaybooks` < per-mission `SelectedPlaybooks`. A duplicate `PlaybookId` is rendered once; most-specific `DeliveryMode` wins. |
 | `PipelineId` | string | no | Pipeline ID to use for this voyage (overrides vessel/fleet default) |
 | `Pipeline` | string | no | Pipeline name to use for this voyage (alternative to `PipelineId`) |
+| `SkipStages` | array | no | Persona names of pipeline stages the operator confirms this voyage does not need (for example `["TestEngineer"]`). The stages are dropped when the voyage is materialised, the remaining stages chain across the gap, and one `voyage.stage_skipped` event is recorded per stage. Naming the Judge returns `400` with `stage_skip_judge_refused`; a name that is not a stage of the effective pipeline returns `400` with `stage_skip_unknown_persona`. |
+| `SkipStagesReason` | string | no | Reason recorded on each `voyage.stage_skipped` event. |
 
 **Response:** `201 Created` - [Voyage](#voyage)
 

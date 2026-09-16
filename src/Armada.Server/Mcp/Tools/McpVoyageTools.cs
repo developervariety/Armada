@@ -164,7 +164,14 @@ namespace Armada.Server.Mcp.Tools
                                 },
                                 required = new[] { "persona" }
                             }
-                        }
+                        },
+                        skipStages = new
+                        {
+                            type = "array",
+                            description = "Optional persona names of pipeline stages you confirm this voyage does not need, for example [\"TestEngineer\"]. The stages are dropped when the voyage is materialised and the remaining stages chain across the gap; one voyage.stage_skipped event is recorded per stage. The Judge can never be skipped (stage_skip_judge_refused), and a name that is not a stage of the effective pipeline refuses the dispatch (stage_skip_unknown_persona). Nothing is skipped unless you name it here.",
+                            items = new { type = "string" }
+                        },
+                        skipStagesReason = new { type = "string", description = "Optional reason for skipStages, recorded on each voyage.stage_skipped event." }
                     },
                     required = new[] { "title", "vesselId", "missions" }
                 },
@@ -187,7 +194,9 @@ namespace Armada.Server.Mcp.Tools
                         ObjectiveAuthContext = McpCallerContext.Require(),
                         SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>(),
                         Settings = settings,
-                        CaptainAssignments = request.CaptainAssignments
+                        CaptainAssignments = request.CaptainAssignments,
+                        SkipStages = request.SkipStages,
+                        SkipStagesReason = request.SkipStagesReason
                     };
                     VoyageDispatchService dispatchService = new VoyageDispatchService(
                         database,

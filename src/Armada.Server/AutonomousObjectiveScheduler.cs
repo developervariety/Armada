@@ -1351,6 +1351,20 @@ namespace Armada.Server
 
             List<MissionDescription> missionDescriptions = new List<MissionDescription> { md };
 
+            // Stage skips on the autonomous path come only from an operator-confirmed list stored on the
+            // objective's preparation. The scheduler never infers a skip; an unconfirmed list is a named
+            // skip of the objective, not a silent full-pipeline dispatch.
+            StageSkipRequest? stageSkip = objective.Preparation?.StageSkip;
+            if (StageSkipRequest.HasStages(stageSkip) && String.IsNullOrWhiteSpace(stageSkip!.ConfirmedBy))
+            {
+                await EmitObjectiveEventAsync("objective_scheduler.skipped_stage_skip_unconfirmed",
+                    "Autonomous scheduler skipped objective " + objective.Id + ": preparation.stageSkip names "
+                        + String.Join(", ", stageSkip.Stages) + " but records no confirmedBy. Confirm the skip or clear it.",
+                    objective, vesselId, token).ConfigureAwait(false);
+                throw new ObjectiveSkippedException("stage_skip_unconfirmed");
+            }
+            if (!StageSkipRequest.HasStages(stageSkip)) stageSkip = null;
+
             AuthContext objectiveAuth = BuildAuth(objective);
             ObjectiveDispatchAdmission admission;
             try
@@ -1393,14 +1407,25 @@ namespace Armada.Server
                     throw new ObjectiveSkippedException("stale_snapshot");
                 }
 
-                voyage = await _Admiral.DispatchVoyageAsync(
-                    objective.Title,
-                    missionDescription,
-                    vesselId,
-                    missionDescriptions,
-                    objective.SuggestedPipelineId,
-                    objective.SuggestedPlaybooks.Count > 0 ? objective.SuggestedPlaybooks : null,
-                    token).ConfigureAwait(false);
+                try
+                {
+                    voyage = await _Admiral.DispatchVoyageAsync(
+                        objective.Title,
+                        missionDescription,
+                        vesselId,
+                        missionDescriptions,
+                        objective.SuggestedPipelineId,
+                        objective.SuggestedPlaybooks.Count > 0 ? objective.SuggestedPlaybooks : null,
+                        stageSkip,
+                        token).ConfigureAwait(false);
+                }
+                catch (StageSkipRefusedException refused)
+                {
+                    await EmitObjectiveEventAsync("objective_scheduler.skipped_stage_skip_refused",
+                        "Autonomous scheduler skipped objective " + objective.Id + ": " + refused.Code + ": " + refused.Message,
+                        admittedObjective, vesselId, token).ConfigureAwait(false);
+                    throw new ObjectiveSkippedException(refused.Code);
+                }
 
                 try
                 {

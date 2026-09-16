@@ -139,6 +139,37 @@ namespace Armada.Core.Services.Interfaces
             CancellationToken token = default);
 
         /// <summary>
+        /// Dispatch a new voyage with pipeline support, playbooks and operator-confirmed stage skips.
+        /// The named stages are dropped from the resolved pipeline before any record is created and
+        /// the remaining stages chain across the gap; one <c>voyage.stage_skipped</c> event is
+        /// recorded per dropped stage. The Judge can never be skipped.
+        /// </summary>
+        /// <param name="title">Voyage title.</param>
+        /// <param name="description">Voyage description.</param>
+        /// <param name="vesselId">Target vessel identifier.</param>
+        /// <param name="missionDescriptions">List of mission title/description pairs.</param>
+        /// <param name="pipelineId">Optional pipeline ID. Resolved: explicit > vessel default > fleet default > WorkerOnly.</param>
+        /// <param name="selectedPlaybooks">Ordered playbooks to apply to every mission in the voyage.</param>
+        /// <param name="stageSkip">Operator-confirmed stage skips, or null.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The created voyage.</returns>
+        /// <exception cref="StageSkipRefusedException">When the skip names the Judge or a persona not in the pipeline.</exception>
+        Task<Voyage> DispatchVoyageAsync(
+            string title,
+            string description,
+            string vesselId,
+            List<MissionDescription> missionDescriptions,
+            string? pipelineId,
+            List<SelectedPlaybook>? selectedPlaybooks,
+            StageSkipRequest? stageSkip,
+            CancellationToken token = default)
+        {
+            if (StageSkipRequest.HasStages(stageSkip))
+                throw new NotSupportedException("This admiral does not support stage skips.");
+            return DispatchVoyageAsync(title, description, vesselId, missionDescriptions, pipelineId, selectedPlaybooks, token);
+        }
+
+        /// <summary>
         /// Dispatch a voyage and return after the voyage and mission records have been
         /// durably persisted. Assignment/provisioning is queued in the background so
         /// request/stdio callers do not block on first-time worktree setup.
@@ -161,6 +192,33 @@ namespace Armada.Core.Services.Interfaces
             CancellationToken token = default)
         {
             return DispatchVoyageAsync(title, description, vesselId, missionDescriptions, pipelineId, selectedPlaybooks, token);
+        }
+
+        /// <summary>
+        /// Queued dispatch with operator-confirmed stage skips. Same skip rule as the synchronous
+        /// overload that takes a <see cref="StageSkipRequest"/>.
+        /// </summary>
+        /// <param name="title">Voyage title.</param>
+        /// <param name="description">Voyage description.</param>
+        /// <param name="vesselId">Target vessel identifier.</param>
+        /// <param name="missionDescriptions">List of mission title/description pairs.</param>
+        /// <param name="pipelineId">Optional pipeline ID. Resolved using the standard dispatch precedence.</param>
+        /// <param name="selectedPlaybooks">Ordered playbooks to apply to every mission in the voyage.</param>
+        /// <param name="stageSkip">Operator-confirmed stage skips, or null.</param>
+        /// <param name="token">Cancellation token for durable creation only.</param>
+        /// <returns>The created voyage, usually still Open until queued assignment starts.</returns>
+        /// <exception cref="StageSkipRefusedException">When the skip names the Judge or a persona not in the pipeline.</exception>
+        Task<Voyage> DispatchVoyageQueuedAsync(
+            string title,
+            string description,
+            string vesselId,
+            List<MissionDescription> missionDescriptions,
+            string? pipelineId,
+            List<SelectedPlaybook>? selectedPlaybooks,
+            StageSkipRequest? stageSkip,
+            CancellationToken token = default)
+        {
+            return DispatchVoyageAsync(title, description, vesselId, missionDescriptions, pipelineId, selectedPlaybooks, stageSkip, token);
         }
 
         /// <summary>
