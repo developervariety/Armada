@@ -82,6 +82,26 @@ namespace Armada.Core.Services
         /// gate — it never fails a PASS the rule accepted, never lands, and never dispatches.
         /// </summary>
         public TypedReviewSubstanceAdapter? ReviewSubstanceAdapter { get; set; }
+
+        /// <summary>
+        /// The D20 <c>handoff_outcome</c> typed-decision adapter, when wired. Null keeps the
+        /// deterministic stage handoff, which is the operationally-off state. Set by the server after
+        /// construction so existing construction sites and tests are unchanged. When wired and gating,
+        /// a blocked or off-premise outcome HALTS the voyage before the next stage (the pending
+        /// dependents are cancelled, one incident is opened carrying the block, the branch is
+        /// preserved), and a partial outcome MAILS the next stage the unmet criteria without halting.
+        /// The decision never approves work, never lands, and never bypasses the Judge.
+        /// </summary>
+        public TypedHandoffOutcomeAdapter? HandoffOutcomeAdapter { get; set; }
+
+        /// <summary>
+        /// Owner-addressed board-note poster, used by the D20 handoff-outcome decision to reach the
+        /// owner when a stage is blocked on an owner question. Null skips the note (the incident still
+        /// opens). Set by the server after construction so existing construction sites and tests are
+        /// unchanged.
+        /// </summary>
+        public IOwnerDecisionNotePoster? HandoffOwnerNotePoster { get; set; }
+
         private const string _CreditAuthQuarantineReason =
             "Provider credit, billing, payment, or authentication failure detected during mission execution.";
         private const string ArchitectHandoffMarker = "<!-- ARMADA:ARCHITECT-HANDOFF -->";
@@ -4926,6 +4946,18 @@ namespace Armada.Core.Services
                 return false;
             }
 
+            // D20 handoff outcome. Before the next stage's brief is frozen, ask whether this finished
+            // stage actually did its job. A blocked or off-premise outcome halts the voyage now (cancel
+            // the pending stages, open one incident, preserve the branch) instead of passing the block
+            // down to fail at the Judge; a partial outcome Mails the next stage the unmet criteria and
+            // lets it run. When the adapter is not wired the deterministic handoff below stands
+            // unchanged, which is the operationally-off state.
+            if (HandoffOutcomeAdapter != null
+                && await ApplyHandoffOutcomeDecisionAsync(completedMission, dependentMissions, token).ConfigureAwait(false))
+            {
+                return false;
+            }
+
             foreach (Mission nextMission in dependentMissions)
             {
                 await PrepareSingleDependentHandoffAsync(completedMission, nextMission, unreadMailboxSignals, appliedSignalIds, token).ConfigureAwait(false);
@@ -4936,6 +4968,234 @@ namespace Armada.Core.Services
                 await _Database.Signals.MarkReadAsync(signalId, token).ConfigureAwait(false);
 
             return true;
+        }
+
+        /// <summary>
+        /// Consult the D20 handoff-outcome decision for a finished stage and apply its verdict. A
+        /// blocked or off-premise outcome halts the voyage: the pending dependents are cancelled with
+        /// <c>handoff_blocked:&lt;outcome&gt;</c>, one incident is opened carrying the block and the
+        /// finished stage's output tail as the question text, an owner-addressed board note is posted
+        /// for a blocked owner question, and the finished stage's branch is left untouched (preserved).
+        /// A partial outcome does not halt: the unmet acceptance criteria are prepended to each
+        /// dependent's brief as an orchestrator note, and the caller continues the normal handoff. The
+        /// decision never approves work, never lands, and never bypasses the Judge — a halt opens an
+        /// incident rather than passing work through. Never throws into the handoff.
+        /// </summary>
+        /// <param name="completedMission">The finished stage.</param>
+        /// <param name="dependentMissions">The pending dependents about to receive the handoff.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when the voyage was halted and the caller must skip the normal handoff; false otherwise.</returns>
+        private async Task<bool> ApplyHandoffOutcomeDecisionAsync(Mission completedMission, List<Mission> dependentMissions, CancellationToken token)
+        {
+            if (HandoffOutcomeAdapter == null) return false;
+
+            // Cheap pre-check: when the decision is Off the adapter returns the rule without a call, so
+            // skip building the state (which enumerates objectives to read acceptance criteria) entirely.
+            if (_Settings.TypedDecisions.For("handoff_outcome").Mode == TypedDecisionModeEnum.Off) return false;
+
+            HandoffOutcomeVerdict verdict;
+            try
+            {
+                bool markerPresent = !String.IsNullOrEmpty(completedMission.AgentOutput)
+                    && (completedMission.AgentOutput.Contains("[ARMADA:RESULT]", StringComparison.Ordinal)
+                        || completedMission.AgentOutput.Contains("[ARMADA:VERDICT]", StringComparison.Ordinal));
+
+                HandoffOutcomeDecisionInput input = new HandoffOutcomeDecisionInput
+                {
+                    Mission = completedMission,
+                    OutputTail = LastOutputLines(completedMission.AgentOutput, 40),
+                    DiffStat = SummarizeDiffStat(completedMission.DiffSnapshot),
+                    AcceptanceCriteria = await ReadObjectiveAcceptanceCriteriaAsync(completedMission, token).ConfigureAwait(false),
+                    Persona = completedMission.Persona ?? String.Empty,
+                    MarkerPresent = markerPresent
+                };
+
+                verdict = await HandoffOutcomeAdapter.DecideAsync(input, HandoffOutcomeVerdict.Proceed(), token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // The adapter is contracted never to throw; guard anyway so a decision can never break
+                // the handoff. The deterministic handoff stands.
+                _Logging.Warn(_Header + "handoff-outcome decision failed for mission " + completedMission.Id + ", handoff proceeds: " + ex.Message);
+                return false;
+            }
+
+            if (verdict.Action == HandoffOutcomeAction.Halt)
+            {
+                await HaltVoyageForBlockedHandoffAsync(completedMission, verdict, token).ConfigureAwait(false);
+                return true;
+            }
+
+            if (verdict.Action == HandoffOutcomeAction.MailPartial)
+            {
+                await MailPartialUnmetCriteriaAsync(completedMission, dependentMissions, verdict, token).ConfigureAwait(false);
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Read the finished stage's objective acceptance criteria for the D20 handoff state, best
+        /// effort. An objective references its voyages (not the reverse), so the objective is found by
+        /// the voyage-id membership; a miss returns an empty list. The criteria only feed the partial
+        /// Mail's unmet-criterion list, so an empty list simply yields a generic partial note.
+        /// </summary>
+        private async Task<IReadOnlyList<string>> ReadObjectiveAcceptanceCriteriaAsync(Mission completedMission, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(completedMission.VoyageId)) return new List<string>();
+
+            List<Objective> objectives = await _Database.Objectives.EnumerateAsync(token).ConfigureAwait(false);
+            Objective? objective = objectives.FirstOrDefault(item =>
+                item?.VoyageIds != null && item.VoyageIds.Contains(completedMission.VoyageId!, StringComparer.Ordinal));
+            if (objective?.AcceptanceCriteria == null) return new List<string>();
+            return objective.AcceptanceCriteria.Where(item => !String.IsNullOrWhiteSpace(item)).ToList();
+        }
+
+        /// <summary>
+        /// Halt a voyage whose finished stage the D20 decision found blocked or off premise: cancel the
+        /// pending dependents (which cascade-cancels their own dependents), open one incident carrying
+        /// the block and the finished stage's output as the question text, and post an owner-addressed
+        /// board note for a blocked owner question. The finished stage's branch is left untouched, so the
+        /// work is preserved for the operator. Never throws into the handoff.
+        /// </summary>
+        private async Task HaltVoyageForBlockedHandoffAsync(Mission completedMission, HandoffOutcomeVerdict verdict, CancellationToken token)
+        {
+            string reason = verdict.HaltReason ?? "handoff_blocked:unclear";
+            try
+            {
+                // Cancel the pending dependents so no downstream captain runs on a blocked handoff. The
+                // completed mission's branch is preserved (not modified here) for the operator.
+                await CancelDependentPipelineStagesAsync(completedMission, token).ConfigureAwait(false);
+                foreach (Mission dependent in await _Database.Missions.EnumerateByVoyageAsync(completedMission.VoyageId ?? String.Empty, token).ConfigureAwait(false))
+                {
+                    if (dependent.DependsOnMissionId == completedMission.Id
+                        && dependent.Status == MissionStatusEnum.Cancelled
+                        && (dependent.FailureReason == null || dependent.FailureReason.StartsWith("Blocked by failed dependency", StringComparison.Ordinal)))
+                    {
+                        dependent.FailureReason = reason;
+                        dependent.LastUpdateUtc = DateTime.UtcNow;
+                        await _Database.Missions.UpdateAsync(dependent, token).ConfigureAwait(false);
+                    }
+                }
+
+                await OpenHandoffBlockedIncidentAsync(completedMission, verdict, reason, token).ConfigureAwait(false);
+
+                if (verdict.OwnerNote && HandoffOwnerNotePoster != null)
+                {
+                    string content = "A stage on vessel work is blocked on an owner question and the voyage is held. "
+                        + "Finished stage persona: " + (completedMission.Persona ?? "Worker") + ". "
+                        + "The handoff-outcome decision reports the stage cannot proceed without an owner ruling; "
+                        + "read the incident, answer the question, then re-dispatch.";
+                    await HandoffOwnerNotePoster.PostOwnerDecisionAsync(content, completedMission.VesselId, token).ConfigureAwait(false);
+                }
+
+                await UpdateVoyageTerminalStatusAsync(completedMission.VoyageId, token).ConfigureAwait(false);
+                _Logging.Warn(_Header + "handoff halted voyage " + completedMission.VoyageId + " at " + reason
+                    + "; pending stages cancelled, branch preserved, incident opened");
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "handoff halt for mission " + completedMission.Id + " partly failed (" + reason + "): " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Open one incident for a D20 handoff halt, carrying the block and the finished stage's output
+        /// tail as the question text. Idempotent per mission: an open incident for the same mission is
+        /// not duplicated.
+        /// </summary>
+        private async Task OpenHandoffBlockedIncidentAsync(Mission completedMission, HandoffOutcomeVerdict verdict, string reason, CancellationToken token)
+        {
+            IncidentService incidents = new IncidentService(_Database);
+            AuthContext auth = AuthContext.Authenticated(
+                completedMission.TenantId ?? Constants.DefaultTenantId,
+                completedMission.UserId ?? Constants.DefaultUserId,
+                false,
+                true,
+                "MissionHandoff",
+                principalDisplay: "Armada Mission Handoff");
+
+            EnumerationResult<Incident> existing = await incidents.EnumerateAsync(auth, new IncidentQuery
+            {
+                MissionId = completedMission.Id,
+                PageNumber = 1,
+                PageSize = 25
+            }, token).ConfigureAwait(false);
+            if (existing.Objects.Any(item => item.Status != IncidentStatusEnum.Closed
+                && item.Status != IncidentStatusEnum.RolledBack
+                && item.RootCause != null && item.RootCause.StartsWith("handoff_blocked:", StringComparison.Ordinal)))
+            {
+                return;
+            }
+
+            string title = completedMission.Title ?? completedMission.Id;
+            if (title.Length > 96) title = title.Substring(0, 96);
+            string questionText = LastOutputLines(completedMission.AgentOutput, 20);
+
+            await incidents.CreateAsync(auth, new IncidentUpsertRequest
+            {
+                Title = "Handoff blocked: " + title,
+                Summary = "The " + (completedMission.Persona ?? "Worker") + " stage of mission " + completedMission.Id
+                    + " was held at handoff (" + reason + "); the pending stages were cancelled before the next stage ran.",
+                Status = IncidentStatusEnum.Open,
+                Severity = IncidentSeverityEnum.High,
+                VesselId = completedMission.VesselId,
+                MissionId = completedMission.Id,
+                VoyageId = completedMission.VoyageId,
+                Impact = "The voyage is held after one stage instead of failing later at the Judge; the finished stage's branch is preserved.",
+                RootCause = reason,
+                RecoveryNotes = "Read the finished stage's question text below, supply the missing context or owner ruling, then re-dispatch from the preserved branch.\n\nStage output tail:\n" + questionText,
+                DetectedUtc = DateTime.UtcNow
+            }, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Prepend an orchestrator note listing the unmet acceptance criteria to each pending dependent's
+        /// brief, for a D20 partial outcome. The handoff then proceeds normally, so the next stage runs
+        /// with the unmet criteria in front of it. Never throws into the handoff.
+        /// </summary>
+        private async Task MailPartialUnmetCriteriaAsync(Mission completedMission, List<Mission> dependentMissions, HandoffOutcomeVerdict verdict, CancellationToken token)
+        {
+            try
+            {
+                IReadOnlyList<string> criteria = await ReadObjectiveAcceptanceCriteriaAsync(completedMission, token).ConfigureAwait(false);
+                System.Text.StringBuilder sb = new System.Text.StringBuilder();
+                sb.AppendLine("[ORCHESTRATOR NOTES]");
+                sb.AppendLine("The prior stage's work is PARTIAL: the handoff-outcome check found acceptance criteria not yet met. "
+                    + "Complete these before you finish, and treat any you cannot as a finding:");
+                if (verdict.UnmetCriterionIndices.Count > 0 && criteria.Count > 0)
+                {
+                    foreach (int index in verdict.UnmetCriterionIndices)
+                    {
+                        if (index >= 1 && index <= criteria.Count)
+                            sb.AppendLine("- " + criteria[index - 1]);
+                        else
+                            sb.AppendLine("- Acceptance criterion " + index + " (see the objective).");
+                    }
+                }
+                else
+                {
+                    sb.AppendLine("- One or more acceptance criteria (see the objective) are not yet satisfied.");
+                }
+                sb.Append("[/ORCHESTRATOR NOTES]");
+                string note = sb.ToString();
+
+                foreach (Mission dependent in dependentMissions)
+                {
+                    if (dependent.Description != null && dependent.Description.Contains("[ORCHESTRATOR NOTES]", StringComparison.Ordinal)
+                        && dependent.Description.Contains("handoff-outcome check", StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+                    dependent.Description = note + "\n\n" + (dependent.Description ?? String.Empty);
+                    dependent.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(dependent, token).ConfigureAwait(false);
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "handoff partial-Mail for mission " + completedMission.Id + " failed, handoff proceeds without the note: " + ex.Message);
+            }
         }
 
         /// <summary>

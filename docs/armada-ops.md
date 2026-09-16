@@ -2035,6 +2035,33 @@ One decision point reads the objective dispatch preview:
   and a `typed_decision.gated` event surface it. A rejection on a real ground
   (empty output or a too-short narrative) is never overturned, and a validated
   PASS is never auto-failed. The model never lands and never dispatches.
+
+Two decision points recover captain time at the pipeline level (both ship `Off`,
+built and dormant until a Gate flip):
+
+- `stage_necessity` (D19) sits on the dispatch preview's resolved pipeline
+  stages and lets the model propose which NON-Judge stages an objective does not
+  need — a TestEngineer on a docs-only Chore, a Usability Engineer on a protocol
+  port. The Judge is never a skip candidate and is never marked. Below the
+  threshold a stage is retained; at or above it the stage is listed as a
+  `stage_optional` Warning the operator confirms through `skipStages` before the
+  voyage is materialised; only at or above `0.95` is a stage marked auto-skip. The
+  model never removes a stage by itself below `0.95` and never proposes the Judge.
+  With the decision `Off` the preview lists every stage.
+- `handoff_outcome` (D20) sits on the stage handoff, before the next mission's
+  brief is frozen, and turns "failed at the Judge after four stages" into "held
+  after one". A `blocked_missing_context`, `blocked_owner_question`, or
+  `off_premise` outcome at or above threshold **halts** the voyage before the next
+  stage: the pending dependents are cancelled with reason
+  `handoff_blocked:<outcome>`, one incident is opened carrying the finished
+  stage's output as the question text, an owner-addressed board note is posted for
+  a blocked owner question, and the finished stage's branch is preserved. A
+  `partial` outcome does **not** halt; it Mails the next stage the unmet
+  acceptance criteria and the voyage continues. The decision never approves work,
+  never lands, and never bypasses the Judge — a halt opens an incident rather than
+  passing work through, and work that reaches the Judge is still judged. With the
+  decision `Off` the deterministic handoff stands.
+
 Two decision points read the papercut grouping:
 
 - **D6 `papercut_merge`** (ships `Gate`) runs at listing time

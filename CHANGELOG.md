@@ -6,6 +6,38 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Typed decisions: pipeline stage necessity (D19) and handoff outcome (D20)
+
+- Added the D19 `stage_necessity` gated adapter over the shared typed-decision
+  skeleton. It sits on the dispatch preview's resolved pipeline stages and lets
+  the model propose which NON-Judge stages an objective does not need. The Judge
+  is never a skip candidate and is never marked. Below the decision threshold a
+  stage is retained; at or above it the stage is listed as a `stage_optional`
+  Warning the operator confirms through `skipStages` before the voyage is
+  materialised; only at or above `0.95` is a stage marked auto-skip. The model
+  never removes a stage by itself below `0.95` and never proposes the Judge. Ships
+  Off (built, dormant); the preview lists every stage until a Gate flip.
+- Added the D20 `handoff_outcome` gated adapter over the same skeleton. It sits
+  on the stage handoff in `MissionService`, before the next mission's brief is
+  frozen, and turns "failed at the Judge after four stages" into "held after one".
+  A `blocked_missing_context`, `blocked_owner_question`, or `off_premise` outcome
+  at or above threshold HALTS the voyage before the next stage: the pending
+  dependents are cancelled with reason `handoff_blocked:<outcome>`, one incident
+  is opened carrying the finished stage's output as the question text, an
+  owner-addressed board note is posted for a blocked owner question, and the
+  finished stage's branch is preserved. A `partial` outcome does NOT halt; it
+  Mails the next stage the unmet acceptance criteria and the voyage continues. The
+  decision never approves work, never lands, and never bypasses the Judge — a halt
+  opens an incident rather than passing work through, and work that reaches the
+  Judge is still judged. Ships Off (built, dormant); the deterministic handoff
+  stands until a Gate flip.
+- Both follow the shared adapter contract: the deterministic path (the full
+  pipeline for D19, the normal handoff for D20) is the fallback for an Off
+  decision, an unavailable model, and a below-threshold answer; the call is
+  bounded by the settings timeout on the caller's token, fails closed to the rule,
+  records a `state_sha256` and byte count but never the state, and never throws
+  into its caller. Both are wired only when the live typed-decision client exists.
+
 ### Typed decisions: dispatch preflight text half (D5)
 
 - The objective dispatch preview (`preview_objective_dispatch`, the autonomous

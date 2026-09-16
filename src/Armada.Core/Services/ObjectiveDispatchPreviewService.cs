@@ -52,6 +52,16 @@ namespace Armada.Core.Services
         /// </summary>
         public PreflightTextAdapter? PreflightAdapter { get; set; }
 
+        /// <summary>
+        /// The D19 <c>stage_necessity</c> adapter, run after the deterministic pipeline resolution to
+        /// list <c>stage_optional</c> warnings for non-Judge stages the model proposes the objective
+        /// does not need. Null leaves the preview listing every stage, which is the operationally-off
+        /// state; it is set after construction only when the live typed-decision client exists, so every
+        /// construction site and test is unchanged by default. The adapter only ever ADDS warnings; it
+        /// never removes a stage, and it never proposes the Judge.
+        /// </summary>
+        public TypedStageNecessityAdapter? StageNecessityAdapter { get; set; }
+
         #endregion
 
         #region Constructors-and-Factories
@@ -198,6 +208,13 @@ namespace Armada.Core.Services
             // deterministic issues already in the preview stand regardless of what the model returns.
             if (PreflightAdapter != null)
                 await PreflightAdapter.EvaluateAsync(objective, vessel, pipeline, result, token).ConfigureAwait(false);
+
+            // D19 stage necessity. Runs on the resolved pipeline stages and lists a stage_optional
+            // warning per non-Judge stage the model proposes the objective does not need. It only adds
+            // warnings the operator confirms; the deterministic pipeline (every stage) stands. The Judge
+            // is never proposed.
+            if (StageNecessityAdapter != null)
+                await RefineStageNecessityAsync(objective, vessel, pipeline, result, token).ConfigureAwait(false);
 
             FinalizeResult(result);
             return result;
@@ -942,6 +959,64 @@ namespace Armada.Core.Services
             if (pipeline.Stages == null || pipeline.Stages.Count == 0)
                 AddIssue(result, "pipeline_has_no_stages", "pipeline", ReadinessSeverityEnum.Error,
                     "The effective pipeline has no stages.", pipeline.Id);
+        }
+
+        /// <summary>
+        /// Consult the D19 stage-necessity adapter over the resolved pipeline stages and add one
+        /// <c>stage_optional</c> Warning issue per non-Judge stage the model proposes the objective does
+        /// not need. The deterministic pipeline is unchanged: the warning is advisory and the operator
+        /// confirms a skip through <c>skipStages</c> before the voyage is materialised. Never throws into
+        /// the preview.
+        /// </summary>
+        private async Task RefineStageNecessityAsync(
+            Objective objective,
+            Vessel vessel,
+            Pipeline? pipeline,
+            ObjectiveDispatchPreview result,
+            CancellationToken token)
+        {
+            if (StageNecessityAdapter == null || objective == null) return;
+
+            List<StageNecessityStageResult> stages = (pipeline?.Stages ?? new List<PipelineStage>())
+                .Where(stage => stage != null)
+                .OrderBy(stage => stage.Order)
+                .Select(stage => TypedStageNecessityAdapter.Stage(stage.Order, stage.PersonaName))
+                .ToList();
+            if (stages.Count == 0)
+                stages.Add(TypedStageNecessityAdapter.Stage(1, "Worker"));
+
+            Dictionary<string, string> descriptions = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (PipelineStage stage in (pipeline?.Stages ?? new List<PipelineStage>()).Where(item => item != null))
+            {
+                if (!String.IsNullOrWhiteSpace(stage.Description) && !descriptions.ContainsKey(stage.PersonaName))
+                    descriptions[stage.PersonaName] = stage.Description!;
+            }
+
+            StageNecessityDecisionInput input = new StageNecessityDecisionInput
+            {
+                Title = objective.Title ?? String.Empty,
+                Description = objective.Description ?? String.Empty,
+                AcceptanceCriteria = (objective.AcceptanceCriteria ?? new List<string>())
+                    .Where(item => !String.IsNullOrWhiteSpace(item)).ToList(),
+                Kind = objective.Kind.ToString(),
+                Stages = stages,
+                StageDescriptions = descriptions
+            };
+
+            // The adapter is contracted never to throw into the caller: Off returns the rule with no
+            // call, and every fault path returns the rule verdict. So a raised exception cannot break the
+            // deterministic preview, exactly as the D5 preflight adapter is called above.
+            StageNecessityVerdict rule = StageNecessityVerdict.Rule(stages);
+            StageNecessityVerdict verdict = await StageNecessityAdapter.DecideAsync(input, rule, token).ConfigureAwait(false);
+
+            foreach (StageNecessityStageResult stage in verdict.OptionalStages)
+            {
+                string suffix = stage.ModelAutoSkip ? " (auto-skip eligible)" : String.Empty;
+                AddIssue(result, "stage_optional", "pipeline", ReadinessSeverityEnum.Warning,
+                    "The " + stage.PersonaName + " stage may not be needed for this objective ("
+                    + stage.SkipReason + "); confirm a skip through skipStages if so." + suffix,
+                    stage.PersonaName);
+            }
         }
 
         private void EvaluateCaptainCoverage(

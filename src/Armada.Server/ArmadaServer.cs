@@ -651,6 +651,16 @@ namespace Armada.Server
                     _Logging);
                 _ObjectiveDispatchPreviewService.PreflightAdapter = new PreflightTextAdapter(
                     _Settings.TypedDecisions, _TypedDecisionClient, _TypedDecisionRecorder, ownerNotePoster, _Logging);
+
+                // D19 stage necessity (dispatch preview) and D20 handoff outcome (stage handoff). Both
+                // ship Off in the decisions map, so with the live client present but the decision Off the
+                // adapter still returns the deterministic rule; they are wired so a later Gate flip is a
+                // settings change, not a code change. The D20 owner note reuses the same poster as D5.
+                _ObjectiveDispatchPreviewService.StageNecessityAdapter = new TypedStageNecessityAdapter(
+                    _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
+                missionService.HandoffOutcomeAdapter = new TypedHandoffOutcomeAdapter(
+                    _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
+                missionService.HandoffOwnerNotePoster = ownerNotePoster;
             }
 
             _CaptainTools = new CaptainToolService(
