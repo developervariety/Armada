@@ -34,7 +34,14 @@ RUN dotnet restore src/Armada.Server/Armada.Server.csproj
 COPY src/Armada.Core/ src/Armada.Core/
 COPY src/Armada.Runtimes/ src/Armada.Runtimes/
 COPY src/Armada.Server/ src/Armada.Server/
-RUN dotnet publish src/Armada.Server -c Release -f net10.0 -o /app --no-restore
+
+# The source-revision embed target runs `git rev-parse` from the build context.
+# The Docker build has no .git and no git, so the caller passes the commit here
+# and it is embedded as SourceRevisionId, which the running admiral reports as
+# its build commit for drift detection. An empty value keeps the pre-embed
+# behaviour (an unknown running commit).
+ARG GIT_SHA=""
+RUN dotnet publish src/Armada.Server -c Release -f net10.0 -o /app --no-restore -p:_GitSha="$GIT_SHA"
 
 # --- Runtime stage ---
 # Captains run repository checks inside mission docks. Use the SDK image so

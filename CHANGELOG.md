@@ -6,6 +6,15 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### The admiral image embeds its build commit
+
+- The server image now embeds the commit it was built from, so a running
+  admiral reports its build commit and drift detection can tell whether the
+  running image is behind the landed code. The image build cannot run git, so
+  the rebuild helper passes the build context's commit to the Dockerfile,
+  which embeds it as the assembly source revision. A build with no commit
+  available keeps the earlier unknown-commit behaviour.
+
 This section is the fork delta on top of v0.9.0. It includes fork-only
 capabilities and isolated upstream hunks that were still missing after the
 first absorb. Fork-owned routing, the coordination board, autonomy, recovery,

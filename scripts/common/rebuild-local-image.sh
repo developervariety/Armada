@@ -134,4 +134,8 @@ echo "building_mutable_tag=${MUTABLE_TAG}"
 
 # Fixed arguments and quoted arrays prevent image names or paths from becoming
 # shell code. No push flag is accepted: this helper is for local rebuilds.
-"${DOCKER[@]}" build --file "$DOCKERFILE" --tag "$MUTABLE_TAG" "$CONTEXT"
+# Pass the context's commit so the image can embed its build commit; the
+# Dockerfile cannot run git itself. An empty value (no git, detached, or a
+# non-repository context) keeps the unknown-commit behaviour.
+BUILD_COMMIT="$(git -C "$CONTEXT" rev-parse HEAD 2>/dev/null || true)"
+"${DOCKER[@]}" build --build-arg "GIT_SHA=${BUILD_COMMIT}" --file "$DOCKERFILE" --tag "$MUTABLE_TAG" "$CONTEXT"
