@@ -159,11 +159,17 @@ the `deferred-facts.md` lookup use the folder's real name.
 ### Typed decisions
 
 The typed-decision system (TypeSafe Jev) is an advisory classifier the admiral
-can consult at a decision point. It is **off by default** and, in this state,
-changes nothing: every decision runs its deterministic rule exactly as before.
-The wired decision points now span recovery, review substance, the dispatch
-preflight, and papercut merging; every other decision is built but dormant until
-an operator flips it to `Gate`.
+can consult at a decision point. The global `mode` ships `Gate`, and the system
+is inert until the key is present: with no key the null client answers every
+call as unavailable, so every decision runs its deterministic rule exactly as
+before. Per decision group:
+
+- **D1–D6** (`failure_cause`, `refusal`, `runtime_failure`, `review_substance`,
+  `preflight`, `papercut_merge`) ship in `Gate`; they span recovery, review
+  substance, the dispatch preflight, and papercut merging.
+- **D7–D8** (`leak_hunk`, `log_watch`) ship `Off`.
+- **Phase 3, D9–D26**, ship `Off`: built but dormant until an operator flips a
+  decision to `Gate`.
 
 The safety contract holds whenever it is enabled:
 

@@ -45,7 +45,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 CriticalTriggerEvaluator sut = new CriticalTriggerEvaluator();
                 CriticalTriggerResult r = sut.Evaluate(
-                    BuildDiff(new string[] { "src/FleetPortal.Web/Components/AuthLayout.razor" }, new int[] { 5 }),
+                    BuildDiff(new string[] { "src/ExamplePortal.Web/Components/AuthLayout.razor" }, new int[] { 5 }),
                     new ConventionCheckResult { Passed = true });
                 AssertTrue(r.Fired);
                 AssertContains("path", string.Join(",", r.TriggeredCriteria));

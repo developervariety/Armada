@@ -163,7 +163,7 @@ namespace Armada.Test.Database
                 Occupied = 1,
                 Capacity = 3,
                 BlockReason = LaneBlockReasonEnum.DispatchHold,
-                EligibleSourceFamilies = "dxp,ecu",
+                EligibleSourceFamilies = "alpha,ecu",
                 Checkpoint = true,
                 ValidForSeconds = 900,
                 CreatedUtc = baseUtc
@@ -187,7 +187,7 @@ namespace Armada.Test.Database
                 DatabaseAssert.Equal(1, stored.Occupied, "Occupancy round-trips");
                 DatabaseAssert.Equal(3, stored.Capacity, "Capacity round-trips");
                 DatabaseAssert.Equal(LaneBlockReasonEnum.DispatchHold, stored.BlockReason, "Block reason round-trips");
-                DatabaseAssert.Equal("dxp,ecu", stored.EligibleSourceFamilies, "Eligible families round-trip");
+                DatabaseAssert.Equal("alpha,ecu", stored.EligibleSourceFamilies, "Eligible families round-trip");
                 DatabaseAssert.True(stored.Checkpoint, "Checkpoint flag round-trips");
                 DatabaseAssert.Equal(900, stored.ValidForSeconds, "Trust window round-trips");
 

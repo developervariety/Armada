@@ -231,7 +231,7 @@ namespace Armada.Core.Context
         // A must_retrieve leaf's domain matches the request when any of its domain tokens names the
         // request's vessel, persona, or a requested topic, or appears as a term in the query. A domain
         // token may be bare ("ExampleVessel") or prefixed ("vessel:ExampleVessel", "persona:Judge",
-        // "port:eculink"); the bare value after the prefix is what is matched.
+        // "port:examplevessel"); the bare value after the prefix is what is matched.
         private static bool DomainMatches(ContextChunk leaf, ContextRetrievalRequest request)
         {
             List<string> domains = leaf.MustRetrieve ?? new List<string>();

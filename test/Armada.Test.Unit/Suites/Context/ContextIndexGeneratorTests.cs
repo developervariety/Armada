@@ -36,7 +36,7 @@ namespace Armada.Test.Unit.Suites.Context
                     "read_when: When you need the example.\n" +
                     "applies_to: [orchestrator, persona:Judge]\n" +
                     "tier: leaf\n" +
-                    "must_retrieve: [port:eculink]\n" +
+                    "must_retrieve: [port:examplevessel]\n" +
                     "---\n" +
                     "Body line one.\n";
                 ContextChunkFrontMatter fm = ContextChunkFrontMatter.Parse(doc);
@@ -48,7 +48,7 @@ namespace Armada.Test.Unit.Suites.Context
                 AssertNotNull(fm.AppliesTo);
                 AssertEqual(2, fm.AppliesTo!.Count);
                 AssertEqual("orchestrator", fm.AppliesTo![0]);
-                AssertEqual("port:eculink", fm.MustRetrieve![0]);
+                AssertEqual("port:examplevessel", fm.MustRetrieve![0]);
                 AssertEqual("Body line one.\n", fm.Body);
                 return Task.CompletedTask;
             });
@@ -100,7 +100,7 @@ namespace Armada.Test.Unit.Suites.Context
             {
                 ContextTierConfig cfg = new ContextTierConfig();
                 AssertFalse(cfg.IsWholeFileCore("machine-notes/macos.md", out _), "host notes are never whole-file core");
-                AssertFalse(cfg.IsWholeFileCore("repos/eculink/README.md", out _), "eculink readme is a leaf");
+                AssertFalse(cfg.IsWholeFileCore("repos/examplevessel/README.md", out _), "examplevessel readme is a leaf");
                 AssertFalse(cfg.IsSectionCore("shared/unified-project-memory.md", "What belongs here", out _), "a non-listed section is leaf");
                 AssertFalse(cfg.IsSectionCore("repos/armada/README.md", "Deploying Armada on the server", out _), "deploy section is leaf");
                 return Task.CompletedTask;
@@ -282,11 +282,11 @@ namespace Armada.Test.Unit.Suites.Context
                     "{\n" +
                     "  \"version\": 1,\n" +
                     "  \"chunks\": {\n" +
-                    "    \"memory.repos.eculink.readme\": {\n" +
+                    "    \"memory.repos.examplevessel.readme\": {\n" +
                     "      \"summary\": \"SIDE-SUMMARY.\",\n" +
-                    "      \"read_when\": \"You are porting an EcuLink decoder.\",\n" +
-                    "      \"applies_to\": [\"vessel:EcuLink\"],\n" +
-                    "      \"must_retrieve\": [\"eculink\"]\n" +
+                    "      \"read_when\": \"You are porting an ExampleVessel decoder.\",\n" +
+                    "      \"applies_to\": [\"vessel:ExampleVessel\"],\n" +
+                    "      \"must_retrieve\": [\"examplevessel\"]\n" +
                     "    }\n" +
                     "  }\n" +
                     "}\n");
@@ -294,24 +294,24 @@ namespace Armada.Test.Unit.Suites.Context
                 {
                     ContextIndexGenerator gen = new ContextIndexGenerator();
                     ContextIndex index = gen.Build(root, null, sidecar);
-                    ContextChunk c = index.Chunks.Single(x => x.Id == "memory.repos.eculink.readme");
+                    ContextChunk c = index.Chunks.Single(x => x.Id == "memory.repos.examplevessel.readme");
 
                     // Sidecar wins on every field it names.
                     AssertEqual("SIDE-SUMMARY.", c.Summary);
-                    AssertEqual("You are porting an EcuLink decoder.", c.ReadWhen);
+                    AssertEqual("You are porting an ExampleVessel decoder.", c.ReadWhen);
                     AssertEqual(1, c.AppliesTo.Count);
-                    AssertEqual("vessel:EcuLink", c.AppliesTo[0]);
+                    AssertEqual("vessel:ExampleVessel", c.AppliesTo[0]);
                     AssertEqual(1, c.MustRetrieve.Count);
-                    AssertEqual("eculink", c.MustRetrieve[0]);
+                    AssertEqual("examplevessel", c.MustRetrieve[0]);
                     // The chunk stays a leaf; the sidecar carries no tier.
                     AssertEqual(ContextTierEnum.Leaf, c.Tier);
 
                     // The override reaches the manifest entry too.
-                    ContextManifestEntry e = index.Manifest.Chunks.Single(x => x.Id == "memory.repos.eculink.readme");
+                    ContextManifestEntry e = index.Manifest.Chunks.Single(x => x.Id == "memory.repos.examplevessel.readme");
                     AssertEqual("SIDE-SUMMARY.", e.Summary);
-                    AssertEqual("You are porting an EcuLink decoder.", e.ReadWhen);
+                    AssertEqual("You are porting an ExampleVessel decoder.", e.ReadWhen);
                     AssertEqual(1, e.MustRetrieve.Count);
-                    AssertEqual("eculink", e.MustRetrieve[0]);
+                    AssertEqual("examplevessel", e.MustRetrieve[0]);
                     return Task.CompletedTask;
                 }
                 finally { SafeDelete(root); SafeDeleteFile(sidecar); }
@@ -320,9 +320,9 @@ namespace Armada.Test.Unit.Suites.Context
             await RunTest("Sidecar_UnnamedChunk_KeepsAutoDerived", () =>
             {
                 string root = CreateFakeMemoryTree();
-                // The sidecar names only the eculink leaf; the macos leaf is untouched.
+                // The sidecar names only the examplevessel leaf; the macos leaf is untouched.
                 string sidecar = WriteSidecar(
-                    "{ \"chunks\": { \"memory.repos.eculink.readme\": { \"summary\": \"X.\" } } }");
+                    "{ \"chunks\": { \"memory.repos.examplevessel.readme\": { \"summary\": \"X.\" } } }");
                 try
                 {
                     ContextIndexGenerator gen = new ContextIndexGenerator();
@@ -343,7 +343,7 @@ namespace Armada.Test.Unit.Suites.Context
             {
                 string root = CreateFakeMemoryTree();
                 string sidecar = WriteSidecar(
-                    "{ \"chunks\": { \"memory.repos.eculink.readme\": { \"must_retrieve\": [\"eculink\"] } } }");
+                    "{ \"chunks\": { \"memory.repos.examplevessel.readme\": { \"must_retrieve\": [\"examplevessel\"] } } }");
                 try
                 {
                     ContextIndexGenerator gen = new ContextIndexGenerator();
@@ -353,11 +353,11 @@ namespace Armada.Test.Unit.Suites.Context
                     // A vessel-scoped request with NO query keyword still force-includes the safety leaf.
                     ContextRetrievalResult r = svc.Retrieve(new ContextRetrievalRequest
                     {
-                        Vessel = "EcuLink",
+                        Vessel = "ExampleVessel",
                         MaxLeafBytes = 0
                     });
-                    AssertTrue(r.MustRetrieve.Any(c => c.Id == "memory.repos.eculink.readme"),
-                        "the eculink safety leaf must be force-included for an EcuLink request");
+                    AssertTrue(r.MustRetrieve.Any(c => c.Id == "memory.repos.examplevessel.readme"),
+                        "the examplevessel safety leaf must be force-included for an ExampleVessel request");
                     return Task.CompletedTask;
                 }
                 finally { SafeDelete(root); SafeDeleteFile(sidecar); }
@@ -370,8 +370,8 @@ namespace Armada.Test.Unit.Suites.Context
                 // the bundle) to prove the sidecar changes neither the tier set nor the core bundle.
                 string sidecar = WriteSidecar(
                     "{ \"chunks\": {" +
-                    "  \"memory.repos.eculink.readme\": { \"summary\": \"L.\", \"read_when\": \"when.\" }," +
-                    "  \"memory.shared.repository-boundary-and-leak-prevention\": { \"must_retrieve\": [\"eculink\"] }" +
+                    "  \"memory.repos.examplevessel.readme\": { \"summary\": \"L.\", \"read_when\": \"when.\" }," +
+                    "  \"memory.shared.repository-boundary-and-leak-prevention\": { \"must_retrieve\": [\"examplevessel\"] }" +
                     "} }");
                 try
                 {
@@ -418,7 +418,7 @@ namespace Armada.Test.Unit.Suites.Context
             {
                 string root = CreateFakeMemoryTree();
                 string sidecar = WriteSidecar(
-                    "{ \"chunks\": { \"memory.repos.eculink.readme\": { \"summary\": \"D.\", \"read_when\": \"t.\", \"must_retrieve\": [\"eculink\"] } } }");
+                    "{ \"chunks\": { \"memory.repos.examplevessel.readme\": { \"summary\": \"D.\", \"read_when\": \"t.\", \"must_retrieve\": [\"examplevessel\"] } } }");
                 try
                 {
                     ContextIndexGenerator gen = new ContextIndexGenerator();
@@ -512,7 +512,7 @@ namespace Armada.Test.Unit.Suites.Context
             string root = NewTempDir("ctxmem");
             Directory.CreateDirectory(Path.Combine(root, "shared"));
             Directory.CreateDirectory(Path.Combine(root, "repos", "armada"));
-            Directory.CreateDirectory(Path.Combine(root, "repos", "eculink"));
+            Directory.CreateDirectory(Path.Combine(root, "repos", "examplevessel"));
             Directory.CreateDirectory(Path.Combine(root, "machine-notes"));
 
             File.WriteAllText(Path.Combine(root, "shared", "repository-boundary-and-leak-prevention.md"),
@@ -536,8 +536,8 @@ namespace Armada.Test.Unit.Suites.Context
                 "## Deploying Armada on the server\n\nLeaf deploy steps.\n");
             File.WriteAllText(Path.Combine(root, "repos", "armada", "typed-decisions.md"),
                 "# Typed Decisions\n\n## Non-negotiables\n\nThe model never approves or lands.\n");
-            File.WriteAllText(Path.Combine(root, "repos", "eculink", "README.md"),
-                "# EcuLink Memory\n\nA leaf repo readme.\n");
+            File.WriteAllText(Path.Combine(root, "repos", "examplevessel", "README.md"),
+                "# ExampleVessel Memory\n\nA leaf repo readme.\n");
             File.WriteAllText(Path.Combine(root, "machine-notes", "macos.md"),
                 "# macOS Workstation Notes\n\nHost-only notes.\n");
             return root;

@@ -34,7 +34,7 @@ namespace Armada.Core.Services
         internal const string Base64ChunkPatternString = "\"[A-Za-z0-9+/]{40,}={0,2}\"";
 
         // Entropy-gate thresholds for CORE_RULE_5_base64_chunk, calibrated against the
-        // source-glossary certified-command-catalog.json false-positive population (long
+        // single-line JSON command-catalog false-positive population (long
         // CamelCase identifiers, slash-joined path lists, hex-ID runs) and against real
         // base64 key/seed/password material. Two independent branches fire:
         // 1. Structural: balanced case (|P(upper) - P(lower)| &lt;= MaxCaseBalanceStructuralBranch)

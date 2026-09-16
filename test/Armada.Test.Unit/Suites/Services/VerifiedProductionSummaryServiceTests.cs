@@ -495,7 +495,7 @@ namespace Armada.Test.Unit.Suites.Services
                 await AddLaneRowAsync(testDb, "vsl_a", start.AddMinutes(-10), 1, 0, 1, LaneBlockReasonEnum.None, "ecu", 1800).ConfigureAwait(false);
                 await AddLaneRowAsync(testDb, "vsl_a", start.AddMinutes(30), 1, 0, 1, LaneBlockReasonEnum.None, "ecu", 3600).ConfigureAwait(false);
                 await AddLaneRowAsync(testDb, "vsl_a", start.AddMinutes(90), 1, 1, 1, LaneBlockReasonEnum.None, "ecu", 3600).ConfigureAwait(false);
-                await AddLaneRowAsync(testDb, "vsl_b+vsl_c", start.AddMinutes(60), 2, 0, 1, LaneBlockReasonEnum.FleetCapacity, "dxp", 7200).ConfigureAwait(false);
+                await AddLaneRowAsync(testDb, "vsl_b+vsl_c", start.AddMinutes(60), 2, 0, 1, LaneBlockReasonEnum.FleetCapacity, "alpha", 7200).ConfigureAwait(false);
 
                 ProductionSummaryResult result = await new VerifiedProductionSummaryService(testDb.Driver).SummarizeAsync(
                     AuthContext.Authenticated("default", "default", true, true, "UnitTest"),

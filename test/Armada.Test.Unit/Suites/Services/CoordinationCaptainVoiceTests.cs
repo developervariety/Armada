@@ -210,7 +210,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                     Objective hub = new Objective { Title = "campaign hub", Tags = new List<string> { "campaign:porting" } };
                     await testDb.Driver.Objectives.CreateAsync(hub);
-                    Objective lane = new Objective { Title = "lane jpro", ParentObjectiveId = hub.Id };
+                    Objective lane = new Objective { Title = "lane beta", ParentObjectiveId = hub.Id };
                     await testDb.Driver.Objectives.CreateAsync(lane);
                     Objective slice = new Objective { Title = "ledger pass bendix", ParentObjectiveId = lane.Id };
                     await testDb.Driver.Objectives.CreateAsync(slice);
@@ -237,7 +237,7 @@ namespace Armada.Test.Unit.Suites.Services
                     string json = JsonSerializer.Serialize(result);
 
                     AssertContains("campaign hub", json);
-                    AssertContains("lane jpro", json);
+                    AssertContains("lane beta", json);
 
                     // A rollup returns lanes and COUNTS the slices under them. One live
                     // campaign was 161 nodes at 102,096 characters, past the caller's
@@ -250,7 +250,7 @@ namespace Armada.Test.Unit.Suites.Services
                         new { tag = "campaign:porting", includeSlices = true })).ConfigureAwait(false);
                     string expandedJson = JsonSerializer.Serialize(expanded);
                     AssertContains("ledger pass bendix", expandedJson);
-                    AssertContains("lane jpro", expandedJson);
+                    AssertContains("lane beta", expandedJson);
                     AssertTrue(!json.Contains("unrelated feature"), "objects outside the campaign tree must not appear");
                     AssertContains("session-a", json);
                     AssertContains("claimed vsl_example", json);

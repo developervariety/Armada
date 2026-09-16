@@ -12,8 +12,8 @@ namespace Armada.Test.Unit.Suites.Services
     /// Regression coverage for the CORE_RULE_5_base64_chunk entropy gate.
     /// The raw regex matches any double-quoted 40+ char base64-alphabet run, which
     /// false-positived on long CamelCase identifiers, slash-joined path lists, and
-    /// hex-ID runs inside single-line JSON catalogs (source-glossary
-    /// certified-command-catalog.json blocked every landing). The gate fires only when
+    /// hex-ID runs inside single-line JSON catalogs (a repository's single-line
+    /// command catalog blocked every landing). The gate fires only when
     /// a run looks like genuine base64 key/seed/password material: hex-alphabet runs
     /// never fire, and a run fires on a structural branch (balanced case, meaningful
     /// upper/lower/digit-or-slash fractions) or an entropy branch (Shannon entropy
@@ -39,12 +39,12 @@ namespace Armada.Test.Unit.Suites.Services
         // Real catalog identifier shapes: CamelCase words plus digit suffix.
         private static string CatalogIdentifier1()
         {
-            return "Cummins" + "Request" + "AndVerify" + "Response" + "Step" + "J1939";
+            return "Example" + "Request" + "AndVerify" + "Response" + "Step" + "J1939";
         }
 
         private static string CatalogIdentifier2()
         {
-            return "International" + "WritableParameter" + "LargeGrid" + "Dlg";
+            return "Instructional" + "WritableParameter" + "LargeGrid" + "Dlg";
         }
 
         // Slash-joined action-request path list.
@@ -100,20 +100,20 @@ namespace Armada.Test.Unit.Suites.Services
                    "LILF" + "/" + "QJ4L" + "/" + "cJXtU9D8J9dF";
         }
 
-        // Single-line JSON catalog line in the certified-command-catalog.json shape:
+        // Single-line JSON catalog line in the example-command-catalog.json shape:
         // identifier names, slash-joined flow paths, and a hex ID run on ONE line.
         private static string SingleLineCatalogLine(bool withSecret)
         {
             string secretField = withSecret
                 ? ",\"seed\":\"" + GenuineKeyChunk() + "\""
                 : "";
-            return "{\"certifiedCommands\":[{\"id\":\"c1\",\"commandName\":\"" +
+            return "{\"catalogCommands\":[{\"id\":\"c1\",\"commandName\":\"" +
                    CatalogIdentifier1() +
                    "\",\"flowPath\":\"" + CatalogPathList() +
                    "\",\"requestId\":\"" + HexIdRunLower() + "\"}" +
                    ",\"id\":\"c2\",\"commandName\":\"" + CatalogIdentifier2() +
                    "\",\"flowPath\":\"Dialogs" + "/" + "WritableParameter" + "/" +
-                   "LargeGrid" + "/" + "International\"" +
+                   "LargeGrid" + "/" + "Instructional\"" +
                    secretField + "]}";
         }
 
@@ -249,7 +249,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("Single-line JSON catalog with identifiers, paths, and hex IDs passes the scan", () =>
             {
-                string diff = MakeDiff("unified/certified-command-catalog.json", SingleLineCatalogLine(false));
+                string diff = MakeDiff("unified/example-command-catalog.json", SingleLineCatalogLine(false));
                 DockBoundaryScanResult result = new DockBoundaryScanner().Scan(
                     diff, null, null, null, null, null, DefaultSettings());
                 AssertTrue(result.Passed,
@@ -260,7 +260,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("Single-line JSON catalog with a genuine base64 secret is blocked", () =>
             {
-                string diff = MakeDiff("unified/certified-command-catalog.json", SingleLineCatalogLine(true));
+                string diff = MakeDiff("unified/example-command-catalog.json", SingleLineCatalogLine(true));
                 DockBoundaryScanResult result = new DockBoundaryScanner().Scan(
                     diff, null, null, null, null, null, DefaultSettings());
                 AssertFalse(result.Passed,
@@ -277,7 +277,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("ConventionChecker.Check passes a diff of catalog identifiers", () =>
             {
                 ConventionCheckResult result = new ConventionChecker().Check(
-                    MakeDiff("unified/certified-command-catalog.json", SingleLineCatalogLine(false)));
+                    MakeDiff("unified/example-command-catalog.json", SingleLineCatalogLine(false)));
                 AssertTrue(result.Passed,
                     "The diff-level evaluator must also suppress catalog identifiers");
                 AssertEqual(0, result.Violations.Count);
@@ -287,7 +287,7 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("ConventionChecker.Check still flags a real secret in a diff", () =>
             {
                 ConventionCheckResult result = new ConventionChecker().Check(
-                    MakeDiff("unified/certified-command-catalog.json", SingleLineCatalogLine(true)));
+                    MakeDiff("unified/example-command-catalog.json", SingleLineCatalogLine(true)));
                 AssertFalse(result.Passed,
                     "The diff-level evaluator must still flag a genuine base64 secret");
                 AssertContains(_BaseChunkRule, result.Violations[0].Rule);

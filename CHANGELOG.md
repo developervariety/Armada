@@ -155,6 +155,17 @@ All notable changes to Armada are documented in this file.
   census now PASSES and the brief-wiring step is unblocked.
 ### Documentation
 
+- Typed-decision hygiene, with no behaviour change. The configuration chapter no
+  longer calls the typed-decision system off by default: the global mode ships
+  `Gate` and the system is inert until the key is present, with D1–D6 shipping
+  in `Gate` and D7–D8 and the Phase 3 decisions (D9–D26) shipping `Off`. A new
+  `docs/typed-decisions.md` index links the settings, captain tools, personas,
+  and the D7 and D8 designs. Test fixtures and source comments now use generic
+  placeholders (example vessel names, example paths, example source families)
+  instead of operator-specific repository, product, and server-path names; the
+  context coverage census reads its vessel list from the chunk set instead of a
+  committed list.
+
 - Split the operator guide `docs/armada-ops.md` into per-chapter files under
   `docs/ops/` (`NN-slug.md`), each with retrieval front-matter (`topic`,
   `summary`, `read_when`, `applies_to`, `tier`), and replaced the monolithic

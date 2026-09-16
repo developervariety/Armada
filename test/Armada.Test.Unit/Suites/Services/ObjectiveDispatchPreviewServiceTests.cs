@@ -370,7 +370,7 @@ namespace Armada.Test.Unit.Suites.Services
                     });
                     await testDb.Driver.Vessels.UpdateAsync(harness.Vessel).ConfigureAwait(false);
 
-                    Objective objective = harness.CreateReadyObjective("source-glossary-siblings");
+                    Objective objective = harness.CreateReadyObjective("example-siblings");
                     objective.Preparation.RequiredSiblingInputs = new List<ObjectivePreparationSiblingInput>
                     {
                         new ObjectivePreparationSiblingInput { VesselRef = sourceA.Id, RelativePath = "..\\CatalogueSourceA", RequiredArtifactPaths = new List<string> { artifactPath } },
