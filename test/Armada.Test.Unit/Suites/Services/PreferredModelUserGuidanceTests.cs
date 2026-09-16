@@ -99,7 +99,12 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("OperatorGuide_NamesEveryRegisteredMcpTool", () =>
             {
+                // The operator guide is split into per-chapter files under docs/ops/;
+                // the thin docs/armada-ops.md index links them. Read the whole set.
                 string guide = File.ReadAllText("docs/armada-ops.md");
+                foreach (string chapter in Directory.GetFiles(
+                    "docs/ops", "*.md", SearchOption.TopDirectoryOnly))
+                    guide += "\n" + File.ReadAllText(chapter);
                 string[] sourceFiles = Directory.GetFiles(
                     "src/Armada.Server/Mcp/Tools",
                     "Mcp*Tools.cs",

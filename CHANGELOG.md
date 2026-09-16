@@ -6,6 +6,20 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Documentation
+
+- Split the operator guide `docs/armada-ops.md` into per-chapter files under
+  `docs/ops/` (`NN-slug.md`), each with retrieval front-matter (`topic`,
+  `summary`, `read_when`, `applies_to`, `tier`), and replaced the monolithic
+  file with a thin index that links the eleven chapters. Orchestrators can now
+  load one chapter instead of a ~183 KB wall. Refreshed the moved content to
+  the current platform state: the typed-decision catalogue (through D26 prior
+  art, the captain tools, and the Gate-from-first-deploy contract), the Linter
+  review stage and its pipelines, the in-place `POST /api/v1/server/restart`
+  route, the Voyage AI code-index embedding client, and a container image
+  deploy section. Repointed the guide-content unit test and the README typed-
+  decisions link to the new files. Docs only; no behaviour change.
+
 ### Code index
 
 - Replaced the code-index embedding client with a Voyage AI client. The fork

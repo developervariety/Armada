@@ -285,7 +285,8 @@ settings write cannot clobber it. Every enabled call emits a
 `typed_decision.gated`, `typed_decision.shadow`, or `typed_decision.unavailable`
 event carrying the decision, verdicts, confidences, tokens, latency, and the
 state's hash and byte count — never the state itself. See
-[Typed decisions](docs/armada-ops.md) for the full contract.
+[Typed decisions](docs/ops/08-configuration-and-administration.md) for the full
+contract.
 
 ### Code Index, Context Packs, and Graph Search
 
