@@ -326,5 +326,22 @@ namespace Armada.Test.Unit.TestHelpers
 
         public Task<int> GetCommitCountBetweenAsync(string repoPath, string fromRef, string toRef, CancellationToken token = default)
             => Task.FromResult(0);
+
+        /// <summary>Repository-relative paths that exist on a revision, keyed by the path alone.</summary>
+        public HashSet<string> PathsOnRevision { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        public Task<bool> PathExistsOnRevisionAsync(string worktreePath, string revision, string relativePath, CancellationToken token = default)
+            => Task.FromResult(PathsOnRevision.Contains(relativePath));
+
+        /// <summary>Terms reported as found by SearchTrackedContentOnRevisionAsync.</summary>
+        public HashSet<string> FoundTermsOnRevision { get; } = new HashSet<string>(StringComparer.Ordinal);
+
+        public Task<Armada.Core.Models.GitAnchorPriorArt> SearchTrackedContentOnRevisionAsync(
+            string worktreePath, string revision, string term, int maxSamples, CancellationToken token = default)
+        {
+            Armada.Core.Models.GitAnchorPriorArt result = new Armada.Core.Models.GitAnchorPriorArt { Term = term ?? "" };
+            result.Found = FoundTermsOnRevision.Contains(term ?? "");
+            return Task.FromResult(result);
+        }
     }
 }

@@ -68,6 +68,8 @@ namespace Armada.Core.Database
                 {
                     if (claim != null) claim.EvidenceLinks ??= new List<string>();
                 }
+                preparation.Preflight ??= new ObjectivePreflight();
+                preparation.Preflight.Questions ??= new List<ObjectivePreflightAnswer>();
                 return preparation;
             }
             catch (JsonException ex)

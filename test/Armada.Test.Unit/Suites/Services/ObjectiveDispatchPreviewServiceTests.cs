@@ -817,6 +817,157 @@ namespace Armada.Test.Unit.Suites.Services
                         "the incompatible Sol mission must identify the persona override as ineligible");
                 }
             }).ConfigureAwait(false);
+
+            await RunTest("An objective with no preflight block is refused as preflight-incomplete", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    // Before this rule, an otherwise-ready objective with no recorded preflight was
+                    // dispatchable. It must now be refused: every question is unanswered, so the preview
+                    // is not ready and names the blocking issue.
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("no-preflight-preview");
+                    objective.Preparation.Preflight = new ObjectivePreflight();
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+
+                    AssertFalse(result.IsReady, "an objective with no recorded preflight must not be ready");
+                    AssertTrue(result.Issues.Any(issue => issue.Code == "objective_preflight_incomplete"
+                        && issue.Severity == ReadinessSeverityEnum.Error), "the incomplete preflight is a blocking finding");
+                    AssertFalse(result.Preflight.IsComplete, "no recorded answer leaves the preflight incomplete");
+                    AssertEqual(ObjectivePreflight.QuestionCount, result.Preflight.IncompleteQuestions.Count,
+                        "every unanswered question blocks dispatch");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A complete preflight admits dispatch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("complete-preflight-preview");
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+
+                    AssertTrue(result.Preflight.IsComplete, "1-12 yes and 13 no admit dispatch");
+                    AssertEqual(0, result.Preflight.IncompleteQuestions.Count, "a complete preflight blocks no question");
+                    AssertFalse(result.Issues.Any(issue => issue.Code == "objective_preflight_incomplete"),
+                        "a complete preflight adds no blocking finding");
+                    AssertTrue(result.IsReady, "an otherwise-ready objective with a complete preflight is ready");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A no on a required question and a yes on the owner question each block dispatch", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("blocking-answers-preview");
+                    SetAnswer(objective.Preparation.Preflight, 5, ObjectivePreflightAnswerEnum.No);
+                    SetAnswer(objective.Preparation.Preflight, ObjectivePreflight.OwnerQuestionNumber, ObjectivePreflightAnswerEnum.Yes);
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+
+                    AssertFalse(result.Preflight.IsComplete, "a no on a required question and a yes on the owner question block dispatch");
+                    AssertTrue(result.Preflight.IncompleteQuestions.Contains(5), "a no on question 5 blocks it");
+                    AssertTrue(result.Preflight.IncompleteQuestions.Contains(ObjectivePreflight.OwnerQuestionNumber),
+                        "a yes on the owner question blocks it");
+                    AssertEqual(2, result.Preflight.IncompleteQuestions.Count, "no other question blocks");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Preflight facts compute vessel count and deliverable kind", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("facts-count-kind-preview");
+                    objective.Description = "Commit a census document under the ledger.";
+                    objective.Kind = ObjectiveKindEnum.Chore;
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+
+                    ObjectiveDispatchPreflightFact vesselFact = result.Preflight.Facts.Single(fact => fact.QuestionNumber == 3);
+                    AssertEqual(PreflightFactStatusEnum.Pass, vesselFact.Status, "one target vessel passes question 3");
+                    ObjectiveDispatchPreflightFact kindFact = result.Preflight.Facts.Single(fact => fact.QuestionNumber == 2);
+                    AssertEqual(PreflightFactStatusEnum.Pass, kindFact.Status, "a committed document under a non-Research kind passes question 2");
+
+                    objective.Description = "Produce a report to the owner.";
+                    objective.Kind = ObjectiveKindEnum.Feature;
+                    ObjectiveDispatchPreview reportResult = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    ObjectiveDispatchPreflightFact reportKindFact = reportResult.Preflight.Facts.Single(fact => fact.QuestionNumber == 2);
+                    AssertEqual(PreflightFactStatusEnum.Fail, reportKindFact.Status, "a report-only deliverable that is not Research fails question 2");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Preflight facts resolve recover refs and citations at the target tip", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("facts-citation-preview");
+                    objective.Description = "Continue from recover/widget-x-fix at "
+                        + "0123456789abcdef0123456789abcdef01234567; see Services/Foo.cs:10 and the type `WidgetDecoderX`.";
+                    harness.Git.RevisionCommitShas[harness.RepositoryDirectory + "|recover/widget-x-fix"] =
+                        "0123456789abcdef0123456789abcdef01234567";
+                    harness.Git.PathsOnRevision.Add("Services/Foo.cs");
+                    harness.Git.FoundTermsOnRevision.Add("WidgetDecoderX");
+
+                    ObjectiveDispatchPreview result = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+
+                    AssertEqual(PreflightFactStatusEnum.Pass, result.Preflight.Facts.Single(fact => fact.QuestionNumber == 10).Status,
+                        "a resolvable recover ref with a recorded SHA passes question 10");
+                    AssertEqual(PreflightFactStatusEnum.Pass, result.Preflight.Facts.Single(fact => fact.QuestionNumber == 1).Status,
+                        "a resolvable path and identifier pass the question 1 grep half");
+
+                    // Remove the identifier and the recover ref resolution: both facts must fail.
+                    harness.Git.FoundTermsOnRevision.Clear();
+                    harness.Git.RevisionCommitShas.Clear();
+                    ObjectiveDispatchPreview failResult = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertEqual(PreflightFactStatusEnum.Fail, failResult.Preflight.Facts.Single(fact => fact.QuestionNumber == 10).Status,
+                        "an unresolvable recover ref fails question 10");
+                    AssertEqual(PreflightFactStatusEnum.Fail, failResult.Preflight.Facts.Single(fact => fact.QuestionNumber == 1).Status,
+                        "an unresolvable identifier fails the question 1 grep half");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("A preflight fact compares the declared sibling tip against a cited commit", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    Vessel sibling = await testDb.Driver.Vessels.CreateAsync(new Vessel("preview-sibling", "https://example.test/sibling.git")
+                    {
+                        LocalPath = harness.RepositoryDirectory,
+                        WorkingDirectory = harness.RepositoryDirectory
+                    }).ConfigureAwait(false);
+                    harness.Vessel.SiblingRepos = JsonSerializer.Serialize(new List<SiblingRepo>
+                    {
+                        new SiblingRepo { VesselRef = sibling.Id, RelativePath = "../Sibling" }
+                    });
+                    await testDb.Driver.Vessels.UpdateAsync(harness.Vessel).ConfigureAwait(false);
+
+                    Objective objective = harness.CreateReadyObjective("facts-sibling-preview");
+                    objective.Description = "The sibling must be at or after aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.";
+                    harness.Git.IsAncestorResult = true;
+
+                    ObjectiveDispatchPreview passResult = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertEqual(PreflightFactStatusEnum.Pass, passResult.Preflight.Facts.Single(fact => fact.QuestionNumber == 11).Status,
+                        "a sibling tip that contains the cited commit passes question 11");
+
+                    harness.Git.IsAncestorResult = false;
+                    ObjectiveDispatchPreview failResult = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertEqual(PreflightFactStatusEnum.Fail, failResult.Preflight.Facts.Single(fact => fact.QuestionNumber == 11).Status,
+                        "a sibling tip behind the cited commit fails question 11");
+                }
+            }).ConfigureAwait(false);
+        }
+
+        private static void SetAnswer(ObjectivePreflight preflight, int number, ObjectivePreflightAnswerEnum answer)
+        {
+            ObjectivePreflightAnswer? existing = preflight.Questions.FirstOrDefault(question => question.Number == number);
+            if (existing != null) existing.Answer = answer;
+            else preflight.Questions.Add(new ObjectivePreflightAnswer { Number = number, Answer = answer });
         }
 
         private sealed class PreviewHarness
@@ -870,7 +1021,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             public Objective CreateReadyObjective(string title)
             {
-                return new Objective
+                Objective objective = new Objective
                 {
                     Title = title,
                     Description = "Change only the named dispatch behavior.",
@@ -879,6 +1030,8 @@ namespace Armada.Test.Unit.Suites.Services
                     RefinementSummary = "Reuse the existing shared dispatch services.",
                     AcceptanceCriteria = new List<string> { "The focused behavior is verified." }
                 };
+                objective.Preparation.Preflight = PreflightTestData.Complete();
+                return objective;
             }
         }
     }

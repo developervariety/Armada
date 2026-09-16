@@ -218,9 +218,22 @@ explicit ref. Do not copy objective fields into an operator prompt; link the
 dispatch with `objectiveId` and let the server render the current record.
 
 Run `preview_objective_dispatch` before objective dispatch. It is read-only. It
-reports target, pipeline, captain, Check, repository, brief, and dependency
-findings. A busy compatible captain is capacity information and does not make
-the objective unready.
+reports target, pipeline, captain, Check, repository, brief, dependency, and
+preflight findings. A busy compatible captain is capacity information and does
+not make the objective unready.
+
+Objective dispatch enforces the dispatch preflight. Record an answer for each
+numbered question of the operator dispatch-preflight battery on the objective
+through `update_objective` (the `preparation.preflight` block). Dispatch is
+refused while any question is unanswered, a question that must be yes is
+answered no, or the open-owner-question question is answered yes; the preview
+reports the blocking `objective_preflight_incomplete` finding with the offending
+question numbers, and the autonomous scheduler skips the objective. The preview
+also computes the deterministic questions as facts so a recorded answer can be
+checked against the repository. An operator may set `forcePreflight` on
+`armada_dispatch` to override an incomplete preflight; it overrides only the
+preflight, any other blocking issue still refuses the dispatch, and the override
+is recorded as an `objective.preflight_overridden` event.
 
 Use the vessel's configured pipeline unless the approved work calls for a
 different existing pipeline. Use the full configured persona path. Do not

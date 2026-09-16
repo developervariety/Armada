@@ -61,6 +61,13 @@ namespace Armada.Server
         public string? ObjectiveId { get; set; }
 
         /// <summary>
+        /// Operator override that lets a linked objective dispatch despite an incomplete dispatch
+        /// preflight. It overrides only the preflight block; any other blocking issue still refuses the
+        /// dispatch. An override is recorded as an objective event.
+        /// </summary>
+        public bool ForcePreflight { get; set; } = false;
+
+        /// <summary>
         /// Further objectives admitted and linked in the same operation as <see cref="ObjectiveId"/>.
         /// Every objective is admitted before the voyage is created and linked before admission ends.
         /// </summary>

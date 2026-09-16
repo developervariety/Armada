@@ -140,16 +140,8 @@ namespace Armada.Server
                         request.CaptainAssignments,
                         request.Missions,
                         token).ConfigureAwait(false);
-                    if (!preview.IsReady)
-                    {
-                        return VoyageDispatchResult.BadRequest(new
-                        {
-                            Error = "Objective dispatch preview found blocking issues.",
-                            Code = "objective_dispatch_not_ready",
-                            ObjectiveId = objectiveId,
-                            Preview = preview
-                        });
-                    }
+                    VoyageDispatchResult? gate = PreflightGateResult(preview, request.ForcePreflight, objectiveId);
+                    if (gate != null) return gate;
                 }
             }
 
@@ -229,6 +221,17 @@ namespace Armada.Server
                 missions).ConfigureAwait(false);
             if (dispatchObjective != null && String.IsNullOrWhiteSpace(description))
                 description = ObjectiveBriefRenderer.Render(dispatchObjective);
+
+            // An operator forced past an incomplete preflight only when force was set and the objective
+            // was actually incomplete; a force flag on a complete objective records nothing. Preconditions
+            // already refused any other blocking issue, so reaching here with both means an override.
+            if (objectiveId != null
+                && request.ForcePreflight
+                && dispatchObjective != null
+                && !ObjectivePreflightEvaluator.IsComplete(dispatchObjective.Preparation?.Preflight))
+            {
+                await EmitPreflightOverrideEventAsync(dispatchObjective, request.ObjectiveAuthContext, token).ConfigureAwait(false);
+            }
 
             Vessel? dispatchVessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
             if (dispatchVessel == null) return VoyageDispatchResult.NotFound(new
@@ -442,6 +445,58 @@ namespace Armada.Server
         #endregion
 
         #region Private-Methods
+
+        /// <summary>
+        /// Apply the dispatch-preflight gate to a linked objective's preview. An incomplete preflight is
+        /// the one blocking issue the operator force flag may override; every other blocking issue still
+        /// refuses the dispatch. Returns the refusing result, or null when the dispatch may proceed.
+        /// </summary>
+        private static VoyageDispatchResult? PreflightGateResult(
+            ObjectiveDispatchPreview preview,
+            bool forcePreflight,
+            string objectiveId)
+        {
+            PreflightGateOutcomeEnum outcome = ObjectivePreflightGate.Classify(preview, forcePreflight);
+            switch (outcome)
+            {
+                case PreflightGateOutcomeEnum.BlockedByPreflight:
+                    return VoyageDispatchResult.BadRequest(new
+                    {
+                        Error = "Objective dispatch preflight is incomplete. Complete it, or set forcePreflight to override.",
+                        Code = ObjectivePreflightGate.IssueCode,
+                        ObjectiveId = objectiveId,
+                        IncompleteQuestions = preview.Preflight.IncompleteQuestions,
+                        Preview = preview
+                    });
+                case PreflightGateOutcomeEnum.BlockedByOther:
+                    return VoyageDispatchResult.BadRequest(new
+                    {
+                        Error = "Objective dispatch preview found blocking issues.",
+                        Code = "objective_dispatch_not_ready",
+                        ObjectiveId = objectiveId,
+                        Preview = preview
+                    });
+                default:
+                    return null;
+            }
+        }
+
+        private async Task EmitPreflightOverrideEventAsync(
+            Objective objective,
+            AuthContext? auth,
+            CancellationToken token)
+        {
+            try
+            {
+                ArmadaEvent evt = ObjectivePreflightGate.BuildOverrideEvent(objective, ObjectivePreflightGate.OperatorName(auth));
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging?.Warn("[VoyageDispatchService] could not record preflight override for objective "
+                    + objective.Id + ": " + ex.Message);
+            }
+        }
 
         /// <summary>
         /// Attach Pending Build and UnitTest Checks to a freshly dispatched voyage.

@@ -91,6 +91,12 @@ namespace Armada.Core.Models
         public ObjectiveDependencyAnalysis DependencyAnalysis { get; set; } = new ObjectiveDependencyAnalysis();
 
         /// <summary>
+        /// Dispatch-preflight readiness: whether the recorded answers admit dispatch, which questions
+        /// still block it, and the facts the code determined for the deterministic questions.
+        /// </summary>
+        public ObjectiveDispatchPreflight Preflight { get; set; } = new ObjectiveDispatchPreflight();
+
+        /// <summary>
         /// All preview findings in deterministic evaluation order.
         /// </summary>
         public List<ObjectiveDispatchPreviewIssue> Issues { get; set; } = new List<ObjectiveDispatchPreviewIssue>();

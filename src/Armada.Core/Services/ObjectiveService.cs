@@ -2166,10 +2166,37 @@ namespace Armada.Core.Services
             }
 
 
+            SanitizePreflight(objective.Preparation);
+
             if (objective.VesselIds.Count == 1
                 && objective.Preparation.Target?.VesselId != null
                 && !String.Equals(objective.VesselIds[0], objective.Preparation.Target.VesselId, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("Objective preparation target vessel must match the objective dispatch vessel.");
+        }
+
+        private static void SanitizePreflight(ObjectivePreparation preparation)
+        {
+            preparation.Preflight ??= new ObjectivePreflight();
+            preparation.Preflight.Questions ??= new List<ObjectivePreflightAnswer>();
+
+            HashSet<int> seen = new HashSet<int>();
+            foreach (ObjectivePreflightAnswer answer in preparation.Preflight.Questions)
+            {
+                if (answer == null)
+                    throw new InvalidOperationException("Objective preflight answers cannot contain null entries.");
+                if (answer.Number < 1 || answer.Number > ObjectivePreflight.QuestionCount)
+                    throw new InvalidOperationException("Objective preflight answers must number 1 to " + ObjectivePreflight.QuestionCount + ".");
+                if (!seen.Add(answer.Number))
+                    throw new InvalidOperationException("Objective preflight answers must not repeat question " + answer.Number + ".");
+                if (!Enum.IsDefined(answer.Answer))
+                    throw new InvalidOperationException("Objective preflight question " + answer.Number + " has an invalid answer value.");
+
+                answer.Note = Normalize(answer.Note) ?? String.Empty;
+                EnsureMaximumLength(answer.Note, _MaxPreparationClaimTextChars, "Objective preflight note");
+                answer.AnsweredBy = Normalize(answer.AnsweredBy) ?? String.Empty;
+                EnsureMaximumLength(answer.AnsweredBy, _MaxPreparationIdChars, "Objective preflight answered-by");
+                answer.AnsweredUtc = answer.AnsweredUtc?.ToUniversalTime();
+            }
         }
 
         private static ObjectivePreparationAnchor? SanitizePreparationAnchor(ObjectivePreparationAnchor? anchor)

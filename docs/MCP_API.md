@@ -229,6 +229,21 @@ dispatch enforce. It reports all structural blockers, a complete typed
 dependency graph, and bounded diagnostic chains. A busy compatible captain remains valid configured coverage; its idle
 count is capacity information only.
 
+An objective must also pass the dispatch preflight. The preflight is an answer
+for each numbered question in the operator dispatch-preflight battery, recorded
+in the objective's `preparation.preflight.questions` array through
+`update_objective`. Each entry carries a question `number`, an `answer` of
+`Yes`, `No`, or `Unanswered`, an operator `note`, an `answeredUtc`, and an
+`answeredBy`. Dispatch is refused while any question is unanswered, a question
+that must be yes is answered no, or the open-owner-question question is answered
+yes; the preview reports this as a blocking `objective_preflight_incomplete`
+finding listing the offending question numbers, and reports the deterministic
+questions as facts to check the recorded answers against the repository. An
+`armada_dispatch` call may set `forcePreflight: true` to override an incomplete
+preflight. It overrides only the preflight; any other blocking issue still
+refuses the dispatch, and the override is recorded as an
+`objective.preflight_overridden` event naming the operator.
+
 ## Errors
 
 Armada uses two error levels:

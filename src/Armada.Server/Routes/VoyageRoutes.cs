@@ -124,6 +124,7 @@ namespace Armada.Server.Routes
                 PipelineId = request.PipelineId,
                 Pipeline = request.Pipeline,
                 ObjectiveId = request.ObjectiveId,
+                ForcePreflight = request.ForcePreflight,
                 SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>(),
                 CaptainAssignments = request.CaptainAssignments
             };
@@ -229,7 +230,20 @@ namespace Armada.Server.Routes
                             requestedVesselId: voyageReq.VesselId,
                             requestedPipelineId: voyageReq.PipelineId ?? voyageReq.Pipeline,
                             captainAssignments: voyageReq.CaptainAssignments).ConfigureAwait(false);
-                        if (!preview.IsReady)
+                        PreflightGateOutcomeEnum outcome = ObjectivePreflightGate.Classify(preview, voyageReq.ForcePreflight);
+                        if (outcome == PreflightGateOutcomeEnum.BlockedByPreflight)
+                        {
+                            req.Http.Response.StatusCode = 400;
+                            return new
+                            {
+                                Error = "Objective dispatch preflight is incomplete. Complete it, or set forcePreflight to override.",
+                                Code = ObjectivePreflightGate.IssueCode,
+                                ObjectiveId = linkedObjective.Id,
+                                IncompleteQuestions = preview.Preflight.IncompleteQuestions,
+                                Preview = preview
+                            };
+                        }
+                        if (outcome == PreflightGateOutcomeEnum.BlockedByOther)
                         {
                             req.Http.Response.StatusCode = 400;
                             return new
@@ -239,6 +253,18 @@ namespace Armada.Server.Routes
                                 ObjectiveId = linkedObjective.Id,
                                 Preview = preview
                             };
+                        }
+                        if (outcome == PreflightGateOutcomeEnum.OverriddenPreflight)
+                        {
+                            try
+                            {
+                                await _database.Events.CreateAsync(
+                                    ObjectivePreflightGate.BuildOverrideEvent(linkedObjective, ObjectivePreflightGate.OperatorName(ctx))).ConfigureAwait(false);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logging.Warn(_Header + "could not record preflight override for objective " + linkedObjective.Id + ": " + ex.Message);
+                            }
                         }
                     }
 

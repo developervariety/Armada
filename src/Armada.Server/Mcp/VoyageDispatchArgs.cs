@@ -60,6 +60,13 @@ namespace Armada.Server.Mcp
         public string? ObjectiveId { get; set; }
 
         /// <summary>
+        /// Override an incomplete dispatch preflight on the linked objective. It overrides only the
+        /// preflight block; any other blocking issue still refuses the dispatch, and an override is
+        /// recorded as an objective event.
+        /// </summary>
+        public bool ForcePreflight { get; set; } = false;
+
+        /// <summary>
         /// Ordered playbooks to apply during dispatch.
         /// </summary>
         public List<SelectedPlaybook> SelectedPlaybooks { get; set; } = new List<SelectedPlaybook>();

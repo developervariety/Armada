@@ -133,6 +133,7 @@ namespace Armada.Server.Mcp.Tools
                         pipelineId = new { type = "string", description = "Pipeline ID to use for this dispatch (overrides vessel/fleet default)" },
                         pipeline = new { type = "string", description = "Pipeline name to use (convenience alias for pipelineId -- resolves by name)" },
                         objectiveId = new { type = "string", description = "Optional objective/backlog item ID (obj_ prefix) to link to the dispatched voyage" },
+                        forcePreflight = new { type = "boolean", description = "Override an incomplete dispatch preflight on the linked objective (default false). Overrides only the preflight; any other blocking issue still refuses dispatch. The override is recorded as an objective event." },
                         selectedPlaybooks = new
                         {
                             type = "array",
@@ -182,6 +183,7 @@ namespace Armada.Server.Mcp.Tools
                         PipelineId = request.PipelineId,
                         Pipeline = request.Pipeline,
                         ObjectiveId = request.ObjectiveId,
+                        ForcePreflight = request.ForcePreflight,
                         ObjectiveAuthContext = McpCallerContext.Require(),
                         SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>(),
                         Settings = settings,

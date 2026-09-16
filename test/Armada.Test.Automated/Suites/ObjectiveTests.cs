@@ -351,6 +351,9 @@ namespace Armada.Test.Automated.Suites
                             Description = "Objective follow-through voyage",
                             VesselId = vesselId,
                             ObjectiveId = objectiveId,
+                            // This test exercises objective/voyage linkage, not the dispatch preflight,
+                            // so it forces past the incomplete preflight on the fixture objective.
+                            ForcePreflight = true,
                             Missions = new[]
                             {
                                 new

@@ -556,7 +556,18 @@ namespace Armada.Server
                             request.CaptainAssignments,
                             missions,
                             token).ConfigureAwait(false);
-                        if (!preview.IsReady)
+                        PreflightGateOutcomeEnum outcome = ObjectivePreflightGate.Classify(preview, request.ForcePreflight);
+                        if (outcome == PreflightGateOutcomeEnum.BlockedByPreflight)
+                        {
+                            return new RemoteTunnelRequestResult
+                            {
+                                StatusCode = 400,
+                                ErrorCode = ObjectivePreflightGate.IssueCode,
+                                Message = "Objective dispatch preflight is incomplete. Complete it, or set forcePreflight to override.",
+                                Payload = preview
+                            };
+                        }
+                        if (outcome == PreflightGateOutcomeEnum.BlockedByOther)
                         {
                             return new RemoteTunnelRequestResult
                             {
@@ -565,6 +576,13 @@ namespace Armada.Server
                                 Message = "Objective dispatch preview found blocking issues.",
                                 Payload = preview
                             };
+                        }
+                        if (outcome == PreflightGateOutcomeEnum.OverriddenPreflight)
+                        {
+                            ArmadaEvent overrideEvent = ObjectivePreflightGate.BuildOverrideEvent(
+                                bareObjective, ObjectivePreflightGate.OperatorName(objectiveAuth));
+                            await _EmitEventAsync(
+                                overrideEvent.EventType, overrideEvent.Message, "objective", bareObjective.Id, null, null, null, null).ConfigureAwait(false);
                         }
                     }
 
@@ -661,6 +679,7 @@ namespace Armada.Server
                     CodeContextMaxResults = request.CodeContextMaxResults,
                     PipelineId = pipelineId,
                     ObjectiveId = request.ObjectiveId,
+                    ForcePreflight = request.ForcePreflight,
                     ObjectiveAuthContext = String.IsNullOrWhiteSpace(request.ObjectiveId) ? null : RemoteControlOperator(),
                     SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>(),
                     Settings = _Settings,

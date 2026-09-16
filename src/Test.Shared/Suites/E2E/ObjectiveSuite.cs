@@ -336,6 +336,9 @@ namespace Test.Shared.Suites.E2E
                         Description = "Objective follow-through voyage",
                         VesselId = _VesselId,
                         ObjectiveId = _ObjectiveId,
+                        // This objective is created without a dispatch preflight; the test exercises the
+                        // objective/voyage linkage, not the preflight gate, so it forces past it.
+                        ForcePreflight = true,
                         Missions = new[]
                         {
                             new

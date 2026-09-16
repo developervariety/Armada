@@ -37,5 +37,11 @@ namespace Armada.Core.Models
         /// Evidence-backed preparation claims.
         /// </summary>
         public List<ObjectivePreparationClaim> Claims { get; set; } = new List<ObjectivePreparationClaim>();
+
+        /// <summary>
+        /// Operator answers to the dispatch-preflight battery. Dispatch is refused while any question
+        /// is unanswered, so an objective prepared without recorded answers is not dispatchable.
+        /// </summary>
+        public ObjectivePreflight Preflight { get; set; } = new ObjectivePreflight();
     }
 }

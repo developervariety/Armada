@@ -6,6 +6,28 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Dispatch enforces the objective preflight
+
+- An objective now carries a dispatch preflight: an answer for each numbered
+  question in the operator dispatch-preflight battery, recorded through
+  `update_objective`. Dispatch is refused while any question is unanswered, a
+  question that must be yes is answered no, or the open-owner-question question
+  is answered yes.
+- The objective dispatch preview reports a blocking `objective_preflight_incomplete`
+  finding for an incomplete preflight and lists the offending question numbers,
+  so the autonomous scheduler skips such an objective and every operator
+  dispatch path (MCP, REST, WebSocket) refuses it.
+- An operator may set `forcePreflight` on a dispatch to override an incomplete
+  preflight. It overrides only the preflight; any other blocking issue still
+  refuses the dispatch, and each override is recorded as an
+  `objective.preflight_overridden` event naming the operator.
+- The preview computes the deterministic preflight questions as facts, shown
+  next to the recorded answer so it can be checked against the repository: the
+  target vessel count, the deliverable kind against the description, whether the
+  named recover refs resolve with a recorded SHA, whether declared sibling tips
+  contain the cited commits, and whether the cited paths and identifiers resolve
+  at the target tip.
+
 ### The admiral image embeds its build commit
 
 - The server image now embeds the commit it was built from, so a running

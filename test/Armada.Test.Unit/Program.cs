@@ -403,6 +403,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new SchedulerMissionModeTests());
             runner.AddSuite(new DispatchObjectiveModeTests());
             runner.AddSuite(new ObjectiveDispatchPreviewServiceTests());
+            runner.AddSuite(new ObjectivePreflightGateTests());
             runner.AddSuite(new MemoryDatabaseTests());
             runner.AddSuite(new MemoryServiceTests());
             runner.AddSuite(new McpMemoryToolsTests());

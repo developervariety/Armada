@@ -4,6 +4,7 @@ namespace Armada.Core.Services
     using System.Collections.Generic;
     using System.IO;
     using System.Linq;
+    using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Database;
@@ -28,6 +29,16 @@ namespace Armada.Core.Services
         private readonly IGitService _Git;
         private readonly ArmadaSettings _Settings;
         private readonly ICaptainExecutionEnvironmentProbe _ExecutionEnvironment;
+
+        // Deterministic-fact parsing. The preflight facts read only what the description already
+        // states, so the patterns match the shapes an operator writes: a recover/ ref, a full commit
+        // SHA, a path:line citation, and a backticked code identifier. Facts are best-effort and
+        // bounded so the preview a scheduler runs never becomes expensive.
+        private const int _MaxFactTokens = 12;
+        private static readonly Regex _RecoverRefPattern = new Regex(@"recover/[A-Za-z0-9._/-]+", RegexOptions.Compiled);
+        private static readonly Regex _CommitShaPattern = new Regex(@"\b[0-9a-fA-F]{40}\b", RegexOptions.Compiled);
+        private static readonly Regex _PathLinePattern = new Regex(@"([A-Za-z0-9_./-]+\.[A-Za-z0-9]+):\d+(?:-\d+)?", RegexOptions.Compiled);
+        private static readonly Regex _BacktickIdentifierPattern = new Regex(@"`([A-Za-z_][A-Za-z0-9_.]{4,})`", RegexOptions.Compiled);
 
         #endregion
 
@@ -96,6 +107,7 @@ namespace Armada.Core.Services
             };
 
             EvaluateBrief(objective, result);
+            EvaluatePreflightAnswers(objective, result);
             List<Objective> objectiveSnapshot = await ReadObjectivesAsync(auth, token).ConfigureAwait(false);
             ObjectiveDependencyAnalysis dependencies = ObjectiveDependencyAnalyzer.Analyze(objective, objectiveSnapshot);
             result.DependencyAnalysis = dependencies;
@@ -138,6 +150,7 @@ namespace Armada.Core.Services
 
             await EvaluateRepositoryContextAsync(vessel, result, token).ConfigureAwait(false);
             await EvaluateStartRefAsync(vessel, result, token).ConfigureAwait(false);
+            await EvaluatePreflightFactsAsync(auth, objective, vessel, result, token).ConfigureAwait(false);
             List<string> effectiveMissionModes = await EvaluateMissionDescriptionsAsync(
                 vessel, objective, missionDescriptions, result, token).ConfigureAwait(false);
             await EvaluatePreparationAnchorsAsync(auth, objective, result, token).ConfigureAwait(false);
@@ -241,6 +254,292 @@ namespace Armada.Core.Services
                 AddIssue(result, "preparation_claim_needs_recheck", "brief", ReadinessSeverityEnum.Error,
                     "A preparation claim must be verified again before dispatch: " + claim.Text, claim.Id);
             }
+        }
+
+        /// <summary>
+        /// Apply the dispatch-preflight rule to the objective's recorded answers. Every question must
+        /// be answered in a way that admits dispatch; an objective with no recorded answers has every
+        /// question unanswered and is refused. The blocking rule itself lives in one place
+        /// (<see cref="ObjectivePreflightEvaluator"/>) so this gate, the scheduler, and operator dispatch
+        /// cannot disagree.
+        /// </summary>
+        private static void EvaluatePreflightAnswers(Objective objective, ObjectiveDispatchPreview result)
+        {
+            ObjectivePreflight preflight = objective.Preparation?.Preflight ?? new ObjectivePreflight();
+            IReadOnlyList<int> blocking = ObjectivePreflightEvaluator.BlockingQuestions(preflight);
+            result.Preflight.IncompleteQuestions = blocking.ToList();
+            result.Preflight.IsComplete = blocking.Count == 0;
+            if (blocking.Count > 0)
+            {
+                string numbers = String.Join(", ", blocking);
+                AddIssue(result, ObjectivePreflightGate.IssueCode, "preflight", ReadinessSeverityEnum.Error,
+                    "The dispatch preflight is incomplete; record an admitting answer for question(s) " + numbers + ".",
+                    numbers);
+            }
+        }
+
+        /// <summary>
+        /// Compute the deterministic preflight facts the code can settle on its own and attach them to
+        /// the preview. Each fact is informational: it lets an operator check a recorded answer against
+        /// the repository and never blocks dispatch by itself. A fact the repository cannot settle is
+        /// reported Unknown rather than guessed, and a git error never fails the preview.
+        /// </summary>
+        private async Task EvaluatePreflightFactsAsync(
+            AuthContext auth,
+            Objective objective,
+            Vessel vessel,
+            ObjectiveDispatchPreview result,
+            CancellationToken token)
+        {
+            ObjectivePreflight preflight = objective.Preparation?.Preflight ?? new ObjectivePreflight();
+            string repositoryPath = RepositoryPath(vessel);
+            string targetRevision = !String.IsNullOrWhiteSpace(result.ResolvedStartCommit)
+                ? result.ResolvedStartCommit!
+                : "HEAD";
+            string description = objective.Description ?? String.Empty;
+
+            result.Preflight.Facts.Add(BuildVesselCountFact(objective, preflight));
+            result.Preflight.Facts.Add(BuildDeliverableKindFact(objective, preflight, description));
+            result.Preflight.Facts.Add(await BuildRecoverRefFact(objective, preflight, repositoryPath, description, token).ConfigureAwait(false));
+            result.Preflight.Facts.Add(await BuildSiblingTipFact(auth, vessel, preflight, description, token).ConfigureAwait(false));
+            result.Preflight.Facts.Add(await BuildCitationResolvesFact(preflight, repositoryPath, targetRevision, description, token).ConfigureAwait(false));
+        }
+
+        private static ObjectiveDispatchPreflightFact BuildVesselCountFact(Objective objective, ObjectivePreflight preflight)
+        {
+            const int question = 3;
+            int count = (objective.VesselIds ?? new List<string>())
+                .Where(item => !String.IsNullOrWhiteSpace(item))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count();
+            return new ObjectiveDispatchPreflightFact
+            {
+                QuestionNumber = question,
+                Status = count == 1 ? PreflightFactStatusEnum.Pass : PreflightFactStatusEnum.Fail,
+                Detail = "The objective names " + count + " target vessel(s); dispatch needs exactly one.",
+                RecordedAnswer = ObjectivePreflightEvaluator.RecordedAnswer(preflight, question)
+            };
+        }
+
+        private static ObjectiveDispatchPreflightFact BuildDeliverableKindFact(
+            Objective objective, ObjectivePreflight preflight, string description)
+        {
+            const int question = 2;
+            string lower = description.ToLowerInvariant();
+            string[] reportWords = { "report-only", "report only", "a report", "produce a report", "findings report", "report to the owner" };
+            string[] committedWords = { "commit a", "commit the", "committed doc", "committed document", "census", "ledger row", "discoveries.d", "write a file", "record a file" };
+            bool report = reportWords.Any(word => lower.Contains(word));
+            bool committed = committedWords.Any(word => lower.Contains(word));
+
+            PreflightFactStatusEnum status;
+            string detail;
+            if (report && !committed)
+            {
+                status = objective.Kind == ObjectiveKindEnum.Research ? PreflightFactStatusEnum.Pass : PreflightFactStatusEnum.Fail;
+                detail = "The description reads report-only; a report deliverable is Kind Research (Kind is " + objective.Kind + ").";
+            }
+            else if (committed && !report)
+            {
+                status = objective.Kind == ObjectiveKindEnum.Research ? PreflightFactStatusEnum.Fail : PreflightFactStatusEnum.Pass;
+                detail = "The description commits a document; a committed deliverable must not be Kind Research (Kind is " + objective.Kind + ").";
+            }
+            else
+            {
+                status = PreflightFactStatusEnum.Unknown;
+                detail = "The description does not clearly indicate report-only or committed-document delivery (Kind is " + objective.Kind + ").";
+            }
+
+            return new ObjectiveDispatchPreflightFact
+            {
+                QuestionNumber = question,
+                Status = status,
+                Detail = detail,
+                RecordedAnswer = ObjectivePreflightEvaluator.RecordedAnswer(preflight, question)
+            };
+        }
+
+        private async Task<ObjectiveDispatchPreflightFact> BuildRecoverRefFact(
+            Objective objective, ObjectivePreflight preflight, string repositoryPath, string description, CancellationToken token)
+        {
+            const int question = 10;
+            ObjectiveDispatchPreflightFact fact = new ObjectiveDispatchPreflightFact
+            {
+                QuestionNumber = question,
+                RecordedAnswer = ObjectivePreflightEvaluator.RecordedAnswer(preflight, question)
+            };
+
+            List<string> refs = MatchAll(description, _RecoverRefPattern).Distinct(StringComparer.Ordinal).ToList();
+            if (refs.Count == 0)
+            {
+                fact.Status = PreflightFactStatusEnum.Unknown;
+                fact.Detail = "The description names no recover/ ref.";
+                return fact;
+            }
+
+            string rowText = description + " " + String.Join(" ", objective.EvidenceLinks ?? new List<string>());
+            bool hasRecordedSha = _CommitShaPattern.IsMatch(rowText);
+            List<string> unresolved = new List<string>();
+            try
+            {
+                foreach (string reference in refs.Take(_MaxFactTokens))
+                {
+                    string? sha = NormalizeEmpty(await _Git.GetRevisionCommitShaAsync(repositoryPath, reference, token).ConfigureAwait(false));
+                    if (sha == null) unresolved.Add(reference);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                fact.Status = PreflightFactStatusEnum.Unknown;
+                fact.Detail = "The recover/ refs could not be resolved: " + ex.Message;
+                return fact;
+            }
+
+            if (unresolved.Count == 0 && hasRecordedSha)
+            {
+                fact.Status = PreflightFactStatusEnum.Pass;
+                fact.Detail = "Every named recover/ ref resolves and a 40-character SHA is recorded on the row.";
+            }
+            else
+            {
+                fact.Status = PreflightFactStatusEnum.Fail;
+                fact.Detail = unresolved.Count > 0
+                    ? "These recover/ refs do not resolve in the vessel repository: " + String.Join(", ", unresolved) + "."
+                    : "No 40-character SHA is recorded on the row for the named recover/ ref(s).";
+            }
+            return fact;
+        }
+
+        private async Task<ObjectiveDispatchPreflightFact> BuildSiblingTipFact(
+            AuthContext auth, Vessel vessel, ObjectivePreflight preflight, string description, CancellationToken token)
+        {
+            const int question = 11;
+            ObjectiveDispatchPreflightFact fact = new ObjectiveDispatchPreflightFact
+            {
+                QuestionNumber = question,
+                RecordedAnswer = ObjectivePreflightEvaluator.RecordedAnswer(preflight, question)
+            };
+
+            List<SiblingRepo> siblings = (vessel.GetSiblingRepos() ?? new List<SiblingRepo>())
+                .Where(sibling => sibling != null && !String.IsNullOrWhiteSpace(sibling.VesselRef))
+                .ToList();
+            List<string> citedCommits = MatchAll(description, _CommitShaPattern).Distinct(StringComparer.OrdinalIgnoreCase).Take(_MaxFactTokens).ToList();
+            if (siblings.Count == 0 || citedCommits.Count == 0)
+            {
+                fact.Status = PreflightFactStatusEnum.Unknown;
+                fact.Detail = "There is no declared sibling and cited commit to compare.";
+                return fact;
+            }
+
+            bool anyFail = false;
+            bool anyUnknown = false;
+            try
+            {
+                foreach (SiblingRepo sibling in siblings)
+                {
+                    Vessel? siblingVessel = await ResolveVesselReferenceAsync(auth, sibling.VesselRef, token).ConfigureAwait(false);
+                    if (siblingVessel == null) { anyUnknown = true; continue; }
+                    string siblingRepo = RepositoryPath(siblingVessel);
+                    string? siblingTip = NormalizeEmpty(await _Git.GetRevisionCommitShaAsync(siblingRepo, "HEAD", token).ConfigureAwait(false));
+                    if (siblingTip == null) { anyUnknown = true; continue; }
+                    foreach (string commit in citedCommits)
+                    {
+                        bool? ancestor = await _Git.TryIsAncestorAsync(siblingRepo, commit, siblingTip, token).ConfigureAwait(false);
+                        if (ancestor == false) anyFail = true;
+                        else if (ancestor == null) anyUnknown = true;
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                fact.Status = PreflightFactStatusEnum.Unknown;
+                fact.Detail = "The sibling tips could not be compared: " + ex.Message;
+                return fact;
+            }
+
+            if (anyFail)
+            {
+                fact.Status = PreflightFactStatusEnum.Fail;
+                fact.Detail = "A declared sibling tip is behind a commit the description cites (dock.sibling_stale).";
+            }
+            else if (anyUnknown)
+            {
+                fact.Status = PreflightFactStatusEnum.Unknown;
+                fact.Detail = "The sibling tip ancestry could not be established for every cited commit.";
+            }
+            else
+            {
+                fact.Status = PreflightFactStatusEnum.Pass;
+                fact.Detail = "Every declared sibling tip is at or after each commit the description cites.";
+            }
+            return fact;
+        }
+
+        private async Task<ObjectiveDispatchPreflightFact> BuildCitationResolvesFact(
+            ObjectivePreflight preflight, string repositoryPath, string targetRevision, string description, CancellationToken token)
+        {
+            const int question = 1;
+            ObjectiveDispatchPreflightFact fact = new ObjectiveDispatchPreflightFact
+            {
+                QuestionNumber = question,
+                RecordedAnswer = ObjectivePreflightEvaluator.RecordedAnswer(preflight, question)
+            };
+
+            List<string> paths = MatchAll(description, _PathLinePattern).Distinct(StringComparer.OrdinalIgnoreCase).Take(_MaxFactTokens).ToList();
+            List<string> identifiers = MatchAll(description, _BacktickIdentifierPattern).Distinct(StringComparer.Ordinal).Take(_MaxFactTokens).ToList();
+            if (paths.Count == 0 && identifiers.Count == 0)
+            {
+                fact.Status = PreflightFactStatusEnum.Unknown;
+                fact.Detail = "The description cites no path:line or backticked identifier to resolve.";
+                return fact;
+            }
+
+            List<string> unresolved = new List<string>();
+            try
+            {
+                foreach (string path in paths)
+                {
+                    bool exists = await _Git.PathExistsOnRevisionAsync(repositoryPath, targetRevision, path, token).ConfigureAwait(false);
+                    if (!exists)
+                    {
+                        string? suffix = await _Git.ResolveTrackedPathSuffixAsync(repositoryPath, targetRevision, path, token).ConfigureAwait(false);
+                        if (String.IsNullOrWhiteSpace(suffix)) unresolved.Add(path);
+                    }
+                }
+                foreach (string identifier in identifiers)
+                {
+                    GitAnchorPriorArt search = await _Git.SearchTrackedContentOnRevisionAsync(
+                        repositoryPath, targetRevision, identifier, 1, token).ConfigureAwait(false);
+                    if (!search.Found) unresolved.Add(identifier);
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                fact.Status = PreflightFactStatusEnum.Unknown;
+                fact.Detail = "The cited references could not be resolved at the target tip: " + ex.Message;
+                return fact;
+            }
+
+            if (unresolved.Count == 0)
+            {
+                fact.Status = PreflightFactStatusEnum.Pass;
+                fact.Detail = "Every cited path:line and backticked identifier resolves at the target tip.";
+            }
+            else
+            {
+                fact.Status = PreflightFactStatusEnum.Fail;
+                fact.Detail = "These citations do not resolve at the target tip: " + String.Join(", ", unresolved) + ".";
+            }
+            return fact;
+        }
+
+        private static List<string> MatchAll(string input, Regex pattern)
+        {
+            List<string> matches = new List<string>();
+            foreach (Match match in pattern.Matches(input))
+            {
+                matches.Add(match.Groups.Count > 1 && match.Groups[1].Success ? match.Groups[1].Value : match.Value);
+            }
+            return matches;
         }
 
         private static string? ResolveTargetVesselId(

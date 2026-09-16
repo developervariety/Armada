@@ -100,6 +100,143 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ForcePreflight_OverridesIncompletePreflightAndRecordsEvent", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                        "preflight-force-vessel", "https://github.com/test/repo.git")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId
+                    }).ConfigureAwait(false);
+                    Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Title = "Incomplete preflight objective",
+                        VesselIds = new List<string> { vessel.Id }
+                    }).ConfigureAwait(false);
+                    RecordingObjectiveDispatchPreview preview = new RecordingObjectiveDispatchPreview
+                    {
+                        Result = new ObjectiveDispatchPreview
+                        {
+                            ObjectiveId = objective.Id,
+                            VesselId = vessel.Id,
+                            IsReady = false,
+                            Preflight = new ObjectiveDispatchPreflight
+                            {
+                                IsComplete = false,
+                                IncompleteQuestions = Enumerable.Range(1, ObjectivePreflight.QuestionCount).ToList()
+                            },
+                            Issues = new List<ObjectiveDispatchPreviewIssue>
+                            {
+                                new ObjectiveDispatchPreviewIssue
+                                {
+                                    Code = "objective_preflight_incomplete",
+                                    Area = "preflight",
+                                    Severity = ReadinessSeverityEnum.Error,
+                                    Message = "The dispatch preflight is incomplete."
+                                }
+                            }
+                        }
+                    };
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver,
+                        new RecordingAdmiralService(testDb.Driver),
+                        objectiveService: new ObjectiveService(testDb.Driver),
+                        settings: new ArmadaSettings { CodeIndex = { Enabled = false } },
+                        objectiveDispatchPreview: preview);
+
+                    VoyageDispatchResult? refused = await service.ValidatePreconditionsAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "blocked without force",
+                        VesselId = vessel.Id,
+                        ObjectiveId = objective.Id,
+                        ObjectiveAuthContext = McpTestCaller.Operator,
+                        ForcePreflight = false,
+                        Missions = new List<MissionDescription> { new MissionDescription("Do", "The preflight blocks this.") }
+                    }).ConfigureAwait(false);
+                    AssertNotNull(refused, "An incomplete preflight without force must be refused.");
+                    AssertEqual(400, refused!.StatusCode);
+                    AssertContains("objective_preflight_incomplete", JsonSerializer.Serialize(refused.Value));
+
+                    VoyageDispatchResult forced = await service.DispatchAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "forced past preflight",
+                        VesselId = vessel.Id,
+                        ObjectiveId = objective.Id,
+                        ObjectiveAuthContext = McpTestCaller.Operator,
+                        ForcePreflight = true,
+                        Missions = new List<MissionDescription> { new MissionDescription("Do", "Force the dispatch.") }
+                    }).ConfigureAwait(false);
+                    AssertTrue(forced.Succeeded, "Force must let the dispatch proceed: " + JsonSerializer.Serialize(forced.Value));
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events
+                        .EnumerateByTypeAsync("objective.preflight_overridden", 50).ConfigureAwait(false);
+                    AssertTrue(events.Any(evt => evt.EntityId == objective.Id),
+                        "the override must be recorded as objective.preflight_overridden");
+                }
+            });
+
+            await RunTest("ForcePreflight_DoesNotBypassOtherBlockingIssue", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel(
+                        "preflight-other-issue-vessel", "https://github.com/test/repo.git")
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId
+                    }).ConfigureAwait(false);
+                    Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                    {
+                        TenantId = Constants.DefaultTenantId,
+                        UserId = Constants.DefaultUserId,
+                        Title = "Two blocking issues objective",
+                        VesselIds = new List<string> { vessel.Id }
+                    }).ConfigureAwait(false);
+                    RecordingObjectiveDispatchPreview preview = new RecordingObjectiveDispatchPreview
+                    {
+                        Result = new ObjectiveDispatchPreview
+                        {
+                            ObjectiveId = objective.Id,
+                            VesselId = vessel.Id,
+                            IsReady = false,
+                            Issues = new List<ObjectiveDispatchPreviewIssue>
+                            {
+                                new ObjectiveDispatchPreviewIssue { Code = "objective_preflight_incomplete", Severity = ReadinessSeverityEnum.Error },
+                                new ObjectiveDispatchPreviewIssue { Code = "brief_acceptance_missing", Severity = ReadinessSeverityEnum.Error }
+                            }
+                        }
+                    };
+                    VoyageDispatchService service = new VoyageDispatchService(
+                        testDb.Driver,
+                        new RecordingAdmiralService(testDb.Driver),
+                        objectiveService: new ObjectiveService(testDb.Driver),
+                        settings: new ArmadaSettings { CodeIndex = { Enabled = false } },
+                        objectiveDispatchPreview: preview);
+
+                    VoyageDispatchResult? blocked = await service.ValidatePreconditionsAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "force cannot help",
+                        VesselId = vessel.Id,
+                        ObjectiveId = objective.Id,
+                        ObjectiveAuthContext = McpTestCaller.Operator,
+                        ForcePreflight = true,
+                        Missions = new List<MissionDescription> { new MissionDescription("Do", "Another issue blocks this.") }
+                    }).ConfigureAwait(false);
+                    AssertNotNull(blocked, "A second blocking issue must refuse the dispatch even with force.");
+                    AssertEqual(400, blocked!.StatusCode);
+                    AssertContains("objective_dispatch_not_ready", JsonSerializer.Serialize(blocked.Value));
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events
+                        .EnumerateByTypeAsync("objective.preflight_overridden", 50).ConfigureAwait(false);
+                    AssertFalse(events.Any(evt => evt.EntityId == objective.Id),
+                        "a refused dispatch records no override");
+                }
+            });
+
             await RunTest("DispatchAsync_UsesObjectiveSuggestedPipelineForPreviewAndExecution", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
