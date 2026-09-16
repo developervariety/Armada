@@ -165,6 +165,21 @@ All notable changes to Armada are documented in this file.
   process exits, with a brief period of downtime and no orphaned child process.
   The dashboard Server page gains a Restart Server button beside Stop Server,
   disabled in proxy mode and behind the same confirm dialog.
+### Context system (design)
+
+- Added a design for a progressive-disclosure context system: a small always-on
+  core (the safety, boundary, proof, and land-then-sync non-negotiables plus the
+  index and how to retrieve more) and retrievable leaves fetched by topic on
+  demand, for orchestrators and every captain persona. The design defines the
+  chunk front-matter (`topic`, `summary`, `read_when`, `applies_to`, `tier`), a
+  generated topic-to-path manifest, a docs-and-memory mode for
+  `armada_context_pack` that always returns the core and fails safe, a bounded
+  typed relevance-router decision (`context_route`, D27) that only widens and
+  orders the optional leaf set and never gates a core rule, per-persona brief
+  slimming, and the sole-memory-source contract. See
+  `docs/design/context-system.md`. A worked example rewrites the largest
+  `docs/armada-ops.md` chapter as a chunk under `docs/ops/` with an example
+  manifest; the original chapter is unchanged. Design only; no runtime change.
 
 ### Build and deployment
 
