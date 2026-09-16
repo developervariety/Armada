@@ -6,6 +6,32 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Typed decisions: dispatch preflight text half (D5)
+
+- The objective dispatch preview (`preview_objective_dispatch`, the autonomous
+  scheduler, and operator dispatch) now consults the D5 `preflight` typed
+  decision AFTER the deterministic preflight block. The deterministic facts
+  (Q1/Q2/Q3/Q10/Q11) and the `objective_preflight_incomplete` Error issue are
+  computed first and stand regardless of the model; the model only ADDS issues.
+- The model answers the text-half battery the code cannot settle: one noul per
+  question phrased as the DEFECT for Q1 (premise versus the deterministic facts),
+  Q4, Q5, Q6, Q7, Q8, Q9 and Q12, plus a Q13 choice `{none, needs_owner_ruling,
+  needs_repo_fact}`. Its state carries the title, description, acceptance
+  criteria, non-goals, refinement summary, Kind, vessel name, pipeline stages,
+  and the deterministic `facts` object, redacted before egress.
+- Ships Gate at threshold `0.80`. In Gate mode a question answered at or above
+  the threshold adds an Error issue `objective_preflight_model_flag` to the
+  preview — the autonomous scheduler already skips dispatch on any Error issue,
+  and its `objective_scheduler.skipped_dispatch_preflight` event lists the code.
+  A Q13 `needs_owner_ruling` also posts one owner-addressed board note. The model
+  never dispatches, never lands, and never removes a deterministic issue; below
+  the threshold, unavailable, or Off leaves the deterministic preview unchanged.
+- Follows the shared adapter contract: the deterministic preview is the fallback
+  for an Off decision, an unavailable model, and a below-threshold answer; the
+  call is bounded by the settings timeout on the caller's token, fails closed to
+  the deterministic rule, records a `state_sha256` and byte count but never the
+  state, and never throws into the preview.
+
 ### Design docs for two Off-by-default typed decisions
 
 - Added `docs/design/typed-decision-leak-hunk.md` (decision `leak_hunk`, D7):

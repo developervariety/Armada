@@ -961,6 +961,44 @@ namespace Armada.Test.Unit.Suites.Services
                         "a sibling tip behind the cited commit fails question 11");
                 }
             }).ConfigureAwait(false);
+
+            await RunTest("The D5 preflight model runs after the deterministic block and adds a blocking flag", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    PreviewHarness harness = await PreviewHarness.CreateAsync(testDb, includeUnitTestCommand: true).ConfigureAwait(false);
+                    Objective objective = harness.CreateReadyObjective("d5-preflight-model-preview");
+
+                    // Before: no adapter wired, the preview is fully deterministic and ready.
+                    ObjectiveDispatchPreview before = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+                    AssertTrue(before.IsReady, "the ready objective passes the deterministic block");
+                    AssertFalse(before.Issues.Any(issue => issue.Code == PreflightTextAdapter.ModelFlagIssueCode),
+                        "no model flag exists before the adapter is wired");
+                    AssertTrue(before.Preflight.Facts.Count > 0, "the deterministic block computed its facts first");
+
+                    // After: wire the D5 adapter with a model that flags Q1 at the threshold.
+                    Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+                    {
+                        ["q1"] = new TypedAnswer { Type = "noul", Noul = 0.96, Confidence = 0.96 }
+                    };
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient(
+                        new TypedDecisionResult { Available = true, Answers = answers, InputTokens = 10, OutputTokens = 4, LatencyMs = 9 });
+                    TypedDecisionSettings tdSettings = new TypedDecisionSettings { Mode = TypedDecisionModeEnum.Gate };
+                    tdSettings.Decisions[PreflightTextAdapter.DecisionPoint].Mode = TypedDecisionModeEnum.Gate;
+                    tdSettings.Decisions[PreflightTextAdapter.DecisionPoint].GateThreshold = 0.80;
+                    TypedDecisionRecorder recorder = new TypedDecisionRecorder(testDb.Driver, new LoggingModule());
+                    harness.Service.PreflightAdapter = new PreflightTextAdapter(
+                        tdSettings, client, recorder, new FakeOwnerDecisionNotePoster(), new LoggingModule());
+
+                    ObjectiveDispatchPreview after = await harness.Service.PreviewAsync(harness.Auth, objective).ConfigureAwait(false);
+
+                    AssertEqual(1, client.Calls, "the preview consulted the model once");
+                    AssertTrue(after.Issues.Any(issue => issue.Code == PreflightTextAdapter.ModelFlagIssueCode
+                        && issue.Severity == ReadinessSeverityEnum.Error), "the model flag is a blocking Error issue in the preview");
+                    AssertEqual(before.ErrorCount + 1, after.ErrorCount, "the model added exactly one blocking finding");
+                    AssertFalse(after.IsReady, "a model flag makes the preview not ready, so the scheduler skips it");
+                }
+            }).ConfigureAwait(false);
         }
 
         private static void SetAnswer(ObjectivePreflight preflight, int number, ObjectivePreflightAnswerEnum answer)

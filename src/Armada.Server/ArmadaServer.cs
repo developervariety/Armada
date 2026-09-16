@@ -635,6 +635,21 @@ namespace Armada.Server
                 await _RemoteTriggerService.FireBoardWakeAsync(target!, text, token).ConfigureAwait(false);
             };
 
+            // D5 preflight text-half adapter. Wired only when the live typed-decision client exists,
+            // so with the null client the preview stays fully deterministic. It runs after the
+            // deterministic preflight block in the preview and posts an owner-addressed board note for
+            // a Q13 owner ruling through the coordination service, targeting the registered AgentWake
+            // session the same way the board wake emitter above does.
+            if (_TypedDecisionClient is TypeSafeDecisionClient)
+            {
+                CoordinationOwnerDecisionNotePoster ownerNotePoster = new CoordinationOwnerDecisionNotePoster(
+                    _CoordinationService,
+                    () => _RemoteTriggerService.GetAgentWakeSession()?.ParticipantKey,
+                    _Logging);
+                _ObjectiveDispatchPreviewService.PreflightAdapter = new PreflightTextAdapter(
+                    _Settings.TypedDecisions, _TypedDecisionClient, _TypedDecisionRecorder, ownerNotePoster, _Logging);
+            }
+
             _CaptainTools = new CaptainToolService(
                 _Logging,
                 _Database,

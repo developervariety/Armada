@@ -244,6 +244,19 @@ preflight. It overrides only the preflight; any other blocking issue still
 refuses the dispatch, and the override is recorded as an
 `objective.preflight_overridden` event naming the operator.
 
+After the deterministic preflight the preview also consults the D5 `preflight`
+typed decision when it is enabled (`typedDecisions`, ships `Gate`). It reads the
+title, description, acceptance criteria, non-goals, refinement summary, Kind,
+vessel name, pipeline stages and the deterministic facts, and asks the text-half
+battery questions the code cannot settle (Q1 premise-versus-facts, Q4–Q9, Q12,
+and a Q13 owner-question choice). A question the model answers at or above the
+threshold adds a blocking `objective_preflight_model_flag` finding to the
+preview, which the autonomous scheduler skips dispatch on exactly as it does for
+any other Error finding; a Q13 owner ruling also posts an owner-addressed board
+note. The model only adds findings — it never dispatches, lands, or removes a
+deterministic finding — and when the decision is `Off`, unavailable, or below the
+threshold the preview is exactly the deterministic result.
+
 ## Errors
 
 Armada uses two error levels:

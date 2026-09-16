@@ -1999,6 +1999,28 @@ model, where a rule hard-block always wins. The three wired today are:
 - `runtime_failure` — only a bare Crash is offered for change, and only ever
   upgraded to the more conservative UsageLimit or AuthFailure; a recognised
   signature is never downgraded and a crash is never read as clean.
+
+One decision point reads the objective dispatch preview:
+
+- **D5 `preflight`** (ships `Gate`, threshold `0.80`) runs in
+  `ObjectiveDispatchPreviewService` **after** the deterministic preflight block,
+  so the deterministic facts (Q1/Q2/Q3/Q10/Q11) and the
+  `objective_preflight_incomplete` Error issue are settled first and stand
+  regardless of the model. It asks the text-half battery the code cannot settle:
+  one noul per question, each phrased as the DEFECT, for Q1 (the premise versus
+  the deterministic facts), Q4, Q5, Q6, Q7, Q8, Q9 and Q12, plus a Q13 choice
+  `{none, needs_owner_ruling, needs_repo_fact}`. Its state carries the title,
+  description, acceptance criteria, non-goals, refinement summary, Kind, vessel
+  name, pipeline stages, and the deterministic `facts`, redacted before egress.
+  In `Gate` a question at or above the threshold adds an Error issue
+  `objective_preflight_model_flag` — the autonomous scheduler already skips on any
+  Error issue and its `objective_scheduler.skipped_dispatch_preflight` event lists
+  the code — and a Q13 `needs_owner_ruling` also posts one owner-addressed board
+  note. The model only ADDS issues; it never dispatches, never lands, and never
+  removes a deterministic issue. Below the threshold, unavailable, or `Off`
+  leaves the deterministic preview unchanged (`Shadow` adds the flags as advisory
+  `preflight_q<n>_model` warnings instead).
+
 Two decision points read the papercut grouping:
 
 - **D6 `papercut_merge`** (ships `Gate`) runs at listing time

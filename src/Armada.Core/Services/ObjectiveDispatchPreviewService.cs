@@ -42,6 +42,18 @@ namespace Armada.Core.Services
 
         #endregion
 
+        #region Public-Members
+
+        /// <summary>
+        /// The D5 preflight text-half adapter, run after the deterministic preflight block to add
+        /// model flags to the preview. Null leaves the preview fully deterministic, which is the
+        /// operationally-off state; it is set after construction only when the live typed-decision
+        /// client exists, so every construction site and test is unchanged by default.
+        /// </summary>
+        public PreflightTextAdapter? PreflightAdapter { get; set; }
+
+        #endregion
+
         #region Constructors-and-Factories
 
         /// <summary>
@@ -180,6 +192,12 @@ namespace Armada.Core.Services
             List<Captain> captains = await ReadCaptainsAsync(auth, token).ConfigureAwait(false);
             EvaluateCaptainCoverage(pipeline, captains, captainAssignments, missionDescriptions, result);
             await EvaluateChecksAsync(auth, vessel, result, token).ConfigureAwait(false);
+
+            // D5 preflight text half. Runs LAST, after the deterministic block computed the facts and
+            // resolved the pipeline, so its state carries both. The model only adds issues; the
+            // deterministic issues already in the preview stand regardless of what the model returns.
+            if (PreflightAdapter != null)
+                await PreflightAdapter.EvaluateAsync(objective, vessel, pipeline, result, token).ConfigureAwait(false);
 
             FinalizeResult(result);
             return result;
