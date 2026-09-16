@@ -173,6 +173,14 @@ namespace Armada.Server
             if (String.IsNullOrEmpty(dock.WorktreePath) || String.IsNullOrEmpty(dock.BranchName))
                 return;
 
+            // A Judge PASS held for operator review never lands until an operator clears the hold.
+            if (mission.HeldForOperatorReview)
+            {
+                _Logging.Warn(_Header + "refusing to land mission " + mission.Id + ": held for operator review ("
+                    + (mission.HeldForOperatorReviewReason ?? "no reason recorded") + ")");
+                return;
+            }
+
             _Logging.Info(_Header + "handling landing for mission " + mission.Id);
 
             // Look up the vessel and voyage for settings resolution

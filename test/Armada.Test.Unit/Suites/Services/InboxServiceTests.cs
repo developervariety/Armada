@@ -36,6 +36,37 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("GetInboxAsync surfaces a Judge PASS held for operator review", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Mission held = new Mission("Judge held")
+                    {
+                        Persona = "Judge",
+                        Status = MissionStatusEnum.WorkProduced,
+                        HeldForOperatorReview = true,
+                        HeldForOperatorReviewReason = "review substance is asserted, not evidenced"
+                    };
+                    await testDb.Driver.Missions.CreateAsync(held).ConfigureAwait(false);
+                    Mission notHeld = new Mission("Judge produced")
+                    {
+                        Persona = "Judge",
+                        Status = MissionStatusEnum.WorkProduced
+                    };
+                    await testDb.Driver.Missions.CreateAsync(notHeld).ConfigureAwait(false);
+
+                    InboxService service = CreateService(testDb.Driver);
+                    List<InboxItem> items = await service.GetInboxAsync().ConfigureAwait(false);
+
+                    List<InboxItem> holds = items.Where(item => item.Kind == "judge_pass_held").ToList();
+                    AssertEqual(1, holds.Count, "only the held mission is listed as a held Judge PASS");
+                    AssertEqual(held.Id, holds[0].EntityId);
+                    AssertEqual(InboxSeverityEnum.Warning, holds[0].Severity);
+                    AssertContains("review substance is asserted, not evidenced", holds[0].Detail, "the item names the hold reason");
+                    AssertContains("armada_review_hold", holds[0].Detail, "the item names the operator action");
+                }
+            });
+
             await RunTest("GetInboxAsync marks a LandingFailed mission as critical", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

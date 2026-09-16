@@ -636,6 +636,15 @@ applies the same rule to any `Pending` record it finds on a `Cancelled` or
 ended by any other path and records left from before the rule. Such a record is
 no longer counted in `PendingChecksRequired`. A re-dispatch arms fresh Checks.
 
+When the D4 `review_substance` decision holds a thin PASS for operator review,
+the PASS still meets the Check gate above, but a PASS that passes it does not
+hand off or land. The mission stays `WorkProduced` with `HeldForOperatorReview`
+set, and the inbox lists it as `judge_pass_held`. Read the Judge output and the
+diff, then call `armada_review_hold` with `action` `clear` (the PASS proceeds
+through the normal handoff or landing path) or `fail` (the mission fails), a
+`reason`, and your `operator` name. Each writes a `mission.hold_cleared` or
+`mission.hold_failed` event. Nothing clears a hold for you.
+
 The table applies to voyages that contain implementation work. A fully
 report-only voyage has no implementation Checks by design. Its Judge validates
 the report structure and evidence, not a code diff or a green Build and

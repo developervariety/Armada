@@ -202,6 +202,24 @@ A session that sends no header receives no wake banner, and must heartbeat or
 read the board with its `participantKey` between monitor-loop iterations to see
 addressed work at all.
 
+The `inbox` tool (and the REST inbox built from the same service) lists a Judge
+PASS held for operator review as kind `judge_pass_held`. Resolve it with
+`armada_review_hold`:
+
+| Argument | Required | Meaning |
+| --- | --- | --- |
+| `action` | yes | `clear` releases the hold and the PASS proceeds through the normal handoff or landing path; `fail` fails the mission and cancels its dependent stages |
+| `missionId` | yes | Held mission (`msn_` prefix) |
+| `reason` | yes | Recorded on the event |
+| `operator` | yes | Recorded on the event |
+
+The tool refuses any caller other than a global administrator
+(`global_administrator_required`), a missing argument (`missing_reason`,
+`missing_operator`, `missing_mission_id`, `invalid_action`), and a mission that
+is not held (`not_held`). `clear` writes `mission.hold_cleared` and `fail`
+writes `mission.hold_failed`, each naming the operator and the reason. The model
+never resolves a hold and nothing resolves one automatically.
+
 When the D11 `inbox_triage` typed decision is enabled (`Gate`), the `inbox`
 tool's items and the `armada_coordination_read` notes each carry an extra
 `attention` field (`informational`, `today`, `this_hour`, or

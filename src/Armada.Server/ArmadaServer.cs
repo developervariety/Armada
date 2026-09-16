@@ -1821,7 +1821,8 @@ namespace Armada.Server
                 inboxTriageAdapter: _InboxTriageAdapter,
                 followUpRoutingAdapter: _FollowUpRoutingAdapter,
                 contextRetrieval: _ContextRetrieval,
-                contextParticipantKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey);
+                contextParticipantKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey,
+                missionService: _MissionService);
 
         }
 

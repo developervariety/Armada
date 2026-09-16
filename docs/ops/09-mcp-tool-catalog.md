@@ -32,8 +32,9 @@ intervention from the operator, ordered most-urgent first. It answers "is there
 anything waiting on me?" in one call instead of polling each entity. Two kinds
 of item qualify:
 
-- **Human-in-the-loop**: a mission in Review to approve or reject, or a
-  deployment pending approval.
+- **Human-in-the-loop**: a mission in Review to approve or reject, a Judge PASS
+  held for operator review (`judge_pass_held`; resolve it with
+  `armada_review_hold`), or a deployment pending approval.
 - **Human-out-of-the-loop**: a failed mission, a mission whose work could not
   land, a failed merge, a failed or verification-failed deployment, or a
   stalled captain.
@@ -84,8 +85,8 @@ expiry and offer **Quarantine** and **Lift Quarantine**.
 | Risk | Tools |
 | --- | --- |
 | Read | `armada_voyage_status`, `armada_mission_status`, `armada_mission_output`, `armada_get_mission_diff`, `armada_get_mission_log` |
-| Write | `armada_create_mission`, `armada_update_mission`, `armada_transition_mission_status`, `armada_reconcile_terminal_voyage_missions` (`dryRun=false`; see 8.26) |
-| Execute | `armada_dispatch`, `armada_restart_mission`, `armada_retry_landing` |
+| Write | `armada_create_mission`, `armada_update_mission`, `armada_transition_mission_status`, `armada_reconcile_terminal_voyage_missions` (`dryRun=false`; see 8.26), `armada_review_hold` (`action=fail`) |
+| Execute | `armada_dispatch`, `armada_restart_mission`, `armada_retry_landing`, `armada_review_hold` (`action=clear` lands or hands off the held PASS) |
 | Interrupt | `armada_cancel_mission`, `armada_cancel_voyage` |
 | Destructive | `armada_purge_mission`, `armada_delete_missions`, `armada_purge_voyage`, `armada_delete_voyages` |
 
@@ -98,6 +99,15 @@ when no active dock will land it. A refusal names its reason, for example
 `Manual completion blocked: manual_completion_ancestry_unavailable`, and leaves
 the mission unchanged. Treat the reason as the finding. Do not retry the same
 request on another surface.
+
+`armada_review_hold` resolves a Judge PASS held for operator review by the D4
+`review_substance` decision. It takes `action` (`clear` or `fail`),
+`missionId`, `reason`, and `operator`, all required, and refuses any caller
+other than a global administrator. `clear` releases the hold and runs the
+handoff or landing the hold stopped; `fail` fails the mission and cancels its
+dependent stages. Each records `mission.hold_cleared` or `mission.hold_failed`
+naming the operator and reason. A mission that is not held is refused with
+`not_held`.
 
 `armada_mission_output` pages the authoritative safe report artifact. Follow
 `nextOffset` until `hasMore` is false. Then verify `sha256`, `finalized`, and

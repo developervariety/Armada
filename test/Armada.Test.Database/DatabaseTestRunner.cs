@@ -99,6 +99,7 @@ namespace Armada.Test.Database
             await RunTest("TerminalVoyage_Mission_Reconciliation_Persists_And_Is_Idempotent", "Operational", () => new TerminalVoyageReconciliationDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyAsync(token), token);
             await RunTest("TerminalVoyage_Reconciled_Marker_Backfill_Matches_Reason_Rule", "Operational", () => new TerminalVoyageReconciledMarkerBackfillTests(_Driver, _Settings, _NoCleanup).VerifyAsync(token), token);
             await RunTest("Vessel_GitHubTokenOverride_Create_Keep_Replace_Clear_Reopen", "Operational", () => new VesselGitHubTokenOverrideDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyAsync(token), token);
+            await RunTest("Mission_OperatorReviewHold_Create_Keep_Clear_Reopen", "Operational", () => new MissionOperatorHoldDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyAsync(token), token);
 
             Console.WriteLine("--- Tenant/User/Credential ---");
             await RunTest("Tenant_Create_Read_Update_Enumerate", "Auth", () => TestTenantCrudAsync(token), token);

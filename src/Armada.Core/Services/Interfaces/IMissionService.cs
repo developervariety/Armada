@@ -89,6 +89,29 @@ namespace Armada.Core.Services.Interfaces
         Task<Mission> ApproveReviewAsync(string missionId, string? reviewedByUserId, string? comment = null, bool conditional = false, CancellationToken token = default);
 
         /// <summary>
+        /// Clear a Judge PASS held for operator review. The held PASS then proceeds through the normal
+        /// handoff or landing path, and a <c>mission.hold_cleared</c> event names the operator and reason.
+        /// Only an operator calls this; nothing clears a hold automatically.
+        /// </summary>
+        /// <param name="missionId">Held mission identifier.</param>
+        /// <param name="operatorName">Operator clearing the hold. Required.</param>
+        /// <param name="reason">Why the hold is cleared. Required.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The mission after the hold is cleared and the PASS proceeds.</returns>
+        Task<Mission> ClearOperatorReviewHoldAsync(string missionId, string operatorName, string reason, CancellationToken token = default);
+
+        /// <summary>
+        /// Fail a Judge PASS held for operator review. The mission becomes Failed, its dependent stages
+        /// are cancelled, and a <c>mission.hold_failed</c> event names the operator and reason.
+        /// </summary>
+        /// <param name="missionId">Held mission identifier.</param>
+        /// <param name="operatorName">Operator failing the hold. Required.</param>
+        /// <param name="reason">Why the held PASS is failed. Required.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The failed mission.</returns>
+        Task<Mission> FailOperatorReviewHoldAsync(string missionId, string operatorName, string reason, CancellationToken token = default);
+
+        /// <summary>
         /// Deny a mission that is waiting at a review gate.
         /// </summary>
         /// <param name="missionId">Mission identifier.</param>
