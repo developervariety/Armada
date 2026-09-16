@@ -1910,6 +1910,53 @@ the `deferred-facts.md` lookup use the folder's real name.
 - The root cannot be read: no folder is chosen, the brief and a Warn log line
   give the error, and the dispatch continues.
 
+### Typed decisions
+
+The typed-decision system (TypeSafe Jev) is an advisory classifier the admiral
+can consult at a decision point. It is **off by default** and, in this state,
+changes nothing: every decision runs its deterministic rule exactly as before.
+The system is a foundation only until an adapter lane wires a decision point; no
+consumer calls it yet.
+
+The safety contract holds whenever it is enabled:
+
+- The model never approves a Judge PASS, never lands, never dispatches, and
+  never silences an alert. Its gated action can only make recovery **more
+  conservative** (for example, hold a rescue that the rule would have run).
+- It never converts a rule hard-block into a rescue: a deterministic block
+  always wins.
+- It gates only at or above the decision's confidence threshold; below it, the
+  rule stands.
+- Every call is bounded by the settings timeout, linked to the caller's token,
+  fails closed to the rule, and never throws into the caller. A slow decision is
+  unavailable, not late.
+- Nothing egresses unredacted. `DecisionStateRedactor` removes Armada ids,
+  absolute paths, hosts, URLs, commit hashes, and key-shaped tokens, then
+  truncates to the state cap. The Bearer key is read from the environment only.
+
+Configure it under `typedDecisions` in `settings.json` (see the README settings
+table). The global `mode` is `Off`, `Shadow`, or `Gate` and is the single kill
+switch; each entry in `decisions` has its own `mode` and `gateThreshold`, and
+the effective mode is the minimum of the two. `Shadow` consults the model and
+records the answer while the rule stands; it is also the demotion target for a
+decision operators reverse too often. The six Phase-1 decisions ship in `Gate`
+and every other decision is `Off`, but the system is operationally off until the
+key is confirmed in the container (no key means the null client). `mode` is
+hot-reloaded — a change takes effect without a restart and survives an MCP
+settings write.
+
+Every enabled call emits one event: `typed_decision.gated` when a gate at or
+above threshold changed the outcome, `typed_decision.shadow` when the rule stood
+(a Shadow-mode call, or a Gate-mode call below the threshold), and
+`typed_decision.unavailable` otherwise. Each event carries the decision, the
+rule verdict, the model's answers and confidences, tokens, latency, the gate
+outcome, and the state's SHA-256 and byte count — the state itself is never
+recorded. Read the flow with:
+
+```sql
+select payload from events where event_type like 'typed_decision.%';
+```
+
 ### Vessel Workspace
 
 The Workspace surface (dashboard `Workspace` page, `POST

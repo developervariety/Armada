@@ -306,6 +306,10 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CodeContextTimeoutsTests());
             runner.AddSuite(new DeepSeekEmbeddingClientTests());
             runner.AddSuite(new DeepSeekInferenceClientTests());
+            runner.AddSuite(new TypeSafeDecisionClientTests());
+            runner.AddSuite(new DecisionStateRedactorTests());
+            runner.AddSuite(new TypedDecisionRecorderTests());
+            runner.AddSuite(new TypedDecisionSettingsTests());
             runner.AddSuite(new OpenCodeServerInferenceClientTests());
             runner.AddSuite(new OpenCodeServerInferenceClientNegativePathTests());
             runner.AddSuite(new OpenCodeServerLauncherTests());

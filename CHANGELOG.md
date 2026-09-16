@@ -61,6 +61,44 @@ All notable changes to Armada are documented in this file.
   An empty, overflowed, unknown or differing set keeps the earlier behaviour,
   and the recovery-budget, policy-refusal and read-only hard blocks still win.
   This is the deterministic fallback the typed foreign-test decision builds on.
+### Typed-decision client foundation (TypeSafe Jev), off by default
+
+- A new advisory typed-decision system is wired into the admiral but does
+  nothing until the owner enables it and the change deploys. It never approves a
+  Judge PASS, never lands, never dispatches, and never silences an alert; a
+  deterministic rule stays the tested fallback at every decision point. The
+  model can only make recovery MORE conservative (for example hold a rescue),
+  never convert a rule hard-block into a rescue, and it gates only at or above
+  the per-decision confidence threshold.
+- `ITypedDecisionClient` with `TypeSafeDecisionClient` (one POST to
+  `{baseUrl}/v1/systemone`, Bearer key read from the environment, timeout from
+  settings, no retries) and `NullTypedDecisionClient`. Every timeout, non-2xx,
+  or parse error returns an unavailable result with a reason; the client never
+  throws into a caller. A decision slower than the timeout is unavailable, not
+  late.
+- Settings section `typedDecisions` with a global mode (`Off`, `Shadow`, or
+  `Gate`; the single kill switch), base URL, model, key env var name, timeout,
+  state-character cap, a per-decision map with per-decision mode and gate
+  threshold, and a captain-tool sub-block. The effective mode of a decision is
+  the minimum of the global mode and the decision's own mode. The six Phase-1
+  decisions ship in `Gate`; every other decision is `Off` until its adapter lane
+  lands. The system is operationally off until the key is confirmed in the
+  container (no key means the null client, whatever the mode) and no consumer
+  calls the client in this row. The section is in the hot-reload swap list, so
+  the mode flips live and an MCP settings write cannot clobber it.
+- `DecisionStateRedactor` removes Armada ids, absolute paths, hosts, URLs,
+  commit hashes, and key-shaped tokens before any state egresses, then truncates
+  to the character cap while preserving `[ARMADA:` marker lines. A guard test
+  proves no protected class survives and that a product identifier does.
+- `TypedDecisionRecorder` writes one event per call
+  (`typed_decision.gated` when a gate at or above threshold changed the outcome,
+  `typed_decision.shadow` when the rule stood — a Shadow-mode call or a Gate-mode
+  call below threshold, `typed_decision.unavailable` otherwise) carrying the
+  decision, rule verdict, answers, confidences, tokens, latency, gate outcome,
+  and the state's SHA-256 and byte count — never the state itself.
+- `ArmadaServer` constructs the live client only when the mode is not `Off` and
+  the key env var is present, else the null client, and logs which and why at
+  startup. No consumer calls the client in this row.
 
 ### The admiral image embeds its build commit
 

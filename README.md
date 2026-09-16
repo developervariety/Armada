@@ -249,6 +249,35 @@ off). A deployment applies fleet policy from settings, not from C#.
 - Optional [Routing V2](docs/USAGE_ROUTING.md) replaces legacy preference overrides when enabled. It preserves persona preferences and moves routine work to approved fallback accounts when allowance runs low. The Dashboard Settings hub’s Routing tab supports account usage, reserve thresholds, budget planning, and draft previews. Collectors support Codex, Claude, Cursor, OpenCode Go, and normalized local snapshots. An account can own a separate captain login for Claude Code, Codex, OpenCode, or Cursor; it is off unless configured, and a provider limit on one captain holds its whole account. A logged-out, expired, or held account blocks assignment with a named reason code in status and the usage preview.
 - The same Routing tab edits those fields and saves only the fields that changed. `modelTier` and `voyageDispatch` hot-reload; `modelProviders` and additional personas/pipelines/templates load at startup.
 
+### Typed decisions (advisory, off by default)
+
+An advisory classifier (TypeSafe Jev) the admiral can consult at a decision
+point. It is off by default and changes nothing until an adapter lane enables a
+decision and it deploys. When enabled it can only make recovery more
+conservative, never lands or dispatches, gates only at or above the confidence
+threshold, fails closed to the deterministic rule, and never egresses
+unredacted state. Configure it under `typedDecisions` in `settings.json`:
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `mode` | `Gate` (off until key confirmed) | Global cap and kill switch: `Off`, `Shadow`, or `Gate`. Hot-reloaded. |
+| `baseUrl` | `https://api.typesafe.ai` | Provider base URL; the client POSTs to `{baseUrl}/v1/systemone`. |
+| `model` | `jev-latest` | Model id sent with each request. |
+| `apiKeyEnv` | `ARMADA_TYPESAFE_KEY` | Environment variable holding the Bearer key. The key is read from the environment only. |
+| `timeoutSeconds` | `10` | Per-request timeout; a slower decision is unavailable, not late. |
+| `maxStateChars` | `8000` | Character cap on redacted state per request. |
+| `decisions` | six `Gate`, rest `Off` | Per-decision `mode` (`Off`/`Shadow`/`Gate`) and `gateThreshold`. Effective mode is the minimum of the global and per-decision mode. |
+| `captainTool` | disabled | Captain-facing tool: `enabled`, `maxCallsPerMission`, `maxStateChars`. |
+
+The system is operationally off until the key is confirmed in the container: no
+key means the null client, whatever the mode, and no consumer calls the client
+yet. `mode` hot-reloads and is in the settings reference-swap list, so an MCP
+settings write cannot clobber it. Every enabled call emits a
+`typed_decision.gated`, `typed_decision.shadow`, or `typed_decision.unavailable`
+event carrying the decision, verdicts, confidences, tokens, latency, and the
+state's hash and byte count — never the state itself. See
+[Typed decisions](docs/armada-ops.md) for the full contract.
+
 ### Code Index, Context Packs, and Graph Search
 
 Armada owns a repository code index for dispatch-time retrieval:

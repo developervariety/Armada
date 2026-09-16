@@ -696,6 +696,17 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Typed-decision system (TypeSafe Jev) policy. Off by default: no decision point consults
+        /// the model until the owner enables it and the change is deployed. In the reference-swap
+        /// hot-reload list so the mode flips live and an MCP settings write cannot clobber it.
+        /// </summary>
+        public TypedDecisionSettings TypedDecisions
+        {
+            get => _TypedDecisions;
+            set => _TypedDecisions = value ?? new TypedDecisionSettings();
+        }
+
+        /// <summary>
         /// Near-instant runtime crash-loop detection and captain benching policy.
         /// </summary>
         public CrashLoopDetectionSettings CrashLoopDetection
@@ -943,6 +954,7 @@ namespace Armada.Core.Settings
         private ModelProvidersSettings _ModelProviders = new ModelProvidersSettings();
         private ArchitectSettings? _Architect;
         private AutonomousRecoverySettings _AutonomousRecovery = new AutonomousRecoverySettings();
+        private TypedDecisionSettings _TypedDecisions = new TypedDecisionSettings();
         private CrashLoopDetectionSettings _CrashLoopDetection = new CrashLoopDetectionSettings();
         private CaptainQuarantineSettings _CaptainQuarantine = new CaptainQuarantineSettings();
         private ResourcePressureAdmissionSettings _ResourcePressureAdmission = new ResourcePressureAdmissionSettings();
@@ -1083,6 +1095,10 @@ namespace Armada.Core.Settings
             // Read through the shared settings instance on every use.
             CaptainQuarantine = source.CaptainQuarantine;
             AutonomousRecovery = source.AutonomousRecovery;
+            // Swap the whole TypedDecisions section by reference so the mode flips hot and an MCP
+            // settings write that serializes the in-memory copy cannot clobber it (the 2026-09-08
+            // provider-wipe class of bug).
+            TypedDecisions = source.TypedDecisions;
             CrashLoopDetection = source.CrashLoopDetection;
             AutonomousObjectiveScheduler = source.AutonomousObjectiveScheduler;
             IncidentLifecycle = source.IncidentLifecycle;

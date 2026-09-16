@@ -114,6 +114,11 @@ namespace Armada.Server
         private RunbookService _RunbookService = null!;
         private AutomaticCheckRunOrchestrator _AutomaticCheckRuns = null!;
         private AutonomousRecoveryOrchestrator _AutonomousRecovery = null!;
+        // Typed-decision foundation (TypeSafe Jev). Constructed off-by-default; adapters in later
+        // lanes read these. No consumer calls the client in this row.
+        private ITypedDecisionClient _TypedDecisionClient = new NullTypedDecisionClient();
+        private TypedDecisionRecorder _TypedDecisionRecorder = null!;
+        private HttpClient _TypedDecisionHttpClient = null!;
         private LongRunningJobService _LongRunningJobs = new LongRunningJobService();
         private ProviderProgressTracker _ProviderProgress = new ProviderProgressTracker();
         private TerminalMarkerTracker _TerminalMarkers = new TerminalMarkerTracker();
@@ -226,6 +231,32 @@ namespace Armada.Server
                 ? new OpenCodeServerInferenceClient(_Settings, _Logging, codeIndexHttpClient)
                 : new DeepSeekInferenceClient(_Settings.CodeIndex, _Logging, codeIndexHttpClient);
             _CodeIndex = new CodeIndexService(_Logging, _Database, _Settings, _Git, embeddingClient, inferenceClient);
+
+            // Typed-decision foundation. Construct the live client only when the global mode is not
+            // Off AND the key env var is present; otherwise the Null client keeps every decision
+            // point on its deterministic rule. The system is operationally off until the key is
+            // confirmed in the container, so this is the Null client until then, and no consumer
+            // calls the client in this row anyway. The recorder is always available; it writes only
+            // its own events and never touches dispatch, recovery, or gates.
+            _TypedDecisionHttpClient = new HttpClient();
+            _TypedDecisionRecorder = new TypedDecisionRecorder(_Database, _Logging);
+            string typedDecisionKeyEnv = _Settings.TypedDecisions.ApiKeyEnv;
+            bool typedDecisionKeyPresent = !String.IsNullOrWhiteSpace(typedDecisionKeyEnv)
+                && !String.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(typedDecisionKeyEnv));
+            if (_Settings.TypedDecisions.Mode != TypedDecisionModeEnum.Off && typedDecisionKeyPresent)
+            {
+                _TypedDecisionClient = new TypeSafeDecisionClient(_Settings.TypedDecisions, _Logging, _TypedDecisionHttpClient);
+                _Logging.Info(_Header + "typed decisions: TypeSafeDecisionClient (mode=" + _Settings.TypedDecisions.Mode + ", key present)");
+            }
+            else
+            {
+                _TypedDecisionClient = new NullTypedDecisionClient();
+                string why = _Settings.TypedDecisions.Mode == TypedDecisionModeEnum.Off
+                    ? "mode=Off"
+                    : "no key in " + typedDecisionKeyEnv;
+                _Logging.Info(_Header + "typed decisions: NullTypedDecisionClient (" + why + ")");
+            }
+
             if (_Settings.CodeIndex.Enabled)
             {
                 ScheduleStartupBaselineCacheWarmup(_CodeIndex);
