@@ -137,6 +137,51 @@ namespace Armada.Test.Unit.Suites.Services
                 await AssertUnavailable((HttpStatusCode)422, "http_422").ConfigureAwait(false);
             });
 
+            await RunTest("DecideAsync_422ValidationBody_ReportsRedactedFieldDetail", async () =>
+            {
+                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
+                    (HttpStatusCode)422,
+                    "{\"detail\":[{\"loc\":[\"body\",\"questions\",\"sev\",\"criteria\"],\"msg\":\"needs at least two levels\"," +
+                    "\"input\":\"bearer-test-key /srv/private/checkout\"}]}");
+                HttpClient http = new HttpClient(handler);
+                TypeSafeDecisionClient client = new TypeSafeDecisionClient(Settings(), new LoggingModule(), http);
+
+                TypedDecisionResult result = await client.DecideAsync(SampleRequest(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertFalse(result.Available, "422 must be unavailable");
+                AssertEqual("http_422", result.UnavailableReason);
+                AssertEqual("body > questions > sev > criteria: needs at least two levels", result.UnavailableDetail);
+            });
+
+            await RunTest("DecideAsync_ErrorMessageBody_StripsKeyAndRedacts", async () =>
+            {
+                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
+                    HttpStatusCode.BadRequest,
+                    "{\"error\":\"bad key bearer-test-key for msn_abc123 at /srv/example/x\"}");
+                HttpClient http = new HttpClient(handler);
+                TypeSafeDecisionClient client = new TypeSafeDecisionClient(Settings(), new LoggingModule(), http);
+
+                TypedDecisionResult result = await client.DecideAsync(SampleRequest(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual("http_400", result.UnavailableReason);
+                AssertNotNull(result.UnavailableDetail);
+                AssertFalse(result.UnavailableDetail!.Contains("bearer-test-key", StringComparison.Ordinal), "the key must not survive");
+                AssertFalse(result.UnavailableDetail.Contains("msn_abc123", StringComparison.Ordinal), "ids are redacted");
+                AssertFalse(result.UnavailableDetail.Contains("/srv/", StringComparison.Ordinal), "paths are redacted");
+            });
+
+            await RunTest("DecideAsync_ErrorBodyNotJson_DetailIsNull", async () =>
+            {
+                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(HttpStatusCode.BadGateway, "<html>bad gateway</html>");
+                HttpClient http = new HttpClient(handler);
+                TypeSafeDecisionClient client = new TypeSafeDecisionClient(Settings(), new LoggingModule(), http);
+
+                TypedDecisionResult result = await client.DecideAsync(SampleRequest(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual("http_502", result.UnavailableReason);
+                AssertNull(result.UnavailableDetail);
+            });
+
             await RunTest("DecideAsync_429_ReturnsUnavailableHttp429_NoRetry", async () =>
             {
                 CountingHttpMessageHandler handler = new CountingHttpMessageHandler(HttpStatusCode.TooManyRequests, "{}");

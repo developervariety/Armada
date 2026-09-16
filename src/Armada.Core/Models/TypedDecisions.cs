@@ -78,6 +78,12 @@ namespace Armada.Core.Models
         public string? UnavailableReason { get; init; }
 
         /// <summary>
+        /// When the provider rejected the request, the provider's own short explanation (for example
+        /// which question field was invalid), redacted and capped. Null when no explanation was sent.
+        /// </summary>
+        public string? UnavailableDetail { get; init; }
+
+        /// <summary>
         /// The answers keyed by question id. Empty when unavailable.
         /// </summary>
         public IReadOnlyDictionary<string, TypedAnswer> Answers { get; init; } = new Dictionary<string, TypedAnswer>();

@@ -266,7 +266,8 @@ namespace Armada.Core.Services
                 ["state_sha256"] = stateSha256,
                 ["state_bytes"] = stateBytes,
                 ["gate_outcome"] = gateOutcome,
-                ["unavailable_reason"] = result?.UnavailableReason
+                ["unavailable_reason"] = result?.UnavailableReason,
+                ["unavailable_detail"] = result?.UnavailableDetail
             };
 
             return JsonSerializer.Serialize(payload);

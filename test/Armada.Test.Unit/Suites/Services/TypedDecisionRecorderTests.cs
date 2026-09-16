@@ -22,7 +22,7 @@ namespace Armada.Test.Unit.Suites.Services
         private static TypedDecisionResult SampleResult(string? unavailable = null)
         {
             if (unavailable != null)
-                return new TypedDecisionResult { Available = false, UnavailableReason = unavailable };
+                return new TypedDecisionResult { Available = false, UnavailableReason = unavailable, UnavailableDetail = "provider said no" };
 
             Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>
             {
@@ -129,6 +129,7 @@ namespace Armada.Test.Unit.Suites.Services
                 RecorderPayload? payload = System.Text.Json.JsonSerializer.Deserialize<RecorderPayload>(evt.Payload!);
                 AssertEqual("unavailable", payload!.GateOutcome);
                 AssertEqual("timeout", payload.UnavailableReason);
+                AssertEqual("provider said no", payload.UnavailableDetail);
             });
 
             await RunTest("Recorder_WithMission_ScopesEventToMission", async () =>
@@ -208,6 +209,9 @@ namespace Armada.Test.Unit.Suites.Services
 
             [JsonPropertyName("unavailable_reason")]
             public string? UnavailableReason { get; set; }
+
+            [JsonPropertyName("unavailable_detail")]
+            public string? UnavailableDetail { get; set; }
 
             [JsonPropertyName("model")]
             public string? Model { get; set; }
