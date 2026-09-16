@@ -13,8 +13,9 @@ namespace Armada.Server.Routes
     using Armada.Core.Settings;
 
     /// <summary>
-    /// REST routes that log a subscription account in from the dashboard. Every route needs settings write permission
-    /// (administrator), like the settings routes. Account folders are derived on the server; no route accepts a path.
+    /// REST routes that log a subscription account in from the dashboard, delete an account, and hard-refresh its usage.
+    /// Every route needs settings write permission (administrator), like the settings routes. Account folders are derived
+    /// on the server; no route accepts a path.
     /// These routes are never captured in request history, because their bodies carry keys and codes.
     /// </summary>
     public class UsageAccountLoginRoutes
@@ -33,6 +34,7 @@ namespace Armada.Server.Routes
 
         private readonly ArmadaSettings _Settings;
         private readonly AccountLoginService _Logins;
+        private readonly UsageAccountAdminService _Admin;
         private readonly JsonSerializerOptions _JsonOptions;
 
         #endregion
@@ -42,11 +44,13 @@ namespace Armada.Server.Routes
         /// <summary>Instantiate.</summary>
         /// <param name="settings">Application settings.</param>
         /// <param name="logins">Account login service.</param>
+        /// <param name="admin">Account delete service.</param>
         /// <param name="jsonOptions">JSON serializer options.</param>
-        public UsageAccountLoginRoutes(ArmadaSettings settings, AccountLoginService logins, JsonSerializerOptions jsonOptions)
+        public UsageAccountLoginRoutes(ArmadaSettings settings, AccountLoginService logins, UsageAccountAdminService admin, JsonSerializerOptions jsonOptions)
         {
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Logins = logins ?? throw new ArgumentNullException(nameof(logins));
+            _Admin = admin ?? throw new ArgumentNullException(nameof(admin));
             _JsonOptions = jsonOptions ?? throw new ArgumentNullException(nameof(jsonOptions));
         }
 
@@ -179,6 +183,42 @@ namespace Armada.Server.Routes
                 .WithParameter(OpenApiParameterMetadata.Path("accountId", "Usage account ID"))
                 .WithResponse(200, OpenApiJson.For<AccountLoginStatus>("Login status"))
                 .WithSecurity("ApiKey"));
+
+            app.Delete("/api/v1/usage-accounts/{accountId}", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!IsPermitted(ctx, authz)) return Refuse(req, ctx);
+                try
+                {
+                    return (object)await _Admin.DeleteAsync(req.Parameters["accountId"]).ConfigureAwait(false);
+                }
+                catch (AccountLoginException ex) { return Error(req, ex); }
+            },
+            api => api
+                .WithTag("Settings")
+                .WithSummary("Delete a subscription account")
+                .WithDescription("Refused with account_has_captains (409) while the account lists captains. Otherwise cancels a pending login, removes the account and every persona route naming it, saves settings, forgets its usage state, and deletes the server-derived account folder. A homeDirectory that is not that folder is left in place (homeReason account_home_not_managed).")
+                .WithParameter(OpenApiParameterMetadata.Path("accountId", "Usage account ID"))
+                .WithResponse(200, OpenApiJson.For<UsageAccountDeleteResult>("What was removed"))
+                .WithSecurity("ApiKey"));
+
+            app.Post("/api/v1/usage-accounts/{accountId}/refresh", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!IsPermitted(ctx, authz)) return Refuse(req, ctx);
+                UsageAccountRefreshResult? result = await UsageRoutingService.For(_Settings)
+                    .RefreshAccountAsync(_Settings.ModelTier.UsageRouting, req.Parameters["accountId"]).ConfigureAwait(false);
+                if (result == null)
+                    return Error(req, new AccountLoginException(UsageAccountAdminService.ReasonNotFound, 404, "No saved usage account has this ID."));
+                return result;
+            },
+            api => api
+                .WithTag("Settings")
+                .WithSummary("Hard-refresh one subscription account's usage")
+                .WithDescription("Reads the account's usage now, bypassing refreshIntervalMinutes, and reruns its login check. An active provider retry-after is honoured: the provider is not called and the reason is usage_refresh_rate_limited with retryAfterUtc. Returns the account status after the refresh.")
+                .WithParameter(OpenApiParameterMetadata.Path("accountId", "Usage account ID"))
+                .WithResponse(200, OpenApiJson.For<UsageAccountRefreshResult>("Refresh outcome and account status"))
+                .WithSecurity("ApiKey"));
         }
 
         #endregion
@@ -247,19 +287,7 @@ namespace Armada.Server.Routes
                 throw new AccountLoginException(ReasonNotManaged, 409, "Set the Cursor account's launchCredentialFile to the server-derived key file before storing a key.");
         }
 
-        private static bool SamePath(string configured, string derived)
-        {
-            try
-            {
-                string left = Path.GetFullPath(configured).TrimEnd(Path.DirectorySeparatorChar);
-                string right = Path.GetFullPath(derived).TrimEnd(Path.DirectorySeparatorChar);
-                return String.Equals(left, right, StringComparison.Ordinal);
-            }
-            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
-            {
-                return false;
-            }
-        }
+        private static bool SamePath(string configured, string derived) => AccountLoginPaths.IsSamePath(configured, derived);
 
         private AccountLoginStatus BuildStatusAfterCancel(string accountId)
         {

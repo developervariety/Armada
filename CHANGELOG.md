@@ -8,6 +8,17 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- Subscription accounts can be deleted and hard-refreshed from the Dashboard. `DELETE
+  /api/v1/usage-accounts/{accountId}` is refused with `account_has_captains` (409) while the account lists
+  captains; otherwise it cancels a pending login, removes the account and every persona route that names it
+  (dropping a persona left with no routes), saves settings, forgets the account's usage state, and deletes the
+  server-derived account folder. A `homeDirectory` that is not that folder is left in place
+  (`account_home_not_managed`). It emits `account.deleted`. `POST /api/v1/usage-accounts/{accountId}/refresh`
+  reads that one account's usage now, bypassing `refreshIntervalMinutes`, and reruns its login check; an active
+  provider retry-after is still honoured (`usage_refresh_rate_limited` with `retryAfterUtc`, no provider call),
+  and concurrent refreshes of one account share one read. The account card gains **Refresh usage** with the
+  observed time, the Manage view gains **Delete account** with a confirm step, and the section states how often
+  usage refreshes and when data counts as Unknown.
 - Dashboard Codex device login reads the one-time code the Codex CLI prints on the line after its label, in
   color and with uneven group lengths; it no longer fails with `account_login_prompt_not_found`.
 - Memory proposals are stored in the database. A new `memory_proposals` table

@@ -1295,7 +1295,14 @@ namespace Armada.Server
                 UsageAccountSettings? account = _Settings.ModelTier.UsageRouting.Accounts.FirstOrDefault(a => String.Equals(a.Id, accountId, StringComparison.Ordinal));
                 if (account != null) usage.GetLoginProblem(account, DateTime.UtcNow);
             };
-            new UsageAccountLoginRoutes(_Settings, _AccountLogins, _JsonOptions)
+            UsageAccountAdminService accountAdmin = new UsageAccountAdminService(
+                _Settings,
+                _AccountLogins,
+                () => _Settings.SaveAsync(),
+                token => _Database.Captains.EnumerateAsync(token),
+                message => _Logging.Info(_Header + message),
+                (eventType, message, accountId) => _ = EmitEventAsync(eventType, message, "usage_account", accountId));
+            new UsageAccountLoginRoutes(_Settings, _AccountLogins, accountAdmin, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Fleets

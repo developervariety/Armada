@@ -1560,8 +1560,12 @@ using System.IO;
                         JsonHelper.ToJsonContent(new { ApiKey = "automated-key-value" })).ConfigureAwait(false)).StatusCode, "key");
                     AssertEqual(HttpStatusCode.Forbidden, (await client.GetAsync("/api/v1/usage-accounts/automated-login/login/status").ConfigureAwait(false)).StatusCode, "status");
                     AssertEqual(HttpStatusCode.Forbidden, (await client.PostAsync("/api/v1/usage-accounts/automated-login/login/cancel", null).ConfigureAwait(false)).StatusCode, "cancel");
+                    AssertEqual(HttpStatusCode.Forbidden, (await client.DeleteAsync("/api/v1/usage-accounts/automated-login").ConfigureAwait(false)).StatusCode, "delete");
+                    AssertEqual(HttpStatusCode.Forbidden, (await client.PostAsync("/api/v1/usage-accounts/automated-login/refresh", null).ConfigureAwait(false)).StatusCode, "refresh");
                 }
                 AssertEqual(HttpStatusCode.Unauthorized, (await _UnauthClient.PostAsync("/api/v1/usage-accounts/automated-login/login/home", null).ConfigureAwait(false)).StatusCode, "unauthenticated");
+                AssertEqual(HttpStatusCode.Unauthorized, (await _UnauthClient.DeleteAsync("/api/v1/usage-accounts/automated-login").ConfigureAwait(false)).StatusCode, "unauthenticated delete");
+                AssertEqual(HttpStatusCode.Unauthorized, (await _UnauthClient.PostAsync("/api/v1/usage-accounts/automated-login/refresh", null).ConfigureAwait(false)).StatusCode, "unauthenticated refresh");
             }).ConfigureAwait(false);
 
             await RunTest("UsageAccountLogin_Home_FromGlobalAdmin_DerivesFolderAndRejectsUnsafeIds", async () =>
@@ -1572,6 +1576,16 @@ using System.IO;
                 AssertContains(Path.Combine("accounts", "automated-login"), body.Replace("\\\\", "\\"), "the folder is derived under the data directory");
                 AssertEqual(HttpStatusCode.BadRequest, (await _AdminClient.PostAsync("/api/v1/usage-accounts/bad.id/login/home", null).ConfigureAwait(false)).StatusCode, "a dotted ID is refused");
                 AssertEqual(HttpStatusCode.OK, (await _AdminClient.GetAsync("/api/v1/usage-accounts/automated-login/login/status").ConfigureAwait(false)).StatusCode, "status");
+            }).ConfigureAwait(false);
+
+            await RunTest("UsageAccount_DeleteOrRefreshUnknownAccount_FromGlobalAdmin_Returns404", async () =>
+            {
+                HttpResponseMessage deleted = await _AdminClient.DeleteAsync("/api/v1/usage-accounts/automated-missing-account").ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, deleted.StatusCode, "delete of an unknown account");
+                AssertContains("account_not_found", await deleted.Content.ReadAsStringAsync().ConfigureAwait(false), "named reason");
+                HttpResponseMessage refreshed = await _AdminClient.PostAsync("/api/v1/usage-accounts/automated-missing-account/refresh", null).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, refreshed.StatusCode, "refresh of an unknown account");
+                AssertContains("account_not_found", await refreshed.Content.ReadAsStringAsync().ConfigureAwait(false), "named reason");
             }).ConfigureAwait(false);
 
             await RunTest("UsageAccountLogin_KeyForUnsavedAccount_Returns404WithoutEchoingKey", async () =>

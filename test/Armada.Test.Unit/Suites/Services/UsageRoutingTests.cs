@@ -46,6 +46,15 @@ namespace Armada.Test.Unit.Suites.Services
                 new List<Captain> { new Captain("first") { Id = "first", Model = "model-a" }, new Captain("second") { Id = "second", Model = "model-b" } }, busy ?? Array.Empty<string>(), DateTime.UtcNow);
         }
 
+        private static ProviderUsageSnapshot MeasuredSnapshot(double remaining)
+        {
+            return new ProviderUsageSnapshot
+            {
+                ObservedUtc = DateTime.UtcNow, Source = "fake-provider",
+                Windows = new List<ProviderUsageWindow> { new ProviderUsageWindow { Name = "weekly", RemainingPercent = remaining, ResetsUtc = DateTime.UtcNow.AddDays(1) } }
+            };
+        }
+
         /// <inheritdoc />
         protected override async Task RunTestsAsync()
         {
@@ -312,6 +321,68 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("Normal", service.GetStatus(account, "model-b", DateTime.UtcNow).State);
                 }
                 finally { File.Delete(path); }
+            });
+            await RunTest("Hard refresh reads one account now, bypassing the refresh interval that throttles timed refreshes", async () =>
+            {
+                UsageAccountSettings account = new UsageAccountSettings { Id = "claude-a", Collector = "Claude" };
+                UsageRoutingSettings policy = new UsageRoutingSettings { Enabled = true, RefreshIntervalMinutes = 60, Accounts = new List<UsageAccountSettings> { account } };
+                int calls = 0;
+                UsageRoutingService service = new UsageRoutingService { ProviderCollector = (a, t) => { Interlocked.Increment(ref calls); return Task.FromResult(MeasuredSnapshot(80)); } };
+                await service.RefreshAsync(policy);
+                await service.RefreshAsync(policy);
+                AssertEqual(1, calls, "a timed refresh inside the interval does not read again");
+                UsageAccountRefreshResult? first = await service.RefreshAccountAsync(policy, "claude-a");
+                UsageAccountRefreshResult? second = await service.RefreshAccountAsync(policy, "claude-a");
+                AssertEqual(3, calls, "each hard refresh reads the provider");
+                AssertNotNull(first);
+                AssertTrue(second!.Collected);
+                AssertEqual(UsageRoutingService.ReasonRefreshed, second.Reason);
+                AssertEqual("Normal", second.Status.State);
+                AssertNotNull(second.Status.ObservedUtc);
+                AssertEqual(1, second.Status.Windows.Count);
+                await service.RefreshAsync(policy);
+                AssertEqual(3, calls, "a hard refresh does not reset the timed throttle into an extra read");
+            });
+            await RunTest("Hard refresh honours an active provider retry-after and does not call the provider", async () =>
+            {
+                UsageAccountSettings account = new UsageAccountSettings { Id = "claude-limited", Collector = "Claude" };
+                UsageRoutingSettings policy = new UsageRoutingSettings { Enabled = true, Accounts = new List<UsageAccountSettings> { account } };
+                DateTime retryAt = DateTime.UtcNow.AddMinutes(5);
+                int calls = 0;
+                UsageRoutingService service = new UsageRoutingService { ProviderCollector = (a, t) => { Interlocked.Increment(ref calls); throw new UsageCollectionException("usage_provider_rate_limited", retryAt); } };
+                await service.RefreshAsync(policy);
+                AssertEqual(1, calls);
+                UsageAccountRefreshResult? result = await service.RefreshAccountAsync(policy, "claude-limited");
+                AssertEqual(1, calls, "the provider is not called while its retry-after is active");
+                AssertFalse(result!.Collected);
+                AssertEqual(UsageRoutingService.ReasonRefreshRateLimited, result.Reason);
+                AssertEqual(retryAt, result.RetryAfterUtc!.Value);
+                AssertEqual("claude-limited", result.Status.AccountId);
+            });
+            await RunTest("Concurrent hard refreshes of one account share one in-flight provider read", async () =>
+            {
+                UsageAccountSettings account = new UsageAccountSettings { Id = "claude-shared", Collector = "Claude" };
+                UsageRoutingSettings policy = new UsageRoutingSettings { Enabled = true, Accounts = new List<UsageAccountSettings> { account } };
+                TaskCompletionSource<bool> gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                int calls = 0;
+                UsageRoutingService service = new UsageRoutingService
+                {
+                    ProviderCollector = async (a, t) => { Interlocked.Increment(ref calls); await gate.Task; return MeasuredSnapshot(50); }
+                };
+                Task<UsageAccountRefreshResult?> one = service.RefreshAccountAsync(policy, "claude-shared");
+                Task<UsageAccountRefreshResult?> two = service.RefreshAccountAsync(policy, "claude-shared");
+                DateTime deadline = DateTime.UtcNow.AddSeconds(5);
+                while (calls == 0 && DateTime.UtcNow < deadline) await Task.Delay(10);
+                await Task.Delay(50);
+                gate.SetResult(true);
+                await Task.WhenAll(one, two);
+                AssertEqual(1, calls, "one provider read serves both refreshes");
+                AssertTrue(one.Result!.Collected && two.Result!.Collected);
+            });
+            await RunTest("Hard refresh of an account missing from the policy returns nothing", async () =>
+            {
+                UsageRoutingService service = new UsageRoutingService { ProviderCollector = (a, t) => throw new InvalidOperationException("must not be called") };
+                AssertNull(await service.RefreshAccountAsync(new UsageRoutingSettings(), "missing"));
             });
             await RunTest("Hot reload carries usage configuration", () =>
             {

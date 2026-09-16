@@ -8179,7 +8179,9 @@ thead tr.column-filter-row td input.col-filter::placeholder {
 .account-card-facts div { min-width: 0; }
 .account-card-facts dt { font-size: 0.8em; opacity: 0.75; }
 .account-card-facts dd { margin: 0; overflow-wrap: anywhere; }
-.account-login, .account-captains { margin-top: 0.75rem; min-width: 0; }
+.account-login, .account-captains, .account-delete { margin-top: 0.75rem; min-width: 0; }
+.account-refresh { margin-top: 0.5rem; }
+.account-delete-confirm p { overflow-wrap: anywhere; }
 .account-add { border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; min-width: 0; }
 .account-add-row { display: flex; flex-wrap: wrap; gap: 0 1rem; }
 .account-add-row .form-group { flex: 1 1 12rem; min-width: 0; }

@@ -138,6 +138,44 @@ namespace Armada.Test.Unit.Suites.Services
             public void Dispose() { }
         }
 
+        private sealed class DeleteHarness : IDisposable
+        {
+            public Harness Logins { get; } = new Harness();
+
+            public ArmadaSettings Settings { get; }
+
+            public UsageAccountAdminService Admin { get; }
+
+            public List<UsageRoutingSettings> Saved { get; } = new List<UsageRoutingSettings>();
+
+            public DeleteHarness(UsageRoutingSettings policy)
+            {
+                Settings = new ArmadaSettings { DataDirectory = Logins.DataDirectory };
+                Settings.ModelTier.UsageRouting = policy;
+                Admin = new UsageAccountAdminService(
+                    Settings,
+                    Logins.Service,
+                    () =>
+                    {
+                        UsageRoutingService.Validate(Settings.ModelTier.UsageRouting, AccountLoginPaths.AccountsRoot(Settings.DataDirectory));
+                        Saved.Add(Settings.ModelTier.UsageRouting);
+                        return Task.CompletedTask;
+                    },
+                    null,
+                    line => Logins.Logs.Enqueue(line),
+                    (type, message, id) => Logins.Events.Enqueue(type + " " + message + " " + id));
+            }
+
+            public void Dispose() => Logins.Dispose();
+        }
+
+        private static UsageAccountSettings RuntimeAccount(string id, AgentRuntimeEnum runtime, string? home, params string[] captainIds)
+        {
+            return new UsageAccountSettings { Id = id, Runtime = runtime, HomeDirectory = home, CaptainIds = captainIds.ToList() };
+        }
+
+        private static UsageRouteSettings Route(string accountId) => new UsageRouteSettings { AccountId = accountId };
+
         private static async Task<bool> EventuallyAsync(Func<bool> condition)
         {
             DateTime deadline = DateTime.UtcNow.AddSeconds(10);
@@ -557,6 +595,124 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertThrows<ArgumentException>(() => CaptainAccountLaunch.ValidateAccount(new UsageAccountSettings { Id = "cursor-a", Runtime = AgentRuntimeEnum.Cursor, LaunchCredentialFile = good, LaunchCredentialEnv = "CURSOR_KEY_VAR" }, root), "env and file together");
                 AssertThrows<ArgumentException>(() => CaptainAccountLaunch.ValidateAccount(new UsageAccountSettings { Id = "cursor-a", Runtime = AgentRuntimeEnum.Codex, LaunchCredentialFile = good }, root), "file on a non-Cursor account");
                 AssertThrows<ArgumentException>(() => CaptainAccountLaunch.ValidateAccount(new UsageAccountSettings { Id = "cursor-a", LaunchCredentialFile = good }, root), "file without a runtime");
+            });
+
+            await RunTest("Deleting an account that still lists captains is refused by name and changes nothing", async () =>
+            {
+                using (DeleteHarness d = new DeleteHarness(new UsageRoutingSettings()))
+                {
+                    string home = d.Logins.Service.EnsureHome("codex-a").HomeDirectory;
+                    d.Settings.ModelTier.UsageRouting = new UsageRoutingSettings { Accounts = new List<UsageAccountSettings> { RuntimeAccount("codex-a", AgentRuntimeEnum.Codex, home, "cpt_example") } };
+                    try
+                    {
+                        await d.Admin.DeleteAsync("codex-a").ConfigureAwait(false);
+                        throw new Exception("Expected account_has_captains");
+                    }
+                    catch (AccountLoginException ex)
+                    {
+                        AssertEqual(UsageAccountAdminService.ReasonHasCaptains, ex.Code);
+                        AssertEqual(409, ex.StatusCode);
+                    }
+                    AssertEqual(0, d.Saved.Count, "nothing is saved");
+                    AssertEqual(1, d.Settings.ModelTier.UsageRouting.Accounts.Count, "the account stays");
+                    AssertTrue(Directory.Exists(home), "the folder stays");
+                }
+            });
+
+            await RunTest("Deleting an account removes it, every persona route naming it, its usage state, and its server-derived folder, and saves a valid policy", async () =>
+            {
+                using (DeleteHarness d = new DeleteHarness(new UsageRoutingSettings()))
+                {
+                    string homeA = d.Logins.Service.EnsureHome("codex-a").HomeDirectory;
+                    string homeB = d.Logins.Service.EnsureHome("codex-b").HomeDirectory;
+                    File.WriteAllText(Path.Combine(homeA, "auth.json"), "{\"token\":\"CREDENTIAL-CONTENT-MUST-NOT-LEAK\"}");
+                    UsageAccountSettings accountA = RuntimeAccount("codex-a", AgentRuntimeEnum.Codex, homeA);
+                    d.Settings.ModelTier.UsageRouting = new UsageRoutingSettings
+                    {
+                        Accounts = new List<UsageAccountSettings> { accountA, RuntimeAccount("codex-b", AgentRuntimeEnum.Codex, homeB) },
+                        PersonaRoutes = new Dictionary<string, List<UsageRouteSettings>>(StringComparer.OrdinalIgnoreCase)
+                        {
+                            ["Worker"] = new List<UsageRouteSettings> { Route("codex-a"), Route("codex-b") },
+                            ["Judge"] = new List<UsageRouteSettings> { Route("codex-a") },
+                            ["*"] = new List<UsageRouteSettings> { Route("codex-b") }
+                        }
+                    };
+                    UsageRoutingService usage = UsageRoutingService.For(d.Settings);
+                    usage.MarkAccountExhausted("codex-a", DateTime.UtcNow.AddHours(1));
+                    AssertEqual("account_provider_failure", usage.GetStatus(new UsageAccountSettings { Id = "codex-a" }, null, DateTime.UtcNow).Reason, "state before delete");
+
+                    UsageAccountDeleteResult result = await d.Admin.DeleteAsync("codex-a").ConfigureAwait(false);
+
+                    AssertEqual(2, result.RoutesRemoved);
+                    AssertEqual("Judge", String.Join(",", result.PersonasRemoved));
+                    AssertTrue(result.HomeDeleted, "home deleted");
+                    AssertEqual("account_home_deleted", result.HomeReason);
+                    AssertFalse(Directory.Exists(homeA), "the account folder is gone");
+                    AssertTrue(Directory.Exists(homeB), "another account's folder stays");
+                    AssertEqual(1, d.Saved.Count, "saved once through the save path");
+                    UsageRoutingSettings saved = d.Settings.ModelTier.UsageRouting;
+                    AssertEqual("codex-b", String.Join(",", saved.Accounts.Select(a => a.Id)));
+                    AssertEqual("codex-b", String.Join(",", saved.PersonaRoutes["Worker"].Select(r => r.AccountId)));
+                    AssertFalse(saved.PersonaRoutes.ContainsKey("Judge"), "an emptied persona key is dropped");
+                    AssertTrue(saved.PersonaRoutes.ContainsKey("*"), "other personas stay");
+                    AssertFalse(usage.GetStatus(new UsageAccountSettings { Id = "codex-a" }, null, DateTime.UtcNow).Reason == "account_provider_failure", "usage state is forgotten");
+                    AssertTrue(d.Logins.Events.Any(e => e.StartsWith("account.deleted ", StringComparison.Ordinal) && e.EndsWith(" codex-a", StringComparison.Ordinal)), "account.deleted event");
+                    AssertFalse(d.Logins.Sinks().Contains("CREDENTIAL-CONTENT"), "credential contents are never logged");
+                }
+            });
+
+            await RunTest("Deleting an account whose homeDirectory is not the server-derived folder leaves that folder and says so", async () =>
+            {
+                string outside = TempDirectory();
+                try
+                {
+                    File.WriteAllText(Path.Combine(outside, ".credentials.json"), "{}");
+                    using (DeleteHarness d = new DeleteHarness(new UsageRoutingSettings()))
+                    {
+                        d.Settings.ModelTier.UsageRouting = new UsageRoutingSettings { Accounts = new List<UsageAccountSettings> { RuntimeAccount("claude-a", AgentRuntimeEnum.ClaudeCode, outside) } };
+                        UsageAccountDeleteResult result = await d.Admin.DeleteAsync("claude-a").ConfigureAwait(false);
+                        AssertEqual("account_home_not_managed", result.HomeReason);
+                        AssertFalse(result.HomeDeleted);
+                        AssertTrue(File.Exists(Path.Combine(outside, ".credentials.json")), "the configured folder is left in place");
+                        AssertEqual(0, d.Settings.ModelTier.UsageRouting.Accounts.Count, "the account is still removed");
+                    }
+                }
+                finally { Directory.Delete(outside, true); }
+            });
+
+            await RunTest("Deleting an account cancels its pending login and stops the login process", async () =>
+            {
+                using (DeleteHarness d = new DeleteHarness(new UsageRoutingSettings()))
+                {
+                    d.Logins.Runner.OnStart = process => process.Emit("Open https://auth.openai.com/codex/device code HJKL-2468\n");
+                    string home = d.Logins.Service.HomeFor("codex-pending");
+                    d.Settings.ModelTier.UsageRouting = new UsageRoutingSettings { Accounts = new List<UsageAccountSettings> { RuntimeAccount("codex-pending", AgentRuntimeEnum.Codex, home) } };
+                    AccountLoginSession pending = await d.Logins.Service.StartAsync("codex-pending", AgentRuntimeEnum.Codex).ConfigureAwait(false);
+                    AssertEqual(AccountLoginStateEnum.Pending, pending.State);
+                    UsageAccountDeleteResult result = await d.Admin.DeleteAsync("codex-pending").ConfigureAwait(false);
+                    AssertTrue(result.LoginCancelled, "reported");
+                    AssertTrue(d.Logins.Runner.Processes.Single().Killed, "the login process is killed");
+                    AssertEqual(AccountLoginStateEnum.Cancelled, d.Logins.Service.GetSession("codex-pending")!.State);
+                    AssertFalse(Directory.Exists(home), "the folder the login used is removed");
+                }
+            });
+
+            await RunTest("Deleting an unknown account is refused as not found", async () =>
+            {
+                using (DeleteHarness d = new DeleteHarness(new UsageRoutingSettings()))
+                {
+                    try
+                    {
+                        await d.Admin.DeleteAsync("missing-account").ConfigureAwait(false);
+                        throw new Exception("Expected account_not_found");
+                    }
+                    catch (AccountLoginException ex)
+                    {
+                        AssertEqual(UsageAccountAdminService.ReasonNotFound, ex.Code);
+                        AssertEqual(404, ex.StatusCode);
+                    }
+                    AssertEqual(0, d.Saved.Count);
+                }
             });
 
             await RunTest("Account login routes require settings write permission: only a global administrator is admitted", () =>

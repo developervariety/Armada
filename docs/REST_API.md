@@ -4973,6 +4973,8 @@ requests and responses are never recorded in request history.
 | POST | `/api/v1/usage-accounts/{accountId}/login/key` | `{ "apiKey": "..." }` | Stores an OpenCode or Cursor API key in the account folder. The key is never returned. |
 | GET | `/api/v1/usage-accounts/{accountId}/login/status` | none | `Session` (last login since start) plus `LoginReady`, `LoginReason`, and `LoginCheckedUtc` from the server's login check. |
 | POST | `/api/v1/usage-accounts/{accountId}/login/cancel` | none | Stops a pending login and returns the status. |
+| DELETE | `/api/v1/usage-accounts/{accountId}` | none | Deletes the saved account. See below. |
+| POST | `/api/v1/usage-accounts/{accountId}/refresh` | none | Reads the account's usage now and reruns its login check. See below. |
 
 A login session has `SessionId`, `AccountId`, `Runtime`, `Method`
 (`DeviceCode`, `PasteCode`, `ApiKey`), `State` (`Pending`, `Succeeded`,
@@ -4989,3 +4991,36 @@ pending returns 409 `account_login_in_progress`. Failure reasons in a session
 include `account_login_cli_unavailable`, `account_login_prompt_not_found`,
 `account_login_process_failed`, `account_login_expired_before_completion`, and
 `account_login_cancelled`. See [Account logins](USAGE_ROUTING.md#account-logins).
+
+**Delete.** `DELETE /api/v1/usage-accounts/{accountId}` matches the saved
+account ID exactly; an unknown ID returns 404 `account_not_found`. While the
+account lists captains it returns 409 `account_has_captains` and changes
+nothing: unassign the captains first, because a captain left on a deleted
+account would launch with the shared login. Otherwise the server cancels a
+pending login, removes the account and every `personaRoutes` entry naming it
+(a persona whose list becomes empty is dropped), validates and saves settings
+as `PUT /api/v1/settings` does (400 `account_delete_policy_invalid`, 500
+`account_delete_save_failed`), forgets the account's usage and login-check
+state, and deletes `<data directory>/accounts/<accountId>`. It never deletes any
+other path. It emits `account.deleted` with the account ID. The response:
+
+| Field | Meaning |
+|---|---|
+| `AccountId` | The deleted account. |
+| `RoutesRemoved` | Persona route entries removed. |
+| `PersonasRemoved` | Persona keys dropped because no route was left. |
+| `LoginCancelled` | A pending login was cancelled. |
+| `HomeDeleted` | The server-derived folder was deleted. |
+| `HomeReason` | `account_home_deleted`, `account_home_not_found`, `account_home_not_managed` (the account's `homeDirectory` is another folder, which is left in place), or `account_home_delete_failed`. |
+
+**Refresh.** `POST /api/v1/usage-accounts/{accountId}/refresh` reads one saved
+account's usage now, bypassing `refreshIntervalMinutes`, and reruns its runtime
+login check, waiting up to the probe timeout plus five seconds. An unknown ID
+returns 404 `account_not_found`. While a provider retry-after from an earlier
+429 is active, the provider is not called. Concurrent refreshes of one account
+share one read. The response has `AccountId`, `Collected` (the usage was read),
+`Reason` (`usage_refreshed`, `usage_refresh_rate_limited`,
+`usage_refresh_manual_snapshot`, or the collection error code), `RetryAfterUtc`,
+`LoginProbeRerun`, and `Status`: the account's `State`, `Reason`,
+`ObservedUtc`, `Source`, `CollectionError`, `LoginCheckedUtc`,
+`ExhaustedUntilUtc`, and `Windows`, as in `providerUsage`.

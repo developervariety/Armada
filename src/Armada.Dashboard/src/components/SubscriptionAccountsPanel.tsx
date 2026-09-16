@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  cancelAccountLogin, createAccountHome, createCaptain, getAccountLoginStatus, listCaptains,
-  startAccountLogin, submitAccountLoginCode, submitAccountLoginKey,
+  cancelAccountLogin, createAccountHome, createCaptain, deleteUsageAccount, getAccountLoginStatus, listCaptains,
+  refreshUsageAccount, startAccountLogin, submitAccountLoginCode, submitAccountLoginKey,
 } from '../api/client';
 import { copyToClipboard } from './shared/CopyButton';
 import { useLocale } from '../context/LocaleContext';
-import type { AccountLoginSession, AccountLoginStatus, AccountRuntime, Captain } from '../types/models';
+import type {
+  AccountLoginSession, AccountLoginStatus, AccountRuntime, Captain, UsageAccountDeleteResult, UsageAccountRefreshResult,
+} from '../types/models';
 import {
   ACCOUNT_RUNTIMES, RUNTIME_LABELS, SAFE_ACCOUNT_ID, cloneCaptainName, policyAccounts, runtimeAccount, slugifyAccountId,
   withAccount, withAccountCaptains,
@@ -30,6 +32,18 @@ function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/** A positive whole number from a policy field, or the server default when the field is absent. */
+function policyMinutes(value: unknown, fallback: number): number {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function formatUtc(value: unknown): string {
+  if (typeof value !== 'string' || !value) return '';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString();
+}
+
 function isRuntime(value: unknown): value is AccountRuntime {
   return typeof value === 'string' && (ACCOUNT_RUNTIMES as string[]).includes(value);
 }
@@ -46,11 +60,26 @@ export default function SubscriptionAccountsPanel({ savedPolicy, statuses, disab
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [open, setOpen] = useState<string | null>(null);
+  const [notice, setNotice] = useState('');
 
   const accounts = policyAccounts(savedPolicy);
   const runtimeAccounts = accounts.filter(a => isRuntime(a.runtime));
   const ids = accounts.map(a => String(a.id));
   const proposedId = name.trim() ? slugifyAccountId(name, ids) : '';
+  const refreshMinutes = policyMinutes(savedPolicy?.refreshIntervalMinutes, 5);
+  const maxAges = runtimeAccounts.map(a => policyMinutes(a.maxAgeMinutes, 15));
+  const minAge = maxAges.length ? Math.min(...maxAges) : 15;
+  const maxAge = maxAges.length ? Math.max(...maxAges) : 15;
+  const maxAgeText = minAge === maxAge ? String(minAge) : `${minAge}-${maxAge}`;
+
+  const accountDeleted = (result: UsageAccountDeleteResult) => {
+    setOpen(null);
+    const folder = result.homeReason === 'account_home_not_managed'
+      ? t('Its configured home folder is not the server-derived folder, so it was left in place.')
+      : result.homeDeleted ? t('Its login files were removed.') : t('No login folder was found.');
+    setNotice(`${t('Deleted account {{id}}; {{routes}} persona routes removed.', { id: result.accountId, routes: result.routesRemoved })} ${folder}`);
+    onRefresh();
+  };
 
   const loadCaptains = useCallback(async () => {
     try {
@@ -77,6 +106,7 @@ export default function SubscriptionAccountsPanel({ savedPolicy, statuses, disab
 
   return <section className="settings-section subscription-accounts" style={{ marginTop: '1.5rem' }}>
     <h3>{t('Subscription accounts')}</h3>
+    <p className="text-muted account-refresh-policy">{t('Usage refreshes every {{refresh}} min when read; data older than {{maxAge}} min counts as Unknown.', { refresh: refreshMinutes, maxAge: maxAgeText })}</p>
     <p className="text-muted">{t('Each account is its own provider login with its own allowance. Add as many accounts per runtime as you need, log each one in here, then assign captains. Confirm that each additional subscription is permitted under the provider terms before you use it.')}</p>
 
     {runtimeAccounts.length === 0
@@ -84,7 +114,8 @@ export default function SubscriptionAccountsPanel({ savedPolicy, statuses, disab
       : <ul className="account-list">{runtimeAccounts.map(account => <AccountCard key={String(account.id)} account={account}
           status={statuses.find(s => s.accountId === account.id)} accounts={accounts} captains={captains} disabled={disabled}
           expanded={open === account.id} onToggle={() => setOpen(open === account.id ? null : String(account.id))}
-          onSavePolicy={onSavePolicy} onRefresh={onRefresh} onCaptainsChanged={loadCaptains} />)}</ul>}
+          onSavePolicy={onSavePolicy} onRefresh={onRefresh} onCaptainsChanged={loadCaptains} onDeleted={accountDeleted} />)}</ul>}
+    {notice && <p role="status">{notice}</p>}
 
     <fieldset className="account-add" disabled={disabled || busy}>
       <legend>{t('Add account')}</legend>
@@ -118,16 +149,35 @@ interface CardProps {
   onSavePolicy: Props['onSavePolicy'];
   onRefresh: () => void;
   onCaptainsChanged: () => Promise<void>;
+  onDeleted: (result: UsageAccountDeleteResult) => void;
 }
 
-function AccountCard({ account, status, accounts, captains, disabled, expanded, onToggle, onSavePolicy, onRefresh, onCaptainsChanged }: CardProps) {
+function AccountCard({ account, status, accounts, captains, disabled, expanded, onToggle, onSavePolicy, onRefresh, onCaptainsChanged, onDeleted }: CardProps) {
   const { t } = useLocale();
   const id = String(account.id);
   const runtime = account.runtime as AccountRuntime;
   const captainIds = Array.isArray(account.captainIds) ? (account.captainIds as string[]) : [];
-  const reason = status?.reason ? String(status.reason) : '';
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshed, setRefreshed] = useState<UsageAccountRefreshResult | null>(null);
+  const [refreshError, setRefreshError] = useState('');
+
+  // A settings reload brings the server's newer status, which then replaces the hard refresh result.
+  useEffect(() => { setRefreshed(null); }, [status]);
+
+  const refreshUsage = async () => {
+    setRefreshing(true); setRefreshError('');
+    try {
+      const result = await refreshUsageAccount(id);
+      setRefreshed(result);
+    } catch (e) { setRefreshError(errorText(e)); }
+    finally { setRefreshing(false); }
+  };
+
+  const shown: StatusRecord | undefined = refreshed ? (refreshed.status as unknown as StatusRecord) : status;
+  const observed = formatUtc(shown?.observedUtc);
+  const reason = shown?.reason ? String(shown.reason) : '';
   const loginProblem = reason.startsWith('account_') && reason !== 'account_provider_failure' ? reason : '';
-  const loginLabel = !status ? t('Not checked yet') : loginProblem ? `${t('Not logged in')} (${loginProblem})` : t('Logged in');
+  const loginLabel = !shown ? t('Not checked yet') : loginProblem ? `${t('Not logged in')} (${loginProblem})` : t('Logged in');
 
   return <li className="account-card">
     <div className="account-card-head">
@@ -140,12 +190,25 @@ function AccountCard({ account, status, accounts, captains, disabled, expanded, 
     <dl className="account-card-facts">
       <div><dt>{t('Login')}</dt><dd className={loginProblem ? 'text-danger' : undefined}>{loginLabel}</dd></div>
       <div><dt>{t('Captains')}</dt><dd>{captainIds.length}</dd></div>
-      <div><dt>{t('Usage')}</dt><dd>{status ? String(status.state) : t('Unknown')}</dd></div>
+      <div><dt>{t('Usage')}</dt><dd>{shown ? String(shown.state) : t('Unknown')}</dd></div>
+      <div><dt>{t('Observed')}</dt><dd>{observed || t('Never')}</dd></div>
     </dl>
+    <div className="account-inline account-refresh">
+      <button type="button" className="btn btn-secondary" disabled={disabled || refreshing} aria-busy={refreshing}
+        onClick={() => void refreshUsage()}>
+        {refreshing ? <><span className="btn-spinner" aria-hidden="true" /> {t('Refreshing…')}</> : t('Refresh usage')}
+      </button>
+      {refreshed?.reason === 'usage_refresh_rate_limited' && <span className="text-muted" role="status">
+        {t('The provider asked to wait; usage was not read. Next read after {{time}}.', { time: formatUtc(refreshed.retryAfterUtc) })}</span>}
+      {refreshed && refreshed.reason !== 'usage_refresh_rate_limited' && <span className="text-muted" role="status">
+        {refreshed.collected ? t('Usage read just now.') : `${t('Usage not read')} (${refreshed.reason})`}</span>}
+      {refreshError && <span role="alert" className="text-danger">{refreshError}</span>}
+    </div>
     {expanded && <>
       <LoginSection accountId={id} runtime={runtime} disabled={disabled} onRefresh={onRefresh} />
       <CaptainSection account={account} accounts={accounts} captains={captains} disabled={disabled}
         onSavePolicy={onSavePolicy} onCaptainsChanged={onCaptainsChanged} />
+      <DeleteSection accountId={id} captainCount={captainIds.length} disabled={disabled} onDeleted={onDeleted} />
     </>}
   </li>;
 }
@@ -370,6 +433,50 @@ function CaptainSection({ account, accounts, captains, disabled, onSavePolicy, o
       </div>
       <p className="text-muted">{t('Creates a new captain with the same runtime, model, and personas, and assigns it here.')}</p>
     </div>}
+    {error && <p role="alert" className="text-danger">{error}</p>}
+  </div>;
+}
+
+interface DeleteProps {
+  accountId: string;
+  captainCount: number;
+  disabled: boolean;
+  onDeleted: (result: UsageAccountDeleteResult) => void;
+}
+
+/**
+ * Delete an account after a confirm step. Refused while captains are assigned: a captain left on a deleted account would
+ * silently launch with the shared login instead.
+ */
+function DeleteSection({ accountId, captainCount, disabled, onDeleted }: DeleteProps) {
+  const { t } = useLocale();
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const blocked = captainCount > 0;
+
+  const remove = async () => {
+    setBusy(true); setError('');
+    try {
+      const result = await deleteUsageAccount(accountId);
+      setConfirming(false);
+      onDeleted(result);
+    } catch (e) { setError(errorText(e)); }
+    finally { setBusy(false); }
+  };
+
+  return <div className="account-delete">
+    <h4>{t('Delete account')}</h4>
+    {blocked && <p className="text-muted">{t('Unassign this account’s {{count}} captains before deleting it, so no captain silently falls back to the shared login.', { count: captainCount })}</p>}
+    {!confirming
+      ? <button type="button" className="btn btn-danger" disabled={disabled || busy || blocked} onClick={() => setConfirming(true)}>{t('Delete account')}</button>
+      : <div className="account-delete-confirm" role="group" aria-label={t('Confirm delete')}>
+          <p>{t('Delete account {{id}}? It is removed from every persona route, and its login files on the server are removed. This cannot be undone.', { id: accountId })}</p>
+          <div className="account-inline">
+            <button type="button" className="btn btn-danger" disabled={disabled || busy || blocked} onClick={() => void remove()}>{busy ? t('Deleting…') : t('Confirm delete')}</button>
+            <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => setConfirming(false)}>{t('Cancel')}</button>
+          </div>
+        </div>}
     {error && <p role="alert" className="text-danger">{error}</p>}
   </div>;
 }

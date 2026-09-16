@@ -222,6 +222,24 @@ another account, or one with its own provider key or base URL, cannot be
 ticked. **Clone** creates a new captain with the same runtime, model, and
 personas, named `<captain>-<account>`, and assigns it.
 
+**Refresh usage.** Each account card shows its usage state and when it was
+last observed. Usage is otherwise read at most once per
+`refreshIntervalMinutes` (default 5), and only when something reads it (the
+settings page, a usage preview, or routing); data older than the account's
+`maxAgeMinutes` (default 15) counts as Unknown. The section states both values.
+**Refresh usage** reads that one account now, bypassing the interval, and
+reruns its login check. It still honours a provider retry-after: while one is
+active the provider is not called and the card says when the next read is
+allowed (`usage_refresh_rate_limited`).
+
+**Delete account.** The Manage view's **Delete account** asks for confirmation
+naming the account, then removes it from the policy and from every persona
+route, and removes its login files under `<data directory>/accounts/<id>` on
+the server. A `homeDirectory` elsewhere is left in place. The button is
+disabled while captains are assigned: unassign them first, so no captain
+silently falls back to the shared login. An unsaved edit in the Advanced JSON
+editor that still lists the account keeps it until that edit is discarded.
+
 The page checks a pending login every three seconds. A login succeeds when the
 CLI exits cleanly; Armada then discards the cached login probe and starts a new
 one. Only the verification URL (on the provider's own domain) and the device

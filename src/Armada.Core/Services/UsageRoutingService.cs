@@ -27,6 +27,7 @@ namespace Armada.Core.Services
         private readonly Dictionary<string, string> _AccountSources = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, DateTime> _ExhaustedUntil = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, LoginProbeState> _LoginProbes = new Dictionary<string, LoginProbeState>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, Task> _InFlight = new Dictionary<string, Task>(StringComparer.OrdinalIgnoreCase);
         private UsageRoutingSettings? _LastSettings;
         private DateTime _NextRefreshUtc;
 
@@ -36,6 +37,18 @@ namespace Armada.Core.Services
 
         /// <summary>Resolves the CLI a login probe runs for a runtime. Replaceable so tests can supply stub CLIs.</summary>
         public Func<Armada.Core.Enums.AgentRuntimeEnum, string> LoginProbeExecutable { get; set; } = AccountLoginProbe.DefaultExecutable;
+
+        /// <summary>Reads a provider-measured account (every collector except Manual and File). Replaceable so tests can supply a fake provider.</summary>
+        public Func<UsageAccountSettings, CancellationToken, Task<ProviderUsageSnapshot>> ProviderCollector { get; set; } = CollectFromProviderAsync;
+
+        /// <summary>A hard refresh found an active provider retry-after, so the provider was not called.</summary>
+        public const string ReasonRefreshRateLimited = "usage_refresh_rate_limited";
+
+        /// <summary>A hard refresh read the account's usage.</summary>
+        public const string ReasonRefreshed = "usage_refreshed";
+
+        /// <summary>A hard refresh of a Manual account has nothing to collect.</summary>
+        public const string ReasonRefreshManual = "usage_refresh_manual_snapshot";
 
         #endregion
 
@@ -120,9 +133,7 @@ namespace Armada.Core.Services
                         foreach (string id in _LoginProbes.Keys.Where(id => !retained.Contains(id)).ToList()) _LoginProbes.Remove(id);
                         foreach (UsageAccountSettings account in settings.Accounts)
                         {
-                            string source = account.Collector + "\n" + account.CredentialEnv + "\n" + account.CredentialFilePath + "\n" + account.UsageFilePath
-                                + "\n" + account.Runtime + "\n" + account.HomeDirectory + "\n" + account.LaunchCredentialEnv + "\n" + account.LaunchCredentialFile
-                                + "\n" + String.Join(",", account.CaptainIds) + "\n" + JsonSerializer.Serialize(account.WindowModels);
+                            string source = SourceKey(account);
                             if (!_AccountSources.TryGetValue(account.Id, out string? previous) || source != previous) ForgetAccount(account.Id);
                             _AccountSources[account.Id] = source;
                         }
@@ -135,50 +146,185 @@ namespace Armada.Core.Services
                     if (account.Collector == "Manual") return;
                     lock (_StateLock)
                         if (_RetryAfter.TryGetValue(account.Id, out DateTime retryAt) && retryAt > DateTime.UtcNow) return;
-                    try
-                    {
-                        if (account.Collector != "File")
-                        {
-                            ProviderUsageSnapshot measured = account.Collector == "Codex"
-                                ? await CodexUsageCollector.CollectAsync(account, token).ConfigureAwait(false)
-                                : await SubscriptionUsageCollector.CollectAsync(account, token).ConfigureAwait(false);
-                            ApplyWindowModels(account, measured);
-                            lock (_StateLock) { _Snapshots[account.Id] = measured; _Errors.Remove(account.Id); }
-                            return;
-                        }
-                        using (FileStream stream = new FileStream(account.UsageFilePath!, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, true))
-                        {
-                            if (stream.Length > 65536) throw new InvalidDataException();
-                            byte[] buffer = new byte[65537];
-                            int count = 0;
-                            while (count < buffer.Length)
-                            {
-                                int read = await stream.ReadAsync(buffer.AsMemory(count), token).ConfigureAwait(false);
-                                if (read == 0) break;
-                                count += read;
-                            }
-                            if (count > 65536) throw new InvalidDataException();
-                            ProviderUsageSnapshot snapshot = JsonSerializer.Deserialize<ProviderUsageSnapshot>(buffer.AsSpan(0, count), _Json) ?? throw new InvalidDataException();
-                            ValidateSnapshot(snapshot);
-                            ApplyWindowModels(account, snapshot);
-                            lock (_StateLock)
-                            {
-                                if (!_Snapshots.TryGetValue(account.Id, out ProviderUsageSnapshot? previous) || snapshot.ObservedUtc >= previous.ObservedUtc) _Snapshots[account.Id] = snapshot;
-                                _Errors.Remove(account.Id);
-                            }
-                        }
-                    }
-                    catch (Exception ex) when (ex is FormatException || ex is IOException || ex is UnauthorizedAccessException || ex is JsonException || ex is ArgumentException || ex is System.ComponentModel.Win32Exception || ex is System.Net.Http.HttpRequestException || (ex is OperationCanceledException && !token.IsCancellationRequested))
-                    {
-                        lock (_StateLock)
-                        {
-                            _Errors[account.Id] = ex is UsageCollectionException failure ? failure.Code : "usage_snapshot_unavailable_or_invalid";
-                            if (ex is UsageCollectionException limited && limited.RetryAfterUtc.HasValue) _RetryAfter[account.Id] = limited.RetryAfterUtc.Value;
-                        }
-                    }
+                    await CollectSharedAsync(account).WaitAsync(token).ConfigureAwait(false);
                 }).ConfigureAwait(false);
             }
             finally { _RefreshLock.Release(); }
+        }
+
+        /// <summary>Default provider read: the Codex collector for Codex accounts, the subscription collector otherwise.</summary>
+        public static Task<ProviderUsageSnapshot> CollectFromProviderAsync(UsageAccountSettings account, CancellationToken token)
+        {
+            return account.Collector == "Codex" ? CodexUsageCollector.CollectAsync(account, token) : SubscriptionUsageCollector.CollectAsync(account, token);
+        }
+
+        /// <summary>
+        /// Read one account's usage now, bypassing the refresh interval, and rerun its runtime login check. An active
+        /// provider retry-after is still honoured: the provider is not called and the reason is
+        /// <see cref="ReasonRefreshRateLimited"/>. Concurrent refreshes of the same account share one in-flight read.
+        /// Returns null when the account is not in the policy.
+        /// </summary>
+        /// <param name="settings">Policy that holds the account.</param>
+        /// <param name="accountId">Account identifier.</param>
+        /// <param name="token">Cancellation token; cancelling stops waiting, not a read other callers share.</param>
+        public async Task<UsageAccountRefreshResult?> RefreshAccountAsync(UsageRoutingSettings settings, string accountId, CancellationToken token = default)
+        {
+            if (settings == null) throw new ArgumentNullException(nameof(settings));
+            UsageAccountSettings? account = settings.Accounts?.FirstOrDefault(a => a != null && String.Equals(a.Id, accountId, StringComparison.Ordinal));
+            if (account == null) return null;
+
+            UsageAccountRefreshResult result = new UsageAccountRefreshResult { AccountId = account.Id };
+            DateTime? retryAt = null;
+            lock (_StateLock)
+            {
+                // Record the source this read belongs to, so the next timed refresh keeps it instead of discarding it as new.
+                string source = SourceKey(account);
+                if (_AccountSources.TryGetValue(account.Id, out string? previous) && previous != source) ForgetAccount(account.Id);
+                _AccountSources[account.Id] = source;
+                if (_RetryAfter.TryGetValue(account.Id, out DateTime limit) && limit > DateTime.UtcNow) retryAt = limit;
+            }
+
+            if (account.Collector == "Manual")
+            {
+                result.Reason = ReasonRefreshManual;
+            }
+            else if (retryAt.HasValue)
+            {
+                result.Reason = ReasonRefreshRateLimited;
+                result.RetryAfterUtc = retryAt;
+            }
+            else
+            {
+                await CollectSharedAsync(account).WaitAsync(token).ConfigureAwait(false);
+                lock (_StateLock)
+                {
+                    if (_Errors.TryGetValue(account.Id, out string? error))
+                    {
+                        result.Reason = error;
+                        if (_RetryAfter.TryGetValue(account.Id, out DateTime limit) && limit > DateTime.UtcNow) result.RetryAfterUtc = limit;
+                    }
+                    else
+                    {
+                        result.Collected = true;
+                        result.Reason = ReasonRefreshed;
+                    }
+                }
+            }
+
+            result.LoginProbeRerun = await RerunLoginProbeAsync(account, token).ConfigureAwait(false);
+            result.Status = GetStatus(account, null, DateTime.UtcNow);
+            return result;
+        }
+
+        /// <summary>Discard every measurement, error, retry time, provider hold, and login check kept for the account.</summary>
+        public void ForgetAccountState(string accountId)
+        {
+            if (String.IsNullOrWhiteSpace(accountId)) return;
+            lock (_StateLock)
+            {
+                ForgetAccount(accountId);
+                _ExhaustedUntil.Remove(accountId);
+                _LoginProbes.Remove(accountId);
+            }
+        }
+
+        private static string SourceKey(UsageAccountSettings account)
+        {
+            return account.Collector + "\n" + account.CredentialEnv + "\n" + account.CredentialFilePath + "\n" + account.UsageFilePath
+                + "\n" + account.Runtime + "\n" + account.HomeDirectory + "\n" + account.LaunchCredentialEnv + "\n" + account.LaunchCredentialFile
+                + "\n" + String.Join(",", account.CaptainIds) + "\n" + JsonSerializer.Serialize(account.WindowModels);
+        }
+
+        /// <summary>Return the account's in-flight read, starting one when none runs.</summary>
+        private Task CollectSharedAsync(UsageAccountSettings account)
+        {
+            lock (_StateLock)
+            {
+                if (_InFlight.TryGetValue(account.Id, out Task? running)) return running;
+                // The read never takes a caller's token: another caller may be waiting on it.
+                Task started = Task.Run(() => CollectOnceAsync(account));
+                _InFlight[account.Id] = started;
+                _ = started.ContinueWith(done =>
+                {
+                    lock (_StateLock)
+                        if (_InFlight.TryGetValue(account.Id, out Task? current) && ReferenceEquals(current, done)) _InFlight.Remove(account.Id);
+                }, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+                return started;
+            }
+        }
+
+        private async Task CollectOnceAsync(UsageAccountSettings account)
+        {
+            try
+            {
+                if (account.Collector != "File")
+                {
+                    ProviderUsageSnapshot measured = await ProviderCollector(account, CancellationToken.None).ConfigureAwait(false);
+                    ApplyWindowModels(account, measured);
+                    lock (_StateLock) { _Snapshots[account.Id] = measured; _Errors.Remove(account.Id); }
+                    return;
+                }
+                using (FileStream stream = new FileStream(account.UsageFilePath!, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, true))
+                {
+                    if (stream.Length > 65536) throw new InvalidDataException();
+                    byte[] buffer = new byte[65537];
+                    int count = 0;
+                    while (count < buffer.Length)
+                    {
+                        int read = await stream.ReadAsync(buffer.AsMemory(count), CancellationToken.None).ConfigureAwait(false);
+                        if (read == 0) break;
+                        count += read;
+                    }
+                    if (count > 65536) throw new InvalidDataException();
+                    ProviderUsageSnapshot snapshot = JsonSerializer.Deserialize<ProviderUsageSnapshot>(buffer.AsSpan(0, count), _Json) ?? throw new InvalidDataException();
+                    ValidateSnapshot(snapshot);
+                    ApplyWindowModels(account, snapshot);
+                    lock (_StateLock)
+                    {
+                        if (!_Snapshots.TryGetValue(account.Id, out ProviderUsageSnapshot? previous) || snapshot.ObservedUtc >= previous.ObservedUtc) _Snapshots[account.Id] = snapshot;
+                        _Errors.Remove(account.Id);
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is FormatException || ex is IOException || ex is UnauthorizedAccessException || ex is JsonException || ex is ArgumentException || ex is System.ComponentModel.Win32Exception || ex is System.Net.Http.HttpRequestException || ex is OperationCanceledException)
+            {
+                lock (_StateLock)
+                {
+                    _Errors[account.Id] = ex is UsageCollectionException failure ? failure.Code : "usage_snapshot_unavailable_or_invalid";
+                    if (ex is UsageCollectionException limited && limited.RetryAfterUtc.HasValue) _RetryAfter[account.Id] = limited.RetryAfterUtc.Value;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Start a fresh runtime login check for the account and wait for it, bounded by the probe timeout. A check that is
+        /// already running is awaited instead of starting a second one. Returns false when the account has no status check.
+        /// </summary>
+        private async Task<bool> RerunLoginProbeAsync(UsageAccountSettings account, CancellationToken token)
+        {
+            if (!CaptainAccountLaunch.HasLaunchIdentity(account) || !AccountLoginProbe.HasStatusCommand(account.Runtime!.Value)) return false;
+            // A missing login file blocks before any status command, so no probe would start.
+            if (CaptainAccountLaunch.CheckReadiness(account) != null) return false;
+            bool running;
+            lock (_StateLock)
+            {
+                running = _LoginProbes.TryGetValue(account.Id, out LoginProbeState? existing) && existing.Running;
+                if (!running) _LoginProbes.Remove(account.Id);
+            }
+            if (!running) GetLoginProblem(account, DateTime.UtcNow);
+            Task? completion;
+            lock (_StateLock) completion = _LoginProbes.TryGetValue(account.Id, out LoginProbeState? state) ? state.Completion : null;
+            if (completion == null) return false;
+            TimeSpan wait = TimeSpan.FromSeconds((_LastSettings?.LoginProbeTimeoutSeconds ?? 10) + 5);
+            try
+            {
+                await completion.WaitAsync(wait, token).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                // The check keeps running and records its own result; the returned status shows the last finished check.
+            }
+            return true;
         }
 
         private void ForgetAccount(string id)
@@ -191,7 +337,7 @@ namespace Armada.Core.Services
         {
             UsageAccountSettings snapshot = new UsageAccountSettings { Id = account.Id, Runtime = account.Runtime, HomeDirectory = account.HomeDirectory };
             string executable = LoginProbeExecutable(account.Runtime!.Value);
-            _ = Task.Run(async () =>
+            Task probe = Task.Run(async () =>
             {
                 string? reason;
                 try
@@ -210,6 +356,7 @@ namespace Armada.Core.Services
                     state.Running = false;
                 }
             });
+            lock (_StateLock) state.Completion = probe;
         }
 
         private static bool CollectorMatchesRuntime(string collector, Armada.Core.Enums.AgentRuntimeEnum runtime)
@@ -541,6 +688,7 @@ namespace Armada.Core.Services
             public string? Reason { get; set; }
             public DateTime? CheckedUtc { get; set; }
             public bool Running { get; set; }
+            public Task? Completion { get; set; }
         }
 
         #endregion

@@ -139,6 +139,8 @@ import type {
   AccountLoginHome,
   AccountLoginSession,
   AccountLoginStatus,
+  UsageAccountDeleteResult,
+  UsageAccountRefreshResult,
 } from '../types/models';
 import { listAllPages } from '../lib/listAllPages';
 
@@ -1164,6 +1166,10 @@ export const getAccountLoginStatus = (accountId: string) =>
   get<AccountLoginStatus>(`/api/v1/usage-accounts/${encodeURIComponent(accountId)}/login/status`);
 export const cancelAccountLogin = (accountId: string) =>
   post<AccountLoginStatus>(`/api/v1/usage-accounts/${encodeURIComponent(accountId)}/login/cancel`);
+export const deleteUsageAccount = (accountId: string) =>
+  del<UsageAccountDeleteResult>(`/api/v1/usage-accounts/${encodeURIComponent(accountId)}`);
+export const refreshUsageAccount = (accountId: string) =>
+  post<UsageAccountRefreshResult>(`/api/v1/usage-accounts/${encodeURIComponent(accountId)}/refresh`, undefined, { timeout: 90000 });
 
 /** Administrator-only, read-only usage admission preview. */
 export const previewUsageRouting = (data: Record<string, unknown>) => post<Record<string, unknown>>('/api/v1/settings/usage-preview', data, { timeout: USAGE_SETTINGS_TIMEOUT_MS });

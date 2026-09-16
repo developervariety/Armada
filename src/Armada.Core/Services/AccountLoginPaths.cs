@@ -59,6 +59,21 @@ namespace Armada.Core.Services
             return home;
         }
 
+        /// <summary>True when two paths name the same location after normalization. An unparseable path matches nothing.</summary>
+        public static bool IsSamePath(string configured, string derived)
+        {
+            try
+            {
+                string left = Path.GetFullPath(configured).TrimEnd(Path.DirectorySeparatorChar);
+                string right = Path.GetFullPath(derived).TrimEnd(Path.DirectorySeparatorChar);
+                return String.Equals(left, right, StringComparison.Ordinal);
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
+            {
+                return false;
+            }
+        }
+
         /// <summary>The Cursor API key file for an account.</summary>
         public static string CursorKeyFileFor(string dataDirectory, string accountId)
         {

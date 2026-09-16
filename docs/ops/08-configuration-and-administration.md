@@ -602,7 +602,9 @@ Set `runtime` plus `homeDirectory` (ClaudeCode `CLAUDE_CONFIG_DIR`, Codex
 **Subscription accounts** section creates any number of accounts per runtime
 under `<data directory>/accounts/<id>`, runs each runtime's login from the
 browser (Codex device code, Claude Code sign-in with a pasted code, OpenCode and
-Cursor API keys), and assigns or clones captains; see
+Cursor API keys), assigns or clones captains, refreshes one account's usage on demand (bypassing
+`refreshIntervalMinutes`, still honouring a provider retry-after), and deletes
+an account with no captains together with its server-derived folder; see
 [Logging in from the Dashboard](USAGE_ROUTING.md#logging-in-from-the-dashboard). An account without those fields launches its captains on
 the shared login, as before. A missing login blocks the account with a named
 reason. Claude Code and Codex accounts also run the runtime's login status

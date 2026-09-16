@@ -2671,6 +2671,40 @@ export interface AccountLoginSession {
   completedUtc: string | null;
 }
 
+/** What deleting a subscription account removed. */
+export interface UsageAccountDeleteResult {
+  accountId: string;
+  routesRemoved: number;
+  personasRemoved: string[];
+  loginCancelled: boolean;
+  homeDeleted: boolean;
+  homeReason: string;
+}
+
+/** One account's usage status as the server evaluates it. */
+export interface UsageAccountStatus {
+  accountId: string;
+  state: string;
+  reason: string;
+  observedUtc: string | null;
+  source: string;
+  collectionError: string | null;
+  runtime: string | null;
+  loginCheckedUtc: string | null;
+  exhaustedUntilUtc: string | null;
+  windows: Array<{ name: string; remainingPercent: number | null; resetsUtc: string | null; models: string[] }>;
+}
+
+/** Outcome of a hard usage refresh for one account. */
+export interface UsageAccountRefreshResult {
+  accountId: string;
+  collected: boolean;
+  reason: string;
+  retryAfterUtc: string | null;
+  loginProbeRerun: boolean;
+  status: UsageAccountStatus;
+}
+
 /** Last dashboard login plus the server's own login check. */
 export interface AccountLoginStatus {
   accountId: string;

@@ -2,15 +2,22 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import SubscriptionAccountsPanel from './SubscriptionAccountsPanel';
 import {
-  createAccountHome, getAccountLoginStatus, listCaptains, startAccountLogin, submitAccountLoginCode, submitAccountLoginKey,
+  createAccountHome, deleteUsageAccount, getAccountLoginStatus, listCaptains, refreshUsageAccount, startAccountLogin,
+  submitAccountLoginCode, submitAccountLoginKey,
 } from '../api/client';
 import type { PolicyRecord } from '../lib/subscriptionAccounts';
 
 vi.mock('../api/client', () => ({
   listCaptains: vi.fn(), createCaptain: vi.fn(), createAccountHome: vi.fn(), startAccountLogin: vi.fn(),
   submitAccountLoginCode: vi.fn(), submitAccountLoginKey: vi.fn(), getAccountLoginStatus: vi.fn(), cancelAccountLogin: vi.fn(),
+  deleteUsageAccount: vi.fn(), refreshUsageAccount: vi.fn(),
 }));
-vi.mock('../context/LocaleContext', () => ({ useLocale: () => ({ t: (s: string) => s }) }));
+vi.mock('../context/LocaleContext', () => ({
+  useLocale: () => ({
+    t: (s: string, params?: Record<string, string | number>) =>
+      Object.entries(params ?? {}).reduce((text, [key, value]) => text.split(`{{${key}}}`).join(String(value)), s),
+  }),
+}));
 
 const account = (id: string, runtime: string, captainIds: string[] = []) => ({
   id, runtime, captainIds, homeDirectory: runtime === 'Cursor' ? null : `/data/accounts/${id}`,
@@ -21,8 +28,8 @@ const status = (accountId: string, session: Record<string, unknown> | null = nul
   accountId, runtime: null, configured: true, homeDirectory: `/data/accounts/${accountId}`, session, loginReady: false, loginReason: 'account_login_missing', loginCheckedUtc: null,
 });
 
-function renderPanel(policy: PolicyRecord, onSavePolicy = vi.fn().mockResolvedValue(undefined)) {
-  render(<SubscriptionAccountsPanel savedPolicy={policy} statuses={[]} disabled={false} onSavePolicy={onSavePolicy} onRefresh={vi.fn()} />);
+function renderPanel(policy: PolicyRecord, onSavePolicy = vi.fn().mockResolvedValue(undefined), onRefresh = vi.fn()) {
+  render(<SubscriptionAccountsPanel savedPolicy={policy} statuses={[]} disabled={false} onSavePolicy={onSavePolicy} onRefresh={onRefresh} />);
   return onSavePolicy;
 }
 
@@ -37,6 +44,8 @@ describe('Subscription accounts panel', () => {
     vi.mocked(startAccountLogin).mockReset();
     vi.mocked(submitAccountLoginKey).mockReset();
     vi.mocked(submitAccountLoginCode).mockReset();
+    vi.mocked(deleteUsageAccount).mockReset();
+    vi.mocked(refreshUsageAccount).mockReset();
   });
 
   it('lists any number of accounts per runtime and adds another with a server-derived folder', async () => {
@@ -97,5 +106,58 @@ describe('Subscription accounts panel', () => {
     fireEvent.click(screen.getByText('Submit code'));
     await waitFor(() => expect(submitAccountLoginCode).toHaveBeenCalledWith('cl-2', 'pasted-code'));
     expect(field).toHaveValue('');
+  });
+
+  it('disables Delete while captains are assigned and says to unassign them first', async () => {
+    vi.mocked(getAccountLoginStatus).mockResolvedValue(status('codex-busy') as never);
+    renderPanel({ accounts: [account('codex-busy', 'Codex', ['cpt_codex'])] });
+    fireEvent.click(screen.getByText('Manage'));
+    const button = (await screen.findAllByText('Delete account')).find(e => e.tagName === 'BUTTON')!;
+    expect(button).toBeDisabled();
+    expect(screen.getByText(/Unassign this account’s 1 captains before deleting it/)).toBeInTheDocument();
+    fireEvent.click(button);
+    expect(deleteUsageAccount).not.toHaveBeenCalled();
+  });
+
+  it('deletes only after a confirm step that names the account and its server login files, then refreshes', async () => {
+    vi.mocked(getAccountLoginStatus).mockResolvedValue(status('codex-old') as never);
+    vi.mocked(deleteUsageAccount).mockResolvedValue({ accountId: 'codex-old', routesRemoved: 2, personasRemoved: ['Judge'], loginCancelled: false, homeDeleted: true, homeReason: 'account_home_deleted' });
+    const onRefresh = vi.fn();
+    renderPanel({ accounts: [account('codex-old', 'Codex')] }, undefined, onRefresh);
+    fireEvent.click(screen.getByText('Manage'));
+    fireEvent.click((await screen.findAllByText('Delete account')).find(e => e.tagName === 'BUTTON')!);
+    expect(deleteUsageAccount).not.toHaveBeenCalled();
+    expect(screen.getByText(/Delete account codex-old\?.*login files on the server are removed/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Confirm delete'));
+    await waitFor(() => expect(deleteUsageAccount).toHaveBeenCalledWith('codex-old'));
+    await waitFor(() => expect(onRefresh).toHaveBeenCalledTimes(1));
+    expect(screen.getByText(/Deleted account codex-old; 2 persona routes removed/)).toBeInTheDocument();
+  });
+
+  it('shows the refresh policy and refreshes one account with a spinner, then its new observed time and state', async () => {
+    let finish: (value: unknown) => void = () => undefined;
+    vi.mocked(refreshUsageAccount).mockReturnValue(new Promise(resolve => { finish = resolve; }) as never);
+    const observedUtc = '2030-01-02T03:04:05Z';
+    render(<SubscriptionAccountsPanel savedPolicy={{ refreshIntervalMinutes: 7, accounts: [{ ...account('claude-a', 'ClaudeCode'), maxAgeMinutes: 20 }] }}
+      statuses={[{ accountId: 'claude-a', state: 'Unknown', reason: 'required_usage_window_unknown_or_stale', observedUtc: null }]}
+      disabled={false} onSavePolicy={vi.fn()} onRefresh={vi.fn()} />);
+    expect(screen.getByText('Usage refreshes every 7 min when read; data older than 20 min counts as Unknown.')).toBeInTheDocument();
+    expect(screen.getByText('Unknown')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Refresh usage'));
+    expect(await screen.findByText('Refreshing…')).toBeInTheDocument();
+    expect(refreshUsageAccount).toHaveBeenCalledWith('claude-a');
+    finish({ accountId: 'claude-a', collected: true, reason: 'usage_refreshed', retryAfterUtc: null, loginProbeRerun: true,
+      status: { accountId: 'claude-a', state: 'Normal', reason: 'measured_usage_windows', observedUtc, source: 'claude', collectionError: null, runtime: 'ClaudeCode', loginCheckedUtc: null, exhaustedUntilUtc: null, windows: [] } });
+    expect(await screen.findByText('Normal')).toBeInTheDocument();
+    expect(screen.getByText(new Date(observedUtc).toLocaleString())).toBeInTheDocument();
+    expect(screen.getByText('Refresh usage')).toBeInTheDocument();
+  });
+
+  it('reports a rate-limited refresh without claiming a read', async () => {
+    vi.mocked(refreshUsageAccount).mockResolvedValue({ accountId: 'claude-a', collected: false, reason: 'usage_refresh_rate_limited', retryAfterUtc: '2030-01-02T03:04:05Z', loginProbeRerun: true,
+      status: { accountId: 'claude-a', state: 'Unknown', reason: 'required_usage_window_unknown_or_stale', observedUtc: null, source: 'none', collectionError: 'usage_provider_rate_limited', runtime: 'ClaudeCode', loginCheckedUtc: null, exhaustedUntilUtc: null, windows: [] } });
+    renderPanel({ accounts: [account('claude-a', 'ClaudeCode')] });
+    fireEvent.click(screen.getByText('Refresh usage'));
+    expect(await screen.findByText(/The provider asked to wait; usage was not read/)).toBeInTheDocument();
   });
 });
