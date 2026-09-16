@@ -351,3 +351,45 @@ receive shows up there).
 4. Where the AI-Memory chunks are generated. Into the AI-Memory repository, or
    at admiral startup from AI-Memory? The choice touches the sole-memory-source
    contract.
+
+## Approved core allowlist (owner-approved 2026-09-16)
+
+The bar for CORE: a rule is core (always inline, never retrieved) only if its
+ABSENCE on a task could cause a leak, an unsafe or unauthorized outward action,
+an unproven success claim, a destructive remote/git operation, or dispatching
+Armada work that must be direct-edit. If the harm cannot be named, it is a leaf.
+
+CORE (always-on, ~11 rules, ~18-25 KB total):
+
+1. Repository boundary and leak-prevention, in full: the scan list and the
+   owner approval gate. (`shared/repository-boundary-and-leak-prevention.md`)
+2. Never write keys, seeds, passwords, or tokens into memory or a repository;
+   API keys live only in the admiral environment.
+3. Land-then-sync HARD LIMITS: never push upstream, never force-push, never
+   auto-push mission branches or open PRs. (`shared/land-then-sync.md`)
+4. Stop before shared-state or outward actions; present options and wait for
+   owner authority. (`shared/unified-project-memory.md`)
+5. Proving a fix: reproduce the symptom; a self-reported success is not
+   evidence. (`shared/unified-project-memory.md`)
+6. Domain scope and hard guardrails: heavy-duty diagnostics are authorized (do
+   not false-refuse); UDS 0x34 reflash is banned.
+7. Armada is direct-edit only: never dispatch Armada voyages or rescues for
+   Armada bugs. (`repos/armada/README.md`)
+8. Typed-decision non-negotiables: the model never approves, lands, dispatches,
+   deletes, or silences. (`repos/armada/typed-decisions.md`)
+9. ASD-STE100 reporting style. (`shared/unified-project-memory.md`)
+10. Sole-memory-source pointer: AI-Memory is canonical; the loaders change
+    together. (`shared/sole-memory-source.md`)
+11. The index/map plus how to retrieve more.
+
+MUST_RETRIEVE leaves (safety-shaped, per-repo): rules that only apply to one
+repository but whose absence is costly stay LEAF, tagged `must_retrieve` for
+their domain, so retrieval always includes them when the task is in that domain
+rather than only on a keyword match. First set: EcuLink hang-escalation (a
+source-defect hang is a denial of service in a bench tool) and the EcuLink
+source-fidelity rules (seed-key handling, reproduce-do-not-correct).
+
+Everything else is a plain LEAF, fetched by topic on demand: deploy procedure,
+platform failure taxonomy, model tiering and captain roster, dispatch-preflight
+detail, asset and playbook rules, the decision-corpus capture rule, audit
+methods, the other per-repo porting rules, and the host notes.
