@@ -2,6 +2,8 @@
 
 Assessment date: 2026-09-12 (2026-09-13 UTC). This report is an assessment and plan. No implementation, merge, test run, or deployment is claimed here. Live work state belongs in Armada objectives; this report contains no operational IDs.
 
+A standing [upstream parity standpoint](UPSTREAM_PARITY.md) records the fork-vs-upstream baseline (fork `ae0431ad1`, upstream `d92e1dce6`) so later parity passes start from it instead of re-deriving from the merge base.
+
 ## Recommendation
 
 Use selective adaptation. Do not merge upstream wholesale. The dashboard has useful gaps, but several upstream implementations are smaller than the current fork. Preserve the fork's recovery, immutable Check gates, scheduler, provider routing, coordination, process ownership and deployment controls.

@@ -158,6 +158,15 @@ Native upstream memory and Recorder guidance remain separate decision work.
 Deployments with one external durable memory source must not enable a second
 store as an incidental update. Harbor and self-rebuild remain disabled during their safety integration. The review gives the blockers and required proof.
 
+The fork ported upstream's in-place Restart Server action, adapted for Docker: the admiral
+stops gracefully and the container restart policy relaunches it, instead of upstream's native
+process relaunch, which would orphan a child inside the container. A full upstream-parity
+assessment against the current upstream tip is recorded in the
+[upstream parity standpoint](docs/upstream-review/UPSTREAM_PARITY.md), which maps the remaining
+delta by capability: cloud model-endpoint providers (Azure OpenAI, Vertex AI, Bedrock) stay
+unported by owner decision, and upstream's native installer/packaging and A/B-slot rebuild paths
+stay unported because the fork ships Docker with supervised self-deploy.
+
 ---
 
 ## Features
