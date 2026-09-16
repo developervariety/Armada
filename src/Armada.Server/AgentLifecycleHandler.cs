@@ -40,6 +40,11 @@ namespace Armada.Server
         private TerminalMarkerTracker? _TerminalMarkers;
         private IHarborProcessHost? _HarborHost;
 
+        // Mints the mission owner's scoped session token for a mission captain's MCP credential. Null in a
+        // context that issues no tokens (a test host), which fails the mission launch credential closed:
+        // the captain presents no token and reaches no MCP tool, never the admiral launch credential.
+        private readonly Armada.Core.Services.Interfaces.ISessionTokenService? _SessionTokens;
+
         // Processes this handler stopped because they outlived their terminal marker. Their exit
         // is a completion, not a crash, whatever exit code the stop produced.
         private readonly System.Collections.Concurrent.ConcurrentDictionary<int, byte> _TerminalMarkerStops = new System.Collections.Concurrent.ConcurrentDictionary<int, byte>();
@@ -137,6 +142,8 @@ namespace Armada.Server
         /// <param name="webSocketHub">WebSocket hub (nullable).</param>
         /// <param name="emitEventAsync">Delegate to emit events.</param>
         /// <param name="modelValidationTimeout">Optional validation timeout override.</param>
+        /// <param name="sessionTokens">Session token service that mints a mission captain's own scoped MCP
+        /// credential; null issues no token, failing the mission launch credential closed.</param>
         public AgentLifecycleHandler(
             LoggingModule logging,
             DatabaseDriver database,
@@ -147,8 +154,10 @@ namespace Armada.Server
             IPromptTemplateService? promptTemplateService,
             ArmadaWebSocketHub? webSocketHub,
             Func<string, string, string?, string?, string?, string?, string?, string?, Task> emitEventAsync,
-            TimeSpan? modelValidationTimeout = null)
+            TimeSpan? modelValidationTimeout = null,
+            Armada.Core.Services.Interfaces.ISessionTokenService? sessionTokens = null)
         {
+            _SessionTokens = sessionTokens;
             // Overridable so a test can drive the timeout path in seconds rather than needing a fake
             // runtime that outlasts the production ceiling. Defaults to the production value.
             _ModelValidationTimeout = modelValidationTimeout ?? TimeSpan.FromSeconds(30);
@@ -856,20 +865,28 @@ namespace Armada.Server
             }
         }
 
-        private async Task<CaptainLaunchIsolationPlan?> PrepareCaptainLaunchIsolationAsync(
+        internal async Task<CaptainLaunchIsolationPlan?> PrepareCaptainLaunchIsolationAsync(
             Captain captain,
-            Mission mission)
+            Mission mission,
+            CancellationToken token = default)
         {
             string scopedDirectory = Path.Combine(
                 _Settings.LogDirectory,
                 "runtime-config",
                 mission.Id,
                 captain.Id);
+            // A mission captain authenticates to Armada MCP with the mission owner's own scoped session
+            // token, which the endpoint scopes to that owner's tenant and user. The admiral launch
+            // credential, which maps to global admin, never enters a mission captain's environment, so a
+            // mission (even one a tenant admin dispatched, or an autonomous mission) reaches only its owner's
+            // records and no operator-only tool.
+            McpCredentialReference credential = await ResolveMissionMcpCredentialAsync(mission, token).ConfigureAwait(false);
             CaptainLaunchIsolationPlan plan = CaptainLaunchIsolationPlanner.PlanForLaunch(
                 captain.Runtime,
                 _Settings.SeedDockRuntimeMcpConfig,
                 _Settings.McpPort,
-                scopedDirectory);
+                scopedDirectory,
+                credential);
 
             // The account login switch applies whether or not MCP isolation is seeded. A captain on an account whose
             // login is missing fails this launch with a named reason instead of running on the shared login.
@@ -897,6 +914,56 @@ namespace Armada.Server
             }
 
             return plan;
+        }
+
+        /// <summary>
+        /// Build the MCP credential a mission captain launches with: the mission owner's own scoped session
+        /// token. The owner is the mission's tenant and user, and when the mission carries neither (older
+        /// records, or a mission created without them), the objective owner carried on the mission's voyage.
+        /// The token the endpoint scopes to that owner, exactly as an authenticated caller of that scope would
+        /// receive, so the mission reaches only that tenant and user's records and no operator-only tool.
+        /// When no owner resolves, or no session-token service is available, the credential carries no value
+        /// (fail closed): the launch presents nothing and the endpoint refuses it, never the admiral launch
+        /// credential.
+        /// </summary>
+        /// <param name="mission">The mission being launched.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The mission's scoped MCP credential; never null.</returns>
+        internal async Task<McpCredentialReference> ResolveMissionMcpCredentialAsync(Mission mission, CancellationToken token = default)
+        {
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (_SessionTokens == null) return McpCredentialReference.MissionUnresolvedOwner;
+
+            string? tenantId = mission.TenantId;
+            string? userId = mission.UserId;
+
+            // Autonomous dispatch has no interactive caller: the owner is the objective owner, which the
+            // mission carries directly and, failing that, its voyage carries.
+            if ((String.IsNullOrWhiteSpace(tenantId) || String.IsNullOrWhiteSpace(userId))
+                && !String.IsNullOrWhiteSpace(mission.VoyageId))
+            {
+                Voyage? voyage = await _Database.Voyages.ReadAsync(mission.VoyageId!, token).ConfigureAwait(false);
+                if (voyage != null)
+                {
+                    if (String.IsNullOrWhiteSpace(tenantId)) tenantId = voyage.TenantId;
+                    if (String.IsNullOrWhiteSpace(userId)) userId = voyage.UserId;
+                }
+            }
+
+            if (String.IsNullOrWhiteSpace(tenantId) || String.IsNullOrWhiteSpace(userId))
+            {
+                _Logging.Warn(_Header + "mission " + mission.Id + " has no resolvable owner; its captain launches without an Armada MCP credential");
+                return McpCredentialReference.MissionUnresolvedOwner;
+            }
+
+            AuthenticateResult issued = _SessionTokens.CreateToken(tenantId!, userId!);
+            if (String.IsNullOrWhiteSpace(issued.Token))
+            {
+                _Logging.Warn(_Header + "no session token was issued for mission " + mission.Id + "; its captain launches without an Armada MCP credential");
+                return McpCredentialReference.MissionUnresolvedOwner;
+            }
+
+            return McpCredentialReference.ForMission(issued.Token!);
         }
 
         /// <summary>

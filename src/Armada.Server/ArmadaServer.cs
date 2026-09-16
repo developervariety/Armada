@@ -385,7 +385,8 @@ namespace Armada.Server
                 _Logging, _Database, _Settings, _Git, _MergeQueue, _LandingService, _AutoLandEvaluator, _ConventionChecker, _CriticalTriggerEvaluator, _TemplateService, _PromptTemplateService, _Docks, _RemoteTriggerService, null, _CodeIndex);
 
             _AgentLifecycle = new AgentLifecycleHandler(
-                _Logging, _Database, _Settings, _RuntimeFactory, _Admiral, _TemplateService, _PromptTemplateService, null, EmitEventAsync);
+                _Logging, _Database, _Settings, _RuntimeFactory, _Admiral, _TemplateService, _PromptTemplateService, null, EmitEventAsync,
+                sessionTokens: _SessionTokenService);
             _AgentLifecycle.SetProviderProgress(_ProviderProgress);
             _AgentLifecycle.SetTerminalMarkers(_TerminalMarkers);
 

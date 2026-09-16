@@ -7,12 +7,14 @@ namespace Armada.Core.Services
     /// value and referenced by that variable name in every runtime configuration file, so the value itself
     /// never lands in a dock or a scoped configuration file.
     ///
-    /// Two credentials exist. A mission launch carries this admiral's launch credential
-    /// (<see cref="Launch"/>), which the MCP endpoint maps to operator access. A chat turn carries the
-    /// authenticated caller's own session token (<see cref="ForChat"/>), which the endpoint re-reads on
-    /// every request and scopes to that caller, so a chat captain never reaches a tool the caller may not.
-    /// A chat turn with no authenticated caller carries no token (<see cref="ChatUnauthenticated"/>): the
-    /// variable is left unset, so the runtime presents no credential and the endpoint refuses it.
+    /// Every launch presents a caller-scoped session token, never the admiral launch credential (which maps
+    /// to global admin in the default tenant). A mission launch carries the mission owner's own session
+    /// token (<see cref="ForMission"/>), and a chat turn carries the authenticated caller's own session
+    /// token (<see cref="ForChat"/>); the MCP endpoint re-reads the token owner on every request and scopes
+    /// the captain to that tenant and user, so a mission or chat captain never reaches a tool that owner may
+    /// not, nor another tenant's records. A chat turn with no authenticated caller carries no token
+    /// (<see cref="ChatUnauthenticated"/>): the variable is left unset, so the runtime presents no
+    /// credential and the endpoint refuses it.
     /// </summary>
     public sealed class McpCredentialReference
     {
@@ -57,10 +59,27 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// The admiral launch credential a mission launch presents.
+        /// A mission launch for a resolved mission owner: the launch variable carries the mission owner's
+        /// own session token, which the MCP endpoint scopes to that owner's tenant and user. The admiral
+        /// launch credential (global admin) is never presented, so a mission never gains global admin nor
+        /// reaches another tenant's records. The variable name is the launch variable so every runtime's
+        /// dock and scoped MCP configuration keeps referencing it; only the value carried is scoped.
         /// </summary>
-        public static McpCredentialReference Launch { get; } =
-            new McpCredentialReference(McpLaunchCredential.EnvironmentVariable, McpLaunchCredential.Token);
+        /// <param name="sessionToken">The mission owner's session token.</param>
+        /// <returns>The credential reference.</returns>
+        public static McpCredentialReference ForMission(string sessionToken)
+        {
+            if (String.IsNullOrWhiteSpace(sessionToken)) throw new ArgumentNullException(nameof(sessionToken));
+            return new McpCredentialReference(McpLaunchCredential.EnvironmentVariable, sessionToken);
+        }
+
+        /// <summary>
+        /// A mission launch whose owner could not be resolved: the launch variable is named but left unset,
+        /// so the runtime presents no credential and reaches no MCP tool. Failing closed keeps the admiral
+        /// launch credential out of the environment rather than falling back to global admin.
+        /// </summary>
+        public static McpCredentialReference MissionUnresolvedOwner { get; } =
+            new McpCredentialReference(McpLaunchCredential.EnvironmentVariable, null);
 
         /// <summary>
         /// A chat turn with no authenticated caller: the chat variable is named but left unset, so the

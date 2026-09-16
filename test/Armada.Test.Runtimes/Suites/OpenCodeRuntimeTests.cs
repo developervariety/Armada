@@ -104,7 +104,7 @@ namespace Armada.Test.Runtimes.Suites
                 {
                     Environment.SetEnvironmentVariable("ARMADA_TEST_OPENCODE", script);
                     InspectableOpenCodeRuntime runtime = CreateRuntime();
-                    CaptainLaunchIsolationPlan plan = CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.OpenCode, 7891, root);
+                    CaptainLaunchIsolationPlan plan = CaptainLaunchIsolationPlanner.Plan(AgentRuntimeEnum.OpenCode, 7891, root, McpCredentialReference.ForMission("armada-opencode-test-token"));
                     int processId = await runtime.StartAsync(root, "test prompt", environment: new Dictionary<string, string> { ["OPENCODE_CONFIG_CONTENT"] = "{\"provider\":{\"test\":{}},\"mcp\":{\"other\":{\"type\":\"remote\",\"url\":\"http://other\"}}}" }, isolationPlan: plan);
                     for (int i = 0; i < 40 && (!File.Exists(capture) || await runtime.IsRunningAsync(processId)); i++) await Task.Delay(25);
                     AssertTrue(File.Exists(capture), "OpenCode launch must receive MCP config through its environment.");

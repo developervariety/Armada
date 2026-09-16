@@ -21,8 +21,9 @@ namespace Armada.Core.Services
     ///   credential as a bearer token referenced by variable name.
     ///
     /// Every plan puts a chosen MCP credential in the captain's environment, and each client references it
-    /// by variable name, so the token never lands in a scoped configuration file. A mission launch carries
-    /// the admiral launch credential; a chat launch carries the caller's own session token instead.
+    /// by variable name, so the token never lands in a scoped configuration file. Both a mission launch and
+    /// a chat launch carry a caller-scoped session token (the mission owner's or the chat caller's), never
+    /// the admiral launch credential.
     ///
     /// A captain on a subscription account also receives that account's login switch through
     /// <see cref="ApplyAccount"/>, independent of MCP isolation.
@@ -33,19 +34,6 @@ namespace Armada.Core.Services
     public static class CaptainLaunchIsolationPlanner
     {
         #region Public-Methods
-
-        /// <summary>
-        /// Build the isolation plan for a runtime. Returns an empty plan (nothing to apply) when isolation
-        /// cannot be expressed for the runtime or when the MCP port is invalid.
-        /// </summary>
-        /// <param name="runtime">The captain's runtime.</param>
-        /// <param name="mcpPort">The Admiral MCP port (must be positive).</param>
-        /// <param name="scopedConfigDirectory">Absolute path to the per-launch scoped configuration directory.</param>
-        /// <returns>The isolation plan; never null.</returns>
-        public static CaptainLaunchIsolationPlan Plan(AgentRuntimeEnum runtime, int mcpPort, string scopedConfigDirectory)
-        {
-            return Plan(runtime, mcpPort, scopedConfigDirectory, McpCredentialReference.Launch);
-        }
 
         /// <summary>
         /// Build the isolation plan for a runtime with a chosen MCP credential. The configuration files reference
@@ -151,23 +139,31 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Build the launch plan for one captain start. When dock MCP delivery is enabled, Claude Code, Codex and
-        /// Mux receive their scoped MCP configuration, and every runtime receives the launch credential, because the
-        /// dock configuration seeded for Cursor, Gemini and OpenCode references it by variable name.
+        /// Build the launch plan for one captain start with the mission's scoped MCP credential. When dock MCP
+        /// delivery is enabled, Claude Code, Codex and Mux receive their scoped MCP configuration, and every
+        /// runtime receives the credential value, because the dock configuration seeded for Cursor, Gemini and
+        /// OpenCode references it by variable name. The credential is the mission owner's scoped session token,
+        /// never the admiral launch credential, so a mission never gains global admin; a credential with no
+        /// value (an unresolved owner) leaves the variable unset, so the launch presents nothing and the
+        /// endpoint refuses it, failing closed rather than falling back to global admin.
         /// </summary>
         /// <param name="runtime">Captain runtime.</param>
         /// <param name="seedDockMcpConfig">Whether dock and launch MCP delivery is enabled.</param>
         /// <param name="mcpPort">Local Armada MCP port.</param>
         /// <param name="scopedConfigDirectory">Per-launch scoped configuration directory.</param>
+        /// <param name="credential">The mission's scoped MCP credential; its value never lands in a file.</param>
         /// <returns>The plan; empty when nothing applies.</returns>
-        public static CaptainLaunchIsolationPlan PlanForLaunch(AgentRuntimeEnum runtime, bool seedDockMcpConfig, int mcpPort, string scopedConfigDirectory)
+        public static CaptainLaunchIsolationPlan PlanForLaunch(AgentRuntimeEnum runtime, bool seedDockMcpConfig, int mcpPort, string scopedConfigDirectory, McpCredentialReference credential)
         {
+            if (credential == null) throw new ArgumentNullException(nameof(credential));
             if (!seedDockMcpConfig) return new CaptainLaunchIsolationPlan();
             bool scoped = runtime == AgentRuntimeEnum.ClaudeCode || runtime == AgentRuntimeEnum.Codex || runtime == AgentRuntimeEnum.Mux;
-            CaptainLaunchIsolationPlan plan = scoped ? Plan(runtime, mcpPort, scopedConfigDirectory) : new CaptainLaunchIsolationPlan();
+            CaptainLaunchIsolationPlan plan = scoped ? Plan(runtime, mcpPort, scopedConfigDirectory, credential) : new CaptainLaunchIsolationPlan();
             // The endpoint refuses a request without credentials, so a runtime that reads only its dock
-            // configuration still needs the credential that configuration names.
-            plan.EnvironmentOverrides[McpLaunchCredential.EnvironmentVariable] = McpLaunchCredential.Token;
+            // configuration still needs the credential that configuration names. A credential with no value
+            // leaves the variable unset (fail closed): the launch presents nothing and the endpoint refuses it.
+            if (credential.HasToken)
+                plan.EnvironmentOverrides[credential.EnvironmentVariable] = credential.Token;
             return plan;
         }
 

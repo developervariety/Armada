@@ -334,15 +334,23 @@ global administrator with reason `global_administrator_required`, for a dry run
 as well as an apply, before it starts a job or reads a mission. A refused call returns a JSON-RPC
 error before its arguments are read or its audit is written.
 
-**Captains.** The admiral creates a random launch credential when it starts. The
-credential exists only in the admiral's memory and in the environment of the
-captain processes it launches, as `ARMADA_MCP_TOKEN`, and it changes on every
-start. With dock MCP delivery enabled, every captain launch carries it, including
-Cursor, Gemini and OpenCode captains that read only their dock configuration, and a
-subscription-account login switch leaves it in place. Codex receives the reference
-as a command-line override, so it holds in whichever `CODEX_HOME` an account
-selects. Scoped and dock configuration files only reference the variable, in each
-client's own syntax:
+**Captains.** A launched captain authenticates to Armada MCP with a
+caller-scoped session token, never a global-admin credential. A mission captain
+carries the mission owner's own session token, which the endpoint scopes to that
+owner's tenant and user; a chat captain carries the authenticated caller's own
+session token. The owner of a mission is its tenant and user, and an autonomous
+mission with no owner of its own falls back to the objective owner carried on its
+voyage. When no owner resolves, the launch presents no credential and the
+endpoint refuses it (fail closed).
+
+The token reaches a captain in its environment as `ARMADA_MCP_TOKEN` (chat uses
+`ARMADA_MCP_CHAT_TOKEN`), and it changes on every launch. With dock MCP delivery
+enabled, every captain launch carries it, including Cursor, Gemini and OpenCode
+captains that read only their dock configuration, and a subscription-account
+login switch leaves it in place. Codex receives the reference as a command-line
+override, so it holds in whichever `CODEX_HOME` an account selects. Scoped and
+dock configuration files only reference the variable, in each client's own
+syntax:
 
 | Runtime | Reference |
 | --- | --- |
@@ -354,12 +362,16 @@ client's own syntax:
 | Mux | `"auth": { "scheme": "bearer_token", "token": "${ARMADA_MCP_TOKEN}" }` |
 
 The captain tool inventory probes a Mux captain's configured HTTP servers with
-the same credential its `auth` object declares.
+the same credential its `auth` object declares, and probes a running mission
+captain's Armada endpoint with the mission owner's own scoped token.
 
-The launch credential maps to a named captain identity with operator tool
-access, because captains use the operator catalog. Captain prompts must still
-keep dispatch, administration, deployment, restore, purge and server-control
-actions outside mission scope.
+Because the token is caller-scoped, a mission reaches only its owner's records
+and the tools that owner's tenant and user may use - never an operator-only or
+cross-tenant tool - even though captains use the operator catalog. The admiral
+also holds a random launch credential (recognised at the endpoint for its own
+internal use), but no mission or chat captain is ever launched with it. Captain
+prompts must still keep dispatch, administration, deployment, restore, purge and
+server-control actions outside mission scope.
 
 **Local stdio.** `armada mcp stdio` runs the tools in-process with the local
 settings file and database credentials. It sets an explicit local operator

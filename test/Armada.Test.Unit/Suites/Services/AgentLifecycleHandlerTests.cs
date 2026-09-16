@@ -31,6 +31,158 @@ namespace Armada.Test.Unit.Suites.Services
         /// </summary>
         protected override async Task RunTestsAsync()
         {
+            // ----------------------------------------------------------------
+            // Mission MCP credential is scoped to the mission owner, never the
+            // admiral launch credential (cross-tenant privilege escalation fix).
+            // ----------------------------------------------------------------
+
+            await RunTest("A tenant-admin-dispatched mission's captain is scoped to its own tenant, not global admin, and cannot reach another tenant", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    // A tenant admin of tenant B dispatches a mission. Its captain must reach only tenant B's
+                    // records with tenant B's own privileges, never the admiral launch credential (which maps
+                    // to global admin in the default tenant and reaches every operator-only tool).
+                    SessionTokenService tokens = new SessionTokenService();
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings, sessionTokens: tokens);
+
+                    TenantMetadata tenantB = new TenantMetadata("Tenant B");
+                    await testDb.Driver.Tenants.CreateAsync(tenantB).ConfigureAwait(false);
+                    UserMaster adminB = new UserMaster(tenantB.Id, "admin-b@example.com", "password");
+                    adminB.IsTenantAdmin = true;
+                    adminB.IsAdmin = false;
+                    await testDb.Driver.Users.CreateAsync(adminB).ConfigureAwait(false);
+
+                    TenantMetadata tenantA = new TenantMetadata("Tenant A");
+                    await testDb.Driver.Tenants.CreateAsync(tenantA).ConfigureAwait(false);
+
+                    Mission mission = new Mission("Cross-tenant probe")
+                    {
+                        TenantId = tenantB.Id,
+                        UserId = adminB.Id
+                    };
+
+                    McpCredentialReference credential = await handler.ResolveMissionMcpCredentialAsync(mission).ConfigureAwait(false);
+                    AssertTrue(credential.HasToken, "the mission carries a scoped MCP credential");
+                    AssertFalse(string.Equals(credential.Token, McpLaunchCredential.Token, StringComparison.Ordinal),
+                        "the mission credential is never the admiral launch credential value");
+
+                    AuthenticationService auth = CreateAuthenticationService(testDb.Driver, tokens);
+                    AuthContext ctx = await auth.AuthenticateAsync("Bearer " + credential.Token, null, null).ConfigureAwait(false);
+
+                    AssertTrue(ctx.IsAuthenticated, "the mission credential authenticates");
+                    AssertEqual(tenantB.Id, ctx.TenantId, "the mission is scoped to its owning tenant");
+                    AssertEqual(adminB.Id, ctx.UserId, "the mission is scoped to its owning user");
+                    AssertFalse(ctx.IsAdmin, "the mission never runs as a global admin, so operator-only tools are unreachable");
+                    AssertFalse(string.Equals(ctx.TenantId, Armada.Core.Constants.DefaultTenantId, StringComparison.Ordinal) && ctx.IsAdmin,
+                        "the mission never reaches the default tenant as global admin");
+                    AssertFalse(string.Equals(ctx.TenantId, tenantA.Id, StringComparison.Ordinal),
+                        "the mission cannot read another tenant's records: its scope is its own tenant");
+                }
+            });
+
+            await RunTest("An autonomous mission runs with the objective owner's scope carried on its voyage, not global admin", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    // Autonomous dispatch has no interactive caller. When the mission itself carries no owner,
+                    // the objective owner carried on its voyage is the scope, never global admin.
+                    SessionTokenService tokens = new SessionTokenService();
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings, sessionTokens: tokens);
+
+                    TenantMetadata tenantC = new TenantMetadata("Tenant C");
+                    await testDb.Driver.Tenants.CreateAsync(tenantC).ConfigureAwait(false);
+                    UserMaster ownerC = new UserMaster(tenantC.Id, "owner-c@example.com", "password");
+                    ownerC.IsTenantAdmin = false;
+                    ownerC.IsAdmin = false;
+                    await testDb.Driver.Users.CreateAsync(ownerC).ConfigureAwait(false);
+
+                    Voyage voyage = new Voyage("Autonomous voyage")
+                    {
+                        TenantId = tenantC.Id,
+                        UserId = ownerC.Id
+                    };
+                    await testDb.Driver.Voyages.CreateAsync(voyage).ConfigureAwait(false);
+
+                    Mission mission = new Mission("Autonomous mission")
+                    {
+                        VoyageId = voyage.Id
+                        // No TenantId/UserId: the owner falls back to the voyage (the objective owner).
+                    };
+
+                    McpCredentialReference credential = await handler.ResolveMissionMcpCredentialAsync(mission).ConfigureAwait(false);
+                    AssertTrue(credential.HasToken, "the autonomous mission carries a scoped MCP credential");
+                    AssertFalse(string.Equals(credential.Token, McpLaunchCredential.Token, StringComparison.Ordinal),
+                        "the autonomous mission credential is never the admiral launch credential value");
+
+                    AuthenticationService auth = CreateAuthenticationService(testDb.Driver, tokens);
+                    AuthContext ctx = await auth.AuthenticateAsync("Bearer " + credential.Token, null, null).ConfigureAwait(false);
+                    AssertEqual(tenantC.Id, ctx.TenantId, "the autonomous mission is scoped to the objective owner's tenant");
+                    AssertEqual(ownerC.Id, ctx.UserId, "the autonomous mission is scoped to the objective owner's user");
+                    AssertFalse(ctx.IsAdmin, "the autonomous mission is not a global admin");
+                }
+            });
+
+            await RunTest("A mission launch plan never carries the admiral launch credential value in its environment", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    SessionTokenService tokens = new SessionTokenService();
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings, sessionTokens: tokens);
+
+                    Captain captain = new Captain("cursor-mission-captain", AgentRuntimeEnum.Cursor);
+                    Mission mission = new Mission("Owned mission")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId
+                    };
+
+                    CaptainLaunchIsolationPlan? plan = await handler.PrepareCaptainLaunchIsolationAsync(captain, mission).ConfigureAwait(false);
+                    AssertTrue(plan != null, "a seeded mission launch produces a plan");
+                    AssertTrue(plan!.EnvironmentOverrides.ContainsKey(McpLaunchCredential.EnvironmentVariable),
+                        "the launch variable carries the mission credential so the dock configuration resolves");
+                    AssertFalse(plan.EnvironmentOverrides.ContainsValue(McpLaunchCredential.Token),
+                        "the admiral launch credential value never appears in a mission captain's environment");
+                    // The value present is a scoped session token, not the launch credential.
+                    AuthenticationService auth = CreateAuthenticationService(testDb.Driver, tokens);
+                    string carried = plan.EnvironmentOverrides[McpLaunchCredential.EnvironmentVariable];
+                    // A default-tenant, default-user mission needs the default tenant present to authenticate;
+                    // proving the value is not the launch token is enough here.
+                    AssertFalse(string.Equals(carried, McpLaunchCredential.Token, StringComparison.Ordinal),
+                        "the launch variable holds a scoped session token, not the launch credential");
+                    _ = auth;
+                }
+            });
+
+            await RunTest("A legitimate same-tenant mission still launches with working MCP wiring", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    // The fix must not remove what a normal mission can legitimately do: the captain still
+                    // receives a credential its dock and scoped MCP configuration can resolve.
+                    SessionTokenService tokens = new SessionTokenService();
+                    AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings, sessionTokens: tokens);
+
+                    Captain claude = new Captain("claude-mission-captain", AgentRuntimeEnum.ClaudeCode);
+                    Mission mission = new Mission("Same-tenant mission")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId
+                    };
+
+                    CaptainLaunchIsolationPlan? plan = await handler.PrepareCaptainLaunchIsolationAsync(claude, mission).ConfigureAwait(false);
+                    AssertTrue(plan != null, "a same-tenant mission still gets a launch plan");
+                    AssertTrue(plan!.EnvironmentOverrides.TryGetValue(McpLaunchCredential.EnvironmentVariable, out string? value) && !string.IsNullOrEmpty(value),
+                        "the captain still carries an MCP credential so its tools work");
+                    AssertTrue(plan.ExtraArguments.Contains("--strict-mcp-config"),
+                        "Claude Code still receives its scoped MCP configuration");
+                    AssertTrue(plan.FilesToWrite.Exists(f => f.RelativePath == "armada-mcp.json"),
+                        "the scoped MCP config file is still written");
+                    AssertTrue(plan.FilesToWrite.TrueForAll(f => !f.Contents.Contains(value!, StringComparison.Ordinal)),
+                        "the credential value never lands in a scoped config file, only the variable reference");
+                }
+            });
+
             await RunTest("IsProcessExitHandled holds while exit handling is in flight, beyond the retention window", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -1041,7 +1193,7 @@ namespace Armada.Test.Unit.Suites.Services
             });
         }
 
-        private AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings, TimeSpan? modelValidationTimeout = null, IAdmiralService? admiralOverride = null, AgentRuntimeFactory? runtimeFactoryOverride = null)
+        private AgentLifecycleHandler CreateHandler(DatabaseDriver database, out ArmadaSettings settings, TimeSpan? modelValidationTimeout = null, IAdmiralService? admiralOverride = null, AgentRuntimeFactory? runtimeFactoryOverride = null, ISessionTokenService? sessionTokens = null)
         {
             LoggingModule logging = CreateLogging();
             settings = CreateSettings();
@@ -1059,7 +1211,14 @@ namespace Armada.Test.Unit.Suites.Services
                 null,
                 null,
                 (eventType, message, entityType, entityId, captainId, missionId, vesselId, voyageId) => Task.CompletedTask,
-                modelValidationTimeout);
+                modelValidationTimeout,
+                sessionTokens);
+        }
+
+        private static AuthenticationService CreateAuthenticationService(DatabaseDriver database, ISessionTokenService sessionTokens)
+        {
+            LoggingModule logging = CreateLogging();
+            return new AuthenticationService(database, sessionTokens, new ArmadaSettings(), logging);
         }
 
         private sealed class StopRecordingRuntimeFactory : AgentRuntimeFactory

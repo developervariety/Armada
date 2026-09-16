@@ -26,6 +26,7 @@ namespace Armada.Server
         private readonly HttpClient _HttpClient;
         private readonly JsonSerializerOptions _JsonOptions = JsonDefaults.Insensitive;
         private readonly string _UserProfileDirectory;
+        private readonly Armada.Core.Services.Interfaces.ISessionTokenService? _SessionTokens;
 
         // A tools report is an interactive request, so a stalled endpoint must not hold it open for long.
         private const int _CALLER_MCP_TIMEOUT_SECONDS = 15;
@@ -36,10 +37,14 @@ namespace Armada.Server
         /// <param name="userProfileDirectory">Directory holding the user-level runtime configuration
         /// (<c>.claude.json</c>, <c>.gemini</c>, <c>.mux</c>). Defaults to the current user's profile. Every MCP
         /// server listed there may be started to probe it, so a test supplies its own directory.</param>
-        public CaptainRuntimeToolCatalogService(LoggingModule logging, ArmadaSettings? settings = null, HttpClient? httpClient = null, string? userProfileDirectory = null)
+        /// <param name="sessionTokens">Session token service that mints the mission owner's own scoped token for
+        /// a running mission captain's Armada MCP probe; null presents no credential, so the probe reports the
+        /// endpoint unreachable rather than presenting the admiral launch credential for a mission viewer.</param>
+        public CaptainRuntimeToolCatalogService(LoggingModule logging, ArmadaSettings? settings = null, HttpClient? httpClient = null, string? userProfileDirectory = null, Armada.Core.Services.Interfaces.ISessionTokenService? sessionTokens = null)
         {
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Settings = settings;
+            _SessionTokens = sessionTokens;
             _HttpClient = httpClient ?? new HttpClient();
             _UserProfileDirectory = String.IsNullOrWhiteSpace(userProfileDirectory)
                 ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
@@ -80,10 +85,15 @@ namespace Armada.Server
             string? contextDirectory = await ResolveContextDirectoryAsync(captain, database).ConfigureAwait(false);
             string? scopedConfigDirectory = ResolveScopedConfigDirectory(captain);
 
+            // A running mission captain reaches Armada MCP with the mission owner's own scoped token, so the
+            // probe presents that same scoped token, never the admiral launch credential. When the owner
+            // cannot be resolved the probe presents nothing and reports the endpoint unreachable.
+            string? missionArmadaAuthorization = await ResolveMissionProbeAuthorizationAsync(captain, database, token).ConfigureAwait(false);
+
             switch (captain.Runtime)
             {
                 case AgentRuntimeEnum.Codex:
-                    return await DescribeCodexAsync(contextDirectory, scopedConfigDirectory != null, token).ConfigureAwait(false);
+                    return await DescribeCodexAsync(contextDirectory, scopedConfigDirectory != null, missionArmadaAuthorization, token).ConfigureAwait(false);
                 case AgentRuntimeEnum.ClaudeCode:
                     return await DescribeConfiguredRuntimeAsync(
                         "Claude Code",
@@ -306,7 +316,7 @@ namespace Armada.Server
             return snapshot;
         }
 
-        private async Task<RuntimeToolCatalogSnapshot> DescribeCodexAsync(string? contextDirectory, bool launchConfigIncludesArmada, CancellationToken token)
+        private async Task<RuntimeToolCatalogSnapshot> DescribeCodexAsync(string? contextDirectory, bool launchConfigIncludesArmada, string? missionArmadaAuthorization, CancellationToken token)
         {
             RuntimeToolCatalogSnapshot snapshot = new RuntimeToolCatalogSnapshot
             {
@@ -318,10 +328,16 @@ namespace Armada.Server
                 List<RuntimeMcpServerDefinition> servers = await GetCodexServersAsync(contextDirectory, token).ConfigureAwait(false);
                 if (launchConfigIncludesArmada && !servers.Any(server => String.Equals(server.Name, "armada", StringComparison.OrdinalIgnoreCase)))
                 {
+                    // The running mission captain reaches Armada MCP with the mission owner's scoped token,
+                    // so the probe presents the same scoped token; with no resolvable owner it sends no
+                    // credential and the endpoint reports the server unreachable.
+                    Dictionary<string, string> headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    if (!String.IsNullOrEmpty(missionArmadaAuthorization))
+                        headers["Authorization"] = missionArmadaAuthorization!;
                     RuntimeMcpServerDefinition armada = new RuntimeMcpServerDefinition
                     {
                         Name = "armada", Enabled = true, TransportType = "streamable_http", Url = ArmadaMcpConfigBuilder.GetMcpUrl(_Settings!.McpPort),
-                        Headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Authorization"] = "Bearer " + McpLaunchCredential.Token },
+                        Headers = headers,
                         StartupTimeout = TimeSpan.FromSeconds(15), ToolTimeout = TimeSpan.FromSeconds(15)
                     };
                     armada.Target = BuildTarget(armada);
@@ -341,6 +357,39 @@ namespace Armada.Server
                 snapshot.Summary = "Armada could not inspect Codex MCP servers for this captain: " + ex.Message;
                 return snapshot;
             }
+        }
+
+        /// <summary>
+        /// The Authorization header a running mission captain's Armada MCP probe presents: a Bearer with the
+        /// mission owner's own scoped session token. The owner is the mission's tenant and user, and failing
+        /// that the objective owner carried on the mission's voyage. Returns null when there is no running
+        /// mission, no session-token service, or no resolvable owner, so the probe presents no credential
+        /// rather than the admiral launch credential.
+        /// </summary>
+        private async Task<string?> ResolveMissionProbeAuthorizationAsync(Captain captain, DatabaseDriver database, CancellationToken token)
+        {
+            if (_SessionTokens == null || String.IsNullOrWhiteSpace(captain.CurrentMissionId)) return null;
+
+            Mission? mission = await database.Missions.ReadAsync(captain.CurrentMissionId!, token).ConfigureAwait(false);
+            if (mission == null) return null;
+
+            string? tenantId = mission.TenantId;
+            string? userId = mission.UserId;
+            if ((String.IsNullOrWhiteSpace(tenantId) || String.IsNullOrWhiteSpace(userId))
+                && !String.IsNullOrWhiteSpace(mission.VoyageId))
+            {
+                Voyage? voyage = await database.Voyages.ReadAsync(mission.VoyageId!, token).ConfigureAwait(false);
+                if (voyage != null)
+                {
+                    if (String.IsNullOrWhiteSpace(tenantId)) tenantId = voyage.TenantId;
+                    if (String.IsNullOrWhiteSpace(userId)) userId = voyage.UserId;
+                }
+            }
+
+            if (String.IsNullOrWhiteSpace(tenantId) || String.IsNullOrWhiteSpace(userId)) return null;
+
+            AuthenticateResult issued = _SessionTokens.CreateToken(tenantId!, userId!);
+            return String.IsNullOrWhiteSpace(issued.Token) ? null : "Bearer " + issued.Token;
         }
 
         private async Task<RuntimeToolCatalogSnapshot> DescribeConfiguredRuntimeAsync(

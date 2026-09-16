@@ -29,8 +29,9 @@ namespace Armada.Server
         /// <param name="httpClient">Optional HTTP client for runtime MCP probes.</param>
         /// <param name="userProfileDirectory">Directory holding the user-level runtime configuration. Defaults to
         /// the current user's profile. The MCP servers configured there may be started to probe them.</param>
-        /// <param name="sessionTokens">Session token service used to issue a requesting caller's MCP access for an
-        /// API-endpoint captain, the same way Ask chat issues it. Null reports no Armada MCP tools for those captains.</param>
+        /// <param name="sessionTokens">Session token service. It issues a requesting caller's MCP access for an
+        /// API-endpoint captain (the same way Ask chat does) and mints the mission owner's own scoped token for a
+        /// running mission captain's Armada MCP probe. Null reports no Armada MCP tools for those captains.</param>
         public CaptainToolService(LoggingModule logging, DatabaseDriver database, ArmadaSettings? settings = null, HttpClient? httpClient = null, string? userProfileDirectory = null, ISessionTokenService? sessionTokens = null)
         {
             if (logging == null) throw new ArgumentNullException(nameof(logging));
@@ -40,7 +41,7 @@ namespace Armada.Server
             _logging = logging;
             _settings = settings;
             _sessionTokens = sessionTokens;
-            _runtimeCatalog = new CaptainRuntimeToolCatalogService(logging, settings, httpClient, userProfileDirectory);
+            _runtimeCatalog = new CaptainRuntimeToolCatalogService(logging, settings, httpClient, userProfileDirectory, sessionTokens);
         }
 
         /// <summary>

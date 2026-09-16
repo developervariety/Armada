@@ -27,6 +27,27 @@ All notable changes to Armada are documented in this file.
   named recover refs resolve with a recorded SHA, whether declared sibling tips
   contain the cited commits, and whether the cited paths and identifiers resolve
   at the target tip.
+### Mission captains authenticate to MCP with the mission owner's scope, not global admin
+
+- A launched mission captain no longer carries the admiral launch credential
+  (`ARMADA_MCP_TOKEN`), which the MCP endpoint maps to global admin in the
+  default tenant. It now carries the mission owner's own scoped session token,
+  which the endpoint scopes to that owner's tenant and user. A mission -
+  including one a tenant admin dispatched, and an autonomous mission - reaches
+  only its owner's records and no operator-only tool, closing a cross-tenant
+  privilege escalation through a mission brief.
+- The owner is the mission's tenant and user; an autonomous mission with no
+  owner of its own falls back to the objective owner carried on its voyage.
+  When no owner resolves, or no session-token service is available, the launch
+  presents no credential and the endpoint refuses it (fail closed), never the
+  launch credential.
+- The runtime tool-catalog preflight for a running mission captain now probes
+  Armada MCP with the same mission-owner scoped token, so the reported tool
+  inventory matches what the mission can actually reach, never the launch
+  credential.
+- The admiral launch credential value never enters a mission captain's
+  environment. Chat captains already carry the authenticated caller's own
+  scoped session token; both launch paths are now caller-scoped.
 
 ### The admiral image embeds its build commit
 

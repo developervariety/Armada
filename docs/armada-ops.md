@@ -72,8 +72,12 @@ It must not start a second embedded Admiral process.
 
 Every MCP request must carry a credential. A request without one gets `401`;
 nothing falls back to a default administrative identity. Only a global
-administrator sees the operator catalog. `docs/MCP_API.md` lists the caller
-rules, the captain launch credential and the per-runtime headers.
+administrator sees the operator catalog. A launched captain authenticates with a
+caller-scoped session token - a mission captain with the mission owner's token,
+a chat captain with the caller's token - so a mission reaches only its owner's
+records and no operator-only tool, never the admiral launch credential.
+`docs/MCP_API.md` lists the caller rules, the captain credential scope and the
+per-runtime headers.
 
 Operator migration when an Admiral with MCP authentication is deployed:
 
