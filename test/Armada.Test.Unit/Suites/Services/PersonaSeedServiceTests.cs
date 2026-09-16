@@ -259,6 +259,26 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Seed adds a Linter stage to the Tested pipeline before the Judge", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    PersonaSeedService service = new PersonaSeedService(testDb.Driver, CreateLogging());
+                    await service.SeedAsync().ConfigureAwait(false);
+
+                    Pipeline? pipeline = await testDb.Driver.Pipelines.ReadByNameAsync("Tested").ConfigureAwait(false);
+                    AssertPipelineStages(
+                        pipeline,
+                        new List<string> { "Worker", "TestEngineer", "Linter", "Judge" },
+                        "Tested");
+
+                    List<PipelineStage> ordered = pipeline!.Stages.OrderBy(s => s.Order).ToList();
+                    AssertEqual("Linter", ordered[2].PersonaName, "The Linter runs after the TestEngineer and before the Judge");
+                    AssertEqual("mid", ordered[2].PreferredModel, "The Linter should run at mid tier");
+                    AssertEqual("Judge", ordered[3].PersonaName, "The Judge runs last");
+                }
+            });
+
             await RunTest("Seed adds a Recorder stage only to the Recorded and ProductDevelopment pipelines", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
@@ -396,7 +416,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Seed adds the Linter stage only to ProductDevelopment and never to FullPipeline", async () =>
+            await RunTest("Seed adds the Linter stage to Tested and ProductDevelopment and never to FullPipeline", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
                 {
@@ -411,8 +431,10 @@ namespace Armada.Test.Unit.Suites.Services
                     foreach (Pipeline pipeline in pipelines)
                     {
                         bool carriesLinter = pipeline.Stages.Any(s => PersonaCatalog.Matches(s.PersonaName, LinterPersonaName));
-                        AssertEqual(String.Equals(pipeline.Name, "ProductDevelopment", StringComparison.Ordinal), carriesLinter,
-                            "Only ProductDevelopment carries a Linter stage: " + pipeline.Name);
+                        bool shouldCarryLinter = String.Equals(pipeline.Name, "ProductDevelopment", StringComparison.Ordinal)
+                            || String.Equals(pipeline.Name, "Tested", StringComparison.Ordinal);
+                        AssertEqual(shouldCarryLinter, carriesLinter,
+                            "Only Tested and ProductDevelopment carry a Linter stage: " + pipeline.Name);
                     }
                 }
             });

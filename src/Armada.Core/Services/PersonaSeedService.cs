@@ -129,8 +129,8 @@ namespace Armada.Core.Services
 
             await SeedPipelineAsync(
                 "Tested",
-                "Worker then TestEngineer then Judge.",
-                new List<PipelineStage> { new PipelineStage(1, "Worker"), new PipelineStage(2, "TestEngineer"), new PipelineStage(3, "Judge") },
+                "Worker then TestEngineer then Linter then Judge.",
+                new List<PipelineStage> { new PipelineStage(1, "Worker"), new PipelineStage(2, "TestEngineer"), new PipelineStage(3, PersonaCatalog.Linter) { PreferredModel = "mid" }, new PipelineStage(4, "Judge") },
                 token).ConfigureAwait(false);
 
             await SeedPipelineAsync(
@@ -141,8 +141,11 @@ namespace Armada.Core.Services
 
             // The Linter tidies and flags the changed code and documentation before the Judge reviews it.
             // It commits only mechanical in-scope fixes, so it runs at the mid tier like the Worker.
-            // FullPipeline does not gain a Linter: startup reconciliation rewrites a non-canonical
-            // built-in pipeline, so adding a stage there would silently change existing deployments.
+            // FullPipeline stays without a Linter: it is the minimal canonical review shape, and the
+            // reconcile would force the extra stage onto every deployment still running the plain
+            // FullPipeline. Tested and ProductDevelopment carry the Linter because they are the
+            // built-in pipelines that produce vessel code; the reference-porting pipeline carries it
+            // too, configured as an additional pipeline rather than a core built-in.
             //
             // The final Recorder stage distils the finished product work into durable native memory.
             // It writes memory, not code, so it produces no commit; it runs at the mid tier so it

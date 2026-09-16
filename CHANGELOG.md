@@ -6,6 +6,17 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Pipelines
+
+- Added a Linter stage before the Judge in the pipelines that produce vessel
+  code: the built-in `Tested` pipeline (Worker, TestEngineer, Linter, Judge)
+  and the reference-porting pipeline (Worker, PortingReferenceAnalyst,
+  TestEngineer, Linter, Judge). The Linter runs at the mid tier and flags
+  overengineering and style before review, so slop is caught across the fleet,
+  not only in ProductDevelopment. The Recorder placement is unchanged, and
+  `FullPipeline` stays without a Linter as the minimal review shape.
+
+
 ### Build and deployment
 
 - Fixed the server image so it records the commit it was built from. The build
