@@ -8094,3 +8094,58 @@ thead tr.column-filter-row td input.col-filter::placeholder {
 .coordination-claim-chip strong {
   font-weight: 600;
 }
+
+/* ============================================================
+   Mobile navigation: off-canvas sidebar drawer (phone width).
+   Hidden on desktop; the desktop grid/rail behaviour is unchanged.
+   ============================================================ */
+.mobile-nav-toggle {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    cursor: pointer;
+    font-size: 1.1rem;
+    line-height: 1;
+    padding: 0.35rem 0.55rem;
+    margin-right: 0.4rem;
+}
+.mobile-nav-toggle:hover { background: rgba(127, 127, 127, 0.12); }
+
+@media (max-width: 640px) {
+    /* Content takes the full width; the sidebar leaves the grid and becomes a drawer. */
+    .app-layout { grid-template-columns: 1fr !important; }
+
+    .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        height: 100vh;
+        height: 100dvh;
+        width: min(82vw, 280px);
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+        z-index: 200;
+        box-shadow: 2px 0 18px rgba(0, 0, 0, 0.35);
+    }
+    .sidebar.mobile-open { transform: translateX(0); }
+
+    /* The drawer is always the full labelled sidebar on mobile, never the icon rail. */
+    .sidebar.sidebar-collapsed { width: min(82vw, 280px); }
+    .sidebar.sidebar-collapsed .sidebar-label { opacity: 1; width: auto; }
+    .sidebar.sidebar-collapsed .sidebar-nav-item { justify-content: flex-start; }
+    .sidebar.sidebar-collapsed .sidebar-brand { justify-content: flex-start; }
+
+    .mobile-nav-backdrop {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.45);
+        z-index: 150;
+    }
+
+    .mobile-nav-toggle { display: inline-flex; }
+    .top-bar-collapse-btn { display: none; }
+}

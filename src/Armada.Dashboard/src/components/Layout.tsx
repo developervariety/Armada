@@ -33,6 +33,7 @@ export default function Layout() {
     }
   });
   const [sections, setSections] = useState<Record<string, boolean>>({ ...DEFAULT_EXPANDED_SECTIONS });
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [healthStatus, setHealthStatus] = useState<HealthStatus>('unknown');
   const [driftWarning, setDriftWarning] = useState<string | null>(null);
   const [proxyContext, setProxyContext] = useState<ProxySessionContext | null>(null);
@@ -44,6 +45,11 @@ export default function Layout() {
       // ignore
     }
   }, [collapsed]);
+
+  // Close the mobile navigation drawer whenever the route changes.
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [location.pathname]);
 
   const toggleSection = useCallback((key: string) => {
     setSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -266,7 +272,10 @@ export default function Layout() {
       )}
 
       <div className={layoutClassName} style={{ gridTemplateColumns: collapsed ? '56px 1fr' : '220px 1fr' }}>
-        <aside className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}`}>
+        {mobileNavOpen && (
+          <div className="mobile-nav-backdrop" onClick={() => setMobileNavOpen(false)} aria-hidden="true" />
+        )}
+        <aside className={`sidebar${collapsed ? ' sidebar-collapsed' : ''}${mobileNavOpen ? ' mobile-open' : ''}`}>
         <div className="sidebar-brand">
           <img
             src="/img/logo-light-grey.png"
@@ -329,6 +338,14 @@ export default function Layout() {
 
         <div className="main-content-area">
           <div className="top-bar">
+            <button
+              className="mobile-nav-toggle"
+              onClick={() => setMobileNavOpen(true)}
+              title={t('Open menu')}
+              aria-label={t('Open menu')}
+            >
+              <span aria-hidden="true">☰</span>
+            </button>
             <button
               className="top-bar-collapse-btn"
               onClick={() => setCollapsed((prev) => !prev)}

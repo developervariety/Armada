@@ -32,6 +32,11 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- The dashboard is usable on phone-width screens. Below 640px the sidebar
+  becomes an off-canvas drawer opened from a top-bar menu button, the content
+  spans the full width, and wide tables scroll within their own container. The
+  desktop layout and the icon-rail collapse are unchanged.
+
 - The usage-aware routing capability is now named **Smart Routing** (formerly
   "Routing V2") and the model-tier selector it sits over is named **Legacy
   Routing**, in the Settings > Routing dashboard and the routing docs. Settings
