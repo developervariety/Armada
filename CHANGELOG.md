@@ -121,6 +121,20 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   the admiral launch credential for chat tools, and a refused or unreachable
   endpoint leaves the turn on its workspace tools with the reason in the log.
 - MCP tool calls appear as tool activity cards like the workspace tools.
+- The system prompt of an API-endpoint run now allows every tool the run is
+  given, workspace and Armada MCP alike, instead of naming the workspace tools
+  as the only usable ones. It still forbids claiming a tool that is absent.
+- `GET /api/v1/captains/{id}/tools` now reports, for an API-endpoint captain,
+  the Armada MCP tools the requesting caller would be offered in chat, beside
+  the workspace tools (`availabilitySource=api-endpoint-caller-mcp`,
+  `mcpConnectionPlanned=true`, `armadaToolCount` set). The report issues the
+  caller's access the same way chat does and reads the endpoint, so the
+  preflight and a chat turn resolve one rule. A request without an
+  authenticated caller, or an admiral with no session token service or MCP
+  port, reports the workspace registry alone
+  (`availabilitySource=api-endpoint-workspace-tools`,
+  `mcpConnectionPlanned=false`, zero Armada tools); the report for a CLI
+  runtime is unchanged.
 
 ### Captain commit messages carry a change manifest
 

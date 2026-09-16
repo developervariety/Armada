@@ -43,13 +43,28 @@ is offered only caller-scoped tools and is refused an operator tool such as
 launch credential, so a non-admin dashboard user who starts a captain chat can
 no longer reach operator-only MCP tools through the captain.
 
-The tools endpoint does not yet reflect this. For both contexts it still
-returns the runtime's own workspace tool registry with
+The run's system prompt allows every tool the run receives, workspace and
+Armada MCP alike, and forbids claiming a tool that is not provided. It does not
+name the workspace tools as the only usable ones, because that wording reads as
+a refusal of the MCP tools the same run was given.
+
+The tools endpoint reflects this access. For an API-endpoint captain it issues
+the requesting caller's MCP access exactly as chat issues it, lists the tools
+the endpoint offers that caller, and reports them beside the runtime's own
+workspace registry with `availabilitySource=api-endpoint-caller-mcp` and
+`mcpConnectionPlanned=true`. `armadaToolCount` is the MCP tool count. Because
+the endpoint applies the shared tool access policy on each request, the report
+and the chat turn resolve one rule, not two copies. A request with no
+authenticated caller, or an admiral with no session token service or MCP port,
+reports the workspace registry alone with
 `availabilitySource=api-endpoint-workspace-tools`, `mcpConnectionPlanned=false`
-and zero Armada tools; no shell or administrative tool is listed. A
-caller-scoped Ask preflight for these captains is remaining work. Their tool
-calls, workspace and MCP, reach chat as tool cards, never as answer text, and
-planning sessions report these captains as unsupported.
+and zero Armada tools. An unreachable or refusing endpoint reports the same
+workspace registry with the reason in the summary. No shell or administrative
+tool is listed for a caller the access policy refuses one. The report describes
+Ask chat; a mission run of an API-endpoint captain carries no caller and uses
+its workspace tools only. Their tool calls, workspace and MCP, reach chat as
+tool cards, never as answer text, and planning sessions report these captains
+as unsupported.
 
 The dashboard shows preflight failures and zero-tool results with the returned
 summary. It shows manual connection instructions only for a confirmed

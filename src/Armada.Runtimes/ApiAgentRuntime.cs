@@ -188,6 +188,39 @@ namespace Armada.Runtimes
             return Task.FromResult(processId);
         }
 
+        /// <summary>
+        /// Select the MCP tools a run is offered beside its workspace tools. A built-in workspace tool keeps its
+        /// name, so a remote tool that repeats a taken name is dropped; the first tool of a repeated remote name
+        /// wins. A caller that reports the tools a run would receive selects them through this same rule, so the
+        /// report and the run resolve one selection, not two copies.
+        /// </summary>
+        /// <param name="builtInToolNames">Names of the built-in workspace tools the run already offers.</param>
+        /// <param name="remoteTools">Tools the MCP endpoint offers this caller.</param>
+        /// <returns>The remote tools to add, in the order the endpoint listed them.</returns>
+        public static List<McpRemoteTool> SelectOfferedMcpTools(IEnumerable<string> builtInToolNames, IEnumerable<McpRemoteTool> remoteTools)
+        {
+            if (remoteTools == null) throw new ArgumentNullException(nameof(remoteTools));
+
+            HashSet<string> taken = new HashSet<string>(StringComparer.Ordinal);
+            if (builtInToolNames != null)
+            {
+                foreach (string name in builtInToolNames)
+                {
+                    if (!String.IsNullOrWhiteSpace(name)) taken.Add(name);
+                }
+            }
+
+            List<McpRemoteTool> offered = new List<McpRemoteTool>();
+            foreach (McpRemoteTool remote in remoteTools)
+            {
+                if (remote == null || String.IsNullOrWhiteSpace(remote.Name)) continue;
+                if (!taken.Add(remote.Name)) continue;
+                offered.Add(remote);
+            }
+
+            return offered;
+        }
+
         /// <inheritdoc />
         public Task StopAsync(int processId, CancellationToken token = default)
         {
@@ -399,9 +432,8 @@ namespace Armada.Runtimes
             {
                 await mcpClient.InitializeAsync(token).ConfigureAwait(false);
                 List<McpRemoteTool> remoteTools = await mcpClient.ListToolsAsync(token).ConfigureAwait(false);
-                foreach (McpRemoteTool remote in remoteTools)
+                foreach (McpRemoteTool remote in SelectOfferedMcpTools(builtInNames, remoteTools))
                 {
-                    if (builtInNames.Contains(remote.Name) || mcpToolNames.Contains(remote.Name)) continue;
                     tools.Add(PolyToolDefinition.Function(remote.Name, remote.Description, remote.InputSchema));
                     mcpToolNames.Add(remote.Name);
                 }
@@ -556,8 +588,10 @@ namespace Armada.Runtimes
         {
             return
                 "You are an autonomous coding agent operating as an Armada captain. You are working inside a git " +
-                "worktree at " + workingDirectory + ". Use only the provided workspace tools to inspect and modify files " +
-                "in order to complete the mission described by the user. Make focused changes, verify your " +
+                "worktree at " + workingDirectory + ". Use the tools this session provides -- the workspace tools, and " +
+                "the Armada MCP tools when they are listed beside them -- to inspect and modify files and to read or " +
+                "change Armada state, in order to complete the mission described by the user. Never claim a tool that " +
+                "is not provided. Make focused changes, verify your " +
                 "work, and when the mission is complete stop calling tools and reply with a concise summary of what " +
                 "you changed. If the mission instructions define [ARMADA:...] signals, emit them as plain text lines.";
         }

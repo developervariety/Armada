@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System.Collections.Generic;
     using System.Net;
     using System.Net.Http;
     using System.Text;
@@ -8,6 +9,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Server;
+    using Armada.Server.Mcp;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
@@ -72,6 +74,62 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertFalse(result.Tools.Any(tool => tool.Name == "run_process"), "No shell tool may be listed.");
                     AssertEqual(result.Tools.Count, result.EffectiveToolCount ?? -1);
                 }
+            });
+
+            await RunTest("ApiEndpointCaptain_PreflightWithCallerListsCallerScopedArmadaMcpTools", async () =>
+            {
+                using TestDatabase database = await TestDatabaseHelper.CreateDatabaseAsync();
+                LoggingModule logging = new LoggingModule(); logging.Settings.EnableConsole = false;
+                ChatMcpFixture fixture = await ChatMcpFixture.CreateAsync(database, logging);
+                await using ArmadaMcpHttpServer server = fixture.CreateServer();
+                await server.StartAsync();
+
+                Captain? captain = await database.Driver.Captains.ReadAsync(fixture.CaptainId);
+                AssertNotNull(captain, "The fixture API-endpoint captain exists.");
+                // A non-admin caller of the captain's own tenant and user: the endpoint scopes MCP to this caller.
+                AuthContext caller = AuthContext.Authenticated(fixture.TenantAId, fixture.UserAId, false, false, "Session");
+
+                CaptainToolService service = new CaptainToolService(logging, database.Driver, fixture.Settings, null, NewProfileDirectory(), fixture.SessionTokens);
+                foreach (bool plannedAsk in new[] { true, false })
+                {
+                    CaptainToolAccessResult result = await service.DescribeAsync(captain!, plannedAsk: plannedAsk, caller: caller);
+
+                    AssertEqual("api-endpoint-caller-mcp", result.AvailabilitySource, "The report describes the caller MCP access (plannedAsk=" + plannedAsk + ").");
+                    AssertTrue(result.McpConnectionPlanned, "The chat connects to Armada MCP for this caller.");
+                    List<string> mcpTools = result.Tools.Where(tool => tool.SourceKind == "McpServer").Select(tool => tool.Name).ToList();
+                    AssertTrue(result.ArmadaToolCount > 0, "The caller is offered at least one Armada MCP tool.");
+                    AssertEqual(mcpTools.Count, result.ArmadaToolCount, "The Armada tool count is the MCP tools the caller is offered.");
+                    AssertTrue(mcpTools.Contains("get_memory"), "A caller-scoped MCP tool is reported as an MCP tool.");
+                    AssertFalse(mcpTools.Contains("armada_stop_server"), "An operator tool the access policy refuses this caller is not reported.");
+                    AssertTrue(result.Tools.Any(tool => tool.Name == "read_file"), "Workspace tools stay listed beside the MCP tools.");
+                    AssertFalse(result.Tools.Any(tool => tool.Name == "run_process"), "No shell tool may be listed.");
+                    AssertEqual(result.Tools.Count, result.EffectiveToolCount ?? -1, "Every listed tool is an effective tool.");
+                }
+            });
+
+            await RunTest("ApiEndpointCaptain_PreflightWithoutCallerReportsWorkspaceRegistryAlone", async () =>
+            {
+                using TestDatabase database = await TestDatabaseHelper.CreateDatabaseAsync();
+                LoggingModule logging = new LoggingModule(); logging.Settings.EnableConsole = false;
+                ChatMcpFixture fixture = await ChatMcpFixture.CreateAsync(database, logging);
+                await using ArmadaMcpHttpServer server = fixture.CreateServer();
+                await server.StartAsync();
+
+                Captain? captain = await database.Driver.Captains.ReadAsync(fixture.CaptainId);
+                AssertNotNull(captain, "The fixture API-endpoint captain exists.");
+                CaptainToolService service = new CaptainToolService(logging, database.Driver, fixture.Settings, null, NewProfileDirectory(), fixture.SessionTokens);
+                foreach (bool plannedAsk in new[] { true, false })
+                {
+                    CaptainToolAccessResult result = await service.DescribeAsync(captain!, plannedAsk: plannedAsk, caller: null);
+
+                    AssertEqual("api-endpoint-workspace-tools", result.AvailabilitySource, "Without a caller the report is the workspace registry (plannedAsk=" + plannedAsk + ").");
+                    AssertFalse(result.McpConnectionPlanned, "No MCP connection is planned without a caller.");
+                    AssertEqual(0, result.ArmadaToolCount, "No Armada MCP tool is reported without a caller.");
+                    AssertTrue(result.Tools.Any(tool => tool.Name == "read_file"), "Workspace tools stay listed.");
+                    AssertFalse(result.Tools.Any(tool => tool.SourceKind == "McpServer"), "No MCP tool is listed without a caller.");
+                }
+
+                AssertEqual(0, fixture.SeenCredentials().Count, "The report never contacts MCP without a caller.");
             });
 
             await RunTest("IdleAskPreflight_CancellationPropagates", async () =>

@@ -558,27 +558,15 @@ namespace Armada.Server
         #region Private-Methods
 
         /// <summary>
-        /// Build the Armada MCP tool access an API-endpoint chat turn runs with. Access is issued only for an
-        /// authenticated caller with a tenant and a user: the token is that caller's own session token, and the MCP
-        /// endpoint re-reads the user and tenant on every request, so the turn can list and call only the tools the
-        /// caller may use, inside the caller's scope. A turn with no such caller gets no MCP tools.
+        /// Build the Armada MCP tool access an API-endpoint chat turn runs with. The issuing rule lives in
+        /// <see cref="CallerMcpToolAccessFactory"/>, so the captain tools report resolves the same access and lists
+        /// exactly the tools a chat turn would receive.
         /// </summary>
         /// <param name="caller">Authenticated caller, or null.</param>
         /// <returns>Caller-bound access, or null when none may be issued.</returns>
         private CallerMcpToolAccess? CreateCallerMcpToolAccess(AuthContext? caller)
         {
-            if (caller == null || !caller.IsAuthenticated) return null;
-            if (String.IsNullOrWhiteSpace(caller.TenantId) || String.IsNullOrWhiteSpace(caller.UserId)) return null;
-            if (_SessionTokens == null || _Settings.McpPort <= 0) return null;
-
-            AuthenticateResult issued = _SessionTokens.CreateToken(caller.TenantId!, caller.UserId!);
-            if (String.IsNullOrWhiteSpace(issued.Token))
-            {
-                _Logging.Warn(_Header + "no session token was issued for an API-endpoint chat; the turn runs without Armada MCP tools");
-                return null;
-            }
-
-            return new CallerMcpToolAccess(ArmadaMcpConfigBuilder.GetMcpUrl(_Settings.McpPort), issued.Token!);
+            return CallerMcpToolAccessFactory.Create(caller, _SessionTokens, _Settings.McpPort, _Logging);
         }
 
         private static void MaterializeIsolationPlan(CaptainLaunchIsolationPlan plan, string scopedDirectory)

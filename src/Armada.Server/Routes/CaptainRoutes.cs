@@ -278,7 +278,7 @@ namespace Armada.Server.Routes
                     req.Http.Response.StatusCode = 400;
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = "Unknown tools context." };
                 }
-                return await _captainTools.DescribeAsync(captain, plannedAsk: String.Equals(context, "ask", StringComparison.OrdinalIgnoreCase)).ConfigureAwait(false);
+                return await _captainTools.DescribeAsync(captain, plannedAsk: String.Equals(context, "ask", StringComparison.OrdinalIgnoreCase), caller: ctx).ConfigureAwait(false);
             },
             api => api
                 .WithTag("Captains")

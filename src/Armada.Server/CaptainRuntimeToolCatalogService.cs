@@ -12,6 +12,8 @@ namespace Armada.Server
     using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Core.Settings;
+    using Armada.Runtimes;
+    using Armada.Runtimes.Mcp;
     using SyslogLogging;
 
     /// <summary>
@@ -24,6 +26,9 @@ namespace Armada.Server
         private readonly HttpClient _HttpClient;
         private readonly JsonSerializerOptions _JsonOptions = JsonDefaults.Insensitive;
         private readonly string _UserProfileDirectory;
+
+        // A tools report is an interactive request, so a stalled endpoint must not hold it open for long.
+        private const int _CALLER_MCP_TIMEOUT_SECONDS = 15;
 
         /// <param name="logging">Logging module.</param>
         /// <param name="settings">Armada settings used to locate per-launch runtime configuration.</param>
@@ -41,7 +46,7 @@ namespace Armada.Server
                 : userProfileDirectory;
         }
 
-        public async Task<RuntimeToolCatalogSnapshot?> TryDescribeAsync(Captain captain, DatabaseDriver database, CancellationToken token = default, bool plannedAsk = false)
+        public async Task<RuntimeToolCatalogSnapshot?> TryDescribeAsync(Captain captain, DatabaseDriver database, CancellationToken token = default, bool plannedAsk = false, CallerMcpToolAccess? callerAccess = null)
         {
             if (captain == null) throw new ArgumentNullException(nameof(captain));
             if (database == null) throw new ArgumentNullException(nameof(database));
@@ -56,11 +61,12 @@ namespace Armada.Server
                 };
             }
 
-            // An API-endpoint captain runs the in-process workspace tool registry and has no MCP client, so
-            // its inventory is that registry for both Ask and mission contexts.
+            // An API-endpoint captain runs the in-process workspace tool registry. In chat it also receives the
+            // Armada MCP tools the requesting caller may use, so the report adds the tools that caller's own access
+            // is offered. Without such access the registry alone is the inventory.
             if (captain.Runtime == AgentRuntimeEnum.ApiEndpoint)
             {
-                return DescribeApiEndpointWorkspaceTools();
+                return await DescribeApiEndpointToolsAsync(callerAccess, token).ConfigureAwait(false);
             }
 
             // Ask starts an independent temporary runtime. Idle captains have no process-scoped
@@ -136,6 +142,86 @@ namespace Armada.Server
                         Summary = "Armada does not currently have a runtime-specific tool inventory implementation for this captain."
                     };
             }
+        }
+
+        /// <summary>
+        /// Describe an API-endpoint captain: its workspace registry, plus the Armada MCP tools the supplied caller
+        /// access is offered. The endpoint applies the shared tool access policy to the caller on every request, so
+        /// the listed tools are the tools a chat turn for that caller would receive.
+        /// </summary>
+        /// <param name="callerAccess">Caller-bound MCP access, or null when none was issued.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The snapshot.</returns>
+        private async Task<RuntimeToolCatalogSnapshot> DescribeApiEndpointToolsAsync(CallerMcpToolAccess? callerAccess, CancellationToken token)
+        {
+            RuntimeToolCatalogSnapshot snapshot = DescribeApiEndpointWorkspaceTools();
+            if (callerAccess == null) return snapshot;
+
+            snapshot.AvailabilitySource = "api-endpoint-caller-mcp";
+            snapshot.McpConnectionPlanned = true;
+            CaptainToolServerSummary server = new CaptainToolServerSummary
+            {
+                Name = "armada",
+                SourceKind = "McpServer",
+                Transport = "streamable_http",
+                Target = callerAccess.Endpoint,
+                Url = SanitizeUrl(callerAccess.Endpoint),
+                Enabled = true,
+                // The caller's session token is the one request header; its value never leaves the runtime.
+                HeaderCount = 1,
+                StartupTimeoutSeconds = _CALLER_MCP_TIMEOUT_SECONDS,
+                ToolTimeoutSeconds = _CALLER_MCP_TIMEOUT_SECONDS,
+                Status = "Unreachable (caller MCP access)"
+            };
+            snapshot.Servers.Add(server);
+            snapshot.ConfiguredServerCount = 1;
+
+            using (McpToolClient client = new McpToolClient(callerAccess.Endpoint, callerAccess.SessionToken, _Logging, _CALLER_MCP_TIMEOUT_SECONDS))
+            {
+                try
+                {
+                    await client.InitializeAsync(token).ConfigureAwait(false);
+                    List<McpRemoteTool> remoteTools = await client.ListToolsAsync(token).ConfigureAwait(false);
+                    List<string> workspaceNames = snapshot.Tools.Select(tool => tool.Name).ToList();
+                    List<McpRemoteTool> offered = ApiAgentRuntime.SelectOfferedMcpTools(workspaceNames, remoteTools);
+                    foreach (McpRemoteTool remote in offered)
+                    {
+                        snapshot.Tools.Add(new CaptainToolSummary
+                        {
+                            Name = remote.Name,
+                            Description = remote.Description,
+                            InputSchemaJson = JsonSerializer.Serialize(remote.InputSchema),
+                            RegistrationSource = "armada",
+                            SourceKind = "McpServer"
+                        });
+                    }
+
+                    server.Reachable = true;
+                    server.Status = "Reachable (caller MCP access)";
+                    server.ToolCount = offered.Count;
+                    snapshot.ReachableServerCount = 1;
+                    snapshot.ArmadaToolCount = offered.Count;
+                    snapshot.EffectiveToolCount = snapshot.Tools.Count;
+                    snapshot.ToolsAccessible = snapshot.Tools.Count > 0;
+                    snapshot.Summary = "API-endpoint captains run " + workspaceNames.Count +
+                        " built-in workspace tool(s) confined to their working directory. In Ask chat this caller is also offered " +
+                        offered.Count + " Armada MCP tool(s), scoped to what the caller may already reach. A mission run carries no caller and uses the workspace tools only.";
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex) when (ex is McpClientException || ex is HttpRequestException || ex is TaskCanceledException)
+                {
+                    server.ErrorMessage = ex.Message;
+                    snapshot.Summary = "API-endpoint captains run " + snapshot.Tools.Count +
+                        " built-in workspace tool(s) confined to their working directory. Armada MCP tools could not be listed for this caller: " +
+                        ex.Message + ". An Ask chat turn would fall back to the workspace tools the same way.";
+                    _Logging.Warn("[CaptainRuntimeToolCatalogService] Armada MCP tools could not be listed for an API-endpoint caller: " + ex.Message);
+                }
+            }
+
+            return snapshot;
         }
 
         private static RuntimeToolCatalogSnapshot DescribeApiEndpointWorkspaceTools()
