@@ -21,14 +21,20 @@ define.
 - **Modes.** Each decision runs in `Off`, `Shadow` (record only), or `Gate`
   (advise the gated action). A global mode caps every decision and is the kill
   switch. Both record the rule's verdict and the model's on every call.
+- **Off without a key.** The effective global mode is `Off` (reason
+  `typed_decisions_no_key`) until a provider key resolves. With a key, each
+  decision runs at its shipped or configured mode.
 - **Redaction.** Nothing leaves the server unredacted. Events store a hash and
-  size of the state, never the state itself. The provider key lives only in the
-  admiral environment.
+  size of the state, never the state itself. The provider key comes from the
+  admiral environment variable or the key file
+  `<data directory>/secrets/typesafe-api-key` (folder `0700`, file `0600`), which
+  an administrator can write through `PUT /api/v1/typed-decisions/key`. It is
+  never stored in settings, logged, recorded, or returned.
 
 ## Decision catalogue
 
 Each decision has a stable name (its settings key and event `area`) and a default
-mode. Names, not index numbers, are the stable identifiers.
+mode, which applies once a key is present. Names, not index numbers, are the stable identifiers.
 
 ### Enabled by default (`Gate`)
 

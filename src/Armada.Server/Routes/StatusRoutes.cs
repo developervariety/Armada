@@ -34,6 +34,7 @@ namespace Armada.Server.Routes
         private readonly Func<RemoteTunnelStatus>? _getRemoteTunnelStatus;
         private readonly Func<Task>? _onRemoteControlSettingsChanged;
         private readonly Func<TypedCapacityEscalationAdapter?>? _getCapacityAdapter;
+        private readonly TypedDecisionKeyStore? _typedDecisionKeys;
 
         /// <summary>
         /// Instantiate.
@@ -59,7 +60,8 @@ namespace Armada.Server.Routes
             IBuildDriftService? buildDrift = null,
             Func<RemoteTunnelStatus>? getRemoteTunnelStatus = null,
             Func<Task>? onRemoteControlSettingsChanged = null,
-            Func<TypedCapacityEscalationAdapter?>? getCapacityAdapter = null)
+            Func<TypedCapacityEscalationAdapter?>? getCapacityAdapter = null,
+            TypedDecisionKeyStore? typedDecisionKeys = null)
         {
             _database = database;
             _settings = settings;
@@ -72,6 +74,7 @@ namespace Armada.Server.Routes
             _getRemoteTunnelStatus = getRemoteTunnelStatus;
             _onRemoteControlSettingsChanged = onRemoteControlSettingsChanged;
             _getCapacityAdapter = getCapacityAdapter;
+            _typedDecisionKeys = typedDecisionKeys;
         }
 
         /// <summary>
@@ -97,6 +100,8 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 ArmadaStatus status = await _admiral.GetStatusAsync().ConfigureAwait(false);
+                if (_typedDecisionKeys != null)
+                    status.TypedDecisions = TypedDecisionStatusBuilder.Build(_settings.TypedDecisions, _typedDecisionKeys);
                 return status;
             },
             api => api
@@ -677,6 +682,7 @@ namespace Armada.Server.Routes
                 PlanningSessionRetentionDays = _settings.PlanningSessionRetentionDays,
                 AutoCreatePr = _settings.AutoCreatePullRequests,
                 DataDirectory = _settings.DataDirectory,
+                TypedDecisionsStatus = _typedDecisionKeys != null ? TypedDecisionStatusBuilder.Build(_settings.TypedDecisions, _typedDecisionKeys) : null,
                 DatabasePath = _settings.DatabasePath,
                 LogDirectory = _settings.LogDirectory,
                 DocksDirectory = _settings.DocksDirectory,

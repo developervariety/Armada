@@ -318,6 +318,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new DecisionStateRedactorTests());
             runner.AddSuite(new TypedDecisionRecorderTests());
             runner.AddSuite(new TypedDecisionSettingsTests());
+            runner.AddSuite(new TypedDecisionKeyTests());
             runner.AddSuite(new McpTypedDecisionToolsTests());
             runner.AddSuite(new McpContextToolsTests());
             runner.AddSuite(new TypedFailureCauseAdapterTests());

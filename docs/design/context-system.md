@@ -233,8 +233,8 @@ Rules and recording:
 - Redacted. The task text passes through the same `DecisionStateRedactor` as
   every other decision. Topic ids and summaries are already public doc
   metadata; the task text is not, so it is redacted.
-- The key is `ARMADA_TYPESAFE_KEY` in the admiral environment, and nowhere
-  else.
+- The key is `ARMADA_TYPESAFE_KEY` in the admiral environment or the server's
+  key file under the data directory, and nowhere else.
 
 ## 7. Per-persona brief slimming
 

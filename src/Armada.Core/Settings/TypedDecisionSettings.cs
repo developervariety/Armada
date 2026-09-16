@@ -2,21 +2,22 @@ namespace Armada.Core.Settings
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
+    using System.Text.Json.Serialization;
     using Armada.Core.Enums;
 
     /// <summary>
-    /// Settings for the typed-decision system (TypeSafe Jev). Off by default: no decision point
-    /// consults the model until the owner sets a mode and the change is deployed. The global
-    /// <see cref="Mode"/> is a cap and kill switch; each decision has its own mode, and the
-    /// effective mode is the minimum of the two.
+    /// Settings for the typed-decision system (TypeSafe Jev). The system is Off until a provider key
+    /// resolves (the environment variable named by <see cref="ApiKeyEnv"/>, or the key file in the data
+    /// directory); with a key, the stored global <see cref="Mode"/> caps every decision and each decision
+    /// runs at its own mode. The effective mode of a decision is the minimum of the two.
     /// </summary>
     public class TypedDecisionSettings
     {
         /// <summary>
-        /// Global operating mode. A cap over every decision and the single kill switch. Ships as
-        /// <see cref="TypedDecisionModeEnum.Gate"/>, but the system is operationally off until the
-        /// key is confirmed in the container: without the key the null client is used regardless of
-        /// mode, and no consumer calls the client until an adapter lane wires a decision point.
+        /// Stored global operating mode. A cap over every decision and the single kill switch. Ships as
+        /// <see cref="TypedDecisionModeEnum.Gate"/>; it applies only while a key resolves, and
+        /// <see cref="EffectiveMode"/> is Off otherwise.
         /// </summary>
         public TypedDecisionModeEnum Mode { get; set; } = TypedDecisionModeEnum.Gate;
 
@@ -31,8 +32,8 @@ namespace Armada.Core.Settings
         public string Model { get; set; } = "jev-latest";
 
         /// <summary>
-        /// Name of the environment variable holding the Bearer key. The key is read from the
-        /// environment only; it is never stored in settings.
+        /// Name of the environment variable holding the Bearer key. When it is not set, the key file
+        /// <c>&lt;data directory&gt;/secrets/typesafe-api-key</c> is read. The key is never stored in settings.
         /// </summary>
         public string ApiKeyEnv { get; set; } = "ARMADA_TYPESAFE_KEY";
 
@@ -82,6 +83,29 @@ namespace Armada.Core.Settings
         private TypedDecisionCaptainToolSettings _CaptainTool = new TypedDecisionCaptainToolSettings();
 
         /// <summary>
+        /// Reports whether a provider key resolves. Set by the Admiral; never serialized. Null means the
+        /// caller does not gate on a key and the stored mode applies.
+        /// </summary>
+        [JsonIgnore]
+        public Func<bool>? KeyAvailable { get; set; }
+
+        /// <summary>
+        /// The global mode in effect: Off while no key resolves, otherwise the stored <see cref="Mode"/>.
+        /// </summary>
+        [JsonIgnore]
+        public TypedDecisionModeEnum EffectiveMode
+        {
+            get
+            {
+                Func<bool>? keyAvailable = KeyAvailable;
+                return keyAvailable != null && !keyAvailable() ? TypedDecisionModeEnum.Off : Mode;
+            }
+        }
+
+        /// <summary>The shipped decision names, in catalogue order.</summary>
+        public static IReadOnlyList<string> ShippedDecisionNames { get; } = DefaultDecisions().Keys.ToList();
+
+        /// <summary>
         /// Instantiate with defaults.
         /// </summary>
         public TypedDecisionSettings()
@@ -100,8 +124,27 @@ namespace Armada.Core.Settings
             if (String.IsNullOrWhiteSpace(decisionPoint) || !_Decisions.TryGetValue(decisionPoint, out TypedDecisionRuleSettings? rule) || rule == null)
                 return new ResolvedTypedDecision(TypedDecisionModeEnum.Off, 0.0);
 
-            TypedDecisionModeEnum effective = Mode < rule.Mode ? Mode : rule.Mode;
+            TypedDecisionModeEnum global = EffectiveMode;
+            TypedDecisionModeEnum effective = global < rule.Mode ? global : rule.Mode;
             return new ResolvedTypedDecision(effective, rule.GateThreshold);
+        }
+
+        /// <summary>
+        /// Copy every stored value from another instance into this one, in place, so decision points that
+        /// hold this instance see a hot reload. <see cref="KeyAvailable"/> is kept.
+        /// </summary>
+        /// <param name="source">Instance to copy from. Null is ignored.</param>
+        public void CopyFrom(TypedDecisionSettings source)
+        {
+            if (source == null || ReferenceEquals(source, this)) return;
+            Mode = source.Mode;
+            BaseUrl = source.BaseUrl;
+            Model = source.Model;
+            ApiKeyEnv = source.ApiKeyEnv;
+            TimeoutSeconds = source.TimeoutSeconds;
+            MaxStateChars = source.MaxStateChars;
+            Decisions = source.Decisions;
+            CaptainTool = source.CaptainTool;
         }
 
         private static Dictionary<string, TypedDecisionRuleSettings> WithShippedDefaults(Dictionary<string, TypedDecisionRuleSettings>? supplied)

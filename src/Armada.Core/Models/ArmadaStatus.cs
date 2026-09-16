@@ -119,6 +119,12 @@ namespace Armada.Core.Models
             set => _Scheduler = value ?? new ObjectiveSchedulerStatus();
         }
 
+        /// <summary>
+        /// Typed-decision system state: the effective global mode (Off with reason typed_decisions_no_key when no
+        /// provider key resolves), the stored mode, and whether a key is present. Null when not reported.
+        /// </summary>
+        public TypedDecisionStatus? TypedDecisions { get; set; }
+
         #endregion
 
         #region Private-Members

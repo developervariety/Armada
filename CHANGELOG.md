@@ -8,6 +8,17 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- Typed decisions are Off unless a provider key is available. Without a key the
+  effective global mode is `Off` with reason `typed_decisions_no_key` (startup
+  log, `GET /api/v1/status`, `GET /api/v1/settings`, and the new
+  `GET /api/v1/typed-decisions`), whatever the stored mode. With a key, every
+  decision runs at its own mode. The key comes from `ARMADA_TYPESAFE_KEY` or,
+  when unset, from `<data directory>/secrets/typesafe-api-key`, and adding or
+  removing it takes effect without a restart. Every adapter is now wired at
+  startup over one switchable client.
+- `typedDecisions` hot-reloads in place, so decision points that already hold
+  the section see a reloaded mode.
+
 - Smart Routing no longer replaces Legacy Routing. With
   `modelTier.usageRouting.enabled`, Armada keeps the Legacy Routing order (model
   tiers, persona locks, within-tier ranking, non-native-first, capability
@@ -29,6 +40,13 @@ All notable changes to Armada are documented in this file.
   `typedDecisions.decisions` map now runs at its shipped mode instead of `Off`.
 
 ### Added
+
+- Administrator routes for typed decisions: `GET /api/v1/typed-decisions`,
+  `PUT /api/v1/typed-decisions` (global and per-decision modes and thresholds,
+  validated and saved), `PUT /api/v1/typed-decisions/key` (writes the key file,
+  204), and `DELETE /api/v1/typed-decisions/key`. The key is never logged,
+  recorded, stored in settings, or returned, and the routes are excluded from
+  request history.
 
 - `modelTier.usageRouting.personaModels`: per-persona `default`, `lighter`, and
   `stronger` model lists. Smart Routing groups its filtered order by the lists,

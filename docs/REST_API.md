@@ -4966,6 +4966,22 @@ present. Response fields: `reason`, `smartRoutingEnabled`, `hasPersonaRoutes`,
 `scope`. See [the preview table](USAGE_ROUTING.md#dashboard-and-api). No new MCP tool is
 required. Policy updates use `PUT /api/v1/settings` and hot-reload.
 
+### Typed decisions
+
+Administrator only (settings write permission). These routes are never recorded
+in request history.
+
+| Method | Path | Body | Response |
+| --- | --- | --- | --- |
+| `GET` | `/api/v1/typed-decisions` | none | `effectiveMode`, `effectiveReason` (`typed_decisions_no_key` without a key), `storedMode`, `keyPresent`, `keySource` (`env` or `file`), `decisions[]` with `key`, `mode`, `threshold`, `description` |
+| `PUT` | `/api/v1/typed-decisions` | `{ "mode"?: "Off"\|"Shadow"\|"Gate", "decisions"?: { "<name>": { "mode"?, "gateThreshold"? } } }` | The same status; 400 for an unknown decision, mode, or a threshold outside 0 to 1 |
+| `PUT` | `/api/v1/typed-decisions/key` | `{ "apiKey": "..." }` | 204, no body. Writes `<data directory>/secrets/typesafe-api-key` (folder 0700, file 0600) |
+| `DELETE` | `/api/v1/typed-decisions/key` | none | `fileRemoved`, `environmentSuppliesKey`, `keyPresent`, `keySource`, `effectiveMode`, `effectiveReason` |
+
+The key is never returned, logged, or stored in settings. The environment
+variable named by `typedDecisions.apiKeyEnv` wins over the file. See
+[typed decisions](ops/08-configuration-and-administration.md#typed-decisions).
+
 ### Subscription account logins
 
 These routes log a subscription account in from the Dashboard. Each needs

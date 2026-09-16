@@ -38,6 +38,7 @@ namespace Armada.Core.Services
         private readonly TypedDecisionSettings _Settings;
         private readonly LoggingModule _Logging;
         private readonly HttpClient _Http;
+        private readonly Func<string?>? _ApiKeyProvider;
 
         #endregion
 
@@ -50,7 +51,20 @@ namespace Armada.Core.Services
         /// <param name="logging">Logging module.</param>
         /// <param name="httpClient">HTTP client used for the single POST.</param>
         public TypeSafeDecisionClient(TypedDecisionSettings settings, LoggingModule logging, HttpClient httpClient)
+            : this(settings, logging, httpClient, null)
         {
+        }
+
+        /// <summary>
+        /// Create a TypeSafe typed-decision client whose Bearer key comes from a provider, read on every call.
+        /// </summary>
+        /// <param name="settings">Typed-decision settings (base URL, model, timeout).</param>
+        /// <param name="logging">Logging module.</param>
+        /// <param name="httpClient">HTTP client used for the single POST.</param>
+        /// <param name="apiKeyProvider">Returns the current key; null reads the environment variable named in settings.</param>
+        public TypeSafeDecisionClient(TypedDecisionSettings settings, LoggingModule logging, HttpClient httpClient, Func<string?>? apiKeyProvider)
+        {
+            _ApiKeyProvider = apiKeyProvider;
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Http = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
@@ -135,6 +149,7 @@ namespace Armada.Core.Services
 
         private string? ResolveApiKey()
         {
+            if (_ApiKeyProvider != null) return _ApiKeyProvider();
             if (String.IsNullOrWhiteSpace(_Settings.ApiKeyEnv)) return null;
             return Environment.GetEnvironmentVariable(_Settings.ApiKeyEnv);
         }

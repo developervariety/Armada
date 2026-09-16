@@ -72,6 +72,42 @@ namespace Armada.Test.Automated.Suites
             }
         }
 
+        private async Task<string> ReadTypedDecisionsTextAsync()
+        {
+            using (HttpResponseMessage response = await _AuthClient.GetAsync("/api/v1/typed-decisions").ConfigureAwait(false))
+            {
+                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                return await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            }
+        }
+
+        private async Task<JsonElement> ReadTypedDecisionsAsync()
+        {
+            using (JsonDocument document = JsonDocument.Parse(await ReadTypedDecisionsTextAsync().ConfigureAwait(false)))
+                return document.RootElement.Clone();
+        }
+
+        private async Task PutTypedDecisionsAsync(string json)
+        {
+            using (StringContent content = new StringContent(json, Encoding.UTF8, "application/json"))
+            using (HttpResponseMessage response = await _AuthClient.PutAsync("/api/v1/typed-decisions", content).ConfigureAwait(false))
+                AssertEqual(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        private JsonElement FindDecision(JsonElement status, string key)
+        {
+            foreach (JsonElement entry in Prop(status, "decisions").EnumerateArray())
+                if (String.Equals(Prop(entry, "key").GetString(), key, StringComparison.Ordinal)) return entry;
+            throw new Exception("Decision not listed: " + key);
+        }
+
+        private static JsonValueKind NullableKind(JsonElement element, string name)
+        {
+            foreach (JsonProperty property in element.EnumerateObject())
+                if (String.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase)) return property.Value.ValueKind;
+            return JsonValueKind.Null;
+        }
+
         private async Task PutSettingsJsonAsync(string json)
         {
             using (StringContent content = new StringContent(json, Encoding.UTF8, "application/json"))
@@ -269,6 +305,97 @@ namespace Armada.Test.Automated.Suites
 
             // A settings update applies each supplied field and leaves every absent field as stored, so
             // the dashboard's model routing policy and Routing V2 parts can save without replacing each other.
+            await RunTest("TypedDecisions_PutModes_ValidatesPersistsAndReports", async () =>
+            {
+                JsonElement before = await ReadTypedDecisionsAsync().ConfigureAwait(false);
+                JsonElement flakeBefore = FindDecision(before, "flake_score");
+                string modeBefore = Prop(flakeBefore, "mode").GetString()!;
+                double thresholdBefore = Prop(flakeBefore, "threshold").GetDouble();
+                try
+                {
+                    foreach (string invalid in new[]
+                    {
+                        "{\"decisions\":{\"no_such_decision\":{\"mode\":\"Gate\"}}}",
+                        "{\"decisions\":{\"flake_score\":{\"gateThreshold\":1.5}}}",
+                        "{\"mode\":\"Loud\"}"
+                    })
+                    {
+                        using (StringContent content = new StringContent(invalid, Encoding.UTF8, "application/json"))
+                        using (HttpResponseMessage response = await _AuthClient.PutAsync("/api/v1/typed-decisions", content).ConfigureAwait(false))
+                            AssertEqual(HttpStatusCode.BadRequest, response.StatusCode, "refused: " + invalid);
+                    }
+                    AssertEqual(modeBefore, Prop(FindDecision(await ReadTypedDecisionsAsync().ConfigureAwait(false), "flake_score"), "mode").GetString(), "a refused update changes nothing");
+
+                    using (StringContent content = new StringContent("{\"decisions\":{\"flake_score\":{\"mode\":\"Shadow\",\"gateThreshold\":0.7}}}", Encoding.UTF8, "application/json"))
+                    using (HttpResponseMessage response = await _AuthClient.PutAsync("/api/v1/typed-decisions", content).ConfigureAwait(false))
+                        AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                    JsonElement flake = FindDecision(await ReadTypedDecisionsAsync().ConfigureAwait(false), "flake_score");
+                    AssertEqual("Shadow", Prop(flake, "mode").GetString());
+                    AssertEqual(0.7, Prop(flake, "threshold").GetDouble());
+                    Armada.Core.Settings.ArmadaSettings saved = await Armada.Core.Settings.ArmadaSettings.LoadAsync(Armada.Core.Settings.ArmadaSettings.DefaultSettingsPath).ConfigureAwait(false);
+                    AssertEqual(Armada.Core.Enums.TypedDecisionModeEnum.Shadow, saved.TypedDecisions.Decisions["flake_score"].Mode, "the update is saved through the settings file");
+                }
+                finally
+                {
+                    string restore = "{\"decisions\":{\"flake_score\":{\"mode\":\"" + modeBefore + "\",\"gateThreshold\":" + thresholdBefore.ToString(System.Globalization.CultureInfo.InvariantCulture) + "}}}";
+                    using (StringContent content = new StringContent(restore, Encoding.UTF8, "application/json"))
+                    using (HttpResponseMessage response = await _AuthClient.PutAsync("/api/v1/typed-decisions", content).ConfigureAwait(false))
+                        AssertEqual(HttpStatusCode.OK, response.StatusCode);
+                }
+            }).ConfigureAwait(false);
+
+            if (!String.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ARMADA_TYPESAFE_KEY")))
+                SkipTest("TypedDecisions_KeyFile_SwitchesEffectiveModeAndIsNeverEchoed", "ARMADA_TYPESAFE_KEY is set for this process, so the key file cannot change the effective mode.");
+            else await RunTest("TypedDecisions_KeyFile_SwitchesEffectiveModeAndIsNeverEchoed", async () =>
+            {
+                const string key = "automated-typed-decision-SECRET-value";
+                JsonElement before = await ReadTypedDecisionsAsync().ConfigureAwait(false);
+                string storedMode = Prop(before, "storedMode").GetString()!;
+                AssertEqual("Off", Prop(before, "effectiveMode").GetString(), "no key: effective Off");
+                AssertEqual("typed_decisions_no_key", Prop(before, "effectiveReason").GetString());
+                // Keep the provider uncalled while a test key is present.
+                await PutTypedDecisionsAsync("{\"mode\":\"Off\"}").ConfigureAwait(false);
+                try
+                {
+                    using (StringContent content = JsonHelper.ToJsonContent(new { apiKey = key }))
+                    using (HttpResponseMessage response = await _AuthClient.PutAsync("/api/v1/typed-decisions/key", content).ConfigureAwait(false))
+                    {
+                        AssertEqual(HttpStatusCode.NoContent, response.StatusCode);
+                        AssertFalse((await response.Content.ReadAsStringAsync().ConfigureAwait(false)).Contains("SECRET"), "the key is not echoed");
+                    }
+                    string withKey = await ReadTypedDecisionsTextAsync().ConfigureAwait(false);
+                    AssertFalse(withKey.Contains("SECRET"), "status never carries the key");
+                    using (JsonDocument document = JsonDocument.Parse(withKey))
+                    {
+                        AssertTrue(Prop(document.RootElement, "keyPresent").GetBoolean());
+                        AssertEqual("file", Prop(document.RootElement, "keySource").GetString());
+                        AssertEqual(JsonValueKind.Null, NullableKind(document.RootElement, "effectiveReason"), "a key clears the no-key reason");
+                    }
+                    using (HttpResponseMessage settingsResponse = await _AuthClient.GetAsync("/api/v1/settings").ConfigureAwait(false))
+                        AssertFalse((await settingsResponse.Content.ReadAsStringAsync().ConfigureAwait(false)).Contains("SECRET"), "settings never carry the key");
+                    using (HttpResponseMessage events = await _AuthClient.GetAsync("/api/v1/events?pageSize=100").ConfigureAwait(false))
+                        AssertFalse((await events.Content.ReadAsStringAsync().ConfigureAwait(false)).Contains("SECRET"), "events never carry the key");
+
+                    using (HttpResponseMessage deleted = await _AuthClient.DeleteAsync("/api/v1/typed-decisions/key").ConfigureAwait(false))
+                    {
+                        AssertEqual(HttpStatusCode.OK, deleted.StatusCode);
+                        string body = await deleted.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        AssertFalse(body.Contains("SECRET"));
+                        AssertTrue(body.Replace(" ", "").IndexOf("\"fileRemoved\":true", StringComparison.OrdinalIgnoreCase) >= 0, "the file was removed");
+                    }
+                    JsonElement after = await ReadTypedDecisionsAsync().ConfigureAwait(false);
+                    AssertFalse(Prop(after, "keyPresent").GetBoolean());
+                    AssertEqual("typed_decisions_no_key", Prop(after, "effectiveReason").GetString());
+                    using (HttpResponseMessage status = await _AuthClient.GetAsync("/api/v1/status").ConfigureAwait(false))
+                        AssertTrue((await status.Content.ReadAsStringAsync().ConfigureAwait(false)).Contains("typed_decisions_no_key"), "status reports the no-key reason");
+                }
+                finally
+                {
+                    await _AuthClient.DeleteAsync("/api/v1/typed-decisions/key").ConfigureAwait(false);
+                    await PutTypedDecisionsAsync("{\"mode\":\"" + storedMode + "\"}").ConfigureAwait(false);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("UpdateSettings_TierListOnly_LeavesUsageRoutingAndModelProviders", async () =>
             {
                 JsonElement before = await ReadSettingsAsync().ConfigureAwait(false);

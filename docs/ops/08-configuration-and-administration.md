@@ -159,10 +159,12 @@ the `deferred-facts.md` lookup use the folder's real name.
 ### Typed decisions
 
 The typed-decision system (TypeSafe Jev) is an advisory classifier the admiral
-can consult at a decision point. The global `mode` ships `Gate`, and the system
-is inert until the key is present: with no key the null client answers every
-call as unavailable, so every decision runs its deterministic rule exactly as
-before. Per decision group:
+can consult at a decision point. It is **Off unless a provider key is
+available**. Without a key the effective global mode is `Off` with reason
+`typed_decisions_no_key`, whatever the stored `mode`: no decision calls a
+client or records an event, and every decision runs its deterministic rule.
+With a key, the stored global `mode` (default `Gate`) applies and each decision
+runs at its own mode. Per decision group:
 
 - `failure_cause`, `refusal`, `runtime_failure`, `review_substance`,
   `preflight`, `papercut_merge`, and `capacity_escalation` ship in `Gate`; they
@@ -196,7 +198,35 @@ The safety contract holds whenever it is enabled:
   unavailable, not late.
 - Nothing egresses unredacted. `DecisionStateRedactor` removes Armada ids,
   absolute paths, hosts, URLs, commit hashes, and key-shaped tokens, then
-  truncates to the state cap. The Bearer key is read from the environment only.
+  truncates to the state cap. The Bearer key is never logged, recorded, stored
+  in settings, or returned by any response.
+
+#### The provider key
+
+The key resolves in this order:
+
+1. The environment variable named by `typedDecisions.apiKeyEnv`
+   (`ARMADA_TYPESAFE_KEY`), when set.
+2. The key file `<data directory>/secrets/typesafe-api-key`. The server derives
+   the path; a client never supplies one. The folder is created `0700` and the
+   file is written `0600`.
+
+The client is resolved on every call, so adding or removing the key takes
+effect without an Admiral restart. The startup log names the effective mode
+and the key source, never the key.
+
+Administrator routes (the same permission as a settings write; never recorded
+in request history):
+
+| Route | Effect |
+| --- | --- |
+| `GET /api/v1/typed-decisions` | Effective global mode and reason, stored mode, `keyPresent`, `keySource` (`env` or `file`), and every decision's `key`, `mode`, `threshold`, and `description` |
+| `PUT /api/v1/typed-decisions` | Body `{ "mode": "Gate", "decisions": { "<name>": { "mode": "Shadow", "gateThreshold": 0.9 } } }`; every field is optional. Unknown decisions, modes, and thresholds outside 0 to 1 return 400. Saved through the normal settings save. |
+| `PUT /api/v1/typed-decisions/key` | Body `{ "apiKey": "..." }`; writes the key file and returns 204 with no body |
+| `DELETE /api/v1/typed-decisions/key` | Removes the key file; `environmentSuppliesKey` is true when the variable still supplies a key |
+
+`GET /api/v1/status` (`typedDecisions`) and `GET /api/v1/settings`
+(`typedDecisionsStatus`) carry the same effective-mode summary.
 
 Configure it under `typedDecisions` in `settings.json` (see the README settings
 table). The global `mode` is `Off`, `Shadow`, or `Gate` and is the single kill
@@ -205,10 +235,10 @@ the effective mode is the minimum of the two. `Shadow` consults the model and
 records the answer while the rule stands; it is also the demotion target for a
 decision operators reverse too often. The decisions listed above ship in `Gate`
 and every other decision is `Off`. A shipped decision missing from a stored
-`decisions` map runs at its shipped mode; set its `mode` to `Off` to stop it, but the system is operationally off until the
-key is confirmed in the container (no key means the null client). `mode` is
-hot-reloaded — a change takes effect without a restart and survives an MCP
-settings write.
+`decisions` map runs at its shipped mode; set its `mode` to `Off` to stop it.
+Without a key the effective mode is `Off` whatever these values say. `mode` and
+`decisions` hot-reload in place — a change reaches every decision point without
+a restart and survives an MCP settings write.
 
 Every enabled call emits one event: `typed_decision.gated` when a gate at or
 above threshold changed the outcome, `typed_decision.shadow` when the rule stood
