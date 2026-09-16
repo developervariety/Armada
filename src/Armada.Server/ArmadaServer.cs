@@ -690,6 +690,10 @@ namespace Armada.Server
                 missionService.HandoffOutcomeAdapter = new TypedHandoffOutcomeAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 missionService.HandoffOwnerNotePoster = ownerNotePoster;
+                // D3 runtime_failure reports a fleet-wide provider fault as a broadcast board note. The
+                // adapter was built before the coordination service existed, so the poster is set here.
+                if (admiralService.RuntimeFailureAdapter != null)
+                    admiralService.RuntimeFailureAdapter.NotePoster = new CoordinationBroadcastNotePoster(_CoordinationService, _Logging);
                 // D21 revision_kind (Judge NEEDS_REVISION), D22 test_covers (TestEngineer handoff), and
                 // D24 lint_finding (Linter handoff). All three ship Off in the decisions map, so with the
                 // live client present but the decision Off the seam still runs its deterministic path;

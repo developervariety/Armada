@@ -124,6 +124,47 @@ namespace Armada.Core.Services
             return RecordAsync(EventTypeCaptain, gateOutcome, context, token);
         }
 
+        /// <summary>
+        /// Record a domain event a decision raised beside its decision event (for example a suspected
+        /// provider account fault). The caller supplies a message and payload that carry no state and
+        /// no credential; the event is owner-scoped from the mission when one is given. Never throws.
+        /// </summary>
+        /// <param name="eventType">The domain event type.</param>
+        /// <param name="message">The event message.</param>
+        /// <param name="payload">The JSON payload.</param>
+        /// <param name="mission">The related mission, when any.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The created event, or null when recording failed.</returns>
+        public async Task<ArmadaEvent?> RecordDomainEventAsync(string eventType, string message, string payload, Mission? mission, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(eventType)) return null;
+
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent(eventType, message ?? String.Empty) { Payload = payload };
+                if (mission != null)
+                {
+                    evt.EntityType = "mission";
+                    evt.EntityId = mission.Id;
+                    evt.MissionId = mission.Id;
+                    evt.VesselId = mission.VesselId;
+                    evt.VoyageId = mission.VoyageId;
+                    EventOwnerScope.ApplyFromMission(evt, mission);
+                }
+                else
+                {
+                    evt.TenantId = Constants.DefaultTenantId;
+                }
+
+                return await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to record " + eventType + ": " + ex.Message);
+                return null;
+            }
+        }
+
         #endregion
 
         #region Private-Methods

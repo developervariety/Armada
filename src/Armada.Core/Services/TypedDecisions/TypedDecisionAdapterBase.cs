@@ -144,6 +144,16 @@ namespace Armada.Core.Services
 
             TModel model = Interpret(result);
 
+            try
+            {
+                await OnModelReadingAsync(input, model, cfg, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // An observation is informative only; its failure must never change the verdict.
+                _Logging.Warn(_Header + "decision '" + DecisionPoint + "' reading observer failed, rule stands: " + ex.Message);
+            }
+
             if (cfg.Mode == TypedDecisionModeEnum.Shadow || model.Confidence < cfg.GateThreshold)
             {
                 string outcome = cfg.Mode == TypedDecisionModeEnum.Shadow ? "shadow_mode" : "below_threshold";
@@ -154,6 +164,33 @@ namespace Armada.Core.Services
             TVerdict gated = Combine(ruleVerdict, model);
             await RecordGatedAsync(input, ruleVerdict, model, result, redacted, token).ConfigureAwait(false);
             return gated;
+        }
+
+        #endregion
+
+        #region Protected-Members
+
+        /// <summary>The recorder, for a decision that records a domain event beside its decision event.</summary>
+        protected TypedDecisionRecorder Recorder => _Recorder;
+
+        /// <summary>The logging module.</summary>
+        protected LoggingModule Logging => _Logging;
+
+        /// <summary>
+        /// Observe an available model reading before the gate compares it to the threshold. A decision
+        /// overrides this to report a side signal (an event, a board note, a papercut) that is
+        /// informative only. It runs for every available reading while the decision is not Off, so an
+        /// override checks <paramref name="cfg"/> itself. It can never change the returned verdict, and
+        /// an exception it throws is logged and ignored.
+        /// </summary>
+        /// <param name="input">The decision input.</param>
+        /// <param name="model">The interpreted reading.</param>
+        /// <param name="cfg">The effective mode and threshold.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>A task that completes when the observation has been attempted.</returns>
+        protected virtual Task OnModelReadingAsync(TInput input, TModel model, ResolvedTypedDecision cfg, CancellationToken token)
+        {
+            return Task.CompletedTask;
         }
 
         #endregion

@@ -8,6 +8,12 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- The D3 `runtime_failure` decision now reports a suspected provider account
+  fault. In `Gate`, a `fleet_wide` reading at or above 0.9 records a
+  `provider.account_fault_suspected` event and posts a broadcast
+  coordination-board note that name the captain key family, never the key. The
+  path never benches a captain.
+
 - Smart Routing (usage-aware routing) enabled with no configured route for a
   persona now passes the legacy candidate list through unchanged instead of
   deferring the mission with no idle captain. Enabling Smart Routing fleet-wide

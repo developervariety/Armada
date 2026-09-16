@@ -247,7 +247,12 @@ model, where a rule hard-block always wins. The four wired today are:
   UDS SecurityAccess are ordinary engineering, never a refusal.
 - `runtime_failure` — only a bare Crash is offered for change, and only ever
   upgraded to the more conservative UsageLimit or AuthFailure; a recognised
-  signature is never downgraded and a crash is never read as clean.
+  signature is never downgraded and a crash is never read as clean. In `Gate`,
+  a `fleet_wide` reading at or above `0.9` (whatever the kind) records a
+  `provider.account_fault_suspected` event and posts a broadcast board note.
+  Both name the captain key family (the runtime plus the credential source:
+  `model-endpoint`, `captain-key`, or `runtime-login`), never the key. This
+  path only reports. It never benches, quarantines, or stops a captain.
 
 One decision point reads the objective dispatch preview:
 
