@@ -168,6 +168,14 @@ All notable changes to Armada are documented in this file.
   Routing**, in the Settings > Routing dashboard and the routing docs. Settings
   keys, event reasons, and API field names are unchanged.
 
+- The Create/Edit Captain modal no longer shows the inline provider-credential
+  fields for an API Endpoint captain. That runtime draws its base URL and key
+  from the referenced inference endpoint, and the admiral already rejects inline
+  captain credentials for it, so the modal now selects the endpoint as the sole
+  credential surface and never submits an inline key or base URL for it. Native
+  runtimes keep the inline fields, which remain the way to point a captain at an
+  externally served model.
+
 ### Security
 
 - Scoped the captain tools preflight to the requesting viewer. The Ask tools

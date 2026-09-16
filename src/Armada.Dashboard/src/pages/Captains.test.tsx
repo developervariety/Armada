@@ -105,6 +105,9 @@ describe('Captains', () => {
     fireEvent.change(runtime, { target: { value: 'ApiEndpoint' } });
     const endpoint = within(form).getByRole('combobox', { name: 'Inference Endpoint' }) as HTMLSelectElement;
     expect(Array.from(endpoint.options).map((option) => option.value)).toEqual(['', 'mep_inf']);
+    // An API-endpoint captain draws credentials from the endpoint, so the inline
+    // provider-credential fields must not appear for that runtime.
+    expect(within(form).queryByText('Provider Credential')).not.toBeInTheDocument();
 
     fireEvent.change(within(form).getByRole('textbox', { name: 'Name' }), { target: { value: 'api-captain' } });
     fireEvent.change(endpoint, { target: { value: 'mep_inf' } });
@@ -116,7 +119,16 @@ describe('Captains', () => {
       runtime: 'ApiEndpoint',
       modelEndpointId: 'mep_inf',
       tier: 'Standard',
+      apiKey: null,
+      apiBaseUrl: null,
     }));
+  });
+
+  it('keeps the inline provider-credential fields for a native runtime', async () => {
+    renderCaptains();
+    const form = await openCreateForm();
+    fireEvent.change(within(form).getByRole('combobox', { name: 'Runtime' }), { target: { value: 'ClaudeCode' } });
+    expect(within(form).getByText('Provider Credential')).toBeInTheDocument();
   });
 
   it('refuses to save a Mux captain without a named Mux endpoint', async () => {
