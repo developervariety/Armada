@@ -98,6 +98,30 @@ All notable changes to Armada are documented in this file.
   settings timeout links to it: a slow decision is unavailable, not late. The
   adapters are wired only when the client is live (mode not Off and the key is
   present); otherwise every seam stays on its deterministic rule.
+### Gated typed-decision adapter for review substance (D4)
+
+- `review_substance` (D4, ships Gate at threshold 0.85): the Judge-PASS
+  structural validator in `MissionService` — the required-heading regex plus the
+  narrative-length floor — now consults the typed-decision model through the same
+  shared gated adapter. The deterministic regex stays the rule and the fallback.
+- The model asks one substance Noul per required review section (is the section
+  substantiated, not merely named) and a `substantiated` Score
+  (asserted only / partly evidenced / evidenced / evidenced against diff and
+  checks). It may only make the outcome more conservative or accept a form-only
+  miss: it never fails a PASS the rule accepted, never lands, and never
+  dispatches.
+- When the rule REJECTED a PASS only because a required heading failed the regex,
+  and every section's substance is present at threshold with the review at or
+  above `evidenced`, the model accepts it as `heading_form_only` into the SAME
+  independent Check gate the rule would have run. A rejection on a real ground —
+  empty output or a too-short narrative — is never overturned.
+- When the rule VALIDATED a PASS whose substance is thin (`substantiated` at or
+  below `partly evidenced`), the model HOLDS it for operator review: the PASS
+  stays validated and the Check gate still runs, but a mission-activity line and
+  a `typed_decision.gated` event surface it. A held PASS is never auto-failed.
+- The state carries the extracted narrative, the required section set, a compact
+  diff stat, and a redacted check summary; the adapter is wired only when the
+  client is live and otherwise the seam stays on the deterministic regex.
 ### Typed decisions: papercut merge (D6) and memory candidate (D18)
 
 - The papercut listing (`armada_list_papercuts`, grouped mode) now consults the

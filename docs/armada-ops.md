@@ -1983,7 +1983,7 @@ Each wired decision holds an adapter over the shared client, never the raw
 client, and every adapter follows one skeleton: Off returns the rule with no
 call; unavailable returns the rule; Shadow or below threshold returns the rule
 and records a shadow event; at or above threshold it combines the rule and the
-model, where a rule hard-block always wins. The three wired today are:
+model, where a rule hard-block always wins. The four wired today are:
 
 - `failure_cause` — autonomous recovery consults the model only for a failure
   the rule would rescue; the repeated-identical-test and Infra/Timeout blocks
@@ -2021,6 +2021,20 @@ One decision point reads the objective dispatch preview:
   leaves the deterministic preview unchanged (`Shadow` adds the flags as advisory
   `preflight_q<n>_model` warnings instead).
 
+- `review_substance` (D4, ships `Gate` at 0.85) — the Judge-PASS structural
+  validator (the required-heading regex plus the narrative-length floor) stays
+  the rule and the fallback. The model asks one substance Noul per required
+  review section and a `substantiated` Score. It only ever makes the outcome more
+  conservative or accepts a form-only miss: when the rule rejected a PASS **only**
+  because a heading failed the regex and every section's substance is present at
+  threshold with the review at or above `evidenced`, the model accepts it as
+  `heading_form_only` into the same independent Check gate the rule would have
+  run; when the rule validated a PASS whose substance is thin (`substantiated` at
+  or below `partly evidenced`), it **holds** the PASS for operator review — the
+  PASS stays validated and the Check gate still runs, but a mission-activity line
+  and a `typed_decision.gated` event surface it. A rejection on a real ground
+  (empty output or a too-short narrative) is never overturned, and a validated
+  PASS is never auto-failed. The model never lands and never dispatches.
 Two decision points read the papercut grouping:
 
 - **D6 `papercut_merge`** (ships `Gate`) runs at listing time

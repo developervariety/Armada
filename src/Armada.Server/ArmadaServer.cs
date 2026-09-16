@@ -350,7 +350,8 @@ namespace Armada.Server
                 _MergeQueue, _Git, _AutoLandEvaluator, _ConventionChecker, _CriticalTriggerEvaluator, _ProviderProgress, _CheckRunService,
                 null, _DispatchHold, _TerminalMarkers);
 
-            // Gated typed-decision adapters (D1 failure_cause, D2 refusal, D3 runtime_failure). Each
+            // Gated typed-decision adapters (D1 failure_cause, D2 refusal, D3 runtime_failure,
+            // D4 review_substance). Each
             // consumer holds an adapter over the shared client, never the raw client. They are wired
             // only when the live client was constructed (mode not Off and the key present); with the
             // Null client every seam stays on its deterministic rule with no call and no event, which
@@ -362,6 +363,8 @@ namespace Armada.Server
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 missionService.RefusalAdapter = typedRefusalAdapter;
                 admiralService.RefusalAdapter = typedRefusalAdapter;
+                missionService.ReviewSubstanceAdapter = new TypedReviewSubstanceAdapter(
+                    _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 admiralService.RuntimeFailureAdapter = new TypedRuntimeFailureAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 _AutonomousRecovery.FailureCauseAdapter = new TypedFailureCauseAdapter(

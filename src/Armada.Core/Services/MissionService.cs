@@ -72,6 +72,16 @@ namespace Armada.Core.Services
         /// quoted phrase, never overturn the marker.
         /// </summary>
         public TypedRefusalAdapter? RefusalAdapter { get; set; }
+
+        /// <summary>
+        /// The D4 <c>review_substance</c> typed-decision adapter, when wired. Null keeps Judge-PASS
+        /// structural validation on the deterministic regex rule alone. Set by the server after
+        /// construction so existing construction sites and tests are unchanged. The required-heading
+        /// regex stays the rule and the fallback; the adapter may only hold a thin PASS the rule
+        /// accepted for operator review, or accept a heading-form-only rejection into the same Check
+        /// gate — it never fails a PASS the rule accepted, never lands, and never dispatches.
+        /// </summary>
+        public TypedReviewSubstanceAdapter? ReviewSubstanceAdapter { get; set; }
         private const string _CreditAuthQuarantineReason =
             "Provider credit, billing, payment, or authentication failure detected during mission execution.";
         private const string ArchitectHandoffMarker = "<!-- ARMADA:ARCHITECT-HANDOFF -->";
@@ -2009,7 +2019,15 @@ namespace Armada.Core.Services
                 bool judgeGateRejected = false;
                 if (verdict == JudgeVerdict.Pass)
                 {
-                    if (!TryValidateJudgePassOutput(mission.AgentOutput, mission.IsReadOnlyMode, out verdictFailureReason))
+                    // The deterministic required-heading regex plus the narrative-length floor is the
+                    // rule and the fallback. The D4 review_substance adapter (when wired) may only make
+                    // it MORE conservative — hold a thin PASS the rule accepted for operator review — or
+                    // accept a heading-form-only rejection into the same Check gate below; it never
+                    // fails a PASS the rule accepted, never lands, and never dispatches.
+                    JudgePassValidation ruleValidation = EvaluateJudgePassValidation(mission.AgentOutput, mission.IsReadOnlyMode);
+                    verdictFailureReason = ruleValidation.FailureReason;
+                    ReviewSubstanceVerdict substanceVerdict = await RefineReviewSubstanceAsync(mission, ruleValidation, token).ConfigureAwait(false);
+                    if (!substanceVerdict.Validated)
                     {
                         // A PASS that fails structural validation degrades to a re-run request
                         // (NEEDS_REVISION semantics) so the mission stays non-terminal and the
@@ -2018,6 +2036,25 @@ namespace Armada.Core.Services
                     }
                     else
                     {
+                        if (substanceVerdict.Held)
+                        {
+                            // The model held a thin-but-validated PASS. It is surfaced for operator
+                            // review and recorded (typed_decision.gated); it is NOT auto-failed, and the
+                            // downstream Check gate still runs unchanged.
+                            await AppendMissionActivityAsync(mission.Id,
+                                "review substance held for operator review: " + (substanceVerdict.HoldReason ?? "thin PASS"), token).ConfigureAwait(false);
+                            _Logging.Info(_Header + "judge mission " + mission.Id + " PASS held for operator review by review_substance (not failed): " +
+                                (substanceVerdict.HoldReason ?? "thin PASS"));
+                        }
+                        else if (String.Equals(substanceVerdict.Outcome, "heading_form_only", StringComparison.Ordinal))
+                        {
+                            // The rule rejected on heading form alone; the model accepted the substance.
+                            // The PASS proceeds into the same independent Check gate the rule would have
+                            // run — nothing is landed here.
+                            await AppendMissionActivityAsync(mission.Id,
+                                "review substance accepted heading-form-only PASS into the Check gate: " + (ruleValidation.FailureReason ?? String.Empty), token).ConfigureAwait(false);
+                            _Logging.Info(_Header + "judge mission " + mission.Id + " heading-form-only PASS accepted by review_substance into the Check gate");
+                        }
                         // Real-signal gate: a Judge PASS must be backed by green independent Checks
                         // (Build/UnitTest from real command output the Judge did not produce), not by
                         // the agent's self-report or self-run tests. A failed Check overrides the PASS;
@@ -6284,6 +6321,94 @@ namespace Armada.Core.Services
             return String.Join("\n", lines[first..]);
         }
 
+        /// <summary>
+        /// Refine the deterministic Judge-PASS structural validation with the D4
+        /// <c>review_substance</c> adapter, when wired. The deterministic <paramref name="rule"/> is
+        /// the fallback and stands in every case except a gate at or above threshold, and even then the
+        /// adapter's Combine may only hold a thin validated PASS for operator review or accept a
+        /// heading-form-only rejection into the Check gate. Never throws into the caller.
+        /// </summary>
+        private async Task<ReviewSubstanceVerdict> RefineReviewSubstanceAsync(Mission mission, JudgePassValidation rule, CancellationToken token)
+        {
+            ReviewSubstanceVerdict ruleVerdict = ReviewSubstanceVerdict.Rule(rule.Validated, rule.Category, rule.FailureReason);
+            if (ReviewSubstanceAdapter == null) return ruleVerdict;
+
+            try
+            {
+                ReviewSubstanceDecisionInput input = new ReviewSubstanceDecisionInput
+                {
+                    Mission = mission,
+                    Narrative = rule.Narrative,
+                    RequiredSections = rule.RequiredSections,
+                    DiffStat = SummarizeDiffStat(mission.DiffSnapshot),
+                    CheckSummary = await BuildJudgeCheckSummaryAsync(mission, token).ConfigureAwait(false)
+                };
+                return await ReviewSubstanceAdapter.DecideAsync(input, ruleVerdict, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "review-substance refinement failed for mission " + mission.Id + ", rule stands: " + ex.Message);
+                return ruleVerdict;
+            }
+        }
+
+        /// <summary>
+        /// A compact stat of the reviewed diff for the D4 state: files changed and lines added and
+        /// removed, never the diff body. The redactor removes any path or id that leaks through.
+        /// </summary>
+        private static string SummarizeDiffStat(string? diffSnapshot)
+        {
+            if (String.IsNullOrWhiteSpace(diffSnapshot)) return "no diff recorded";
+
+            int files = 0;
+            int added = 0;
+            int removed = 0;
+            foreach (string rawLine in diffSnapshot.Replace("\r\n", "\n").Split('\n'))
+            {
+                if (rawLine.StartsWith("diff --git", StringComparison.Ordinal)) files++;
+                else if (rawLine.StartsWith("+++", StringComparison.Ordinal) || rawLine.StartsWith("---", StringComparison.Ordinal)) continue;
+                else if (rawLine.StartsWith('+')) added++;
+                else if (rawLine.StartsWith('-')) removed++;
+            }
+
+            return files.ToString(System.Globalization.CultureInfo.InvariantCulture) + " files, +"
+                + added.ToString(System.Globalization.CultureInfo.InvariantCulture) + "/-"
+                + removed.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// A compact summary of the voyage's independent Checks for the D4 state: label, type, and
+        /// status only, capped, and redacted downstream. Never throws; an empty summary keeps the rule.
+        /// </summary>
+        private async Task<string> BuildJudgeCheckSummaryAsync(Mission mission, CancellationToken token)
+        {
+            try
+            {
+                List<CheckRunQuery> queries = new List<CheckRunQuery>();
+                if (!String.IsNullOrEmpty(mission.VoyageId)) queries.Add(new CheckRunQuery { VoyageId = mission.VoyageId });
+                queries.Add(new CheckRunQuery { MissionId = mission.Id });
+                if (queries.Count == 0) return String.Empty;
+
+                Dictionary<string, CheckRun> checks = await CheckRunEnumeration.ReadAllAsync(_Database, queries, token).ConfigureAwait(false);
+                if (checks.Count == 0) return "no checks";
+
+                List<string> parts = new List<string>();
+                foreach (CheckRun check in checks.Values)
+                {
+                    string label = String.IsNullOrWhiteSpace(check.Label) ? check.Type.ToString() : check.Label!;
+                    parts.Add(label + ":" + check.Type + ":" + check.Status);
+                    if (parts.Count >= 12) break;
+                }
+
+                return String.Join("; ", parts);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "review-substance check summary failed for mission " + mission.Id + ": " + ex.Message);
+                return String.Empty;
+            }
+        }
+
         internal async Task<JudgeCheckGate> EvaluateJudgeCheckGateAsync(Mission judgeMission, CancellationToken token)
         {
             if (!String.IsNullOrEmpty(judgeMission.VoyageId))
@@ -7851,38 +7976,91 @@ namespace Armada.Core.Services
             return JudgeVerdict.None;
         }
 
-        private bool TryValidateJudgePassOutput(string? agentOutput, bool reportOnly, out string? failureReason)
+        /// <summary>
+        /// The deterministic Judge-PASS structural validation, categorized. This is the single source
+        /// of truth for the required-heading regex and the narrative-length floor: the Judge-completion
+        /// seam and the D4 <c>review_substance</c> adapter both read it, so the rule has exactly one
+        /// definition. The category lets the adapter tell a heading-FORM rejection (which it may accept
+        /// when the substance is present) from a real ground (empty output, too-short narrative) it
+        /// never overturns.
+        /// </summary>
+        /// <param name="agentOutput">The Judge mission output.</param>
+        /// <param name="reportOnly">True for a read-only (Audit or Research) mission.</param>
+        /// <returns>The categorized validation result.</returns>
+        private JudgePassValidation EvaluateJudgePassValidation(string? agentOutput, bool reportOnly)
         {
-            failureReason = null;
+            IReadOnlyList<string> required = JudgeReviewSections.Required(reportOnly);
 
             if (String.IsNullOrWhiteSpace(agentOutput))
             {
-                failureReason = "Judge PASS verdict missing review output";
-                return false;
+                return new JudgePassValidation(
+                    ReviewSubstanceRuleCategory.EmptyOutput,
+                    "Judge PASS verdict missing review output",
+                    String.Empty,
+                    required);
             }
 
             // The required set comes from the same source the briefs and prompts render, so a Judge
             // that follows its instructions can never fail this validation for the wrong section set.
             List<string> missingSections = new List<string>();
-            foreach (string section in JudgeReviewSections.Required(reportOnly))
+            foreach (string section in required)
             {
                 if (!ContainsJudgeReviewSection(agentOutput, section)) missingSections.Add(section);
             }
 
+            string substantiveReview = ExtractJudgeNarrative(agentOutput);
+
             if (missingSections.Count > 0)
             {
-                failureReason = "Judge PASS verdict missing required review sections: " + String.Join(", ", missingSections);
-                return false;
+                return new JudgePassValidation(
+                    ReviewSubstanceRuleCategory.MissingSections,
+                    "Judge PASS verdict missing required review sections: " + String.Join(", ", missingSections),
+                    substantiveReview,
+                    required);
             }
 
-            string substantiveReview = ExtractJudgeNarrative(agentOutput);
             if (substantiveReview.Length < 120)
             {
-                failureReason = "Judge PASS verdict review is too short to justify approval";
-                return false;
+                return new JudgePassValidation(
+                    ReviewSubstanceRuleCategory.ShortNarrative,
+                    "Judge PASS verdict review is too short to justify approval",
+                    substantiveReview,
+                    required);
             }
 
-            return true;
+            return new JudgePassValidation(ReviewSubstanceRuleCategory.Valid, null, substantiveReview, required);
+        }
+
+        /// <summary>
+        /// The categorized result of the deterministic Judge-PASS structural validation. Carries the
+        /// extracted narrative and required section set so the D4 adapter builds its state without
+        /// re-parsing the output.
+        /// </summary>
+        private readonly struct JudgePassValidation
+        {
+            /// <summary>The rejection category, or <see cref="ReviewSubstanceRuleCategory.Valid"/>.</summary>
+            public ReviewSubstanceRuleCategory Category { get; }
+
+            /// <summary>The deterministic failure reason, or null when validated.</summary>
+            public string? FailureReason { get; }
+
+            /// <summary>The extracted Judge narrative.</summary>
+            public string Narrative { get; }
+
+            /// <summary>The required review section set for the mission mode, in order.</summary>
+            public IReadOnlyList<string> RequiredSections { get; }
+
+            /// <summary>Whether the structural validation passed.</summary>
+            public bool Validated => Category == ReviewSubstanceRuleCategory.Valid;
+
+            /// <summary>Create a categorized validation result.</summary>
+            public JudgePassValidation(ReviewSubstanceRuleCategory category, string? failureReason, string narrative, IReadOnlyList<string> requiredSections)
+            {
+                Category = category;
+                FailureReason = failureReason;
+                Narrative = narrative ?? String.Empty;
+                RequiredSections = requiredSections ?? new List<string>();
+            }
         }
 
         private static bool ContainsJudgeReviewSection(string agentOutput, string sectionName)
