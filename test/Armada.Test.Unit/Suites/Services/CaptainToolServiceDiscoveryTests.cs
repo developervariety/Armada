@@ -207,10 +207,17 @@ namespace Armada.Test.Unit.Suites.Services
 
                 CaptainToolAccessResult result = await service.DescribeAsync(captain);
 
-                List<string> serverNames = result.Servers.Where(s => s.SourceKind == "McpServer").Select(s => s.Name).ToList();
-                AssertEqual(1, serverNames.Count, "Only the supplied profile's servers are listed: " + String.Join(", ", serverNames));
-                AssertEqual("supplied-profile-probe", serverNames[0]);
-                AssertEqual(0, result.ReachableServerCount, "The supplied server's missing command cannot start.");
+                var mcpServers = result.Servers.Where(s => s.SourceKind == "McpServer").ToList();
+                AssertEqual(1, mcpServers.Count, "Only the supplied profile's servers are listed: " + String.Join(", ", mcpServers.Select(s => s.Name)));
+                AssertEqual("supplied-profile-probe", mcpServers[0].Name);
+                // The supplied command is a path to a nonexistent file, so the stdio probe cannot start
+                // the process on any platform. Assert on the configured server's own reachability, not the
+                // aggregate ReachableServerCount: the aggregate also counts the runtime built-in tool
+                // inventory, which is legitimately reachable wherever the runtime CLI is installed (the
+                // deploy host) and absent where it is not (a developer workstation) -- so pinning the
+                // aggregate to zero passes only where the CLI happens to be missing.
+                AssertFalse(mcpServers[0].Reachable, "The supplied server's missing command cannot start.");
+                AssertEqual(0, result.Servers.Count(s => s.SourceKind == "McpServer" && s.Reachable), "No configured MCP server is reachable.");
             });
 
             await RunTest("IdleAskPreflight_EmptyToolsReportsVerifiedZero", async () =>

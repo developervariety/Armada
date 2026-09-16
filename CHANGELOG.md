@@ -17,6 +17,20 @@ All notable changes to Armada are documented in this file.
   build. A normal build with a working tree is unchanged.
 
 
+### Captain tool discovery
+
+- Made the busy-captain tool-discovery test deterministic across platforms. The
+  `supplied-profile-probe` case now asserts that the configured MCP server's own
+  reachability is false (its command is a nonexistent path, so the stdio probe
+  cannot start it), instead of pinning the aggregate `ReachableServerCount` to
+  zero. The aggregate also counts the runtime built-in tool inventory, which is
+  legitimately reachable wherever the runtime CLI schema is installed (the deploy
+  host) and absent where it is not, so the old assertion passed only where the CLI
+  happened to be missing. Production reachability logic is unchanged and was
+  already correct: a missing-command server is counted unreachable on every
+  platform.
+
+
 ### Typed decisions: prior art (D26)
 
 - Added the D26 `prior_art` decision — "does this already exist?" asked with
