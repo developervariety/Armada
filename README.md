@@ -61,10 +61,8 @@ It shares the core operating model -- fleets, vessels, captains, missions, voyag
 docks, pipelines, and delivery records -- but it is a divergent **superset**, not a
 version behind upstream. The fork keeps parity by re-implementing selected upstream
 features rather than merging, because a blanket merge would collide with, and in
-places regress, deliberate fork choices. The full capability-by-capability map and
-the porting decisions live in the
-[upstream parity standpoint](docs/upstream-review/UPSTREAM_PARITY.md); the
-[selective integration review](docs/upstream-review/README.md) records the open gates.
+places regress, deliberate fork choices. The capability-by-capability map is the list below; the incremental cherry-pick
+sync procedure and its baseline live in [`CLAUDE.md`](CLAUDE.md).
 
 What the fork adds on top of the shared model:
 

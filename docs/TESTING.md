@@ -38,7 +38,7 @@ dotnet run --project test/Armada.Test.Database --framework net10.0 -- --type mys
 
 ## How It Works
 
-The fork unit, automated, runtime and database runners are console applications. The shared test suites run through the `src/Test.Automated` console runner and also have NUnit and xUnit adapters under `src/`; see [Shared Suite Runner](#shared-suite-runner) and [test discovery](upstream-review/test-discovery.md). Use the command for the selected runner; `dotnet test` does not execute the console runners.
+The fork unit, automated, runtime and database runners are console applications. The shared test suites run through the `src/Test.Automated` console runner and also have NUnit and xUnit adapters under `src/`; see [Shared Suite Runner](#shared-suite-runner) and [test discovery](reference/test-discovery.md). Use the command for the selected runner; `dotnet test` does not execute the console runners.
 
 - `TestSuite` — abstract base class in `Armada.Test.Common`. Each suite groups related tests, provides assertion helpers, and cleans up its own test data.
 - `TestRunner` — orchestrates suites, prints colored results, generates summary with failed test details.
@@ -91,7 +91,7 @@ The legacy executables remain the owners of the fork cases they execute. The sha
 | Awaiting owner decision | The shared case asserts behaviour the fork does not implement. | None; the owner decides whether to implement the behaviour or retire the case |
 | Intentional fork difference | The shared case asserts behaviour the fork has decided not to adopt. The reason says what the fork does instead and why. | None; the decision is made, so nothing is pending |
 
-The runner prints each kind with its own prefix and count, so a decided fork difference never reads as pending owner work. Discovery fails when a record names no discovered case or names a legacy case that its file no longer registers, so a rename or removal cannot silently hide a case. The per-case list and the reasons are in [the case mapping](upstream-review/test-discovery-cases.md#shared-runner-failure-inventory).
+The runner prints each kind with its own prefix and count, so a decided fork difference never reads as pending owner work. Discovery fails when a record names no discovered case or names a legacy case that its file no longer registers, so a rename or removal cannot silently hide a case. The per-case list and the reasons are in [the case mapping](reference/test-discovery-cases.md#shared-runner-failure-inventory).
 
 | Shared suite prefix | Executed by | Legacy runner with overlapping cases |
 |---------------------|-------------|--------------------------------------|

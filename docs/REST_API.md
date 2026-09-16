@@ -1374,7 +1374,7 @@ Returns readiness warnings and blocking issues for a vessel. Optional query:
 Predicts how Armada would land a branch for this vessel. Optional query:
 `sourceBranch`. The response includes current `Configuration` with its source,
 effective mode, legacy flags and cleanup policy. See the
-[landing configuration contract](upstream-review/backend-landing.md) for resolution
+[landing configuration contract](reference/backend-landing.md) for resolution
 and the advisory Check-summary limits.
 
 `hasPassingChecks` is true when any scoped check run passed, including an older
@@ -1909,7 +1909,7 @@ curl http://localhost:8080/api/v1/missions/msn_abc123/log?offset=100&lines=100 \
 Predicts how Armada would land this mission's branch. The mission must have a vessel.
 The current `Configuration` includes the scoped voyage override. An unreadable
 linked voyage returns null configuration and a preview error. See the
-[landing configuration contract](upstream-review/backend-landing.md).
+[landing configuration contract](reference/backend-landing.md).
 
 **Path Parameters:**
 
@@ -1931,7 +1931,7 @@ no command and no diff, and does not change landing readiness.
 `HistoryState` is `Recorded`, `NotRecorded` (no evaluation in scope; not a pass
 or failure) or `Unavailable` (the latest record cannot be read; an older record
 is never shown instead). The configuration reports whether commands exist, not
-their text. See the [definition-of-done history contract](upstream-review/backend-dod.md).
+their text. See the [definition-of-done history contract](reference/backend-dod.md).
 
 **Path Parameters:**
 
@@ -1953,7 +1953,7 @@ time), and the latest merge entry with its audit lane, convention, trigger and
 deep-review fields. Reading it evaluates no predicate and reads no diff.
 `DecisionState` is `Recorded`, `NotRecorded` or `Unavailable` (malformed or
 same-timestamp latest decision; an older decision is never shown instead). See
-the [auto-land detail contract](upstream-review/backend-autoland.md).
+the [auto-land detail contract](reference/backend-autoland.md).
 
 **Path Parameters:**
 
@@ -1973,7 +1973,7 @@ attempts against the current budget, landing retries, the last recovery action,
 rescue missions (vessel missions whose parent is this mission), linked incidents
 with their runbook executions, and recovery events among the mission's 100 most
 recent events. Reading it dispatches nothing and does not infer a landing from
-mission status. See the [recovery detail contract](upstream-review/backend-recovery.md).
+mission status. See the [recovery detail contract](reference/backend-recovery.md).
 
 **Path Parameters:**
 
@@ -2485,7 +2485,7 @@ Both `/api/v1/captains/{id}/log` and `/api/v1/missions/{id}/log` accept
 Formatted pages return at most 500 entries. Offset addresses input lines using
 the route's existing filtering rules; Lines counts returned entries and Log joins
 their text. Legacy text mode retains line pagination and applies shared secret
-redaction. See [the complete log contract](upstream-review/backend-logs.md).
+redaction. See [the complete log contract](reference/backend-logs.md).
 
 ### Docks
 
@@ -4376,7 +4376,7 @@ A git worktree provisioned for a captain. Docks are managed internally by the Ad
 `ResolvedUtc`, `State` (`Seeded`, `Complete`, `Incomplete`), bounded `Anchors`,
 `Truncated` and a sanitized `ErrorCode`. Missing or invalid older data returns
 null. It does not replace start-ref, stage-base or landing checks. See
-[the snapshot contract](upstream-review/backend-anchors.md).
+[the snapshot contract](reference/backend-anchors.md).
 
 ---
 

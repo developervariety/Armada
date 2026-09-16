@@ -91,7 +91,7 @@ namespace Test.Shared.Suites.Services
 
             cases.Add(Case("api_error_is_safe_activity", "OpenCode API errors become bounded activity", TestTags.Negative, () =>
             {
-                string line = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "docs", "upstream-review", "fixtures", "opencode-api-error.jsonl")).Trim();
+                string line = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "src", "Test.Shared", "Fixtures", "opencode-api-error.jsonl")).Trim();
                 TestOpenCodeRuntime runtime = new TestOpenCodeRuntime();
                 string rendered = runtime.Transform(line);
                 AssertTrue(rendered.Contains("opencode error", StringComparison.Ordinal), "expected named OpenCode error activity");

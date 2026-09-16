@@ -103,7 +103,7 @@ namespace Test.Shared.Suites.Services
 
         private static async Task<string> ReadFixtureAsync()
         {
-            return (await File.ReadAllTextAsync(Path.Combine(FindRepositoryRoot(), "docs", "upstream-review", "fixtures", "opencode-api-error.jsonl")).ConfigureAwait(false)).Trim();
+            return (await File.ReadAllTextAsync(Path.Combine(FindRepositoryRoot(), "src", "Test.Shared", "Fixtures", "opencode-api-error.jsonl")).ConfigureAwait(false)).Trim();
         }
 
         private static string FindRepositoryRoot()
