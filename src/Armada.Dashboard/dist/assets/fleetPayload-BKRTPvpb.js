@@ -1,0 +1,1 @@
+function e(e,t){return{name:t.name,description:t.description,defaultPipelineId:t.defaultPipelineId||null,defaultPlaybooks:e.defaultPlaybooks??null,active:e.active}}export{e as t};
