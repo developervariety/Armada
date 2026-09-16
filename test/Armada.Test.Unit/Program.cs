@@ -317,6 +317,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new TypedReviewSubstanceAdapterTests());
             runner.AddSuite(new TypedStageNecessityAdapterTests());
             runner.AddSuite(new TypedHandoffOutcomeAdapterTests());
+            runner.AddSuite(new TypedOwnerDigestAdapterTests());
             runner.AddSuite(new PapercutMergeAdapterTests());
             runner.AddSuite(new MemoryCandidateAdapterTests());
             runner.AddSuite(new PreflightTextAdapterTests());

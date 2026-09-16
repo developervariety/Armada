@@ -37,6 +37,37 @@ All notable changes to Armada are documented in this file.
   bounded by the settings timeout on the caller's token, fails closed to the rule,
   records a `state_sha256` and byte count but never the state, and never throws
   into its caller. Both are wired only when the live typed-decision client exists.
+### Typed decisions: owner-decision digest (D13) and corpus pre-label (D14)
+
+- Added the D13 `owner_digest` scheduled runner (`OwnerDigestRunner`), shaped
+  like the health loop and driven once per UTC day by a health-loop maintenance
+  step. It collects owner-decision candidates — on this tip, owner-decision
+  preparation claims an anchor change re-opened (`NeedsRecheck`), via
+  `OwnerDigestHitCollector`; D5 Q13 `needs_owner_ruling`, D9 `owner_ruling`, and
+  D11-classified board-note question sources attach as those signals land —
+  ranks each with the `TypedOwnerDigestAdapter` (a `cost_of_waiting` Score over
+  `[none, a lane idles today, a captain is guessing now, a landing is held]` and
+  a `default_safe` Noul), and posts one owner-addressed board note plus one
+  `owner_decisions.digest` event listing the questions by cost with each
+  proposed default.
+- D13 ships `Off` and is dormant until the decision is enabled, so it is never
+  forced on; a day with no candidates is a no-op. It **never answers** a
+  question: the deterministic cost from fan-out and age is the fallback, a gated
+  model reading may only ESCALATE it (never lower it), every default is a
+  suggestion the owner records on the row, and the digest event carries only
+  ranking metadata, never the question text. The adapter follows the shared
+  skeleton — Off returns the rule with no call; unavailable or below threshold
+  returns the rule and records one event; the call is bounded by the settings
+  timeout on the caller's token, records a `state_sha256` and byte count but
+  never the state, and never throws.
+- Added the D14 `corpus_prelabel` operator-side helper
+  `scripts/autonomy/draft-corpus-line.mjs` (run outside the admiral). It drafts
+  one decision-corpus line (`AI-Memory/corpus/README.md` schema) from an
+  incident, a mission failure reason, a Mail signal, or a preflight result. Every
+  line it emits carries `"draft": true` and nothing it emits is a confirmed line:
+  the operator confirms by removing the flag; the script never removes it and
+  pre-fills no decision, only the fields the corpus rule already settles. Its
+  self-check is `scripts/autonomy/test-draft-corpus-line.mjs`.
 
 ### Typed decisions: dispatch preflight text half (D5)
 

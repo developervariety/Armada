@@ -2080,6 +2080,38 @@ Two decision points read the papercut grouping:
   When no AI-Memory root is configured the nomination is recorded as an event
   only.
 
+Two operator-side decisions gather owner decisions and pre-fill the corpus:
+
+- **D13 `owner_digest`** (ships `Off`) is a scheduled runner shaped like the
+  health loop. Once per UTC day it collects the owner-decision candidates its
+  hit source found — an owner-decision preparation claim an anchor change
+  re-opened (`NeedsRecheck`) on this tip, with D5 Q13 `needs_owner_ruling`
+  flags, D9 `owner_ruling` hits, and board notes D11 classified as questions
+  attaching as those signals land — ranks each with a `cost_of_waiting` Score
+  `[none, a lane idles today, a captain is guessing now, a landing is held]`
+  and a `default_safe` Noul, and posts **one** owner-addressed board note plus
+  **one** `owner_decisions.digest` event listing the questions by cost, each
+  with its proposed default. The runner is dormant while the decision is `Off`,
+  so it is never forced on; it is a no-op on any day with no candidates. It
+  **never answers** a question — the deterministic cost from the fan-out and age
+  is the fallback, a gated model reading may only ESCALATE that cost, every
+  proposed default is a suggestion the owner still records on the row, and the
+  digest event carries only ranking metadata (counts, cost levels, sources),
+  never the question text.
+- **D14 `corpus_prelabel`** (ships `Off`) is an operator-side helper script,
+  `scripts/autonomy/draft-corpus-line.mjs`, run outside the admiral. It drafts
+  one decision-corpus line (the schema in `AI-Memory/corpus/README.md`) from an
+  incident, a mission failure reason, a Mail signal, or a preflight result, so
+  the operator does not start the capture rule from a blank line. Its single
+  hard guarantee is that every line it emits carries `"draft": true` and nothing
+  it emits is a confirmed line: the operator confirms a draft by removing the
+  flag, and the script never removes it and never pre-fills a decision — only
+  the fields the corpus rule already settles (a preflight line's
+  `preventable_in_brief` follows from its failed questions) are set. Run
+  `node scripts/autonomy/draft-corpus-line.mjs --input <file.json>` (or pipe the
+  input object on stdin), optionally with `--out decisions.jsonl` to append the
+  draft; `node scripts/autonomy/test-draft-corpus-line.mjs` is its self-check.
+
 ### Vessel Workspace
 
 The Workspace surface (dashboard `Workspace` page, `POST

@@ -120,6 +120,9 @@ namespace Armada.Server
         private TypedDecisionRecorder _TypedDecisionRecorder = null!;
         private HttpClient _TypedDecisionHttpClient = null!;
         private PapercutMergeAdapter _PapercutMergeAdapter = null!;
+        // D13 owner_digest scheduled runner. Constructed only with the live typed-decision client and
+        // dormant until the owner_digest decision is enabled; the health loop drives it once per day.
+        private OwnerDigestRunner? _OwnerDigestRunner = null;
         private LongRunningJobService _LongRunningJobs = new LongRunningJobService();
         private ProviderProgressTracker _ProviderProgress = new ProviderProgressTracker();
         private TerminalMarkerTracker _TerminalMarkers = new TerminalMarkerTracker();
@@ -661,6 +664,24 @@ namespace Armada.Server
                 missionService.HandoffOutcomeAdapter = new TypedHandoffOutcomeAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 missionService.HandoffOwnerNotePoster = ownerNotePoster;
+                // D13 owner_digest runner. It reuses the owner-addressed note poster above, ranks each
+                // owner-decision candidate with its adapter, and — driven daily by the health loop —
+                // posts one owner-addressed digest note and one owner_decisions.digest event per UTC
+                // day. It is dormant until the owner_digest decision is enabled, and never answers a
+                // question. The hit collector reads only owner-decision preparation claims that an
+                // anchor change re-opened; other sources attach as they land.
+                OwnerDigestHitCollector ownerDigestHits = new OwnerDigestHitCollector(
+                    _Database, () => DateTime.UtcNow, _Logging);
+                TypedOwnerDigestAdapter ownerDigestAdapter = new TypedOwnerDigestAdapter(
+                    _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
+                _OwnerDigestRunner = new OwnerDigestRunner(
+                    _Settings.TypedDecisions,
+                    ownerDigestAdapter,
+                    ownerNotePoster,
+                    ownerDigestHits.CollectAsync,
+                    _Database,
+                    () => DateTime.UtcNow,
+                    _Logging);
             }
 
             _CaptainTools = new CaptainToolService(
@@ -1915,6 +1936,17 @@ namespace Armada.Server
                         MaxItems = 0
                     };
                     await _TerminalVoyageMissions.ReconcileAsync(request, stepToken).ConfigureAwait(false);
+                }),
+
+                // D13 owner_digest. The runner self-guards to once per UTC day and returns immediately
+                // while the decision is Off, so this step is cheap to schedule often; it no-ops until a
+                // new day rolls with the decision enabled and owner-decision candidates present.
+                HealthLoopMaintenanceStep.EveryCycles("owner decision digest", () => 60, async stepToken =>
+                {
+                    if (_OwnerDigestRunner == null) return;
+                    OwnerDigestRunResult digest = await _OwnerDigestRunner.RunOnceAsync(stepToken).ConfigureAwait(false);
+                    if (digest.Posted)
+                        _Logging.Info(_Header + "owner decision digest posted: " + digest.CandidateCount + " question(s)");
                 })
             };
         }
