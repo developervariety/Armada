@@ -6,6 +6,17 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Fixed
+
+- Autonomous recovery compares two failing-test sets without regard to order, so
+  the same failures printed in a different order by a parallel test runner are
+  recognised as a repeat (the repeated-failure operator note is no longer lost).
+- The context index warns when a chunk-metadata sidecar key matches no generated
+  chunk, naming any that carry a must_retrieve safety domain, and an independent
+  test now asserts every must_retrieve key resolves and every managed vessel keeps
+  a safety leaf — so a renamed heading or a file falling under the sub-chunk
+  threshold can no longer silently drop a safety rule from a slimmed brief.
+
 ### Added
 
 - Subscription accounts can be deleted and hard-refreshed from the Dashboard. `DELETE

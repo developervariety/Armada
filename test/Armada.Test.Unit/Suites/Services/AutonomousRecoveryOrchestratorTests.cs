@@ -194,7 +194,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AutonomousRecoveryOrchestrator.StoredFailedTestSet abOverflow = FailedTestSet(true, "A", "B");
 
                 AssertTrue(AutonomousRecoveryOrchestrator.AreComparableIdenticalTestSets(ab, abAgain), "The same complete set is a repeat.");
-                AssertFalse(AutonomousRecoveryOrchestrator.AreComparableIdenticalTestSets(ab, ba), "A different order is a different ordered set.");
+                AssertTrue(AutonomousRecoveryOrchestrator.AreComparableIdenticalTestSets(ab, ba), "The same failing tests in a different order (parallel-runner output) are still a repeat.");
                 AssertFalse(AutonomousRecoveryOrchestrator.AreComparableIdenticalTestSets(ab, abc), "A different length is not identical.");
                 AssertFalse(AutonomousRecoveryOrchestrator.AreComparableIdenticalTestSets(empty, empty), "Two empty sets prove nothing and are not a repeat.");
                 AssertFalse(AutonomousRecoveryOrchestrator.AreComparableIdenticalTestSets(abOverflow, abAgain), "An overflowed set is not comparable.");
