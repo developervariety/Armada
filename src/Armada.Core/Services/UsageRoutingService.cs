@@ -399,8 +399,12 @@ namespace Armada.Core.Services
             result.HasPersonaRoutes = routes != null;
             if (routes == null)
             {
-                result.Candidates = new List<Captain>();
-                result.Reason = "v2_persona_route_not_configured";
+                // No route governs this persona (no persona-specific route and no "*" default), so Smart
+                // Routing does not narrow the field: keep the candidates the legacy selector already
+                // approved. Enabling Smart Routing with no configured routes is then a safe no-op rather
+                // than a blanket assignment block for every ungoverned persona.
+                result.Candidates = candidates;
+                result.Reason = "v2_no_route_pass_through";
                 return result;
             }
             List<Captain> normal = new List<Captain>();

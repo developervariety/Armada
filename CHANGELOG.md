@@ -8,6 +8,13 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- Smart Routing (usage-aware routing) enabled with no configured route for a
+  persona now passes the legacy candidate list through unchanged instead of
+  deferring the mission with no idle captain. Enabling Smart Routing fleet-wide
+  is therefore a safe no-op until accounts and persona routes are configured,
+  and it progressively governs a persona only once a route for it exists. The
+  `v2_no_route_pass_through` selection reason records the pass-through.
+
 - Context retrieval can now supply a captain brief's Shared Memory section,
   behind the `contextRetrieval.briefSlimmingEnabled` flag (default off). While
   off, brief generation is byte-for-byte unchanged: the section still names the
@@ -22,6 +29,13 @@ All notable changes to Armada are documented in this file.
   slimmed section's core, must-retrieve, and leaf byte counts are recorded on
   the `mission.prompt_budget` telemetry so the per-persona before/after cost is
   measurable. Enabling the flag is a separate, deliberate step.
+
+### Changed
+
+- The usage-aware routing capability is now named **Smart Routing** (formerly
+  "Routing V2") and the model-tier selector it sits over is named **Legacy
+  Routing**, in the Settings > Routing dashboard and the routing docs. Settings
+  keys, event reasons, and API field names are unchanged.
 
 ### Security
 

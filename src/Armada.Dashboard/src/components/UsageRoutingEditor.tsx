@@ -49,11 +49,11 @@ export default function UsageRoutingEditor({ value, onChange, statuses }: Props)
   const cost = (Array.isArray(policy?.accounts) ? policy.accounts : [])
     .reduce((sum: number, a: Record<string, unknown> | null) => sum + Number(a?.monthlyCost || 0), 0);
   return <section className="settings-section" style={{ marginTop: '1.5rem' }}>
-    <h3>{t('Routing V2 and usage conservation')}</h3>
+    <h3>{t('Smart Routing and usage conservation')}</h3>
     <p className="text-muted">{t('When enabled, V2 replaces legacy preference overrides. Use preferred routes normally. Move routine work only when allowance is low. Reserve capacity for selected personas or priorities. This does not change running missions or enforce a billing cap.')}</p>
     <div className="settings-grid">
       <label className="settings-checkbox-label"><input type="checkbox" checked={Boolean(policy?.enabled)} disabled={!policy}
-        onChange={e => update({ enabled: e.target.checked })} />{t('Enable usage-aware routing')}</label>
+        onChange={e => update({ enabled: e.target.checked })} />{t('Enable Smart Routing')}</label>
       <div className="form-group"><label htmlFor="usage-budget">{t('Monthly budget (informational)')}</label>
         <input id="usage-budget" type="number" min={0} value={Number(policy?.monthlyBudget || 0)} disabled={!policy}
           onChange={e => update({ monthlyBudget: Number(e.target.value) })} /></div>
@@ -90,7 +90,7 @@ export default function UsageRoutingEditor({ value, onChange, statuses }: Props)
       <div className="form-group"><label htmlFor="usage-priority">{t('Priority')}</label><input id="usage-priority" type="number" value={priority} onChange={e => { setPriority(Number(e.target.value)); setPreview(null); }} /></div>
       <div className="form-group"><label htmlFor="usage-model">{t('Required tier or model (optional)')}</label><input id="usage-model" value={model} onChange={e => { setModel(e.target.value); setPreview(null); }} /></div>
     </div>
-    <button type="button" className="btn btn-secondary" onClick={runPreview} disabled={busy || !policy}>{busy ? t('Checking usage…') : t('Preview usage routing')}</button>
+    <button type="button" className="btn btn-secondary" onClick={runPreview} disabled={busy || !policy}>{busy ? t('Checking usage…') : t('Preview Smart Routing')}</button>
     {error && <p role="alert" className="text-danger">{error}</p>}
     {preview && <pre role="status" style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(preview, null, 2)}</pre>}
   </section>;

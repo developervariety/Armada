@@ -4948,7 +4948,7 @@ Access-Control-Allow-Headers: Content-Type, Authorization, X-Token, X-Api-Key
 ```
 ## Account usage and persona routing
 
-See [Usage-aware routing](USAGE_ROUTING.md) for the opt-in policy, collectors,
+See [Smart Routing](USAGE_ROUTING.md) for the opt-in policy, collectors,
 credential references, reserve behavior, and Dashboard controls. The settings
 REST API exposes `providerUsage`; `POST /api/v1/settings/usage-preview` previews
 an optional draft policy with settings write permission. No new MCP tool is

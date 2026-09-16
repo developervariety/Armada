@@ -12,14 +12,14 @@ describe('Usage routing editor', () => {
     render(<UsageRoutingEditor value={JSON.stringify(emptyUsageRouting)} onChange={onChange} statuses={[]} />);
     fireEvent.change(screen.getByLabelText('Persona'), { target: { value: 'Judge' } });
     fireEvent.change(screen.getByLabelText('Priority'), { target: { value: '10' } });
-    fireEvent.click(screen.getByText('Preview usage routing'));
+    fireEvent.click(screen.getByText('Preview Smart Routing'));
     await waitFor(() => expect(previewUsageRouting).toHaveBeenCalledWith({ persona: 'Judge', priority: 10, preferredModel: null, usageRouting: emptyUsageRouting }));
     expect(onChange).not.toHaveBeenCalled();
     expect(await screen.findByRole('status')).toHaveTextContent('preferred_eligible_route_with_allowance');
   });
   it('blocks preview of invalid JSON and shows unknown data explicitly', () => {
     render(<UsageRoutingEditor value="{" onChange={vi.fn()} statuses={[{ accountId: 'example', state: 'Unknown', source: 'none', reason: 'required_usage_window_unknown_or_stale', windows: [] }]} />);
-    expect(screen.getByText('Preview usage routing')).toBeDisabled();
+    expect(screen.getByText('Preview Smart Routing')).toBeDisabled();
     expect(screen.getAllByText('Unknown').length).toBeGreaterThan(0);
   });
 });

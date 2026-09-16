@@ -24,7 +24,7 @@ function providerUsage(settings: SettingsRecord): Array<SettingsRecord> {
 /**
  * One routing configuration surface with two independent parts. The model routing policy edits tier
  * lists, specialist personas, reserved slots, strategy, preference order, family rules, the voyage
- * dispatch guard, model providers, and additional assets. Routing V2 edits `modelTier.usageRouting`
+ * dispatch guard, model providers, and additional assets. Smart Routing edits `modelTier.usageRouting`
  * only. Each part keeps its own draft and saves only its own fields, so saving one never overwrites
  * the other, and a reload keeps both parts' unsaved edits.
  */
@@ -76,7 +76,7 @@ export default function RoutingSettings() {
       const usageRouting: unknown = JSON.parse(sent);
       if (!usageRouting || typeof usageRouting !== 'object' || Array.isArray(usageRouting)) throw new Error(t('Policy must be a JSON object.'));
       applySaved(await updateSettings({ modelTier: { usageRouting } }) as SettingsRecord, sent);
-      setMessage(t('Routing V2 settings saved.'));
+      setMessage(t('Smart Routing settings saved.'));
     } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { setSaving(false); }
   };
@@ -86,7 +86,7 @@ export default function RoutingSettings() {
   return <div>
     <PageHeader
       title={t('Routing')}
-      subtitle={t('Model routing policy and Routing V2 usage-aware routing. Each part saves only its own settings.')}
+      subtitle={t('Legacy Routing model-tier policy and Smart Routing usage-aware routing. Each part saves only its own settings.')}
       actions={saved ? (
         <>
           <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />

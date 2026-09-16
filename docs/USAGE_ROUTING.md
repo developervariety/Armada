@@ -1,4 +1,8 @@
-# Usage-aware routing
+# Smart Routing (usage-aware routing)
+
+> **Naming.** This capability is now called **Smart Routing** (formerly "Routing V2").
+> The model-tier selector it sits over is now called **Legacy Routing**. Settings keys,
+> event reasons, and the `modelTier.usageRouting` block keep their identifiers.
 
 Armada can keep the preferred account for each persona, then use an approved
 fallback when that account runs low. Enable `modelTier.usageRouting` in Settings.
@@ -236,7 +240,7 @@ recovery state across settings updates.
 
 ## Dashboard and API
 
-The Settings hub has an admin **Routing** tab. Its Routing V2 part has an enable
+The Settings hub has an admin **Routing** tab. Its Smart Routing part has an enable
 control, budget fields, an account template, the full editable policy JSON,
 reported usage, and a draft preview. Its save sends only
 `modelTier.usageRouting`, so it never replaces the model routing policy edited

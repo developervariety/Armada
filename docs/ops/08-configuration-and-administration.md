@@ -402,7 +402,7 @@ Three platform-side decisions ship `Off`:
   red). The model never marks a red check green — only a genuine passing isolated
   re-run does — and a re-run runs only for a `dotnet test` command that can be
   isolated; otherwise the red stands unchanged.
-- **D16 `routing_hint`** is Routing V2 only (owner decision 2026-09-16): it is
+- **D16 `routing_hint`** is Smart Routing only (owner decision 2026-09-16): it is
   never wired into the legacy tier selector. A route gains an optional `shapes`
   tag list (a tagless route matches every shape, so existing configs are
   unchanged). The model answers a `shape` Choice, a `policy_sensitive` Noul, and

@@ -43,7 +43,7 @@ describe('Routing settings page', () => {
     expect(screen.queryByText('Save model routing')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Account and persona policy (JSON)')).not.toBeInTheDocument();
     fireEvent.click(screen.getByText('Retry loading settings'));
-    expect(await screen.findByLabelText('Enable usage-aware routing')).toBeChecked();
+    expect(await screen.findByLabelText('Enable Smart Routing')).toBeChecked();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
@@ -52,12 +52,12 @@ describe('Routing settings page', () => {
     vi.mocked(getSettings).mockResolvedValue(saved({ usageRouting: policy }));
     vi.mocked(updateSettings).mockResolvedValue(saved({ usageRouting: { ...policy, enabled: true } }));
     render(<RoutingSettings />);
-    const enable = await screen.findByLabelText('Enable usage-aware routing');
+    const enable = await screen.findByLabelText('Enable Smart Routing');
     fireEvent.click(enable);
     expect(updateSettings).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText('Save routing policy'));
     await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({ modelTier: { usageRouting: { ...policy, enabled: true } } }));
-    expect(await screen.findByRole('status')).toHaveTextContent('Routing V2 settings saved.');
+    expect(await screen.findByRole('status')).toHaveTextContent('Smart Routing settings saved.');
   });
 
   it('saves only the changed model routing field, never usage routing or model providers', async () => {
@@ -87,7 +87,7 @@ describe('Routing settings page', () => {
     expect(screen.getByTitle('Concrete model ids that classify as high')).toHaveValue('high-b');
   });
 
-  it('keeps an unsaved model routing edit when Routing V2 is saved, and the reverse', async () => {
+  it('keeps an unsaved model routing edit when Smart Routing is saved, and the reverse', async () => {
     const policy = { enabled: false, accounts: [], personaRoutes: {} };
     vi.mocked(getSettings).mockResolvedValue(saved({ usageRouting: policy }));
     vi.mocked(updateSettings).mockResolvedValueOnce(saved({ usageRouting: { ...policy, enabled: true } }));
@@ -95,17 +95,17 @@ describe('Routing settings page', () => {
     render(<RoutingSettings />);
     await screen.findByTitle('Concrete model ids that classify as mid');
     fireEvent.change(midTier(), { target: { value: 'mid-z' } });
-    fireEvent.click(screen.getByLabelText('Enable usage-aware routing'));
+    fireEvent.click(screen.getByLabelText('Enable Smart Routing'));
     fireEvent.click(screen.getByText('Save routing policy'));
     await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
     expect(midTier()).toHaveValue('mid-z');
     const enabledDraft = (usagePolicy() as HTMLTextAreaElement).value;
-    fireEvent.click(screen.getByLabelText('Enable usage-aware routing'));
+    fireEvent.click(screen.getByLabelText('Enable Smart Routing'));
     fireEvent.click(screen.getByText('Save model routing'));
     await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(2));
     expect(vi.mocked(updateSettings).mock.calls[1][0]).toEqual({ modelTier: { midTierModels: ['mid-z'] } });
     expect(usagePolicy()).not.toHaveValue(enabledDraft);
-    expect(screen.getByLabelText('Enable usage-aware routing')).not.toBeChecked();
+    expect(screen.getByLabelText('Enable Smart Routing')).not.toBeChecked();
   });
 
   it('reports invalid JSON by field and sends nothing', async () => {

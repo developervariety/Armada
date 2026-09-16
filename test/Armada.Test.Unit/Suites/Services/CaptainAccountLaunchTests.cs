@@ -518,6 +518,20 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(2, service.Select(policy, new Mission { Persona = "Worker" }, both, Array.Empty<string>(), until.AddSeconds(1)).Candidates.Count, "the hold ends at the retry time");
             });
 
+            await RunTest("Select with routing enabled but no route configured passes the legacy candidates through", () =>
+            {
+                // Smart Routing enabled with an empty configuration must not govern any persona: it returns
+                // the candidates the legacy selector already approved, so enabling it fleet-wide is a safe
+                // no-op until accounts and routes are added, never a blanket assignment block.
+                UsageRoutingSettings policy = new UsageRoutingSettings { Enabled = true };
+                UsageRoutingService service = new UsageRoutingService();
+                List<Captain> both = new List<Captain> { new Captain("a") { Id = "a" }, new Captain("b") { Id = "b" } };
+                UsageRoutingDecision decision = service.Select(policy, new Mission { Persona = "Worker" }, both, Array.Empty<string>(), DateTime.UtcNow);
+                AssertEqual(2, decision.Candidates.Count, "an ungoverned persona keeps every legacy candidate");
+                AssertEqual("v2_no_route_pass_through", decision.Reason);
+                AssertFalse(decision.HasPersonaRoutes, "no persona route resolved");
+            });
+
             await RunTest("Validation rejects account runtimes that do not match their captains or collectors", () =>
             {
                 Captain claude = new Captain("claude", AgentRuntimeEnum.ClaudeCode);

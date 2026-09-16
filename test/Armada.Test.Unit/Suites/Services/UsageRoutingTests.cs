@@ -58,10 +58,16 @@ namespace Armada.Test.Unit.Suites.Services
                     Array.Empty<string>(), DateTime.UtcNow);
                 AssertEqual("second", decision.Candidates[0].Id);
             });
-            await RunTest("V2 missing routes wait and wildcard routes are explicit", () =>
+            await RunTest("V2 missing routes pass through and wildcard routes are explicit", () =>
             {
                 UsageRoutingSettings policy = Policy(Account("first", 80), Account("second", 90));
-                AssertEqual("v2_persona_route_not_configured", Choose(new UsageRoutingService(), policy, "Planner").Reason);
+                // A persona with no route (and no "*" default) is not governed by Smart Routing: it keeps
+                // every legacy candidate, so enabling Smart Routing before routes exist never blocks work.
+                UsageRoutingDecision ungoverned = Choose(new UsageRoutingService(), policy, "Planner");
+                AssertEqual("v2_no_route_pass_through", ungoverned.Reason);
+                AssertEqual(2, ungoverned.Candidates.Count);
+                AssertFalse(ungoverned.HasPersonaRoutes);
+                // A "*" default route now governs the persona and narrows to its account.
                 policy.PersonaRoutes["*"] = new List<UsageRouteSettings> { new UsageRouteSettings { AccountId = "second" } };
                 AssertEqual("second", Choose(new UsageRoutingService(), policy, "Planner").Candidates[0].Id);
             });

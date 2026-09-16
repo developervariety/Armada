@@ -43,7 +43,7 @@ function prettyJson(value: unknown, fallback: string): string {
   }
 }
 
-/** The routing policy draft for a settings response. Usage routing is never part of it. */
+/** The routing policy draft for a settings response. Smart Routing is never part of it. */
 export function routingPolicyFromSettings(raw: Record<string, unknown>): RoutingPolicyDraft {
   const modelTier = asRecord(raw.modelTier);
   const voyageDispatch = asRecord(raw.voyageDispatch);
@@ -92,7 +92,7 @@ function parseJson(draft: RoutingPolicyDraft, field: keyof RoutingPolicyDraft): 
  * The settings update for the fields that changed, and nothing else. The server applies each
  * `modelTier` and `voyageDispatch` field separately and replaces `modelProviders` and each additional
  * asset list whole, so an unchanged field must be absent or it would overwrite a newer stored value.
- * `modelTier.usageRouting` is owned by the Routing V2 section and is never sent from here.
+ * `modelTier.usageRouting` is owned by the Smart Routing section and is never sent from here.
  */
 export function buildRoutingPolicyUpdate(base: RoutingPolicyDraft, draft: RoutingPolicyDraft): {
   payload: Record<string, unknown>;
@@ -181,13 +181,13 @@ export default function RoutingPolicyEditor({ saved, disabled = false, onSaved }
   return (
     <fieldset disabled={disabled || saving} style={{ border: 'none', margin: 0, padding: 0, minWidth: 0 }}>
       <div className="settings-section">
-        <h3>{t('Model routing')}</h3>
+        <h3>{t('Legacy Routing')}</h3>
         <p className="text-muted">
           {t('Tier lists, family rules, and routing policy hot-reload. Empty lists are the product default: random assignment among idle captains, with no model-family or specialist assumption.')}
         </p>
         {usageRoutingEnabled && (
           <p className="text-muted" role="note">
-            {t('Usage-aware routing is enabled below. While it is on, reserved high-tier slots and persona or voyage preferred captains are not applied; tier membership still applies.')}
+            {t('Smart Routing is enabled below. While it is on, reserved high-tier slots and persona or voyage preferred captains are not applied; tier membership still applies.')}
           </p>
         )}
         <div className="settings-grid">
