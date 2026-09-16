@@ -30,13 +30,14 @@
     <ProjectReference Include="..\Armada.Runtimes\Armada.Runtimes.csproj" />
   </ItemGroup>
 
-  <Target Name="EmbedGitSha" BeforeTargets="GetAssemblyAttributes">
-    <Exec Command="git rev-parse HEAD" ConsoleToMSBuild="true" IgnoreExitCode="true" ContinueOnError="true">
-      <Output TaskParameter="ConsoleOutput" PropertyName="_GitSha" />
-    </Exec>
-    <PropertyGroup Condition="'$(_GitSha)' != ''">
-      <SourceRevisionId>$(_GitSha)</SourceRevisionId>
-    </PropertyGroup>
-  </Target>
+  <!-- Populate BuildInfo.RunningCommit even in a container build that has no .git. A container
+       build passes the commit as the _GitSha build-arg: use it as the source revision and turn off
+       the SDK source-control query, which otherwise finds no repository and clears the revision so
+       the informational version carries no commit. A normal build leaves _GitSha empty and lets the
+       SDK read the commit from the working tree. -->
+  <PropertyGroup Condition="'$(_GitSha)' != ''">
+    <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
+    <SourceRevisionId>$(_GitSha)</SourceRevisionId>
+  </PropertyGroup>
 
 </Project>

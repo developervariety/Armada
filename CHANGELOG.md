@@ -6,6 +6,17 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Build and deployment
+
+- Fixed the server image so it records the commit it was built from. The build
+  passes the commit as the `_GitSha` build-arg; the project now uses it as the
+  source revision and turns off the SDK source-control query, which in a
+  container has no `.git` to read and otherwise leaves the informational
+  version with no commit. `BuildInfo.RunningCommit`, and so `armada_status`
+  `BuildDrift`, now report the running commit instead of null for a container
+  build. A normal build with a working tree is unchanged.
+
+
 ### Typed decisions: prior art (D26)
 
 - Added the D26 `prior_art` decision — "does this already exist?" asked with
