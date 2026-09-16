@@ -136,6 +136,9 @@ import type {
   CoordinationClaim,
   CaptainQuarantineRequest,
   CaptainQuarantineResult,
+  AccountLoginHome,
+  AccountLoginSession,
+  AccountLoginStatus,
 } from '../types/models';
 import { listAllPages } from '../lib/listAllPages';
 
@@ -1142,6 +1145,25 @@ export const listCoordinationClaims = (subjectType?: string, subjectId?: string)
   const query = search.toString();
   return get<CoordinationClaim[]>(`/api/v1/coordination/claims${query ? `?${query}` : ''}`);
 };
+
+// ==================== Subscription account logins ====================
+// Administrator-only. The server derives every account folder; the client never sends a path.
+/** Create (idempotently) the server-derived folder for an account. */
+export const createAccountHome = (accountId: string) =>
+  post<AccountLoginHome>(`/api/v1/usage-accounts/${encodeURIComponent(accountId)}/login/home`);
+/** Start a browser login; the CLI may take a few seconds to print its URL. */
+export const startAccountLogin = (accountId: string) =>
+  post<AccountLoginSession>(`/api/v1/usage-accounts/${encodeURIComponent(accountId)}/login/start`, undefined, { timeout: 60000 });
+/** Paste the provider's sign-in code back into a pending login. */
+export const submitAccountLoginCode = (accountId: string, code: string) =>
+  post<AccountLoginSession>(`/api/v1/usage-accounts/${encodeURIComponent(accountId)}/login/code`, { code });
+/** Store an API key once. The key is never returned. */
+export const submitAccountLoginKey = (accountId: string, apiKey: string) =>
+  post<AccountLoginSession>(`/api/v1/usage-accounts/${encodeURIComponent(accountId)}/login/key`, { apiKey });
+export const getAccountLoginStatus = (accountId: string) =>
+  get<AccountLoginStatus>(`/api/v1/usage-accounts/${encodeURIComponent(accountId)}/login/status`);
+export const cancelAccountLogin = (accountId: string) =>
+  post<AccountLoginStatus>(`/api/v1/usage-accounts/${encodeURIComponent(accountId)}/login/cancel`);
 
 /** Administrator-only, read-only usage admission preview. */
 export const previewUsageRouting = (data: Record<string, unknown>) => post<Record<string, unknown>>('/api/v1/settings/usage-preview', data, { timeout: USAGE_SETTINGS_TIMEOUT_MS });

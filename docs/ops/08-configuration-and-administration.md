@@ -597,8 +597,13 @@ the Dashboard Settings page:
 
 A `modelTier.usageRouting` account can also own a separate captain login.
 Set `runtime` plus `homeDirectory` (ClaudeCode `CLAUDE_CONFIG_DIR`, Codex
-`CODEX_HOME`, OpenCode `XDG_DATA_HOME`), or `launchCredentialEnv` for Cursor
-(`CURSOR_API_KEY`). An account without those fields launches its captains on
+`CODEX_HOME`, OpenCode `XDG_DATA_HOME`), or `launchCredentialEnv` or
+`launchCredentialFile` for Cursor (`CURSOR_API_KEY`). The Routing tab's
+**Subscription accounts** section creates any number of accounts per runtime
+under `<data directory>/accounts/<id>`, runs each runtime's login from the
+browser (Codex device code, Claude Code sign-in with a pasted code, OpenCode and
+Cursor API keys), and assigns or clones captains; see
+[Logging in from the Dashboard](USAGE_ROUTING.md#logging-in-from-the-dashboard). An account without those fields launches its captains on
 the shared login, as before. A missing login blocks the account with a named
 reason. Claude Code and Codex accounts also run the runtime's login status
 command in the background, so an expired or revoked login reads

@@ -2642,3 +2642,43 @@ export interface Memory {
   createdUtc: string;
   lastUpdateUtc: string;
 }
+
+/** Runtimes that can own a subscription account login. */
+export type AccountRuntime = 'ClaudeCode' | 'Codex' | 'OpenCode' | 'Cursor';
+
+/** Server-derived account folder. */
+export interface AccountLoginHome {
+  accountId: string;
+  homeDirectory: string;
+  cursorKeyFile: string;
+  created: boolean;
+}
+
+/** Safe view of one dashboard login: only the provider URL and user code, never a key or other output. */
+export interface AccountLoginSession {
+  sessionId: string;
+  accountId: string;
+  runtime: AccountRuntime;
+  method: 'DeviceCode' | 'PasteCode' | 'ApiKey';
+  state: 'Pending' | 'Succeeded' | 'Failed' | 'Expired' | 'Cancelled';
+  reason: string | null;
+  verificationUrl: string | null;
+  userCode: string | null;
+  needsCode: boolean;
+  reused: boolean;
+  startedUtc: string;
+  expiresUtc: string | null;
+  completedUtc: string | null;
+}
+
+/** Last dashboard login plus the server's own login check. */
+export interface AccountLoginStatus {
+  accountId: string;
+  runtime: AccountRuntime | null;
+  configured: boolean;
+  homeDirectory: string;
+  session: AccountLoginSession | null;
+  loginReady: boolean | null;
+  loginReason: string | null;
+  loginCheckedUtc: string | null;
+}

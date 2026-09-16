@@ -384,7 +384,7 @@ namespace Armada.Server.Routes
                 try
                 {
                     body = JsonSerializer.Deserialize<UsageRoutingPreviewRequest>(req.Http.Request.DataAsString, _jsonOptions) ?? throw new ArgumentException("Preview body is required.");
-                    UsageRoutingService.Validate(body.UsageRouting ?? _settings.ModelTier.UsageRouting);
+                    UsageRoutingService.Validate(body.UsageRouting ?? _settings.ModelTier.UsageRouting, AccountLoginPaths.AccountsRoot(_settings.DataDirectory));
                 }
                 catch (Exception ex) when (ex is ArgumentException || ex is JsonException)
                 {
@@ -452,7 +452,7 @@ namespace Armada.Server.Routes
                     List<Captain> boundCaptains = await _database.Captains.EnumerateAsync().ConfigureAwait(false);
                     try
                     {
-                        UsageRoutingService.Validate(body.ModelTier.UsageRouting);
+                        UsageRoutingService.Validate(body.ModelTier.UsageRouting, AccountLoginPaths.AccountsRoot(_settings.DataDirectory));
                         CaptainAccountLaunch.ValidateCaptainBindings(body.ModelTier.UsageRouting, boundCaptains);
                     }
                     catch (ArgumentException ex)

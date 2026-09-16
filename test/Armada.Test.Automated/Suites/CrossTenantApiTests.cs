@@ -1549,6 +1549,40 @@ using System.IO;
                 AssertEqual(HttpStatusCode.NotFound, response.StatusCode, "Tenant B must not chat with tenant A's captain");
             }).ConfigureAwait(false);
 
+            // Subscription account logins run CLIs and write credentials on the Admiral, so only a global administrator may use them.
+            await RunTest("UsageAccountLogin_FromTenantAdminOrUser_Returns403", async () =>
+            {
+                foreach (HttpClient client in new[] { _ClientA!, _ClientA3! })
+                {
+                    AssertEqual(HttpStatusCode.Forbidden, (await client.PostAsync("/api/v1/usage-accounts/automated-login/login/home", null).ConfigureAwait(false)).StatusCode, "home");
+                    AssertEqual(HttpStatusCode.Forbidden, (await client.PostAsync("/api/v1/usage-accounts/automated-login/login/start", null).ConfigureAwait(false)).StatusCode, "start");
+                    AssertEqual(HttpStatusCode.Forbidden, (await client.PostAsync("/api/v1/usage-accounts/automated-login/login/key",
+                        JsonHelper.ToJsonContent(new { ApiKey = "automated-key-value" })).ConfigureAwait(false)).StatusCode, "key");
+                    AssertEqual(HttpStatusCode.Forbidden, (await client.GetAsync("/api/v1/usage-accounts/automated-login/login/status").ConfigureAwait(false)).StatusCode, "status");
+                    AssertEqual(HttpStatusCode.Forbidden, (await client.PostAsync("/api/v1/usage-accounts/automated-login/login/cancel", null).ConfigureAwait(false)).StatusCode, "cancel");
+                }
+                AssertEqual(HttpStatusCode.Unauthorized, (await _UnauthClient.PostAsync("/api/v1/usage-accounts/automated-login/login/home", null).ConfigureAwait(false)).StatusCode, "unauthenticated");
+            }).ConfigureAwait(false);
+
+            await RunTest("UsageAccountLogin_Home_FromGlobalAdmin_DerivesFolderAndRejectsUnsafeIds", async () =>
+            {
+                HttpResponseMessage created = await _AdminClient.PostAsync("/api/v1/usage-accounts/automated-login/login/home", null).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.OK, created.StatusCode, "a global administrator creates the account folder");
+                string body = await created.Content.ReadAsStringAsync().ConfigureAwait(false);
+                AssertContains(Path.Combine("accounts", "automated-login"), body.Replace("\\\\", "\\"), "the folder is derived under the data directory");
+                AssertEqual(HttpStatusCode.BadRequest, (await _AdminClient.PostAsync("/api/v1/usage-accounts/bad.id/login/home", null).ConfigureAwait(false)).StatusCode, "a dotted ID is refused");
+                AssertEqual(HttpStatusCode.OK, (await _AdminClient.GetAsync("/api/v1/usage-accounts/automated-login/login/status").ConfigureAwait(false)).StatusCode, "status");
+            }).ConfigureAwait(false);
+
+            await RunTest("UsageAccountLogin_KeyForUnsavedAccount_Returns404WithoutEchoingKey", async () =>
+            {
+                HttpResponseMessage response = await _AdminClient.PostAsync("/api/v1/usage-accounts/automated-login/login/key",
+                    JsonHelper.ToJsonContent(new { ApiKey = "automated-SECRET-key-value" })).ConfigureAwait(false);
+                AssertEqual(HttpStatusCode.NotFound, response.StatusCode, "a key needs a saved account");
+                string body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+                AssertFalse(body.Contains("automated-SECRET"), "the key is never echoed");
+            }).ConfigureAwait(false);
+
             #endregion
 
             #region Cleanup

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getSettings, updateSettings } from '../api/client';
 import UsageRoutingEditor, { emptyUsageRouting } from '../components/UsageRoutingEditor';
 import RoutingPolicyEditor from '../components/RoutingPolicyEditor';
+import SubscriptionAccountsPanel from '../components/SubscriptionAccountsPanel';
+import type { PolicyRecord } from '../lib/subscriptionAccounts';
 import PageHeader from '../components/shared/PageHeader';
 import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import RefreshButton from '../components/shared/RefreshButton';
@@ -35,6 +37,8 @@ export default function RoutingSettings() {
   const [saved, setSaved] = useState<SettingsRecord | null>(null);
   const [policy, setPolicy] = useState(JSON.stringify(emptyUsageRouting, null, 2));
   const policyBaseRef = useRef(policy);
+  const policyRef = useRef(policy);
+  policyRef.current = policy;
   const [statuses, setStatuses] = useState<Array<SettingsRecord>>([]);
   const [loading, setLoading] = useState(true);
   const [loadAttempt, setLoadAttempt] = useState(0);
@@ -81,7 +85,31 @@ export default function RoutingSettings() {
     finally { setSaving(false); }
   };
 
+  /**
+   * Save one account change made by the guided panel. The change is applied to the saved policy, so unsaved JSON
+   * edits are never sent with it; an untouched draft adopts the result, and an edited draft receives the same change.
+   */
+  const saveAccountChange = useCallback(async (mutate: (policy: PolicyRecord) => PolicyRecord) => {
+    const usageRouting = mutate(JSON.parse(policyBaseRef.current) as PolicyRecord);
+    const draft = policyRef.current;
+    const draftDirty = draft !== policyBaseRef.current;
+    let draftNext = draft;
+    if (draftDirty) {
+      try { draftNext = JSON.stringify(mutate(JSON.parse(draft) as PolicyRecord), null, 2); }
+      catch { /* Invalid draft text stays as typed. */ }
+    }
+    const result = await updateSettings({ modelTier: { usageRouting } }) as SettingsRecord;
+    const next = usageRoutingText(result);
+    policyBaseRef.current = next;
+    setPolicy(current => current !== draft ? current : draftDirty ? draftNext : next);
+    setStatuses(providerUsage(result));
+    setSaved(result);
+    setMessage(t('Subscription account saved.'));
+  }, [t]);
+
   const usageDirty = policy !== policyBaseRef.current;
+  let savedPolicy: PolicyRecord | null = null;
+  try { savedPolicy = JSON.parse(policyBaseRef.current) as PolicyRecord; } catch { /* The saved text is always server JSON. */ }
 
   return <div>
     <PageHeader
@@ -99,6 +127,8 @@ export default function RoutingSettings() {
       {remoteProxyMode && <p>{t('Edit routing on the Admiral directly. Settings changes are disabled in remote proxy mode.')}</p>}
       <RoutingPolicyEditor saved={saved} disabled={remoteProxyMode} onSaved={(settings) => applySaved(settings)} />
       <p className="text-muted" style={{ marginTop: '1.5rem' }}>{t('V2 replaces legacy model and provider preferences when enabled. Tier membership and captain persona restrictions still apply. Configure every persona, or use a * default route, before enabling.')}</p>
+      <SubscriptionAccountsPanel savedPolicy={savedPolicy} statuses={statuses} disabled={remoteProxyMode || saving}
+        onSavePolicy={saveAccountChange} onRefresh={load} />
       <fieldset disabled={remoteProxyMode || saving} style={{ border: 0, padding: 0, minWidth: 0 }}>
         <UsageRoutingEditor value={policy} onChange={value => { setPolicy(value); setMessage(''); }} statuses={statuses} />
         <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem', alignItems: 'center' }}>
