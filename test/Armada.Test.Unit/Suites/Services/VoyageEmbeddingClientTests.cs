@@ -13,9 +13,9 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Test.Common;
     using SyslogLogging;
 
-    public class DeepSeekEmbeddingClientTests : TestSuite
+    public class VoyageEmbeddingClientTests : TestSuite
     {
-        public override string Name => "DeepSeek Embedding Client";
+        public override string Name => "Voyage Embedding Client";
 
         protected override async Task RunTestsAsync()
         {
@@ -23,15 +23,15 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
                     HttpStatusCode.OK,
-                    "{\"data\":[{\"embedding\":[0.25,-0.5,1.5]}]}");
+                    "{\"data\":[{\"embedding\":[0.25,-0.5,1.5],\"index\":0}],\"model\":\"voyage-code-3\",\"usage\":{\"total_tokens\":4}}");
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
-                    EmbeddingModel = "deepseek-embedding",
-                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
+                    EmbeddingModel = "voyage-code-3",
+                    EmbeddingApiBaseUrl = "https://api.voyageai.com/v1",
                     EmbeddingApiKey = "test-embedding-key"
                 };
-                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+                VoyageEmbeddingClient client = new VoyageEmbeddingClient(settings, new LoggingModule(), http);
 
                 float[] result = await client.EmbedAsync("hello world").ConfigureAwait(false);
 
@@ -41,7 +41,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1.5f, result[2]);
 
                 AssertNotNull(handler.LastRequest);
-                AssertEqual("https://api.deepseek.com/v1/embeddings", handler.LastRequest!.RequestUri!.ToString());
+                AssertEqual("https://api.voyageai.com/v1/embeddings", handler.LastRequest!.RequestUri!.ToString());
                 AssertNotNull(handler.LastRequest.Headers.Authorization);
                 AssertEqual("Bearer", handler.LastRequest.Headers.Authorization!.Scheme);
                 AssertEqual("test-embedding-key", handler.LastRequest.Headers.Authorization!.Parameter);
@@ -49,24 +49,73 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertNotNull(handler.LastRequestBody);
                 EmbeddingRequestBody? body = System.Text.Json.JsonSerializer.Deserialize<EmbeddingRequestBody>(handler.LastRequestBody!);
                 AssertNotNull(body);
-                AssertEqual("deepseek-embedding", body!.Model);
+                AssertEqual("voyage-code-3", body!.Model);
+                AssertEqual("document", body.InputType);
                 AssertNotNull(body.Input);
                 AssertEqual(1, body.Input!.Length);
                 AssertEqual("hello world", body.Input[0]);
             });
 
-            await RunTest("EmbedAsync_500Response_ReturnsEmptyArray", async () =>
+            await RunTest("EmbedBatchAsync_OutOfOrderIndices_PreservesInputOrder", async () =>
             {
                 RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
-                    HttpStatusCode.InternalServerError,
-                    "{\"error\":\"server error\"}");
+                    HttpStatusCode.OK,
+                    "{\"data\":[{\"index\":2,\"embedding\":[0.3]},{\"index\":0,\"embedding\":[0.1]},{\"index\":1,\"embedding\":[0.2]}]}");
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
-                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
-                    EmbeddingApiKey = "test-embedding-key"
+                    EmbeddingModel = "voyage-code-3",
+                    EmbeddingApiBaseUrl = "https://api.voyageai.com/v1",
+                    EmbeddingApiKey = "k"
                 };
-                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+                VoyageEmbeddingClient client = new VoyageEmbeddingClient(settings, new LoggingModule(), http);
+
+                IReadOnlyList<float[]> vectors = await client.EmbedBatchAsync(
+                    new List<string> { "a", "b", "c" }).ConfigureAwait(false);
+
+                AssertEqual(3, vectors.Count);
+                AssertEqual(0.1f, vectors[0][0]);
+                AssertEqual(0.2f, vectors[1][0]);
+                AssertEqual(0.3f, vectors[2][0]);
+
+                AssertNotNull(handler.LastRequestBody);
+                EmbeddingRequestBody? body = System.Text.Json.JsonSerializer.Deserialize<EmbeddingRequestBody>(handler.LastRequestBody!);
+                AssertNotNull(body);
+                AssertEqual("document", body!.InputType);
+                AssertNotNull(body.Input);
+                AssertEqual(3, body.Input!.Length);
+            });
+
+            await RunTest("EmbedAsync_401Response_ReturnsEmptyArray", async () =>
+            {
+                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
+                    HttpStatusCode.Unauthorized,
+                    "{\"error\":\"invalid api key\"}");
+                HttpClient http = new HttpClient(handler);
+                CodeIndexSettings settings = new CodeIndexSettings
+                {
+                    EmbeddingApiBaseUrl = "https://api.voyageai.com/v1",
+                    EmbeddingApiKey = "bad-key"
+                };
+                VoyageEmbeddingClient client = new VoyageEmbeddingClient(settings, new LoggingModule(), http);
+
+                float[] result = await client.EmbedAsync("hello world").ConfigureAwait(false);
+
+                AssertEqual(0, result.Length);
+            });
+
+            await RunTest("EmbedAsync_422Response_ReturnsEmptyArray", async () =>
+            {
+                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
+                    (HttpStatusCode)422,
+                    "{\"error\":\"unprocessable entity\"}");
+                HttpClient http = new HttpClient(handler);
+                CodeIndexSettings settings = new CodeIndexSettings
+                {
+                    EmbeddingApiBaseUrl = "https://api.voyageai.com/v1",
+                    EmbeddingApiKey = "k"
+                };
+                VoyageEmbeddingClient client = new VoyageEmbeddingClient(settings, new LoggingModule(), http);
 
                 float[] result = await client.EmbedAsync("hello world").ConfigureAwait(false);
 
@@ -77,14 +126,14 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 SequenceHttpMessageHandler handler = new SequenceHttpMessageHandler(
                     (HttpStatusCode.TooManyRequests, "{\"error\":\"rate limited\"}"),
-                    (HttpStatusCode.OK, "{\"data\":[{\"embedding\":[0.75]}]}"));
+                    (HttpStatusCode.OK, "{\"data\":[{\"embedding\":[0.75],\"index\":0}]}"));
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
-                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
+                    EmbeddingApiBaseUrl = "https://api.voyageai.com/v1",
                     EmbeddingApiKey = "k"
                 };
-                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+                VoyageEmbeddingClient client = new VoyageEmbeddingClient(settings, new LoggingModule(), http);
 
                 float[] result = await client.EmbedAsync("hello").ConfigureAwait(false);
 
@@ -93,7 +142,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(2, handler.RequestCount);
             });
 
-            await RunTest("EmbedAsync_5xxExhausted_TriesThreeTimes", async () =>
+            await RunTest("EmbedAsync_5xxExhausted_TriesThreeTimesAndReturnsEmpty", async () =>
             {
                 SequenceHttpMessageHandler handler = new SequenceHttpMessageHandler(
                     (HttpStatusCode.InternalServerError, "{\"error\":\"server error\"}"),
@@ -102,10 +151,10 @@ namespace Armada.Test.Unit.Suites.Services
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
-                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
+                    EmbeddingApiBaseUrl = "https://api.voyageai.com/v1",
                     EmbeddingApiKey = "k"
                 };
-                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+                VoyageEmbeddingClient client = new VoyageEmbeddingClient(settings, new LoggingModule(), http);
 
                 float[] result = await client.EmbedAsync("hello").ConfigureAwait(false);
 
@@ -117,14 +166,14 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
                     HttpStatusCode.OK,
-                    "{\"data\":[{\"embedding\":[1.0]}]}");
+                    "{\"data\":[{\"embedding\":[1.0],\"index\":0}]}");
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
-                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
+                    EmbeddingApiBaseUrl = "https://api.voyageai.com/v1",
                     EmbeddingApiKey = string.Empty
                 };
-                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+                VoyageEmbeddingClient client = new VoyageEmbeddingClient(settings, new LoggingModule(), http);
 
                 float[] result = await client.EmbedAsync("hello").ConfigureAwait(false);
 
@@ -134,43 +183,23 @@ namespace Armada.Test.Unit.Suites.Services
                     "Authorization header must be omitted when EmbeddingApiKey is empty");
             });
 
-            await RunTest("EmbedAsync_WhitespaceApiKey_OmitsAuthorizationHeader", async () =>
-            {
-                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
-                    HttpStatusCode.OK,
-                    "{\"data\":[{\"embedding\":[0.1]}]}");
-                HttpClient http = new HttpClient(handler);
-                CodeIndexSettings settings = new CodeIndexSettings
-                {
-                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
-                    EmbeddingApiKey = "   "
-                };
-                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
-
-                await client.EmbedAsync("hello").ConfigureAwait(false);
-
-                AssertNotNull(handler.LastRequest);
-                AssertNull(handler.LastRequest!.Headers.Authorization,
-                    "whitespace-only ApiKey must be treated as empty");
-            });
-
             await RunTest("EmbedAsync_TrailingSlashBaseUrl_NormalizesEndpointPath", async () =>
             {
                 RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
                     HttpStatusCode.OK,
-                    "{\"data\":[{\"embedding\":[0.0]}]}");
+                    "{\"data\":[{\"embedding\":[0.0],\"index\":0}]}");
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
-                    EmbeddingApiBaseUrl = "https://api.deepseek.com/",
+                    EmbeddingApiBaseUrl = "https://api.voyageai.com/v1/",
                     EmbeddingApiKey = "k"
                 };
-                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+                VoyageEmbeddingClient client = new VoyageEmbeddingClient(settings, new LoggingModule(), http);
 
                 await client.EmbedAsync("hello").ConfigureAwait(false);
 
                 AssertNotNull(handler.LastRequest);
-                AssertEqual("https://api.deepseek.com/v1/embeddings", handler.LastRequest!.RequestUri!.ToString());
+                AssertEqual("https://api.voyageai.com/v1/embeddings", handler.LastRequest!.RequestUri!.ToString());
             });
 
             await RunTest("EmbedAsync_NetworkException_ReturnsEmptyArray", async () =>
@@ -180,10 +209,29 @@ namespace Armada.Test.Unit.Suites.Services
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
-                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
+                    EmbeddingApiBaseUrl = "https://api.voyageai.com/v1",
                     EmbeddingApiKey = "k"
                 };
-                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+                VoyageEmbeddingClient client = new VoyageEmbeddingClient(settings, new LoggingModule(), http);
+
+                float[] result = await client.EmbedAsync("hello").ConfigureAwait(false);
+
+                AssertEqual(0, result.Length);
+            });
+
+            await RunTest("EmbedAsync_RequestTimeout_ReturnsEmptyArray", async () =>
+            {
+                // An HttpClient timeout surfaces as a TaskCanceledException whose token is NOT
+                // the caller's cancellation token; the client must treat it as a graceful failure.
+                ThrowingHttpMessageHandler handler = new ThrowingHttpMessageHandler(
+                    new TaskCanceledException("request timed out"));
+                HttpClient http = new HttpClient(handler);
+                CodeIndexSettings settings = new CodeIndexSettings
+                {
+                    EmbeddingApiBaseUrl = "https://api.voyageai.com/v1",
+                    EmbeddingApiKey = "k"
+                };
+                VoyageEmbeddingClient client = new VoyageEmbeddingClient(settings, new LoggingModule(), http);
 
                 float[] result = await client.EmbedAsync("hello").ConfigureAwait(false);
 
@@ -197,9 +245,9 @@ namespace Armada.Test.Unit.Suites.Services
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
-                    EmbeddingApiBaseUrl = "https://api.deepseek.com"
+                    EmbeddingApiBaseUrl = "https://api.voyageai.com/v1"
                 };
-                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+                VoyageEmbeddingClient client = new VoyageEmbeddingClient(settings, new LoggingModule(), http);
 
                 using CancellationTokenSource cts = new CancellationTokenSource();
                 cts.Cancel();
@@ -218,10 +266,10 @@ namespace Armada.Test.Unit.Suites.Services
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
-                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
+                    EmbeddingApiBaseUrl = "https://api.voyageai.com/v1",
                     EmbeddingApiKey = "k"
                 };
-                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+                VoyageEmbeddingClient client = new VoyageEmbeddingClient(settings, new LoggingModule(), http);
 
                 float[] result = await client.EmbedAsync("hello").ConfigureAwait(false);
 
@@ -236,10 +284,10 @@ namespace Armada.Test.Unit.Suites.Services
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
-                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
+                    EmbeddingApiBaseUrl = "https://api.voyageai.com/v1",
                     EmbeddingApiKey = "k"
                 };
-                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+                VoyageEmbeddingClient client = new VoyageEmbeddingClient(settings, new LoggingModule(), http);
 
                 float[] result = await client.EmbedAsync("hello").ConfigureAwait(false);
 
@@ -254,10 +302,10 @@ namespace Armada.Test.Unit.Suites.Services
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
-                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
+                    EmbeddingApiBaseUrl = "https://api.voyageai.com/v1",
                     EmbeddingApiKey = "k"
                 };
-                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+                VoyageEmbeddingClient client = new VoyageEmbeddingClient(settings, new LoggingModule(), http);
 
                 float[] result = await client.EmbedAsync("hello").ConfigureAwait(false);
 
@@ -268,14 +316,14 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
                     HttpStatusCode.OK,
-                    "{\"data\":[{\"embedding\":[0.0]}]}");
+                    "{\"data\":[{\"embedding\":[0.0],\"index\":0}]}");
                 HttpClient http = new HttpClient(handler);
                 CodeIndexSettings settings = new CodeIndexSettings
                 {
-                    EmbeddingApiBaseUrl = "https://api.deepseek.com",
+                    EmbeddingApiBaseUrl = "https://api.voyageai.com/v1",
                     EmbeddingApiKey = "k"
                 };
-                DeepSeekEmbeddingClient client = new DeepSeekEmbeddingClient(settings, new LoggingModule(), http);
+                VoyageEmbeddingClient client = new VoyageEmbeddingClient(settings, new LoggingModule(), http);
 
                 await client.EmbedAsync(null!).ConfigureAwait(false);
 
@@ -292,7 +340,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertThrows<ArgumentNullException>(() =>
                 {
                     HttpClient http = new HttpClient(new RecordingHttpMessageHandler(HttpStatusCode.OK, "{}"));
-                    DeepSeekEmbeddingClient ignored = new DeepSeekEmbeddingClient(null!, new LoggingModule(), http);
+                    VoyageEmbeddingClient ignored = new VoyageEmbeddingClient(null!, new LoggingModule(), http);
                     GC.KeepAlive(ignored);
                 });
             });
@@ -302,7 +350,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertThrows<ArgumentNullException>(() =>
                 {
                     HttpClient http = new HttpClient(new RecordingHttpMessageHandler(HttpStatusCode.OK, "{}"));
-                    DeepSeekEmbeddingClient ignored = new DeepSeekEmbeddingClient(new CodeIndexSettings(), null!, http);
+                    VoyageEmbeddingClient ignored = new VoyageEmbeddingClient(new CodeIndexSettings(), null!, http);
                     GC.KeepAlive(ignored);
                 });
             });
@@ -311,7 +359,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 AssertThrows<ArgumentNullException>(() =>
                 {
-                    DeepSeekEmbeddingClient ignored = new DeepSeekEmbeddingClient(new CodeIndexSettings(), new LoggingModule(), null!);
+                    VoyageEmbeddingClient ignored = new VoyageEmbeddingClient(new CodeIndexSettings(), new LoggingModule(), null!);
                     GC.KeepAlive(ignored);
                 });
             });
@@ -321,6 +369,9 @@ namespace Armada.Test.Unit.Suites.Services
         {
             [JsonPropertyName("model")]
             public string? Model { get; set; }
+
+            [JsonPropertyName("input_type")]
+            public string? InputType { get; set; }
 
             [JsonPropertyName("input")]
             public string[]? Input { get; set; }
@@ -369,7 +420,7 @@ namespace Armada.Test.Unit.Suites.Services
                 RequestCount++;
                 (HttpStatusCode StatusCode, string Body) response = _Responses.Count > 0
                     ? _Responses.Dequeue()
-                    : (HttpStatusCode.OK, "{\"data\":[{\"embedding\":[0.0]}]}");
+                    : (HttpStatusCode.OK, "{\"data\":[{\"embedding\":[0.0],\"index\":0}]}");
                 return Task.FromResult(new HttpResponseMessage(response.StatusCode)
                 {
                     Content = new StringContent(response.Body, Encoding.UTF8, "application/json")

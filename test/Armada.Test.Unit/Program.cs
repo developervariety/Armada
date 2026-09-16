@@ -305,7 +305,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new FleetCodeIndexServiceTests());
             runner.AddSuite(new CodeIndexSettingsClampTests());
             runner.AddSuite(new CodeContextTimeoutsTests());
-            runner.AddSuite(new DeepSeekEmbeddingClientTests());
+            runner.AddSuite(new VoyageEmbeddingClientTests());
             runner.AddSuite(new DeepSeekInferenceClientTests());
             runner.AddSuite(new TypeSafeDecisionClientTests());
             runner.AddSuite(new DecisionStateRedactorTests());

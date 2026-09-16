@@ -38,9 +38,9 @@ namespace Armada.Test.Unit.Suites.Services
                     contents.Contains("new CodeIndexService(_Logging, _Database, _Settings, _Git)"),
                     "ArmadaServer should not use the legacy CodeIndexService constructor without semantic clients");
                 AssertContains(
-                    "new DeepSeekEmbeddingClient(_Settings.CodeIndex, _Logging, codeIndexHttpClient)",
+                    "new VoyageEmbeddingClient(_Settings.CodeIndex, _Logging, codeIndexHttpClient)",
                     contents,
-                    "ArmadaServer should construct DeepSeekEmbeddingClient with CodeIndex settings");
+                    "ArmadaServer should construct VoyageEmbeddingClient with CodeIndex settings");
                 AssertContains(
                     "string.Equals(_Settings.CodeIndex.InferenceClient, \"OpenCodeServer\", StringComparison.OrdinalIgnoreCase)",
                     contents,
@@ -205,9 +205,9 @@ namespace Armada.Test.Unit.Suites.Services
                     contents.Contains("new CodeIndexService(logging, database, armadaSettings, git)"),
                     "McpStdioCommand should not use the legacy CodeIndexService constructor without semantic clients");
                 AssertContains(
-                    "new DeepSeekEmbeddingClient(armadaSettings.CodeIndex, logging, codeIndexHttpClient)",
+                    "new VoyageEmbeddingClient(armadaSettings.CodeIndex, logging, codeIndexHttpClient)",
                     contents,
-                    "McpStdioCommand should construct DeepSeekEmbeddingClient with CodeIndex settings");
+                    "McpStdioCommand should construct VoyageEmbeddingClient with CodeIndex settings");
                 AssertContains(
                     "string.Equals(armadaSettings.CodeIndex.InferenceClient, \"OpenCodeServer\", StringComparison.OrdinalIgnoreCase)",
                     contents,
@@ -241,7 +241,7 @@ namespace Armada.Test.Unit.Suites.Services
                     {
                         LoggingModule logging = SilentLogging();
                         ArmadaSettings settings = BuildMinimalSettings(dataRoot);
-                        IEmbeddingClient embeddingClient = new DeepSeekEmbeddingClient(settings.CodeIndex, logging, http);
+                        IEmbeddingClient embeddingClient = new VoyageEmbeddingClient(settings.CodeIndex, logging, http);
                         IInferenceClient inferenceClient = new DeepSeekInferenceClient(settings.CodeIndex, logging, http);
                         CodeIndexService service = new CodeIndexService(
                             logging,
@@ -264,7 +264,7 @@ namespace Armada.Test.Unit.Suites.Services
                         object? embValue = embField!.GetValue(service);
                         object? infValue = infField!.GetValue(service);
 
-                        AssertTrue(embValue is DeepSeekEmbeddingClient, "Embedding field should hold DeepSeekEmbeddingClient");
+                        AssertTrue(embValue is VoyageEmbeddingClient, "Embedding field should hold VoyageEmbeddingClient");
                         AssertTrue(infValue is DeepSeekInferenceClient, "Inference field should hold DeepSeekInferenceClient");
                     }
                 }
@@ -285,7 +285,7 @@ namespace Armada.Test.Unit.Suites.Services
                         LoggingModule logging = SilentLogging();
                         ArmadaSettings settings = BuildMinimalSettings(dataRoot);
                         settings.CodeIndex.InferenceClient = "OpenCodeServer";
-                        IEmbeddingClient embeddingClient = new DeepSeekEmbeddingClient(settings.CodeIndex, logging, http);
+                        IEmbeddingClient embeddingClient = new VoyageEmbeddingClient(settings.CodeIndex, logging, http);
                         IInferenceClient inferenceClient = new OpenCodeServerInferenceClient(settings, logging, http);
                         CodeIndexService service = new CodeIndexService(
                             logging,

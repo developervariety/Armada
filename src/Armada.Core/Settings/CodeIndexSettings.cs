@@ -577,8 +577,8 @@ namespace Armada.Core.Settings
         private int _MaxContextPackResults = 8;
         private int _ContextPackBudgetMs = 8000;
         private int _FastPackFileThreshold = 1500;
-        private string _EmbeddingModel = "deepseek-embedding";
-        private string _EmbeddingApiBaseUrl = "https://api.deepseek.com";
+        private string _EmbeddingModel = "voyage-code-3";
+        private string _EmbeddingApiBaseUrl = "https://api.voyageai.com/v1";
         private string _EmbeddingApiKey = string.Empty;
         private double _SemanticWeight = 0.7;
         private double _LexicalWeight = 0.3;

@@ -6,6 +6,21 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Code index
+
+- Replaced the code-index embedding client with a Voyage AI client. The fork
+  now uses Voyage AI for code-index embeddings instead of an
+  OpenAI-compatible DeepSeek endpoint. The client posts to the Voyage
+  embeddings endpoint with an `input_type` of `document`, reads a typed
+  response, keeps the input order by index, and fails closed to an empty
+  result on any transport, status, or parse error rather than throwing into
+  the caller. A fresh configuration now targets Voyage by default: the
+  embedding base URL is `https://api.voyageai.com/v1` and the model is
+  `voyage-code-3`. The embedding API key stays configuration-driven; supply it
+  from the environment to enable live indexing. The former DeepSeek embedding
+  client is removed. The separate inference client used for summarization is
+  unchanged and still targets its configured endpoint.
+
 ### Pipelines
 
 - Added a Linter stage before the Judge in the pipelines that produce vessel

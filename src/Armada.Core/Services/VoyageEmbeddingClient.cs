@@ -15,13 +15,16 @@ namespace Armada.Core.Services
     using SyslogLogging;
 
     /// <summary>
-    /// DeepSeek embedding client using OpenAI-compatible embeddings endpoint.
+    /// Voyage AI embedding client for the code index. Calls the Voyage AI embeddings
+    /// endpoint and fails gracefully: on any transport, status, or parse error it logs a
+    /// warning and returns an empty result rather than throwing into the caller.
     /// </summary>
-    public sealed class DeepSeekEmbeddingClient : IEmbeddingClient
+    public sealed class VoyageEmbeddingClient : IEmbeddingClient
     {
         #region Private-Members
 
-        private const string _Header = "[DeepSeekEmbeddingClient] ";
+        private const string _Header = "[VoyageEmbeddingClient] ";
+        private const string _DocumentInputType = "document";
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true
@@ -36,9 +39,9 @@ namespace Armada.Core.Services
         #region Constructors-and-Factories
 
         /// <summary>
-        /// Create a DeepSeek embedding client.
+        /// Create a Voyage AI embedding client.
         /// </summary>
-        public DeepSeekEmbeddingClient(CodeIndexSettings settings, LoggingModule logging, HttpClient http)
+        public VoyageEmbeddingClient(CodeIndexSettings settings, LoggingModule logging, HttpClient http)
         {
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
@@ -70,6 +73,7 @@ namespace Armada.Core.Services
                     EmbeddingRequest payload = new EmbeddingRequest
                     {
                         Model = _Settings.EmbeddingModel,
+                        InputType = _DocumentInputType,
                         Input = texts.Select(t => t ?? string.Empty).ToList()
                     };
 
@@ -149,8 +153,10 @@ namespace Armada.Core.Services
 
         private string BuildEmbeddingEndpoint()
         {
+            // The base URL already carries the API version segment (for example
+            // https://api.voyageai.com/v1), so the client appends only the resource path.
             string baseUrl = (_Settings.EmbeddingApiBaseUrl ?? string.Empty).Trim();
-            return baseUrl.TrimEnd('/') + "/v1/embeddings";
+            return baseUrl.TrimEnd('/') + "/embeddings";
         }
 
         private static bool IsRetryableStatusCode(HttpResponseMessage response)
@@ -175,6 +181,9 @@ namespace Armada.Core.Services
             [JsonPropertyName("model")]
             public string Model { get; set; } = string.Empty;
 
+            [JsonPropertyName("input_type")]
+            public string InputType { get; set; } = _DocumentInputType;
+
             [JsonPropertyName("input")]
             public List<string> Input { get; set; } = new List<string>();
         }
@@ -183,6 +192,12 @@ namespace Armada.Core.Services
         {
             [JsonPropertyName("data")]
             public List<EmbeddingData>? Data { get; set; }
+
+            [JsonPropertyName("model")]
+            public string? Model { get; set; }
+
+            [JsonPropertyName("usage")]
+            public EmbeddingUsage? Usage { get; set; }
         }
 
         private sealed class EmbeddingData
@@ -192,6 +207,12 @@ namespace Armada.Core.Services
 
             [JsonPropertyName("embedding")]
             public List<float>? Embedding { get; set; }
+        }
+
+        private sealed class EmbeddingUsage
+        {
+            [JsonPropertyName("total_tokens")]
+            public int? TotalTokens { get; set; }
         }
 
         #endregion

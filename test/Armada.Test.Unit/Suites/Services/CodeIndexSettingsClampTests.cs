@@ -19,8 +19,8 @@ namespace Armada.Test.Unit.Suites.Services
                 CodeIndexSettings settings = new CodeIndexSettings();
 
                 AssertFalse(settings.UseSemanticSearch, "UseSemanticSearch default must be false");
-                AssertEqual("deepseek-embedding", settings.EmbeddingModel);
-                AssertEqual("https://api.deepseek.com", settings.EmbeddingApiBaseUrl);
+                AssertEqual("voyage-code-3", settings.EmbeddingModel);
+                AssertEqual("https://api.voyageai.com/v1", settings.EmbeddingApiBaseUrl);
                 AssertEqual(string.Empty, settings.EmbeddingApiKey);
                 AssertEqual(0.7, settings.SemanticWeight);
                 AssertEqual(0.3, settings.LexicalWeight);
