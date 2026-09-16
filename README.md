@@ -69,12 +69,12 @@ the porting decisions live in the
 What the fork adds on top of the shared model:
 
 - **Typed decisions.** A calibrated advisory classifier (TypeSafe Jev) behind the
-  existing deterministic rules, catalogued D1 through D26. The six Phase-1 decisions
+  existing deterministic rules. Six of these decisions
   ship gated from the first deploy with no shadow period; the rest stay off until
   their adapter lane lands. It only ever makes a call more conservative, never lands
   or dispatches, fails closed to the rule, and never egresses unredacted state.
   Captains get read-only, per-mission-budgeted tools, including prior-art retrieval
-  (D26) that answers "does this already exist?" with evidence before work starts.
+  that answers "does this already exist?" with evidence before work starts.
 - **Deeper review.** Linter and Recorder pipeline stages, immutable reviewed-commit
   Checks, declared-consumer builds, verified landing evidence, and full recovery
   pipelines with provider-aware rescue.
@@ -189,9 +189,9 @@ off). A deployment applies fleet policy from settings, not from C#.
 ### Typed decisions (gate-enforced, operationally off until keyed)
 
 A calibrated classifier (TypeSafe Jev) the admiral can consult at a decision
-point, behind the deterministic rules it never replaces. The catalogue spans D1
-through D26 (`prior_art`): six Phase-1 decisions ship in `Gate` from the first
-deploy, and the rest stay `Off` until their lane lands. No key means the null
+point, behind the deterministic rules it never replaces. Six decisions ship in `Gate` from the first deploy, and the rest stay `Off`
+until enabled. The decision catalogue and its principles are documented in
+[docs/design/typed-decisions.md](docs/design/typed-decisions.md). No key means the null
 client whatever the mode, so the system is operationally off until the key is
 confirmed in the container. When a decision is enabled it can only make a call
 more conservative, never lands or dispatches, gates only at or above the

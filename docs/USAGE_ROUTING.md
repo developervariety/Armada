@@ -42,7 +42,7 @@ V2 to restore the legacy policy; its stored settings remain available. Existing
 queued missions keep their persisted model requirements, so inspect them during
 migration if the old policy wrote a concrete model pin.
 
-### Shape tags and the D16 routing hint
+### Shape tags and the routing hint
 
 A route can carry an optional `shapes` tag list, for example `["mechanical",
 "doc-only"]`, `["reasoning-heavy", "port-fidelity"]`, or `["policy-tolerant"]`.
@@ -50,7 +50,7 @@ A route with no tags is eligible for every shape, so a configuration that sets
 none behaves exactly as before. Tags never widen or narrow eligibility; they
 only order routes that are already eligible.
 
-When the `routing_hint` typed decision (D16) is enabled and V2 is on, the model
+When the `routing_hint` typed decision is enabled and Smart Routing is on, the model
 reads the work and chooses a shape. Among the routes already approved and found
 eligible for a routine mission in the Normal state, the first route whose
 `shapes` contains the chosen shape is preferred over the plain list order. When

@@ -202,7 +202,7 @@ A session that sends no header receives no wake banner, and must heartbeat or
 read the board with its `participantKey` between monitor-loop iterations to see
 addressed work at all.
 
-When the D11 `inbox_triage` typed decision is enabled (`Gate`), the `inbox`
+When the `inbox_triage` typed decision is enabled (`Gate`), the `inbox`
 tool's items and the `armada_coordination_read` notes each carry an extra
 `attention` field (`informational`, `today`, `this_hour`, or
 `blocking_live_voyage`) and are ordered by it, and each board note also carries a
@@ -260,7 +260,7 @@ preflight. It overrides only the preflight; any other blocking issue still
 refuses the dispatch, and the override is recorded as an
 `objective.preflight_overridden` event naming the operator.
 
-After the deterministic preflight the preview also consults the D5 `preflight`
+After the deterministic preflight the preview also consults the `preflight`
 typed decision when it is enabled (`typedDecisions`, ships `Gate`). It reads the
 title, description, acceptance criteria, non-goals, refinement summary, Kind,
 vessel name, pipeline stages and the deterministic facts, and asks the text-half
