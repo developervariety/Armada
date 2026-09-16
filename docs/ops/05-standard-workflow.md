@@ -1,157 +1,11 @@
-# Armada Operator Guide
-
-This guide is the canonical operating procedure for Armada. It describes how an
-orchestrator creates, monitors, verifies, lands, and closes work, and it lists
-every MCP tool the server registers.
-
-The guide is split into per-chapter files under [`ops/`](ops/) so an
-orchestrator can load only the chapter it needs instead of one large file. Each
-chapter file opens with front-matter (`topic`, `summary`, `read_when`,
-`applies_to`, `tier`) for retrieval. Section numbers such as `4.6` and `8.19`
-still appear inside the chapters, and a cross-reference to one resolves to its
-chapter file below.
-
-Use [MCP_API.md](MCP_API.md) for transport and schema discovery. Use
-[DELIVERY_OPERATIONS.md](DELIVERY_OPERATIONS.md) for release and deployment
-detail. Use [MERGING.md](MERGING.md), [PIPELINES.md](PIPELINES.md), and
-[SCHEDULING.md](SCHEDULING.md) for subsystem detail. Use
-[OPERATIONAL_ASSETS.md](OPERATIONAL_ASSETS.md) for playbooks, runbooks, workflow
-profiles, environments, personas, pipelines, and their links.
-
-## Chapters
-
-<<<<<<< HEAD
-Armada records are the source of truth for work and delivery state.
-
-| Record | Owns |
-| --- | --- |
-| Objective or backlog item | Scope, acceptance criteria, priority, constraints, and deferred work |
-| Planning or refinement session | Decisions made while the scope is not ready for dispatch |
-| Voyage and mission | Work assignment and captain execution |
-| Check | Command evidence and gates |
-| Merge entry | Review, integration, test, and landing state |
-| Release | A candidate or shipped unit |
-| Deployment | Rollout, approval, verification, and rollback |
-| Incident | Failure impact, diagnosis, mitigation, and closure evidence |
-| Runbook execution | Evidence that a repeatable procedure ran |
-| Event, signal, and request history | Timeline and communication evidence |
-
-Do not use mission prose as a replacement for these records. Do not treat a
-captain report as proof. Run the command or query that proves the result.
-
-## Selective upstream integration
-
-Use [the upstream integration review](upstream-review/README.md) for the fixed
-comparison, decisions, preservation requirements and validation gates. The
-review describes planned work, not deployed features. Keep current objectives
-and delivery state in Armada. Armada platform work uses direct edits; the
-review campaign must not dispatch voyages, missions or planning captains.
-
-## 2. Available Features And Active Policy
-
-The repository contains features that an operator can disable. Documentation
-of a feature does not mean that a deployment enables it.
-
-Check these settings before you depend on the related workflow:
-
-| Setting or record | Effect |
-| --- | --- |
-| `codeIndex.enabled` | Enables code search, graph search, and context packs. |
-| `seedDockRuntimeMcpConfig` | Gives supported captains the local Armada MCP URL through runtime-appropriate dock or launch configuration. Default: enabled. |
-| `apiCaptainCloudProviders` | Lists the hosted providers (`OpenAI`, `Anthropic`, `Gemini`) an API-endpoint captain may run against. Default: empty, so only operator-hosted `Ollama` and `OpenAICompatible` endpoints run. Azure OpenAI, Vertex AI and Bedrock are not available. |
-| `autonomousRecovery.enabled` | Enables bounded server-side mission recovery. |
-| `incidentLifecycle.enabled` | Enables evidence-driven incident transitions. |
-| `remoteTrigger.enabled`, mode, and `agentWake.deliveryMode` | Enables AgentWake process and/or signal delivery. |
-| Objective `AutoDispatchEnabled` and scheduler state | Enables autonomous objective dispatch. |
-| Vessel or voyage landing mode | Selects `LocalMerge`, `PullRequest`, `MergeQueue`, or `None`. |
-| Vessel default pipeline | Selects the normal persona path. |
-| Workflow profile | Defines the commands that Checks and delivery operations run. |
-
-When a feature is off, use the explicit fallback. For example, search the
-checkout directly when code indexing is off. Do not call disabled tools in a
-loop.
-
-## 3. Connection And Discovery
-
-The Admiral exposes stateless Streamable HTTP MCP at `/mcp`. `/rpc` is a
-compatibility alias. An SSH stdio bridge can forward a local MCP client to a
-loopback-bound remote Admiral. The bridge must connect to the running Admiral.
-It must not start a second embedded Admiral process.
-
-Every MCP request must carry a credential. A request without one gets `401`;
-nothing falls back to a default administrative identity. Only a global
-administrator sees the operator catalog. A launched captain authenticates with a
-caller-scoped session token - a mission captain with the mission owner's token,
-a chat captain with the caller's token - so a mission reaches only its owner's
-records and no operator-only tool, never the admiral launch credential. For an
-interactive dispatch the mission owner is the dispatching caller, so the mission
-is scoped to that caller's own tenant and user. An autonomous dispatch has no
-caller, so the mission runs with the objective and vessel tenant scope carried on
-its voyage - its own tenant context, with no operator-only tool and no other
-tenant's records - and never the launch credential. With no resolvable owner the
-launch presents no credential and the endpoint refuses it (fail closed). The
-captain tools preflight (the Ask tools report) probes MCP with the requesting
-viewer's own scoped token, so it lists only the tools that viewer may use; with
-no issuable viewer scope it presents no credential and lists no Armada tool,
-never the launch credential. `docs/MCP_API.md` lists the caller rules, the
-captain credential scope and the per-runtime headers.
-
-Operator migration when an Admiral with MCP authentication is deployed:
-
-1. On the server, write one header line to a protected file, for example
-   `printf 'X-Api-Key: %s\n' "<admiral API key>" > ~/.armada/mcp-auth-header`,
-   then `chmod 600` it. Never put the key in a board note, brief or shell history.
-2. Set `ARMADA_MCP_AUTH_HEADER_FILE` to that absolute path in the `env` of every
-   SSH stdio bridge entry. The bridge refuses requests until it is set.
-3. Set `ARMADA_API_KEY` in the environment of every direct HTTP client. Entries
-   written by `armada mcp install` reference it by name; re-run the install to
-   update an entry written before this change, and add the header by hand to any
-   entry you wrote yourself.
-4. Refresh the Helm CLI with the Admiral image, then prove a read-only tool call
-   through each client. Expect `401` from any client you did not update.
-5. Captains need no change on supported runtimes; they receive the launch
-   credential at launch. A Mux entry written by an earlier install has no
-   `auth` object; re-run `armada mcp install` to add it.
-
-Start each operator session with:
-
-1. Call `armada_status`.
-2. Call `armada_enumerate` with small pages for active voyages, missions,
-   captains, merge entries, incidents, objectives, and checks.
-3. Call `armada_drain_audit_queue` before new dispatches.
-4. Read each relevant open objective in full.
-5. Check incidents and the merge queue before you create more work.
-6. Check `armada_unlanded_branches` when prior work can exist outside the
-   normal landing path.
-7. Call `armada_list_papercuts` to see the friction that recent captains
-   reported. Section 4.9 gives the triage rules.
-
-MCP `tools/list` is paginated. Follow `nextCursor` until it is absent. The
-normal built-in catalog fits on one 500-tool page. Pagination remains active
-for larger extension catalogs. A client that ignores `nextCursor` can hide
-valid tools.
-
-Supported captains receive the local MCP URL through runtime-appropriate dock
-and launch configuration. Claude strict mode and Codex receive explicit launch
-arguments because a project file alone is not sufficient for those paths. The
-catalog also contains dispatch,
-administration, deployment, restore, purge, and server-control actions. Those
-tools stay outside normal captain scope; the operator owns them unless the
-mission explicitly assigns the action. Set `seedDockRuntimeMcpConfig=false`
-only when the deployment intentionally removes all Armada tools from captains.
-
-`armada_enumerate` supports these entity types:
-
-`fleets`, `vessels`, `captains`, `missions`, `voyages`, `docks`, `signals`,
-`events`, `merge_queue`, `memories`, `personas`, `prompt_templates`, `pipelines`,
-`playbooks`, `objectives`, `incidents`, `checks`, `releases`, and
-`deployments`.
-
-Use `pageSize` from 10 to 25 unless a larger page is necessary. Large text
-fields are excluded by default. Request `includeDescription`, `includeContext`,
-`includeTestOutput`, `includePayload`, or `includeMessage` only when needed.
-
-## 4. Standard Workflow
+---
+topic: "Standard Workflow"
+summary: "The full operator loop: capture, inspect, dispatch, monitor, verify with Checks, review, land, and close a record."
+read_when: "Dispatching and running any non-trivial work through to a closed record."
+applies_to: orchestrator
+tier: leaf
+---
+# Standard Workflow
 
 ### 4.1 Capture The Work
 
@@ -900,18 +754,386 @@ UnitTest. Once it runs, its command reads
 `armada slop-classifier (native, reviewed diff)`.
 
 | Rule | Severity | Added line that matches |
-=======
-| # | Chapter | Read when |
->>>>>>> lane/docs-rest
 | --- | --- | --- |
-| 1 | [Source Of Truth](ops/01-source-of-truth.md) | Deciding what to trust as the state of work, delivery, or a result. |
-| 2 | [Selective Upstream Integration](ops/02-selective-upstream-integration.md) | Working on upstream absorption, or checking whether a reviewed upstream feature is live. |
-| 3 | [Available Features And Active Policy](ops/03-available-features-and-policy.md) | Before depending on a feature such as code indexing, autonomous recovery, or a landing mode. |
-| 4 | [Connection And Discovery](ops/04-connection-and-discovery.md) | Connecting a client to the Admiral, or starting an operator session. |
-| 5 | [Standard Workflow](ops/05-standard-workflow.md) | Dispatching and running any non-trivial work through to a closed record. |
-| 6 | [Recovery And Incident Workflow](ops/06-recovery-and-incidents.md) | A mission or voyage failed, or an incident needs driving to closure. |
-| 7 | [Release And Deployment Workflow](ops/07-release-and-deployment.md) | Shipping a release, verifying or rolling back a deployment, or upgrading the running Admiral. |
-| 8 | [Configuration And Administration](ops/08-configuration-and-administration.md) | Changing settings, routing, migrations, or the typed-decision configuration. |
-| 9 | [Complete MCP Tool Catalog](ops/09-mcp-tool-catalog.md) | Choosing a tool, or checking what a tool family does and its risk. |
-| 10 | [Safety Rules](ops/10-safety-rules.md) | Before any cancel, delete, purge, restore, rollback, or server stop. |
-| 11 | [Verification Checklist](ops/11-verification-checklist.md) | Before reporting completion of any objective or task. |
+| `SkippedTest` | FAIL | A `Skip =` argument on a test attribute, an `Ignore` attribute, `Assert.Skip` / `Assert.Ignore` / `Assert.Inconclusive` / `Skip.If`, or `#if false` in a file under a test path |
+| `ProjectWideNoWarn` | FAIL | A `<NoWarn>` element in a project, props or targets file (a per-package `NoWarn` attribute is not flagged) |
+| `CentralPackageVersionBypass` | FAIL | An inline `Version`, a `VersionOverride`, or `ManagePackageVersionsCentrally` set to false, when `Directory.Packages.props` at the reviewed commit enables central package management |
+| `EmptyCatch` | WARN | A catch block whose body is empty or holds only a comment |
+| `ArbitraryDelay` | WARN | `Task.Delay` or `Thread.Sleep` with a literal duration |
+| `WarningSuppression` | WARN | `#pragma warning disable` or a `SuppressMessage` attribute |
+
+An unsuppressed FAIL finding fails the Check, which rejects a Judge PASS like
+any failed Check. WARN findings never fail it. They appear in the Check output
+(`WARN <Rule> <path>:<line>`) and in the summary, which the
+`check.auto_passed` event carries onto the voyage. The WARN patterns are the
+ones a byte-exact source reproduction can legitimately contain, so a reviewer
+reads them rather than a gate refusing them.
+
+A finding is suppressed per site by a marker in a comment on the flagged line
+or on the line directly above it:
+
+```csharp
+// slop-allow EmptyCatch: byte-exact reproduction of Decoder.cs:40-44
+```
+
+The marker must name the rule and record a reason of at least eight
+characters. A marker with no reason, or one naming another rule, is not
+honored, and the output says why. Suppressed findings stay in the output with
+their recorded reason. Use a marker for an intentional source reproduction or a
+pinned source defect, and record the owner decision on the objective as well.
+
+Every condition that prevents classification fails the Check with a reason
+that ends `Nothing was examined`: no commit or branch, no repository, git that
+cannot start, an unresolvable commit or default branch, or no merge base. None
+of them passes. An empty reviewed diff (the commit is already on the default
+branch) passes, and the output says that no lines were classified.
+
+Operators may still attach further Checks, and must do so for any gate beyond
+build and unit test. What changed is the floor: a voyage no longer reaches its
+Judge stage carrying nothing, and a re-dispatch after a cancellation no longer
+starts bare because the previous voyage's Checks went with it.
+
+The definition-of-done gate does not run for a read-only mission (mission mode
+Research or Audit) that produced no commit. Armada proves "no commit" by
+comparing the dock's head commit with the commit recorded when the dock was
+provisioned. When they are equal, the build and unit-test commands would
+measure only the base branch, so a base branch that is already red would fail
+work that changed nothing. The mission completes its stage and hands off. The
+activity log and the recorded evaluation event (outcome `Skipped`) name the
+reason `read_only_no_commit`. A read-only mission that did commit, and every
+Implementation mission, run the gate as before. If either commit cannot be
+read, the gate runs.
+
+The definition-of-done gate also builds the vessels that DECLARE this vessel as
+a sibling repository. A producer's own build cannot observe a break it causes
+in a consumer, because the consumer is a different repository with a different
+compilation: the producer's gate passes, the branch lands, and the break
+surfaces on whatever builds next, attributed to that build rather than to the
+change that caused it.
+
+The consumer edge is derived, not configured. A vessel declares the
+repositories it depends ON, in `SiblingRepos`; the gate reads that same data in
+the opposite direction to find who depends on IT. Nothing extra needs to be set
+up for a vessel whose consumers already declare it.
+
+What the gate does for each consumer:
+
+| Step | Behavior |
+| --- | --- |
+| Provision | A scratch root private to this one verification, never a shared sibling path |
+| Producer ref | The mission branch, checked out detached |
+| Other siblings | Their declared default branches - only the producer is under test |
+| Command | The consumer's `BuildCommand`; then its `UnitTestCommand` when the change reaches a triggering path (see below) |
+| Cleanup | Worktrees removed and the scratch root deleted, pass or fail |
+
+The private scratch root is load-bearing. A shared sibling checkout that another
+dock already owns is REUSED rather than re-pointed, so verifying through one
+could compile the consumer against some other commit while reporting on this
+one - the exact false green the step exists to prevent.
+
+A build catches the break that leaves a consumer red at compile time. It cannot
+catch a break that still compiles and fails at runtime - an empty catalogue, a
+reordered public shape a test oracle pins, a changed frame - which lands green
+through a build-only consumer step and surfaces in the consumer's next voyage.
+So the gate also RUNS the consumer's `UnitTestCommand`, in the same provisioned
+worktree, when the producer change can break the consumer's behavior.
+
+"Can break the consumer" is decided from the producer's own diff against its
+default branch. The consumer suite runs when a changed NON-TEST file falls under
+a triggering path prefix. The prefixes come from the producer's sibling
+declaration on the consumer (`ConsumerTestTriggerPaths`) when it lists any,
+otherwise from `DefinitionOfDone.ConsumerTestTriggerPaths` (default: the
+protocol-library source root). A change to a test project, to documentation, or
+outside every prefix builds the consumer but does not run its suite, so the
+producer only pays for the consumer suite on the changes that matter. A path is
+a test path when a segment is a test project (`*.Tests`, `*.Test`) or a
+`test`/`tests` directory.
+
+A failing consumer suite fails the producer's gate with the named reason
+`consumer_tests_failed: <consumer>`, which is distinct from a consumer build
+failure (`consumer-build (<consumer>)`) so the two are never confused. Set
+`DefinitionOfDone.RunConsumerTests` to `false` to keep the build-only step and
+run no consumer suite.
+
+A consumer that fails to COMPILE fails the producer's gate. A consumer that
+cannot be PREPARED - no workflow profile, no `LocalPath`, a worktree that will
+not provision - is an infrastructure fault in the verification rather than
+evidence about the producer's change, so by default it is logged and the gate
+passes. Set `DefinitionOfDone.FailOnConsumerVerificationError` to make those
+fail instead. Set `DefinitionOfDone.VerifyDeclaredConsumers` to `false` to
+switch the step off entirely.
+
+### 4.7 Review And Land
+
+Read the mission diff and relevant logs. Drain the audit queue and record the
+audit verdict when needed. Check the merge entry before processing it.
+
+A Judge `NEEDS_REVISION` always creates a durable Judge follow-up. Any other
+Judge verdict creates one when it has a non-empty Suggested Follow-ups section.
+Armada stores this item before it looks for a merge entry. The audit queue can
+therefore return the item with no `entryId`.
+Record its verdict with `followUpId`. Armada associates a later merge entry and
+mirrors the audit result when delivery metadata becomes available. A linked
+follow-up and merge entry appear as one queue item. The older `entryId` verdict
+form resolves the linked canonical follow-up and remains safe to use.
+
+If a transient write fault predates this durable capture path, run
+`armada_backfill_judge_followups` with an explicit `fromUtc` and optional
+`toUtc`. Start with `dryRun: true`, check `incomplete` and `errors`, then run
+the same bounded range with `dryRun: false`. A second write pass must report
+zero `created` rows. The repair records explicit `(none)` sections as durable
+reconciliation evidence with an empty recommendation. The current prompt uses
+the exact `## Suggested Follow-ups` heading. Repair also accepts anchored
+legacy `Suggested`, `Recommended`, and `Tracked` follow-up labels, including
+bold, list-prefixed, qualified, and inline forms. It does not treat a prose
+mention as a section.
+
+Use `armada_process_merge_entry` for one reviewed entry. Use
+`armada_process_merge_queue` only when the operator intends to start queue
+processing. It returns an accepted job and can no-op when a queue run is
+already active. Poll the job and merge entry.
+
+Landing behavior comes from the effective landing mode:
+
+| Mode | Result |
+| --- | --- |
+| `LocalMerge` | Merge into the configured working checkout. Do not push unless separate policy permits it. |
+| `PullRequest` | Create or update provider review state. |
+| `MergeQueue` | Use the durable integration, test, and landing state machine. |
+| `None` | Leave produced work for explicit operator handling. |
+
+`LocalMerge` merges in a temporary integration worktree under
+`<docks>/_integration/<mission>`. That worktree is created with a detached HEAD
+at the target branch tip, so another worktree that has the target branch
+checked out (for example one left in the landing repository by a captain) does
+not block the landing. After the merge, the target branch is advanced by a
+compare-and-swap (`git update-ref refs/heads/<target> <merged> <tip>`). If the
+target moved during the merge, git refuses the update, and the landing retries
+as target-branch drift. A worktree that still holds the target branch keeps
+its old checkout: its index then shows the landed changes as reverted, so
+inspect such a worktree before you remove it.
+
+When git refuses an integration step, the mission `FailureReason` carries git's
+message with a failure class. `worktree_conflict:` names the worktree that
+holds the needed ref. `integration_merge_failed:` covers every other refusal,
+such as a content conflict. Read the class before you retry.
+
+After the merge, `LocalMerge` fast-forwards the configured working checkout. If
+the checkout holds commits that the landing repository's target branch lacks,
+the fast-forward cannot run, and those commits exist nowhere else. Armada does
+not reset the checkout and does not push to a remote. It pushes the checkout
+`HEAD` to `recover/working-checkout-<12-char-sha>` in the landing repository,
+emits one `landing.working_checkout_diverged` event, and opens one incident for
+the vessel. The incident names the recover branch, the full SHA, the commit
+count and the repair steps: land the recover branch through the merge queue,
+fast-forward the checkout, confirm that no commits remain on either side, then
+close the incident. The same divergence with its incident still open adds no
+second event or incident. If the checkout cannot be read, counted or pushed,
+the incident names the step that failed. `docs/MERGING.md` has the commands.
+
+Do not infer successful landing from a `Complete` label alone. Verify the
+target branch or remote commit that should contain the work.
+
+Merge-queue landings need extra verification, because the entry status can
+mislead:
+
+1. `armada_enqueue_merge` moves the source branch into a
+   `refs/heads/armada/merge-queue/<id>` ref. If `armada_process_merge_entry`
+   later reports the branch was not found, it may mean the landing succeeded
+   (only the original name is gone) or that it failed. Verify with
+   `git merge-base --is-ancestor <sha> <target>` in the vessel bare repo
+   before re-enqueueing, and restore the branch from the mission commit
+   hash when it is genuinely gone.
+2. Land entries for the same vessel+target one at a time. Concurrent
+   processing of the same target collides on the push and both fail with a
+   non-fast-forward rejection.
+3. After a batch of landings, confirm the pre-batch target tip is still an
+   ancestor; a landing rebuilt from an older base can silently drop sibling
+   commits that sat at the previous tip. Cherry-pick any dropped commit
+   back.
+4. After a direct push from the working checkout, sync the vessel bare repo
+   (`git fetch origin` then `git update-ref refs/heads/<target>
+   refs/remotes/origin/<target>`) so later Checks build the new code.
+
+When a landing retry fails, the mission's `FailureReason` records the
+conflicted-file list (`git diff --name-only --diff-filter=U`) so the operator
+sees exactly which paths to fix without re-deriving the merge state. Read the
+mission's failure reason before deciding the recovery path.
+
+#### Operator branch push and merge
+
+A tenant administrator can push or merge vessel branches from the vessel page
+or through `POST /api/v1/vessels/{id}/branches/push` and `.../merge`. There is
+no MCP tool for these writes. They act on the landing repository (the vessel
+`LocalPath`), not on a dock:
+
+- A merge moves only a local ref. It never pushes. A push is a separate,
+  explicit request naming source, target and `origin`.
+- Both refuse, with a named reason and no ref change, when the working checkout
+  is dirty or detached. They also refuse when the source is the branch of a
+  mission that is not `Complete` or has an active merge-queue entry, and when
+  the target is protected or is a release branch that must use the merge queue.
+  Mission work still lands through its review and Check gates.
+- Pushes go only to `origin`, and only when its URL matches the vessel
+  `RepoUrl`. They never force or delete. A remote tip that is not an ancestor of
+  the source is refused as `non_fast_forward`.
+- Writes share the per-vessel slot with mission landing and merge-queue entry
+  processing. A write that finds the slot held returns `vessel_busy`. Retry it
+  after the landing finishes.
+- A successful write emits `vessel.branch_pushed` or `vessel.branch_merged`
+  with the verified commit. After a merge, read `WorkingCheckoutSync`. A value
+  other than `fast_forwarded` or `skipped_on_other_branch` means the working
+  checkout did not follow the landing repository.
+
+### 4.8 Close The Record Chain
+
+Before the objective becomes complete:
+
+1. Link the final voyage and missions.
+2. Link the passing Checks.
+3. Link a release and deployment when work shipped.
+4. Link incidents and their final evidence.
+5. Create a new record for every deferred task.
+6. Update the objective summary with the verified outcome.
+
+### 4.9 Sweep The Papercuts
+
+Captains report friction they meet on an `[ARMADA:PAPERCUT]` line: a stale
+document, a dead link, a brief that contradicts itself, a missing sibling
+repository, a test that fails under load. Armada stores each report as a
+`papercut` event with the reporting mission, captain, vessel, and voyage.
+
+Read them on a schedule. A report that nobody reads is worse than no report:
+the captain paid to write it and the next captain still pays the same cost.
+
+1. Run `armada_list_papercuts` after a voyage closes, and again in the weekly
+   sweep with `sinceHours: 168`.
+2. Read the count and the distinct-captain count first. One captain reporting
+   a problem is an anecdote. Several captains reporting it is a defect with
+   evidence.
+3. Route the group by category:
+
+   | Category | Owner |
+   | --- | --- |
+   | `MissingDoc`, `BrokenLink`, `RepoFriction`, `TestFlake` | Backlog item on that vessel |
+   | `EnvSetup` | Dock or workflow-profile fix, then a Check to prove it |
+   | `BriefContradiction`, `PlatformBug` | Armada objective, direct-edit only |
+   | `ToolFailure` | Read the mission log before you accept it; a captain calling a tool it never received is a `BriefContradiction` |
+
+4. Quote the group in the record you create: the count, the distinct-captain
+   count, the sample title, and the sample mission IDs. Those missions are the
+   evidence.
+5. Keep the promotion manual. A high count is not authority to dispatch.
+
+Two signals need a different response than a repository fix:
+
+- **A `BriefContradiction` group is a captain-quality defect, not a vessel
+  defect.** It means the brief asks for something the captain cannot do. Fix
+  the instruction module, not the repository.
+- **A category that one runtime reports and no other runtime reports** is
+  usually about that runtime, not about the vessel. Compare the reports before
+  you change vessel code.
+
+Judge missions do not file papercuts. A judge reports what it finds through
+its verdict, and splitting review feedback across two surfaces means the
+operator reads only one of them.
+
+### 4.10 Campaign Work
+
+A campaign is an opt-in objective tree for one large effort: a root tagged
+`campaign:<name>`, lane children per source or area, and slices beneath the
+lanes. Plain objectives outside any campaign remain the default; do not force
+ordinary work into one.
+
+The autonomous scheduler can use optional campaign fair-share. Set
+`fairShareWithinPriorityBands=true` with `armada_objective_scheduler_set`. The
+setting is false by default. It never moves a lower-priority slice ahead of a
+higher-priority slice. In one priority band, it rotates across tagged campaign
+roots and keeps rank and ID order inside each campaign. Plain objectives remain
+in one default group. Scheduler status shows both the setting and the
+process-local last-served cursor.
+
+Operating rules:
+
+1. Claim the slice (`armada_coordination_claim`) before starting; heartbeat
+   while working; release when done.
+2. Encode wave ordering with BlockedByObjectiveIds, not prose.
+3. Attach the campaign's rules playbook (for porting:
+   `porting-campaign-rules`) through selectedPlaybooks on dispatch.
+4. On landing, link EvidenceLinks - commit SHAs, green Checks - and the
+   source-glossary entry the slice extended. No evidence links means not done.
+5. Answer "where does this stand" with `armada_campaign_status`, not ten
+   enumerations.
+
+### 4.11 Helper Sessions And Operator Ownership
+
+An operator session that starts host-side helpers owns their complete
+lifecycle. The autonomous objective scheduler selects ready objectives and
+dispatches captains inside Armada. Generic operator wakes and bounded helpers
+support operator sessions.
+
+Use `scripts/autonomy/spawn-helper.sh` for bounded host-side helpers:
+
+```bash
+scripts/autonomy/spawn-helper.sh spawn census /tmp/census-task.md /path/to/repo
+scripts/autonomy/spawn-helper.sh offer ready /tmp/fallback-task.md operator-session /path/to/repo
+scripts/autonomy/spawn-helper.sh list
+scripts/autonomy/spawn-helper.sh kill census
+scripts/autonomy/spawn-helper.sh cull
+```
+
+The launcher enforces `AUTONOMY_MAX_HELPERS` (default 2), records PIDs and
+participant keys under `AUTONOMY_WORKDIR`, and culls sessions older than
+`AUTONOMY_HELPER_TIMEOUT_MIN` (default 90). It supports `opencode`, `claude`,
+and `codex`; `AUTONOMY_RUNTIME=command` plus `AUTONOMY_COMMAND` is the local
+test adapter. Every prompt receives a fixed contract: use the generated
+participant key, drain and acknowledge addressed wakes, stay read-only, post
+one outcome, release claims, and exit. Run
+`scripts/autonomy/test-spawn-helper.sh` after launcher changes.
+
+`offer` mode posts availability to the named operator and gives it a bounded
+four-minute reassignment window. The helper checks for directed Wakes at most
+every 25 seconds during that window. It then runs the fallback, accepts the
+operator's replacement task, or stands down. `list` shows each helper's mode and
+lead key. See `docs/autonomy/helper-offer-prompt.md` for the manual-session
+equivalent.
+
+Claude helpers run with strict MCP isolation. The launcher therefore writes a
+private Armada-only MCP file and passes it with `--mcp-config`. The default URL
+is `http://127.0.0.1:7891/mcp`; override it with
+`AUTONOMY_ARMADA_MCP_URL`, or supply an existing file through
+`AUTONOMY_CLAUDE_MCP_CONFIG`. Strict mode without the explicit file gives the
+helper zero Armada tools and makes the board contract impossible.
+
+The helper's working directory is also its file-sandbox boundary. Give it the
+narrowest directory that contains all required evidence. Use a common ancestor
+when one task must inspect a checkout, a bare repository, or a sibling. Do not
+disable the sandbox to repair a bad working-directory choice.
+
+Three sets from the coordination board define the roster: participants (who is
+present and when last seen), active claims (who holds work), and their
+difference (a participant present without a claim is idle).
+
+Lead duties:
+
+- Hand a live helper work with an addressed note (`toParticipantKey`) naming
+  the task, vessel or objective, and constraints. The note always writes a
+  Wake signal, so its next heartbeat delivers the full payload.
+- Or stand the helper down explicitly ("stand down, nothing available").
+  A script-managed helper must then exit; it must not wait in a polling loop.
+- Re-check the roster between loop iterations, not only at session start.
+
+Do not register a script-managed helper for AgentWake. That creates two process
+owners for one participant key and can duplicate work. Use one model:
+
+- A bounded script-managed helper handles its initial task and any wake already
+  waiting at a tool boundary, reports, and exits.
+- An AgentWake process owner has no resident process. Put its stable key in
+  `remoteTrigger.agentWake.participantKey` when addressed wakes must survive an
+  Admiral restart. A transient registration can override that key for a
+  controlled probe until the next restart.
+
+One process owns one participant key. OpenCode AgentWake sessions are always
+fresh, so the addressed note must contain the complete task and the bootstrap
+prompt must tell the session to reconstruct context from the board and durable
+memory. Each wake must carry the task and its limits.

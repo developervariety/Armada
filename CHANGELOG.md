@@ -102,6 +102,33 @@ All notable changes to Armada are documented in this file.
   recall 93.6%, byte reduction 87.8-95.3% (median 92.2%), and five failure-replay
   regressions traced to oversized whole-file leaves, so brief wiring stays blocked
   until the large sources are sub-chunked.
+### Documentation
+
+- Split the operator guide `docs/armada-ops.md` into per-chapter files under
+  `docs/ops/` (`NN-slug.md`), each with retrieval front-matter (`topic`,
+  `summary`, `read_when`, `applies_to`, `tier`), and replaced the monolithic
+  file with a thin index that links the eleven chapters. Orchestrators can now
+  load one chapter instead of a ~183 KB wall. Refreshed the moved content to
+  the current platform state: the typed-decision catalogue (through D26 prior
+  art, the captain tools, and the Gate-from-first-deploy contract), the Linter
+  review stage and its pipelines, the in-place `POST /api/v1/server/restart`
+  route, the Voyage AI code-index embedding client, and a container image
+  deploy section. Repointed the guide-content unit test and the README typed-
+  decisions link to the new files. Docs only; no behaviour change.
+
+- Brought the README and the remaining operator-facing docs current with the
+  platform state and aligned them to the retrieval front-matter style. The README
+  `Upstream vs Fork` section now reads as a divergent superset described by
+  capability -- the typed-decision catalogue (D1 through D26 prior art, gated from
+  first deploy, plus the captain tools), the Linter and Recorder pipeline stages,
+  usage-aware routing, the in-place Restart Server, the Voyage AI code-index
+  embeddings, the hardened-but-disabled self-deploy, and the in-progress
+  context-index system -- and points to the upstream parity standpoint. Corrected
+  the `Tested` and `ProductDevelopment` stage lists to carry the Linter, the
+  Recorder placement, and the MCP tool count (now 195). Added
+  `topic`/`summary`/`read_when`/`applies_to`/`tier` front-matter to `MCP_API.md`,
+  `MERGING.md`, `DELIVERY_OPERATIONS.md`, `OPERATIONAL_ASSETS.md`, `PIPELINES.md`,
+  and `PERSONAS.md`. Docs only; no behaviour change.
 
 ### Code index
 

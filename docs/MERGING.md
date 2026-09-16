@@ -1,3 +1,10 @@
+---
+topic: "Merge Queue And Landing"
+summary: "How Armada serializes merges, lands mission work, and recovers a diverged checkout."
+read_when: "Landing work, choosing a landing mode, or diagnosing a merge or sync failure."
+applies_to: orchestrator
+tier: leaf
+---
 # Merge Queue
 
 ## Overview

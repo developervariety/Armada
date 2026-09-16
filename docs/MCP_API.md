@@ -1,3 +1,10 @@
+---
+topic: "MCP API"
+summary: "Transport, discovery, authentication scope, and error behavior for the MCP endpoint."
+read_when: "Connecting an MCP client, or debugging discovery, credentials, or a tool error."
+applies_to: orchestrator
+tier: leaf
+---
 # Armada MCP API
 
 **Version:** 0.9.0
@@ -139,7 +146,7 @@ Continuation request:
 }
 ```
 
-The built-in catalog currently has 175 tools and fits in the first 500-tool
+The built-in catalog currently has 195 tools and fits in the first 500-tool
 page. Pagination remains active so extension catalogs can grow without an
 unbounded response.
 
@@ -339,7 +346,7 @@ What a caller may use:
 | Caller | Tools listed and callable |
 | --- | --- |
 | Global administrator (admiral API key, or a global-admin user credential) | The whole catalog |
-| Any other authenticated user, including a tenant administrator | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, `armada_typed_decision`, `armada_check_premise`, `armada_memory_triage`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
+| Any other authenticated user, including a tenant administrator | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, `armada_typed_decision`, `armada_check_premise`, `armada_check_prior_art`, `armada_memory_triage`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
 
 The Harbor job tools apply the runner authority rule that Harbor enrollment
 uses: a caller sees a job when it is the runner owner or has authority over the
