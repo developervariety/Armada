@@ -181,6 +181,59 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(client.LastToken.Equals(cts.Token), "the adapter forwards the caller's token so the client's timeout applies");
             });
 
+            await RunTest("Merge_ThrowingClient_FailsClosedToRule_RecordsUnavailable_NoThrow", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = FakeTypedDecisionClient.Throwing(new InvalidOperationException("provider exploded"));
+                PapercutMergeAdapter adapter = BuildAdapter(testDb.Driver, client, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
+
+                List<PapercutGroup> output = new List<PapercutGroup>();
+                Exception? escaped = null;
+                try
+                {
+                    output = await adapter.MergeAsync(new List<PapercutGroup> { Group("a", "x y z", 2), Group("b", "x y z", 1) }, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    escaped = ex;
+                }
+
+                AssertNull(escaped, "a throwing client never escapes the adapter");
+                AssertEqual(2, output.Count, "the rule stands: two rows, unmerged");
+                AssertEqual(1, client.Calls, "the client was consulted once, then the pass stopped");
+                List<ArmadaEvent> unavailable = await testDb.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeUnavailable, 10).ConfigureAwait(false);
+                AssertEqual(1, unavailable.Count, "one typed_decision.unavailable event");
+                AssertEqual(0, (await testDb.Driver.Events.EnumerateByTypeAsync(PapercutMergeAdapter.MergeProposedEventType, 10).ConfigureAwait(false)).Count, "no merge proposed");
+            });
+
+            await RunTest("ListTool_PassesItsOwnTokenToTheMergeDecision", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("same_issue", 0.20));
+                PapercutMergeAdapter adapter = BuildAdapter(testDb.Driver, client, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
+
+                foreach (string title in new[] { "the sibling checkout is missing", "a completely different friction report" })
+                {
+                    Papercut papercut = new Papercut
+                    {
+                        Category = PapercutCategoryEnum.BriefContradiction,
+                        Severity = PapercutSeverityEnum.Medium,
+                        Title = title,
+                        CaptainId = "cpt_example",
+                        MissionId = "msn_example",
+                        VesselId = _Vessel,
+                        ReportedUtc = DateTime.UtcNow
+                    };
+                    await testDb.Driver.Events.CreateAsync(PapercutService.ToEvent(papercut)).ConfigureAwait(false);
+                }
+
+                using CancellationTokenSource toolCts = new CancellationTokenSource();
+                await Armada.Server.Mcp.Tools.McpPapercutTools.ListAsync(null, testDb.Driver, adapter, toolCts.Token).ConfigureAwait(false);
+
+                AssertTrue(client.Calls >= 1, "the listing consulted the merge decision");
+                AssertTrue(client.LastToken.Equals(toolCts.Token), "the tool's own token reaches the client");
+            });
+
             await RunTest("Merge_SingleGroup_ReturnsUnchanged_NoCall", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

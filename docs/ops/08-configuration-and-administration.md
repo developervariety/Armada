@@ -358,7 +358,10 @@ Two decision points read the papercut grouping:
   event is changed and no group is deleted, so setting the decision `Off`
   restores the plain grouping. It considers only the largest groups per vessel
   and caps the model calls per listing. A merge records a `papercut.merge_proposed`
-  event (recorded but not applied in `Shadow`).
+  event (recorded but not applied in `Shadow`). Each pair call follows the same
+  skeleton as every other adapter: the listing call's token reaches the client
+  (the call is bounded at two minutes), and a timeout, provider error, or thrown
+  exception records `typed_decision.unavailable` and returns the plain grouping.
 - **D18 `memory_candidate`** (ships `Off`) asks whether a papercut group is a
   durable cross-session lesson and, in `Gate` above the threshold, writes a
   proposal file under `AI-Memory/corpus/memory-candidates/` for the owner to

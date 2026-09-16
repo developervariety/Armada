@@ -25,6 +25,7 @@ namespace Armada.Server.Mcp.Tools
         private const int _MaxLimit = 200;
         private const int _DefaultScanLimit = 500;
         private const int _MaxScanLimit = 5000;
+        private static readonly TimeSpan _ListCallTimeout = TimeSpan.FromSeconds(120);
 
         /// <summary>
         /// Registers papercut MCP tools with the server.
@@ -58,89 +59,109 @@ namespace Armada.Server.Mcp.Tools
                 },
                 async (args) =>
                 {
-                    PapercutListArgs request = args == null
-                        ? new PapercutListArgs()
-                        : JsonSerializer.Deserialize<PapercutListArgs>(args.Value, _JsonOptions) ?? new PapercutListArgs();
-
-                    int scanLimit = Math.Clamp(request.ScanLimit ?? _DefaultScanLimit, 1, _MaxScanLimit);
-                    int limit = Math.Clamp(request.Limit ?? _DefaultLimit, 1, _MaxLimit);
-
-                    PapercutCategoryEnum? categoryFilter = null;
-                    if (!String.IsNullOrWhiteSpace(request.Category))
+                    // The MCP handler delegate carries no transport token, so each call owns one bounded
+                    // by a deadline. A listing whose merge decisions outrun it fails closed to the plain
+                    // grouping rather than holding the tool call open.
+                    using (System.Threading.CancellationTokenSource callToken = new System.Threading.CancellationTokenSource(_ListCallTimeout))
                     {
-                        PapercutCategoryEnum resolved = PapercutParser.ParseCategory(request.Category);
-
-                        // ParseCategory falls back to Other, which would silently answer a misspelled
-                        // filter with the wrong rows. An explicit filter must match an explicit name.
-                        if (resolved == PapercutCategoryEnum.Other &&
-                            !String.Equals(request.Category!.Trim(), "Other", StringComparison.OrdinalIgnoreCase))
-                        {
-                            return (object)new { Error = "Unknown category: " + request.Category };
-                        }
-
-                        categoryFilter = resolved;
+                        return await ListAsync(args, database, mergeAdapter, callToken.Token).ConfigureAwait(false);
                     }
-
-                    PapercutSeverityEnum? severityFilter = null;
-                    if (!String.IsNullOrWhiteSpace(request.MinSeverity))
-                    {
-                        PapercutSeverityEnum resolvedSeverity;
-                        if (!Enum.TryParse<PapercutSeverityEnum>(request.MinSeverity!.Trim(), true, out resolvedSeverity))
-                            return (object)new { Error = "Unknown severity: " + request.MinSeverity };
-
-                        severityFilter = resolvedSeverity;
-                    }
-
-                    DateTime? since = null;
-                    if (request.SinceHours.HasValue && request.SinceHours.Value > 0)
-                        since = DateTime.UtcNow.AddHours(-request.SinceHours.Value);
-
-                    List<ArmadaEvent> events = await database.Events
-                        .EnumerateByTypeAsync(PapercutParser.EventType, scanLimit)
-                        .ConfigureAwait(false);
-
-                    List<Papercut> papercuts = new List<Papercut>();
-                    foreach (ArmadaEvent evt in events)
-                    {
-                        Papercut? papercut = PapercutService.TryFromEvent(evt);
-                        if (papercut == null) continue;
-                        if (!String.IsNullOrWhiteSpace(request.VesselId) &&
-                            !String.Equals(papercut.VesselId, request.VesselId, StringComparison.Ordinal)) continue;
-                        if (categoryFilter.HasValue && papercut.Category != categoryFilter.Value) continue;
-                        if (severityFilter.HasValue && papercut.Severity < severityFilter.Value) continue;
-                        if (since.HasValue && papercut.ReportedUtc < since.Value) continue;
-                        papercuts.Add(papercut);
-                    }
-
-                    if (request.Ungrouped == true)
-                    {
-                        return (object)new
-                        {
-                            Scanned = events.Count,
-                            Matched = papercuts.Count,
-                            Papercuts = papercuts
-                                .OrderByDescending(p => p.ReportedUtc)
-                                .Take(limit)
-                                .ToList()
-                        };
-                    }
-
-                    List<PapercutGroup> groups = PapercutService.Group(papercuts);
-
-                    // D6 papercut_merge: fold same-issue groups together in the listing when the
-                    // decision gates. The rule (the plain grouping) stands when the adapter is absent,
-                    // the decision is off, or the model is unavailable.
-                    if (mergeAdapter != null)
-                        groups = await mergeAdapter.MergeAsync(groups, System.Threading.CancellationToken.None).ConfigureAwait(false);
-
-                    return (object)new
-                    {
-                        Scanned = events.Count,
-                        Matched = papercuts.Count,
-                        GroupCount = groups.Count,
-                        Groups = groups.Take(limit).ToList()
-                    };
                 });
+        }
+
+        /// <summary>
+        /// Run one <c>armada_list_papercuts</c> call. The token bounds the whole call, including every
+        /// D6 merge decision the listing consults.
+        /// </summary>
+        /// <param name="args">Tool arguments.</param>
+        /// <param name="database">Database driver for event data access.</param>
+        /// <param name="mergeAdapter">The D6 merge adapter, or null.</param>
+        /// <param name="token">The tool call's cancellation token.</param>
+        /// <returns>The listing response.</returns>
+        internal static async Task<object> ListAsync(JsonElement? args, DatabaseDriver database, PapercutMergeAdapter? mergeAdapter, System.Threading.CancellationToken token)
+        {
+            PapercutListArgs request = args == null
+                ? new PapercutListArgs()
+                : JsonSerializer.Deserialize<PapercutListArgs>(args.Value, _JsonOptions) ?? new PapercutListArgs();
+
+            int scanLimit = Math.Clamp(request.ScanLimit ?? _DefaultScanLimit, 1, _MaxScanLimit);
+            int limit = Math.Clamp(request.Limit ?? _DefaultLimit, 1, _MaxLimit);
+
+            PapercutCategoryEnum? categoryFilter = null;
+            if (!String.IsNullOrWhiteSpace(request.Category))
+            {
+                PapercutCategoryEnum resolved = PapercutParser.ParseCategory(request.Category);
+
+                // ParseCategory falls back to Other, which would silently answer a misspelled
+                // filter with the wrong rows. An explicit filter must match an explicit name.
+                if (resolved == PapercutCategoryEnum.Other &&
+                    !String.Equals(request.Category!.Trim(), "Other", StringComparison.OrdinalIgnoreCase))
+                {
+                    return (object)new { Error = "Unknown category: " + request.Category };
+                }
+
+                categoryFilter = resolved;
+            }
+
+            PapercutSeverityEnum? severityFilter = null;
+            if (!String.IsNullOrWhiteSpace(request.MinSeverity))
+            {
+                PapercutSeverityEnum resolvedSeverity;
+                if (!Enum.TryParse<PapercutSeverityEnum>(request.MinSeverity!.Trim(), true, out resolvedSeverity))
+                    return (object)new { Error = "Unknown severity: " + request.MinSeverity };
+
+                severityFilter = resolvedSeverity;
+            }
+
+            DateTime? since = null;
+            if (request.SinceHours.HasValue && request.SinceHours.Value > 0)
+                since = DateTime.UtcNow.AddHours(-request.SinceHours.Value);
+
+            List<ArmadaEvent> events = await database.Events
+                .EnumerateByTypeAsync(PapercutParser.EventType, scanLimit, token)
+                .ConfigureAwait(false);
+
+            List<Papercut> papercuts = new List<Papercut>();
+            foreach (ArmadaEvent evt in events)
+            {
+                Papercut? papercut = PapercutService.TryFromEvent(evt);
+                if (papercut == null) continue;
+                if (!String.IsNullOrWhiteSpace(request.VesselId) &&
+                    !String.Equals(papercut.VesselId, request.VesselId, StringComparison.Ordinal)) continue;
+                if (categoryFilter.HasValue && papercut.Category != categoryFilter.Value) continue;
+                if (severityFilter.HasValue && papercut.Severity < severityFilter.Value) continue;
+                if (since.HasValue && papercut.ReportedUtc < since.Value) continue;
+                papercuts.Add(papercut);
+            }
+
+            if (request.Ungrouped == true)
+            {
+                return (object)new
+                {
+                    Scanned = events.Count,
+                    Matched = papercuts.Count,
+                    Papercuts = papercuts
+                        .OrderByDescending(p => p.ReportedUtc)
+                        .Take(limit)
+                        .ToList()
+                };
+            }
+
+            List<PapercutGroup> groups = PapercutService.Group(papercuts);
+
+            // D6 papercut_merge: fold same-issue groups together in the listing when the
+            // decision gates. The rule (the plain grouping) stands when the adapter is absent,
+            // the decision is off, or the model is unavailable.
+            if (mergeAdapter != null)
+                groups = await mergeAdapter.MergeAsync(groups, token).ConfigureAwait(false);
+
+            return (object)new
+            {
+                Scanned = events.Count,
+                Matched = papercuts.Count,
+                GroupCount = groups.Count,
+                Groups = groups.Take(limit).ToList()
+            };
         }
     }
 }

@@ -177,17 +177,42 @@ namespace Armada.Core.Services
 
         private async Task<PapercutMergeVerdict> DecidePairAsync(PapercutGroup a, PapercutGroup b, ResolvedTypedDecision cfg, CancellationToken token)
         {
-            object state = DecisionStateRedactor.RedactObject(BuildPairState(a, b), _Settings.MaxStateChars);
-            string redacted = state as string ?? String.Empty;
-
-            TypedDecisionResult result = await _Client.DecideAsync(
-                new TypedDecisionRequest
+            // The same skeleton as TypedDecisionAdapterBase: state build and the client call never throw
+            // into the listing, the caller's token is forwarded so the client links its settings timeout
+            // to it, and any fault fails closed to the rule (no merge) with an unavailable event.
+            object state;
+            string redacted;
+            TypedDecisionRequest request;
+            try
+            {
+                state = DecisionStateRedactor.RedactObject(BuildPairState(a, b), _Settings.MaxStateChars);
+                redacted = state as string ?? String.Empty;
+                request = new TypedDecisionRequest
                 {
                     DecisionPoint = DecisionPoint,
                     State = state,
                     Questions = Questions()
-                },
-                token).ConfigureAwait(false);
+                };
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "pair state build failed, rule stands: " + ex.Message);
+                return new PapercutMergeVerdict { Available = false, Merge = false, Confidence = 0.0 };
+            }
+
+            TypedDecisionResult? result;
+            try
+            {
+                result = await _Client.DecideAsync(request, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "client threw, rule stands: " + ex.Message);
+                result = null;
+            }
+
+            if (result == null)
+                result = new TypedDecisionResult { Available = false, UnavailableReason = "exception" };
 
             if (!result.Available)
             {

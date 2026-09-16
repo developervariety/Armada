@@ -8,6 +8,12 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- The D6 `papercut_merge` pair decision now fails closed like every other
+  typed-decision adapter. A client that throws records
+  `typed_decision.unavailable` and the listing returns the plain grouping, and
+  `armada_list_papercuts` passes its own call token (bounded at two minutes) to
+  the merge decisions instead of an unbounded one.
+
 - The D2 `refusal` decision now files a `BriefContradiction` papercut when, in
   `Gate`, it reads a run as `blocked_on_premise` at or above threshold. The
   papercut goes through the existing papercut parser path, and its reason is
