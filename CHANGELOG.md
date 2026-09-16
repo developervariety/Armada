@@ -102,6 +102,21 @@ All notable changes to Armada are documented in this file.
   recall 93.6%, byte reduction 87.8-95.3% (median 92.2%), and five failure-replay
   regressions traced to oversized whole-file leaves, so brief wiring stays blocked
   until the large sources are sub-chunked.
+- Cleared the coverage-census gate. Three changes remove the oversized-leaf root
+  cause the census found: the generator now sub-chunks any leaf whose body
+  exceeds a named 8 KB threshold at its section headings (recursively at the
+  next-deeper heading level for a section still over the threshold), so a single
+  load-bearing rule is a small, individually retrievable leaf; the retrieval leaf
+  fill now SKIPS a leaf that would exceed the remaining budget and keeps filling,
+  so a smaller relevant leaf ranked below a large one is still included, with
+  ranked order and the budget cap preserved; and the chunk-metadata sidecar tags
+  each per-vessel source-fidelity / safety section `must_retrieve` for its own
+  vessel domain, as EcuLink already was, and re-keys the sub-chunked
+  session-workflow sections. Core chunks and small files are never sub-chunked, so
+  the core allowlist and the core bundle are unchanged. Re-run: safety recall
+  100%, read_when leaf recall 100% (62 of 62), byte reduction 78.4-86.2% (median
+  86.2%), and zero failure-replay regressions among the mapped cases, so the
+  census now PASSES and the brief-wiring step is unblocked.
 ### Documentation
 
 - Split the operator guide `docs/armada-ops.md` into per-chapter files under

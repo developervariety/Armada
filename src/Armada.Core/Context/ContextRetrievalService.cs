@@ -119,14 +119,17 @@ namespace Armada.Core.Context
                 IReadOnlyList<ContextChunk> ranked = _Ranker.Rank(request, candidates) ?? candidates;
 
                 // 4. Fill the leaf budget in ranked order. Core and must_retrieve are exempt. A leaf
-                //    that would exceed the remaining budget stops the fill, so a lower-ranked small leaf
-                //    never jumps ahead of a higher-ranked one.
+                //    that would exceed the REMAINING budget is SKIPPED, and the fill continues with the
+                //    next ranked leaf, so a smaller relevant leaf ranked below a large one is still
+                //    reached instead of being starved when the large leaf halts the fill. Ranked order
+                //    is preserved (no reordering) and the budget cap is never exceeded, so the result
+                //    stays deterministic: a fixed request over a fixed leaf set yields the same set.
                 int budget = Math.Max(0, request.MaxLeafBytes);
                 int used = 0;
                 foreach (ContextChunk leaf in ranked)
                 {
                     int size = leaf.Bytes;
-                    if (used + size > budget) break;
+                    if (used + size > budget) continue;
                     result.Leaves.Add(leaf);
                     used += size;
                 }

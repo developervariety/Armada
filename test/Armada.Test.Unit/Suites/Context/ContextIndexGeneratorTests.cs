@@ -430,6 +430,60 @@ namespace Armada.Test.Unit.Suites.Context
                 }
                 finally { SafeDelete(root); SafeDeleteFile(sidecar); }
             });
+
+            // ---- Large-leaf sub-chunking: an oversized plain leaf becomes multiple section leaves;
+            //      a small one stays single; the core count is unaffected. ----
+            await RunTest("Build_LargeLeafFile_SubChunksAtSections_SmallStaysSingle_CoreCountUnchanged", () =>
+            {
+                string root = NewTempDir("ctxbig");
+                Directory.CreateDirectory(Path.Combine(root, "shared"));
+                Directory.CreateDirectory(Path.Combine(root, "repos", "bigleaf"));
+
+                // One whole-file-core source, so the core count is a real, non-zero number to compare.
+                File.WriteAllText(Path.Combine(root, "shared", "repository-boundary-and-leak-prevention.md"),
+                    "# Repository Boundary and Leak Prevention\n\nCore body.\n");
+                // A small leaf that must stay one chunk (well under the threshold).
+                File.WriteAllText(Path.Combine(root, "repos", "bigleaf", "small.md"),
+                    "# Small Leaf\n\n## Only Section\n\nA tiny leaf that stays whole.\n");
+
+                try
+                {
+                    // Baseline core count WITHOUT the large leaf present.
+                    ContextIndexGenerator gen = new ContextIndexGenerator();
+                    int coreBefore = gen.Build(root, null).Chunks.Count(c => c.Tier == ContextTierEnum.Core);
+
+                    // A large plain leaf: several ## sections whose bodies together exceed the 8 KB
+                    // threshold, but each section is small.
+                    string big = "# Big Leaf\n\nPreamble line.\n";
+                    for (int i = 1; i <= 4; i++)
+                        big += "\n## Section " + i + "\n\n" + new String('x', 3000) + "\n";
+                    File.WriteAllText(Path.Combine(root, "repos", "bigleaf", "README.md"), big);
+                    AssertTrue(System.Text.Encoding.UTF8.GetByteCount(big) > ContextIndexGenerator.LeafSubChunkThresholdBytes,
+                        "the big leaf must exceed the sub-chunk threshold");
+
+                    ContextIndex index = gen.Build(root, null);
+
+                    // The large leaf became several section leaves, each its own chunk under the file path.
+                    List<ContextChunk> bigChunks = index.Chunks
+                        .Where(c => c.Path.StartsWith("AI-Memory/repos/bigleaf/README.md", StringComparison.Ordinal)).ToList();
+                    AssertTrue(bigChunks.Count >= 4, "a large leaf sub-chunks into multiple section leaves (got " + bigChunks.Count + ")");
+                    AssertTrue(bigChunks.All(c => c.Tier == ContextTierEnum.Leaf), "every sub-chunk of a leaf file is a leaf");
+                    AssertTrue(bigChunks.All(c => System.Text.Encoding.UTF8.GetByteCount(c.Text) <= ContextIndexGenerator.LeafSubChunkThresholdBytes),
+                        "each section leaf is at or under the threshold");
+                    // The section anchors are distinct and locate a section via a '#' fragment.
+                    AssertTrue(bigChunks.Count(c => c.Path.Contains('#')) >= 4, "section leaves carry a heading-anchor path fragment");
+
+                    // The small leaf stayed a single chunk.
+                    int smallChunks = index.Chunks.Count(c => c.Path.StartsWith("AI-Memory/repos/bigleaf/small.md", StringComparison.Ordinal));
+                    AssertEqual(1, smallChunks);
+
+                    // The core count is unaffected by leaf sub-chunking.
+                    int coreAfter = index.Chunks.Count(c => c.Tier == ContextTierEnum.Core);
+                    AssertEqual(coreBefore, coreAfter);
+                    return Task.CompletedTask;
+                }
+                finally { SafeDelete(root); }
+            });
         }
 
         // Write a sidecar JSON file to a temp path and return it.

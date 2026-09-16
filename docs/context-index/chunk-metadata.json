@@ -198,13 +198,6 @@
         "orchestrator"
       ]
     },
-    "memory.repos.armada.session-workflow": {
-      "summary": "The Armada operator session loop: connect, read the inbox and board, claim work, the thirteen-question dispatch preflight, monitor, prove, land, and close.",
-      "read_when": "You are operating an Armada session: dispatching, monitoring, landing, or closing work.",
-      "applies_to": [
-        "orchestrator"
-      ]
-    },
     "memory.repos.armada.operational-assets": {
       "summary": "Operator rules for playbooks, runbooks, workflow profiles, environments, personas, and pipelines, and the captain MCP boundary.",
       "read_when": "You are creating or changing an Armada operational asset, or auditing an Architect pipeline.",
@@ -219,35 +212,14 @@
         "orchestrator"
       ]
     },
-    "memory.repos.eculink.readme": {
-      "summary": "EcuLink porting rules: source fidelity, reproduce-the-defect not correct it, seed-key ground truth, and escalate a hang or crash instead of silently shipping it.",
-      "read_when": "You are porting an EcuLink decoder, seed-key, or command, or reviewing an EcuLink port for source fidelity or a hang-class defect.",
-      "applies_to": [
-        "vessel:EcuLink"
-      ],
-      "must_retrieve": [
-        "eculink"
-      ]
-    },
-    "memory.repos.otrbuddy.readme": {
-      "summary": "OtrBuddy rules: load-sensitive test tolerances, the EcuLink consumer relationship, the master default branch, the protected CLAUDE.md path, and the bundle pipeline.",
-      "read_when": "You are porting or reviewing OtrBuddy work, or triaging an OtrBuddy load flake or consumer break.",
-      "applies_to": [
-        "vessel:OtrBuddy"
-      ]
-    },
     "memory.repos.jprodeobfuscator.readme": {
-      "summary": "JproDeobfuscator rules: the .xml.enc files are source originals, the git-tracked decrypted plaintext lives beside them, and never cite the .enc or a raw byte size.",
+      "summary": "JproDeobfuscator: the .xml.enc files are the source originals and the git-tracked decrypted plaintext lives beside them; cite the plaintext path and line count, never the .enc or a raw byte size.",
       "read_when": "You are citing a JPRO catalogue, counting encrypted files, or writing a JproDeobfuscator brief.",
       "applies_to": [
         "vessel:JproDeobfuscator"
-      ]
-    },
-    "memory.repos.source-glossary.readme": {
-      "summary": "SourceGlossary ledger rules: root resolution, live-state guard traps, the evidence-field path contract, and what a pass record may quote.",
-      "read_when": "You are running or reviewing a SourceGlossary ledger pass or coverage census.",
-      "applies_to": [
-        "vessel:SourceGlossary"
+      ],
+      "must_retrieve": [
+        "jprodeobfuscator"
       ]
     },
     "docs.armada-ops": {
@@ -257,58 +229,9 @@
         "orchestrator"
       ]
     },
-    "docs.merging": {
-      "summary": "The merge-queue reference: how landing works, its traps, and verifying the target after landing.",
-      "read_when": "You are landing work through the merge queue or diagnosing a landing failure.",
-      "applies_to": [
-        "orchestrator"
-      ]
-    },
-    "docs.operational-assets": {
-      "summary": "The operational-assets reference: the current schemas for playbooks, runbooks, profiles, environments, personas, and pipelines.",
-      "read_when": "You are creating or changing an operational asset and need its current schema.",
-      "applies_to": [
-        "orchestrator"
-      ]
-    },
     "docs.delivery-operations": {
       "summary": "The delivery-operations reference: deployment, environments, and release procedure.",
       "read_when": "You are deploying or managing an Armada release or environment.",
-      "applies_to": [
-        "orchestrator"
-      ]
-    },
-    "docs.mcp-api": {
-      "summary": "The Armada MCP tool catalog and API reference.",
-      "read_when": "You need the full Armada MCP tool catalog or a tool's parameters.",
-      "applies_to": [
-        "orchestrator"
-      ]
-    },
-    "docs.personas": {
-      "summary": "The persona definitions and their roles in the pipeline.",
-      "read_when": "You are configuring personas or reviewing a persona's role.",
-      "applies_to": [
-        "orchestrator"
-      ]
-    },
-    "docs.pipelines": {
-      "summary": "The pipeline definitions and their ordered or parallel persona stages.",
-      "read_when": "You are configuring or reviewing a pipeline.",
-      "applies_to": [
-        "orchestrator"
-      ]
-    },
-    "docs.testing": {
-      "summary": "The testing reference for the Armada repository and its suites.",
-      "read_when": "You are writing or running Armada tests.",
-      "applies_to": [
-        "orchestrator"
-      ]
-    },
-    "docs.usage-routing": {
-      "summary": "The usage-aware routing (Routing V2) reference.",
-      "read_when": "You are configuring or reasoning about usage-aware routing.",
       "applies_to": [
         "orchestrator"
       ]
@@ -332,6 +255,165 @@
       "read_when": "You are setting up or running Codex as the Armada orchestrator.",
       "applies_to": [
         "orchestrator"
+      ]
+    },
+    "memory.repos.armada.session-workflow.current-owner-policy": {
+      "summary": "The current owner policy for an Armada session: direct-edit Armada, code indexing off, LocalMerge on managed vessels, and read captain state live.",
+      "read_when": "You are starting an Armada operator session and need the current owner policy.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.session-workflow.capture-and-dispatch-work": {
+      "summary": "Capture and dispatch work: verify the brief premise against the target tip, the thirteen-question preflight, stage-neutral descriptions, and idempotent stage handoff.",
+      "read_when": "You are writing or dispatching a brief, verifying its premise, or preventing a stage-handoff or stale-premise contradiction.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.session-workflow.monitor-until-terminal": {
+      "summary": "Monitor a voyage to a terminal state: subscribe rather than poll, watch running captain logs, and correct a wrong premise at the stage boundary before it reaches the next brief.",
+      "read_when": "You are monitoring a dispatched voyage or mission, or a captain working on a wrong premise or base.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.session-workflow.checks": {
+      "summary": "Check facts for an operator: dispatch arms Build and UnitTest, resolve every failed Check at the reviewed commit, and a retried flake resolves as Canceled.",
+      "read_when": "You are arming, reading, or resolving a Check on a voyage.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.session-workflow.triage-a-failed-mission-or-check": {
+      "summary": "Triage a failed mission or Check by class first: stage_base_missing, ineffective_rescue, test-host crash, a single deterministic failure, or a captain runtime error.",
+      "read_when": "You are triaging a failed mission or a failed Check and need to classify the cause before recovery.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.session-workflow.recover-a-failed-mission-operator-playbook": {
+      "summary": "Recover a failed mission: cancel a duplicate rescue, find the work by commit, prove the gate in a fresh worktree, land, and close the incident with evidence.",
+      "read_when": "You are recovering a failed mission or landing recoverable work by operator.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.session-workflow.review-land-and-close": {
+      "summary": "Review, land, and close: contain a failed voyage's branch in the same action, own every incident you dispatch, and a landing's last step is closing its row.",
+      "read_when": "You are reviewing, landing, or closing Armada work, or containing a stranded branch.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.eculink.readme.source-fidelity-when-porting": {
+      "summary": "EcuLink source fidelity: reproduce a source defect, do not correct it; printable-byte filters and length truncations are load-bearing; go through the landed parameter seam.",
+      "read_when": "You are porting or reviewing an EcuLink decoder, seed-key, or command for source fidelity.",
+      "applies_to": [
+        "vessel:EcuLink"
+      ],
+      "must_retrieve": [
+        "eculink"
+      ]
+    },
+    "memory.repos.eculink.readme.when-a-source-defect-is-a-hang-escalate-do-not-decide-alone": {
+      "summary": "When a source defect is a hang, crash, or unbounded resource use, do not silently reproduce or guard it: measure reachability from the catalogue and escalate to the owner.",
+      "read_when": "You found a source defect that hangs, crashes, or uses unbounded resources while porting EcuLink.",
+      "applies_to": [
+        "vessel:EcuLink"
+      ],
+      "must_retrieve": [
+        "eculink"
+      ]
+    },
+    "memory.repos.eculink.readme.port-defects-cluster-in-response-handling-logic-not-frame-bytes": {
+      "summary": "EcuLink port defects cluster in response-handling logic (validation predicate, success or failure polarity, gate literal), not in request-frame bytes.",
+      "read_when": "You are pre-verifying or reviewing an EcuLink command port beyond the request frame bytes.",
+      "applies_to": [
+        "vessel:EcuLink"
+      ],
+      "must_retrieve": [
+        "eculink"
+      ]
+    },
+    "memory.repos.eculink.readme.a-committed-source-citation-is-the-bare-filename-not-the-decompiled-src-path": {
+      "summary": "An EcuLink committed source citation is the bare filename plus line range, never a decompiled-src path, assembly, or hash; one canonical shape, enforced by a test.",
+      "read_when": "You are writing or reviewing a committed EcuLink source citation comment.",
+      "applies_to": [
+        "vessel:EcuLink"
+      ],
+      "must_retrieve": [
+        "eculink"
+      ]
+    },
+    "memory.repos.source-glossary.readme.the-ledger-gate-s-coverage-depends-on-which-roots-resolve": {
+      "summary": "The SourceGlossary ledger gate's coverage depends on which roots resolve; a green gate proves the tree-dependent families only when the run states its resolved roots.",
+      "read_when": "You are running or reviewing a SourceGlossary ledger pass, or a sibling-tree or root-resolution failure.",
+      "applies_to": [
+        "vessel:SourceGlossary"
+      ],
+      "must_retrieve": [
+        "sourceglossary"
+      ]
+    },
+    "memory.repos.source-glossary.readme.a-fallback-to-a-twin-file-is-worse-than-a-skip": {
+      "summary": "A SourceGlossary guard that falls back to a twin file measures the wrong thing confidently; an unresolvable row is a named, counted skip, never a substitution.",
+      "read_when": "You are diagnosing a SourceGlossary guard that disagrees between a green suite and a red executor on the same commit.",
+      "applies_to": [
+        "vessel:SourceGlossary"
+      ],
+      "must_retrieve": [
+        "sourceglossary"
+      ]
+    },
+    "memory.repos.source-glossary.readme.a-row-s-evidence-field-is-a-repository-path-not-a-source-citation": {
+      "summary": "A SourceGlossary row's evidence field is a repository-relative path to a file committed in SourceGlossary, never a source-tree citation.",
+      "read_when": "You are writing or reviewing a SourceGlossary ledger row's evidence field.",
+      "applies_to": [
+        "vessel:SourceGlossary"
+      ],
+      "must_retrieve": [
+        "sourceglossary"
+      ]
+    },
+    "memory.repos.source-glossary.readme.a-landing-scope-pin-compares-two-fixed-tips-never-the-current-ledger": {
+      "summary": "A SourceGlossary landing-scope pin compares two fixed tips, never the current ledger; a guard that reads live global state is a debt every later pass pays.",
+      "read_when": "You are writing or reviewing a SourceGlossary landing-scope guard or a live-state pin.",
+      "applies_to": [
+        "vessel:SourceGlossary"
+      ],
+      "must_retrieve": [
+        "sourceglossary"
+      ]
+    },
+    "memory.repos.otrbuddy.readme.otrbuddy-delivers-every-catalogue-eculink-embeds-nothing": {
+      "summary": "OtrBuddy delivers every catalogue and EcuLink embeds none; add the bundle category first, then the EcuLink seam change in the same wave, or the build breaks.",
+      "read_when": "You are adding a catalogue category or reasoning about the OtrBuddy-to-EcuLink bundle path.",
+      "applies_to": [
+        "vessel:OtrBuddy"
+      ],
+      "must_retrieve": [
+        "otrbuddy"
+      ]
+    },
+    "memory.repos.otrbuddy.readme.the-check-profile-must-provision-every-sibling-a-test-probes": {
+      "summary": "The OtrBuddy check profile must provision every sibling a test probes; a sibling the profile does not provision is a gate that cannot go green.",
+      "read_when": "You are diagnosing an OtrBuddy check that fails only in the executor, or a missing-sibling gate.",
+      "applies_to": [
+        "vessel:OtrBuddy"
+      ],
+      "must_retrieve": [
+        "otrbuddy"
+      ]
+    },
+    "memory.repos.otrbuddy.readme.consumer-of-eculink": {
+      "summary": "OtrBuddy builds against EcuLink as a sibling; a CS0120/CS0117 gate failure after an EcuLink landing is a consumer break, and the consumer is sometimes the side that was wrong.",
+      "read_when": "You are triaging an OtrBuddy build break after an EcuLink change.",
+      "applies_to": [
+        "vessel:OtrBuddy"
+      ],
+      "must_retrieve": [
+        "otrbuddy"
       ]
     }
   }

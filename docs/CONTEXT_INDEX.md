@@ -34,13 +34,22 @@ For each source file:
 
 1. If the file carries chunk **front-matter** (a leading `---` block with
    `topic`, `summary`, `read_when`, `applies_to`, `tier`, and optional
-   `must_retrieve`), that front-matter defines one chunk. Today's files carry
-   no front-matter; this is the seam for later sub-chunked files.
+   `must_retrieve`), that front-matter defines one chunk (the `docs/ops/`
+   chapters carry front-matter). A front-matter LEAF larger than the sub-chunk
+   threshold is split like any other large leaf (below).
 2. Otherwise the **tier configuration** decides:
    - A whole-file-core source becomes one `core` chunk.
    - A section-anchored (mixed) source is split at its `##` headings; only the
      configured sections are `core`, and the rest of the file is `leaf`.
    - Any other source becomes one `leaf` chunk.
+3. **Large leaves are sub-chunked.** A leaf whose body exceeds the sub-chunk
+   threshold (`ContextIndexGenerator.LeafSubChunkThresholdBytes`, 8 KB) is split
+   at its section headings into per-section leaf chunks, and a section still over
+   the threshold is split again at the next-deeper heading level, so a single
+   load-bearing rule is a small, individually retrievable leaf. A small file, or
+   a file with no section headings, stays one chunk; a `core` chunk is never
+   sub-chunked. Each section leaf inherits the file's `applies_to` and
+   `must_retrieve`.
 
 Output is deterministic: text is normalized to LF, chunks are ordered by topic,
 the core bundle is ordered by the allowlist sequence then topic, and neither
@@ -151,8 +160,11 @@ disjoint sets:
    Also never budget-limited.
 3. **Leaves.** The remaining leaves, filtered by `applies_to` — a persona
    request excludes leaves for other personas; a vessel request excludes leaves
-   for other vessels; an `all` leaf is always eligible — then ranked and cut to
-   the leaf byte budget.
+   for other vessels; an `all` leaf is always eligible — then ranked and filled
+   into the leaf byte budget. The fill SKIPS a leaf that would exceed the
+   remaining budget and keeps filling, so a smaller relevant leaf ranked below a
+   large one is still included; ranked order and the budget cap are preserved, so
+   the result stays deterministic.
 
 Ranking is deterministic: a keyword and topic match over each chunk's topic,
 summary, read-when, and applies-to metadata, plus a light body match capped so

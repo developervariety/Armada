@@ -33,6 +33,15 @@ namespace Armada.Core.Context
         /// <summary>The manifest file name.</summary>
         public const string ManifestFileName = "manifest.json";
 
+        /// <summary>
+        /// A leaf whose chunk body would exceed this many UTF-8 bytes is sub-chunked at its <c>##</c>
+        /// section headings into per-section leaf chunks, each individually retrievable, so a single
+        /// load-bearing rule is a small leaf a realistic budget can retrieve instead of an oversized
+        /// whole-file leaf no budget reaches. A file at or under the threshold, or one with no section
+        /// structure to split on, stays one chunk. Core chunks are never sub-chunked.
+        /// </summary>
+        public const int LeafSubChunkThresholdBytes = 8 * 1024;
+
         #endregion
 
         #region Private-Members
@@ -240,10 +249,21 @@ namespace Armada.Core.Context
             ContextChunkFrontMatter fm = ContextChunkFrontMatter.Parse(raw);
 
             // 1. A source that carries its own front-matter is one chunk; the front-matter wins, and
-            //    the tier configuration is the fallback only for a field front-matter omits.
+            //    the tier configuration is the fallback only for a field front-matter omits. A large
+            //    front-matter LEAF is sub-chunked at its ## headings, each section inheriting the
+            //    front-matter's applies_to and must_retrieve, so an oversized front-matter file (a docs
+            //    chapter, say) becomes individually retrievable section leaves rather than one leaf no
+            //    budget can fetch.
             if (fm.HasFrontMatter)
             {
-                return new List<ContextChunk> { BuildFrontMatterChunk(fm, baseTopic, logicalPath, relPath) };
+                ContextChunk fmChunk = BuildFrontMatterChunk(fm, baseTopic, logicalPath, relPath);
+                if (fmChunk.Tier == ContextTierEnum.Leaf && IsOversizedLeaf(fmChunk.Text))
+                {
+                    List<ContextChunk> split = BuildLeafSectionChunks(
+                        fmChunk.Text, baseTopic, logicalPath, fmChunk.AppliesTo, fmChunk.MustRetrieve, fmChunk.Summary);
+                    if (split.Count > 1) return split;
+                }
+                return new List<ContextChunk> { fmChunk };
             }
 
             // 2. Whole-file core (memory only; docs are never on the core allowlist in v1).
@@ -260,7 +280,16 @@ namespace Armada.Core.Context
                 return BuildSectionChunks(raw, baseTopic, logicalPath, relPath);
             }
 
-            // 4. Default: one whole-file leaf.
+            // 4. Default: one whole-file leaf, sub-chunked at its ## headings when the body would
+            //    exceed the leaf threshold, so a big plain leaf (session-workflow, or a large docs
+            //    file) becomes per-section leaves a realistic budget can retrieve. A small file, or a
+            //    file with no ## structure, stays one whole-file leaf.
+            if (IsOversizedLeaf(raw))
+            {
+                List<ContextChunk> split = BuildLeafSectionChunks(
+                    raw, baseTopic, logicalPath, new List<string> { "all" }, new List<string>(), FirstHeadingOrLine(raw));
+                if (split.Count > 1) return split;
+            }
             return new List<ContextChunk> { BuildWholeFileChunk(raw, baseTopic, logicalPath, ContextTierEnum.Leaf, null) };
         }
 
@@ -324,6 +353,145 @@ namespace Armada.Core.Context
             return chunks;
         }
 
+        // True when a leaf body is large enough to sub-chunk at its ## headings.
+        private static bool IsOversizedLeaf(string text)
+        {
+            return Encoding.UTF8.GetByteCount(text ?? String.Empty) > LeafSubChunkThresholdBytes;
+        }
+
+        // Split a large leaf file into per-section LEAF chunks. It splits at the file's shallowest
+        // heading level (H2, else H3, else H4) and RECURSIVELY sub-splits any section that is still
+        // oversized and has deeper headings, so a single load-bearing rule ends up in a small leaf a
+        // realistic budget can retrieve instead of an oversized section no budget reaches. The id
+        // scheme matches the mixed-file splitter (base topic plus each heading anchor; the pre-first-
+        // heading section keeps the parent topic). Every section is a leaf and inherits the file-level
+        // applies_to and must_retrieve, so a must_retrieve file keeps its safety domain on every
+        // section. The first (title/preamble) section keeps the file-level summary.
+        private List<ContextChunk> BuildLeafSectionChunks(
+            string text, string baseTopic, string logicalPath, List<string> appliesTo, List<string> mustRetrieve, string fileSummary)
+        {
+            List<string> scope = appliesTo != null && appliesTo.Count > 0 ? appliesTo : new List<string> { "all" };
+            List<string> forced = mustRetrieve ?? new List<string>();
+            List<ContextChunk> chunks = new List<ContextChunk>();
+            EmitLeafSections(text, baseTopic, logicalPath, scope, forced, fileSummary, 2, chunks);
+            return chunks;
+        }
+
+        // The deepest heading level the leaf splitter descends to.
+        private const int MaxLeafHeadingLevel = 4;
+
+        // Recursively emit leaf sections. At each call it finds the shallowest heading level at or
+        // below startLevel that the text uses; when none, the text is emitted as one leaf. Otherwise it
+        // splits at that level and, for any section still over the threshold that carries a deeper
+        // heading, recurses one level down. The pre-first-heading section keeps the parent topic and
+        // path; each later section appends its heading anchor.
+        private void EmitLeafSections(
+            string text, string topic, string logicalPath, List<string> scope, List<string> forced, string summaryForFirst, int startLevel, List<ContextChunk> outp)
+        {
+            string[] lines = text.Split('\n');
+            int level = startLevel;
+            string marker = null!;
+            while (level <= MaxLeafHeadingLevel)
+            {
+                string m = new String('#', level) + " ";
+                if (HasHeading(lines, m)) { marker = m; break; }
+                level++;
+            }
+
+            if (marker == null)
+            {
+                outp.Add(NewLeafSection(topic, logicalPath,
+                    String.IsNullOrWhiteSpace(summaryForFirst) ? FirstHeadingOrLine(text) : summaryForFirst, scope, forced, text));
+                return;
+            }
+
+            bool first = true;
+            foreach ((string heading, string sectionText) in SplitAtMarker(lines, marker))
+            {
+                string secTopic;
+                string secPath;
+                string secSummary;
+                if (first)
+                {
+                    secTopic = topic;
+                    secPath = logicalPath;
+                    secSummary = String.IsNullOrWhiteSpace(summaryForFirst)
+                        ? (heading.Length > 0 ? heading : FirstHeadingOrLine(sectionText))
+                        : summaryForFirst;
+                }
+                else
+                {
+                    string anchor = ContextTierConfig.Slug(heading);
+                    secTopic = anchor.Length == 0 ? topic : topic + "." + anchor;
+                    secPath = anchor.Length == 0 ? logicalPath : logicalPath + "#" + anchor;
+                    secSummary = heading;
+                }
+
+                if (IsOversizedLeaf(sectionText) && level < MaxLeafHeadingLevel && HasDeeperHeading(sectionText, level + 1))
+                {
+                    EmitLeafSections(sectionText, secTopic, secPath, scope, forced, first ? summaryForFirst : "", level + 1, outp);
+                }
+                else
+                {
+                    outp.Add(NewLeafSection(secTopic, secPath, secSummary, scope, forced, sectionText));
+                }
+                first = false;
+            }
+        }
+
+        private static ContextChunk NewLeafSection(string topic, string path, string summary, List<string> scope, List<string> forced, string text)
+        {
+            return new ContextChunk
+            {
+                Topic = topic,
+                Path = path,
+                Summary = summary,
+                ReadWhen = "",
+                AppliesTo = new List<string>(scope),
+                Tier = ContextTierEnum.Leaf,
+                MustRetrieve = new List<string>(forced),
+                Text = text,
+                CoreOrder = int.MaxValue
+            };
+        }
+
+        // True when the text carries a heading at any level from minLevel..MaxLeafHeadingLevel.
+        private static bool HasDeeperHeading(string text, int minLevel)
+        {
+            string[] lines = text.Split('\n');
+            for (int lvl = minLevel; lvl <= MaxLeafHeadingLevel; lvl++)
+                if (HasHeading(lines, new String('#', lvl) + " ")) return true;
+            return false;
+        }
+
+        // Split lines at a heading marker, fence-aware. The content before the first marker (the title
+        // and any preamble) is the first section, headed by the document's H1 title text.
+        private static IEnumerable<(string heading, string text)> SplitAtMarker(string[] lines, string marker)
+        {
+            string currentHeading = FindH1(lines);
+            StringBuilder current = new StringBuilder();
+            bool inFence = false;
+
+            foreach (string line in lines)
+            {
+                string trimmed = line.TrimStart();
+                if (trimmed.StartsWith("```", StringComparison.Ordinal) || trimmed.StartsWith("~~~", StringComparison.Ordinal))
+                {
+                    inFence = !inFence;
+                }
+
+                bool isHeading = !inFence && line.StartsWith(marker, StringComparison.Ordinal);
+                if (isHeading)
+                {
+                    yield return (currentHeading, current.ToString());
+                    current.Clear();
+                    currentHeading = line.Substring(marker.Length).Trim();
+                }
+                current.Append(line).Append('\n');
+            }
+            yield return (currentHeading, current.ToString());
+        }
+
         // Split a markdown document at H2 (## ) boundaries, fence-aware. The content before the first
         // H2 (the H1 title and any preamble) is one section whose heading is the H1 title text. An H2
         // section runs until the next H2 or EOF, and includes any nested H3.
@@ -355,6 +523,23 @@ namespace Armada.Core.Context
             }
             sections.Add((currentHeading, current.ToString()));
             return sections;
+        }
+
+        // True when the document has at least one heading with this exact marker, outside a code fence.
+        private static bool HasHeading(string[] lines, string marker)
+        {
+            bool inFence = false;
+            foreach (string line in lines)
+            {
+                string trimmed = line.TrimStart();
+                if (trimmed.StartsWith("```", StringComparison.Ordinal) || trimmed.StartsWith("~~~", StringComparison.Ordinal))
+                {
+                    inFence = !inFence;
+                    continue;
+                }
+                if (!inFence && line.StartsWith(marker, StringComparison.Ordinal)) return true;
+            }
+            return false;
         }
 
         private static string FindH1(string[] lines)

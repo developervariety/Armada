@@ -11,25 +11,53 @@ safety-recall invariant is a registered unit test
 (`test/Armada.Test.Unit/Suites/Context/ContextCoverageCensusTests.cs`). The two
 database-sampling parts run by hand.
 
+This run measures the tree AFTER the coverage-remediation change (large-leaf
+sub-chunking in the generator, the over-budget-leaf skip in retrieval, and the
+per-vessel `must_retrieve` tags in the sidecar). The earlier BLOCKED run is
+kept in git history.
+
 ## Decision criteria and result
 
 | Criterion | Requirement | Measured | Verdict |
 | --- | --- | --- | --- |
 | Safety recall | 100% (required) | 100% (11 core chunks and every domain-matched must_retrieve chunk, over 10 representative requests) | PASS |
-| Failure-replay regressions among mapped cases | 0 (required) | 5 of 14 at the realistic 16 KB leaf budget (3 at a generous 64 KB) | FAIL |
-| read_when leaf recall | >= 90% (target) | 93.6% (44 of 47 leaves) | PASS |
-| Byte reduction | reported | min 87.8%, median 92.2%, max 95.3%; median 5 retrieved leaves | reported |
+| Failure-replay regressions among mapped cases | 0 (required) | 0 of 15 at the realistic 16 KB leaf budget | PASS |
+| read_when leaf recall | >= 90% (target) | 100% (62 of 62 leaves) | PASS |
+| Byte reduction | reported | min 78.4%, median 86.2%, max 86.2%; median 16 retrieved leaves | reported |
 
-**Overall: BLOCKED.** One required criterion fails: failure replay shows
-regressions. The always-on core and the EcuLink must_retrieve safety path are
-proven and ready. The orchestrator brief and the non-EcuLink vessel briefs are
-NOT safe to slim yet, because several load-bearing rules live in oversized
-whole-file leaves that no realistic leaf budget retrieves. The remedy is in the
-synthesis below and is a prerequisite of the brief-wiring step.
+**Overall: PASS.** Every required criterion passes and the target criterion is
+met. The always-on core, the per-vessel `must_retrieve` safety paths, and the
+sub-chunked orchestrator sources are all proven. The brief-wiring step is
+unblocked.
 
-The index at the measured commit holds 110 chunks: 11 core (about 21.3 KB
-total) and 99 leaves. 47 leaves carry a read_when trigger. 14 leaves are larger
-than the 16 KB realistic leaf budget.
+The index at the measured commit holds 746 chunks: 11 core (about 21.8 KB
+total) and 735 leaves. 62 leaves carry a read_when trigger. Three leaves are
+larger than the 16 KB realistic leaf budget; none is a core, a must_retrieve,
+or a mapped-failure chunk, so none can regress a mapped case (they are large
+reference sections in low-traffic docs whose own headings do not sub-divide
+them further).
+
+## What the remediation changed
+
+The earlier run was BLOCKED because several load-bearing rules lived in
+oversized whole-file leaves that no realistic leaf budget could retrieve, and a
+budget fill that stopped at the first over-budget leaf starved smaller relevant
+leaves ranked below it. Three changes remove that root cause:
+
+1. **Generator sub-chunking.** Any leaf whose body exceeds a named threshold
+   (`LeafSubChunkThresholdBytes`, 8 KB) is split at its section headings into
+   per-section leaf chunks, and a section still over the threshold is split
+   again at the next-deeper heading level. A single load-bearing rule is now a
+   small, individually retrievable leaf. Small files and core chunks are never
+   sub-chunked, so the core allowlist and the core bundle are unchanged.
+2. **Retrieval over-budget skip.** The leaf fill now SKIPS a leaf that would
+   exceed the remaining budget and keeps filling, so a smaller relevant leaf
+   ranked below a large one is still reached. Ranked order and the budget cap
+   are preserved, so retrieval stays deterministic.
+3. **Per-vessel must_retrieve tags.** The sidecar tags each per-vessel
+   source-fidelity / safety section `must_retrieve` for its own vessel domain,
+   as EcuLink already was. A safety-shaped rule for a vessel is therefore
+   budget-exempt and always delivered for that vessel's tasks.
 
 ## Method and reproduction
 
@@ -75,11 +103,10 @@ Representative requests (10): one per managed vessel with a memory chunk
 no-query request. Every request ran at a zero leaf budget, so the core and the
 must_retrieve set prove they are budget-exempt.
 
-Result: **PASS.** All 11 core chunks were returned in every request. The
-EcuLink case returned the EcuLink must_retrieve safety chunk
-(`memory.repos.eculink.readme`) every time, including at a zero budget. The
-invariant is pinned by the registered unit test, which fails the build if any
-core or must_retrieve chunk is ever dropped by budget, filter, ranking, or
+Result: **PASS.** All 11 core chunks were returned in every request. Each
+vessel case returned its vessel's must_retrieve safety chunks at a zero budget.
+The invariant is pinned by the registered unit test, which fails the build if
+any core or must_retrieve chunk is ever dropped by budget, filter, ranking, or
 error.
 
 ## Part 2 — read_when recall (deterministic)
@@ -88,18 +115,10 @@ For each leaf that carries a read_when trigger, the census synthesizes a query
 from that trigger text, runs retrieval under the leaf's own applies_to scope at
 a generous 32 KB leaf budget, and checks the leaf is returned.
 
-Result: **44 of 47 = 93.6%** (target 90% met). The 3 misses:
-
-| Missed leaf | Cause |
-| --- | --- |
-| `docs.armada-ops` | 183 KB single leaf; larger than any realistic budget, so it can never be retrieved whole. |
-| `memory.repos.armada.session-workflow` | 38.8 KB single leaf; larger than the 32 KB budget. |
-| `docs.testing` | 15 KB leaf; starved when a larger leaf ranked above it halts the budget fill. |
-
-Every miss is structural, not a safety gap: the trigger ranks the leaf highly,
-but the leaf either does not fit the budget or is starved by a larger leaf
-ranked above it. Sub-chunking the large sources (design Phase 0) removes all
-three.
+Result: **62 of 62 = 100%** (target 90% met, no misses). Sub-chunking the large
+sources removed every structural miss the earlier run reported: the rule a
+trigger names is now a small leaf that fits the budget, and the over-budget
+skip stops a large leaf ranked above it from starving it.
 
 ## Part 3 — Byte reduction
 
@@ -107,21 +126,25 @@ For each of 55 recent task descriptions, the census compares the slimmed load
 (core plus matching must_retrieve plus the ranked leaves at the 16 KB budget)
 against the eager baseline an orchestrator reads today.
 
-- Eager baseline: 463,269 bytes (AI-Memory imports 170,085 + the curated docs
-  the orchestrator is told to read 247,219 + README.md and CLAUDE.md 45,965).
-  This matches the design's measured ~462 KB.
+- Eager baseline: 276,044 bytes (AI-Memory imports 170,091 + the curated docs
+  the orchestrator is told to read 66,861 + README.md and CLAUDE.md 39,092).
+  The curated-docs figure is much smaller than the earlier run because
+  `armada-ops.md` is now a thin index and its content moved to the sub-chunked
+  `docs/ops/` chapters.
 - Core (the fixed part of every slimmed load): 21,808 bytes.
 
 | Statistic | Value |
 | --- | --- |
-| Reduction, minimum | 87.8% |
-| Reduction, median | 92.2% |
-| Reduction, maximum | 95.3% |
-| Retrieved leaves, median | 5 |
+| Reduction, minimum | 78.4% |
+| Reduction, median | 86.2% |
+| Reduction, maximum | 86.2% |
+| Retrieved leaves, median | 16 |
 
-Every sampled task cut the eager load by at least 87.8%. The median slimmed
-load is about 36 KB against the 463 KB baseline. A task with no leaf match
-loads only the 21.8 KB core (95.3%).
+Every sampled task cut the eager load by at least 78.4%. The median retrieved-
+leaf count is higher than the earlier run because the over-budget skip now
+fills the budget with several small section leaves instead of stopping early;
+the slimmed load is a set of small, precisely relevant leaves rather than one
+or two big ones, and the reduction stays large.
 
 ## Part 4 — Failure replay (best-effort, real)
 
@@ -132,62 +155,36 @@ be confidently mapped was counted as unmapped, not forced. The census then
 checked whether the slimmed brief for that task's domain would carry the chunk
 (core, or retrieved for the domain within the realistic budget).
 
-Result at the 16 KB realistic budget: **mapped 14, regressions 5, unmapped 21.**
+Result at the 16 KB realistic budget: **mapped 15, regressions 0, unmapped 20.**
 
-Mapping summary by class:
+Mapping summary by class (aggregate; no signal text or identifiers recorded):
 
-| Signal class mapped | Chunk | Domain | Carried |
-| --- | --- | --- | --- |
-| 5 EcuLink source-fidelity contradictions/gaps | `memory.repos.eculink.readme` | EcuLink | yes (all 5; must_retrieve, budget-exempt) |
-| 2 SourceGlossary sibling-tree failures | `memory.repos.source-glossary.readme` | SourceGlossary | 1 of 2 |
-| 3 stage-handoff / rescue-brief truncations | `...readme.briefs-and-captain-instructions` | orchestrator | 2 of 3 |
-| 3 stale-premise / stale-git-anchor contradictions | `memory.repos.armada.session-workflow` | orchestrator | 1 of 3 |
-| 1 stale-checkout / dock-sibling | `...readme.host-and-container-facts` | orchestrator | yes |
+| Signal class mapped | Chunk domain | Carried |
+| --- | --- | --- |
+| EcuLink source-fidelity / citation-shape contradictions | EcuLink source-fidelity sections (must_retrieve) | yes (all) |
+| SourceGlossary sibling-tree / root-resolution failures | SourceGlossary ledger-gate section (must_retrieve) | yes (all) |
+| Brief-premise / stale-git-anchor contradictions | session-workflow capture-and-dispatch sub-leaves (orchestrator) | yes (all) |
+| Stage-handoff / rescue-brief truncations | armada README briefs-and-captain-instructions (orchestrator) | yes (all) |
+| Doc-vs-source and green-gate-ran-nothing lessons | armada README doc-comment / build-and-test (orchestrator) | yes (all) |
+| Stale-checkout / dock-sibling | armada README host-and-container-facts (orchestrator) | yes |
 
-The 21 unmapped signals are mostly dock and environment provisioning failures
+The 20 unmapped signals are mostly dock and environment provisioning failures
 on vessels that have no memory chunk; no existing rule prevents them, so
 slimming cannot regress them.
 
-Budget sensitivity of the regression count:
+Budget sensitivity: the regression count is 0 at the 16 KB realistic budget and
+stays 0 at wider budgets. The two mechanisms that caused the earlier floor of 3
+are both removed: the needed rules are now small sub-chunked leaves, and the
+per-vessel safety rules are budget-exempt must_retrieve leaves.
 
-| Leaf budget | Regressions among 14 mapped |
-| --- | --- |
-| 16 KB (realistic) | 5 |
-| 32 KB (generous) | 4 |
-| 64 KB | 3 (floor) |
+## Synthesis
 
-The floor of 3 persists at any realistic budget. All 5 regressions are the same
-mechanism: a load-bearing rule lives in an oversized whole-file leaf, and either
-(a) the leaf is larger than the budget, or (b) a still-larger leaf ranked above
-it halts the budget fill before the needed leaf is reached (the retrieval fill
-stops at the first over-budget leaf). At the 64 KB budget the 3 that remain
-include a 2.4 KB target chunk that is starved by a larger leaf ranked above it,
-which shows the fill behavior, not the target size, is the deeper cause.
-
-The EcuLink source-fidelity path had zero regressions at every budget, because
-its rule is a must_retrieve leaf and is budget-exempt.
-
-## Synthesis and recommended fixes
-
-- The safety guarantee holds. The core and the EcuLink must_retrieve safety
-  chunk are always delivered. Byte reduction is large (about 92% median).
-- The read_when misses (3) and the failure-replay regressions (5) share one
-  root cause: a few oversized whole-file leaves — chiefly `docs.armada-ops`
-  (183 KB) and `memory.repos.armada.session-workflow` (38.8 KB) — that no
-  realistic leaf budget can retrieve and that starve smaller relevant leaves
-  ranked below them.
-- Prerequisites of the brief-wiring step, in order:
-  1. Sub-chunk the large orchestrator sources into section leaves with
-     front-matter (design Phase 0), so the specific needed rule is a small,
-     retrievable leaf. This alone removes every read_when miss and every
-     orchestrator regression.
-  2. Consider tagging each per-vessel fidelity readme `must_retrieve` for its
-     own domain, as EcuLink already is. The EcuLink path proves the mechanism
-     is the reliable one; SourceGlossary, without it, regressed.
-  3. Consider changing the retrieval leaf fill to skip an over-budget leaf and
-     keep filling, rather than stop at the first over-budget leaf. This is a
-     retrieval-service change, outside this census.
-
-Until at least the first fix lands, brief slimming is safe only for the
-always-on core and the EcuLink must_retrieve path, not for the orchestrator or
-the non-EcuLink vessel briefs.
+- The safety guarantee holds. The core and every per-vessel must_retrieve
+  safety chunk are always delivered. Byte reduction stays large (about 86%
+  median) while the slimmed load is now a set of small, precisely relevant
+  leaves.
+- The read_when misses and the failure-replay regressions of the earlier run
+  are both resolved by the three remediation changes above. No required
+  criterion fails.
+- The brief-wiring step is unblocked for the orchestrator and for every managed
+  vessel, not only the always-on core and the EcuLink path.

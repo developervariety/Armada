@@ -121,6 +121,42 @@ namespace Armada.Test.Unit.Suites.Context
                 return Task.CompletedTask;
             });
 
+            await RunTest("Budget_SkipsOverBudgetLeaf_AndIncludesSmallerRankedBelow", () =>
+            {
+                // A large leaf ranks first for the query but does not fit the budget; a smaller,
+                // still-relevant leaf ranks below it and does fit. The fill must SKIP the large leaf
+                // and still include the small one, rather than stopping at the first over-budget leaf.
+                List<ContextChunk> chunks = new List<ContextChunk>
+                {
+                    Core("core.only", 1, "Core body."),
+                    Leaf("m.target-extra-large", new List<string> { "all" }, null, new String('L', 5000)),
+                    Leaf("m.target-small", new List<string> { "all" }, null, new String('s', 400)),
+                };
+                ContextRetrievalService service = new ContextRetrievalService(chunks);
+
+                ContextRetrievalResult result = service.Retrieve(new ContextRetrievalRequest
+                {
+                    Query = "target extra",
+                    MaxLeafBytes = 1000
+                });
+
+                List<string> topics = result.Leaves.Select(l => l.Topic).ToList();
+                AssertTrue(topics.Contains("m.target-small"),
+                    "the smaller relevant leaf ranked below the large one is still included");
+                AssertFalse(topics.Contains("m.target-extra-large"),
+                    "the over-budget leaf is skipped, not returned");
+                AssertTrue(result.LeafBytes <= 1000, "the budget cap is never exceeded");
+
+                // Deterministic: the same request yields the same leaf set.
+                ContextRetrievalResult again = service.Retrieve(new ContextRetrievalRequest
+                {
+                    Query = "target extra",
+                    MaxLeafBytes = 1000
+                });
+                AssertEqual(String.Join(",", topics), String.Join(",", again.Leaves.Select(l => l.Topic)));
+                return Task.CompletedTask;
+            });
+
             await RunTest("Ordering_IsDeterministic_AcrossRuns", () =>
             {
                 ContextRetrievalService a = new ContextRetrievalService(SampleChunks());
