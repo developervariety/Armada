@@ -6,6 +6,22 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Design docs for two Off-by-default typed decisions
+
+- Added `docs/design/typed-decision-leak-hunk.md` (decision `leak_hunk`, D7):
+  a design for an advisory per-hunk leak classifier that runs after the
+  deterministic `DockBoundaryScanner`. The deterministic scanner and its two
+  call sites stay first and unconditional; the model is an additive pass that
+  can flag a suspected boundary concern but never changes the scan verdict,
+  never blocks a landing, and is off by default.
+- Added `docs/design/typed-decision-log-watch.md` (decision `log_watch`, D8):
+  a design for a bounded, read-only screen over each `InProgress` mission's
+  log that posts a voyage-tagged board note and a `captain.course_flag` event
+  when a running captain drifts onto a wrong premise, base, or stage. It never
+  stops, steers, or re-dispatches a captain, and is off by default.
+- Both are design only: no wired code, tests, or migration. Implementation is
+  a later row after the owner reviews the design.
+
 ### Dispatch enforces the objective preflight
 
 - An objective now carries a dispatch preflight: an answer for each numbered

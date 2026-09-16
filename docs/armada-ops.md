@@ -1957,6 +1957,15 @@ recorded. Read the flow with:
 select payload from events where event_type like 'typed_decision.%';
 ```
 
+Two decision points are described as design documents before any code lands, both
+`Off` by default and reviewed by the owner before implementation:
+[`leak_hunk`](design/typed-decision-leak-hunk.md) (an advisory per-hunk leak
+classifier behind the deterministic dock-boundary scanner) and
+[`log_watch`](design/typed-decision-log-watch.md) (a read-only screen over a
+running mission's log that posts a voyage-tagged board note and a
+`captain.course_flag` event). Neither blocks, stops, or dispatches; each only
+flags.
+
 ### Vessel Workspace
 
 The Workspace surface (dashboard `Workspace` page, `POST
