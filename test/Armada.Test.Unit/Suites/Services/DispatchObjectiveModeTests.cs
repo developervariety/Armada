@@ -15,6 +15,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Settings;
     using Armada.Server;
     using Armada.Server.Mcp;
+    using Armada.Server.WebSocket;
     using Armada.Test.Common;
     using Armada.Test.Unit.TestHelpers;
     using TestResourcePressure = global::Test.Shared.Infrastructure.TestResourcePressure;
@@ -26,7 +27,9 @@ namespace Armada.Test.Unit.Suites.Services
     /// bug was that the operator dispatch path did not, so a Research objective linked to an
     /// <c>armada_dispatch</c> produced Implementation missions on an Implementation pipeline. These
     /// tests pin the single shared derivation rule, the operator path deriving from the linked
-    /// objective, and complete read-only pipeline stage materialization.
+    /// objective, and complete read-only pipeline stage materialization. They also pin operator-confirmed
+    /// stage skips: every dispatch surface drops the named stages through one shared rule, re-links the
+    /// remaining stages across the gap, and refuses the Judge and unknown persona names.
     /// </summary>
     public sealed class DispatchObjectiveModeTests : TestSuite
     {
@@ -342,6 +345,216 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertTrue(operatorMissions.All(m => m.IsReadOnlyMode),
                             mode + " must remain read-only across every operator stage");
                     }
+                }
+            });
+
+            await RunTest("Operator dispatch with skipStages TestEngineer drops the stage and links the Judge to the Worker", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ServiceHarness harness = await ServiceHarness.CreateAsync(testDb).ConfigureAwait(false);
+                    Pipeline tested = await CreateTestedPipelineAsync(testDb).ConfigureAwait(false);
+
+                    VoyageDispatchResult result = await harness.NewDispatchService().DispatchAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "skip test engineer",
+                        VesselId = harness.Vessel.Id,
+                        PipelineId = tested.Id,
+                        CodeContextMode = "off",
+                        ObjectiveAuthContext = McpTestCaller.Operator,
+                        SkipStages = new List<string> { "TestEngineer" },
+                        SkipStagesReason = "docs-only change",
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("Update the guide", "Docs-only change.")
+                        }
+                    }).ConfigureAwait(false);
+
+                    AssertTrue(result.Succeeded, "dispatch with a skipped stage should succeed: " + JsonSerializer.Serialize(result.Value));
+                    List<Mission> created = await testDb.Driver.Missions.EnumerateByVoyageAsync(result.Voyage!.Id).ConfigureAwait(false);
+                    AssertEqual("Worker|1|none;Judge|3|Worker", String.Join(";", DescribePipelineGraph(created)),
+                        "the TestEngineer stage must be dropped and the Judge must depend on the Worker across the gap");
+                }
+            });
+
+            await RunTest("A skipped stage records voyage.stage_skipped with persona, reason and confirmer", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ServiceHarness harness = await ServiceHarness.CreateAsync(testDb).ConfigureAwait(false);
+                    Pipeline tested = await CreateTestedPipelineAsync(testDb).ConfigureAwait(false);
+
+                    VoyageDispatchResult result = await harness.NewDispatchService().DispatchAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "skip event",
+                        VesselId = harness.Vessel.Id,
+                        PipelineId = tested.Id,
+                        CodeContextMode = "off",
+                        ObjectiveAuthContext = McpTestCaller.Operator,
+                        SkipStages = new List<string> { "TestEngineer" },
+                        SkipStagesReason = "docs-only change",
+                        Missions = new List<MissionDescription> { new MissionDescription("Update the guide", "Docs-only change.") }
+                    }).ConfigureAwait(false);
+                    AssertTrue(result.Succeeded, "dispatch should succeed");
+
+                    List<ArmadaEvent> events = await testDb.Driver.Events
+                        .EnumerateByTypeAsync(PipelineStageSkip.StageSkippedEventType).ConfigureAwait(false);
+                    AssertEqual(1, events.Count, "one event per skipped stage");
+                    AssertEqual(result.Voyage!.Id, events[0].VoyageId, "the event names the voyage");
+                    string payload = events[0].Payload ?? String.Empty;
+                    AssertContains("TestEngineer", payload, "the event names the persona");
+                    AssertContains("docs-only change", payload, "the event carries the reason");
+                    AssertContains(PipelineStageSkip.DescribeConfirmer(McpTestCaller.Operator), payload, "the event names who confirmed the skip");
+                }
+            });
+
+            await RunTest("skipStages naming the Judge is refused by name and creates no voyage", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ServiceHarness harness = await ServiceHarness.CreateAsync(testDb).ConfigureAwait(false);
+                    Pipeline tested = await CreateTestedPipelineAsync(testDb).ConfigureAwait(false);
+
+                    VoyageDispatchResult result = await harness.NewDispatchService().DispatchAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "skip judge",
+                        VesselId = harness.Vessel.Id,
+                        PipelineId = tested.Id,
+                        CodeContextMode = "off",
+                        SkipStages = new List<string> { "Judge" },
+                        Missions = new List<MissionDescription> { new MissionDescription("Change it", "Implement.") }
+                    }).ConfigureAwait(false);
+
+                    AssertFalse(result.Succeeded, "skipping the Judge must be refused");
+                    AssertContains(PipelineStageSkip.JudgeRefusedCode, JsonSerializer.Serialize(result.Value));
+                    List<Voyage> voyages = await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false);
+                    AssertEqual(0, voyages.Count, "a refused skip leaves no voyage behind");
+
+                    bool admiralRefused = false;
+                    try
+                    {
+                        await harness.Admiral.DispatchVoyageAsync("skip judge", "direct", harness.Vessel.Id,
+                            new List<MissionDescription> { new MissionDescription("Change it", "Implement.") },
+                            tested.Id, null, new StageSkipRequest { Stages = new List<string> { "judge" }, ConfirmedBy = "operator" }).ConfigureAwait(false);
+                    }
+                    catch (StageSkipRefusedException refused)
+                    {
+                        admiralRefused = refused.Code == PipelineStageSkip.JudgeRefusedCode;
+                    }
+                    AssertTrue(admiralRefused, "the admiral materialisation layer refuses the Judge too, case-insensitively");
+                }
+            });
+
+            await RunTest("skipStages naming a persona outside the pipeline is refused by name", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ServiceHarness harness = await ServiceHarness.CreateAsync(testDb).ConfigureAwait(false);
+                    Pipeline tested = await CreateTestedPipelineAsync(testDb).ConfigureAwait(false);
+
+                    VoyageDispatchResult result = await harness.NewDispatchService().DispatchAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "skip unknown",
+                        VesselId = harness.Vessel.Id,
+                        PipelineId = tested.Id,
+                        CodeContextMode = "off",
+                        SkipStages = new List<string> { "Usability Engineer" },
+                        Missions = new List<MissionDescription> { new MissionDescription("Change it", "Implement.") }
+                    }).ConfigureAwait(false);
+
+                    AssertFalse(result.Succeeded, "an unknown persona must be refused");
+                    string body = JsonSerializer.Serialize(result.Value);
+                    AssertContains(PipelineStageSkip.UnknownPersonaCode, body);
+                    AssertContains("Usability Engineer", body, "the refusal names the persona");
+                    List<Voyage> voyages = await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false);
+                    AssertEqual(0, voyages.Count, "a refused skip leaves no voyage behind");
+                }
+            });
+
+            await RunTest("Alias dispatch and a skipped whole order group chain the remaining stages across the gap", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ServiceHarness harness = await ServiceHarness.CreateAsync(testDb).ConfigureAwait(false);
+                    Pipeline reference = new Pipeline("ReferencePortingTested");
+                    reference.Stages = new List<PipelineStage>
+                    {
+                        new PipelineStage(1, "Worker"),
+                        new PipelineStage(2, "PortingReferenceAnalyst"),
+                        new PipelineStage(3, "TestEngineer"),
+                        new PipelineStage(4, "Judge")
+                    };
+                    reference = await testDb.Driver.Pipelines.CreateAsync(reference).ConfigureAwait(false);
+
+                    VoyageDispatchResult result = await harness.NewDispatchService().DispatchAsync(new SharedVoyageDispatchRequest
+                    {
+                        Title = "alias skip",
+                        VesselId = harness.Vessel.Id,
+                        PipelineId = reference.Id,
+                        CodeContextMode = "off",
+                        SkipStages = new List<string> { "PortingReferenceAnalyst", "Test Engineer" },
+                        Missions = new List<MissionDescription>
+                        {
+                            new MissionDescription("Port the parser", "Implement.") { Alias = "parser" }
+                        }
+                    }).ConfigureAwait(false);
+
+                    AssertTrue(result.Succeeded, "alias dispatch with skips should succeed: " + JsonSerializer.Serialize(result.Value));
+                    List<Mission> created = await testDb.Driver.Missions.EnumerateByVoyageAsync(result.Voyage!.Id).ConfigureAwait(false);
+                    AssertEqual("Worker|1|none;Judge|4|Worker", String.Join(";", DescribePipelineGraph(created)),
+                        "the alias path must use the same rule: two skipped groups, Judge linked to Worker");
+                    List<ArmadaEvent> events = await testDb.Driver.Events
+                        .EnumerateByTypeAsync(PipelineStageSkip.StageSkippedEventType).ConfigureAwait(false);
+                    AssertEqual(2, events.Count, "one event per skipped stage on the alias path");
+                }
+            });
+
+            await RunTest("WebSocket create_voyage with skipStages materialises the pipeline without the stage", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    ServiceHarness harness = await ServiceHarness.CreateAsync(testDb).ConfigureAwait(false);
+                    Pipeline tested = await CreateTestedPipelineAsync(testDb).ConfigureAwait(false);
+                    harness.Vessel.DefaultPipelineId = tested.Id;
+                    await testDb.Driver.Vessels.UpdateAsync(harness.Vessel).ConfigureAwait(false);
+
+                    JsonSerializerOptions options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                    WebSocketCommandHandler handler = new WebSocketCommandHandler(
+                        harness.Admiral, testDb.Driver, null!, null, null, null, options, mission => { }, voyage => { });
+                    string rawBody = JsonSerializer.Serialize(new
+                    {
+                        Route = "command",
+                        action = "create_voyage",
+                        data = new
+                        {
+                            Title = "ws skip",
+                            VesselId = harness.Vessel.Id,
+                            SkipStages = new[] { "TestEngineer" },
+                            Missions = new[] { new { Title = "Update the guide", Description = "Docs-only change." } }
+                        }
+                    });
+                    await handler.HandleCommandAsync("create_voyage", new WebSocketCommand { Action = "create_voyage" }, rawBody, McpTestCaller.Operator).ConfigureAwait(false);
+
+                    List<Voyage> voyages = await testDb.Driver.Voyages.EnumerateAsync().ConfigureAwait(false);
+                    AssertEqual(1, voyages.Count, "the WebSocket command creates one voyage");
+                    List<Mission> created = await testDb.Driver.Missions.EnumerateByVoyageAsync(voyages[0].Id).ConfigureAwait(false);
+                    AssertEqual("Worker|1|none;Judge|3|Worker", String.Join(";", DescribePipelineGraph(created)),
+                        "the WebSocket surface must apply the same skip rule");
+
+                    string refusal = JsonSerializer.Serialize(await handler.HandleCommandAsync("create_voyage", new WebSocketCommand { Action = "create_voyage" },
+                        JsonSerializer.Serialize(new
+                        {
+                            Route = "command",
+                            action = "create_voyage",
+                            data = new
+                            {
+                                Title = "ws skip judge",
+                                VesselId = harness.Vessel.Id,
+                                SkipStages = new[] { "Judge" },
+                                Missions = new[] { new { Title = "Change it", Description = "Implement." } }
+                            }
+                        }), McpTestCaller.Operator).ConfigureAwait(false));
+                    AssertContains(PipelineStageSkip.JudgeRefusedCode, refusal, "the WebSocket surface refuses the Judge by name");
                 }
             });
 

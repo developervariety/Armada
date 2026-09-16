@@ -415,7 +415,7 @@ namespace Armada.Server
                 NonGoals = summary.NonGoals.Count > 0 ? summary.NonGoals : null,
                 RolloutConstraints = summary.RolloutConstraints.Count > 0 ? summary.RolloutConstraints : null,
                 SuggestedPipelineId = summary.SuggestedPipelineId,
-                Preparation = summary.Preparation,
+                Preparation = PreserveOperatorStageSkip(summary.Preparation, objective),
                 RefinementSessionIds = MergeDistinct(objective.RefinementSessionIds, session.Id)
             };
 
@@ -1272,6 +1272,8 @@ namespace Armada.Server
                 response.RolloutConstraints = NormalizeLines(response.RolloutConstraints);
                 if (response.Preparation != null)
                 {
+                    // A stage skip is an operator decision; a model-written summary never carries one.
+                    response.Preparation.StageSkip = null;
                     response.Preparation.RequiredClaimKinds ??= new List<ObjectivePreparationClaimKindEnum>();
                     response.Preparation.RequiredSiblingInputs ??= new List<ObjectivePreparationSiblingInput>();
                     response.Preparation.Claims ??= new List<ObjectivePreparationClaim>();
@@ -1290,6 +1292,17 @@ namespace Armada.Server
             {
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Carry the objective's operator-confirmed stage skip onto a refinement-produced preparation, so
+        /// applying a summary neither drops the operator's skip nor introduces one of its own.
+        /// </summary>
+        private static ObjectivePreparation? PreserveOperatorStageSkip(ObjectivePreparation? preparation, Objective objective)
+        {
+            if (preparation == null) return null;
+            preparation.StageSkip = objective?.Preparation?.StageSkip;
+            return preparation;
         }
 
         private bool IsStopRequested(string sessionId)

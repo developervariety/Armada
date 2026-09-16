@@ -296,7 +296,10 @@ built and dormant until a Gate flip):
   `stage_optional` Warning the operator confirms through `skipStages` before the
   voyage is materialised; only at or above `0.95` is a stage marked auto-skip. The
   model never removes a stage by itself below `0.95` and never proposes the Judge.
-  With the decision `Off` the preview lists every stage.
+  With the decision `Off` the preview lists every stage. Auto-skip is not taken:
+  a stage is dropped only when an operator names it in `skipStages` at dispatch
+  or in a confirmed `preparation.stageSkip` (see
+  [05 Standard workflow](05-standard-workflow.md)).
 - `handoff_outcome` (D20) sits on the stage handoff, before the next mission's
   brief is frozen, and turns "failed at the Judge after four stages" into "held
   after one". A `blocked_missing_context`, `blocked_owner_question`, or

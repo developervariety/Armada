@@ -43,5 +43,13 @@ namespace Armada.Core.Models
         /// is unanswered, so an objective prepared without recorded answers is not dispatchable.
         /// </summary>
         public ObjectivePreflight Preflight { get; set; } = new ObjectivePreflight();
+
+        /// <summary>
+        /// Operator-confirmed pipeline stages the autonomous scheduler drops when it dispatches this
+        /// objective. Honoured only when <see cref="StageSkipRequest.ConfirmedBy"/> is set; a list with no
+        /// confirmer makes the scheduler skip the objective instead. Nothing writes this from the
+        /// stage-necessity classifier or a refinement summary: a skip is an operator decision.
+        /// </summary>
+        public StageSkipRequest? StageSkip { get; set; } = null;
     }
 }

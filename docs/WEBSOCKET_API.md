@@ -153,7 +153,12 @@ this frame and not in the URL. Query strings appear in request logs.
   user as the owner, as the matching REST create does, and replaces any owner
   the `data` object names. Without an authenticated caller it returns
   `command.error` and writes nothing. `create_voyage` with missions dispatches
-  through the admiral, so the voyage and missions take the vessel's owner. The
+  through the admiral, so the voyage and missions take the vessel's owner.
+  `create_voyage` also accepts `skipStages` and `skipStagesReason`: when
+  `skipStages` names a stage, the voyage materialises the vessel's effective
+  pipeline without those stages, under the same rule as `armada_dispatch`. A
+  refused skip returns `command.error` with `code` `stage_skip_judge_refused`
+  or `stage_skip_unknown_persona`. The
   `restart_mission` progress signal takes the mission's owner.
 - `subscribe` is open to any authenticated session. Each event carries a
   delivery scope and reaches only the sessions that may read the record it

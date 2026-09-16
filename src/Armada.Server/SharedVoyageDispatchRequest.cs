@@ -95,5 +95,18 @@ namespace Armada.Server
         /// resolved at assignment time.
         /// </summary>
         public List<CaptainAssignmentOverride>? CaptainAssignments { get; set; } = null;
+
+        /// <summary>
+        /// Persona names of pipeline stages the operator confirms this voyage does not need, for
+        /// example <c>TestEngineer</c>. The stages are dropped when the voyage is materialised and the
+        /// remaining stages chain across the gap. The Judge can never be skipped, and a name that is not
+        /// a stage of the effective pipeline refuses the dispatch.
+        /// </summary>
+        public List<string>? SkipStages { get; set; } = null;
+
+        /// <summary>
+        /// Why the operator skips <see cref="SkipStages"/>. Recorded on each <c>voyage.stage_skipped</c> event.
+        /// </summary>
+        public string? SkipStagesReason { get; set; } = null;
     }
 }

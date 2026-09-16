@@ -1451,6 +1451,80 @@ namespace Armada.Test.Unit.Suites.Services
                     "Structured sibling preparation must reach the autonomous mission.");
             }).ConfigureAwait(false);
 
+            await RunTest("An operator-confirmed preparation stage skip reaches the scheduler dispatch", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("stage-skip-vessel", "https://github.com/test/skip.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Docs-only change with a confirmed skip",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id },
+                    Preparation = new ObjectivePreparation
+                    {
+                        StageSkip = new StageSkipRequest
+                        {
+                            Stages = new List<string> { "TestEngineer" },
+                            Reason = "docs-only change",
+                            ConfirmedBy = "operator@example.com"
+                        }
+                    }
+                }).ConfigureAwait(false);
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, EnabledSchedulerSettings());
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(1, admiral.DispatchVoyageCallCount, "The objective dispatches.");
+                AssertNotNull(admiral.LastStageSkip, "The confirmed skip reaches the admiral.");
+                AssertEqual("TestEngineer", admiral.LastStageSkip!.Stages[0], "The confirmed persona is passed through.");
+                AssertEqual("operator@example.com", admiral.LastStageSkip.ConfirmedBy, "The confirmer travels with the skip.");
+            }).ConfigureAwait(false);
+
+            await RunTest("An unconfirmed preparation stage skip is a named skip, never a dispatch", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+
+                Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("unconfirmed-skip-vessel", "https://github.com/test/unconfirmed.git")
+                {
+                    TenantId = Constants.DefaultTenantId
+                }).ConfigureAwait(false);
+                Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
+                {
+                    TenantId = Constants.DefaultTenantId,
+                    UserId = Constants.DefaultUserId,
+                    Title = "Skip with no confirmer",
+                    Status = ObjectiveStatusEnum.Scoped,
+                    AutoDispatchEnabled = true,
+                    VesselIds = new List<string> { vessel.Id },
+                    Preparation = new ObjectivePreparation
+                    {
+                        StageSkip = new StageSkipRequest { Stages = new List<string> { "TestEngineer" } }
+                    }
+                }).ConfigureAwait(false);
+
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousObjectiveScheduler scheduler = CreateScheduler(testDb.Driver, admiral, EnabledSchedulerSettings());
+
+                await scheduler.SweepAsync().ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchVoyageCallCount, "An unconfirmed skip must not dispatch.");
+                AssertContains("stage_skip_unconfirmed", scheduler.LastSkipReason ?? string.Empty, "The skip is named.");
+                List<ArmadaEvent> events = await testDb.Driver.Events
+                    .EnumerateByTypeAsync("objective_scheduler.skipped_stage_skip_unconfirmed")
+                    .ConfigureAwait(false);
+                AssertEqual(1, events.Count, "The skip is recorded as an objective event.");
+                AssertContains(objective.Id, events[0].Message ?? string.Empty, "The event names the objective.");
+            }).ConfigureAwait(false);
+
             await RunTest("A start ref that does not resolve is reported as start_from_ref_missing, not dispatch_error", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -2929,9 +3003,16 @@ namespace Armada.Test.Unit.Suites.Services
             public Func<Task<int>>? OnReconcileMergeEntries { get; set; }
             public Func<int, bool>? OnIsProcessExitHandled { get; set; }
             public List<MissionDescription>? LastMissionDescriptions { get; set; }
+            public StageSkipRequest? LastStageSkip { get; set; }
 
             public Task<Voyage> DispatchVoyageAsync(string title, string description, string vesselId, List<MissionDescription> missionDescriptions, CancellationToken token = default)
                 => throw new NotImplementedException();
+
+            public Task<Voyage> DispatchVoyageAsync(string title, string description, string vesselId, List<MissionDescription> missionDescriptions, string? pipelineId, List<SelectedPlaybook>? selectedPlaybooks, StageSkipRequest? stageSkip, CancellationToken token = default)
+            {
+                LastStageSkip = stageSkip;
+                return DispatchVoyageAsync(title, description, vesselId, missionDescriptions, pipelineId, selectedPlaybooks, token);
+            }
 
             public Task<Voyage> DispatchVoyageAsync(string title, string description, string vesselId, List<MissionDescription> missionDescriptions, List<SelectedPlaybook>? selectedPlaybooks, CancellationToken token = default)
                 => throw new NotImplementedException();

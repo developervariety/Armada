@@ -101,6 +101,15 @@ namespace Armada.Server
             VoyageDispatchResult? validation = ValidateRequest(request.Title, request.Missions);
             if (validation != null) return validation;
 
+            try
+            {
+                PipelineStageSkip.ValidateNamesOrThrow(PipelineStageSkip.FromOperator(request.SkipStages, request.SkipStagesReason, request.ObjectiveAuthContext));
+            }
+            catch (StageSkipRefusedException refused)
+            {
+                return StageSkipRefusedResult(refused);
+            }
+
             string vesselId = request.VesselId;
             Vessel? dispatchVessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
             if (dispatchVessel == null) return VoyageDispatchResult.NotFound(new
@@ -287,6 +296,8 @@ namespace Armada.Server
                 }
             }
 
+            StageSkipRequest? stageSkip = PipelineStageSkip.FromOperator(request.SkipStages, request.SkipStagesReason, request.ObjectiveAuthContext);
+
             Voyage? voyage = null;
             try
             {
@@ -301,7 +312,8 @@ namespace Armada.Server
                         missions,
                         mergedPlaybooks,
                         pipelineId,
-                        request.Settings ?? _Settings).ConfigureAwait(false);
+                        request.Settings ?? _Settings,
+                        stageSkip).ConfigureAwait(false);
                 }
                 else
                 {
@@ -312,6 +324,7 @@ namespace Armada.Server
                         missions,
                         pipelineId,
                         mergedPlaybooks,
+                        stageSkip,
                         token).ConfigureAwait(false);
                 }
 
@@ -335,6 +348,10 @@ namespace Armada.Server
                     return linkConflict;
                 }
                 admission?.MarkLinked();
+            }
+            catch (StageSkipRefusedException refused) when (voyage == null)
+            {
+                return StageSkipRefusedResult(refused);
             }
             catch (FleetCapacityAdmissionException capacity)
             {
@@ -1338,6 +1355,17 @@ namespace Armada.Server
             });
         }
 
+        private static VoyageDispatchResult StageSkipRefusedResult(StageSkipRefusedException refused)
+        {
+            return VoyageDispatchResult.BadRequest(new
+            {
+                Error = refused.Message,
+                refused.Code,
+                refused.Persona,
+                Action = "Remove the refused name from skipStages. The Judge is never skippable; other names must match a stage of the effective pipeline."
+            });
+        }
+
         private static VoyageDispatchResult CapacityConflictResult(FleetCapacityAdmissionException capacity)
         {
             return VoyageDispatchResult.Conflict(new
@@ -1359,7 +1387,8 @@ namespace Armada.Server
             List<MissionDescription> missions,
             List<SelectedPlaybook> selectedPlaybooks,
             string? pipelineId,
-            ArmadaSettings? settings = null)
+            ArmadaSettings? settings = null,
+            StageSkipRequest? stageSkip = null)
         {
             if (vessel == null)
                 return new { Error = "Vessel not found: " + vesselId };
@@ -1374,7 +1403,9 @@ namespace Armada.Server
                 return new { Error = ex.Message };
             }
 
-            Pipeline? pipeline = await _Admiral.ResolvePipelineAsync(pipelineId, vessel).ConfigureAwait(false);
+            Pipeline? resolvedPipeline = await _Admiral.ResolvePipelineAsync(pipelineId, vessel).ConfigureAwait(false);
+            PipelineStageSkipResult skipResult = PipelineStageSkip.Apply(resolvedPipeline, stageSkip);
+            Pipeline? pipeline = skipResult.Pipeline;
             bool isMultiStage = pipeline != null
                 && !(pipeline.Stages.Count == 1 && pipeline.Stages[0].PersonaName == "Worker");
 
@@ -1513,6 +1544,7 @@ namespace Armada.Server
                 voyage.Status = anyAssigned ? VoyageStatusEnum.InProgress : VoyageStatusEnum.Open;
                 voyage.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.Voyages.UpdateAsync(voyage).ConfigureAwait(false);
+                await PipelineStageSkip.EmitSkippedEventsAsync(_Database, _Logging, voyage, skipResult, stageSkip).ConfigureAwait(false);
 
                 return voyage;
             }

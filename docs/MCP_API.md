@@ -260,6 +260,25 @@ preflight. It overrides only the preflight; any other blocking issue still
 refuses the dispatch, and the override is recorded as an
 `objective.preflight_overridden` event naming the operator.
 
+`armada_dispatch` accepts `skipStages`, an array of persona names the operator
+confirms the voyage does not need (for example `["TestEngineer"]`), and an
+optional `skipStagesReason`. The named stages are dropped when the voyage is
+materialised and the remaining stages chain across the gap: each kept stage
+depends on the last kept stage before it. One `voyage.stage_skipped` event is
+recorded per dropped stage; its payload carries `Persona`, `StageOrder`,
+`Reason` and `Confirmer` (the calling principal). The same rule applies to REST
+`POST /api/v1/voyages` (`SkipStages`), WebSocket `create_voyage` (`skipStages`,
+which materialises the vessel's effective pipeline when set), alias dispatch,
+and the autonomous scheduler. The dispatch is refused, and nothing is created,
+when a name is the Judge (`stage_skip_judge_refused`), is blank or is not a stage
+of the effective pipeline (`stage_skip_unknown_persona`), or when only the Judge
+would remain (`stage_skip_leaves_no_work`). A `stage_optional` preview Warning
+is advice only: nothing is skipped unless the operator names it. The autonomous
+scheduler reads an operator-confirmed skip from the objective's
+`preparation.stageSkip` (`stages`, `reason`, `confirmedBy`, `confirmedUtc`) and
+honours it only when `confirmedBy` is set; otherwise it skips the objective as
+`stage_skip_unconfirmed`. A refinement summary never writes this field.
+
 After the deterministic preflight the preview also consults the D5 `preflight`
 typed decision when it is enabled (`typedDecisions`, ships `Gate`). It reads the
 title, description, acceptance criteria, non-goals, refinement summary, Kind,

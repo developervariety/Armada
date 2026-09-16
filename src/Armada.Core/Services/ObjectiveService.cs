@@ -2108,6 +2108,7 @@ namespace Armada.Core.Services
             }
 
             SanitizeExecutionRequirements(objective.Preparation);
+            SanitizeStageSkip(objective.Preparation);
 
             if (objective.Preparation.Claims.Count > _MaxPreparationClaims)
                 throw new InvalidOperationException("Objective preparation cannot contain more than " + _MaxPreparationClaims + " claims.");
@@ -2211,6 +2212,33 @@ namespace Armada.Core.Services
             if (anchor.ResolvedCommit != null) EnsureMaximumLength(anchor.ResolvedCommit, _MaxPreparationAnchorChars, "Objective preparation anchor commit");
 
             return anchor.VesselId == null && anchor.Ref == null && anchor.ResolvedCommit == null ? null : anchor;
+        }
+
+        private static void SanitizeStageSkip(ObjectivePreparation preparation)
+        {
+            StageSkipRequest? skip = preparation.StageSkip;
+            if (skip == null) return;
+
+            skip.Stages = DistinctNormalized(skip.Stages);
+            if (skip.Stages.Count == 0)
+            {
+                preparation.StageSkip = null;
+                return;
+            }
+            if (skip.Stages.Count > _MaxPreparationSiblingInputs)
+                throw new InvalidOperationException("Objective stage skip cannot list more than " + _MaxPreparationSiblingInputs + " stages.");
+            foreach (string stage in skip.Stages)
+                EnsureMaximumLength(stage, _MaxPreparationIdChars, "Objective stage skip persona");
+
+            // The Judge refusal is the same shared rule dispatch applies, checked here so a stored skip
+            // that could never dispatch is refused when it is written.
+            PipelineStageSkip.ValidateNamesOrThrow(skip);
+
+            skip.Reason = Normalize(skip.Reason);
+            if (skip.Reason != null) EnsureMaximumLength(skip.Reason, _MaxPreparationReasonChars, "Objective stage skip reason");
+            skip.ConfirmedBy = Normalize(skip.ConfirmedBy);
+            if (skip.ConfirmedBy != null) EnsureMaximumLength(skip.ConfirmedBy, _MaxPreparationIdChars, "Objective stage skip confirmed-by");
+            skip.ConfirmedUtc = skip.ConfirmedUtc?.ToUniversalTime();
         }
 
         private static void SanitizeExecutionRequirements(ObjectivePreparation preparation)

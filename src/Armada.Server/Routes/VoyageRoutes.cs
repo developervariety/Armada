@@ -126,7 +126,9 @@ namespace Armada.Server.Routes
                 ObjectiveId = request.ObjectiveId,
                 ForcePreflight = request.ForcePreflight,
                 SelectedPlaybooks = request.SelectedPlaybooks ?? new List<SelectedPlaybook>(),
-                CaptainAssignments = request.CaptainAssignments
+                CaptainAssignments = request.CaptainAssignments,
+                SkipStages = request.SkipStages,
+                SkipStagesReason = request.SkipStagesReason
             };
         }
 
