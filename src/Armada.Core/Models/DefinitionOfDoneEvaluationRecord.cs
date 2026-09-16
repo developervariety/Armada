@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using System;
+    using System.Collections.Generic;
     using Armada.Core.Enums;
     using Armada.Core.Services;
 
@@ -71,6 +72,20 @@ namespace Armada.Core.Models
         /// Redacted and bounded tail of the failing command output, or null.
         /// </summary>
         public string? OutputTail { get; set; } = null;
+
+        /// <summary>
+        /// Ordered, de-duplicated identifiers of the tests the runner reported as failed, or null
+        /// when the failure was not a test failure. Stored as a first-class field so a later
+        /// comparison need not re-parse the redacted, truncated <see cref="OutputTail"/>. Comparable
+        /// only when <see cref="FailedTestNamesOverflow"/> is false.
+        /// </summary>
+        public List<string>? FailedTestNames { get; set; } = null;
+
+        /// <summary>
+        /// True when the runner named more distinct failing tests than the set could keep, so the
+        /// stored set is incomplete and must be treated as unknown by any comparison.
+        /// </summary>
+        public bool FailedTestNamesOverflow { get; set; } = false;
 
         /// <summary>
         /// Captain that produced the evaluated work.
@@ -146,6 +161,10 @@ namespace Armada.Core.Models
                 record.ExitCode = result.ExitCode;
                 record.FailureClass = result.FailureClass;
                 record.OutputTail = BoundOutput(result.OutputTail);
+                record.FailedTestNames = result.FailedTestNames != null
+                    ? new List<string>(result.FailedTestNames)
+                    : null;
+                record.FailedTestNamesOverflow = result.FailedTestNamesOverflow;
             }
             else
             {

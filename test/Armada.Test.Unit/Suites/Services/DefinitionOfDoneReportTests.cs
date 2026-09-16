@@ -193,6 +193,35 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("A stored TestFail record round-trips its failing test names and overflow flag", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Mission mission = await CreateBareMissionAsync(testDb.Driver).ConfigureAwait(false);
+                    DefinitionOfDoneEvaluationRecord record = new DefinitionOfDoneEvaluationRecord
+                    {
+                        Outcome = DefinitionOfDoneEvaluationOutcomeEnum.Failed,
+                        CommandLabel = "unit-test",
+                        ExitCode = 1,
+                        FailureClass = DefinitionOfDoneFailureClassEnum.TestFail,
+                        OutputTail = "--- OUTPUT TAIL ---",
+                        FailedTestNames = new System.Collections.Generic.List<string> { "X.Y.FirstTest", "X.Y.SecondTest" },
+                        FailedTestNamesOverflow = false
+                    };
+                    await CreateEvaluationEventAsync(testDb.Driver, mission.Id, JsonSerializer.Serialize(record), DateTime.UtcNow).ConfigureAwait(false);
+
+                    DefinitionOfDoneReportService reports = new DefinitionOfDoneReportService(testDb.Driver, CreateLogging(), () => null);
+                    MissionDefinitionOfDoneReport report = await reports.GetForMissionAsync(_Admin, mission).ConfigureAwait(false);
+
+                    AssertEqual(RecordedHistoryStateEnum.Recorded, report.HistoryState, "The record is recorded");
+                    AssertNotNull(report.LatestEvaluation!.FailedTestNames, "The failing test names survive storage");
+                    AssertEqual(2, report.LatestEvaluation!.FailedTestNames!.Count, "Both names are read back");
+                    AssertEqual("X.Y.FirstTest", report.LatestEvaluation.FailedTestNames[0], "First name round-trips");
+                    AssertEqual("X.Y.SecondTest", report.LatestEvaluation.FailedTestNames[1], "Second name round-trips");
+                    AssertFalse(report.LatestEvaluation.FailedTestNamesOverflow, "The overflow flag round-trips as false");
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Without an active gate the report says inactive even when reloaded settings enable DoD", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

@@ -31,6 +31,12 @@ namespace Armada.Server
         private const string _RescueMarker = RescueMissionMarker.Marker;
         private const string _NudgeMarker = "[ARMADA_AUTO_NUDGE]";
 
+        /// <summary>
+        /// Decision reason recorded when a rescue failed its definition-of-done gate on the same
+        /// complete set of tests as its parent, so a further rescue would repeat an unchanged failure.
+        /// </summary>
+        internal const string RepeatedIdenticalTestFailureReason = "repeated_identical_test_failure";
+
         private static readonly Regex _JudgePassLinePattern = new Regex(
             @"^\[(?:ARMADA:)?VERDICT\]\s+PASS\s*$",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -981,7 +987,12 @@ namespace Armada.Server
                 if (await IsAlreadyHandledAsync(latest, token).ConfigureAwait(false))
                     return false;
 
-                RecoveryDecision decision = Classify(latest);
+                // Deterministic repeated-identical-test-failure comparison, read before classifying so
+                // the decision can name a rescue that repeated its parent's exact test failure. The
+                // comparison only reports a repeat for a rescue whose complete, non-overflowed test set
+                // matches its parent's; every other case leaves the classification untouched.
+                RepeatedFailureCheck repeated = await ReadRepeatedIdenticalTestFailureAsync(latest, token).ConfigureAwait(false);
+                RecoveryDecision decision = Classify(latest, repeated.IsRepeated);
                 AuthContext auth = BuildAuth(latest);
 
                 // A block-policy rescue that produced no commits (rescue_produced_no_commits) was
@@ -1020,6 +1031,21 @@ namespace Armada.Server
 
                 Incident incident = await EnsureIncidentAsync(auth, latest, decision, token).ConfigureAwait(false);
                 await LinkIncidentToOwningObjectivesAsync(auth, latest, incident, token).ConfigureAwait(false);
+
+                // When the rescue repeated its parent's exact test failure, name the repeated tests on
+                // the incident so an operator sees the failure did not change, rather than the generic
+                // auto-rescue block. Only complete, identical sets reach here.
+                if (repeated.IsRepeated)
+                {
+                    incident = await _Incidents.UpdateAsync(auth, incident.Id, new IncidentUpsertRequest
+                    {
+                        RecoveryNotes = AppendNote(incident.RecoveryNotes,
+                            "Repeated identical test failure: the rescue failed its definition-of-done gate on the same "
+                            + repeated.RepeatedTests.Count + " test(s) as its parent, so the failure did not change. Repeated tests: "
+                            + FormatRepeatedTests(repeated.RepeatedTests) + ". No further rescue was dispatched.")
+                    }, token).ConfigureAwait(false);
+                }
+
                 RunbookExecution? execution = await ExecuteRecoveryRunbookAsync(auth, latest, incident, decision, token).ConfigureAwait(false);
 
                 if (latest.IsReadOnlyMode)
@@ -1107,7 +1133,7 @@ namespace Armada.Server
             return await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
         }
 
-        private RecoveryDecision Classify(Mission mission)
+        private RecoveryDecision Classify(Mission mission, bool repeatedIdenticalTestFailure = false)
         {
             string reason = mission.FailureReason ?? String.Empty;
 
@@ -1122,7 +1148,18 @@ namespace Armada.Server
             if (mission.IsReadOnlyMode)
                 return RecoveryDecision.Blocked("read-only mode " + mission.Mode + "; autonomous recovery preserves audit-only scope");
             if (IsAutoRescueMission(mission))
+            {
+                // The deterministic repeated-failure guard: a rescue that failed its gate on the very
+                // same complete set of tests as its parent made no progress, so naming that in the
+                // decision is clearer than the generic auto-rescue block. The hard-blocks above still
+                // win because they return first; a rescue with a different, empty, overflowed or
+                // unknown set keeps the generic block. This is the deterministic fallback the typed
+                // foreign-test decision sits on top of.
+                if (repeatedIdenticalTestFailure)
+                    return RecoveryDecision.Blocked(RepeatedIdenticalTestFailureReason
+                        + ": the rescue failed its gate on the same complete set of tests as its parent, so the failure did not change");
                 return RecoveryDecision.Blocked("failed mission is already an autonomous rescue");
+            }
             if (IsPolicyRefusalFailure(reason))
                 return RecoveryDecision.Blocked("captain refusal already had its one continuation or has no approved alternate runtime; a rescue would repeat the blocked path: " + reason);
             // Infra and Timeout name the host, not the work: a rescue re-runs the same gate commands on
@@ -1138,6 +1175,103 @@ namespace Armada.Server
                 return RecoveryDecision.Blocked("failure requires human review: " + reason);
 
             return RecoveryDecision.Rescue("recoverable mission failure");
+        }
+
+        /// <summary>
+        /// Read whether a failed rescue repeated its parent's exact test failure. A repeat requires
+        /// the mission to be a rescue (a parent to compare against), both the rescue's and the
+        /// parent's latest definition-of-done evaluations to be complete, non-overflowed, non-empty
+        /// test-failure sets, and the two sets to be identical. Any other case (not a rescue, no
+        /// stored set, a non-test failure, an overflowed set, an empty set, or a differing set)
+        /// returns not-repeated with no matched tests, so today's behaviour is unchanged.
+        /// </summary>
+        private async Task<RepeatedFailureCheck> ReadRepeatedIdenticalTestFailureAsync(Mission mission, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(mission.ParentMissionId))
+                return RepeatedFailureCheck.None;
+
+            StoredFailedTestSet? rescueSet = await ReadLatestFailedTestSetAsync(mission.Id, token).ConfigureAwait(false);
+            if (rescueSet == null) return RepeatedFailureCheck.None;
+
+            StoredFailedTestSet? parentSet = await ReadLatestFailedTestSetAsync(mission.ParentMissionId!, token).ConfigureAwait(false);
+            if (parentSet == null) return RepeatedFailureCheck.None;
+
+            if (!AreComparableIdenticalTestSets(parentSet.Value, rescueSet.Value))
+                return RepeatedFailureCheck.None;
+
+            return new RepeatedFailureCheck(true, rescueSet.Value.Names);
+        }
+
+        /// <summary>
+        /// Whether two failing-test sets are both complete (not overflowed), non-empty and identical
+        /// as ordered, de-duplicated sequences. Pure and deterministic.
+        /// </summary>
+        internal static bool AreComparableIdenticalTestSets(StoredFailedTestSet parent, StoredFailedTestSet rescue)
+        {
+            if (parent.Overflow || rescue.Overflow) return false;
+            if (parent.Names.Count == 0 || rescue.Names.Count == 0) return false;
+            if (parent.Names.Count != rescue.Names.Count) return false;
+
+            for (int i = 0; i < parent.Names.Count; i++)
+            {
+                if (!String.Equals(parent.Names[i], rescue.Names[i], StringComparison.Ordinal))
+                    return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Read the latest definition-of-done evaluation for a mission and return its failing-test
+        /// set when that evaluation was a test failure, or null when there is no evaluation, the
+        /// latest evaluation was not a test failure, or the payload cannot be read.
+        /// </summary>
+        private async Task<StoredFailedTestSet?> ReadLatestFailedTestSetAsync(string missionId, CancellationToken token)
+        {
+            EnumerationResult<ArmadaEvent> page;
+            try
+            {
+                page = await _Database.Events.EnumerateAsync(new EnumerationQuery
+                {
+                    MissionId = missionId,
+                    EventType = DefinitionOfDoneEvaluationRecord.EventType,
+                    Order = EnumerationOrderEnum.CreatedDescending,
+                    PageNumber = 1,
+                    PageSize = 1
+                }, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "could not read definition-of-done evaluations for mission " + missionId + ": " + ex.Message);
+                return null;
+            }
+
+            ArmadaEvent? latest = page.Objects.FirstOrDefault();
+            if (latest == null || String.IsNullOrWhiteSpace(latest.Payload)) return null;
+            if (latest.Payload!.Length > DefinitionOfDoneEvaluationRecord.MaxStoredPayloadLength) return null;
+
+            DefinitionOfDoneEvaluationRecord? record;
+            try
+            {
+                record = System.Text.Json.JsonSerializer.Deserialize<DefinitionOfDoneEvaluationRecord>(latest.Payload);
+            }
+            catch (System.Text.Json.JsonException)
+            {
+                return null;
+            }
+
+            if (record == null) return null;
+            if (record.Outcome != DefinitionOfDoneEvaluationOutcomeEnum.Failed) return null;
+            if (record.FailureClass != DefinitionOfDoneFailureClassEnum.TestFail) return null;
+
+            List<string> names = record.FailedTestNames != null
+                ? new List<string>(record.FailedTestNames)
+                : new List<string>();
+            return new StoredFailedTestSet(names, record.FailedTestNamesOverflow);
         }
 
         private async Task<bool> SuppressCancelledVoyageRecoveryAsync(Mission mission, CancellationToken token)
@@ -2557,6 +2691,16 @@ namespace Armada.Server
             return existing.TrimEnd() + Environment.NewLine + Environment.NewLine + note;
         }
 
+        // Render the repeated tests for an incident note, bounded so a large set does not write an
+        // unwieldy note. The set is already complete and identical between rescue and parent.
+        private static string FormatRepeatedTests(IReadOnlyList<string> tests)
+        {
+            const int maxListed = 20;
+            if (tests.Count <= maxListed)
+                return String.Join(", ", tests);
+            return String.Join(", ", tests.Take(maxListed)) + ", and " + (tests.Count - maxListed) + " more";
+        }
+
         private static bool IsRecoverableTerminalStatus(MissionStatusEnum status)
         {
             return status == MissionStatusEnum.Failed || status == MissionStatusEnum.LandingFailed;
@@ -2752,6 +2896,41 @@ namespace Armada.Server
 
             public static RecoveryDecision Rescue(string reason) => new RecoveryDecision(true, reason);
             public static RecoveryDecision Blocked(string reason) => new RecoveryDecision(false, reason);
+        }
+
+        /// <summary>
+        /// Result of the repeated-identical-test-failure comparison: whether the rescue repeated its
+        /// parent's exact test failure, and the matched tests when it did.
+        /// </summary>
+        private readonly struct RepeatedFailureCheck
+        {
+            public static readonly RepeatedFailureCheck None = new RepeatedFailureCheck(false, new List<string>());
+
+            public RepeatedFailureCheck(bool isRepeated, IReadOnlyList<string> repeatedTests)
+            {
+                IsRepeated = isRepeated;
+                RepeatedTests = repeatedTests;
+            }
+
+            public bool IsRepeated { get; }
+
+            public IReadOnlyList<string> RepeatedTests { get; }
+        }
+
+        /// <summary>
+        /// A stored failing-test set read back from a definition-of-done evaluation record.
+        /// </summary>
+        internal readonly struct StoredFailedTestSet
+        {
+            public StoredFailedTestSet(IReadOnlyList<string> names, bool overflow)
+            {
+                Names = names ?? new List<string>();
+                Overflow = overflow;
+            }
+
+            public IReadOnlyList<string> Names { get; }
+
+            public bool Overflow { get; }
         }
     }
 }

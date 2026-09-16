@@ -880,11 +880,24 @@ namespace Armada.Core.Services
                     label,
                     exitCode,
                     combined);
-                return DefinitionOfDoneResult.Fail(
+                DefinitionOfDoneResult failResult = DefinitionOfDoneResult.Fail(
                     label,
                     exitCode,
                     BuildDiagnosticText(combined),
                     failureClass);
+
+                // Extract the failing test identifiers here, where the runner output is still whole:
+                // the diagnostic text keeps only a bounded, redacted tail, so a later reader could not
+                // recover the complete set. Only a test failure carries a set; every other class leaves
+                // it null. A rescue-vs-parent comparison reads this set to detect an unchanged failure.
+                if (failureClass == DefinitionOfDoneFailureClassEnum.TestFail)
+                {
+                    FailedTestNameExtractor.FailedTestNameSet failedTests = FailedTestNameExtractor.Extract(combined);
+                    failResult.FailedTestNames = failedTests.Names;
+                    failResult.FailedTestNamesOverflow = failedTests.Overflow;
+                }
+
+                return failResult;
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {

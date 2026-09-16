@@ -48,6 +48,19 @@ All notable changes to Armada are documented in this file.
 - The admiral launch credential value never enters a mission captain's
   environment. Chat captains already carry the authenticated caller's own
   scoped session token; both launch paths are now caller-scoped.
+### Autonomous recovery detects a repeated identical test failure
+
+- A definition-of-done `TestFail` evaluation now stores the ordered,
+  de-duplicated set of failing test identifiers, parsed from the still-whole
+  runner output (dotnet and python runners) before it is truncated, with an
+  overflow flag when the set could not be kept complete. Autonomous recovery
+  reads this set: when a rescue fails on the same complete, non-overflowed,
+  non-empty set of tests as its parent, the failure did not change, so no
+  further rescue is dispatched, the decision reads
+  `repeated_identical_test_failure`, and the incident names the repeated tests.
+  An empty, overflowed, unknown or differing set keeps the earlier behaviour,
+  and the recovery-budget, policy-refusal and read-only hard blocks still win.
+  This is the deterministic fallback the typed foreign-test decision builds on.
 
 ### The admiral image embeds its build commit
 

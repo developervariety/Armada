@@ -1295,6 +1295,19 @@ incident records a blocked policy that names the class. `Compile` and
 `TestFail` dispatch a rescue as before. A failure reason with no recorded class
 follows the other rules in this section.
 
+When a `TestFail` failure is recorded, the gate parses the failing test
+identifiers from the still-whole runner output into an ordered, de-duplicated
+set and stores it on the evaluation record, with an overflow flag set when the
+runner named more distinct tests than the set could keep. Recovery uses this set
+deterministically: when a rescue (a mission with a parent) fails on `TestFail`
+and both the rescue's and the parent's stored sets are complete (not
+overflowed), non-empty and identical, the failure did not change, so no further
+rescue is dispatched. The blocked decision reads `repeated_identical_test_failure`
+and the incident names the repeated tests. An empty, overflowed, unknown or
+differing set keeps the earlier behaviour, and the hard blocks above (recovery
+budget, policy refusal, read-only mode) still win. This is the deterministic
+fallback the typed foreign-test decision sits on top of.
+
 Recovery never selects a mission whose voyage is `Cancelled`. When a captain
 process exits with a genuine, non-recoverable failure and no committed work,
 the admiral halts (cancels) the voyage, so the process-exit path itself opens

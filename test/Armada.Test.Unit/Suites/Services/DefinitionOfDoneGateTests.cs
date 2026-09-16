@@ -281,6 +281,70 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             }).ConfigureAwait(false);
 
+            await RunTest("Gate records the failing test names from a TestFail unit-test run", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    await EnsureVesselWithProfileAsync(testDb, "ten_testnames", "vsl_testnames",
+                        worktreePath, SuccessCommand(), FailingTestNamesCommand()).ConfigureAwait(false);
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        testDb.Driver,
+                        logging);
+
+                    Mission mission = CreateWorkerMission("ten_testnames", "vsl_testnames");
+                    Dock dock = new Dock { WorktreePath = worktreePath };
+
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
+
+                    AssertFalse(result.Passed, "Gate should fail on a failing unit-test run");
+                    AssertEqual(DefinitionOfDoneFailureClassEnum.TestFail, result.FailureClass!.Value, "The failure is a test failure");
+                    AssertNotNull(result.FailedTestNames, "A TestFail result must carry the failing test names");
+                    AssertFalse(result.FailedTestNamesOverflow, "A two-test run does not overflow");
+                    AssertEqual(2, result.FailedTestNames!.Count, "Both failing tests are recorded");
+                    AssertEqual("X.Y.FirstTest", result.FailedTestNames[0], "First failing test name is captured whole");
+                    AssertEqual("X.Y.SecondTest", result.FailedTestNames[1], "Second failing test name is captured whole");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("Gate leaves the failing test set null for a non-test build failure", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                LoggingModule logging = CreateLogging();
+                string worktreePath = CreateTempDir();
+                try
+                {
+                    await EnsureVesselWithProfileAsync(testDb, "ten_buildnonames", "vsl_buildnonames",
+                        worktreePath, CompileErrorCommand(), SuccessCommand()).ConfigureAwait(false);
+
+                    DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        testDb.Driver,
+                        logging);
+
+                    Mission mission = CreateWorkerMission("ten_buildnonames", "vsl_buildnonames");
+                    Dock dock = new Dock { WorktreePath = worktreePath };
+
+                    DefinitionOfDoneResult result = await gate.EvaluateAsync(mission, dock).ConfigureAwait(false);
+
+                    AssertFalse(result.Passed, "Gate should fail on a compile error");
+                    AssertEqual(DefinitionOfDoneFailureClassEnum.Compile, result.FailureClass!.Value, "The failure is a compile failure");
+                    AssertNull(result.FailedTestNames, "A non-test failure carries no failing test set");
+                }
+                finally
+                {
+                    TryDeleteDirectory(worktreePath);
+                }
+            }).ConfigureAwait(false);
+
             await RunTest("Gate fails with actionable message when commands are missing", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -1125,6 +1189,24 @@ namespace Armada.Test.Unit.Suites.Services
         private static string FailCommand()
         {
             return OperatingSystem.IsWindows() ? "exit 1" : "exit 1";
+        }
+
+        // A unit-test run that names two failing tests in the dotnet VSTest shape, then exits non-zero.
+        // Uses echo per line so the gate's shell wrapper does not have to interpret escape sequences.
+        private static string FailingTestNamesCommand()
+        {
+            if (OperatingSystem.IsWindows())
+                return "echo   Failed X.Y.FirstTest [1 ms]& echo   Failed X.Y.SecondTest [2 ms]& echo Failed!  - Failed: 2, Passed: 0, Total: 2& exit 1";
+            return "echo '  Failed X.Y.FirstTest [1 ms]'; echo '  Failed X.Y.SecondTest [2 ms]'; echo 'Failed!  - Failed: 2, Passed: 0, Total: 2'; exit 1";
+        }
+
+        // A build command that prints a compiler diagnostic and exits non-zero, so the failure
+        // classifies as Compile rather than TestFail.
+        private static string CompileErrorCommand()
+        {
+            if (OperatingSystem.IsWindows())
+                return "echo Parser.cs(12,5): error CS0103: identifier x not found& exit 1";
+            return "echo 'Parser.cs(12,5): error CS0103: identifier x not found'; exit 1";
         }
 
         /// <summary>

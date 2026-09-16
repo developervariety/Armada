@@ -184,6 +184,174 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, admiral.DispatchedMissions.Count, "A compile failure is the work's own defect; a rescue can fix it.");
             }).ConfigureAwait(false);
 
+            await RunTest("AreComparableIdenticalTestSets: only complete, non-empty, identical sets compare equal", () =>
+            {
+                AutonomousRecoveryOrchestrator.StoredFailedTestSet ab = FailedTestSet(false, "A", "B");
+                AutonomousRecoveryOrchestrator.StoredFailedTestSet abAgain = FailedTestSet(false, "A", "B");
+                AutonomousRecoveryOrchestrator.StoredFailedTestSet ba = FailedTestSet(false, "B", "A");
+                AutonomousRecoveryOrchestrator.StoredFailedTestSet abc = FailedTestSet(false, "A", "B", "C");
+                AutonomousRecoveryOrchestrator.StoredFailedTestSet empty = FailedTestSet(false);
+                AutonomousRecoveryOrchestrator.StoredFailedTestSet abOverflow = FailedTestSet(true, "A", "B");
+
+                AssertTrue(AutonomousRecoveryOrchestrator.AreComparableIdenticalTestSets(ab, abAgain), "The same complete set is a repeat.");
+                AssertFalse(AutonomousRecoveryOrchestrator.AreComparableIdenticalTestSets(ab, ba), "A different order is a different ordered set.");
+                AssertFalse(AutonomousRecoveryOrchestrator.AreComparableIdenticalTestSets(ab, abc), "A different length is not identical.");
+                AssertFalse(AutonomousRecoveryOrchestrator.AreComparableIdenticalTestSets(empty, empty), "Two empty sets prove nothing and are not a repeat.");
+                AssertFalse(AutonomousRecoveryOrchestrator.AreComparableIdenticalTestSets(abOverflow, abAgain), "An overflowed set is not comparable.");
+                AssertFalse(AutonomousRecoveryOrchestrator.AreComparableIdenticalTestSets(ab, abOverflow), "An overflowed set is not comparable on either side.");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("A rescue that repeated its parent's identical complete test set is blocked and names the tests", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_repeat", "usr_repeat").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_repeat", "usr_repeat").ConfigureAwait(false);
+
+                Mission parent = await CreateFailedMissionAsync(testDb, vessel,
+                    BuildGateFailureReason("TestFail", "unit-test", 1, "Failed X.Y.StaleTest [1 ms]")).ConfigureAwait(false);
+                await WriteTestFailEvaluationAsync(testDb, parent.Id, false, "X.Y.StaleTest", "X.Y.OtherStale").ConfigureAwait(false);
+
+                Mission rescue = await CreateRescueMissionAsync(testDb, vessel, parent.Id,
+                    BuildGateFailureReason("TestFail", "unit-test", 1, "Failed X.Y.StaleTest [1 ms]")).ConfigureAwait(false);
+                await WriteTestFailEvaluationAsync(testDb, rescue.Id, false, "X.Y.StaleTest", "X.Y.OtherStale").ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks, TwoAttemptSettings());
+
+                await orchestrator.HandleMissionOutcomeAsync(rescue, false).ConfigureAwait(false);
+
+                AssertEqual(0, admiral.DispatchedMissions.Count, "An identical repeat must not dispatch a further rescue.");
+
+                AuthContext auth = AuthContext.Authenticated("ten_repeat", "usr_repeat", false, true, "UnitTest");
+                EnumerationResult<Incident> incidentPage = await incidents.EnumerateAsync(auth, new IncidentQuery
+                {
+                    MissionId = rescue.Id,
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(1, incidentPage.Objects.Count, "The operator still needs an incident to act on.");
+                string notes = incidentPage.Objects[0].RecoveryNotes ?? String.Empty;
+                AssertTrue(notes.Contains("Repeated identical test failure", StringComparison.Ordinal), "The incident must name the repeat. Notes: " + notes);
+                AssertTrue(notes.Contains("X.Y.StaleTest", StringComparison.Ordinal), "The incident must name the repeated tests. Notes: " + notes);
+
+                EnumerationResult<ArmadaEvent> blocked = await testDb.Driver.Events.EnumerateAsync(new EnumerationQuery
+                {
+                    MissionId = rescue.Id,
+                    EventType = "autonomous_recovery.blocked",
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(1, blocked.Objects.Count, "A blocked event records the decision.");
+                AssertTrue((blocked.Objects[0].Message ?? String.Empty).Contains("repeated_identical_test_failure", StringComparison.Ordinal),
+                    "The blocked reason must be the specific repeated-failure reason. Message: " + blocked.Objects[0].Message);
+            }).ConfigureAwait(false);
+
+            await RunTest("A rescue whose test set differs from its parent keeps today's behaviour, not the repeat block", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_differ", "usr_differ").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_differ", "usr_differ").ConfigureAwait(false);
+
+                Mission parent = await CreateFailedMissionAsync(testDb, vessel,
+                    BuildGateFailureReason("TestFail", "unit-test", 1, "Failed X.Y.FirstTest [1 ms]")).ConfigureAwait(false);
+                await WriteTestFailEvaluationAsync(testDb, parent.Id, false, "X.Y.FirstTest").ConfigureAwait(false);
+
+                Mission rescue = await CreateRescueMissionAsync(testDb, vessel, parent.Id,
+                    BuildGateFailureReason("TestFail", "unit-test", 1, "Failed X.Y.DifferentTest [1 ms]")).ConfigureAwait(false);
+                await WriteTestFailEvaluationAsync(testDb, rescue.Id, false, "X.Y.DifferentTest").ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks, TwoAttemptSettings());
+
+                await orchestrator.HandleMissionOutcomeAsync(rescue, false).ConfigureAwait(false);
+
+                EnumerationResult<ArmadaEvent> blocked = await testDb.Driver.Events.EnumerateAsync(new EnumerationQuery
+                {
+                    MissionId = rescue.Id,
+                    EventType = "autonomous_recovery.blocked",
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(1, blocked.Objects.Count, "A differing-set rescue still blocks on the generic auto-rescue rule.");
+                AssertFalse((blocked.Objects[0].Message ?? String.Empty).Contains("repeated_identical_test_failure", StringComparison.Ordinal),
+                    "A different failing set is not a repeated identical failure. Message: " + blocked.Objects[0].Message);
+            }).ConfigureAwait(false);
+
+            await RunTest("An overflowed rescue set is not comparable, so it is not a repeated identical failure", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_overflow", "usr_overflow").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_overflow", "usr_overflow").ConfigureAwait(false);
+
+                Mission parent = await CreateFailedMissionAsync(testDb, vessel,
+                    BuildGateFailureReason("TestFail", "unit-test", 1, "Failed X.Y.StaleTest [1 ms]")).ConfigureAwait(false);
+                await WriteTestFailEvaluationAsync(testDb, parent.Id, true, "X.Y.StaleTest").ConfigureAwait(false);
+
+                Mission rescue = await CreateRescueMissionAsync(testDb, vessel, parent.Id,
+                    BuildGateFailureReason("TestFail", "unit-test", 1, "Failed X.Y.StaleTest [1 ms]")).ConfigureAwait(false);
+                await WriteTestFailEvaluationAsync(testDb, rescue.Id, true, "X.Y.StaleTest").ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks, TwoAttemptSettings());
+
+                await orchestrator.HandleMissionOutcomeAsync(rescue, false).ConfigureAwait(false);
+
+                EnumerationResult<ArmadaEvent> blocked = await testDb.Driver.Events.EnumerateAsync(new EnumerationQuery
+                {
+                    MissionId = rescue.Id,
+                    EventType = "autonomous_recovery.blocked",
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(1, blocked.Objects.Count, "The rescue still blocks.");
+                AssertFalse((blocked.Objects[0].Message ?? String.Empty).Contains("repeated_identical_test_failure", StringComparison.Ordinal),
+                    "An overflowed set cannot prove a repeat. Message: " + blocked.Objects[0].Message);
+            }).ConfigureAwait(false);
+
+            await RunTest("Recovery budget exhaustion still wins over the repeated-failure guard", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb, "ten_budget", "usr_budget").ConfigureAwait(false);
+                Vessel vessel = await CreateVesselAsync(testDb, "ten_budget", "usr_budget").ConfigureAwait(false);
+
+                Mission parent = await CreateFailedMissionAsync(testDb, vessel,
+                    BuildGateFailureReason("TestFail", "unit-test", 1, "Failed X.Y.StaleTest [1 ms]")).ConfigureAwait(false);
+                await WriteTestFailEvaluationAsync(testDb, parent.Id, false, "X.Y.StaleTest").ConfigureAwait(false);
+
+                Mission rescue = await CreateRescueMissionAsync(testDb, vessel, parent.Id,
+                    BuildGateFailureReason("TestFail", "unit-test", 1, "Failed X.Y.StaleTest [1 ms]")).ConfigureAwait(false);
+                rescue.RecoveryAttempts = 2; // At the default max: budget is exhausted before the guard runs.
+                await testDb.Driver.Missions.UpdateAsync(rescue).ConfigureAwait(false);
+                await WriteTestFailEvaluationAsync(testDb, rescue.Id, false, "X.Y.StaleTest").ConfigureAwait(false);
+
+                IncidentService incidents = new IncidentService(testDb.Driver);
+                RunbookService runbooks = new RunbookService(testDb.Driver, new LoggingModule());
+                RecordingAdmiralService admiral = new RecordingAdmiralService(testDb.Driver);
+                AutonomousRecoveryOrchestrator orchestrator = CreateOrchestrator(testDb.Driver, admiral, incidents, runbooks, TwoAttemptSettings());
+
+                await orchestrator.HandleMissionOutcomeAsync(rescue, false).ConfigureAwait(false);
+
+                EnumerationResult<ArmadaEvent> blocked = await testDb.Driver.Events.EnumerateAsync(new EnumerationQuery
+                {
+                    MissionId = rescue.Id,
+                    EventType = "autonomous_recovery.blocked",
+                    PageNumber = 1,
+                    PageSize = 10
+                }).ConfigureAwait(false);
+                AssertEqual(1, blocked.Objects.Count, "The rescue still blocks.");
+                AssertTrue((blocked.Objects[0].Message ?? String.Empty).Contains("budget", StringComparison.Ordinal),
+                    "The budget hard-block wins over the repeated-failure guard. Message: " + blocked.Objects[0].Message);
+                AssertFalse((blocked.Objects[0].Message ?? String.Empty).Contains("repeated_identical_test_failure", StringComparison.Ordinal),
+                    "The guard must not override a hard-block. Message: " + blocked.Objects[0].Message);
+            }).ConfigureAwait(false);
+
             await RunTest("Recoverable failed mission creates incident, runbook execution, and rescue mission", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -2749,6 +2917,68 @@ namespace Armada.Test.Unit.Suites.Services
             string summary = incidentPage.Objects[0].Summary ?? String.Empty;
             AssertTrue(summary.Contains("Policy: block", StringComparison.Ordinal), "The incident must record the blocked policy. Summary: " + summary);
             return summary;
+        }
+
+        // A stored failing-test set for the pure comparison test.
+        private static AutonomousRecoveryOrchestrator.StoredFailedTestSet FailedTestSet(bool overflow, params string[] names)
+        {
+            return new AutonomousRecoveryOrchestrator.StoredFailedTestSet(new List<string>(names), overflow);
+        }
+
+        // Settings that allow a second recovery attempt, so the repeated-failure guard runs instead of
+        // the default single-attempt budget hard-block pre-empting it.
+        private static ArmadaSettings TwoAttemptSettings()
+        {
+            ArmadaSettings settings = new ArmadaSettings();
+            settings.AutonomousRecovery.MaxMissionRecoveryAttempts = 2;
+            return settings;
+        }
+
+        // Write a definition-of-done TestFail evaluation event for a mission the way the gate does.
+        private static async Task WriteTestFailEvaluationAsync(TestDatabase testDb, string missionId, bool overflow, params string[] failedTestNames)
+        {
+            DefinitionOfDoneEvaluationRecord record = new DefinitionOfDoneEvaluationRecord
+            {
+                Outcome = DefinitionOfDoneEvaluationOutcomeEnum.Failed,
+                CommandLabel = "unit-test",
+                ExitCode = 1,
+                FailureClass = DefinitionOfDoneFailureClassEnum.TestFail,
+                OutputTail = "--- OUTPUT TAIL ---",
+                FailedTestNames = new List<string>(failedTestNames),
+                FailedTestNamesOverflow = overflow
+            };
+
+            ArmadaEvent evt = new ArmadaEvent(DefinitionOfDoneEvaluationRecord.EventType, "Definition-of-done evaluation")
+            {
+                MissionId = missionId,
+                EntityType = "mission",
+                EntityId = missionId,
+                Payload = System.Text.Json.JsonSerializer.Serialize(record),
+                CreatedUtc = DateTime.UtcNow
+            };
+            await testDb.Driver.Events.CreateAsync(evt).ConfigureAwait(false);
+        }
+
+        // A failed autonomous rescue mission: it carries the auto-rescue marker and links to its parent.
+        private static async Task<Mission> CreateRescueMissionAsync(TestDatabase testDb, Vessel vessel, string parentMissionId, string failureReason)
+        {
+            Mission mission = new Mission
+            {
+                TenantId = vessel.TenantId,
+                UserId = vessel.UserId,
+                VesselId = vessel.Id,
+                ParentMissionId = parentMissionId,
+                Persona = "Worker",
+                Title = "Rescue 1: Failed mission",
+                Description = RescueMissionMarker.Marker + "\nAutonomous rescue for a failed mission.",
+                Status = MissionStatusEnum.Failed,
+                FailureReason = failureReason,
+                RecoveryAttempts = 1,
+                CommitHash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                CompletedUtc = DateTime.UtcNow.AddMinutes(-1),
+                LastUpdateUtc = DateTime.UtcNow.AddMinutes(-1)
+            };
+            return await testDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
         }
 
         private static async Task<Mission> CreateFailedMissionAsync(TestDatabase testDb, Vessel vessel, string failureReason)

@@ -1,6 +1,7 @@
 namespace Armada.Core.Models
 {
     using System;
+    using System.Collections.Generic;
     using Armada.Core.Enums;
 
     /// <summary>
@@ -36,6 +37,19 @@ namespace Armada.Core.Models
         /// Structured classification of the failure, or null for passed and skipped results.
         /// </summary>
         public DefinitionOfDoneFailureClassEnum? FailureClass { get; set; }
+
+        /// <summary>
+        /// Ordered, de-duplicated identifiers of the tests the runner reported as failed, or null
+        /// when the failure was not a test failure. Populated only for a <see cref="DefinitionOfDoneFailureClassEnum.TestFail"/>
+        /// result, and only comparable when <see cref="FailedTestNamesOverflow"/> is false.
+        /// </summary>
+        public IReadOnlyList<string>? FailedTestNames { get; set; }
+
+        /// <summary>
+        /// True when the runner named more distinct failing tests than the set could keep, so the
+        /// set is incomplete and must be treated as unknown by any comparison.
+        /// </summary>
+        public bool FailedTestNamesOverflow { get; set; }
 
         /// <summary>
         /// Non-null when the gate was skipped rather than run (e.g., persona not applicable,

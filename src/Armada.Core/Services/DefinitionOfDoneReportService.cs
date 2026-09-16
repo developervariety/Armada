@@ -254,6 +254,8 @@ namespace Armada.Core.Services
                 ExitCode = stored.ExitCode,
                 FailureClass = failureClass,
                 OutputTail = stored.OutputTail,
+                FailedTestNames = stored.FailedTestNames,
+                FailedTestNamesOverflow = stored.FailedTestNamesOverflow ?? false,
                 CaptainId = stored.CaptainId,
                 DockId = stored.DockId,
                 BranchName = stored.BranchName,
@@ -333,6 +335,8 @@ namespace Armada.Core.Services
             public int? ExitCode { get; set; }
             public string? FailureClass { get; set; }
             public string? OutputTail { get; set; }
+            public List<string>? FailedTestNames { get; set; }
+            public bool? FailedTestNamesOverflow { get; set; }
             public string? CaptainId { get; set; }
             public string? DockId { get; set; }
             public string? BranchName { get; set; }

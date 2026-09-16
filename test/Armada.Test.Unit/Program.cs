@@ -55,6 +55,7 @@ namespace Armada.Test.Unit
             // Database tests
             runner.AddSuite(new FleetDatabaseTests());
             runner.AddSuite(new DefinitionOfDoneFailureClassifierTests());
+            runner.AddSuite(new FailedTestNameExtractorTests());
             runner.AddSuite(new VesselDatabaseTests());
             runner.AddSuite(new VesselTests());
             runner.AddSuite(new CaptainDatabaseTests());
