@@ -195,6 +195,15 @@ A session that sends no header receives no wake banner, and must heartbeat or
 read the board with its `participantKey` between monitor-loop iterations to see
 addressed work at all.
 
+When the D11 `inbox_triage` typed decision is enabled (`Gate`), the `inbox`
+tool's items and the `armada_coordination_read` notes each carry an extra
+`attention` field (`informational`, `today`, `this_hour`, or
+`blocking_live_voyage`) and are ordered by it, and each board note also carries a
+`noteKind` (`handoff`, `status`, `question`, `stop_sign`, or `hold_notice`).
+Triage only annotates and re-orders — it never hides or drops an item. With the
+decision `Off` (the default) `attention` and `noteKind` are absent and the
+deterministic severity order stands.
+
 Set `remoteTrigger.agentWake.participantKey` for a stable addressed process
 owner that survives an Admiral restart. `armada_register_agentwake_session`
 registers one in-memory process target with a concrete `runtime` (`Claude`,

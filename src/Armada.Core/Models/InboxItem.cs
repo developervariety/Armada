@@ -42,5 +42,14 @@ namespace Armada.Core.Models
         /// A relative dashboard path that takes the operator to the item.
         /// </summary>
         public string Href { get; set; } = string.Empty;
+
+        /// <summary>
+        /// The D11 <c>inbox_triage</c> attention label, when the typed-decision adapter is in Gate
+        /// mode and answered: one of <c>informational</c>, <c>today</c>, <c>this_hour</c>, or
+        /// <c>blocking_live_voyage</c>. Null when the decision is Off, unavailable, below threshold, or
+        /// in Shadow mode: the item is then ordered by severity alone, exactly as before. The adapter
+        /// only annotates and sorts; it never hides or drops an item.
+        /// </summary>
+        public string? Attention { get; set; } = null;
     }
 }

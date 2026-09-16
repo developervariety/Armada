@@ -63,6 +63,15 @@ namespace Armada.Server
         }
 
         /// <summary>
+        /// Optional D10 <c>criteria_lint</c> adapter. When set (only when the live typed-decision
+        /// client exists) each returned acceptance criterion is linted for the operator-memory defect
+        /// classes and, in Gate mode, model-flagged <c>criteria_review</c> lines are appended to the
+        /// refinement summary the operator reads before ReadyForDispatch. The adapter never rewrites a
+        /// criterion, so with it unset or the decision Off the summary is exactly the deterministic one.
+        /// </summary>
+        public CriteriaLintAdapter? CriteriaLintAdapter { get; set; }
+
+        /// <summary>
         /// Create a refinement session for an objective and reserve the selected captain.
         /// </summary>
         public async Task<ObjectiveRefinementSession> CreateAsync(
@@ -334,6 +343,12 @@ namespace Armada.Server
                 {
                     _Logging.Warn(_Header + "objective refinement summary fallback for session " + session.Id + ": " + ex.Message);
                 }
+
+                // D10 criteria_lint runs on the finalized summary: it only appends model-flagged
+                // criteria_review lines the operator sees, and never rewrites a criterion. It never
+                // throws, so a decision fault leaves the deterministic summary intact.
+                if (CriteriaLintAdapter != null)
+                    await CriteriaLintAdapter.EvaluateAsync(draft, objective.Kind, token).ConfigureAwait(false);
 
                 _WebSocketHub?.BroadcastEvent(
                     "objective-refinement-session.summary.created",

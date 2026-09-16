@@ -98,7 +98,9 @@ namespace Armada.Server.Mcp
             Armada.Core.Services.Interfaces.ITypedDecisionClient? typedDecisionClient = null,
             Armada.Core.Services.TypedDecisionRecorder? typedDecisionRecorder = null,
             Func<string?>? typedDecisionParticipantKeyProvider = null,
-            Armada.Core.Services.PapercutMergeAdapter? papercutMergeAdapter = null)
+            Armada.Core.Services.PapercutMergeAdapter? papercutMergeAdapter = null,
+            Armada.Core.Services.InboxTriageAdapter? inboxTriageAdapter = null,
+            Armada.Core.Services.FollowUpRoutingAdapter? followUpRoutingAdapter = null)
         {
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
             longRunningJobs = longRunningJobs ?? new LongRunningJobService();
@@ -113,13 +115,13 @@ namespace Armada.Server.Mcp
             McpCaptainTools.Register(register, database, admiral, settings, onStopCaptain, agentLifecycle, logging, captainQuarantine);
             McpCaptainDiagnosticsTools.Register(register, database, codeIndexService);
             if (unlandedBranches != null) McpUnlandedBranchTools.Register(register, unlandedBranches);
-            if (coordinationService != null) McpCoordinationTools.Register(register, database, coordinationService, dispatchHold);
+            if (coordinationService != null) McpCoordinationTools.Register(register, database, coordinationService, dispatchHold, inboxTriageAdapter);
             McpSignalTools.Register(register, database, () => remoteTriggerService?.GetAgentWakeStatus().EffectiveParticipantKey);
             McpEventTools.Register(register, database);
             McpTokenUsageTools.Register(register, database);
             McpProductionTools.Register(register, database);
             McpPapercutTools.Register(register, database, papercutMergeAdapter);
-            if (logging != null) McpInboxTools.Register(register, database, logging);
+            if (logging != null) McpInboxTools.Register(register, database, logging, inboxTriageAdapter);
             McpDockTools.Register(register, database, dockService);
             if (logging != null) McpPlaybookTools.Register(register, database, logging);
             if (mergeQueue != null) McpMergeQueueTools.Register(register, mergeQueue, longRunningJobs);
@@ -163,7 +165,7 @@ namespace Armada.Server.Mcp
             }
             if (settings != null) McpBackupTools.Register(register, new DatabaseBackupService(database, settings));
             McpAgentWakeTools.Register(register, remoteTriggerService);
-            McpAuditTools.Register(register, database, remoteTriggerService);
+            McpAuditTools.Register(register, database, remoteTriggerService, followUpRoutingAdapter);
             McpArchitectTools.Register(register, database, new ArchitectOutputParser(), admiral, codeIndexService, logging, settings);
             if (codeIndexService != null) McpCodeIndexTools.Register(register, codeIndexService, longRunningJobs);
             if (diskLifecycle != null) McpDiskLifecycleTools.Register(register, diskLifecycle, longRunningJobs);

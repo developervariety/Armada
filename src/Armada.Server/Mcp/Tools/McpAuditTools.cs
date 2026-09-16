@@ -33,10 +33,19 @@ namespace Armada.Server.Mcp.Tools
         public static void Register(
             RegisterToolDelegate register,
             DatabaseDriver database,
-            IRemoteTriggerService? remoteTriggerService = null)
+            IRemoteTriggerService? remoteTriggerService = null,
+            Armada.Core.Services.FollowUpRoutingAdapter? followUpRoutingAdapter = null)
         {
-            JudgeFollowUpService followUpService = new JudgeFollowUpService(database, new SyslogLogging.LoggingModule());
-            JudgeFollowUpBackfillService backfillService = new JudgeFollowUpBackfillService(database, new SyslogLogging.LoggingModule());
+            JudgeFollowUpService followUpService = new JudgeFollowUpService(database, new SyslogLogging.LoggingModule())
+            {
+                // D12 followup_routing: when the operator backfills or captures follow-ups through this
+                // tool, route each item to a home in Gate mode. Null or Off leaves capture unchanged.
+                RoutingAdapter = followUpRoutingAdapter
+            };
+            JudgeFollowUpBackfillService backfillService = new JudgeFollowUpBackfillService(database, new SyslogLogging.LoggingModule())
+            {
+                RoutingAdapter = followUpRoutingAdapter
+            };
             register(
                 "armada_backfill_judge_followups",
                 "Backfills missed durable Judge follow-up captures over a bounded UTC time range; safe to repeat",

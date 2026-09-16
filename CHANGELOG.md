@@ -108,6 +108,44 @@ All notable changes to Armada are documented in this file.
   unavailable, and below-threshold; the call is bounded by the settings timeout
   on the caller's token; it records a `state_sha256` and byte count but never the
   state; and it never throws into its caller. The deterministic rule always wins.
+### Typed decisions: criteria lint, inbox triage, follow-up routing (D10/D11/D12)
+
+- Added three gated typed-decision adapters over the shared client, all shipping
+  `Off`. Each follows the shared contract: the deterministic behaviour is the
+  fallback for `Off`, an unavailable model, a Shadow-mode call, and a
+  below-threshold answer; the call is bounded by the settings timeout on the
+  caller's token, records a `state_sha256` and byte count but never the state,
+  and never throws into its caller.
+- **D10 `criteria_lint`** (`CriteriaLintAdapter`, wired into
+  `ObjectiveRefinementCoordinator.SummarizeAsync`): after a refinement summary is
+  finalized, each acceptance criterion is checked against the operator-memory
+  defect classes — a presence test over a committed artifact, a pinned pass or
+  skip total, something not observable from a dock, a criterion satisfiable by an
+  empty diff, and a criterion that mixes two behaviours. Every question is a noul
+  phrased as the defect. In Gate mode a criterion whose worst answer is at or
+  above the threshold contributes model-flagged `criteria_review` lines appended
+  to the refinement summary the operator reads before ReadyForDispatch. The
+  adapter NEVER rewrites, reorders, or removes a criterion.
+- **D11 `inbox_triage`** (`InboxTriageAdapter`, wired into the `inbox` and
+  `armada_coordination_read` MCP tools): inbox items and board notes are scored
+  for how urgently a human is needed. In Gate mode each item gains an `attention`
+  label (`informational`, `today`, `this_hour`, `blocking_live_voyage`), each
+  board note also a `noteKind` (`handoff`, `status`, `question`, `stop_sign`,
+  `hold_notice`), and the response is re-ordered by attention. NOTHING is hidden,
+  dropped, or dismissed; Off leaves the deterministic severity ordering.
+- **D12 `followup_routing`** (`FollowUpRoutingAdapter`, wired into
+  `JudgeFollowUpService.CaptureAsync` and the audit-tool backfill path): each item
+  in a Judge's Suggested Follow-ups section is given a home. In Gate mode a
+  `triaged_objective` home creates a Triaged objective with auto-dispatch OFF, an
+  `evidence_note` home appends an evidence note, and a `duplicate_of_existing`
+  home LINKS to an existing open objective instead of creating one. A blocking
+  item is only flagged for the operator; the model NEVER creates a voyage,
+  dispatches, or lands.
+- Table-driven unit suites `CriteriaLintAdapterTests`, `InboxTriageAdapterTests`,
+  and `FollowUpRoutingAdapterTests` cover Off / unavailable / below / above,
+  D10 never-rewrites, D11 nothing-hidden and the attention re-sort, and D12
+  never-creates-a-voyage plus duplicate-links, all with the shared
+  `FakeTypedDecisionClient`.
 
 ### Typed decisions: dispatch preflight text half (D5)
 

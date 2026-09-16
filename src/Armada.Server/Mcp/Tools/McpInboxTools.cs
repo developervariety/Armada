@@ -20,7 +20,8 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="register">Delegate to register each tool.</param>
         /// <param name="database">Database driver used to build the inbox.</param>
         /// <param name="logging">Logging module.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, LoggingModule logging)
+        /// <param name="triageAdapter">Optional D11 <c>inbox_triage</c> adapter. When set and in Gate mode it annotates each item with an <c>attention</c> label and sorts by it; it never hides an item. Null or Off leaves the deterministic severity order.</param>
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, LoggingModule logging, InboxTriageAdapter? triageAdapter = null)
         {
             InboxService inbox = new InboxService(database, logging);
 
@@ -31,6 +32,12 @@ namespace Armada.Server.Mcp.Tools
                 async (args) =>
                 {
                     List<InboxItem> items = await inbox.GetInboxAsync().ConfigureAwait(false);
+
+                    // D11 inbox_triage: annotate and re-sort by attention in Gate mode. It never hides
+                    // an item, so with no adapter or the decision Off the deterministic order stands.
+                    if (triageAdapter != null)
+                        items = await triageAdapter.TriageInboxAsync(items, System.Threading.CancellationToken.None).ConfigureAwait(false);
+
                     int critical = 0;
                     int warning = 0;
                     foreach (InboxItem item in items)

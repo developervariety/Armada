@@ -123,6 +123,10 @@ namespace Armada.Server
         // D13 owner_digest scheduled runner. Constructed only with the live typed-decision client and
         // dormant until the owner_digest decision is enabled; the health loop drives it once per day.
         private OwnerDigestRunner? _OwnerDigestRunner = null;
+        // D11 inbox_triage and D12 followup_routing adapters. Null until the live typed-decision client
+        // exists; the inbox/coordination and audit MCP tools receive them through the registrar.
+        private InboxTriageAdapter? _InboxTriageAdapter;
+        private FollowUpRoutingAdapter? _FollowUpRoutingAdapter;
         private LongRunningJobService _LongRunningJobs = new LongRunningJobService();
         private ProviderProgressTracker _ProviderProgress = new ProviderProgressTracker();
         private TerminalMarkerTracker _TerminalMarkers = new TerminalMarkerTracker();
@@ -695,6 +699,21 @@ namespace Armada.Server
                     _Database,
                     () => DateTime.UtcNow,
                     _Logging);
+                // D10 criteria_lint: append model-flagged criteria_review lines to a refinement summary.
+                _ObjectiveRefinementSessions.CriteriaLintAdapter = new CriteriaLintAdapter(
+                    _Settings.TypedDecisions, _TypedDecisionClient, _TypedDecisionRecorder, _Logging);
+
+                // D11 inbox_triage: annotate and sort inbox items and board notes by attention. Threaded
+                // into the inbox and coordination-read MCP tools through the registrar.
+                _InboxTriageAdapter = new InboxTriageAdapter(
+                    _Settings.TypedDecisions, _TypedDecisionClient, _TypedDecisionRecorder, _Logging);
+
+                // D12 followup_routing: give each Judge follow-up a home (Triaged objective, evidence
+                // note, or link). The router creates no voyage; a blocking item is flagged for the owner.
+                ServerFollowUpRouter followUpRouter = new ServerFollowUpRouter(
+                    _Database, _ObjectiveService, _CoordinationService, ownerNotePoster, _Logging);
+                _FollowUpRoutingAdapter = new FollowUpRoutingAdapter(
+                    _Settings.TypedDecisions, _TypedDecisionClient, _TypedDecisionRecorder, followUpRouter, _Logging);
             }
 
             _CaptainTools = new CaptainToolService(
@@ -1675,7 +1694,9 @@ namespace Armada.Server
                 typedDecisionClient: _TypedDecisionClient,
                 typedDecisionRecorder: _TypedDecisionRecorder,
                 typedDecisionParticipantKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey,
-                papercutMergeAdapter: _PapercutMergeAdapter);
+                papercutMergeAdapter: _PapercutMergeAdapter,
+                inboxTriageAdapter: _InboxTriageAdapter,
+                followUpRoutingAdapter: _FollowUpRoutingAdapter);
 
         }
 

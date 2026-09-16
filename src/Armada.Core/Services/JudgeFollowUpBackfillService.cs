@@ -52,6 +52,17 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Optional D12 <c>followup_routing</c> adapter, forwarded to the inner follow-up service so a
+        /// backfill capture routes each item to a home in Gate mode. Null or Off leaves capture
+        /// unchanged.
+        /// </summary>
+        public FollowUpRoutingAdapter? RoutingAdapter
+        {
+            get => _FollowUps.RoutingAdapter;
+            set => _FollowUps.RoutingAdapter = value;
+        }
+
+        /// <summary>
         /// Scan terminal missions in ascending creation order. The maximum page count prevents an
         /// accidental unbounded operator request; <see cref="Result.Incomplete"/> is true if data remains.
         /// </summary>

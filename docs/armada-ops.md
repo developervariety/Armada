@@ -2145,6 +2145,38 @@ Three platform-side decisions ship `Off`:
   ineffective-rescue decision (`RescueEffectivenessEvaluator`), so a behaviour
   change is not failed as prose, and a `risky` reading at threshold adds one
   `CriticalTriggerEvaluator` escalation reason. It NEVER lowers a classification.
+One decision point reads a returned refinement summary:
+
+- **D10 `criteria_lint`** (ships `Off`) runs in
+  `ObjectiveRefinementCoordinator.SummarizeAsync` after the summary is finalized.
+  It asks, per acceptance criterion, five nouls phrased as the defect: a presence
+  test over an artifact the change itself commits, a pinned pass or skip total,
+  something not observable from a dock, a criterion satisfiable by an empty diff,
+  and a criterion that mixes two behaviours. In `Gate` above the threshold each
+  flagged criterion contributes model-flagged `criteria_review` lines appended to
+  the refinement summary the operator reads before ReadyForDispatch. The adapter
+  NEVER rewrites, reorders, or removes a criterion; `Off`, unavailable, `Shadow`,
+  and below-threshold append nothing.
+
+Two operator surfaces read the attention triage:
+
+- **D11 `inbox_triage`** (ships `Off`) runs in the `inbox` and
+  `armada_coordination_read` MCP tools. It scores each inbox item and board note
+  for how urgently a human is needed. In `Gate` above the threshold each item
+  gains an `attention` label (`informational`, `today`, `this_hour`,
+  `blocking_live_voyage`), each board note also a `noteKind` (`handoff`,
+  `status`, `question`, `stop_sign`, `hold_notice`), and the response is
+  re-ordered by attention. NOTHING is hidden, dropped, or dismissed; `Off`,
+  unavailable, `Shadow`, and below-threshold leave the deterministic severity
+  order and set no label.
+- **D12 `followup_routing`** (ships `Off`) runs in
+  `JudgeFollowUpService.CaptureAsync` (and the audit-tool backfill path) over each
+  item of a Judge's Suggested Follow-ups section. In `Gate` above the threshold a
+  `triaged_objective` home creates a Triaged objective with auto-dispatch OFF, an
+  `evidence_note` home appends an evidence note, and a `duplicate_of_existing`
+  home LINKS to an existing open objective (a `same_as` noul against the vessel's
+  top open objectives) instead of creating one. A blocking item is only flagged
+  for the operator; the model NEVER creates a voyage, dispatches, or lands.
 
 ### Vessel Workspace
 

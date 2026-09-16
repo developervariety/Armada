@@ -15,6 +15,15 @@ namespace Armada.Core.Services
         private static readonly SemaphoreSlim _AssociationAuditLock = new SemaphoreSlim(1, 1);
 
         /// <summary>
+        /// Optional D12 <c>followup_routing</c> adapter. When set (only when the live typed-decision
+        /// client exists) each captured follow-up section is routed to a home in Gate mode: a Triaged
+        /// objective, an evidence note, or a link to an existing objective; a blocking item is only
+        /// flagged for the operator, never created as a voyage. With it unset or the decision Off,
+        /// capture behaves exactly as before. Routing is best-effort and never changes capture.
+        /// </summary>
+        public FollowUpRoutingAdapter? RoutingAdapter { get; set; }
+
+        /// <summary>
         /// Instantiate.
         /// </summary>
         /// <param name="database">Database driver.</param>
@@ -58,6 +67,22 @@ namespace Armada.Core.Services
             followUp = await _Database.JudgeFollowUps.UpsertAsync(followUp, token).ConfigureAwait(false);
             if (String.IsNullOrWhiteSpace(followUp.MergeEntryId))
                 await TryAssociateWithAvailableMergeEntryAsync(followUp, token).ConfigureAwait(false);
+
+            // D12 followup_routing runs after the follow-up is stored: it only gives each item a home
+            // (Triaged objective, evidence note, or link), never dispatches, and never throws. With no
+            // adapter or the decision Off, this is a no-op and capture is unchanged.
+            if (RoutingAdapter != null && !String.IsNullOrWhiteSpace(followUp.SuggestedFollowUps))
+            {
+                try
+                {
+                    await RoutingAdapter.RouteAsync(followUp, null, token).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _Logging.Warn(_Header + "follow-up routing failed, capture unaffected: " + ex.Message);
+                }
+            }
+
             return followUp;
         }
 

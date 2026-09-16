@@ -31,7 +31,8 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="database">Database driver for coordination data access.</param>
         /// <param name="coordination">Coordination service.</param>
         /// <param name="dispatchHold">Optional dispatch hold shared with the admiral's dispatch paths.</param>
-        public static void Register(RegisterToolDelegate register, DatabaseDriver database, CoordinationService coordination, Armada.Core.Services.DispatchHold? dispatchHold = null)
+        /// <param name="triageAdapter">Optional D11 <c>inbox_triage</c> adapter. When set and in Gate mode it annotates each board note with an <c>attention</c> label and a <c>noteKind</c> and sorts the read by attention; it never hides a note. Null or Off leaves the deterministic order.</param>
+        public static void Register(RegisterToolDelegate register, DatabaseDriver database, CoordinationService coordination, Armada.Core.Services.DispatchHold? dispatchHold = null, Armada.Core.Services.InboxTriageAdapter? triageAdapter = null)
         {
             register(
                 "armada_coordination_post",
@@ -143,6 +144,11 @@ namespace Armada.Server.Mcp.Tools
                         List<CoordinationMessageView> views = BuildMessageViews(
                             messages, participantKey, request.IncludeFullContent == true);
                         int truncatedCount = views.Count(view => view.Truncated);
+
+                        // D11 inbox_triage: annotate each note with attention and kind and sort by
+                        // attention in Gate mode. It never hides a note, so with no adapter or the
+                        // decision Off the deterministic order stands.
+                        views = await ApplyBoardNoteTriageAsync(views, triageAdapter).ConfigureAwait(false);
 
                         return (object)new
                         {
@@ -682,6 +688,72 @@ namespace Armada.Server.Mcp.Tools
             public string? IncidentId { get; set; }
             /// <summary>Creation time.</summary>
             public DateTime CreatedUtc { get; set; }
+            /// <summary>
+            /// D11 attention label set only when the inbox_triage decision is in Gate mode and answered:
+            /// informational, today, this_hour, or blocking_live_voyage. Null otherwise.
+            /// </summary>
+            public string? Attention { get; set; }
+            /// <summary>
+            /// D11 note kind set only when the inbox_triage decision is in Gate mode and answered:
+            /// handoff, status, question, stop_sign, or hold_notice. Null otherwise.
+            /// </summary>
+            public string? NoteKind { get; set; }
+        }
+
+        /// <summary>
+        /// Apply the D11 inbox_triage adapter to board-note views: annotate each note's
+        /// <see cref="CoordinationMessageView.Attention"/> and <see cref="CoordinationMessageView.NoteKind"/>
+        /// and re-order by attention in Gate mode. The adapter never hides a note, so with no adapter or
+        /// the decision Off the input order is returned unchanged.
+        /// </summary>
+        private static async Task<List<CoordinationMessageView>> ApplyBoardNoteTriageAsync(
+            List<CoordinationMessageView> views,
+            Armada.Core.Services.InboxTriageAdapter? triageAdapter)
+        {
+            if (triageAdapter == null || views.Count == 0) return views;
+
+            List<Armada.Core.Services.BoardNoteTriageInput> inputs = views
+                .Select(view => new Armada.Core.Services.BoardNoteTriageInput
+                {
+                    Id = view.Id,
+                    AuthorType = view.AuthorType,
+                    Content = view.Content
+                })
+                .ToList();
+
+            IReadOnlyList<Armada.Core.Services.BoardNoteTriage> triaged =
+                await triageAdapter.TriageBoardNotesAsync(inputs, System.Threading.CancellationToken.None).ConfigureAwait(false);
+            if (triaged.Count == 0) return views;
+
+            Dictionary<string, Armada.Core.Services.BoardNoteTriage> byId =
+                new Dictionary<string, Armada.Core.Services.BoardNoteTriage>(StringComparer.Ordinal);
+            foreach (Armada.Core.Services.BoardNoteTriage entry in triaged) byId[entry.Id] = entry;
+
+            foreach (CoordinationMessageView view in views)
+            {
+                if (byId.TryGetValue(view.Id, out Armada.Core.Services.BoardNoteTriage? entry) && entry != null)
+                {
+                    view.Attention = entry.Attention;
+                    view.NoteKind = entry.NoteKind;
+                }
+            }
+
+            // Re-order by attention rank; notes with no label keep their relative order after labelled
+            // ones. Nothing is removed.
+            return views
+                .OrderByDescending(view => BoardNoteAttentionRank(view.Attention))
+                .ThenByDescending(view => view.CreatedUtc)
+                .ToList();
+        }
+
+        private static readonly string[] _AttentionOrder = { "informational", "today", "this_hour", "blocking_live_voyage" };
+
+        private static int BoardNoteAttentionRank(string? attention)
+        {
+            if (String.IsNullOrEmpty(attention)) return -1;
+            for (int i = 0; i < _AttentionOrder.Length; i++)
+                if (String.Equals(_AttentionOrder[i], attention, StringComparison.Ordinal)) return i;
+            return -1;
         }
 
         private sealed class CoordinationHeartbeatArgs
