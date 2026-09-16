@@ -496,7 +496,10 @@ and no new persona (ships `Off`, built and dormant until a Gate flip):
     the Worker. The adapter only ADDS issues; it never closes or re-scopes a row.
   - **Worker premise tool (`armada_check_prior_art`).** A mission-scoped captain
     MCP tool that runs the same retrieval for the captain's stated plan and returns
-    the candidates with the typed answers before it writes a type.
+    the candidates with the typed answers before it writes a type. It is in the
+    caller-scoped tool list, and the Worker prompt names it. A candidate on an
+    unlanded branch or a preserved or recovery ref carries a bounded excerpt
+    (at most 30 lines) read from that ref.
   - **Judge (extends D4).** On the Worker handoff, over the diff's added types and
     the retrieval results, a `reimplements` reading at or above threshold prepends
     a review INSTRUCTION to the next brief ("verify whether the diff should consume

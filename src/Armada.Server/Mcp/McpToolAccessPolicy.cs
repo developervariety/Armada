@@ -37,12 +37,13 @@ namespace Armada.Server.Mcp
             "update_memory",
             "delete_memory",
 
-            // The captain-facing typed-decision tool and its two pre-shaped helpers. They redact
+            // The captain-facing typed-decision tool and its three pre-shaped helpers. They redact
             // before egress, are budgeted per mission, record one event per call, and have no side
             // effect on any Armada record, so a mission caller may reach them like the memory tools.
             "armada_typed_decision",
             "armada_check_premise",
             "armada_memory_triage",
+            "armada_check_prior_art",
 
             // The captain-facing context fetch tool. It is read-only and informative: it returns
             // sanitized memory and docs leaf text, writes no record, and is budgeted per mission, so a

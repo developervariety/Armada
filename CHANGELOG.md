@@ -8,6 +8,13 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- `armada_check_prior_art` (D26) is now in the caller-scoped tool list, so a
+  mission-scoped captain can call it; operator-control tools stay out of scope.
+  The Worker prompt names the tool, `docs/MCP_API.md` documents it, a read-only
+  `PriorArtAnalyst` persona is seeded as a built-in (no pipeline carries it),
+  and a candidate on an unlanded branch or ref now carries a bounded excerpt
+  read from that ref.
+
 - The D6 `papercut_merge` pair decision now fails closed like every other
   typed-decision adapter. A client that throws records
   `typed_decision.unavailable` and the listing returns the plain grouping, and

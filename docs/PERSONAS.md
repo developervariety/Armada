@@ -55,6 +55,9 @@ D26 `prior_art` does not add a persona to any pipeline by default: it is a
 retrieval step plus typed questions inside stages that already run (the dispatch
 preflight and the Worker-to-Judge handoff), so no persona runs for nothing. It
 names one conditional persona, **PriorArtAnalyst**, a read-only Research analyst.
+The persona is seeded as a built-in (template `persona.prior_art_analyst`) and
+joins no built-in pipeline. It runs detached and an empty diff is its normal
+result.
 When the model's `already_done` reading lands in the uncertain band (`0.4`–`0.7`)
 on a large objective — the one case the preflight and Judge seams cannot settle —
 the dispatch preview adds a `prior_art_analyst_stage_recommended` advisory

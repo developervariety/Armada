@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
@@ -35,6 +36,8 @@ namespace Armada.Core.Services
         private const int _SamplesPerSearch = 2;
         private const string _PreservedRefPrefix = "refs/armada-preserved/";
         private const string _RecoverBranchPrefix = "recover/";
+        private const int _ExcerptMaxLines = 30;
+        private const int _ExcerptMaxChars = 4000;
 
         private readonly IGitService _Git;
         private readonly IBranchInventory _Branches;
@@ -239,14 +242,46 @@ namespace Armada.Core.Services
             foreach (string location in found.SampleLocations)
             {
                 if (String.IsNullOrWhiteSpace(location)) continue;
+
+                // A hit on a branch or ref is not in the reader's checkout, so it carries a bounded
+                // excerpt read from that ref; a landed hit is readable at its path:line directly.
+                string excerpt = String.Empty;
+                if (refLabel != null)
+                    excerpt = await ReadExcerptAsync(repoPath, revision, location, token).ConfigureAwait(false);
+
                 hits.Add(new PriorArtHit
                 {
                     Where = where,
                     Location = location,
                     Term = term,
-                    Excerpt = String.Empty,
+                    Excerpt = excerpt,
                     Ref = refLabel
                 });
+            }
+        }
+
+        private async Task<string> ReadExcerptAsync(string repoPath, string revision, string location, CancellationToken token)
+        {
+            int colon = location.LastIndexOf(':');
+            if (colon <= 0 || colon == location.Length - 1) return String.Empty;
+            string path = location.Substring(0, colon);
+            if (!Int32.TryParse(location.Substring(colon + 1), NumberStyles.None, CultureInfo.InvariantCulture, out int line) || line < 1)
+                return String.Empty;
+
+            try
+            {
+                string? excerpt = await _Git.ReadFileExcerptOnRevisionAsync(repoPath, revision, path, line, _ExcerptMaxLines, token).ConfigureAwait(false);
+                if (String.IsNullOrEmpty(excerpt)) return String.Empty;
+                return excerpt.Length <= _ExcerptMaxChars ? excerpt : excerpt.Substring(0, _ExcerptMaxChars);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging?.Warn(_Header + "excerpt for '" + location + "' on '" + revision + "' failed: " + ex.Message);
+                return String.Empty;
             }
         }
 
