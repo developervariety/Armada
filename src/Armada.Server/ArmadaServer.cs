@@ -240,7 +240,7 @@ namespace Armada.Server
                 _Logging.Warn(_Header + warning);
             }
 
-            IEmbeddingClient embeddingClient = new VoyageEmbeddingClient(_Settings.CodeIndex, _Logging, codeIndexHttpClient);
+            IEmbeddingClient embeddingClient = await EmbeddingClientFactory.CreateAsync(_Settings, _Database, _Logging, codeIndexHttpClient).ConfigureAwait(false);
             _OpenCodeServerLauncher = new OpenCodeServerLauncher(_Settings, _Logging, codeIndexHttpClient);
             IInferenceClient inferenceClient = string.Equals(_Settings.CodeIndex.InferenceClient, "OpenCodeServer", StringComparison.OrdinalIgnoreCase)
                 ? new OpenCodeServerInferenceClient(_Settings, _Logging, codeIndexHttpClient)

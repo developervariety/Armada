@@ -31,6 +31,14 @@ supplied from the environment. With no key the embedding client is inert and
 search falls back to the checkout. Summarization uses its own configured
 inference endpoint, unchanged.
 
+The embedding provider can instead be a registered **Embedding model endpoint**:
+when one is enabled, the code index uses its base URL, model, and server-side
+key, so the provider and key are managed on the model-endpoints surface rather
+than in settings or the environment. `codeIndex.embeddingEndpointId` pins one
+when several are enabled; with none registered the `codeIndex` embedding
+settings above apply. The endpoint is resolved at startup, so add or change it
+then restart the admiral.
+
 When a feature is off, use the explicit fallback. For example, search the
 checkout directly when code indexing is off. Do not call disabled tools in a
 loop.

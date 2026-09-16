@@ -86,6 +86,16 @@ All notable changes to Armada are documented in this file.
   alternative to `launchCredentialEnv`; a missing or empty file reads
   `account_launch_credential_unavailable`. The policy JSON editor moves under an
   Advanced section.
+- The code index can take its embedding provider from a registered Embedding
+  model endpoint instead of the `codeIndex` settings block. When an enabled
+  Embedding endpoint is registered, the code index uses its base URL, model, and
+  server-side key; `codeIndex.embeddingEndpointId` pins a specific one when more
+  than one is enabled. With no endpoint registered it falls back to the
+  `codeIndex` `EmbeddingApiBaseUrl` / `EmbeddingApiKey` / `EmbeddingModel`
+  settings, so behaviour is unchanged until an endpoint is added. This lets the
+  embedding provider and its key be managed on the model-endpoints surface
+  rather than in settings.json or an environment variable. The client resolves
+  the endpoint at startup, so add or change it then restart the admiral.
 
 - Smart Routing (usage-aware routing) enabled with no configured route for a
   persona now passes the legacy candidate list through unchanged instead of

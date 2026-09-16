@@ -41,6 +41,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ContextRetrievalServiceTests());
             runner.AddSuite(new ContextCoverageCensusTests());
             runner.AddSuite(new ContextBriefWiringTests());
+            runner.AddSuite(new EmbeddingClientFactorySelectionTests());
 
             // Previously compiled suites are explicit registrations until discovery parity is proved.
             runner.AddSuite(new RequestHistoryDatabaseTests());
