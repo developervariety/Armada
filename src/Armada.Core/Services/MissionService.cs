@@ -4426,6 +4426,7 @@ namespace Armada.Core.Services
                 case "diagnosticprotocolreviewer":
                 case "tenantsecurityreviewer":
                 case "portingreferenceanalyst":
+                case "priorartanalyst":
                 case "recorder":
                     return false;
                 default:

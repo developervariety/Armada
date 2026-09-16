@@ -3,6 +3,9 @@ namespace Armada.Core.Services
     using System.Text.Json;
     using System.Text.Json.Serialization;
     using System.Text.RegularExpressions;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
 
@@ -55,6 +58,43 @@ namespace Armada.Core.Services
         #endregion
 
         #region Public-Methods
+
+        /// <summary>
+        /// File a papercut the admiral raised on a captain's behalf. The marker value goes through
+        /// <see cref="PapercutParser.TryParseValue"/>, the same path a captain's own
+        /// <c>[ARMADA:PAPERCUT]</c> line takes, so the stored record is sanitized and shaped identically.
+        /// The event is scoped from the mission. Never throws.
+        /// </summary>
+        /// <param name="database">Database driver.</param>
+        /// <param name="markerValue">The marker value (JSON form) to parse.</param>
+        /// <param name="mission">The mission the papercut is about.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The stored papercut, or null when the value did not parse or the write failed.</returns>
+        public static async Task<Papercut?> FileAsync(DatabaseDriver database, string markerValue, Mission mission, CancellationToken token)
+        {
+            if (database == null || mission == null) return null;
+            try
+            {
+                Papercut? parsed = PapercutParser.TryParseValue(markerValue);
+                if (parsed == null) return null;
+
+                parsed.CaptainId = mission.CaptainId;
+                parsed.MissionId = mission.Id;
+                parsed.VesselId = mission.VesselId;
+                parsed.VoyageId = mission.VoyageId;
+                parsed.Persona = mission.Persona;
+                parsed.ReportedUtc = DateTime.UtcNow;
+
+                ArmadaEvent evt = ToEvent(parsed);
+                EventOwnerScope.ApplyFromMission(evt, mission);
+                await database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+                return parsed;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
 
         /// <summary>
         /// Build the event that stores a papercut.

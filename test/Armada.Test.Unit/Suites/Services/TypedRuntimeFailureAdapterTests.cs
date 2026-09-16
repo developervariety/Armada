@@ -44,6 +44,19 @@ namespace Armada.Test.Unit.Suites.Services
             };
         }
 
+        private static RuntimeFailureDecisionInput BuildInput(Captain captain)
+        {
+            return new RuntimeFailureDecisionInput
+            {
+                Mission = new Mission { Id = "msn_test", VesselId = "vsl_test", Title = "run a J1939 decode" },
+                ExitCode = 1,
+                Tail = "process ended non-zero",
+                Runtime = captain.Runtime.ToString(),
+                ModelId = "claude-fable-5",
+                KeyFamily = TypedRuntimeFailureAdapter.KeyFamilyOf(captain)
+            };
+        }
+
         private static TypedDecisionResult KindResult(string kind, double confidence, double fleetWide = 0.0)
         {
             return new TypedDecisionResult
@@ -187,6 +200,50 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertTrue(client.LastToken == cts.Token, "adapter must forward the caller token");
                 AssertEqual(_Decision, client.LastRequest!.DecisionPoint);
+            }).ConfigureAwait(false);
+
+            await RunTest("FleetWideAtThreshold_EmitsAccountFaultEventAndBroadcastNote_BenchesNothing", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Captain captain = await db.Driver.Captains.CreateAsync(new Captain("fleet-wide-captain") { ApiKey = "sk-should-never-appear-anywhere-0123456789" }).ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(KindResult("usage_limit", 0.95, fleetWide: 0.90));
+                FakeBoardNotePoster poster = new FakeBoardNotePoster();
+                TypedRuntimeFailureAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+                adapter.NotePoster = poster;
+
+                RuntimeFailureDecisionInput input = BuildInput(captain);
+                RuntimeFailureKindEnum result = await adapter.DecideAsync(input, RuntimeFailureKindEnum.Crash, CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(RuntimeFailureKindEnum.UsageLimit, result, "the verdict is still the combined kind; fleet-wide changes nothing about it");
+
+                List<ArmadaEvent> faults = await db.Driver.Events.EnumerateByTypeAsync(TypedRuntimeFailureAdapter.AccountFaultSuspectedEventType, 10).ConfigureAwait(false);
+                AssertEqual(1, faults.Count, "exactly one account-fault event");
+                AssertContains("ClaudeCode/captain-key", faults[0].Message + faults[0].Payload, "the event names the key family");
+                AssertFalse((faults[0].Message + faults[0].Payload).Contains("sk-should-never-appear", StringComparison.Ordinal), "the event never carries the key");
+
+                AssertEqual(1, poster.Posts.Count, "exactly one broadcast board note");
+                AssertContains("ClaudeCode/captain-key", poster.Posts[0], "the note names the key family");
+                AssertFalse(poster.Posts[0].Contains("sk-should-never-appear", StringComparison.Ordinal), "the note never carries the key");
+
+                Captain? after = await db.Driver.Captains.ReadAsync(captain.Id).ConfigureAwait(false);
+                AssertEqual(CaptainStateEnum.Idle, after!.State, "no captain is benched from this path");
+                AssertNull(after.QuarantineUntilUtc, "no quarantine is set from this path");
+                AssertNull(after.QuarantineReason, "no quarantine reason is set from this path");
+            }).ConfigureAwait(false);
+
+            await RunTest("FleetWideBelowThreshold_EmitsNothing", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                Captain captain = await db.Driver.Captains.CreateAsync(new Captain("local-fault-captain")).ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(KindResult("usage_limit", 0.95, fleetWide: 0.89));
+                FakeBoardNotePoster poster = new FakeBoardNotePoster();
+                TypedRuntimeFailureAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+                adapter.NotePoster = poster;
+
+                await adapter.DecideAsync(BuildInput(captain), RuntimeFailureKindEnum.Crash, CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(0, await CountEventsAsync(db, TypedRuntimeFailureAdapter.AccountFaultSuspectedEventType).ConfigureAwait(false), "no account-fault event below 0.9");
+                AssertEqual(0, poster.Posts.Count, "no board note below 0.9");
             }).ConfigureAwait(false);
         }
     }

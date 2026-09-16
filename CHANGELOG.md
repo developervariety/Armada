@@ -34,6 +34,29 @@ All notable changes to Armada are documented in this file.
   `voyage.stage_skipped` event naming the persona, reason and confirmer.
   Auto-skip stays off: the D19 `stage_optional` preview Warning is advice, and
   a refinement summary never writes a stage skip.
+- `armada_check_prior_art` (D26) is now in the caller-scoped tool list, so a
+  mission-scoped captain can call it; operator-control tools stay out of scope.
+  The Worker prompt names the tool, `docs/MCP_API.md` documents it, a read-only
+  `PriorArtAnalyst` persona is seeded as a built-in (no pipeline carries it),
+  and a candidate on an unlanded branch or ref now carries a bounded excerpt
+  read from that ref.
+
+- The D6 `papercut_merge` pair decision now fails closed like every other
+  typed-decision adapter. A client that throws records
+  `typed_decision.unavailable` and the listing returns the plain grouping, and
+  `armada_list_papercuts` passes its own call token (bounded at two minutes) to
+  the merge decisions instead of an unbounded one.
+
+- The D2 `refusal` decision now files a `BriefContradiction` papercut when, in
+  `Gate`, it reads a run as `blocked_on_premise` at or above threshold. The
+  papercut goes through the existing papercut parser path, and its reason is
+  the redacted output tail. The refusal verdict does not change.
+
+- The D3 `runtime_failure` decision now reports a suspected provider account
+  fault. In `Gate`, a `fleet_wide` reading at or above 0.9 records a
+  `provider.account_fault_suspected` event and posts a broadcast
+  coordination-board note that name the captain key family, never the key. The
+  path never benches a captain.
 
 - Smart Routing (usage-aware routing) enabled with no configured route for a
   persona now passes the legacy candidate list through unchanged instead of

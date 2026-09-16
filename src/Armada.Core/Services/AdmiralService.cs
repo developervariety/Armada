@@ -2855,7 +2855,8 @@ namespace Armada.Core.Services
                     ExitCode = exitCode,
                     Tail = LastOutputLines(failureReason, 40),
                     Runtime = captain.Runtime.ToString(),
-                    ModelId = captain.Model ?? String.Empty
+                    ModelId = captain.Model ?? String.Empty,
+                    KeyFamily = TypedRuntimeFailureAdapter.KeyFamilyOf(captain)
                 };
                 return await RuntimeFailureAdapter.DecideAsync(input, ruleVerdict, token).ConfigureAwait(false);
             }

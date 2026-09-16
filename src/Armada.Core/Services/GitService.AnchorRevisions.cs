@@ -104,6 +104,45 @@ namespace Armada.Core.Services
             return result;
         }
 
+        /// <inheritdoc />
+        public async Task<string?> ReadFileExcerptOnRevisionAsync(string worktreePath,
+            string revision, string relativePath, int line, int maxLines, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(worktreePath) || String.IsNullOrWhiteSpace(revision) || String.IsNullOrWhiteSpace(relativePath)) return null;
+            if (maxLines < 1) return null;
+            token.ThrowIfCancellationRequested();
+
+            string content;
+            try
+            {
+                string commit = await RequireAnchorRevisionAsync(worktreePath, revision, token).ConfigureAwait(false);
+                // The show output is capped by the anchor reader, so a very large blob fails rather than
+                // loading unbounded content.
+                content = await RunAnchorGitAsync(worktreePath, token, "show", commit + ":" + relativePath).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+
+            string[] lines = content.Replace("\r\n", "\n").Split('\n');
+            int total = lines.Length;
+            if (total > 0 && lines[total - 1].Length == 0) total--;
+            if (total == 0) return String.Empty;
+
+            int target = Math.Clamp(line, 1, total);
+            int first = Math.Max(1, target - (maxLines / 4));
+            int last = Math.Min(total, first + maxLines - 1);
+            first = Math.Max(1, last - maxLines + 1);
+
+            string window = String.Join("\n", lines, first - 1, last - first + 1);
+            return RuntimeLogFormatter.RedactSecrets(window);
+        }
+
         private static async Task<string> RunAnchorGitAsync(string path, CancellationToken token, params string[] arguments)
         {
             System.Diagnostics.ProcessStartInfo start = new System.Diagnostics.ProcessStartInfo

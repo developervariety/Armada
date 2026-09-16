@@ -41,19 +41,19 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
-            await RunTest("The three captain tools are registered and mission-scoped", async () =>
+            await RunTest("The four captain tools are registered and mission-scoped", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     FakeTypedDecisionClient client = new FakeTypedDecisionClient();
                     Harness harness = Harness.Create(testDb, client, enabled: false);
 
-                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage" })
+                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art" })
                         AssertTrue(harness.Handlers.ContainsKey(name), "Tool should be registered: " + name);
 
                     // A non-admin mission caller may list and call each tool, like the memory tools.
                     AuthContext captain = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, false, "Bearer");
-                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage" })
+                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art" })
                         AssertTrue(McpToolAccessPolicy.IsAllowed(captain, name), "Mission caller may use: " + name);
                 }
             });

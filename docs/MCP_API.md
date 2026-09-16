@@ -546,7 +546,7 @@ conflict. The memory tools never write to that repository.
 
 ## Captain Typed Decisions
 
-Three mission-scoped tools let a captain consult the typed-decision system
+Four mission-scoped tools let a captain consult the typed-decision system
 (TypeSafe Jev) for a structured second reading on a judgement it is about to
 make. They are caller-scoped, next to the memory tools. Authority does not
 travel with them: every call redacts its state before egress, is bounded by the
@@ -595,6 +595,24 @@ It returns typed readings on whether the memory type fits, whether it duplicates
 an existing record, whether it will go stale, and whether it belongs in shared
 external memory rather than native memory. It writes nothing. Dormant until the
 `memory_record` decision is enabled.
+
+### armada_check_prior_art
+
+Check whether the work already exists before writing a new type (decision
+`prior_art`, D26). Args: `plan` (required, what the captain is about to build:
+the types, methods, and files it plans to write) and `missionId` (used to
+resolve the vessel to search, and for budget scope and event attribution). The
+tool runs a deterministic retrieval over the target tip, unlanded mission
+branches, preserved and `recover/` refs, and open objectives for the
+identifiers in the plan. It returns the candidates, each with its surface,
+`path:line` (or objective id), ref, and excerpt, plus typed readings: a
+per-candidate `delivers` choice (`same_capability`, `partial_overlap`,
+`related_only`, `unrelated`) and the `already_done`, `integrate_not_duplicate`,
+and `reimplements` readings. A branch or ref candidate carries a bounded excerpt
+(at most 30 lines) read from that ref, because the file is not in the captain's
+checkout. The captain verifies each `path:line` itself. The tool edits nothing
+and never blocks. It is caller-scoped like the other captain tools, and it is
+dormant (returns unavailable) until the `prior_art` decision is enabled.
 
 ## Memory Proposals
 

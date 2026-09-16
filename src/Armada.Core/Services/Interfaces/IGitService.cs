@@ -371,6 +371,24 @@ namespace Armada.Core.Services.Interfaces
         }
 
         /// <summary>
+        /// Read a bounded window of a tracked file as it exists on a revision
+        /// (<c>git show &lt;commit&gt;:&lt;path&gt;</c>), centred near a 1-based line. The window never
+        /// exceeds <paramref name="maxLines"/> lines, and credential-shaped text is redacted.
+        /// </summary>
+        /// <param name="worktreePath">Path to the repository or worktree.</param>
+        /// <param name="revision">Branch, ref, or commit to read.</param>
+        /// <param name="relativePath">Repository-relative path.</param>
+        /// <param name="line">The 1-based line the window is placed around.</param>
+        /// <param name="maxLines">Maximum lines returned.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The excerpt, or null when the file cannot be read on that revision.</returns>
+        Task<string?> ReadFileExcerptOnRevisionAsync(string worktreePath,
+            string revision, string relativePath, int line, int maxLines, CancellationToken token = default)
+        {
+            return Task.FromResult<string?>(null);
+        }
+
+        /// <summary>
         /// Whether one ref is an ancestor of another, or null when it cannot be determined.
         /// </summary>
         /// <remarks>

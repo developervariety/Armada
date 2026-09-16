@@ -2,6 +2,10 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Globalization;
+    using System.Text.Json;
+    using System.Threading;
+    using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
@@ -28,6 +32,12 @@ namespace Armada.Core.Services
 
         /// <summary>The model id the captain ran.</summary>
         public string ModelId { get; init; } = String.Empty;
+
+        /// <summary>
+        /// The captain's provider key family (see <see cref="TypedRuntimeFailureAdapter.KeyFamilyOf"/>):
+        /// the runtime plus where its credential comes from, never the key itself. Not sent to the model.
+        /// </summary>
+        public string KeyFamily { get; init; } = String.Empty;
     }
 
     /// <summary>
@@ -97,6 +107,42 @@ namespace Armada.Core.Services
             LoggingModule logging)
             : base(client, recorder, settings, logging)
         {
+        }
+
+        #endregion
+
+        #region Public-Members
+
+        /// <summary>
+        /// Event type emitted when the model reads a runtime fault as fleet-wide at or above
+        /// <see cref="FleetWideThreshold"/>. The event names the captain key family, never the key.
+        /// </summary>
+        public const string AccountFaultSuspectedEventType = "provider.account_fault_suspected";
+
+        /// <summary>The fleet-wide reading at or above which an account fault is reported.</summary>
+        public const double FleetWideThreshold = 0.9;
+
+        /// <summary>
+        /// Optional broadcast board-note poster for a suspected account fault. When null the event is
+        /// still recorded and no note is posted.
+        /// </summary>
+        public IBoardNotePoster? NotePoster { get; set; }
+
+        /// <summary>
+        /// The provider key family of a captain: its runtime plus where its credential comes from
+        /// (a model endpoint, a captain-specific key, or the runtime's own login). It identifies which
+        /// captains share one account without ever carrying key material.
+        /// </summary>
+        /// <param name="captain">The captain; null yields <c>unknown</c>.</param>
+        /// <returns>The key family label.</returns>
+        public static string KeyFamilyOf(Captain? captain)
+        {
+            if (captain == null) return "unknown";
+            string source;
+            if (!String.IsNullOrWhiteSpace(captain.ModelEndpointId)) source = "model-endpoint";
+            else if (!String.IsNullOrWhiteSpace(captain.ApiKey)) source = "captain-key";
+            else source = "runtime-login";
+            return captain.Runtime.ToString() + "/" + source;
         }
 
         #endregion
@@ -182,6 +228,45 @@ namespace Armada.Core.Services
             if (String.Equals(model.Kind, _AuthKind, StringComparison.Ordinal)) return RuntimeFailureKindEnum.AuthFailure;
 
             return ruleVerdict;
+        }
+
+        /// <inheritdoc />
+        protected override async Task OnModelReadingAsync(RuntimeFailureDecisionInput input, RuntimeFailureReading model, ResolvedTypedDecision cfg, CancellationToken token)
+        {
+            // A fleet-wide reading is reported, never acted on: it names the key family on an event and
+            // a broadcast board note so an operator checks the provider account. This path never benches,
+            // quarantines, or stops a captain, and it runs only when the decision is gated.
+            if (cfg.Mode != TypedDecisionModeEnum.Gate) return;
+            if (model.FleetWide < FleetWideThreshold) return;
+
+            string family = String.IsNullOrWhiteSpace(input.KeyFamily) ? "unknown" : input.KeyFamily;
+            string fleetWide = model.FleetWide.ToString("0.00", CultureInfo.InvariantCulture);
+            string message = "key_family=" + family + " kind=" + model.Kind + " fleet_wide=" + fleetWide;
+            string payload = JsonSerializer.Serialize(new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["decision"] = DecisionPoint,
+                ["key_family"] = family,
+                ["runtime"] = input.Runtime,
+                ["kind"] = model.Kind,
+                ["fleet_wide"] = model.FleetWide,
+                ["benched"] = false
+            });
+
+            await Recorder.RecordDomainEventAsync(AccountFaultSuspectedEventType, message, payload, input.Mission, token).ConfigureAwait(false);
+
+            IBoardNotePoster? poster = NotePoster;
+            if (poster == null) return;
+            string note = "Provider account fault suspected for captain key family " + family
+                + ": the runtime_failure decision reads a '" + model.Kind + "' exit as affecting every captain on that key"
+                + " (fleet_wide " + fleetWide + "). No captain was benched. Check the provider account before dispatching more work on this key family.";
+            try
+            {
+                await poster.PostBroadcastAsync(note, input.Mission?.VesselId, input.Mission?.Id, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Logging.Warn(_Header + "account-fault board note failed: " + ex.Message);
+            }
         }
 
         /// <inheritdoc />

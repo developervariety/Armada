@@ -244,10 +244,20 @@ model, where a rule hard-block always wins. The four wired today are:
   authoritative; the model may promote a prose refusal the phrase rules missed
   or demote a quoted phrase at very high confidence. The criteria state the
   domain: authorized heavy-duty vehicle diagnostics, where seed-key exchange and
-  UDS SecurityAccess are ordinary engineering, never a refusal.
+  UDS SecurityAccess are ordinary engineering, never a refusal. In `Gate`, a
+  `blocked_on_premise` outcome at or above threshold files a
+  `BriefContradiction` papercut for the mission through the same parser path a
+  captain's own `[ARMADA:PAPERCUT]` line takes. Its detail is the output tail
+  after the typed-decision redactor removes ids, paths, hosts, hashes, and
+  key-shaped tokens. The refusal verdict does not change.
 - `runtime_failure` — only a bare Crash is offered for change, and only ever
   upgraded to the more conservative UsageLimit or AuthFailure; a recognised
-  signature is never downgraded and a crash is never read as clean.
+  signature is never downgraded and a crash is never read as clean. In `Gate`,
+  a `fleet_wide` reading at or above `0.9` (whatever the kind) records a
+  `provider.account_fault_suspected` event and posts a broadcast board note.
+  Both name the captain key family (the runtime plus the credential source:
+  `model-endpoint`, `captain-key`, or `runtime-login`), never the key. This
+  path only reports. It never benches, quarantines, or stops a captain.
 
 One decision point reads the objective dispatch preview:
 
@@ -364,7 +374,10 @@ Two decision points read the papercut grouping:
   event is changed and no group is deleted, so setting the decision `Off`
   restores the plain grouping. It considers only the largest groups per vessel
   and caps the model calls per listing. A merge records a `papercut.merge_proposed`
-  event (recorded but not applied in `Shadow`).
+  event (recorded but not applied in `Shadow`). Each pair call follows the same
+  skeleton as every other adapter: the listing call's token reaches the client
+  (the call is bounded at two minutes), and a timeout, provider error, or thrown
+  exception records `typed_decision.unavailable` and returns the plain grouping.
 - **D18 `memory_candidate`** (ships `Off`, threshold `0.90`) runs in the weekly
   papercut sweep. At most once per seven days the health loop groups the
   papercuts reported in the last seven days, applies the D6 merge, and offers the
@@ -525,7 +538,10 @@ and no new persona (ships `Off`, built and dormant until a Gate flip):
     the Worker. The adapter only ADDS issues; it never closes or re-scopes a row.
   - **Worker premise tool (`armada_check_prior_art`).** A mission-scoped captain
     MCP tool that runs the same retrieval for the captain's stated plan and returns
-    the candidates with the typed answers before it writes a type.
+    the candidates with the typed answers before it writes a type. It is in the
+    caller-scoped tool list, and the Worker prompt names it. A candidate on an
+    unlanded branch or a preserved or recovery ref carries a bounded excerpt
+    (at most 30 lines) read from that ref.
   - **Judge (extends D4).** On the Worker handoff, over the diff's added types and
     the retrieval results, a `reimplements` reading at or above threshold prepends
     a review INSTRUCTION to the next brief ("verify whether the diff should consume

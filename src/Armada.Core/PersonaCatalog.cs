@@ -55,6 +55,12 @@ namespace Armada.Core
         public const string Recorder = "Recorder";
 
         /// <summary>
+        /// Read-only research persona that settles whether an objective's deliverable already exists
+        /// when the D26 prior-art reading is uncertain. It commits nothing and joins no built-in pipeline.
+        /// </summary>
+        public const string PriorArtAnalyst = "PriorArtAnalyst";
+
+        /// <summary>
         /// Normalize a persona name to the canonical built-in display name when applicable.
         /// </summary>
         /// <param name="persona">Persona name.</param>
@@ -91,7 +97,8 @@ namespace Armada.Core
         /// Whether a persona's successful completion legitimately produces no repository commit and
         /// can finish quickly, so the no-op completion gate must not read its empty diff as a
         /// false-complete. The Architect delivers a downstream mission plan; the Recorder writes
-        /// native memory. Both deliver their result outside the repository diff, so an empty diff is
+        /// native memory; the PriorArtAnalyst writes its finding into its report. Each delivers its
+        /// result outside the repository diff, so an empty diff is
         /// their normal outcome whatever the voyage mission mode. Reviewer personas are judged by
         /// their own output instead and are deliberately not listed here.
         /// </summary>
@@ -99,7 +106,7 @@ namespace Armada.Core
         /// <returns>True when an empty diff is a legitimate completion for this persona.</returns>
         public static bool IsNoOpCompletionExempt(string? persona)
         {
-            return Matches(persona, Architect) || Matches(persona, Recorder);
+            return Matches(persona, Architect) || Matches(persona, Recorder) || Matches(persona, PriorArtAnalyst);
         }
 
         /// <summary>
