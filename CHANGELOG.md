@@ -71,6 +71,20 @@ All notable changes to Armada are documented in this file.
   or malformed sidecar is ignored and the index still generates. Additive: the
   server wiring, brief generation, and the loaders are unchanged.
 
+- Added the context-retrieval coverage census: a harness
+  (`Armada.Core/Context/Census/ContextCoverageCensus.cs`) and a committed report
+  (`docs/context-index/coverage-census.md`) that measure the built index and the
+  retrieval service to gate whether the orchestrator and captain briefs can be
+  slimmed. It reports four numbers: safety recall (an invariant that every core
+  and every domain-matched must_retrieve chunk is always returned, pinned by a
+  registered unit test), read_when leaf recall, the byte-reduction distribution
+  against the eager baseline, and a failure replay over recent papercut signals.
+  The invariant part is a gate test; the two database-sampling parts run by hand
+  and are never flaky in the suite. First run: safety recall 100%, read_when
+  recall 93.6%, byte reduction 87.8-95.3% (median 92.2%), and five failure-replay
+  regressions traced to oversized whole-file leaves, so brief wiring stays blocked
+  until the large sources are sub-chunked.
+
 ### Code index
 
 - Replaced the code-index embedding client with a Voyage AI client. The fork
