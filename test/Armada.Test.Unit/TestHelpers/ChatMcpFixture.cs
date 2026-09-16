@@ -110,6 +110,23 @@ namespace Armada.Test.Unit.TestHelpers
             server.Authenticator = async (credentials, token) =>
             {
                 lock (_Lock) _Seen.Add(credentials);
+                // Reproduce the admiral's own MCP authentication: the launch credential maps to a global admin
+                // in the default tenant (see ArmadaServer.AuthenticateMcpRequestAsync), so a test can prove that a
+                // preflight presenting it would reach the whole operator catalog across tenants.
+                const string bearerPrefix = "Bearer ";
+                if (!String.IsNullOrEmpty(credentials.Authorization)
+                    && credentials.Authorization.StartsWith(bearerPrefix, StringComparison.OrdinalIgnoreCase)
+                    && McpLaunchCredential.Matches(credentials.Authorization.Substring(bearerPrefix.Length)))
+                {
+                    return AuthContext.Authenticated(
+                        Armada.Core.Constants.DefaultTenantId,
+                        Armada.Core.Constants.DefaultUserId,
+                        true,
+                        true,
+                        "CaptainLaunch",
+                        null,
+                        "Captain launch credential");
+                }
                 return await _Authentication!.AuthenticateAsync(credentials.Authorization, credentials.SessionToken, credentials.ApiKey, token).ConfigureAwait(false);
             };
             server.ToolAuthorizer = McpToolAccessPolicy.IsAllowed;

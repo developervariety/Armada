@@ -6,6 +6,25 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Security
+
+- Scoped the captain tools preflight to the requesting viewer. The Ask tools
+  report (the planned-Ask endpoint preflight) probed Armada MCP with the admiral
+  launch credential, which the endpoint maps to a global administrator in the
+  default tenant, so it listed the whole operator catalog to any viewer -
+  including a tenant admin of another tenant. The preflight now probes with the
+  requesting viewer's own scoped session token, the same credential the next Ask
+  launch carries, so it lists only the tools that viewer may use and never an
+  operator-only tool the viewer's scope refuses. With no issuable viewer scope
+  (no authenticated caller, no session-token service, or MCP not served) it
+  presents no credential and lists no Armada tool; it never falls back to the
+  launch credential. This completes the mission-launch scoping already landed for
+  mission and chat captains: a mission captain runs with the dispatching caller's
+  own scoped token (interactive dispatch) or the objective and vessel tenant scope
+  carried on its voyage (autonomous dispatch, which has no interactive caller),
+  never the operator launch credential, never operator-only tools, and never
+  another tenant's records.
+
 ### Code index
 
 - Replaced the code-index embedding client with a Voyage AI client. The fork

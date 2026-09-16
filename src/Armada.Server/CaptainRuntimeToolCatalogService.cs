@@ -79,7 +79,7 @@ namespace Armada.Server
             // to use. This is an endpoint preflight, not a claim that the captain is already connected.
             if (plannedAsk || String.IsNullOrWhiteSpace(captain.CurrentMissionId))
             {
-                return await DescribePlannedArmadaEndpointAsync(token).ConfigureAwait(false);
+                return await DescribePlannedArmadaEndpointAsync(callerAccess, token).ConfigureAwait(false);
             }
 
             string? contextDirectory = await ResolveContextDirectoryAsync(captain, database).ConfigureAwait(false);
@@ -263,7 +263,20 @@ namespace Armada.Server
             };
         }
 
-        private async Task<RuntimeToolCatalogSnapshot> DescribePlannedArmadaEndpointAsync(CancellationToken token)
+        /// <summary>
+        /// Describe the Armada MCP tools the next Ask launch of this captain would reach. An Ask launch carries
+        /// the requesting viewer's own scoped session token (the same credential a chat launch carries), so the
+        /// preflight probes the endpoint with that same token: the endpoint re-reads the token owner and applies
+        /// the tool access policy, so the report lists only the tools the viewer's scope allows, never operator
+        /// tools a narrower viewer may not use, and never another tenant's records. With no issuable viewer scope
+        /// the preflight presents no credential and reaches no tool -- it never falls back to the admiral launch
+        /// credential, which the endpoint maps to global admin and would otherwise leak the operator catalog to
+        /// any viewer.
+        /// </summary>
+        /// <param name="callerAccess">The requesting viewer's scoped MCP access, or null when none may be issued.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The snapshot.</returns>
+        private async Task<RuntimeToolCatalogSnapshot> DescribePlannedArmadaEndpointAsync(CallerMcpToolAccess? callerAccess, CancellationToken token)
         {
             RuntimeToolCatalogSnapshot snapshot = new RuntimeToolCatalogSnapshot
             {
@@ -271,17 +284,31 @@ namespace Armada.Server
                 McpConnectionPlanned = true,
                 AvailabilityVerified = true
             };
+
+            if (callerAccess == null)
+            {
+                // Fail closed: no authenticated viewer scope could be issued, so the preflight presents no
+                // credential and lists no Armada tool. The admiral launch credential is never presented.
+                snapshot.AvailabilitySource = "ask-launch-plan-no-viewer-scope";
+                snapshot.ToolsAccessible = false;
+                snapshot.ArmadaToolCount = 0;
+                snapshot.EffectiveToolCount = 0;
+                snapshot.Summary = "Ask launch plan targets Armada MCP, but no caller-scoped credential could be issued for the requesting viewer, so no Armada tools are listed. The selected captain is not running an Ask process yet.";
+                return snapshot;
+            }
+
             RuntimeMcpServerDefinition server = new RuntimeMcpServerDefinition
             {
                 Name = "armada",
                 Enabled = true,
                 TransportType = "streamable_http",
-                Url = ArmadaMcpConfigBuilder.GetMcpUrl(_Settings?.McpPort ?? Armada.Core.Constants.DefaultMcpPort),
-                // The endpoint refuses a request without credentials, so the preflight presents the
-                // same launch credential an Ask captain process would carry.
+                Url = callerAccess.Endpoint,
+                // The requesting viewer's own scoped session token, the credential the next Ask launch would
+                // carry. The endpoint re-reads its owner and applies the tool access policy, so the probe lists
+                // only the tools that viewer may use. The admiral launch credential is never presented.
                 Headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
                 {
-                    ["Authorization"] = "Bearer " + McpLaunchCredential.Token
+                    ["Authorization"] = "Bearer " + callerAccess.SessionToken
                 },
                 StartupTimeout = TimeSpan.FromSeconds(15),
                 ToolTimeout = TimeSpan.FromSeconds(15)
@@ -301,7 +328,7 @@ namespace Armada.Server
                 snapshot.ToolsAccessible = tools.Count > 0;
                 snapshot.ArmadaToolCount = tools.Count(t => String.Equals(t.RegistrationSource, "armada", StringComparison.OrdinalIgnoreCase));
                 snapshot.EffectiveToolCount = tools.Count;
-                snapshot.Summary = "Ask launch plan targets Armada MCP; endpoint preflight reached " + tools.Count + " tool(s). The selected captain is not running an Ask process yet.";
+                snapshot.Summary = "Ask launch plan targets Armada MCP; endpoint preflight reached " + tools.Count + " tool(s) for the requesting viewer's scope. The selected captain is not running an Ask process yet.";
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {

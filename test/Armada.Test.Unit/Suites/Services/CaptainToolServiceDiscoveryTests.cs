@@ -8,6 +8,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Settings;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Server;
     using Armada.Server.Mcp;
     using Armada.Test.Common;
@@ -132,6 +133,71 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(0, fixture.SeenCredentials().Count, "The report never contacts MCP without a caller.");
             });
 
+            await RunTest("IdleAskPreflight_ViewerScoped_ListsViewerToolsNotOperatorCatalog", async () =>
+            {
+                // A planned Ask preflight for a non-ApiEndpoint captain probes Armada MCP with the requesting
+                // viewer's own scoped session token, so it lists only the tools that viewer may use. Before the
+                // fix it probed with the admiral launch credential (global admin) and reported the whole operator
+                // catalog to any viewer -- a cross-tenant escalation.
+                using TestDatabase database = await TestDatabaseHelper.CreateDatabaseAsync();
+                LoggingModule logging = new LoggingModule(); logging.Settings.EnableConsole = false;
+                ChatMcpFixture fixture = await ChatMcpFixture.CreateAsync(database, logging);
+                await using ArmadaMcpHttpServer server = fixture.CreateServer();
+                await server.StartAsync();
+
+                Captain captain = new Captain { Id = "cpt_ask_cli", Name = "AskCli", Runtime = AgentRuntimeEnum.ClaudeCode };
+                // A tenant admin of tenant A who could dispatch a mission, but is not a global operator.
+                AuthContext caller = AuthContext.Authenticated(fixture.TenantAId, fixture.UserAId, false, true, "Session");
+                CaptainToolService service = new CaptainToolService(logging, database.Driver, fixture.Settings, null, NewProfileDirectory(), fixture.SessionTokens);
+
+                foreach (bool plannedAsk in new[] { true, false })
+                {
+                    CaptainToolAccessResult result = await service.DescribeAsync(captain, plannedAsk: plannedAsk, caller: caller);
+                    List<string> names = result.Tools.Select(tool => tool.Name).ToList();
+                    AssertTrue(names.Contains("get_memory"), "The viewer's own caller-scoped tools are listed (plannedAsk=" + plannedAsk + ").");
+                    AssertFalse(names.Contains("armada_stop_server"), "An operator-only tool the viewer's scope refuses is never listed (plannedAsk=" + plannedAsk + ").");
+                    AssertTrue(result.ArmadaToolCount > 0, "The viewer is offered its scoped Armada tools.");
+                }
+
+                // Every probe presented the viewer's own scoped session token and never the admiral launch
+                // credential, which the endpoint maps to global admin.
+                List<McpRequestCredentials> seen = fixture.SeenCredentials();
+                AssertTrue(seen.Count > 0, "The preflight contacted MCP for the viewer.");
+                foreach (McpRequestCredentials credentials in seen)
+                {
+                    AssertFalse(
+                        credentials.Authorization != null && credentials.Authorization.Contains(McpLaunchCredential.Token, StringComparison.Ordinal),
+                        "The admiral launch credential is never presented by the preflight.");
+                }
+            });
+
+            await RunTest("IdleAskPreflight_NoViewerScope_FailsClosed_NeverLaunchCredential", async () =>
+            {
+                // With no issuable viewer scope (no session-token service), the preflight fails closed: it
+                // presents no credential and lists no Armada tool. Before the fix it fell back to the admiral
+                // launch credential and reported the operator catalog.
+                using TestDatabase database = await TestDatabaseHelper.CreateDatabaseAsync();
+                LoggingModule logging = new LoggingModule(); logging.Settings.EnableConsole = false;
+                ChatMcpFixture fixture = await ChatMcpFixture.CreateAsync(database, logging);
+                await using ArmadaMcpHttpServer server = fixture.CreateServer();
+                await server.StartAsync();
+
+                Captain captain = new Captain { Id = "cpt_ask_cli2", Name = "AskCli2", Runtime = AgentRuntimeEnum.ClaudeCode };
+                AuthContext caller = AuthContext.Authenticated(fixture.TenantAId, fixture.UserAId, false, true, "Session");
+                // No session-token service is supplied, so no caller-scoped credential can be issued.
+                CaptainToolService service = new CaptainToolService(logging, database.Driver, fixture.Settings, null, NewProfileDirectory());
+
+                foreach (bool plannedAsk in new[] { true, false })
+                {
+                    CaptainToolAccessResult result = await service.DescribeAsync(captain, plannedAsk: plannedAsk, caller: caller);
+                    AssertEqual("ask-launch-plan-no-viewer-scope", result.AvailabilitySource, "The preflight fails closed with no viewer scope (plannedAsk=" + plannedAsk + ").");
+                    AssertEqual(0, result.ArmadaToolCount, "No Armada tool is listed without a viewer scope.");
+                    AssertFalse(result.Tools.Any(tool => tool.Name.StartsWith("armada_", StringComparison.Ordinal)), "No operator tool is listed.");
+                }
+
+                AssertEqual(0, fixture.SeenCredentials().Count, "The preflight never contacts MCP, so it never presents the launch credential.");
+            });
+
             await RunTest("IdleAskPreflight_CancellationPropagates", async () =>
             {
                 using TestDatabase database = await TestDatabaseHelper.CreateDatabaseAsync();
@@ -150,8 +216,9 @@ namespace Armada.Test.Unit.Suites.Services
                 Captain captain = new Captain { Id = "cpt_busy", Name = "Busy", Runtime = AgentRuntimeEnum.ClaudeCode, CurrentMissionId = "msn_active" };
                 using HttpClient plannedHttp = new HttpClient(new McpHandler(new[] { "armada_status" }));
                 string profile = NewProfileDirectory();
-                CaptainToolService service = new CaptainToolService(logging, database.Driver, settings, plannedHttp, profile);
-                CaptainToolAccessResult planned = await service.DescribeAsync(captain, plannedAsk: true);
+                CaptainToolService service = new CaptainToolService(logging, database.Driver, settings, plannedHttp, profile, new SessionTokenService());
+                AuthContext plannedCaller = AuthContext.Authenticated("tenant-viewer", "user-viewer", false, false, "Session");
+                CaptainToolAccessResult planned = await service.DescribeAsync(captain, plannedAsk: true, caller: plannedCaller);
                 AssertTrue(planned.McpConnectionPlanned, "Ask context must use the planned probe for a busy captain.");
                 AssertEqual(1, planned.ArmadaToolCount);
                 using HttpClient activeHttp = new HttpClient(new McpHandler(new[] { "unexpected" }));
@@ -238,9 +305,12 @@ namespace Armada.Test.Unit.Suites.Services
             logging.Settings.EnableConsole = false;
             ArmadaSettings settings = new ArmadaSettings();
             settings.McpPort = 7891;
-            CaptainToolService service = NewService(database, settings, http);
+            // A planned Ask preflight probes the endpoint with the requesting viewer's own scoped session token,
+            // so the service needs a session-token service and an authenticated caller to issue one.
+            CaptainToolService service = new CaptainToolService(logging, database.Driver, settings, http, NewProfileDirectory(), new SessionTokenService());
             Captain captain = new Captain { Id = "cpt_discovery", Name = "Discovery", Runtime = AgentRuntimeEnum.ClaudeCode };
-            return await service.DescribeAsync(captain, token);
+            AuthContext caller = AuthContext.Authenticated("tenant-viewer", "user-viewer", false, false, "Session");
+            return await service.DescribeAsync(captain, token, caller: caller);
         }
 
         /// <summary>

@@ -75,9 +75,18 @@ nothing falls back to a default administrative identity. Only a global
 administrator sees the operator catalog. A launched captain authenticates with a
 caller-scoped session token - a mission captain with the mission owner's token,
 a chat captain with the caller's token - so a mission reaches only its owner's
-records and no operator-only tool, never the admiral launch credential.
-`docs/MCP_API.md` lists the caller rules, the captain credential scope and the
-per-runtime headers.
+records and no operator-only tool, never the admiral launch credential. For an
+interactive dispatch the mission owner is the dispatching caller, so the mission
+is scoped to that caller's own tenant and user. An autonomous dispatch has no
+caller, so the mission runs with the objective and vessel tenant scope carried on
+its voyage - its own tenant context, with no operator-only tool and no other
+tenant's records - and never the launch credential. With no resolvable owner the
+launch presents no credential and the endpoint refuses it (fail closed). The
+captain tools preflight (the Ask tools report) probes MCP with the requesting
+viewer's own scoped token, so it lists only the tools that viewer may use; with
+no issuable viewer scope it presents no credential and lists no Armada tool,
+never the launch credential. `docs/MCP_API.md` lists the caller rules, the
+captain credential scope and the per-runtime headers.
 
 Operator migration when an Admiral with MCP authentication is deployed:
 

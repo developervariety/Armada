@@ -66,11 +66,13 @@ namespace Armada.Server
                 Tools = new List<CaptainToolSummary>()
             };
 
-            // An API-endpoint captain has no MCP client of its own: an Ask chat turn connects with the caller's
-            // access. The report issues that same access, so what it lists is what a chat turn would receive.
-            CallerMcpToolAccess? callerAccess = captain.Runtime == AgentRuntimeEnum.ApiEndpoint
-                ? CallerMcpToolAccessFactory.Create(caller, _sessionTokens, _settings == null ? 0 : _settings.McpPort, _logging)
-                : null;
+            // The requesting viewer's own MCP access, issued for any authenticated caller by the one shared
+            // rule. An API-endpoint captain's chat turn connects with it, and the planned-Ask preflight for any
+            // runtime probes the endpoint with it, so both list only the tools the viewer's scope allows. A
+            // caller with no issuable scope (unauthenticated, no session-token service, or MCP not served) gets
+            // none, and the planned-Ask preflight then presents no credential rather than the launch credential.
+            CallerMcpToolAccess? callerAccess =
+                CallerMcpToolAccessFactory.Create(caller, _sessionTokens, _settings == null ? 0 : _settings.McpPort, _logging);
 
             CaptainRuntimeToolCatalogService.RuntimeToolCatalogSnapshot? runtimeSnapshot =
                 await _runtimeCatalog.TryDescribeAsync(captain, _database, token, plannedAsk, callerAccess).ConfigureAwait(false);
