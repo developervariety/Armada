@@ -1,3 +1,10 @@
+---
+topic: "Pipelines"
+summary: "Built-in pipeline stage lists, resolution order, and execution barriers."
+read_when: "Choosing a pipeline for a voyage, or building a custom stage sequence."
+applies_to: orchestrator
+tier: leaf
+---
 # Armada Pipelines
 
 A pipeline is an ordered set of persona stages. Stages with the same order run

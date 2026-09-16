@@ -20,6 +20,20 @@ All notable changes to Armada are documented in this file.
   deploy section. Repointed the guide-content unit test and the README typed-
   decisions link to the new files. Docs only; no behaviour change.
 
+- Brought the README and the remaining operator-facing docs current with the
+  platform state and aligned them to the retrieval front-matter style. The README
+  `Upstream vs Fork` section now reads as a divergent superset described by
+  capability -- the typed-decision catalogue (D1 through D26 prior art, gated from
+  first deploy, plus the captain tools), the Linter and Recorder pipeline stages,
+  usage-aware routing, the in-place Restart Server, the Voyage AI code-index
+  embeddings, the hardened-but-disabled self-deploy, and the in-progress
+  context-index system -- and points to the upstream parity standpoint. Corrected
+  the `Tested` and `ProductDevelopment` stage lists to carry the Linter, the
+  Recorder placement, and the MCP tool count (now 195). Added
+  `topic`/`summary`/`read_when`/`applies_to`/`tier` front-matter to `MCP_API.md`,
+  `MERGING.md`, `DELIVERY_OPERATIONS.md`, `OPERATIONAL_ASSETS.md`, `PIPELINES.md`,
+  and `PERSONAS.md`. Docs only; no behaviour change.
+
 ### Code index
 
 - Replaced the code-index embedding client with a Voyage AI client. The fork

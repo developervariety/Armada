@@ -1,3 +1,10 @@
+---
+topic: "Operational Assets"
+summary: "Playbooks, runbooks, workflow profiles, environments, personas, pipelines, and their default links."
+read_when: "Creating or changing an operational asset, or auditing what a vessel resolves."
+applies_to: orchestrator
+tier: leaf
+---
 # Armada Operational Assets
 
 This guide is the canonical procedure for playbooks, runbooks, workflow
@@ -232,7 +239,7 @@ Built-in pipelines:
 | --- | --- |
 | `WorkerOnly` | Worker |
 | `Reviewed` | Worker, Judge |
-| `Tested` | Worker, TestEngineer, Judge |
+| `Tested` | Worker, TestEngineer, Linter, Judge |
 | `FullPipeline` | Architect, Worker, TestEngineer, Judge |
 | `ProductDevelopment` | Product Manager, Architect, Worker, Usability Engineer, TestEngineer, Linter, Judge, Recorder |
 | `Recorded` | Worker, Recorder |

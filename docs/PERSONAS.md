@@ -1,3 +1,10 @@
+---
+topic: "Personas"
+summary: "Built-in persona roles, the Linter and Recorder stages, and prompt-template rules."
+read_when: "Choosing or authoring a persona, or wiring one into a pipeline stage."
+applies_to: orchestrator
+tier: leaf
+---
 # Armada Personas: Technical Reference
 
 This document describes the current persona implementation. For the operator
@@ -20,7 +27,7 @@ reviewers in this table are seeded only from settings:
 | `Usability Engineer` | Review usability and product consistency. |
 | `Judge` | Review correctness and completeness. |
 | `TestEngineer` | Add or update tests and verify behavior. |
-| `Linter` | Check the changed code and documentation for style and correctness, fix clear in-scope violations, and report findings. Runs in ProductDevelopment only. |
+| `Linter` | Check the changed code and documentation for style and correctness, fix clear in-scope violations, and report findings. Runs in `Tested`, `ProductDevelopment`, and `ReferencePortingTested`. |
 | `DiagnosticProtocolReviewer` | Review binary protocols and hardware-risk paths. |
 | `TenantSecurityReviewer` | Review authentication, authorization, isolation, and secrets. |
 | `PortingReferenceAnalyst` | Compare approved references and parity evidence. |
@@ -113,7 +120,7 @@ in captain prompt templates.
 
 Before release, confirm:
 
-1. All 13 built-in personas exist and are active.
+1. All 11 built-in personas (8 seeded, plus the 3 specialist reviewers from settings) exist and are active.
 2. Each active persona refers to an active prompt template.
 3. Every pipeline stage refers to an active persona.
 4. Default playbook references exist and are active.

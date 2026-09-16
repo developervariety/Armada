@@ -56,116 +56,42 @@ Armada is intentionally vocabulary-heavy because the model mirrors the operating
 
 ## Upstream vs Fork
 
-This repository is a fork of [jchristn/Armada](https://github.com/jchristn/Armada).
-Both share missions, voyages, captains, docks, pipelines and delivery records.
-The [selective integration review](docs/upstream-review/README.md) compares
-current capabilities and records the next porting gates. Its proposed changes
-are not shipped features.
+This repository is a private fork of [jchristn/Armada](https://github.com/jchristn/Armada).
+It shares the core operating model -- fleets, vessels, captains, missions, voyages,
+docks, pipelines, and delivery records -- but it is a divergent **superset**, not a
+version behind upstream. The fork keeps parity by re-implementing selected upstream
+features rather than merging, because a blanket merge would collide with, and in
+places regress, deliberate fork choices. The full capability-by-capability map and
+the porting decisions live in the
+[upstream parity standpoint](docs/upstream-review/UPSTREAM_PARITY.md); the
+[selective integration review](docs/upstream-review/README.md) records the open gates.
 
-| Area | Shared capabilities | Fork depth and remaining upstream additions |
-| --- | --- | --- |
-| Workflow and verification | Mission modes, review, in-dock acceptance, stage handoff and recovery | The fork preserves full recovery pipelines, immutable reviewed-commit Checks, declared consumer builds that also run the consumer's test suite on changes that can break it, and verified landing evidence. Manual completion also requires immutable Check, process ownership and target ancestry proof, while intermediate stages use shared handoff. |
-| Captain control | Quarantine, model tiers, reasoning effort, per-stage assignment and OpenCode | The fork adds manual timed or indefinite bench, provider-aware recovery, persona policy and configured routing. Generic crash-loop tracking uses the fork quarantine service and preserves stronger holds and active work. Upstream list details remain dashboard integration work. |
-| Operator experience | Consolidated dashboard, Ask/Planning, workspace terminal/diff, Needs You, background jobs and token usage | The fork adds coordination, claims, directed wakes, preparation evidence and scoped voyage counts with paged vessel associations. Formatted runtime log responses include bounded typed text, thinking and tool entries with shared redaction. OpenCode provider failures become named chat, planning and refinement failures. Summary, log-chip and anchor display wiring still need adaptation. |
-| Identity and configuration | Tenants, users, skills, project profiles and operational assets | Upstream adds broader per-user ownership and scoped controls. The fork adapts the tenant-wide and user-specific ownership rule to personas, pipelines and prompt templates through one shared policy that native memory also uses, and dispatch refuses another user's private record. Integration must preserve fork resources and deny invalid credentials through the official MCP transport. |
-| Execution and deployment | Local runtime execution and process supervision; the fork self-deploy gate requires backup, restore and candidate proof; the native four-provider preflight is the default and refuses cutover when unavailable; supervised cutover uses verified process identity, immutable artifacts, bounded health rollback and restart recovery, and fails closed inside containers; local container rebuilds can retain and verify both prior image references before building | Model endpoint persistence is adapted across all four providers with Unicode IDs, scoped storage and disabled defaults. Harbor runners are available behind a disabled-by-default setting: a credential-authenticated link binds each connection and job to the enrolled runner, tenant, user and connection generation, revalidates durable enrollment on every frame, and rejects replayed, foreign, revoked and stale reports. Captains or vessels opt into Harbor mission execution through explicit routes; jobs run through the same lifecycle, stall and recovery rules as local processes, persist on all four providers, fail by name after an Admiral restart, and are listed and stopped through REST and MCP. Scoped endpoint services and captain links now enforce private ownership, write-only credentials, conditional health updates and deletion protection. API captains run a bounded in-process workspace tool loop against operator-hosted endpoints; hosted OpenAI, Anthropic and Gemini endpoints stay refused until `apiCaptainCloudProviders` lists them, and Azure OpenAI, Vertex AI and Bedrock are unavailable. Live provider runs and Harbor mission execution still need acceptance before use; upstream A/B rebuild slots are rejected for the container deployment. |
-| Repository context and autonomy | Supplied repository context and shared git-anchor concepts | The fork adds code index, symbol graph, context packs, bounded objective scheduling, prepared claims and sibling lanes. Dock snapshots preserve bounded evidence from the actual provisioning commit. |
+What the fork adds on top of the shared model:
 
-Interrupted captain runs are re-dispatched instead of failing the voyage, as
-upstream now does. The fork bounds them with its own per-mission budget that is
-counted from events, and leaves the rescue budget untouched. Upstream treats
-every negative exit code as an interruption; the fork counts only -1 reported by
-the runtime, so a native crash code and the health check's missing-process value
-still fail.
+- **Typed decisions.** A calibrated advisory classifier (TypeSafe Jev) behind the
+  existing deterministic rules, catalogued D1 through D26. The six Phase-1 decisions
+  ship gated from the first deploy with no shadow period; the rest stay off until
+  their adapter lane lands. It only ever makes a call more conservative, never lands
+  or dispatches, fails closed to the rule, and never egresses unredacted state.
+  Captains get read-only, per-mission-budgeted tools, including prior-art retrieval
+  (D26) that answers "does this already exist?" with evidence before work starts.
+- **Deeper review.** Linter and Recorder pipeline stages, immutable reviewed-commit
+  Checks, declared-consumer builds, verified landing evidence, and full recovery
+  pipelines with provider-aware rescue.
+- **Usage-aware routing.** Model-tier routing plus optional Routing V2, which moves
+  routine work to approved fallback accounts when an account's allowance runs low,
+  while preserving persona preferences.
+- **Operations.** An in-place Restart Server action adapted for Docker (a graceful
+  stop under the container restart policy); a Voyage AI code-index embedding client;
+  supervised self-deploy, hardened but disabled pending its safety integration; and
+  server-side Harbor remote runners, disabled by default.
+- **Repository context.** A code index, symbol graph, and context packs feed dispatch;
+  a broader context-index and retrieval system is in progress.
 
-MCP create tools record the authenticated caller as the owner, as upstream
-now does and as the fork's REST creates always did. The fork applies its shared
-ownership policy, so a global administrator's profile tenant choice and the
-per-tenant playbook name rule match REST exactly. The fork's WebSocket create
-commands follow the same rule, and dispatch creates take the vessel's owner on
-every surface.
-
-Ask chat uses upstream's honest system prompt. The fork seeds it as the
-built-in `ask.system` template, which it previously resolved but never seeded.
-
-The fork accepts upstream's `ARMADA_DATA_DIR` as an alias of its own
-`ARMADA_DATA_DIRECTORY`, which wins when both are set. `armada_add_vessel`
-gives a local-clone repository its working directory, as upstream does.
-
-Features first developed in the fork now also exist upstream: boundary
-scanning, auto-land, quarantine, model tiers, OpenCode, no-op handling,
-reasoning effort, mission modes, acceptance gates, recovery, stage hardening,
-project profiles, captain assignment, jobs, token accounting, friction reports
-and coordination leases. A shared feature name does not imply equal behavior.
-The fork's recovery and Judge gates remain more complete.
-
-The Linter persona runs in ProductDevelopment, between the TestEngineer and the
-Judge. Upstream also adds it to FullPipeline. The fork keeps FullPipeline
-unchanged, because startup reconciliation rewrites a built-in pipeline and would
-add the stage to every existing FullPipeline without notice.
-
-Captain commit instructions use upstream's manifest rule: every commit needs a
-summary line and a list of each changed file with what changed and why, before
-the Armada trailers. The fork keeps them off read-only missions.
-
-Mission history uses upstream's status rule: a mission counts as complete once
-it has produced work (WorkProduced, PullRequestOpen, Testing, Review or
-Complete), so reviewed work reads as done when landing is off.
-
-The fork now provides scoped, read-only vessel branch inspection, including
-tip metadata, divergence and verified HEAD state. It uses persisted repository
-paths and preserves refs. Upstream push and merge controls remain separate
-integration work because they must preserve the fork's landing gates.
-
-An API-endpoint captain in Ask chat calls Armada MCP tools with the caller's own
-session token, as upstream does. The fork sends no other credential, so the
-captain reaches only the tools and records the caller may already reach, and a
-chat without a caller gets no MCP tools.
-
-Ask chat launches receive runtime-specific MCP configuration. Its availability
-check probes the planned chat endpoint, including when the selected captain has
-an active mission. Endpoint readiness does not prove a running chat connection.
-See [Ask MCP availability](docs/upstream-review/ask-mcp.md).
-
-Helm adopts upstream grouped help and detected OpenCode/Mux MCP setup. The fork
-retains Board commands and the Codex startup timeout. Managed JSONC edits preserve
-unrelated text and UTF-8 encoding, and reject malformed or ambiguous input.
-The typed client also exposes the fork's read-only vessel branch inspection.
-Per-command help renders locally for every command. Helm sends and reads enum
-values by name, and the embedded Admiral starts from the same settings loader as
-the CLI, so it uses the saved ports and bearer key.
-
-Manual quarantine and release share one service across REST, MCP and Captain
-Detail **Lift Quarantine**. A hold is refused while the captain owns a mission,
-dock or process, and a release never forces a working captain to Idle. Manual
-list controls remain planned dashboard work. Upstream's quarantine list chip is
-useful, but replacing the fork service would lose indefinite holds and
-provider-specific behavior.
-
-Preserve the fork's official MCP SDK, provider injection, settings-driven
-routing, preparation records, coordination pages, output evidence, memory
-limits and build provenance through every port. The database histories use
-different meanings for the same migration numbers; accepted additions need
-new fork migrations. Do not replace schema history, test registrations or
-runtime files wholesale.
-
-The fork provides bounded helpers, shared coordination, persistent ownership
-and safe lane admission. Directed wakes reach an identified operator on its next tool result. Armada's
-current stateless MCP endpoint does not push an unsolicited notification to an
-idle client.
-
-Native upstream memory and Recorder guidance remain separate decision work.
-Deployments with one external durable memory source must not enable a second
-store as an incidental update. Harbor and self-rebuild remain disabled during their safety integration. The review gives the blockers and required proof.
-
-The fork ported upstream's in-place Restart Server action, adapted for Docker: the admiral
-stops gracefully and the container restart policy relaunches it, instead of upstream's native
-process relaunch, which would orphan a child inside the container. A full upstream-parity
-assessment against the current upstream tip is recorded in the
-[upstream parity standpoint](docs/upstream-review/UPSTREAM_PARITY.md), which maps the remaining
-delta by capability: cloud model-endpoint providers (Azure OpenAI, Vertex AI, Bedrock) stay
-unported by owner decision, and upstream's native installer/packaging and A/B-slot rebuild paths
-stay unported because the fork ships Docker with supervised self-deploy.
+Some upstream additions are unported by decision, not by omission: the cloud
+model-endpoint providers (Azure OpenAI, Vertex AI, Bedrock) and upstream's native
+installer and A/B-slot rebuild paths, because the fork ships Docker with supervised
+self-deploy.
 
 ---
 
@@ -233,11 +159,13 @@ Built-in pipelines let work move through the right level of review:
 
 - `WorkerOnly`: one implementation mission.
 - `Reviewed`: Worker followed by Judge.
-- `Tested`: Worker, TestEngineer, then Judge.
+- `Tested`: Worker, TestEngineer, Linter, then Judge.
 - `FullPipeline`: Architect, Worker, TestEngineer, then Judge.
-- `ProductDevelopment`: Product Manager, Architect, Worker, Usability Engineer, TestEngineer, Judge, then Recorder.
+- `ProductDevelopment`: Product Manager, Architect, Worker, Usability Engineer, TestEngineer, Linter, Judge, then Recorder.
 - `Recorded`: Worker, then Recorder -- do the work, then record what is worth remembering.
-- Specialist-tested pipelines add a domain reviewer before tests and Judge.
+- Specialist-tested pipelines add a domain reviewer before tests; the reference-porting pipeline also runs the Linter before the Judge.
+
+A Linter stage runs before the Judge in the pipelines that produce vessel code, so overengineering and style are caught before review. `FullPipeline` stays without a Linter as the minimal review shape.
 
 Personas are stored records, not hardcoded prompt strings. Custom personas and prompt templates can be added through REST or MCP and then referenced by custom pipeline stages.
 
@@ -258,14 +186,19 @@ off). A deployment applies fleet policy from settings, not from C#.
 - Optional [Routing V2](docs/USAGE_ROUTING.md) replaces legacy preference overrides when enabled. It preserves persona preferences and moves routine work to approved fallback accounts when allowance runs low. The Dashboard Settings hub’s Routing tab supports account usage, reserve thresholds, budget planning, and draft previews. Collectors support Codex, Claude, Cursor, OpenCode Go, and normalized local snapshots. An account can own a separate captain login for Claude Code, Codex, OpenCode, or Cursor; it is off unless configured, and a provider limit on one captain holds its whole account. A logged-out, expired, or held account blocks assignment with a named reason code in status and the usage preview.
 - The same Routing tab edits those fields and saves only the fields that changed. `modelTier` and `voyageDispatch` hot-reload; `modelProviders` and additional personas/pipelines/templates load at startup.
 
-### Typed decisions (advisory, off by default)
+### Typed decisions (gate-enforced, operationally off until keyed)
 
-An advisory classifier (TypeSafe Jev) the admiral can consult at a decision
-point. It is off by default and changes nothing until an adapter lane enables a
-decision and it deploys. When enabled it can only make recovery more
-conservative, never lands or dispatches, gates only at or above the confidence
-threshold, fails closed to the deterministic rule, and never egresses
-unredacted state. Configure it under `typedDecisions` in `settings.json`:
+A calibrated classifier (TypeSafe Jev) the admiral can consult at a decision
+point, behind the deterministic rules it never replaces. The catalogue spans D1
+through D26 (`prior_art`): six Phase-1 decisions ship in `Gate` from the first
+deploy, and the rest stay `Off` until their lane lands. No key means the null
+client whatever the mode, so the system is operationally off until the key is
+confirmed in the container. When a decision is enabled it can only make a call
+more conservative, never lands or dispatches, gates only at or above the
+confidence threshold, fails closed to the deterministic rule, and never egresses
+unredacted state. Captains can consult read-only, per-mission-budgeted tools
+(`armada_typed_decision`, `armada_check_premise`, `armada_check_prior_art`,
+`armada_memory_triage`). Configure it under `typedDecisions` in `settings.json`:
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -296,7 +229,7 @@ Armada owns a repository code index for dispatch-time retrieval:
 - `armada_context_pack` builds dispatch-ready markdown and returns a prestaged `_briefing/context-pack.md`.
 - `armada_fleet_code_search` and `armada_fleet_context_pack` retrieve across a fleet.
 - Graph tools search symbols, callers, callees, impact, and affected tests from sidecar files.
-- Hybrid search can combine lexical and semantic ranking when semantic search is enabled.
+- Hybrid search can combine lexical and semantic ranking when semantic search is enabled. Semantic embeddings use a Voyage AI client (`voyage-code-3`); supply the embedding key from the environment to enable live indexing.
 - Context packs can be attached automatically during MCP dispatch and architect decomposition.
 - Merge landing can refresh the index in the background so later missions see newly landed code.
 
@@ -342,7 +275,7 @@ The Admiral tracks captain state and health so a busy fleet remains debuggable:
 
 Playbooks are reusable markdown guidance that can be delivered inline, referenced, or attached into the worktree. Fleet, vessel, persona, captain, voyage, and per-mission selections merge into mission playbook snapshots so every captain receives the guidance that applied at dispatch time.
 
-The built-in `Recorder` persona reviews the finished work of a voyage and records what is worth remembering. It is seeded and available, and the `Recorded` pipeline runs it after a Worker. No existing pipeline gains a Recorder stage: where the Recorder belongs is an owner decision. Every other built-in persona is told to recall existing memory before it acts.
+The built-in `Recorder` persona reviews the finished work of a voyage and records what is worth remembering. It is seeded and available: the `Recorded` pipeline runs it after a Worker, and `ProductDevelopment` ends with a Recorder stage. Every other built-in persona is told to recall existing memory before it acts.
 
 Native captain memory keeps what earlier work learned: a vessel fact, a prior finding, or a procedure worth repeating, classified as episodic, semantic or procedural, with provenance, tags and a salience that orders recall. A stable key makes recording the same finding twice correct one record instead of scattering copies. Manage it over MCP (`search_memory`, `get_memory`, `create_memory`, `update_memory`, `delete_memory`) or REST (`/api/v1/memories`). Where a fleet keeps a shared external memory repository, that repository stays the authority for accepted rules and wins over a native record on conflict.
 

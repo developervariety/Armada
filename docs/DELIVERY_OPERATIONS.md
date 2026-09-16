@@ -1,3 +1,10 @@
+---
+topic: "Delivery Operations"
+summary: "Release, deployment, verification, rollback, incident, and runbook records."
+read_when: "Shipping a release, running or rolling back a deployment, or driving an incident."
+applies_to: orchestrator
+tier: leaf
+---
 # Delivery Operations
 
 This guide covers release, deployment, verification, rollback, incident, and
