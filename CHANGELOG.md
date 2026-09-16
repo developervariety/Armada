@@ -21,6 +21,25 @@ All notable changes to Armada are documented in this file.
   stops, steers, or re-dispatches a captain, and is off by default.
 - Both are design only: no wired code, tests, or migration. Implementation is
   a later row after the owner reviews the design.
+### Captains can consult the typed-decision system directly
+
+- Three mission-scoped MCP tools sit next to the native memory tools:
+  `armada_typed_decision` answers typed questions about a piece of state, and the
+  pre-shaped helpers `armada_check_premise` (a captain checks its own reading of
+  the task before it starts) and `armada_memory_triage` (the Recorder triages a
+  memory candidate before writing it).
+- Authority does not travel with the tools. Every call redacts its state before
+  egress through `DecisionStateRedactor`, is bounded by the per-mission call
+  budget in `typedDecisions.captainTool`, writes exactly one
+  `typed_decision.captain` event carrying only the state hash and byte count, and
+  has no side effect on any Armada record: it dispatches nothing, lands nothing,
+  edits no objective, and writes no memory. It never throws into the captain;
+  a failure is an `unavailable` result the captain treats as "decide it yourself".
+- The tool ships disabled (`typedDecisions.captainTool.enabled` is `false`) and
+  returns `unavailable` until an operator enables it. Each helper stays dormant
+  until its own decision (`premise_check`, `memory_record`) is enabled.
+- The Worker, Judge, TestEngineer and Recorder persona templates each name the
+  tool and when to call it.
 
 ### Dispatch enforces the objective preflight
 

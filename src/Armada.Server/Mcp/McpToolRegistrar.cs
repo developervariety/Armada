@@ -94,7 +94,10 @@ namespace Armada.Server.Mcp
             Armada.Core.Services.TerminalVoyageMissionReconciler? terminalVoyageMissions = null,
             ObjectiveDispatchPreviewService? objectiveDispatchPreviewService = null,
             MissionStatusTransitionService? statusTransitions = null,
-            Armada.Core.Services.HarborJobService? harborJobs = null)
+            Armada.Core.Services.HarborJobService? harborJobs = null,
+            Armada.Core.Services.Interfaces.ITypedDecisionClient? typedDecisionClient = null,
+            Armada.Core.Services.TypedDecisionRecorder? typedDecisionRecorder = null,
+            Func<string?>? typedDecisionParticipantKeyProvider = null)
         {
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
             longRunningJobs = longRunningJobs ?? new LongRunningJobService();
@@ -140,6 +143,23 @@ namespace Armada.Server.Mcp
             McpPersonaTools.Register(register, database);
             McpPipelineTools.Register(register, database);
             McpMemoryTools.Register(register, database, logging);
+
+            // The captain-facing typed-decision tools sit in the mission-scoped catalogue beside the
+            // memory tools. They need the recorder, which needs a logging module; where none was
+            // supplied (a minimal test harness) the tools are simply not registered.
+            Armada.Core.Services.TypedDecisionRecorder? typedRecorder = typedDecisionRecorder
+                ?? (logging != null ? new Armada.Core.Services.TypedDecisionRecorder(database, logging) : null);
+            if (typedRecorder != null)
+            {
+                McpTypedDecisionTools.Register(
+                    register,
+                    database,
+                    typedDecisionClient,
+                    typedRecorder,
+                    effectiveSettings,
+                    logging,
+                    typedDecisionParticipantKeyProvider);
+            }
             if (settings != null) McpBackupTools.Register(register, new DatabaseBackupService(database, settings));
             McpAgentWakeTools.Register(register, remoteTriggerService);
             McpAuditTools.Register(register, database, remoteTriggerService);

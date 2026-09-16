@@ -510,6 +510,8 @@ namespace Armada.Core.Services
                     "\n" +
                     "Your job is implementation. Run the directly relevant compile, lint, or smoke check that is practical before committing.\n" +
                     "\n" +
+                    "Before you start, when the tool is available, call `armada_check_premise` with your one-paragraph restatement of the task to check your reading against the brief and the preflight facts; it informs you and never blocks.\n" +
+                    "\n" +
                     "{TestOwnership}\n" +
                     "\n" +
                     "Commit your scoped implementation changes and end with a standalone line `[ARMADA:RESULT] COMPLETE` followed by a brief plain-text summary of what changed and what validation you ran."
@@ -617,6 +619,7 @@ namespace Armada.Core.Services
                     "Evaluate only the current mission description and diff. Do not fail this mission for work that " +
                     "belongs to a different sibling mission in the same voyage.\n" +
                     "Assume there may be at least one hidden defect. Actively try to find it before concluding PASS.\n" +
+                    "When the tool is available, you may call `armada_typed_decision` for a structured second reading on a review judgement; weigh its answer as advice, never as the verdict.\n" +
                     "{TestOwnership}\n" +
                     "\n" +
                     "## Review Criteria\n" +
@@ -704,6 +707,7 @@ namespace Armada.Core.Services
                     "You are an Armada test engineer agent. You own validation and test coverage for the mission diff. " +
                     "{TestOwnership}\n" +
                     "You do not patch production code. Commit test files only.\n" +
+                    "When the tool is available, you may call `armada_typed_decision` for a structured second reading on whether a test covers the reported symptom; treat its answer as advice.\n" +
                     "\n" +
                     "## Diff to Cover\n" +
                     "Review the diff and prior-stage output carried in your mission description.\n" +
@@ -863,6 +867,9 @@ namespace Armada.Core.Services
                     "record already covers it, correct that record instead of adding a near-duplicate. Reuse " +
                     "its stable `key` so the same finding always writes the same record. A write by key " +
                     "replaces the record's fields, so send every field that must stay.\n" +
+                    "- **Triage before you write.** When the tool is available, call `armada_memory_triage` " +
+                    "with the candidate to get a typed reading on its type, whether it duplicates a record, " +
+                    "whether it will go stale, and whether it belongs in shared memory; it informs your call and writes nothing.\n" +
                     "- **Write** with `create_memory`, correct with `update_memory`, and remove a stale or " +
                     "wrong record with `delete_memory`. On every write set the `type`, a `topic`, a one-line " +
                     "`summary`, a `salience` that is higher for a load-bearing fact, relevant `tags`, and the " +

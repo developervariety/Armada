@@ -37,6 +37,13 @@ namespace Armada.Server.Mcp
             "update_memory",
             "delete_memory",
 
+            // The captain-facing typed-decision tool and its two pre-shaped helpers. They redact
+            // before egress, are budgeted per mission, record one event per call, and have no side
+            // effect on any Armada record, so a mission caller may reach them like the memory tools.
+            "armada_typed_decision",
+            "armada_check_premise",
+            "armada_memory_triage",
+
             // Harbor job tools apply the shared runner authorization rule to every job, and stopping also needs
             // the tenant administrator level the REST route requires.
             "armada_harbor_jobs",

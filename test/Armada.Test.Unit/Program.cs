@@ -310,6 +310,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new DecisionStateRedactorTests());
             runner.AddSuite(new TypedDecisionRecorderTests());
             runner.AddSuite(new TypedDecisionSettingsTests());
+            runner.AddSuite(new McpTypedDecisionToolsTests());
             runner.AddSuite(new OpenCodeServerInferenceClientTests());
             runner.AddSuite(new OpenCodeServerInferenceClientNegativePathTests());
             runner.AddSuite(new OpenCodeServerLauncherTests());

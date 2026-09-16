@@ -1965,6 +1965,20 @@ classifier behind the deterministic dock-boundary scanner) and
 running mission's log that posts a voyage-tagged board note and a
 `captain.course_flag` event). Neither blocks, stops, or dispatches; each only
 flags.
+The typed-decision system is also offered to captains directly, through three
+mission-scoped MCP tools next to the memory tools: `armada_typed_decision` and
+its two pre-shaped helpers `armada_check_premise` (a captain checks its own
+reading of the task before it starts) and `armada_memory_triage` (the Recorder
+triages a memory candidate before writing it). Authority does not travel with
+the tools. Each call redacts its state before egress, is bounded by the
+per-mission call budget in `typedDecisions.captainTool`, writes exactly one
+`typed_decision.captain` event carrying only the state hash and byte count, and
+has no side effect on any Armada record — it dispatches nothing, lands nothing,
+edits no objective, and writes no memory. The tool is disabled by default
+(`typedDecisions.captainTool.enabled` is `false`) and returns `unavailable`
+until an operator enables it; each helper stays dormant until its own decision
+(`premise_check`, `memory_record`) is enabled. See `docs/MCP_API.md` for the
+tool arguments.
 
 ### Vessel Workspace
 

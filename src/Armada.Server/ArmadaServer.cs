@@ -1584,7 +1584,10 @@ namespace Armada.Server
                 dispatchHold: _DispatchHold,
                 objectiveDispatchPreviewService: _ObjectiveDispatchPreviewService,
                 statusTransitions: _StatusTransitions,
-                harborJobs: _HarborJobService);
+                harborJobs: _HarborJobService,
+                typedDecisionClient: _TypedDecisionClient,
+                typedDecisionRecorder: _TypedDecisionRecorder,
+                typedDecisionParticipantKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey);
 
         }
 

@@ -317,7 +317,7 @@ What a caller may use:
 | Caller | Tools listed and callable |
 | --- | --- |
 | Global administrator (admiral API key, or a global-admin user credential) | The whole catalog |
-| Any other authenticated user, including a tenant administrator | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
+| Any other authenticated user, including a tenant administrator | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, `armada_typed_decision`, `armada_check_premise`, `armada_memory_triage`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
 
 The Harbor job tools apply the runner authority rule that Harbor enrollment
 uses: a caller sees a job when it is the runner owner or has authority over the
@@ -474,6 +474,58 @@ or the key belongs to another record. Read the record again and retry.
 
 A rule from the Shared Memory section of a brief wins over a native record on
 conflict. The memory tools never write to that repository.
+
+## Captain Typed Decisions
+
+Three mission-scoped tools let a captain consult the typed-decision system
+(TypeSafe Jev) for a structured second reading on a judgement it is about to
+make. They are caller-scoped, next to the memory tools. Authority does not
+travel with them: every call redacts its state before egress, is bounded by the
+per-mission call budget in `typedDecisions.captainTool.*`, writes exactly one
+`typed_decision.captain` event carrying only a `state_sha256` and byte count
+(never the state), and has **no side effect on any Armada record** - it
+dispatches nothing, lands nothing, edits no objective, and writes no memory. A
+call returns typed answers, or an `available: false` result with an
+`unavailableReason` the captain treats as "decide it yourself".
+
+The system ships disabled (`typedDecisions.captainTool.enabled` is `false`), so
+every call returns `unavailableReason: disabled` until an operator enables it.
+The domain is authorized heavy-duty vehicle diagnostics; seed-key and
+SecurityAccess content is ordinary engineering and is passed like any other
+state.
+
+### armada_typed_decision
+
+Answer typed questions about a piece of state. Args: `state` (required, a string
+or an object whose string fields are redacted), `questions` (required, an object
+keyed by question id where each value is `{ type: choice|score|noul,
+instructions, criteria|levels, trueMeaning?, falseMeaning? }`), and optional
+`missionId` for budget scope and event attribution. `choice.criteria` is a
+name-to-meaning map; `score` takes an ordered `criteria`/`levels` array; `noul`
+takes optional `trueMeaning`/`falseMeaning`. Returns `{ available, answers,
+callsUsed, maxCallsPerMission }` or an unavailable result whose reason is one of
+`disabled`, `budget_exhausted`, `invalid`, or a client reason (`timeout`,
+`http_401`, `http_429`, `parse`, `exception`, ...).
+
+### armada_check_premise
+
+Check the captain's own reading before it starts (decision `premise_check`).
+Args: `restatement` (required, the captain's one-paragraph restatement), and
+optional `objectiveTitle`, `objectiveDescription`, `acceptanceCriteria`,
+`stagePersona`, `facts`, `missionId`. It returns typed readings on whether the
+restatement contradicts the scope, assumes an absent symbol or file, or names an
+unrequested deliverable, plus whether a repository fact or an owner ruling is
+missing. It never blocks the captain; it informs it. Dormant (returns
+unavailable) until the `premise_check` decision is enabled.
+
+### armada_memory_triage
+
+Triage a memory candidate before writing it (decision `memory_record`), for the
+Recorder. Args: `candidate` (required), optional `existingRecords`, `missionId`.
+It returns typed readings on whether the memory type fits, whether it duplicates
+an existing record, whether it will go stale, and whether it belongs in shared
+external memory rather than native memory. It writes nothing. Dormant until the
+`memory_record` decision is enabled.
 
 ## Captain Writes
 

@@ -37,6 +37,14 @@ namespace Armada.Core.Services
         /// <summary>Event type for a call whose model answer was unavailable.</summary>
         public const string EventTypeUnavailable = "typed_decision.unavailable";
 
+        /// <summary>
+        /// Event type for a call the captain-facing tool made directly. One is written per captain
+        /// tool call, whatever the outcome: a delivered answer, a disabled or dormant tool, an
+        /// exhausted per-mission budget, or an unavailable provider. It carries the same state hash
+        /// and byte count as every other typed-decision event and never the state itself.
+        /// </summary>
+        public const string EventTypeCaptain = "typed_decision.captain";
+
         private readonly DatabaseDriver _Database;
         private readonly LoggingModule _Logging;
 
@@ -99,6 +107,23 @@ namespace Armada.Core.Services
             return RecordAsync(EventTypeUnavailable, "unavailable", context, token);
         }
 
+        /// <summary>
+        /// Record a call the captain-facing tool made directly. Emits <see cref="EventTypeCaptain"/>
+        /// with the supplied <paramref name="outcome"/> as <c>gate_outcome</c> (for example
+        /// <c>delivered</c>, <c>disabled</c>, <c>dormant</c>, <c>budget_exhausted</c>, or
+        /// <c>unavailable</c>). The captain tool takes no deterministic rule and applies no gate, so
+        /// the event exists for observability only; it changes no Armada record.
+        /// </summary>
+        /// <param name="context">The decision context; its state is hashed, never stored.</param>
+        /// <param name="outcome">The captain-call outcome label.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The created event, or null when recording failed.</returns>
+        public Task<ArmadaEvent?> RecordCaptainAsync(TypedDecisionEventContext context, string outcome, CancellationToken token)
+        {
+            string gateOutcome = String.IsNullOrWhiteSpace(outcome) ? "captain" : outcome;
+            return RecordAsync(EventTypeCaptain, gateOutcome, context, token);
+        }
+
         #endregion
 
         #region Private-Methods
@@ -128,6 +153,8 @@ namespace Armada.Core.Services
                     evt.TenantId = Constants.DefaultTenantId;
                 }
 
+                if (!String.IsNullOrWhiteSpace(context.CaptainId)) evt.CaptainId = context.CaptainId;
+
                 return await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
             }
             catch (Exception ex)
@@ -143,7 +170,8 @@ namespace Armada.Core.Services
             sb.Append("decision=").Append(context.DecisionPoint);
             sb.Append(" rule=").Append(String.IsNullOrWhiteSpace(context.RuleVerdict) ? "none" : context.RuleVerdict);
 
-            if (String.Equals(eventType, EventTypeUnavailable, StringComparison.Ordinal))
+            if (String.Equals(eventType, EventTypeUnavailable, StringComparison.Ordinal)
+                || (context.Result != null && !context.Result.Available))
             {
                 sb.Append(" unavailable=").Append(context.Result?.UnavailableReason ?? "unknown");
                 return sb.ToString();
@@ -253,5 +281,10 @@ namespace Armada.Core.Services
         /// The mission this decision belongs to, when any. Supplies the event's owner scope and ids.
         /// </summary>
         public Mission? Mission { get; init; }
+
+        /// <summary>
+        /// The captain that made the call, when known. Set on captain-tool events for attribution.
+        /// </summary>
+        public string? CaptainId { get; init; }
     }
 }
