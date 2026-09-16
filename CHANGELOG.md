@@ -6,6 +6,30 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Context system
+
+- Added a startup context-index generator. On boot the admiral now reads the
+  AI-Memory tree (`shared/`, `repos/`, `machine-notes/`) and the Armada `docs/`
+  tree and writes two artifacts under the data directory:
+  `context-index/manifest.json` and `context-index/context-core.md`. The
+  manifest maps every documentation and memory chunk to its logical path,
+  topic, one-line summary, read-when trigger, `applies_to` audience, tier
+  (`core` or `leaf`), optional `must_retrieve` domains, and byte size. The core
+  bundle concatenates every `tier: core` chunk under a short header. A single
+  owner-approved tier configuration decides what is core: three memory files in
+  full (repository boundary and leak-prevention, land-then-sync, typed-decision
+  non-negotiables) and named sections of three mixed files (the unified-memory
+  Boundaries, Proving-a-fix, Domain-scope and Reporting-style sections, the
+  sole-memory-source pointer and its four-loaders rule, and the Armada
+  direct-edit rule), plus a synthesized index-and-retrieval chunk. The step is
+  purely additive: it only reads AI-Memory, changes no loader, and never gates
+  how memory currently loads. It is fail-open, so a generation error logs a
+  warning and never blocks startup. Output is deterministic: text is normalized
+  to LF, chunks are stably ordered, and neither artifact carries a timestamp or
+  a host-absolute path, so repeated runs are byte-identical. This is the
+  generator and startup wiring only; retrieval, brief slimming, and loader
+  changes are later work.
+
 ### Code index
 
 - Replaced the code-index embedding client with a Voyage AI client. The fork
