@@ -13,12 +13,11 @@ namespace Armada.Core.Services
     /// <summary>
     /// The D18 <c>memory_candidate</c> decision adapter. After the weekly papercut grouping (and the
     /// D6 merges) it asks the typed decision client whether a papercut group is a durable lesson
-    /// worth remembering, and — only in Gate mode, only at or above the decision threshold — writes a
-    /// proposal file under <c>AI-Memory/corpus/memory-candidates/</c> for the owner to promote or
-    /// discard.
+    /// worth remembering, and — only in Gate mode, only at or above the decision threshold — stores a
+    /// memory proposal in the database for the owner to promote or an operator to dismiss.
     ///
-    /// The model never writes memory: it only nominates a candidate into the proposals folder, never
-    /// under <c>shared/</c> or <c>repos/</c>. The deterministic behaviour (no nomination) is always
+    /// The model never writes memory: it only nominates a candidate into the proposal store, never into
+    /// the AI-Memory folder, and it never dismisses a proposal. The deterministic behaviour (no nomination) is always
     /// the fallback: an Off decision, an unavailable model, a below-threshold answer, and a
     /// <c>not_memory</c> scope all leave the memory untouched. This decision ships Off.
     /// </summary>
@@ -54,7 +53,7 @@ namespace Armada.Core.Services
         /// <param name="settings">Typed-decision settings section.</param>
         /// <param name="client">Typed-decision client (null client when the system is off).</param>
         /// <param name="recorder">Recorder for the per-call typed-decision event.</param>
-        /// <param name="writer">Writer for the proposal file (never writes memory itself).</param>
+        /// <param name="writer">Writer for the proposal store (never writes memory itself).</param>
         /// <param name="logging">Logging module.</param>
         public MemoryCandidateAdapter(
             TypedDecisionSettings settings,
@@ -75,7 +74,7 @@ namespace Armada.Core.Services
         #region Public-Methods
 
         /// <summary>
-        /// Consider each group as a durable-lesson candidate. Nominations (proposal files) are
+        /// Consider each group as a durable-lesson candidate. Nominations (stored proposals) are
         /// returned; the deterministic behaviour is that nothing is nominated. The pass stops the
         /// first time the model is unavailable. Never throws into the caller.
         /// </summary>
@@ -139,8 +138,7 @@ namespace Armada.Core.Services
             if (applyNominate)
             {
                 MemoryCandidateProposal proposal = BuildProposal(group, durable, scope);
-                string? path = await _Writer.WriteAsync(proposal, token).ConfigureAwait(false);
-                proposal.ProposalPath = path;
+                proposal.ProposalId = await _Writer.WriteAsync(proposal, token).ConfigureAwait(false);
 
                 await _Recorder.RecordGatedAsync(
                     BuildContext(group, "no_memory", modelVerdict, durable, result, redacted),
@@ -216,8 +214,9 @@ namespace Armada.Core.Services
 
         private MemoryCandidateProposal BuildProposal(PapercutGroup group, double durable, string scope)
         {
-            // The proposal is written into the AI-Memory repository, so its text is redacted the same
-            // way the transmitted state is: no Armada ids, paths, hosts, or hashes reach a repo file.
+            // The proposal text is what the owner may copy into the AI-Memory repository, so it is
+            // redacted the same way the transmitted state is: no Armada ids, paths, hosts, or hashes.
+            // The related record ids stay in the admiral database for the operator to follow.
             int cap = _Settings.MaxStateChars;
             return new MemoryCandidateProposal
             {
@@ -230,6 +229,7 @@ namespace Armada.Core.Services
                 Vessels = DecisionStateRedactor.Redact(group.VesselId, cap),
                 DurableLesson = durable,
                 Scope = ScopeDisplay(scope),
+                RelatedRecordIds = new List<string>(group.SampleMissionIds),
                 CreatedUtc = DateTime.UtcNow
             };
         }
@@ -240,6 +240,8 @@ namespace Armada.Core.Services
             // owner sets the real repos/<vessel> folder when promoting.
             if (String.Equals(scope, "repo", StringComparison.Ordinal))
                 return "repos/<vessel>";
+            if (String.Equals(scope, "machine", StringComparison.Ordinal))
+                return "machine-notes";
             return scope;
         }
 
@@ -276,7 +278,7 @@ namespace Armada.Core.Services
         /// <summary>Whether the model produced a usable answer.</summary>
         public bool Available { get; init; }
 
-        /// <summary>Whether a proposal was written for this group.</summary>
+        /// <summary>Whether a proposal was stored for this group.</summary>
         public bool Nominated { get; init; }
 
         /// <summary>The proposal, when nominated.</summary>

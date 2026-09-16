@@ -1,33 +1,40 @@
 namespace Armada.Core.Models
 {
     using System;
+    using System.Collections.Generic;
 
     /// <summary>
-    /// A durable-lesson candidate the D18 <c>memory_candidate</c> decision nominated from a papercut
-    /// group. It is written as a proposal file for the owner to promote or discard; the model never
-    /// writes memory itself. All text fields are redacted before they reach the file, because the
-    /// file lands in the AI-Memory repository.
+    /// A durable-lesson candidate the D18 <c>memory_candidate</c> decision nominated, from a papercut
+    /// group or from a Recorder memory record the D23 review flagged as belonging in AI-Memory. It is
+    /// stored as a memory proposal for the owner to promote or an operator to dismiss; the model never
+    /// writes memory itself. All text fields are redacted before they are stored.
     /// </summary>
     public sealed class MemoryCandidateProposal
     {
         /// <summary>
-        /// The originating papercut group key. Stable across weekly passes, so it also gives the
-        /// proposal file a stable identity.
+        /// What nominated the candidate: <see cref="MemoryProposal.SourcePapercutSweep"/> or
+        /// <see cref="MemoryProposal.SourceRecorderSeam"/>.
+        /// </summary>
+        public string Source { get; set; } = MemoryProposal.SourcePapercutSweep;
+
+        /// <summary>
+        /// The originating subject key: a papercut group key, or a memory record key. Stable across
+        /// passes, so a recurring subject is proposed once. It is stored only as a one-way fingerprint.
         /// </summary>
         public string GroupKey { get; set; } = "";
 
         /// <summary>
-        /// The group's most recent sample title, redacted.
+        /// The subject title, redacted.
         /// </summary>
         public string Title { get; set; } = "";
 
         /// <summary>
-        /// The group's most recent sample detail, redacted.
+        /// The subject detail, redacted.
         /// </summary>
         public string Detail { get; set; } = "";
 
         /// <summary>
-        /// The papercut category.
+        /// The papercut category, or the memory type for a Recorder candidate.
         /// </summary>
         public string Category { get; set; } = "";
 
@@ -52,19 +59,24 @@ namespace Armada.Core.Models
         public double DurableLesson { get; set; } = 0.0;
 
         /// <summary>
-        /// The scope the model chose: <c>shared</c>, <c>repos/&lt;vessel&gt;</c>, or <c>machine</c>.
+        /// The scope the model chose: <c>shared</c>, <c>repos/&lt;vessel&gt;</c>, or <c>machine-notes</c>.
         /// </summary>
         public string Scope { get; set; } = "";
 
         /// <summary>
-        /// When the proposal was created, in UTC.
+        /// Armada record identifiers the candidate came from (mission and memory ids). They stay in the
+        /// admiral database; they are never sent to the model.
+        /// </summary>
+        public List<string> RelatedRecordIds { get; set; } = new List<string>();
+
+        /// <summary>
+        /// When the candidate was created, in UTC.
         /// </summary>
         public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;
 
         /// <summary>
-        /// The path the proposal was written to, or null when no writable proposals folder was
-        /// configured (the nomination is then recorded as an event only).
+        /// The stored memory proposal identifier, or null when the write failed.
         /// </summary>
-        public string? ProposalPath { get; set; } = null;
+        public string? ProposalId { get; set; } = null;
     }
 }

@@ -339,7 +339,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new TypedLintFindingAdapterTests());
             runner.AddSuite(new PriorArtRetrieverTests());
             runner.AddSuite(new TypedPriorArtAdapterTests());
-            runner.AddSuite(new FileMemoryCandidateProposalWriterTests());
+            runner.AddSuite(new MemoryProposalTests());
             runner.AddSuite(new OpenCodeServerInferenceClientTests());
             runner.AddSuite(new OpenCodeServerInferenceClientNegativePathTests());
             runner.AddSuite(new OpenCodeServerLauncherTests());

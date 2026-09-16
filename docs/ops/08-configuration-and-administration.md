@@ -362,13 +362,39 @@ Two decision points read the papercut grouping:
   restores the plain grouping. It considers only the largest groups per vessel
   and caps the model calls per listing. A merge records a `papercut.merge_proposed`
   event (recorded but not applied in `Shadow`).
-- **D18 `memory_candidate`** (ships `Off`) asks whether a papercut group is a
-  durable cross-session lesson and, in `Gate` above the threshold, writes a
-  proposal file under `AI-Memory/corpus/memory-candidates/` for the owner to
-  promote or discard. The model never writes memory: the proposals folder is
-  fixed and never under `shared/` or `repos/`, and the proposal text is redacted.
-  When no AI-Memory root is configured the nomination is recorded as an event
-  only.
+- **D18 `memory_candidate`** (ships `Off`, threshold `0.90`) runs in the weekly
+  papercut sweep. At most once per seven days the health loop groups the
+  papercuts reported in the last seven days, applies the D6 merge, and offers the
+  largest repeated groups (two or more reports, at most 20) to the decision. In
+  `Gate` at or above the threshold it stores a **memory proposal** in the
+  database for the owner to promote or an operator to dismiss. The AI-Memory
+  folder is read-only to the admiral, so nothing is written there: the model
+  never writes memory and never dismisses. Proposal text is redacted, the
+  subject is stored only as a SHA-256 fingerprint, and a subject already
+  proposed (open or dismissed) is not proposed again. While the decision is
+  `Off` the sweep reads nothing and calls nothing.
+
+One decision point reviews what the Recorder stage wrote:
+
+- **D23 seam B `memory_review`** (ships `Off`, threshold `0.90`) runs when a
+  Recorder-stage mission finishes its work. It reads the native memory records
+  that mission wrote (at most 10) and asks the four D23 questions for each:
+  `type_ok`, `duplicate_of` (a choice among at most five existing records of the
+  same vessel and type or topic), `will_go_stale`, and `belongs_in_ai_memory`.
+  In `Gate` at or above the threshold it may only **lower** salience (to `0.2`
+  for a duplicate, `0.3` for a stale or wrongly typed record), **link** a
+  duplicate to the record it repeats with a `duplicate-of:<memory id>` tag, and
+  store a D18 memory proposal (source `recorder_seam`) for a record that belongs
+  in AI-Memory. It never deletes a record, never changes content, summary, type,
+  topic, or key, and never raises salience. An unavailable model stops the pass
+  with every record unchanged; `Off` calls nothing. Each reviewed record records
+  one typed-decision event scoped to the Recorder mission.
+
+Operators read and close proposals with `armada_list_memory_proposals` (filter
+by `state`) and `armada_dismiss_memory_proposal` (`id`, `reason`, `operator`).
+Both are operator tools, outside mission scope, and refuse any caller other than
+a global administrator. The store is the `memory_proposals` table (migration
+SQLite 104, PostgreSQL 105, MySQL 96, SQL Server 99). See `docs/MCP_API.md`.
 
 Two operator-side decisions gather owner decisions and pre-fill the corpus:
 

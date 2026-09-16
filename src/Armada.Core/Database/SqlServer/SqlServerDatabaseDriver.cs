@@ -83,6 +83,7 @@ namespace Armada.Core.Database.SqlServer
             HarborJobs = new Armada.Core.Database.HarborJobMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             MissionAttemptFacts = new MissionAttemptFactMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
+            MemoryProposals = new MemoryProposalMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             LaneStateTransitions = new LaneStateTransitionMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             DataExpiry = new DataExpiryMethods(() => new SqlConnection(_ConnectionString), DatabaseTypeEnum.SqlServer);
             PromptTemplates = new PromptTemplateMethods(this, _Settings, _Logging);
@@ -155,6 +156,8 @@ namespace Armada.Core.Database.SqlServer
                                 await CaptainModelEndpointSchemaGuard.EnsureAsync(conn, tx, DatabaseTypeEnum.SqlServer, false, token).ConfigureAwait(false);
                             if (migration.Version == 85)
                                 await HarborRunnerSchemaGuard.EnsureAsync(conn, tx, DatabaseTypeEnum.SqlServer, token).ConfigureAwait(false);
+                            if (migration.Version == 99)
+                                await MemoryProposalSchema.EnsureAsync(conn, tx, DatabaseTypeEnum.SqlServer, token).ConfigureAwait(false);
                             for (int statementOrdinal = 0; statementOrdinal < migration.Statements.Count; statementOrdinal++)
                             {
                                 string sql = migration.Statements[statementOrdinal];

@@ -155,6 +155,11 @@ namespace Armada.Core.Database
         public IPreparationClaimObservationMethods PreparationClaimObservations { get; protected set; } = null!;
 
         /// <summary>
+        /// Memory proposals nominated for the owner's external AI-Memory, dismissed only by an operator.
+        /// </summary>
+        public IMemoryProposalMethods MemoryProposals { get; protected set; } = null!;
+
+        /// <summary>
         /// Append-only lane state transitions used by production metrics.
         /// </summary>
         public ILaneStateTransitionMethods LaneStateTransitions { get; protected set; } = null!;
@@ -284,6 +289,7 @@ namespace Armada.Core.Database
             if (HarborJobs == null) missing.Add(nameof(HarborJobs));
             if (MissionAttemptFacts == null) missing.Add(nameof(MissionAttemptFacts));
             if (PreparationClaimObservations == null) missing.Add(nameof(PreparationClaimObservations));
+            if (MemoryProposals == null) missing.Add(nameof(MemoryProposals));
             if (LaneStateTransitions == null) missing.Add(nameof(LaneStateTransitions));
             if (DataExpiry == null) missing.Add(nameof(DataExpiry));
 

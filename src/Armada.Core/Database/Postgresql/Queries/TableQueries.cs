@@ -1123,7 +1123,8 @@ namespace Armada.Core.Database.Postgresql.Queries
                 new SchemaMigration(101, "Record terminal-voyage reconciliation on the mission row", MigrationV101Statements),
                 new SchemaMigration(102, "Delete unreferenced built-in reviewer personas and their templates", ReviewerPersonaPruneSchema.PostgresqlStatements),
                 new SchemaMigration(103, "Cancel missions stored with the WaitingForInput status", MissionInputWaitCancelSchema.PostgresqlStatements),
-                new SchemaMigration(104, "Persist the Judge PASS operator-review hold on missions", MissionOperatorHoldPersistence.PostgresqlStatements)
+                new SchemaMigration(104, "Persist the Judge PASS operator-review hold on missions", MissionOperatorHoldPersistence.PostgresqlStatements),
+                new SchemaMigration(105, "Persist memory proposals", MemoryProposalSchema.PostgresqlStatements)
             };
         }
 

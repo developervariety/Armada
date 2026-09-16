@@ -94,6 +94,7 @@ namespace Armada.Test.Database
             await RunTest("Objective_Terminal_Backlog_Migration_Repairs_Only_Terminal_Rows", "Operational", () => TestObjectiveTerminalBacklogMigrationAsync(token), token);
             await RunTest("MissionAttemptFacts_Window_Scope_Bound_Reopen", "Operational", () => new ProductionFactDatabaseTests(_Driver, _Settings).VerifyMissionAttemptFactsAsync(token), token);
             await RunTest("CheckRun_Regression_Links_Create_Update_Reopen", "Operational", () => new ProductionFactDatabaseTests(_Driver, _Settings).VerifyCheckRegressionLinksAsync(token), token);
+            await RunTest("MemoryProposals_Create_List_Dismiss_Reopen", "Operational", () => new MemoryProposalDatabaseTests(_Driver, _Settings).VerifyAsync(token), token);
             await RunTest("PreparationClaimObservations_Window_Scope_Bound_Reopen", "Operational", () => new ProductionFactDatabaseTests(_Driver, _Settings).VerifyPreparationClaimObservationsAsync(token), token);
             await RunTest("LaneStateTransitions_And_CheckSlotRequest_Reopen", "Operational", () => new ProductionFactDatabaseTests(_Driver, _Settings).VerifyLaneStateAndSlotRequestAsync(token), token);
             await RunTest("TerminalVoyage_Mission_Reconciliation_Persists_And_Is_Idempotent", "Operational", () => new TerminalVoyageReconciliationDatabaseTests(_Driver, _Settings, _NoCleanup).VerifyAsync(token), token);
