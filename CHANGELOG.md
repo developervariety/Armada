@@ -8,6 +8,8 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- Dashboard Codex device login reads the one-time code the Codex CLI prints on the line after its label, in
+  color and with uneven group lengths; it no longer fails with `account_login_prompt_not_found`.
 - Memory proposals are stored in the database. A new `memory_proposals` table
   (SQLite 104, PostgreSQL 105, MySQL 96, SQL Server 99) holds durable lessons
   the typed-decision system nominates for the owner's AI-Memory, which is

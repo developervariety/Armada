@@ -97,8 +97,10 @@ namespace Armada.Core.Services
 
         private static readonly Regex _Ansi = new Regex("\u001B\\[[0-9;?]*[ -/]*[@-~]|\u001B\\][^\u0007\u001B]*(\u0007|\u001B\\\\)", RegexOptions.CultureInvariant);
         private static readonly Regex _Url = new Regex("https://[^\\s\"'<>`]+", RegexOptions.CultureInvariant);
-        private static readonly Regex _LabelledCode = new Regex("\\bcode\\b[^A-Za-z0-9\\r\\n]{0,20}([A-Za-z0-9]{3,10}(?:-[A-Za-z0-9]{3,10})+)", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
-        private static readonly Regex _BareCode = new Regex("(?<![A-Za-z0-9/._=-])([A-Z0-9]{4}-[A-Z0-9]{4})(?![A-Za-z0-9-])", RegexOptions.CultureInvariant);
+        // A device code is upper-case letters and digits in dash-separated groups. CLIs print it after its label on the
+        // same line or on the next line, and the label line can carry other text such as an expiry note.
+        private static readonly Regex _LabelledCode = new Regex("\\bcode\\b[^\\r\\n]*?(?:\\r?\\n[ \\t]*)?(?<![A-Za-z0-9-])(?-i:([A-Z0-9]{3,10}(?:-[A-Z0-9]{3,10})+))(?![A-Za-z0-9-])", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+        private static readonly Regex _BareCode = new Regex("(?<![A-Za-z0-9/._=-])([A-Z0-9]{4,8}-[A-Z0-9]{4,8})(?![A-Za-z0-9-])", RegexOptions.CultureInvariant);
 
         private readonly string _DataDirectory;
         private readonly IAccountLoginProcessRunner _Runner;

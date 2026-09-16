@@ -290,6 +290,26 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Codex device login reads a code printed on the line after its label, in color, with uneven group lengths", async () =>
+            {
+                using (Harness h = new Harness())
+                {
+                    h.Runner.OnStart = process =>
+                    {
+                        process.Emit("\nWelcome to Codex [v[2m0.154.0[0m]\n\n"
+                            + "1. Open this link in your browser and sign in to your account\n"
+                            + "   [94mhttps://auth.openai.com/codex/device[0m\n\n"
+                            + "2. Enter this one-time code [2m(expires in 15 minutes)[0m\n"
+                            + "   [94mQ7RT-M2KP9[0m\n\n"
+                            + "[2mContinue only if you started this login in Codex.[0m\n");
+                    };
+                    AccountLoginSession session = await h.Service.StartAsync("codex-colored", AgentRuntimeEnum.Codex).ConfigureAwait(false);
+                    AssertEqual(AccountLoginStateEnum.Pending, session.State);
+                    AssertEqual("https://auth.openai.com/codex/device", session.VerificationUrl);
+                    AssertEqual("Q7RT-M2KP9", session.UserCode);
+                }
+            });
+
             await RunTest("A login process that exits with an error is Failed with a safe reason", async () =>
             {
                 using (Harness h = new Harness())
