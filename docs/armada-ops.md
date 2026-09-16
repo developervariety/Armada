@@ -1965,11 +1965,13 @@ classifier behind the deterministic dock-boundary scanner) and
 running mission's log that posts a voyage-tagged board note and a
 `captain.course_flag` event). Neither blocks, stops, or dispatches; each only
 flags.
-The typed-decision system is also offered to captains directly, through three
+The typed-decision system is also offered to captains directly, through four
 mission-scoped MCP tools next to the memory tools: `armada_typed_decision` and
-its two pre-shaped helpers `armada_check_premise` (a captain checks its own
-reading of the task before it starts) and `armada_memory_triage` (the Recorder
-triages a memory candidate before writing it). Authority does not travel with
+its three pre-shaped helpers `armada_check_premise` (a captain checks its own
+reading of the task before it starts), `armada_memory_triage` (the Recorder
+triages a memory candidate before writing it), and `armada_check_prior_art` (a
+captain checks whether the work already exists before it writes a type — the D26
+retrieval plus typed answers for its stated plan). Authority does not travel with
 the tools. Each call redacts its state before egress, is bounded by the
 per-mission call budget in `typedDecisions.captainTool`, writes exactly one
 `typed_decision.captain` event carrying only the state hash and byte count, and
@@ -1977,8 +1979,8 @@ has no side effect on any Armada record — it dispatches nothing, lands nothing
 edits no objective, and writes no memory. The tool is disabled by default
 (`typedDecisions.captainTool.enabled` is `false`) and returns `unavailable`
 until an operator enables it; each helper stays dormant until its own decision
-(`premise_check`, `memory_record`) is enabled. See `docs/MCP_API.md` for the
-tool arguments.
+(`premise_check`, `memory_record`, `prior_art`) is enabled. See `docs/MCP_API.md`
+for the tool arguments.
 Each wired decision holds an adapter over the shared client, never the raw
 client, and every adapter follows one skeleton: Off returns the rule with no
 call; unavailable returns the rule; Shadow or below threshold returns the rule
@@ -2205,6 +2207,43 @@ Two operator surfaces read the attention triage:
   home LINKS to an existing open objective (a `same_as` noul against the vessel's
   top open objectives) instead of creating one. A blocking item is only flagged
   for the operator; the model NEVER creates a voyage, dispatches, or lands.
+
+One decision point asks "does this already exist?" with evidence, at three seams
+and no new persona (ships `Off`, built and dormant until a Gate flip):
+
+- **D26 `prior_art`** answers "does this already exist?" so voyages stop
+  re-implementing landed work, work on unlanded branches, or work on a `recover/`
+  ref. It is a retrieval step plus typed questions inside stages that already run,
+  not a new Judge stage. The **retrieval** is deterministic (the "contextual"
+  half): it mines identifiers of five characters or more, type and method names,
+  and file paths from the objective (or a captain's plan, or a diff's added
+  types), searches the landed tip, unlanded mission branches, preserved and
+  recovery refs, and open objectives, and assembles de-duplicated candidates
+  capped at twelve and roughly twenty-four thousand tokens. The **model** answers
+  only over those candidates (the "honest" half): a per-candidate `delivers`
+  Choice `{same_capability, partial_overlap, related_only, unrelated}` and
+  voyage-level `already_done`, `integrate_not_duplicate`, and `reimplements`
+  Nouls, every answer tied to a candidate's `path:line` so the reader verifies the
+  evidence — the model can only speak to a candidate retrieval already found, and
+  `unrelated` is always available. It wires three seams:
+  - **Preflight (extends D5).** In `Gate`, `already_done` at or above threshold
+    adds an `objective_prior_art_found` Error issue listing the candidates (the
+    operator closes or re-scopes the row); `integrate_not_duplicate` adds an
+    `objective_prior_art_integrate` advisory appending the candidates as landed
+    seams to consume; and, when `already_done` lands in the uncertain band
+    (`0.4`–`0.7`) on a large objective, a `prior_art_analyst_stage_recommended`
+    advisory suggests inserting a read-only PriorArtAnalyst research stage before
+    the Worker. The adapter only ADDS issues; it never closes or re-scopes a row.
+  - **Worker premise tool (`armada_check_prior_art`).** A mission-scoped captain
+    MCP tool that runs the same retrieval for the captain's stated plan and returns
+    the candidates with the typed answers before it writes a type.
+  - **Judge (extends D4).** On the Worker handoff, over the diff's added types and
+    the retrieval results, a `reimplements` reading at or above threshold prepends
+    a review INSTRUCTION to the next brief ("verify whether the diff should consume
+    the candidate through a seam"); it is a review instruction, never a verdict,
+    and the Judge still judges.
+  With the decision `Off` every seam runs its deterministic path unchanged, and a
+  seam with no retrieved candidate never calls the model.
 
 ### Vessel Workspace
 

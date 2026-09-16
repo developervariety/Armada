@@ -62,6 +62,17 @@ namespace Armada.Core.Services
         /// </summary>
         public TypedStageNecessityAdapter? StageNecessityAdapter { get; set; }
 
+        /// <summary>
+        /// The D26 <c>prior_art</c> adapter, run after the deterministic block to retrieve prior-art
+        /// candidates and, in Gate mode, add an <c>objective_prior_art_found</c> Error issue when the
+        /// deliverable already exists, an <c>objective_prior_art_integrate</c> advisory when a landed seam
+        /// should be consumed, and a <c>prior_art_analyst_stage_recommended</c> advisory in the uncertain
+        /// band on a large objective. Null leaves the preview without a prior-art check, which is the
+        /// operationally-off state; it is set after construction only when the live typed-decision client
+        /// and a retriever exist. The adapter only ever ADDS issues; it never closes or re-scopes a row.
+        /// </summary>
+        public TypedPriorArtAdapter? PriorArtAdapter { get; set; }
+
         #endregion
 
         #region Constructors-and-Factories
@@ -215,6 +226,13 @@ namespace Armada.Core.Services
             // is never proposed.
             if (StageNecessityAdapter != null)
                 await RefineStageNecessityAsync(objective, vessel, pipeline, result, token).ConfigureAwait(false);
+
+            // D26 prior art. Retrieves prior-art candidates for the objective and, in Gate mode, adds an
+            // Error issue when the deliverable already exists, an advisory to consume a landed seam, and
+            // an advisory to consider a read-only analyst stage in the uncertain band. The adapter is
+            // contracted never to throw into the preview: Off and every fault path leave it unchanged.
+            if (PriorArtAdapter != null)
+                await PriorArtAdapter.EvaluatePreflightAsync(objective, vessel, result, token).ConfigureAwait(false);
 
             FinalizeResult(result);
             return result;

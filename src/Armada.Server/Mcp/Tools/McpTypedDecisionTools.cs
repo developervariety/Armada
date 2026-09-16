@@ -38,6 +38,9 @@ namespace Armada.Server.Mcp.Tools
         /// <summary>Registered name of the D23a memory-triage helper.</summary>
         public const string MemoryTriageToolName = "armada_memory_triage";
 
+        /// <summary>Registered name of the D26 prior-art premise helper.</summary>
+        public const string CheckPriorArtToolName = "armada_check_prior_art";
+
         #endregion
 
         #region Private-Members
@@ -80,7 +83,8 @@ namespace Armada.Server.Mcp.Tools
             TypedDecisionRecorder recorder,
             ArmadaSettings settings,
             LoggingModule? logging = null,
-            Func<string?>? participantKeyProvider = null)
+            Func<string?>? participantKeyProvider = null,
+            IPriorArtRetriever? priorArtRetriever = null)
         {
             if (register == null) throw new ArgumentNullException(nameof(register));
             if (database == null) throw new ArgumentNullException(nameof(database));
@@ -175,6 +179,33 @@ namespace Armada.Server.Mcp.Tools
                     logging,
                     participantKey,
                     buildStateAndQuestions: BuildMemoryTriage).ConfigureAwait(false));
+
+            register(
+                CheckPriorArtToolName,
+                "Before you write a new type, check whether the work already exists. Describe what you are about to build in 'plan'; the tool runs a deterministic search of the target tip, unlanded branches, preserved and recovery refs, and open objectives for the type, method, and file names in your plan, then returns the candidates it found with typed readings on whether each delivers the same capability and whether the deliverable is already done or should be consumed through a seam. Every reading carries the candidate's path:line so you verify the evidence yourself. It never blocks you, edits nothing, and writes no memory; it informs your own search-first decision. Pass your mission id in 'missionId' so the tool knows which vessel to search. Dormant by default (returns unavailable) until an operator enables the prior-art decision.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        plan = new { type = "string", description = "What you are about to build, in your own words: the types, methods, and files you plan to write." },
+                        missionId = new { type = "string", description = "The calling mission id, used to resolve the vessel to search and for budget scope and event attribution." }
+                    },
+                    required = new[] { "plan" }
+                },
+                async (args) => await HandleAsync(
+                    args,
+                    "prior_art",
+                    hasDecisionGate: true,
+                    database,
+                    effectiveClient,
+                    recorder,
+                    settings,
+                    logging,
+                    participantKey,
+                    buildStateAndQuestions: null,
+                    buildStateAndQuestionsAsync: (root, mission, token) =>
+                        BuildPriorArtAsync(root, mission, priorArtRetriever, database, logging, token)).ConfigureAwait(false));
         }
 
         /// <summary>
@@ -200,7 +231,8 @@ namespace Armada.Server.Mcp.Tools
             ArmadaSettings settings,
             LoggingModule? logging,
             Func<string?> participantKeyProvider,
-            Func<JsonElement, ParsedDecision?>? buildStateAndQuestions)
+            Func<JsonElement, ParsedDecision?>? buildStateAndQuestions,
+            Func<JsonElement, Mission?, CancellationToken, Task<ParsedDecision?>>? buildStateAndQuestionsAsync = null)
         {
             try
             {
@@ -209,8 +241,31 @@ namespace Armada.Server.Mcp.Tools
 
                 JsonElement root = args.Value;
 
+                // Resolve the calling mission for event scope. A supplied id that resolves scopes the
+                // event and keys the budget; an absent or unresolved id falls back to the participant
+                // key, so a captain that does not pass its id is still bounded and observable. Resolved
+                // first because an async builder (prior art) uses the mission to know which vessel to
+                // search.
+                string? missionId = ReadOptionalString(root, "missionId");
+                Mission? mission = null;
+                if (!String.IsNullOrWhiteSpace(missionId))
+                {
+                    try
+                    {
+                        mission = await database.Missions.ReadAsync(missionId!, CancellationToken.None).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        logging?.Warn("[McpTypedDecisionTools] mission lookup failed for " + missionId + ": " + ex.Message);
+                    }
+                }
+
                 ParsedDecision? parsed;
-                if (buildStateAndQuestions != null)
+                if (buildStateAndQuestionsAsync != null)
+                {
+                    parsed = await buildStateAndQuestionsAsync(root, mission, CancellationToken.None).ConfigureAwait(false);
+                }
+                else if (buildStateAndQuestions != null)
                 {
                     parsed = buildStateAndQuestions(root);
                 }
@@ -225,23 +280,6 @@ namespace Armada.Server.Mcp.Tools
                     return Unavailable("invalid", "At least one question is required.");
 
                 TypedDecisionCaptainToolSettings toolSettings = settings.TypedDecisions.CaptainTool;
-
-                // Resolve the calling mission for event scope. A supplied id that resolves scopes the
-                // event and keys the budget; an absent or unresolved id falls back to the participant
-                // key, so a captain that does not pass its id is still bounded and observable.
-                string? missionId = ReadOptionalString(root, "missionId");
-                Mission? mission = null;
-                if (!String.IsNullOrWhiteSpace(missionId))
-                {
-                    try
-                    {
-                        mission = await database.Missions.ReadAsync(missionId!, CancellationToken.None).ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        logging?.Warn("[McpTypedDecisionTools] mission lookup failed for " + missionId + ": " + ex.Message);
-                    }
-                }
 
                 string? participantKey = participantKeyProvider();
                 string budgetKey = mission != null
@@ -421,6 +459,46 @@ namespace Armada.Server.Mcp.Tools
                     "belongs in shared memory", "is a native vessel fact")
             };
 
+            return new ParsedDecision(state, questions);
+        }
+
+        private static async Task<ParsedDecision?> BuildPriorArtAsync(
+            JsonElement root,
+            Mission? mission,
+            IPriorArtRetriever? retriever,
+            DatabaseDriver database,
+            LoggingModule? logging,
+            CancellationToken token)
+        {
+            string plan = ReadOptionalString(root, "plan") ?? String.Empty;
+            if (String.IsNullOrWhiteSpace(plan)) return null;
+
+            PriorArtRetrieval retrieval = PriorArtRetrieval.Empty();
+            if (retriever != null && mission != null && !String.IsNullOrWhiteSpace(mission.VesselId))
+            {
+                try
+                {
+                    Vessel? vessel = await database.Vessels.ReadAsync(mission.VesselId!, token).ConfigureAwait(false);
+                    if (vessel != null)
+                    {
+                        PriorArtQuery query = new PriorArtQuery
+                        {
+                            Context = TypedPriorArtAdapter.ContextFor(vessel),
+                            ExtraText = plan
+                        };
+                        retrieval = await retriever.RetrieveAsync(query, token).ConfigureAwait(false);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    logging?.Warn("[McpTypedDecisionTools] prior_art retrieval failed, no candidates: " + ex.Message);
+                    retrieval = PriorArtRetrieval.Empty();
+                }
+            }
+
+            object state = PriorArtDecisionShapes.BuildState(plan, retrieval);
+            Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(
+                PriorArtDecisionShapes.BuildPreflightQuestions(retrieval.Candidates.Count), StringComparer.Ordinal);
             return new ParsedDecision(state, questions);
         }
 

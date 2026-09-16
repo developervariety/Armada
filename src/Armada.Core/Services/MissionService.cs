@@ -158,6 +158,15 @@ namespace Armada.Core.Services
         /// touches the reserved-persona path or a non-Normal account state.
         /// </summary>
         public TypedRoutingHintAdapter? RoutingHintAdapter { get; set; }
+
+        /// <summary>
+        /// The D26 <c>prior_art</c> typed-decision adapter, when wired. Null keeps the Worker handoff
+        /// without a prior-art check, which is the operationally-off state. Set by the server after
+        /// construction so existing construction sites and tests are unchanged. When wired and gating over
+        /// a Worker's diff, a re-implementation reading becomes a Judge review instruction prepended to
+        /// the next brief; it is a review instruction, never a verdict, and the Judge still judges.
+        /// </summary>
+        public TypedPriorArtAdapter? PriorArtAdapter { get; set; }
         private const string _CreditAuthQuarantineReason =
             "Provider credit, billing, payment, or authentication failure detected during mission execution.";
         private const string ArchitectHandoffMarker = "<!-- ARMADA:ARCHITECT-HANDOFF -->";
@@ -5047,6 +5056,15 @@ namespace Armada.Core.Services
                 await ApplyLintFindingHandoffAsync(completedMission, dependentMissions, token).ConfigureAwait(false);
             }
 
+            // D26 prior_art (Judge seam). When a Worker stage hands off, retrieve prior-art candidates for
+            // the diff's added types and, when the model reads the diff as re-implementing a candidate,
+            // prepend a Judge review instruction to the next brief. It is a review instruction, never a
+            // verdict: the Judge still judges. The handoff proceeds normally afterwards.
+            if (PriorArtAdapter != null && IsPersona(completedMission.Persona, PersonaCatalog.Worker))
+            {
+                await ApplyPriorArtJudgeHandoffAsync(completedMission, dependentMissions, token).ConfigureAwait(false);
+            }
+
             foreach (Mission nextMission in dependentMissions)
             {
                 await PrepareSingleDependentHandoffAsync(completedMission, nextMission, unreadMailboxSignals, appliedSignalIds, token).ConfigureAwait(false);
@@ -5560,6 +5578,79 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "lint_finding handoff for mission " + completedMission.Id + " failed, handoff proceeds without the note: " + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// Consult the D26 <c>prior_art</c> decision for a finished Worker stage and, when the model reads
+        /// the diff as re-implementing a capability already present in a candidate, prepend a Judge review
+        /// instruction to each pending dependent's brief. It is a review instruction, never a verdict: the
+        /// Judge still judges. Never throws into the handoff.
+        /// </summary>
+        private async Task ApplyPriorArtJudgeHandoffAsync(Mission completedMission, List<Mission> dependentMissions, CancellationToken token)
+        {
+            if (PriorArtAdapter == null) return;
+            if (_Settings.TypedDecisions.For(TypedPriorArtAdapter.DecisionPoint).Mode == TypedDecisionModeEnum.Off) return;
+
+            try
+            {
+                string addedDeclarations = ExtractAddedDeclarations(completedMission.DiffSnapshot);
+                if (String.IsNullOrWhiteSpace(addedDeclarations)) return;
+                if (String.IsNullOrWhiteSpace(completedMission.VesselId)) return;
+
+                Vessel? vessel = await _Database.Vessels.ReadAsync(completedMission.VesselId!, token).ConfigureAwait(false);
+                if (vessel == null) return;
+
+                string? instruction = await PriorArtAdapter
+                    .EvaluateJudgeInstructionAsync(completedMission, vessel, addedDeclarations, token).ConfigureAwait(false);
+                if (String.IsNullOrWhiteSpace(instruction)) return;
+
+                System.Text.StringBuilder sb = new System.Text.StringBuilder();
+                sb.AppendLine("[ORCHESTRATOR NOTES]");
+                sb.AppendLine(instruction);
+                sb.Append("[/ORCHESTRATOR NOTES]");
+
+                await PrependOrchestratorNoteAsync(dependentMissions, "prior_art check", sb.ToString(), token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "prior_art handoff for mission " + completedMission.Id + " failed, handoff proceeds without the note: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Extract added type and method declarations from a unified diff snapshot, best effort: added
+        /// (<c>+</c>) lines that declare a type or a method, bounded in count and total length so the
+        /// retrieval state stays small. The retriever mines the type and method NAMES from these lines.
+        /// </summary>
+        private static string ExtractAddedDeclarations(string? diffSnapshot)
+        {
+            const int maxLines = 120;
+            const int maxChars = 8000;
+            if (String.IsNullOrEmpty(diffSnapshot)) return String.Empty;
+
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            int count = 0;
+            foreach (string raw in diffSnapshot.Split('\n'))
+            {
+                if (count >= maxLines || sb.Length >= maxChars) break;
+                if (raw.Length == 0 || raw[0] != '+') continue;
+                if (raw.StartsWith("+++", StringComparison.Ordinal)) continue;
+                string content = raw.Substring(1).Trim();
+                if (content.Length == 0) continue;
+                bool declaresType = content.Contains("class ", StringComparison.Ordinal)
+                    || content.Contains("record ", StringComparison.Ordinal)
+                    || content.Contains("interface ", StringComparison.Ordinal)
+                    || content.Contains("struct ", StringComparison.Ordinal)
+                    || content.Contains("enum ", StringComparison.Ordinal);
+                bool declaresMethod = content.Contains('(') && (content.Contains("public ", StringComparison.Ordinal)
+                    || content.Contains("private ", StringComparison.Ordinal)
+                    || content.Contains("internal ", StringComparison.Ordinal)
+                    || content.Contains("protected ", StringComparison.Ordinal));
+                if (!declaresType && !declaresMethod) continue;
+                sb.AppendLine(content);
+                count++;
+            }
+            return sb.ToString();
         }
 
         /// <summary>

@@ -691,6 +691,24 @@ namespace Armada.Server
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 missionService.LintFindingAdapter = new TypedLintFindingAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
+
+                // D26 prior_art. One adapter over a deterministic retriever feeds two admiral seams: the
+                // dispatch preflight (already_done / integrate / uncertain-band analyst issues) and the
+                // Worker->Judge handoff (a re-implementation review instruction). It ships Off in the
+                // decisions map, so with the live client present but the decision Off both seams run their
+                // deterministic path unchanged; wired so a later Gate flip is a settings change, not a code
+                // change. The retriever reads the four surfaces through the git service (a GitService is
+                // also the branch inventory) and the objective store.
+                if (_Git is IBranchInventory priorArtBranchInventory)
+                {
+                    IPriorArtRetriever priorArtRetriever = new PriorArtRetriever(
+                        new GitPriorArtSource(_Git, priorArtBranchInventory, _Database, _Logging), _Logging);
+                    TypedPriorArtAdapter priorArtAdapter = new TypedPriorArtAdapter(
+                        _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, priorArtRetriever, _Logging);
+                    _ObjectiveDispatchPreviewService.PriorArtAdapter = priorArtAdapter;
+                    missionService.PriorArtAdapter = priorArtAdapter;
+                }
+
                 // D13 owner_digest runner. It reuses the owner-addressed note poster above, ranks each
                 // owner-decision candidate with its adapter, and — driven daily by the health loop —
                 // posts one owner-addressed digest note and one owner_decisions.digest event per UTC

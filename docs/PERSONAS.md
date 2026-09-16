@@ -42,6 +42,23 @@ not presented to the Judge as a defect. The decision ships `Off` (the Linter
 output flows unchanged); a Gate flip is a settings change, not a persona change.
 The deterministic Slop Check (`SlopDiffClassifier`) is unaffected.
 
+### Prior-art analyst stage (D26 `prior_art`)
+
+D26 `prior_art` does not add a persona to any pipeline by default: it is a
+retrieval step plus typed questions inside stages that already run (the dispatch
+preflight and the Worker-to-Judge handoff), so no persona runs for nothing. It
+names one conditional persona, **PriorArtAnalyst**, a read-only Research analyst.
+When the model's `already_done` reading lands in the uncertain band (`0.4`–`0.7`)
+on a large objective — the one case the preflight and Judge seams cannot settle —
+the dispatch preview adds a `prior_art_analyst_stage_recommended` advisory
+suggesting the operator insert a PriorArtAnalyst Research stage before the Worker,
+briefed with the retrieved candidates, to answer the single question ("does the
+objective's deliverable already exist?") and write its finding into the brief. The
+stage is read-only (it commits nothing) and runs only in that band, which is the
+DRY answer to "more personas": the analyst runs when the question is genuinely
+open and never otherwise. The recommendation is advisory — the operator confirms
+it; the adapter never inserts a stage by itself. The decision ships `Off`.
+
 ## Prompt Assembly
 
 When Armada builds a captain prompt, it resolves the persona, loads its active

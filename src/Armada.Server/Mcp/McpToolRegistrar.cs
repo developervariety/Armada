@@ -154,6 +154,16 @@ namespace Armada.Server.Mcp
                 ?? (logging != null ? new Armada.Core.Services.TypedDecisionRecorder(database, logging) : null);
             if (typedRecorder != null)
             {
+                // The D26 prior-art premise tool runs the deterministic retriever for the captain's plan.
+                // The retriever needs git tracked-content search and branch inventory (a GitService is
+                // both); where no git service is available the tool still registers but finds no
+                // candidates, and it is dormant until the prior_art decision leaves Off regardless.
+                Armada.Core.Services.Interfaces.IPriorArtRetriever? priorArtRetriever =
+                    git is Armada.Core.Services.Interfaces.IBranchInventory branchInventory
+                        ? new Armada.Core.Services.PriorArtRetriever(
+                            new Armada.Core.Services.GitPriorArtSource(git, branchInventory, database, logging), logging)
+                        : null;
+
                 McpTypedDecisionTools.Register(
                     register,
                     database,
@@ -161,7 +171,8 @@ namespace Armada.Server.Mcp
                     typedRecorder,
                     effectiveSettings,
                     logging,
-                    typedDecisionParticipantKeyProvider);
+                    typedDecisionParticipantKeyProvider,
+                    priorArtRetriever);
             }
             if (settings != null) McpBackupTools.Register(register, new DatabaseBackupService(database, settings));
             McpAgentWakeTools.Register(register, remoteTriggerService);

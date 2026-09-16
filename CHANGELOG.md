@@ -6,6 +6,42 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Typed decisions: prior art (D26)
+
+- Added the D26 `prior_art` decision — "does this already exist?" asked with
+  evidence at three seams and no new persona. A deterministic retriever (the
+  "contextual" half) mines identifiers of five characters or more, type and
+  method names, and file paths from the objective (or a captain's plan, or a
+  diff's added types), searches the landed tip, unlanded mission branches,
+  preserved and recovery refs, and open objectives through an injected source,
+  and assembles de-duplicated candidates capped at twelve and roughly 24k tokens
+  with forty-line excerpts. The model (the "honest" half) answers only over those
+  candidates: a per-candidate `delivers` Choice {same_capability, partial_overlap,
+  related_only, unrelated} and voyage-level `already_done`,
+  `integrate_not_duplicate`, and `reimplements` Nouls, every answer tied to a
+  candidate `path:line`, with `unrelated` always available.
+- Wired three seams, all additive and informative only:
+  - Preflight (extends D5): in Gate, `already_done` adds an
+    `objective_prior_art_found` Error issue listing candidates, `integrate_not_duplicate`
+    adds an `objective_prior_art_integrate` advisory of landed seams to consume,
+    and `already_done` in the uncertain band (0.4–0.7) on a large objective adds a
+    `prior_art_analyst_stage_recommended` advisory. The adapter only ADDS issues;
+    it never closes or re-scopes a row.
+  - Worker premise tool: `armada_check_prior_art`, a mission-scoped captain MCP
+    tool that runs the same retrieval for the captain's plan and returns the
+    candidates plus typed answers; redacted, per-mission budgeted, one event per
+    call, no side effect on any record.
+  - Judge (extends D4): on the Worker handoff, a `reimplements` reading prepends a
+    review INSTRUCTION to the next brief; it is a review instruction, never a
+    verdict.
+- The conditional PriorArtAnalyst read-only Research stage is surfaced as an
+  operator-confirmed preview recommendation, the same way D19 surfaces a stage
+  change; the persona is documented in `docs/PERSONAS.md`.
+- Ships `Off` in the decisions map. With the decision Off every seam runs its
+  deterministic path unchanged, and a seam with no retrieved candidate never
+  calls the model. The whole path fails closed to doing nothing and records one
+  event per consulted call.
+
 ### Typed decisions: revision kind (D21), test covers (D22), lint finding (D24)
 
 - Added the D21 `revision_kind` gated adapter over the shared typed-decision
