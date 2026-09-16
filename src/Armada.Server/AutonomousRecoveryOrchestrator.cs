@@ -63,6 +63,14 @@ namespace Armada.Server
         private readonly TerminalMarkerTracker? _TerminalMarkers;
         private readonly CaptainStallEvaluator _StallEvaluator;
 
+        /// <summary>
+        /// The D1 <c>failure_cause</c> typed-decision adapter, when wired. Null keeps recovery on its
+        /// deterministic classifier alone. Set by the server after construction so the many existing
+        /// construction sites and tests are unchanged. The adapter can only hold a rescue the rule
+        /// would have dispatched; every rule hard-block still wins.
+        /// </summary>
+        public TypedFailureCauseAdapter? FailureCauseAdapter { get; set; }
+
         // Missions whose withheld nudge already produced an event, so a finished captain yields one
         // event rather than one per sweep tick; every withheld nudge is still counted and logged.
         private readonly ConcurrentDictionary<string, byte> _NudgeSuppressedMissions =
@@ -993,6 +1001,7 @@ namespace Armada.Server
                 // matches its parent's; every other case leaves the classification untouched.
                 RepeatedFailureCheck repeated = await ReadRepeatedIdenticalTestFailureAsync(latest, token).ConfigureAwait(false);
                 RecoveryDecision decision = Classify(latest, repeated.IsRepeated);
+                decision = await RefineFailureCauseAsync(latest, decision, repeated, token).ConfigureAwait(false);
                 AuthContext auth = BuildAuth(latest);
 
                 // A block-policy rescue that produced no commits (rescue_produced_no_commits) was
@@ -1175,6 +1184,128 @@ namespace Armada.Server
                 return RecoveryDecision.Blocked("failure requires human review: " + reason);
 
             return RecoveryDecision.Rescue("recoverable mission failure");
+        }
+
+        /// <summary>
+        /// Refine the deterministic recovery decision with the D1 <c>failure_cause</c> adapter. Only a
+        /// decision the rule would RESCUE is offered to the model: every rule hard-block returns first
+        /// and is never reconsidered, so the model can only hold a rescue, never manufacture one. When
+        /// the adapter is not wired, or the model does not gate, the decision is returned unchanged.
+        /// The model reads the joined Checks and any parent failing tests so identical failure text
+        /// with different causes is not misjudged. Never throws into the sweep.
+        /// </summary>
+        private async Task<RecoveryDecision> RefineFailureCauseAsync(Mission mission, RecoveryDecision decision, RepeatedFailureCheck repeated, CancellationToken token)
+        {
+            if (FailureCauseAdapter == null) return decision;
+            if (!decision.DispatchRescue) return decision;
+
+            try
+            {
+                FailureCauseDecisionInput input = await BuildFailureCauseInputAsync(mission, repeated, token).ConfigureAwait(false);
+                TypedRecoveryVerdict refined = await FailureCauseAdapter
+                    .DecideAsync(input, new TypedRecoveryVerdict(decision.DispatchRescue, decision.Reason), token)
+                    .ConfigureAwait(false);
+
+                // The adapter never converts a block into a rescue; still, only ever narrow a rescue to
+                // a block here so a wiring or model error can never make recovery less conservative.
+                if (decision.DispatchRescue && !refined.DispatchRescue)
+                    return RecoveryDecision.Blocked(refined.Reason);
+
+                return decision;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failure_cause refinement failed for mission " + mission.Id + ", rule stands: " + ex.Message);
+                return decision;
+            }
+        }
+
+        /// <summary>
+        /// Build the D1 state: the failure reason, the captain output tail, the parsed
+        /// definition-of-done class, persona, mode, recovery attempts, the voyage Checks joined as
+        /// compact facts, and the parent's failing test names when this is a rescue.
+        /// </summary>
+        private async Task<FailureCauseDecisionInput> BuildFailureCauseInputAsync(Mission mission, RepeatedFailureCheck repeated, CancellationToken token)
+        {
+            string reason = mission.FailureReason ?? String.Empty;
+            string? dodClass = DefinitionOfDoneFailureClassifier.TryReadRecordedClass(reason, out DefinitionOfDoneFailureClassEnum gateClass)
+                ? gateClass.ToString()
+                : null;
+
+            List<FailureCauseCheckFact> checks = await ReadFailureCauseCheckFactsAsync(mission, token).ConfigureAwait(false);
+
+            List<string> parentFailingTests = new List<string>();
+            if (!String.IsNullOrWhiteSpace(mission.ParentMissionId))
+            {
+                if (repeated.IsRepeated)
+                {
+                    parentFailingTests.AddRange(repeated.RepeatedTests);
+                }
+                else
+                {
+                    StoredFailedTestSet? parentSet = await ReadLatestFailedTestSetAsync(mission.ParentMissionId!, token).ConfigureAwait(false);
+                    if (parentSet != null) parentFailingTests.AddRange(parentSet.Value.Names);
+                }
+            }
+
+            return new FailureCauseDecisionInput
+            {
+                Mission = mission,
+                FailureReason = reason,
+                AgentOutputTail = LastLines(mission.AgentOutput, 40),
+                DodClass = dodClass,
+                Persona = mission.Persona,
+                MissionMode = mission.Mode.ToString(),
+                RecoveryAttempts = mission.RecoveryAttempts,
+                Checks = checks,
+                ParentFailingTests = parentFailingTests
+            };
+        }
+
+        /// <summary>
+        /// Read the voyage Checks as compact facts for the D1 state. A read failure yields an empty
+        /// list, so the model still answers from the reason and output; it never blocks recovery.
+        /// </summary>
+        private async Task<List<FailureCauseCheckFact>> ReadFailureCauseCheckFactsAsync(Mission mission, CancellationToken token)
+        {
+            List<FailureCauseCheckFact> facts = new List<FailureCauseCheckFact>();
+            if (String.IsNullOrWhiteSpace(mission.VoyageId)) return facts;
+
+            try
+            {
+                EnumerationResult<CheckRun> page = await _Database.CheckRuns
+                    .EnumerateAsync(new CheckRunQuery { VoyageId = mission.VoyageId, PageNumber = 1, PageSize = 50 }, token)
+                    .ConfigureAwait(false);
+
+                foreach (CheckRun run in page.Objects)
+                {
+                    facts.Add(new FailureCauseCheckFact
+                    {
+                        Label = String.IsNullOrWhiteSpace(run.Label) ? run.Type.ToString() : run.Label!,
+                        Type = run.Type.ToString(),
+                        Status = run.Status.ToString(),
+                        CommitMatchesJudge = !String.IsNullOrWhiteSpace(run.CommitHash)
+                            && !String.IsNullOrWhiteSpace(mission.CommitHash)
+                            && String.Equals(run.CommitHash, mission.CommitHash, StringComparison.Ordinal),
+                        ExitCode = run.ExitCode,
+                        Tail20 = LastLines(run.Output, 20)
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failure_cause check join failed for mission " + mission.Id + ": " + ex.Message);
+            }
+
+            return facts;
+        }
+
+        private static string LastLines(string? text, int count)
+        {
+            if (String.IsNullOrEmpty(text)) return String.Empty;
+            string[] lines = text.Replace("\r\n", "\n").Split('\n');
+            int first = Math.Max(0, lines.Length - count);
+            return String.Join("\n", lines[first..]);
         }
 
         /// <summary>

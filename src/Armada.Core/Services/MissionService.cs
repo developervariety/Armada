@@ -63,6 +63,15 @@ namespace Armada.Core.Services
         private JudgeFollowUpService _JudgeFollowUps;
         private readonly SiblingLaneAdmission _SiblingLaneAdmission;
         private DefinitionOfDoneGate? _DefinitionOfDoneGate;
+
+        /// <summary>
+        /// The D2 <c>refusal</c> typed-decision adapter, when wired. Null keeps refusal classification
+        /// on the deterministic rule alone. Set by the server after construction so existing
+        /// construction sites and tests are unchanged. The structured refusal marker stays
+        /// authoritative; the adapter may only promote a prose refusal the rule missed, or demote a
+        /// quoted phrase, never overturn the marker.
+        /// </summary>
+        public TypedRefusalAdapter? RefusalAdapter { get; set; }
         private const string _CreditAuthQuarantineReason =
             "Provider credit, billing, payment, or authentication failure detected during mission execution.";
         private const string ArchitectHandoffMarker = "<!-- ARMADA:ARCHITECT-HANDOFF -->";
@@ -1776,6 +1785,7 @@ namespace Armada.Core.Services
             if (!failedForScopeViolation)
             {
                 CaptainRefusal refusal = CaptainRefusalClassifier.Classify(mission.AgentOutput);
+                refusal = await RefineRefusalAsync(mission, refusal, token).ConfigureAwait(false);
                 if (refusal.IsRefusal)
                 {
                     Vessel? refusalVessel = null;
@@ -6238,6 +6248,42 @@ namespace Armada.Core.Services
         /// documents an environmental exclusion (rule 31) with the
         /// <see cref="_JudgeCheckExclusionMarker"/> marker.
         /// </summary>
+        /// <summary>
+        /// Refine a deterministic refusal classification with the D2 <c>refusal</c> adapter, when
+        /// wired. The structured marker stays authoritative inside the adapter's Combine; here the
+        /// adapter is simply given the rule verdict and the output tail. Never throws into the caller.
+        /// </summary>
+        private async Task<CaptainRefusal> RefineRefusalAsync(Mission mission, CaptainRefusal ruleVerdict, CancellationToken token)
+        {
+            if (RefusalAdapter == null) return ruleVerdict;
+
+            try
+            {
+                RefusalDecisionInput input = new RefusalDecisionInput
+                {
+                    Mission = mission,
+                    AgentOutputTail = LastOutputLines(mission.AgentOutput, 40),
+                    MissionTitle = mission.Title ?? String.Empty,
+                    MarkerPresent = mission.AgentOutput != null
+                        && mission.AgentOutput.Contains(CaptainRefusalClassifier.RefusalMarker, StringComparison.Ordinal)
+                };
+                return await RefusalAdapter.DecideAsync(input, ruleVerdict, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "refusal refinement failed for mission " + mission.Id + ", rule stands: " + ex.Message);
+                return ruleVerdict;
+            }
+        }
+
+        private static string LastOutputLines(string? text, int count)
+        {
+            if (String.IsNullOrEmpty(text)) return String.Empty;
+            string[] lines = text.Replace("\r\n", "\n").Split('\n');
+            int first = Math.Max(0, lines.Length - count);
+            return String.Join("\n", lines[first..]);
+        }
+
         internal async Task<JudgeCheckGate> EvaluateJudgeCheckGateAsync(Mission judgeMission, CancellationToken token)
         {
             if (!String.IsNullOrEmpty(judgeMission.VoyageId))

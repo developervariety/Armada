@@ -343,6 +343,25 @@ namespace Armada.Server
                 _Database, _Admiral, _IncidentService, _RunbookService, _Settings, _Logging,
                 _MergeQueue, _Git, _AutoLandEvaluator, _ConventionChecker, _CriticalTriggerEvaluator, _ProviderProgress, _CheckRunService,
                 null, _DispatchHold, _TerminalMarkers);
+
+            // Gated typed-decision adapters (D1 failure_cause, D2 refusal, D3 runtime_failure). Each
+            // consumer holds an adapter over the shared client, never the raw client. They are wired
+            // only when the live client was constructed (mode not Off and the key present); with the
+            // Null client every seam stays on its deterministic rule with no call and no event, which
+            // is the operationally-off state. Set after construction so existing construction sites and
+            // tests are unchanged.
+            if (_TypedDecisionClient is TypeSafeDecisionClient)
+            {
+                TypedRefusalAdapter typedRefusalAdapter = new TypedRefusalAdapter(
+                    _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
+                missionService.RefusalAdapter = typedRefusalAdapter;
+                admiralService.RefusalAdapter = typedRefusalAdapter;
+                admiralService.RuntimeFailureAdapter = new TypedRuntimeFailureAdapter(
+                    _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
+                _AutonomousRecovery.FailureCauseAdapter = new TypedFailureCauseAdapter(
+                    _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
+            }
+
             _ObjectiveScheduler = new AutonomousObjectiveScheduler(_Database, _ObjectiveService, _Admiral, _MergeQueue, _Settings, _Logging, _CodeIndex, _DispatchHold, _ObjectiveDispatchPreviewService);
             _IncidentLifecycle = new IncidentLifecycleOrchestrator(_Database, _IncidentService, _Settings, _Logging);
             _GitHubIntegrationService = new GitHubIntegrationService(_Database, _ObjectiveService, _CheckRunService, _DeploymentService, _Settings, _Logging);

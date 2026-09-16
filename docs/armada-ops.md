@@ -1915,8 +1915,8 @@ the `deferred-facts.md` lookup use the folder's real name.
 The typed-decision system (TypeSafe Jev) is an advisory classifier the admiral
 can consult at a decision point. It is **off by default** and, in this state,
 changes nothing: every decision runs its deterministic rule exactly as before.
-The system is a foundation only until an adapter lane wires a decision point; no
-consumer calls it yet.
+The first wired decision points are the three recovery-side classifiers below;
+every other decision is a foundation only until its adapter lane lands.
 
 The safety contract holds whenever it is enabled:
 
@@ -1979,6 +1979,26 @@ edits no objective, and writes no memory. The tool is disabled by default
 until an operator enables it; each helper stays dormant until its own decision
 (`premise_check`, `memory_record`) is enabled. See `docs/MCP_API.md` for the
 tool arguments.
+Each wired decision holds an adapter over the shared client, never the raw
+client, and every adapter follows one skeleton: Off returns the rule with no
+call; unavailable returns the rule; Shadow or below threshold returns the rule
+and records a shadow event; at or above threshold it combines the rule and the
+model, where a rule hard-block always wins. The three wired today are:
+
+- `failure_cause` — autonomous recovery consults the model only for a failure
+  the rule would rescue; the repeated-identical-test and Infra/Timeout blocks
+  stay hard-blocks that win first. The state joins the voyage Checks and the
+  parent's failing test names. A contention, provider, environmental, or
+  verdict-form read at or above threshold, or a very likely repeat, holds the
+  rescue for operator review as `typed_decision:<cause>`.
+- `refusal` — the structured refusal marker and a provider safeguard block stay
+  authoritative; the model may promote a prose refusal the phrase rules missed
+  or demote a quoted phrase at very high confidence. The criteria state the
+  domain: authorized heavy-duty vehicle diagnostics, where seed-key exchange and
+  UDS SecurityAccess are ordinary engineering, never a refusal.
+- `runtime_failure` — only a bare Crash is offered for change, and only ever
+  upgraded to the more conservative UsageLimit or AuthFailure; a recognised
+  signature is never downgraded and a crash is never read as clean.
 
 ### Vessel Workspace
 

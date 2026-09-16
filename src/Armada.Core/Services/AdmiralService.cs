@@ -103,6 +103,21 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         public DispatchHold? DispatchHold => _DispatchHold;
 
+        /// <summary>
+        /// The D3 <c>runtime_failure</c> typed-decision adapter, when wired. Null keeps runtime
+        /// classification on the signature rule alone. Set by the server after construction. The
+        /// adapter may only upgrade a bare Crash to the more conservative UsageLimit or AuthFailure;
+        /// it never downgrades a recognised fault and never benches a captain by itself.
+        /// </summary>
+        public TypedRuntimeFailureAdapter? RuntimeFailureAdapter { get; set; }
+
+        /// <summary>
+        /// The D2 <c>refusal</c> typed-decision adapter, when wired. Null keeps refusal classification
+        /// on the deterministic rule alone. Set by the server after construction. A provider safeguard
+        /// block stays authoritative inside the adapter's Combine.
+        /// </summary>
+        public TypedRefusalAdapter? RefusalAdapter { get; set; }
+
         private IGitService _Git;
         private bool _RetryDispatchNeeded = false;
         private readonly System.Collections.Concurrent.ConcurrentDictionary<long, Task> _QueuedAssignments =
@@ -1586,6 +1601,7 @@ namespace Armada.Core.Services
                 await HandleTerminalProcessExitFailureAsync(captain, mission, missionId, exitCode, failureReason, token).ConfigureAwait(false);
 
                 RuntimeFailureKindEnum failureKind = RuntimeFailureClassifier.Classify(exitCode, failureReason);
+                failureKind = await RefineRuntimeFailureAsync(mission, captain, exitCode, failureReason, failureKind, token).ConfigureAwait(false);
                 if (_Settings.CrashLoopDetection.Enabled
                     && failureKind == RuntimeFailureKindEnum.Crash
                     && !ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal(failureReason)
@@ -2777,6 +2793,76 @@ namespace Armada.Core.Services
             return "Agent process exited with code " + (exitCode?.ToString() ?? "unknown");
         }
 
+        /// <summary>
+        /// Refine a deterministic runtime-failure classification with the D3 <c>runtime_failure</c>
+        /// adapter, when wired. Only a bare Crash is offered a change; every recognised signature is
+        /// authoritative inside the adapter's Combine. Never throws into the caller.
+        /// </summary>
+        private async Task<RuntimeFailureKindEnum> RefineRuntimeFailureAsync(
+            Mission? mission,
+            Captain captain,
+            int? exitCode,
+            string failureReason,
+            RuntimeFailureKindEnum ruleVerdict,
+            CancellationToken token)
+        {
+            if (RuntimeFailureAdapter == null) return ruleVerdict;
+
+            try
+            {
+                RuntimeFailureDecisionInput input = new RuntimeFailureDecisionInput
+                {
+                    Mission = mission,
+                    ExitCode = exitCode,
+                    Tail = LastOutputLines(failureReason, 40),
+                    Runtime = captain.Runtime.ToString(),
+                    ModelId = captain.Model ?? String.Empty
+                };
+                return await RuntimeFailureAdapter.DecideAsync(input, ruleVerdict, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "runtime_failure refinement failed for mission " + (mission?.Id ?? "<none>") + ", rule stands: " + ex.Message);
+                return ruleVerdict;
+            }
+        }
+
+        /// <summary>
+        /// Refine a deterministic refusal classification with the D2 <c>refusal</c> adapter, when
+        /// wired. A provider safeguard block and the structured marker stay authoritative inside the
+        /// adapter's Combine. Never throws into the caller.
+        /// </summary>
+        private async Task<CaptainRefusal> RefineRefusalAsync(Mission mission, string failureReason, CaptainRefusal ruleVerdict, CancellationToken token)
+        {
+            if (RefusalAdapter == null) return ruleVerdict;
+
+            try
+            {
+                RefusalDecisionInput input = new RefusalDecisionInput
+                {
+                    Mission = mission,
+                    AgentOutputTail = LastOutputLines(failureReason, 40),
+                    MissionTitle = mission.Title ?? String.Empty,
+                    MarkerPresent = failureReason != null
+                        && failureReason.Contains(CaptainRefusalClassifier.RefusalMarker, StringComparison.Ordinal)
+                };
+                return await RefusalAdapter.DecideAsync(input, ruleVerdict, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "refusal refinement failed for mission " + mission.Id + ", rule stands: " + ex.Message);
+                return ruleVerdict;
+            }
+        }
+
+        private static string LastOutputLines(string? text, int count)
+        {
+            if (String.IsNullOrEmpty(text)) return String.Empty;
+            string[] lines = text.Replace("\r\n", "\n").Split('\n');
+            int first = Math.Max(0, lines.Length - count);
+            return String.Join("\n", lines[first..]);
+        }
+
         private async Task HandleTerminalProcessExitFailureAsync(
             Captain captain,
             Mission? mission,
@@ -2792,6 +2878,7 @@ namespace Armada.Core.Services
             if (mission != null && ProviderQuotaLimitDetector.IsProviderSafeguardBlockSignal(failureReason))
             {
                 CaptainRefusal refusal = CaptainRefusalClassifier.Classify(failureReason);
+                refusal = await RefineRefusalAsync(mission, failureReason, refusal, token).ConfigureAwait(false);
                 if (refusal.Kind != CaptainRefusalKindEnum.ProviderSafeguardBlock)
                 {
                     refusal = new CaptainRefusal

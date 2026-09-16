@@ -40,6 +40,38 @@ All notable changes to Armada are documented in this file.
   until its own decision (`premise_check`, `memory_record`) is enabled.
 - The Worker, Judge, TestEngineer and Recorder persona templates each name the
   tool and when to call it.
+### Gated typed-decision adapters for recovery, refusal, and runtime failure
+
+- Three deterministic classifiers now consult the typed-decision model (TypeSafe
+  Jev) through a shared gated adapter, and each holds an adapter, not the raw
+  client. Every adapter follows one skeleton: with the decision Off it returns
+  the rule and makes no call; when the model is unavailable it returns the rule
+  and records `typed_decision.unavailable`; in Shadow or below the decision
+  threshold it returns the rule and records `typed_decision.shadow`; at or above
+  the threshold it combines the rule and the model and records
+  `typed_decision.gated`. The combine step can only make an outcome more
+  conservative — a rule hard-block always wins, and the model never dispatches,
+  lands, benches, or converts a block into a rescue.
+- `failure_cause` (D1): autonomous recovery consults the model only for a
+  failure the rule would rescue. The deterministic repeated-identical-test and
+  Infra/Timeout definition-of-done blocks stay hard-blocks that win first. The
+  state joins the voyage Checks and the parent's failing test names so the same
+  failure text with a different cause is not misjudged. A read of contention,
+  provider, environmental, or verdict-form fault at or above threshold, or a
+  very likely repeat, holds the rescue for operator review.
+- `refusal` (D2): the structured `[ARMADA:RESULT] REFUSED` marker and a provider
+  safeguard block stay authoritative. The model may promote a prose refusal the
+  phrase rules missed, or demote a quoted phrase only at very high confidence.
+  The criteria state the domain: authorized heavy-duty vehicle diagnostics, so
+  seed-key exchange and UDS SecurityAccess are ordinary engineering, never a
+  refusal.
+- `runtime_failure` (D3): only a bare Crash is offered for change, and only ever
+  upgraded to the more conservative UsageLimit or AuthFailure; a recognised
+  signature is never downgraded and a crash is never read as clean.
+- Each adapter forwards the caller's cancellation token to the client so the
+  settings timeout links to it: a slow decision is unavailable, not late. The
+  adapters are wired only when the client is live (mode not Off and the key is
+  present); otherwise every seam stays on its deterministic rule.
 
 ### Dispatch enforces the objective preflight
 
