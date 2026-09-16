@@ -138,13 +138,13 @@ namespace Armada.Test.Unit.Suites.Services
                 RecordingProposalWriter writer = new RecordingProposalWriter();
                 MemoryCandidateAdapter adapter = BuildAdapter(testDb.Driver, client, writer, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
 
-                PapercutGroup group = Group("k2", "mission msn_abc123 failed at /srv/armada/dock", 4);
+                PapercutGroup group = Group("k2", "mission msn_abc123 failed at /srv/example/dock", 4);
                 await adapter.NominateAsync(new List<PapercutGroup> { group }, CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(1, writer.Written.Count);
                 MemoryCandidateProposal proposal = writer.Written[0];
                 AssertFalse(proposal.Title.Contains("msn_abc123", StringComparison.Ordinal), "the Armada id is redacted from the proposal");
-                AssertFalse(proposal.Title.Contains("/srv/armada", StringComparison.Ordinal), "the path is redacted from the proposal");
+                AssertFalse(proposal.Title.Contains("/srv/example", StringComparison.Ordinal), "the path is redacted from the proposal");
             });
 
             await RunTest("Nominate_UnavailableStopsThePass", async () =>

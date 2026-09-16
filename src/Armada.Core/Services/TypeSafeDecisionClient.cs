@@ -70,7 +70,7 @@ namespace Armada.Core.Services
 
             // The timeout is enforced by a linked, self-cancelling token so a slow provider never
             // stalls the caller beyond the settings budget. Cancellation the caller requested and
-            // the timeout are distinguished after the wait.
+            // the timeout both return the reason "timeout"; only the elapsed timeout logs a warning.
             using CancellationTokenSource linked = CancellationTokenSource.CreateLinkedTokenSource(token);
             linked.CancelAfter(TimeSpan.FromSeconds(_Settings.TimeoutSeconds));
 
@@ -108,7 +108,7 @@ namespace Armada.Core.Services
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
-                // The caller cancelled; surface it as unavailable rather than throwing into the caller.
+                // The caller cancelled; surface it as unavailable (reason "timeout") rather than throwing into the caller.
                 return Unavailable("timeout", stopwatch.ElapsedMilliseconds);
             }
             catch (OperationCanceledException)

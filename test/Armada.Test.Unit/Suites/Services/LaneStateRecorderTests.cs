@@ -25,7 +25,7 @@ namespace Armada.Test.Unit.Suites.Services
                 List<Objective> eligible = new List<Objective>
                 {
                     new Objective { Title = "one", VesselIds = new List<string> { "vsl_alpha" }, Tags = new List<string> { "port:ecu" } },
-                    new Objective { Title = "two", VesselIds = new List<string> { "vsl_alpha" }, Tags = new List<string> { "port:dxp" } },
+                    new Objective { Title = "two", VesselIds = new List<string> { "vsl_alpha" }, Tags = new List<string> { "port:alpha" } },
                     new Objective { Title = "wide", VesselIds = new List<string> { "vsl_alpha", "vsl_solo" } }
                 };
 
@@ -35,7 +35,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(2, samples.Count, "an eligible lane and an occupied lane are both sampled");
                 LaneStateTransition alpha = samples.Single(item => item.LaneKey == "vsl_alpha");
                 AssertEqual(2, alpha.EligibleCount, "a multi-vessel objective belongs to no lane");
-                AssertEqual("dxp,ecu", alpha.EligibleSourceFamilies);
+                AssertEqual("alpha,ecu", alpha.EligibleSourceFamilies);
                 AssertEqual(2, alpha.Capacity);
                 LaneStateTransition solo = samples.Single(item => item.LaneKey == "vsl_solo");
                 AssertEqual(0, solo.EligibleCount);

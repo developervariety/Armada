@@ -993,18 +993,18 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     // Producer builds and tests clean; the consumer builds clean but its suite fails.
                     await EnsureVesselWithProfileAsync(testDb, "ten_ct", "vsl_ct_producer",
-                        producerWorktree, SuccessCommand(), SuccessCommand(), null, "EcuLink").ConfigureAwait(false);
+                        producerWorktree, SuccessCommand(), SuccessCommand(), null, "ExampleProducer").ConfigureAwait(false);
                     await EnsureConsumerWithSiblingAndProfileAsync(testDb, "ten_ct", "vsl_ct_consumer",
-                        "OtrBuddy", "vsl_ct_producer", SuccessCommand(), FailCommand(), null).ConfigureAwait(false);
+                        "ExampleConsumer", "vsl_ct_producer", SuccessCommand(), FailCommand(), null).ConfigureAwait(false);
 
                     StubGitService git = new StubGitService
                     {
                         CreateWorktreeDirectories = true,
-                        ChangedFilePathsAgainstBaseResult = new List<string> { "src/EcuLink/EcuLink.Core/Foo.cs" }
+                        ChangedFilePathsAgainstBaseResult = new List<string> { "src/ExampleProducer/ExampleProducer.Core/Foo.cs" }
                     };
 
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
-                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, ConsumerTestTriggerPaths = new List<string> { "src/ExampleProducer/" } },
                         testDb.Driver, logging, null, git);
 
                     Mission mission = CreateWorkerMission("ten_ct", "vsl_ct_producer");
@@ -1013,7 +1013,7 @@ namespace Armada.Test.Unit.Suites.Services
                         mission, new Dock { WorktreePath = producerWorktree }).ConfigureAwait(false);
 
                     AssertFalse(result.Passed, "A failing consumer suite on a triggering wave must fail the gate");
-                    AssertEqual("consumer_tests_failed: OtrBuddy", result.CommandLabel,
+                    AssertEqual("consumer_tests_failed: ExampleConsumer", result.CommandLabel,
                         "The failure must carry the named consumer-tests reason, distinct from a build failure");
                 }
                 finally
@@ -1032,9 +1032,9 @@ namespace Armada.Test.Unit.Suites.Services
                     // The consumer suite would fail if run; the gate must pass because the change is
                     // outside every trigger path, proving the suite is bounded to matching waves.
                     await EnsureVesselWithProfileAsync(testDb, "ten_cx", "vsl_cx_producer",
-                        producerWorktree, SuccessCommand(), SuccessCommand(), null, "EcuLink").ConfigureAwait(false);
+                        producerWorktree, SuccessCommand(), SuccessCommand(), null, "ExampleProducer").ConfigureAwait(false);
                     await EnsureConsumerWithSiblingAndProfileAsync(testDb, "ten_cx", "vsl_cx_consumer",
-                        "OtrBuddy", "vsl_cx_producer", SuccessCommand(), FailCommand(), null).ConfigureAwait(false);
+                        "ExampleConsumer", "vsl_cx_producer", SuccessCommand(), FailCommand(), null).ConfigureAwait(false);
 
                     StubGitService git = new StubGitService
                     {
@@ -1043,7 +1043,7 @@ namespace Armada.Test.Unit.Suites.Services
                     };
 
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
-                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, ConsumerTestTriggerPaths = new List<string> { "src/ExampleProducer/" } },
                         testDb.Driver, logging, null, git);
 
                     Mission mission = CreateWorkerMission("ten_cx", "vsl_cx_producer");
@@ -1067,20 +1067,20 @@ namespace Armada.Test.Unit.Suites.Services
                 try
                 {
                     await EnsureVesselWithProfileAsync(testDb, "ten_cxt", "vsl_cxt_producer",
-                        producerWorktree, SuccessCommand(), SuccessCommand(), null, "EcuLink").ConfigureAwait(false);
+                        producerWorktree, SuccessCommand(), SuccessCommand(), null, "ExampleProducer").ConfigureAwait(false);
                     await EnsureConsumerWithSiblingAndProfileAsync(testDb, "ten_cxt", "vsl_cxt_consumer",
-                        "OtrBuddy", "vsl_cxt_producer", SuccessCommand(), FailCommand(), null).ConfigureAwait(false);
+                        "ExampleConsumer", "vsl_cxt_producer", SuccessCommand(), FailCommand(), null).ConfigureAwait(false);
 
                     // The changed path is under the trigger prefix but is a test project file, so the
                     // rule excludes it: a change to tests alone cannot break the consumer's behavior.
                     StubGitService git = new StubGitService
                     {
                         CreateWorktreeDirectories = true,
-                        ChangedFilePathsAgainstBaseResult = new List<string> { "src/EcuLink/EcuLink.Core.Tests/FooTests.cs" }
+                        ChangedFilePathsAgainstBaseResult = new List<string> { "src/ExampleProducer/ExampleProducer.Core.Tests/FooTests.cs" }
                     };
 
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
-                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false },
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, ConsumerTestTriggerPaths = new List<string> { "src/ExampleProducer/" } },
                         testDb.Driver, logging, null, git);
 
                     Mission mission = CreateWorkerMission("ten_cxt", "vsl_cxt_producer");
@@ -1104,18 +1104,18 @@ namespace Armada.Test.Unit.Suites.Services
                 try
                 {
                     await EnsureVesselWithProfileAsync(testDb, "ten_coff", "vsl_coff_producer",
-                        producerWorktree, SuccessCommand(), SuccessCommand(), null, "EcuLink").ConfigureAwait(false);
+                        producerWorktree, SuccessCommand(), SuccessCommand(), null, "ExampleProducer").ConfigureAwait(false);
                     await EnsureConsumerWithSiblingAndProfileAsync(testDb, "ten_coff", "vsl_coff_consumer",
-                        "OtrBuddy", "vsl_coff_producer", SuccessCommand(), FailCommand(), null).ConfigureAwait(false);
+                        "ExampleConsumer", "vsl_coff_producer", SuccessCommand(), FailCommand(), null).ConfigureAwait(false);
 
                     StubGitService git = new StubGitService
                     {
                         CreateWorktreeDirectories = true,
-                        ChangedFilePathsAgainstBaseResult = new List<string> { "src/EcuLink/EcuLink.Core/Foo.cs" }
+                        ChangedFilePathsAgainstBaseResult = new List<string> { "src/ExampleProducer/ExampleProducer.Core/Foo.cs" }
                     };
 
                     DefinitionOfDoneGate gate = new DefinitionOfDoneGate(
-                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, RunConsumerTests = false },
+                        new DefinitionOfDoneSettings { Enabled = true, RunRestoreBeforeBuild = false, ConsumerTestTriggerPaths = new List<string> { "src/ExampleProducer/" }, RunConsumerTests = false },
                         testDb.Driver, logging, null, git);
 
                     Mission mission = CreateWorkerMission("ten_coff", "vsl_coff_producer");

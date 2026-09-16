@@ -31,8 +31,8 @@ namespace Armada.Test.Unit.Suites.Context
     /// </summary>
     public sealed class ContextCoverageCensusTests : TestSuite
     {
-        // The known managed vessels, for must_retrieve expectation and vessel detection.
-        private static readonly string[] _Vessels = new[] { "EcuLink", "OtrBuddy", "JproDeobfuscator", "SourceGlossary" };
+        // A vessel named by no chunk, so a case always covers a vessel without leaves.
+        private const string _UnscopedVessel = "UnscopedVessel";
         private static readonly string[] _Personas = new[] { "Architect", "Worker", "TestEngineer", "Judge" };
 
         // Generous read_when budget and a realistic per-task leaf budget. Reported with the numbers.
@@ -129,7 +129,7 @@ namespace Armada.Test.Unit.Suites.Context
 
                 long baseline = EagerBaselineBytes(live, out string baseNote);
                 ContextCoverageCensus.ByteReductionReport report =
-                    ContextCoverageCensus.ByteReduction(live, baseline, tasks, _Vessels, RealisticLeafBudgetBytes);
+                    ContextCoverageCensus.ByteReduction(live, baseline, tasks, VesselsOf(live.Chunks), RealisticLeafBudgetBytes);
 
                 Console.WriteLine("CENSUS: bytereduction baseline_bytes=" + report.EagerBaselineBytes
                     + " core_bytes=" + report.CoreBytes + " budget_bytes=" + report.LeafBudgetBytes
@@ -186,7 +186,7 @@ namespace Armada.Test.Unit.Suites.Context
         {
             List<ContextCoverageCensus.SafetyRecallCase> cases = new List<ContextCoverageCensus.SafetyRecallCase>();
 
-            foreach (string vessel in _Vessels)
+            foreach (string vessel in VesselsOf(chunks))
             {
                 cases.Add(new ContextCoverageCensus.SafetyRecallCase
                 {
@@ -221,6 +221,23 @@ namespace Armada.Test.Unit.Suites.Context
             });
 
             return cases;
+        }
+
+        // The vessels a chunk set names through its vessel: scopes, plus one vessel no chunk names.
+        // Read from the chunks rather than a committed list, so no real vessel name is hard-coded.
+        private static List<string> VesselsOf(IReadOnlyList<ContextChunk> chunks)
+        {
+            SortedSet<string> vessels = new SortedSet<string>(StringComparer.Ordinal) { _UnscopedVessel };
+            foreach (ContextChunk chunk in chunks)
+            {
+                if (chunk.AppliesTo == null) continue;
+                foreach (string scope in chunk.AppliesTo)
+                {
+                    if (scope != null && scope.StartsWith("vessel:", StringComparison.OrdinalIgnoreCase) && scope.Length > "vessel:".Length)
+                        vessels.Add(scope.Substring("vessel:".Length).Trim());
+                }
+            }
+            return vessels.ToList();
         }
 
         // An independent oracle for the must_retrieve chunks a vessel/persona domain must receive:
@@ -372,8 +389,8 @@ namespace Armada.Test.Unit.Suites.Context
                 Core("core.boundary", 1),
                 Core("core.land-then-sync", 3),
                 Core("core.proving-a-fix", 5),
-                Leaf("memory.repos.eculink.readme", new List<string> { "vessel:EcuLink" }, new List<string> { "eculink" }),
-                Leaf("memory.repos.otrbuddy.readme", new List<string> { "vessel:OtrBuddy" }, null),
+                Leaf("memory.repos.examplevessel.readme", new List<string> { "vessel:ExampleVessel" }, new List<string> { "examplevessel" }),
+                Leaf("memory.repos.exampleconsumer.readme", new List<string> { "vessel:ExampleConsumer" }, null),
                 Leaf("memory.repos.armada.readme.dispatch", new List<string> { "orchestrator" }, null),
                 Leaf("docs.judge.review", new List<string> { "persona:Judge" }, null),
                 Leaf("docs.general", new List<string> { "all" }, null),

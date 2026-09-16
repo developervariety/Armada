@@ -40,7 +40,7 @@ namespace Armada.Test.Unit.Suites.Services
                         Active = true,
                         EnvironmentVariables = new Dictionary<string, string>
                         {
-                            ["ECULINK_PORT_ROOT"] = "/srv/armada/source-drops/example"
+                            ["EXAMPLE_PORT_ROOT"] = "/srv/example/source-drops/example"
                         }
                     };
 
@@ -49,11 +49,11 @@ namespace Armada.Test.Unit.Suites.Services
 
                     AssertNotNull(reloaded, "Profile should remain readable");
                     AssertTrue(
-                        reloaded!.EnvironmentVariables.ContainsKey("ECULINK_PORT_ROOT"),
+                        reloaded!.EnvironmentVariables.ContainsKey("EXAMPLE_PORT_ROOT"),
                         "A declared variable must survive persistence, or the dock never sees it");
                     AssertEqual(
-                        "/srv/armada/source-drops/example",
-                        reloaded.EnvironmentVariables["ECULINK_PORT_ROOT"],
+                        "/srv/example/source-drops/example",
+                        reloaded.EnvironmentVariables["EXAMPLE_PORT_ROOT"],
                         "The variable's value must round-trip unchanged");
                 }
             });

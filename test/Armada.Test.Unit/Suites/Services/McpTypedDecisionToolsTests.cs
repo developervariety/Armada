@@ -91,7 +91,7 @@ namespace Armada.Test.Unit.Suites.Services
                     // heavy-duty product identifier (must survive).
                     object args = new
                     {
-                        state = "mission msn_secret001 on host at /srv/armada/docks failed decoding PGN65259 SecurityAccess seed-key",
+                        state = "mission msn_secret001 on host at /srv/example/docks failed decoding PGN65259 SecurityAccess seed-key",
                         questions = new
                         {
                             cause = new
@@ -110,7 +110,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual(1, client.CallCount, "Egress happened exactly once");
                     string egressed = client.LastState ?? "";
                     AssertFalse(egressed.Contains("msn_secret001", StringComparison.Ordinal), "The mission id must be redacted before egress");
-                    AssertFalse(egressed.Contains("/srv/armada", StringComparison.Ordinal), "The absolute path must be redacted before egress");
+                    AssertFalse(egressed.Contains("/srv/example", StringComparison.Ordinal), "The absolute path must be redacted before egress");
                     AssertContains("PGN65259", egressed);
                     AssertContains("SecurityAccess", egressed);
 

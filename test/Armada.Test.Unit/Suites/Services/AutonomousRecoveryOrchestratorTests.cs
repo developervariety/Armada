@@ -60,7 +60,7 @@ namespace Armada.Test.Unit.Suites.Services
                     "An unverified rescue base is a provisioning fault no captain can repair.");
                 AssertTrue(
                     AutonomousRecoveryOrchestrator.IsEnvironmentalFailure(
-                        "Check failed: ECULINK_PORT_ROOT environment variable is not set"),
+                        "Check failed: EXAMPLE_PORT_ROOT environment variable is not set"),
                     "A missing environment variable cannot be fixed by re-running the brief.");
                 AssertFalse(
                     AutonomousRecoveryOrchestrator.IsEnvironmentalFailure("Agent process exited with code 1"),
@@ -3217,7 +3217,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             // Simulate a failed TestEngineer mission whose description carries the full
             // DoD-gate build log. The scope block is short, the diagnostics block is long.
-            string scope = "scope: add a 4-test coverage for the schema-v2 fixture." + "\n" + "files: TestAssets/dxp.json" + "\n";
+            string scope = "scope: add a 4-test coverage for the schema-v2 fixture." + "\n" + "files: TestAssets/example.json" + "\n";
             string diagnostics = "--- ACTIONABLE DIAGNOSTICS ---" + "\n" + new string('X', 30000) + "\n" + "--- OUTPUT TAIL ---" + "\n";
             string original = scope + diagnostics;
 
@@ -3253,7 +3253,7 @@ namespace Armada.Test.Unit.Suites.Services
             // Construct a Mission whose Description is the multi-page failure log the
             // M2 [Worker] brief carried. BuildRescueDescription must produce a result
             // that is comfortably below the rescue-brief cap.
-            string scope = "title: add schema-v2 fixture" + "\n" + "files: TestAssets/dxp.json";
+            string scope = "title: add schema-v2 fixture" + "\n" + "files: TestAssets/example.json";
             string failureLog = "--- ACTIONABLE DIAGNOSTICS ---" + "\n" + new string('W', 18000) + "\n" + "--- OUTPUT TAIL ---" + "\n" + new string('Z', 10000);
             Mission failed = new Mission
             {

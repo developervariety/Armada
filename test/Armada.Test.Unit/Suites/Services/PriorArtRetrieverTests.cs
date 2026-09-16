@@ -40,11 +40,11 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 IReadOnlyList<string> terms = PriorArtIdentifierExtractor.Extract(
                     "Implement PriorArtRetriever in PriorArtRetriever.cs",
-                    "The should always compute VolvoMackKeySelector from the tables.");
+                    "The should always compute RegionalKeySelector from the tables.");
 
                 AssertTrue(terms.Contains("PriorArtRetriever"), "a Pascal-case type name is a term");
                 AssertTrue(terms.Contains("PriorArtRetriever.cs"), "a file path is a term");
-                AssertTrue(terms.Contains("VolvoMackKeySelector"), "a cased identifier is a term");
+                AssertTrue(terms.Contains("RegionalKeySelector"), "a cased identifier is a term");
                 AssertTrue(!terms.Contains("should"), "a common stopword is dropped");
                 AssertTrue(!terms.Contains("always"), "a common stopword is dropped");
                 return Task.CompletedTask;
@@ -96,11 +96,11 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 FakePriorArtSource source = new FakePriorArtSource().With(PriorArtWhereEnum.Landed,
                     FakePriorArtSource.Hit(PriorArtWhereEnum.Landed, "src/Same.cs:10", "PriorArtRetriever"),
-                    FakePriorArtSource.Hit(PriorArtWhereEnum.Landed, "src/Same.cs:10", "VolvoMackKeySelector"));
+                    FakePriorArtSource.Hit(PriorArtWhereEnum.Landed, "src/Same.cs:10", "RegionalKeySelector"));
                 PriorArtRetriever retriever = new PriorArtRetriever(source);
 
                 PriorArtRetrieval retrieval = await retriever.RetrieveAsync(
-                    Query("Add PriorArtRetriever and VolvoMackKeySelector", "x"), CancellationToken.None).ConfigureAwait(false);
+                    Query("Add PriorArtRetriever and RegionalKeySelector", "x"), CancellationToken.None).ConfigureAwait(false);
 
                 AssertEqual(1, retrieval.Candidates.Count);
                 AssertEqual(2, retrieval.Candidates[0].Terms.Count);
