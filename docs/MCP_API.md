@@ -274,7 +274,7 @@ yes; the preview reports this as a blocking `objective_preflight_incomplete`
 finding listing the offending question numbers, and reports the deterministic
 questions as facts to check the recorded answers against the repository. An
 `armada_dispatch` call may set `forcePreflight: true` to override an incomplete
-preflight or a D5 `objective_preflight_model_flag` finding. It overrides only
+preflight or a `objective_preflight_model_flag` finding. It overrides only
 those preflight-class findings; any other blocking issue still refuses the
 dispatch, and the override is recorded as an `objective.preflight_overridden`
 event naming the operator, the blocking question numbers, and the
@@ -599,7 +599,7 @@ external memory rather than native memory. It writes nothing. Dormant until the
 ### armada_check_prior_art
 
 Check whether the work already exists before writing a new type (decision
-`prior_art`, D26). Args: `plan` (required, what the captain is about to build:
+`prior_art`). Args: `plan` (required, what the captain is about to build:
 the types, methods, and files it plans to write) and `missionId` (used to
 resolve the vessel to search, and for budget scope and event attribution). The
 tool runs a deterministic retrieval over the target tip, unlanded mission
@@ -618,8 +618,8 @@ dormant (returns unavailable) until the `prior_art` decision is enabled.
 
 Two operator tools read and close the memory proposal store. A memory proposal
 is a durable lesson the typed-decision system nominated for the owner's external
-AI-Memory: the weekly papercut sweep (D18 `memory_candidate`) or the review of a
-finished Recorder stage (D23 `memory_review`). Proposals live in the database,
+AI-Memory: the weekly papercut sweep (`memory_candidate`) or the review of a
+finished Recorder stage (`memory_review`). Proposals live in the database,
 because the AI-Memory folder is read-only to the admiral. Armada never writes
 AI-Memory; the owner promotes a proposal by hand. The model never dismisses a
 proposal.

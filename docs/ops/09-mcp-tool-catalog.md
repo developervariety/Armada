@@ -100,7 +100,7 @@ when no active dock will land it. A refusal names its reason, for example
 the mission unchanged. Treat the reason as the finding. Do not retry the same
 request on another surface.
 
-`armada_review_hold` resolves a Judge PASS held for operator review by the D4
+`armada_review_hold` resolves a Judge PASS held for operator review by the
 `review_substance` decision. It takes `action` (`clear` or `fail`),
 `missionId`, `reason`, and `operator`, all required, and refuses any caller
 other than a global administrator. `clear` releases the hold and runs the

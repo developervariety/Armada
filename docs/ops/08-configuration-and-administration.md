@@ -164,11 +164,11 @@ is inert until the key is present: with no key the null client answers every
 call as unavailable, so every decision runs its deterministic rule exactly as
 before. Per decision group:
 
-- **D1–D6** (`failure_cause`, `refusal`, `runtime_failure`, `review_substance`,
-  `preflight`, `papercut_merge`) ship in `Gate`; they span recovery, review
+- `failure_cause`, `refusal`, `runtime_failure`, `review_substance`,
+  `preflight`, and `papercut_merge` ship in `Gate`; they span recovery, review
   substance, the dispatch preflight, and papercut merging.
-- **D7–D8** (`leak_hunk`, `log_watch`) ship `Off`.
-- **Phase 3, D9–D26**, ship `Off`: built but dormant until an operator flips a
+- `leak_hunk` and `log_watch` ship `Off`.
+- Every other decision ships `Off`: built but dormant until an operator flips a
   decision to `Gate`.
 
 The safety contract holds whenever it is enabled:
@@ -267,7 +267,7 @@ model, where a rule hard-block always wins. The four wired today are:
 
 One decision point reads the objective dispatch preview:
 
-- **D5 `preflight`** (ships `Gate`, threshold `0.80`) runs in
+- **`preflight`** (ships `Gate`, threshold `0.80`) runs in
   `ObjectiveDispatchPreviewService` **after** the deterministic preflight block,
   so the deterministic facts (Q1/Q2/Q3/Q10/Q11) and the
   `objective_preflight_incomplete` Error issue are settled first and stand
@@ -373,7 +373,7 @@ Three persona-specific decision points sit on Judge and handoff seams (all ship
 
 Two decision points read the papercut grouping:
 
-- **D6 `papercut_merge`** (ships `Gate`) runs at listing time
+- **`papercut_merge`** (ships `Gate`) runs at listing time
   (`armada_list_papercuts`, grouped mode). It asks whether two groups of the same
   vessel and category describe the same underlying issue and, at or above the
   threshold, folds them into one row **in the listing only** — no stored papercut
@@ -384,9 +384,9 @@ Two decision points read the papercut grouping:
   skeleton as every other adapter: the listing call's token reaches the client
   (the call is bounded at two minutes), and a timeout, provider error, or thrown
   exception records `typed_decision.unavailable` and returns the plain grouping.
-- **D18 `memory_candidate`** (ships `Off`, threshold `0.90`) runs in the weekly
+- **`memory_candidate`** (ships `Off`, threshold `0.90`) runs in the weekly
   papercut sweep. At most once per seven days the health loop groups the
-  papercuts reported in the last seven days, applies the D6 merge, and offers the
+  papercuts reported in the last seven days, applies the papercut merge, and offers the
   largest repeated groups (two or more reports, at most 20) to the decision. In
   `Gate` at or above the threshold it stores a **memory proposal** in the
   database for the owner to promote or an operator to dismiss. The AI-Memory
@@ -398,15 +398,15 @@ Two decision points read the papercut grouping:
 
 One decision point reviews what the Recorder stage wrote:
 
-- **D23 seam B `memory_review`** (ships `Off`, threshold `0.90`) runs when a
+- **`memory_review`** (ships `Off`, threshold `0.90`) runs when a
   Recorder-stage mission finishes its work. It reads the native memory records
-  that mission wrote (at most 10) and asks the four D23 questions for each:
+  that mission wrote (at most 10) and asks the four memory-review questions for each:
   `type_ok`, `duplicate_of` (a choice among at most five existing records of the
   same vessel and type or topic), `will_go_stale`, and `belongs_in_ai_memory`.
   In `Gate` at or above the threshold it may only **lower** salience (to `0.2`
   for a duplicate, `0.3` for a stale or wrongly typed record), **link** a
   duplicate to the record it repeats with a `duplicate-of:<memory id>` tag, and
-  store a D18 memory proposal (source `recorder_seam`) for a record that belongs
+  store a memory proposal (source `recorder_seam`) for a record that belongs
   in AI-Memory. It never deletes a record, never changes content, summary, type,
   topic, or key, and never raises salience. An unavailable model stops the pass
   with every record unchanged; `Off` calls nothing. Each reviewed record records
@@ -420,11 +420,11 @@ SQLite 104, PostgreSQL 105, MySQL 96, SQL Server 99). See `docs/MCP_API.md`.
 
 Two operator-side decisions gather owner decisions and pre-fill the corpus:
 
-- **D13 `owner_digest`** (ships `Off`) is a scheduled runner shaped like the
+- **`owner_digest`** (ships `Off`) is a scheduled runner shaped like the
   health loop. Once per UTC day it collects the owner-decision candidates its
   hit source found — an owner-decision preparation claim an anchor change
-  re-opened (`NeedsRecheck`) on this tip, with D5 Q13 `needs_owner_ruling`
-  flags, D9 `owner_ruling` hits, and board notes D11 classified as questions
+  re-opened (`NeedsRecheck`) on this tip, with preflight question 13 `needs_owner_ruling`
+  flags, `owner_ruling` hits, and board notes inbox triage classified as questions
   attaching as those signals land — ranks each with a `cost_of_waiting` Score
   `[none, a lane idles today, a captain is guessing now, a landing is held]`
   and a `default_safe` Noul, and posts **one** owner-addressed board note plus
@@ -436,7 +436,7 @@ Two operator-side decisions gather owner decisions and pre-fill the corpus:
   proposed default is a suggestion the owner still records on the row, and the
   digest event carries only ranking metadata (counts, cost levels, sources),
   never the question text.
-- **D14 `corpus_prelabel`** (ships `Off`) is an operator-side helper script,
+- **`corpus_prelabel`** (ships `Off`) is an operator-side helper script,
   `scripts/autonomy/draft-corpus-line.mjs`, run outside the admiral. It drafts
   one decision-corpus line (the schema in `AI-Memory/corpus/README.md`) from an
   incident, a mission failure reason, a Mail signal, or a preflight result, so
@@ -451,7 +451,7 @@ Two operator-side decisions gather owner decisions and pre-fill the corpus:
   draft; `node scripts/autonomy/test-draft-corpus-line.mjs` is its self-check.
 Three platform-side decisions ship `Off`:
 
-- **D15 `flake_score`** runs in `DefinitionOfDoneGate` after
+- **`flake_score`** runs in `DefinitionOfDoneGate` after
   `DefinitionOfDoneFailureClassifier` classifies a failed unit-test command. It
   asks a `flake_likelihood` Score `[deterministic, likely real, likely load,
   known flaky family]` and an `outside_diff` Noul over state carrying the failing
@@ -463,7 +463,7 @@ Three platform-side decisions ship `Off`:
   red). The model never marks a red check green — only a genuine passing isolated
   re-run does — and a re-run runs only for a `dotnet test` command that can be
   isolated; otherwise the red stands unchanged.
-- **D16 `routing_hint`** is Smart Routing only (owner decision 2026-09-16): it is
+- **`routing_hint`** is Smart Routing only (owner decision 2026-09-16): it is
   never wired into the legacy tier selector. A route gains an optional `shapes`
   tag list (a tagless route matches every shape, so existing configs are
   unchanged). The model answers a `shape` Choice, a `policy_sensitive` Noul, and
@@ -475,7 +475,7 @@ Three platform-side decisions ship `Off`:
   configured). Reserved personas and non-Normal account states are never
   affected; every hard V2 constraint runs after the reorder. See
   `docs/USAGE_ROUTING.md`.
-- **D17 `change_substance`** sits over the extension-based
+- **`change_substance`** sits over the extension-based
   `ChangeSubstanceClassifier`, which stays the rule. The model reads the rescue's
   added hunks and answers a `substance` Choice `{behaviour, test_only, docs_only,
   build_config, generated}` and a `risky` Noul. In `Gate` it may RAISE a
@@ -485,7 +485,7 @@ Three platform-side decisions ship `Off`:
   `CriticalTriggerEvaluator` escalation reason. It NEVER lowers a classification.
 One decision point reads a returned refinement summary:
 
-- **D10 `criteria_lint`** (ships `Off`) runs in
+- **`criteria_lint`** (ships `Off`) runs in
   `ObjectiveRefinementCoordinator.SummarizeAsync` after the summary is finalized.
   It asks, per acceptance criterion, five nouls phrased as the defect: a presence
   test over an artifact the change itself commits, a pinned pass or skip total,
@@ -498,7 +498,7 @@ One decision point reads a returned refinement summary:
 
 Two operator surfaces read the attention triage:
 
-- **D11 `inbox_triage`** (ships `Off`) runs in the `inbox` and
+- **`inbox_triage`** (ships `Off`) runs in the `inbox` and
   `armada_coordination_read` MCP tools. It scores each inbox item and board note
   for how urgently a human is needed. In `Gate` above the threshold each item
   gains an `attention` label (`informational`, `today`, `this_hour`,
@@ -507,7 +507,7 @@ Two operator surfaces read the attention triage:
   re-ordered by attention. NOTHING is hidden, dropped, or dismissed; `Off`,
   unavailable, `Shadow`, and below-threshold leave the deterministic severity
   order and set no label.
-- **D12 `followup_routing`** (ships `Off`) runs in
+- **`followup_routing`** (ships `Off`) runs in
   `JudgeFollowUpService.CaptureAsync` (and the audit-tool backfill path) over each
   item of a Judge's Suggested Follow-ups section. In `Gate` above the threshold a
   `triaged_objective` home creates a Triaged objective with auto-dispatch OFF, an
@@ -519,7 +519,7 @@ Two operator surfaces read the attention triage:
 One decision point asks "does this already exist?" with evidence, at three seams
 and no new persona (ships `Off`, built and dormant until a Gate flip):
 
-- **D26 `prior_art`** answers "does this already exist?" so voyages stop
+- **`prior_art`** answers "does this already exist?" so voyages stop
   re-implementing landed work, work on unlanded branches, or work on a `recover/`
   ref. It is a retrieval step plus typed questions inside stages that already run,
   not a new Judge stage. The **retrieval** is deterministic (the "contextual"

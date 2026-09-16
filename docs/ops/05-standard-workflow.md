@@ -106,7 +106,7 @@ reports the blocking `objective_preflight_incomplete` finding with the offending
 question numbers, and the autonomous scheduler skips the objective. The preview
 also computes the deterministic questions as facts so a recorded answer can be
 checked against the repository. An operator may set `forcePreflight` on
-`armada_dispatch` to override an incomplete preflight or a D5
+`armada_dispatch` to override an incomplete preflight or an
 `objective_preflight_model_flag` finding; it overrides only those
 preflight-class findings, any other blocking issue still refuses the dispatch,
 and the override is recorded as an `objective.preflight_overridden` event that
@@ -117,7 +117,7 @@ different existing pipeline. Use the full configured persona path. Do not
 remove review stages only to make a voyage faster.
 
 A stage is skipped only when an operator confirms it. When the preview lists a
-`stage_optional` Warning (the D19 `stage_necessity` decision) and you agree the
+`stage_optional` Warning (the `stage_necessity` decision) and you agree the
 stage adds nothing, pass its persona name in `skipStages` on `armada_dispatch`
 (REST `SkipStages`, WebSocket `create_voyage` `skipStages`), with a
 `skipStagesReason`. The named stages are dropped when the voyage is
@@ -653,7 +653,7 @@ applies the same rule to any `Pending` record it finds on a `Cancelled` or
 ended by any other path and records left from before the rule. Such a record is
 no longer counted in `PendingChecksRequired`. A re-dispatch arms fresh Checks.
 
-When the D4 `review_substance` decision holds a thin PASS for operator review,
+When the `review_substance` decision holds a thin PASS for operator review,
 the PASS still meets the Check gate above, but a PASS that passes it does not
 hand off or land. The mission stays `WorkProduced` with `HeldForOperatorReview`
 set, and the inbox lists it as `judge_pass_held`. Read the Judge output and the

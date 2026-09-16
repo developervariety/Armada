@@ -11,9 +11,9 @@ All notable changes to Armada are documented in this file.
 - Memory proposals are stored in the database. A new `memory_proposals` table
   (SQLite 104, PostgreSQL 105, MySQL 96, SQL Server 99) holds durable lessons
   the typed-decision system nominates for the owner's AI-Memory, which is
-  read-only to the admiral. The D18 `memory_candidate` decision now writes there
+  read-only to the admiral. The `memory_candidate` decision now writes there
   instead of a proposal file, and a weekly papercut sweep in the health loop
-  feeds it. The new D23 seam B `memory_review` decision reviews the memory
+  feeds it. The new `memory_review` decision reviews the memory
   records a finished Recorder stage wrote: it may only lower salience, link a
   duplicate with a `duplicate-of:` tag, and store a proposal for a fleet rule; it
   never deletes or rewrites a record. Both decisions ship Off with threshold
@@ -32,27 +32,27 @@ All notable changes to Armada are documented in this file.
   (`stage_skip_unknown_persona`), and a skip that leaves only the Judge
   (`stage_skip_leaves_no_work`). Each dropped stage records a
   `voyage.stage_skipped` event naming the persona, reason and confirmer.
-  Auto-skip stays off: the D19 `stage_optional` preview Warning is advice, and
+  Auto-skip stays off: the `stage_optional` preview Warning is advice, and
   a refinement summary never writes a stage skip.
-- `armada_check_prior_art` (D26) is now in the caller-scoped tool list, so a
+- `armada_check_prior_art` is now in the caller-scoped tool list, so a
   mission-scoped captain can call it; operator-control tools stay out of scope.
   The Worker prompt names the tool, `docs/MCP_API.md` documents it, a read-only
   `PriorArtAnalyst` persona is seeded as a built-in (no pipeline carries it),
   and a candidate on an unlanded branch or ref now carries a bounded excerpt
   read from that ref.
 
-- The D6 `papercut_merge` pair decision now fails closed like every other
+- The `papercut_merge` pair decision now fails closed like every other
   typed-decision adapter. A client that throws records
   `typed_decision.unavailable` and the listing returns the plain grouping, and
   `armada_list_papercuts` passes its own call token (bounded at two minutes) to
   the merge decisions instead of an unbounded one.
 
-- The D2 `refusal` decision now files a `BriefContradiction` papercut when, in
+- The `refusal` decision now files a `BriefContradiction` papercut when, in
   `Gate`, it reads a run as `blocked_on_premise` at or above threshold. The
   papercut goes through the existing papercut parser path, and its reason is
   the redacted output tail. The refusal verdict does not change.
 
-- The D3 `runtime_failure` decision now reports a suspected provider account
+- The `runtime_failure` decision now reports a suspected provider account
   fault. In `Gate`, a `fleet_wide` reading at or above 0.9 records a
   `provider.account_fault_suspected` event and posts a broadcast
   coordination-board note that name the captain key family, never the key. The
@@ -98,7 +98,7 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
-- A Judge PASS the D4 `review_substance` decision holds for operator review is
+- A Judge PASS the `review_substance` decision holds for operator review is
   now a real hold instead of an activity line. The mission records
   `HeldForOperatorReview` and its reason (new mission columns on every provider:
   SQLite migration 103, PostgreSQL 104, MySQL 95, SQL Server 98). While held,
@@ -110,7 +110,7 @@ All notable changes to Armada are documented in this file.
   or fails the mission, writing `mission.hold_cleared` or `mission.hold_failed`
   with the operator and reason. Nothing clears a hold automatically.
 
-- The D5 `objective_preflight_model_flag` finding is now preflight-class for the
+- The `objective_preflight_model_flag` finding is now preflight-class for the
   operator dispatch gate: `forcePreflight: true` passes it the same way it
   passes an incomplete preflight, and any other blocking finding still refuses
   the dispatch. The `objective.preflight_overridden` event names the
@@ -246,10 +246,9 @@ All notable changes to Armada are documented in this file.
   reason `v2_no_route_pass_through` instead of waiting.
 - Typed-decision hygiene, with no behaviour change. The configuration chapter no
   longer calls the typed-decision system off by default: the global mode ships
-  `Gate` and the system is inert until the key is present, with D1–D6 shipping
-  in `Gate` and D7–D8 and the Phase 3 decisions (D9–D26) shipping `Off`. A new
-  `docs/typed-decisions.md` index links the settings, captain tools, personas,
-  and the D7 and D8 designs. Test fixtures and source comments now use generic
+  `Gate` and the system is inert until the key is present; the recovery, review,
+  preflight and papercut-merge decisions ship in `Gate` and the rest ship `Off`.
+  Test fixtures and source comments now use generic
   placeholders (example vessel names, example paths, example source families)
   instead of operator-specific repository, product, and server-path names; the
   context coverage census reads its vessel list from the chunk set instead of a
@@ -359,7 +358,7 @@ All notable changes to Armada are documented in this file.
 
 ### Typed decisions: prior art (D26)
 
-- Added the D26 `prior_art` decision — "does this already exist?" asked with
+- Added the `prior_art` decision — "does this already exist?" asked with
   evidence at three seams and no new persona. A deterministic retriever (the
   "contextual" half) mines identifiers of five characters or more, type and
   method names, and file paths from the objective (or a captain's plan, or a
@@ -395,7 +394,7 @@ All notable changes to Armada are documented in this file.
 
 ### Typed decisions: revision kind (D21), test covers (D22), lint finding (D24)
 
-- Added the D21 `revision_kind` gated adapter over the shared typed-decision
+- Added the `revision_kind` gated adapter over the shared typed-decision
   skeleton. It sits after `ParseJudgeVerdict` on a NEEDS_REVISION's revision
   items, before autonomous recovery classifies the failure. The model answers a
   `kind` Choice {behaviour, test, comment_only, doc_only, boundary} per item and
@@ -407,13 +406,13 @@ All notable changes to Armada are documented in this file.
   behavioural or test item forces the rule to stand and the rescue proceeds; the
   model never lands. Ships Off (built, dormant); the deterministic rescue path
   stands until a Gate flip.
-- Added the D22 `test_covers` gated adapter over the same skeleton. It sits on
+- Added the `test_covers` gated adapter over the same skeleton. It sits on
   the TestEngineer handoff, over the added test methods and the objective's
   symptom sentence. Per added test the model answers `covers_symptom`,
   `asserts_source_text`, and `would_fail_before_fix` Nouls; a doubted test
   becomes a Judge INSTRUCTION prepended to the next brief ("verify test X fails
   without the change"). It NEVER fails the stage by itself. Ships Off.
-- Added the D24 `lint_finding` gated adapter over the same skeleton. It sits on
+- Added the `lint_finding` gated adapter over the same skeleton. It sits on
   the Linter handoff, over each finding the Linter emits. Per finding the model
   answers a `class` Choice {correctness, safety, consistency, style_preference,
   false_positive} and a `severity` Score [cosmetic, should_fix, must_fix,
@@ -428,7 +427,7 @@ All notable changes to Armada are documented in this file.
 
 ### Typed decisions: pipeline stage necessity (D19) and handoff outcome (D20)
 
-- Added the D19 `stage_necessity` gated adapter over the shared typed-decision
+- Added the `stage_necessity` gated adapter over the shared typed-decision
   skeleton. It sits on the dispatch preview's resolved pipeline stages and lets
   the model propose which NON-Judge stages an objective does not need. The Judge
   is never a skip candidate and is never marked. Below the decision threshold a
@@ -437,7 +436,7 @@ All notable changes to Armada are documented in this file.
   materialised; only at or above `0.95` is a stage marked auto-skip. The model
   never removes a stage by itself below `0.95` and never proposes the Judge. Ships
   Off (built, dormant); the preview lists every stage until a Gate flip.
-- Added the D20 `handoff_outcome` gated adapter over the same skeleton. It sits
+- Added the `handoff_outcome` gated adapter over the same skeleton. It sits
   on the stage handoff in `MissionService`, before the next mission's brief is
   frozen, and turns "failed at the Judge after four stages" into "held after one".
   A `blocked_missing_context`, `blocked_owner_question`, or `off_premise` outcome
@@ -459,12 +458,12 @@ All notable changes to Armada are documented in this file.
   into its caller. Both are wired only when the live typed-decision client exists.
 ### Typed decisions: owner-decision digest (D13) and corpus pre-label (D14)
 
-- Added the D13 `owner_digest` scheduled runner (`OwnerDigestRunner`), shaped
+- Added the `owner_digest` scheduled runner (`OwnerDigestRunner`), shaped
   like the health loop and driven once per UTC day by a health-loop maintenance
   step. It collects owner-decision candidates — on this tip, owner-decision
   preparation claims an anchor change re-opened (`NeedsRecheck`), via
-  `OwnerDigestHitCollector`; D5 Q13 `needs_owner_ruling`, D9 `owner_ruling`, and
-  D11-classified board-note question sources attach as those signals land —
+  `OwnerDigestHitCollector`; preflight question 13 `needs_owner_ruling`, `owner_ruling`, and
+  inbox-triage-classified board-note question sources attach as those signals land —
   ranks each with the `TypedOwnerDigestAdapter` (a `cost_of_waiting` Score over
   `[none, a lane idles today, a captain is guessing now, a landing is held]` and
   a `default_safe` Noul), and posts one owner-addressed board note plus one
@@ -480,7 +479,7 @@ All notable changes to Armada are documented in this file.
   returns the rule and records one event; the call is bounded by the settings
   timeout on the caller's token, records a `state_sha256` and byte count but
   never the state, and never throws.
-- Added the D14 `corpus_prelabel` operator-side helper
+- Added the `corpus_prelabel` operator-side helper
   `scripts/autonomy/draft-corpus-line.mjs` (run outside the admiral). It drafts
   one decision-corpus line (`AI-Memory/corpus/README.md` schema) from an
   incident, a mission failure reason, a Mail signal, or a preflight result. Every
@@ -490,7 +489,7 @@ All notable changes to Armada are documented in this file.
   self-check is `scripts/autonomy/test-draft-corpus-line.mjs`.
 ### Typed decisions: flake score, routing hint, change substance (D15, D16, D17)
 
-- **D15 `flake_score`.** The definition-of-done gate (`DefinitionOfDoneGate`)
+- **`flake_score`.** The definition-of-done gate (`DefinitionOfDoneGate`)
   now scores a red unit-test result after the deterministic
   `DefinitionOfDoneFailureClassifier` classifies it. The model answers a
   `flake_likelihood` score `[deterministic, likely real, likely load, known
@@ -503,7 +502,7 @@ All notable changes to Armada are documented in this file.
   never marks a red check green — only a genuine passing isolated re-run does.
   Ships Off; the re-run runs only for a `dotnet test` command that can be
   isolated, and the red stands unchanged otherwise.
-- **D16 `routing_hint`.** Owner decision 2026-09-16: NOT wired into the legacy
+- **`routing_hint`.** Owner decision 2026-09-16: NOT wired into the legacy
   model-tier selector. It belongs to Routing V2 (`modelTier.usageRouting`). A
   route gains an optional `shapes` tag list; a route with no tags is eligible for
   every shape, so existing configurations behave exactly as before. The model
@@ -516,7 +515,7 @@ All notable changes to Armada are documented in this file.
   none is configured). Reserved personas and non-Normal account states are never
   affected; every hard V2 constraint runs after the reorder. Disabling V2 or the
   decision restores the plain list order. Ships Off.
-- **D17 `change_substance`.** The extension-based `ChangeSubstanceClassifier`
+- **`change_substance`.** The extension-based `ChangeSubstanceClassifier`
   stays the rule. When wired, the D17 adapter reads the rescue's added hunks and
   may RAISE a documentation-only (or empty) extension reading to `Substantive`
   for the ineffective-rescue decision (`RescueEffectivenessEvaluator`), so a
@@ -536,7 +535,7 @@ All notable changes to Armada are documented in this file.
   below-threshold answer; the call is bounded by the settings timeout on the
   caller's token, records a `state_sha256` and byte count but never the state,
   and never throws into its caller.
-- **D10 `criteria_lint`** (`CriteriaLintAdapter`, wired into
+- **`criteria_lint`** (`CriteriaLintAdapter`, wired into
   `ObjectiveRefinementCoordinator.SummarizeAsync`): after a refinement summary is
   finalized, each acceptance criterion is checked against the operator-memory
   defect classes — a presence test over a committed artifact, a pinned pass or
@@ -546,14 +545,14 @@ All notable changes to Armada are documented in this file.
   above the threshold contributes model-flagged `criteria_review` lines appended
   to the refinement summary the operator reads before ReadyForDispatch. The
   adapter NEVER rewrites, reorders, or removes a criterion.
-- **D11 `inbox_triage`** (`InboxTriageAdapter`, wired into the `inbox` and
+- **`inbox_triage`** (`InboxTriageAdapter`, wired into the `inbox` and
   `armada_coordination_read` MCP tools): inbox items and board notes are scored
   for how urgently a human is needed. In Gate mode each item gains an `attention`
   label (`informational`, `today`, `this_hour`, `blocking_live_voyage`), each
   board note also a `noteKind` (`handoff`, `status`, `question`, `stop_sign`,
   `hold_notice`), and the response is re-ordered by attention. NOTHING is hidden,
   dropped, or dismissed; Off leaves the deterministic severity ordering.
-- **D12 `followup_routing`** (`FollowUpRoutingAdapter`, wired into
+- **`followup_routing`** (`FollowUpRoutingAdapter`, wired into
   `JudgeFollowUpService.CaptureAsync` and the audit-tool backfill path): each item
   in a Judge's Suggested Follow-ups section is given a home. In Gate mode a
   `triaged_objective` home creates a Triaged objective with auto-dispatch OFF, an
@@ -570,7 +569,7 @@ All notable changes to Armada are documented in this file.
 ### Typed decisions: dispatch preflight text half (D5)
 
 - The objective dispatch preview (`preview_objective_dispatch`, the autonomous
-  scheduler, and operator dispatch) now consults the D5 `preflight` typed
+  scheduler, and operator dispatch) now consults the `preflight` typed
   decision AFTER the deterministic preflight block. The deterministic facts
   (Q1/Q2/Q3/Q10/Q11) and the `objective_preflight_incomplete` Error issue are
   computed first and stand regardless of the model; the model only ADDS issues.
@@ -686,7 +685,7 @@ All notable changes to Armada are documented in this file.
 ### Typed decisions: papercut merge (D6) and memory candidate (D18)
 
 - The papercut listing (`armada_list_papercuts`, grouped mode) now consults the
-  D6 `papercut_merge` typed decision: two groups of the same vessel and category
+  `papercut_merge` typed decision: two groups of the same vessel and category
   that the model judges to be the same underlying issue are folded into one row
   in the listing. The merge is listing-only — no stored papercut event is
   changed and no group is deleted, so turning the decision off restores the plain
@@ -694,7 +693,7 @@ All notable changes to Armada are documented in this file.
   bounded in the number of model calls per listing. A merge at or above the
   threshold records a `papercut.merge_proposed` event (also recorded, but not
   applied, in Shadow mode) alongside the usual `typed_decision.*` event.
-- The D18 `memory_candidate` decision (ships Off) asks whether a papercut group
+- The `memory_candidate` decision (ships Off) asks whether a papercut group
   is a durable cross-session lesson and, in Gate mode above the threshold, writes
   a proposal file under `AI-Memory/corpus/memory-candidates/` for the owner to
   promote or discard. The model never writes memory itself: the proposals folder
