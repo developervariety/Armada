@@ -49,6 +49,36 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(worker.Id, mergeQueue.EnqueueCalls[0].MissionId, "Enqueue should target the Worker mission.");
             }).ConfigureAwait(false);
 
+            await RunTest("SweepAsync_JudgePassHeldForOperatorReview_DoesNotEnqueue", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                await EnsureTenantAndUserAsync(testDb).ConfigureAwait(false);
+
+                Vessel vessel = await CreateVesselAsync(testDb).ConfigureAwait(false);
+                Voyage voyage = await CreateOpenVoyageAsync(testDb).ConfigureAwait(false);
+                Mission worker = await CreateWorkProducedMissionAsync(testDb, vessel, voyage, "armada/worker-held", "Worker").ConfigureAwait(false);
+                Mission judge = await CreateCompleteJudgeAsync(testDb, vessel, voyage, worker.Id, pass: true).ConfigureAwait(false);
+                judge.Status = MissionStatusEnum.WorkProduced;
+                judge.CompletedUtc = null;
+                judge.HeldForOperatorReview = true;
+                judge.HeldForOperatorReviewReason = "review substance is asserted, not evidenced";
+                await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+
+                RecordingMergeQueueService mergeQueue = new RecordingMergeQueueService();
+                AutonomousRecoveryOrchestrator orchestrator = CreateDrainOrchestrator(testDb.Driver, mergeQueue);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+                AssertEqual(0, mergeQueue.EnqueueCalls.Count, "A Judge PASS held for operator review must not let the drain land the Worker.");
+
+                judge.HeldForOperatorReview = false;
+                judge.HeldForOperatorReviewReason = null;
+                await testDb.Driver.Missions.UpdateAsync(judge).ConfigureAwait(false);
+
+                await orchestrator.SweepAsync().ConfigureAwait(false);
+                AssertEqual(1, mergeQueue.EnqueueCalls.Count, "Once the operator clears the hold the drain enqueues the Worker.");
+                AssertEqual(worker.Id, mergeQueue.EnqueueCalls[0].MissionId, "Enqueue should target the Worker mission.");
+            }).ConfigureAwait(false);
+
             await RunTest("SweepAsync_JudgeProgressSignalPass_WorkProduced_EnqueuesBranch", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

@@ -265,7 +265,9 @@ One decision point reads the objective dispatch preview:
   `objective_preflight_model_flag` — the autonomous scheduler already skips on any
   Error issue and its `objective_scheduler.skipped_dispatch_preflight` event lists
   the code — and a Q13 `needs_owner_ruling` also posts one owner-addressed board
-  note. The model only ADDS issues; it never dispatches, never lands, and never
+  note. The flag is preflight-class: an operator `armada_dispatch` with
+  `forcePreflight: true` passes it, and the `objective.preflight_overridden`
+  event names the flagged question numbers. The model only ADDS issues; it never dispatches, never lands, and never
   removes a deterministic issue. Below the threshold, unavailable, or `Off`
   leaves the deterministic preview unchanged (`Shadow` adds the flags as advisory
   `preflight_q<n>_model` warnings instead).
@@ -279,11 +281,22 @@ One decision point reads the objective dispatch preview:
   threshold with the review at or above `evidenced`, the model accepts it as
   `heading_form_only` into the same independent Check gate the rule would have
   run; when the rule validated a PASS whose substance is thin (`substantiated` at
-  or below `partly evidenced`), it **holds** the PASS for operator review — the
-  PASS stays validated and the Check gate still runs, but a mission-activity line
-  and a `typed_decision.gated` event surface it. A rejection on a real ground
-  (empty output or a too-short narrative) is never overturned, and a validated
-  PASS is never auto-failed. The model never lands and never dispatches.
+  or below `partly evidenced`), it **holds** the PASS for operator review. The
+  hold is real: the mission records `HeldForOperatorReview` and its reason, a
+  mission-activity line and a `typed_decision.gated` event surface it, and the
+  PASS stays validated so the Check gate still runs. A PASS the Check gate
+  accepts then stays `WorkProduced` with its dock kept: the Judge completion path
+  neither hands it off nor lands it, the landing handler refuses it, and the
+  landing drain does not count its review chain as passed, each logging the
+  hold reason. The inbox lists it as `judge_pass_held`. Only an operator resolves
+  it with `armada_review_hold`: `clear` lets the PASS proceed through the normal
+  handoff or landing path and records `mission.hold_cleared`; `fail` fails the
+  mission, cancels its dependent stages and records `mission.hold_failed`. Both
+  events name the operator and the reason. Nothing clears a hold automatically,
+  and a new completion attempt of the mission is judged afresh. A rejection on a
+  real ground (empty output or a too-short narrative) is never overturned, and a
+  validated PASS is never auto-failed. The model never approves, lands, or
+  dispatches.
 
 Two decision points recover captain time at the pipeline level (both ship `Off`,
 built and dormant until a Gate flip):

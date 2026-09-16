@@ -236,10 +236,11 @@ namespace Armada.Server.Routes
                             req.Http.Response.StatusCode = 400;
                             return new
                             {
-                                Error = "Objective dispatch preflight is incomplete. Complete it, or set forcePreflight to override.",
+                                Error = ObjectivePreflightGate.RefusalMessage,
                                 Code = ObjectivePreflightGate.IssueCode,
                                 ObjectiveId = linkedObjective.Id,
                                 IncompleteQuestions = preview.Preflight.IncompleteQuestions,
+                                ModelFlaggedQuestions = ObjectivePreflightGate.ModelFlaggedQuestions(preview),
                                 Preview = preview
                             };
                         }
@@ -259,7 +260,8 @@ namespace Armada.Server.Routes
                             try
                             {
                                 await _database.Events.CreateAsync(
-                                    ObjectivePreflightGate.BuildOverrideEvent(linkedObjective, ObjectivePreflightGate.OperatorName(ctx))).ConfigureAwait(false);
+                                    ObjectivePreflightGate.BuildOverrideEvent(linkedObjective, ObjectivePreflightGate.OperatorName(ctx),
+                                        ObjectivePreflightGate.ModelFlaggedQuestions(preview))).ConfigureAwait(false);
                             }
                             catch (Exception ex)
                             {

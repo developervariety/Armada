@@ -670,7 +670,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(91, "Persist Harbor job records", TableQueries.MigrationV91Statements),
                 new SchemaMigration(92, "Record terminal-voyage reconciliation on the mission row", TableQueries.MigrationV92Statements),
                 new SchemaMigration(93, "Delete unreferenced built-in reviewer personas and their templates", ReviewerPersonaPruneSchema.MysqlStatements),
-                new SchemaMigration(94, "Cancel missions stored with the WaitingForInput status", MissionInputWaitCancelSchema.MysqlStatements)
+                new SchemaMigration(94, "Cancel missions stored with the WaitingForInput status", MissionInputWaitCancelSchema.MysqlStatements),
+                new SchemaMigration(95, "Persist the Judge PASS operator-review hold on missions", MissionOperatorHoldPersistence.MysqlStatements)
             };
         }
 

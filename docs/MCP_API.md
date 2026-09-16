@@ -202,6 +202,24 @@ A session that sends no header receives no wake banner, and must heartbeat or
 read the board with its `participantKey` between monitor-loop iterations to see
 addressed work at all.
 
+The `inbox` tool (and the REST inbox built from the same service) lists a Judge
+PASS held for operator review as kind `judge_pass_held`. Resolve it with
+`armada_review_hold`:
+
+| Argument | Required | Meaning |
+| --- | --- | --- |
+| `action` | yes | `clear` releases the hold and the PASS proceeds through the normal handoff or landing path; `fail` fails the mission and cancels its dependent stages |
+| `missionId` | yes | Held mission (`msn_` prefix) |
+| `reason` | yes | Recorded on the event |
+| `operator` | yes | Recorded on the event |
+
+The tool refuses any caller other than a global administrator
+(`global_administrator_required`), a missing argument (`missing_reason`,
+`missing_operator`, `missing_mission_id`, `invalid_action`), and a mission that
+is not held (`not_held`). `clear` writes `mission.hold_cleared` and `fail`
+writes `mission.hold_failed`, each naming the operator and the reason. The model
+never resolves a hold and nothing resolves one automatically.
+
 When the D11 `inbox_triage` typed decision is enabled (`Gate`), the `inbox`
 tool's items and the `armada_coordination_read` notes each carry an extra
 `attention` field (`informational`, `today`, `this_hour`, or
@@ -256,9 +274,12 @@ yes; the preview reports this as a blocking `objective_preflight_incomplete`
 finding listing the offending question numbers, and reports the deterministic
 questions as facts to check the recorded answers against the repository. An
 `armada_dispatch` call may set `forcePreflight: true` to override an incomplete
-preflight. It overrides only the preflight; any other blocking issue still
-refuses the dispatch, and the override is recorded as an
-`objective.preflight_overridden` event naming the operator.
+preflight or a D5 `objective_preflight_model_flag` finding. It overrides only
+those preflight-class findings; any other blocking issue still refuses the
+dispatch, and the override is recorded as an `objective.preflight_overridden`
+event naming the operator, the blocking question numbers, and the
+model-flagged question numbers. A refusal without the force flag lists both
+`IncompleteQuestions` and `ModelFlaggedQuestions`.
 
 After the deterministic preflight the preview also consults the D5 `preflight`
 typed decision when it is enabled (`typedDecisions`, ships `Gate`). It reads the
@@ -268,7 +289,7 @@ battery questions the code cannot settle (Q1 premise-versus-facts, Q4–Q9, Q12,
 and a Q13 owner-question choice). A question the model answers at or above the
 threshold adds a blocking `objective_preflight_model_flag` finding to the
 preview, which the autonomous scheduler skips dispatch on exactly as it does for
-any other Error finding; a Q13 owner ruling also posts an owner-addressed board
+any other Error finding (an operator dispatch may pass it with `forcePreflight`); a Q13 owner ruling also posts an owner-addressed board
 note. The model only adds findings — it never dispatches, lands, or removes a
 deterministic finding — and when the decision is `Off`, unavailable, or below the
 threshold the preview is exactly the deterministic result.

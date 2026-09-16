@@ -1651,7 +1651,8 @@ namespace Armada.Core.Database.Sqlite.Queries
                 ),
                 new SchemaMigration(100, "Record terminal-voyage reconciliation on the mission row", MigrationV100Statements),
                 new SchemaMigration(101, "Delete unreferenced built-in reviewer personas and their templates", ReviewerPersonaPruneSchema.SqliteStatements),
-                new SchemaMigration(102, "Cancel missions stored with the WaitingForInput status", MissionInputWaitCancelSchema.SqliteStatements)
+                new SchemaMigration(102, "Cancel missions stored with the WaitingForInput status", MissionInputWaitCancelSchema.SqliteStatements),
+                new SchemaMigration(103, "Persist the Judge PASS operator-review hold on missions", MissionOperatorHoldPersistence.SqliteStatements)
             };
         }
 

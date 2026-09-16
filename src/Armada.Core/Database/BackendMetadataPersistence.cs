@@ -18,6 +18,7 @@ namespace Armada.Core.Database
         {
             Add(command, "tier", TierName(mission.Tier));
             Add(command, "requested_captain_id", mission.RequestedCaptainId);
+            MissionOperatorHoldPersistence.Add(command, mission);
         }
 
         internal static void ReadMission(DbDataReader reader, Mission mission)
@@ -25,6 +26,7 @@ namespace Armada.Core.Database
             MissionAdmissionPersistence.Read(reader, mission);
             mission.Tier = ReadTier(reader["tier"]);
             mission.RequestedCaptainId = NullableText(reader["requested_captain_id"]);
+            MissionOperatorHoldPersistence.Read(reader, mission);
         }
 
         internal static void AddVoyage(DbCommand command, Voyage voyage)

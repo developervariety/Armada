@@ -59,6 +59,7 @@ namespace Armada.Server.Mcp
         /// <param name="captainQuarantine">Optional captain quarantine service enabling the bench and unbench tools.</param>
         /// <param name="unlandedBranches">Optional unlanded-branch reporting service enabling armada_unlanded_branches.</param>
         /// <param name="objectiveDispatchPreviewService">Optional read-only objective dispatch preview service.</param>
+        /// <param name="missionService">Optional mission service enabling armada_review_hold.</param>
         public static void RegisterAll(
             RegisterToolDelegate register,
             DatabaseDriver database,
@@ -102,7 +103,8 @@ namespace Armada.Server.Mcp
             Armada.Core.Services.InboxTriageAdapter? inboxTriageAdapter = null,
             Armada.Core.Services.FollowUpRoutingAdapter? followUpRoutingAdapter = null,
             Armada.Core.Context.ContextRetrievalService? contextRetrieval = null,
-            Func<string?>? contextParticipantKeyProvider = null)
+            Func<string?>? contextParticipantKeyProvider = null,
+            Armada.Core.Services.Interfaces.IMissionService? missionService = null)
         {
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
             longRunningJobs = longRunningJobs ?? new LongRunningJobService();
@@ -189,6 +191,7 @@ namespace Armada.Server.Mcp
             if (diskLifecycle != null) McpDiskLifecycleTools.Register(register, diskLifecycle, longRunningJobs);
             if (terminalVoyageMissions != null) McpTerminalVoyageMissionTools.Register(register, terminalVoyageMissions, longRunningJobs);
             if (harborJobs != null) McpHarborJobTools.Register(register, harborJobs);
+            if (missionService != null) McpReviewHoldTools.Register(register, missionService);
         }
     }
 }

@@ -17,6 +17,16 @@ namespace Armada.Core.Services
     {
         #region Public-Members
 
+        /// <summary>
+        /// Event type recorded when an operator clears a Judge PASS held for operator review.
+        /// </summary>
+        public const string OperatorHoldClearedEventType = "mission.hold_cleared";
+
+        /// <summary>
+        /// Event type recorded when an operator fails a Judge PASS held for operator review.
+        /// </summary>
+        public const string OperatorHoldFailedEventType = "mission.hold_failed";
+
         /// <inheritdoc />
         public Func<Mission, Dock, Task>? OnCaptureDiff { get; set; }
 
@@ -1245,6 +1255,11 @@ namespace Armada.Core.Services
             {
                 if (String.IsNullOrEmpty(produced.VoyageId)) continue;
                 if (String.Equals(produced.Persona, "Architect", StringComparison.OrdinalIgnoreCase)) continue;
+                if (produced.HeldForOperatorReview)
+                {
+                    _Logging.Debug(_Header + "not re-driving handoff for mission " + produced.Id + ": held for operator review");
+                    continue;
+                }
 
                 List<Mission> voyageMissions = await _Database.Missions.EnumerateByVoyageAsync(produced.VoyageId, token).ConfigureAwait(false);
                 List<Mission> pendingDependents = voyageMissions
@@ -1277,6 +1292,11 @@ namespace Armada.Core.Services
             if (String.IsNullOrEmpty(missionId)) throw new ArgumentNullException(nameof(missionId));
 
             Mission mission = await RequireReviewMissionAsync(missionId, token).ConfigureAwait(false);
+            if (mission.HeldForOperatorReview)
+            {
+                throw new InvalidOperationException("Mission " + missionId + " has a Judge PASS held for operator review ("
+                    + (mission.HeldForOperatorReviewReason ?? "no reason recorded") + "). Clear or fail the hold with armada_review_hold first.");
+            }
             bool hasDependentPipelineStages = await HasDependentPipelineStages(mission.VoyageId, mission.Id, token).ConfigureAwait(false);
 
             mission.ReviewComment = NormalizeReviewComment(comment);
@@ -1338,6 +1358,102 @@ namespace Armada.Core.Services
 
             Mission? landed = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
             return landed ?? mission;
+        }
+
+        /// <inheritdoc />
+        public async Task<Mission> ClearOperatorReviewHoldAsync(string missionId, string operatorName, string reason, CancellationToken token = default)
+        {
+            Mission mission = await RequireHeldMissionAsync(missionId, operatorName, reason, token).ConfigureAwait(false);
+            string operatorText = operatorName.Trim();
+            string reasonText = reason.Trim();
+            string previousHold = mission.HeldForOperatorReviewReason ?? "no reason recorded";
+
+            ClearOperatorReviewHold(mission);
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            await AppendMissionActivityAsync(mission.Id, "operator review hold cleared by " + operatorText + ": " + reasonText, token).ConfigureAwait(false);
+            await RecordHoldEventAsync(mission, OperatorHoldClearedEventType,
+                "Operator " + operatorText + " cleared the Judge PASS hold on mission " + mission.Id + " (" + previousHold + "): " + reasonText,
+                operatorText, reasonText, previousHold, token).ConfigureAwait(false);
+            _Logging.Info(_Header + "mission " + mission.Id + " operator review hold cleared by " + operatorText + ": " + reasonText);
+
+            // A mission waiting at a review gate continues through that gate's approval; the hold only
+            // stood in front of it. A produced mission now runs the handoff or landing the hold stopped.
+            if (mission.Status != MissionStatusEnum.WorkProduced) return mission;
+
+            bool hasDependentPipelineStages = await HasDependentPipelineStages(mission.VoyageId, mission.Id, token).ConfigureAwait(false);
+            if (hasDependentPipelineStages)
+            {
+                await TryHandoffToNextStageAsync(mission, token).ConfigureAwait(false);
+                await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
+                await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
+                Mission? handedOff = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+                return handedOff ?? mission;
+            }
+
+            Dock? dock = await ReadMissionDockAsync(mission, token).ConfigureAwait(false);
+            if (dock == null)
+            {
+                mission.Status = MissionStatusEnum.LandingFailed;
+                mission.FailureReason = "Operator review hold cleared but the mission dock was unavailable for landing.";
+                mission.CompletedUtc = DateTime.UtcNow;
+                mission.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
+                return mission;
+            }
+
+            if (OnMissionComplete != null)
+            {
+                await OnMissionComplete.Invoke(mission, dock).ConfigureAwait(false);
+            }
+
+            Mission? afterLanding = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+            if (afterLanding != null)
+            {
+                await ReapTerminalMissionBranchAsync(afterLanding, token).ConfigureAwait(false);
+            }
+
+            await ReclaimMissionDockAsync(dock.Id, token).ConfigureAwait(false);
+            await DispatchPendingMissionsAsync(token).ConfigureAwait(false);
+            await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
+
+            Mission? landed = await _Database.Missions.ReadAsync(mission.Id, token).ConfigureAwait(false);
+            return landed ?? mission;
+        }
+
+        /// <inheritdoc />
+        public async Task<Mission> FailOperatorReviewHoldAsync(string missionId, string operatorName, string reason, CancellationToken token = default)
+        {
+            Mission mission = await RequireHeldMissionAsync(missionId, operatorName, reason, token).ConfigureAwait(false);
+            string operatorText = operatorName.Trim();
+            string reasonText = reason.Trim();
+            string previousHold = mission.HeldForOperatorReviewReason ?? "no reason recorded";
+            Dock? dock = await ReadMissionDockAsync(mission, token).ConfigureAwait(false);
+
+            ClearOperatorReviewHold(mission);
+            mission.Status = MissionStatusEnum.Failed;
+            mission.FailureReason = "operator_review_hold_failed: operator " + operatorText + " failed the held Judge PASS: " + reasonText;
+            mission.CompletedUtc = DateTime.UtcNow;
+            mission.ProcessId = null;
+            mission.DockId = null;
+            mission.LastUpdateUtc = DateTime.UtcNow;
+            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+            await AppendMissionActivityAsync(mission.Id, "operator review hold failed by " + operatorText + ": " + reasonText, token).ConfigureAwait(false);
+            await RecordHoldEventAsync(mission, OperatorHoldFailedEventType,
+                "Operator " + operatorText + " failed the held Judge PASS on mission " + mission.Id + " (" + previousHold + "): " + reasonText,
+                operatorText, reasonText, previousHold, token).ConfigureAwait(false);
+            _Logging.Warn(_Header + "mission " + mission.Id + " held Judge PASS failed by operator " + operatorText + ": " + reasonText);
+
+            if (dock != null)
+            {
+                await ReclaimMissionDockAsync(dock.Id, token).ConfigureAwait(false);
+            }
+
+            await CancelDependentPipelineStagesAsync(mission, token).ConfigureAwait(false);
+            await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
+            await ReapTerminalMissionBranchAsync(mission, token).ConfigureAwait(false);
+            return mission;
         }
 
         /// <inheritdoc />
@@ -1810,6 +1926,10 @@ namespace Armada.Core.Services
             // and any reader that checks FailureReason before Status concludes the mission failed.
             // The DoD gate below sets a fresh reason if it rejects this work.
             mission.FailureReason = null;
+
+            // An operator-review hold belongs to the attempt whose Judge PASS was held. A new completion
+            // is judged afresh, and the Judge block below sets the hold again if this PASS is held too.
+            ClearOperatorReviewHold(mission);
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
             _Logging.Info(_Header + "mission " + mission.Id + " work produced by captain " + captain.Id);
@@ -2137,9 +2257,16 @@ namespace Armada.Core.Services
                     {
                         if (substanceVerdict.Held)
                         {
-                            // The model held a thin-but-validated PASS. It is surfaced for operator
-                            // review and recorded (typed_decision.gated); it is NOT auto-failed, and the
-                            // downstream Check gate still runs unchanged.
+                            // The model held a thin-but-validated PASS. The hold is persisted on the
+                            // mission and recorded (typed_decision.gated); it is NOT auto-failed, and the
+                            // downstream Check gate still runs unchanged. A PASS the Check gate accepts
+                            // then stops before handoff and landing until an operator clears or fails
+                            // the hold; the model never approves it and nothing clears it automatically.
+                            string holdReason = substanceVerdict.HoldReason ?? "typed_decision:review_substance: thin PASS";
+                            mission.HeldForOperatorReview = true;
+                            mission.HeldForOperatorReviewReason = holdReason;
+                            mission.LastUpdateUtc = DateTime.UtcNow;
+                            await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                             await AppendMissionActivityAsync(mission.Id,
                                 "review substance held for operator review: " + (substanceVerdict.HoldReason ?? "thin PASS"), token).ConfigureAwait(false);
                             _Logging.Info(_Header + "judge mission " + mission.Id + " PASS held for operator review by review_substance (not failed): " +
@@ -2182,6 +2309,7 @@ namespace Armada.Core.Services
                                         : " Evidence: " + blockingEvidence + ".")
                                     + " Resolve or re-run EVERY failed Check on this voyage before the Judge re-runs; a single unresolved record rejects the PASS.";
                                 mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
+                                ClearOperatorReviewHold(mission);
                                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                                 verdict = JudgeVerdict.Fail;
                                 judgeGateRejected = true;
@@ -2213,6 +2341,7 @@ namespace Armada.Core.Services
                                             : " Unresolved Checks: " + unresolved + ".")
                                         + " Inspect those Check records; the Judge captain is not the subject of this rejection.";
                                     mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
+                                    ClearOperatorReviewHold(mission);
                                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                                     verdict = JudgeVerdict.Fail;
                                     judgeGateRejected = true;
@@ -2226,6 +2355,7 @@ namespace Armada.Core.Services
                                 mission.LastUpdateUtc = DateTime.UtcNow;
                                 mission.FailureReason = JudgeNoChecksFailureReason;
                                 mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
+                                ClearOperatorReviewHold(mission);
                                 await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                                 verdict = JudgeVerdict.Fail;
                                 judgeGateRejected = true;
@@ -2349,9 +2479,18 @@ namespace Armada.Core.Services
                 awaitingManualReview = true;
             }
 
+            // A Judge PASS held for operator review stops here: no handoff, no landing, and the dock is
+            // kept for the landing an operator clear later runs. The reason is logged, never silent.
+            bool heldForOperatorReview = mission.HeldForOperatorReview;
+            if (heldForOperatorReview)
+            {
+                _Logging.Info(_Header + "mission " + mission.Id + " not handed off or landed: held for operator review ("
+                    + (mission.HeldForOperatorReviewReason ?? "no reason recorded") + "); clear or fail it with armada_review_hold");
+            }
+
             // Pipeline handoff: if missions in the same voyage depend on this one, prepare them
             bool preparedDownstreamStages = false;
-            if (!failedForScopeViolation && !failedForDodGate && !failedForIneffectiveRescue && !awaitingManualReview)
+            if (!failedForScopeViolation && !failedForDodGate && !failedForIneffectiveRescue && !awaitingManualReview && !heldForOperatorReview)
             {
                 preparedDownstreamStages = await TryHandoffToNextStageAsync(mission, token).ConfigureAwait(false);
             }
@@ -2381,12 +2520,17 @@ namespace Armada.Core.Services
             await EmitMissionOutcomeTelemetryAsync(mission, captain, token).ConfigureAwait(false);
 
             bool shouldAttemptLanding =
+                !heldForOperatorReview &&
                 !preparedDownstreamStages &&
                 !hasDependentPipelineStages &&
                 (mission.Status == MissionStatusEnum.WorkProduced ||
                 mission.Status == MissionStatusEnum.PullRequestOpen);
 
-            if (!shouldAttemptLanding)
+            if (heldForOperatorReview)
+            {
+                _Logging.Info(_Header + "skipping landing for mission " + mission.Id + " because it is held for operator review");
+            }
+            else if (!shouldAttemptLanding)
             {
                 _Logging.Info(_Header + "skipping landing for mission " + mission.Id +
                     " because it is not a terminal landed stage yet (status: " + mission.Status + ")");
@@ -2437,7 +2581,7 @@ namespace Armada.Core.Services
                 preparedDownstreamStages &&
                 String.Equals(mission.Persona, "Architect", StringComparison.OrdinalIgnoreCase);
 
-            if (!String.IsNullOrEmpty(completionDockId) && !(awaitingManualReview && !hasDependentPipelineStages))
+            if (!String.IsNullOrEmpty(completionDockId) && !(awaitingManualReview && !hasDependentPipelineStages) && !heldForOperatorReview)
             {
                 try
                 {
@@ -7748,6 +7892,7 @@ namespace Armada.Core.Services
             mission.StartedUtc = null;
             mission.CompletedUtc = null;
             mission.TotalRuntimeMs = null;
+            ClearOperatorReviewHold(mission);
             mission.LastUpdateUtc = DateTime.UtcNow;
             await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
         }
@@ -10173,6 +10318,60 @@ namespace Armada.Core.Services
                 m.Status != MissionStatusEnum.Failed &&
                 m.Status != MissionStatusEnum.Cancelled &&
                 m.Status != MissionStatusEnum.LandingFailed);
+        }
+
+        private async Task<Mission> RequireHeldMissionAsync(string missionId, string operatorName, string reason, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(missionId)) throw new ArgumentNullException(nameof(missionId));
+            if (String.IsNullOrWhiteSpace(operatorName)) throw new ArgumentException("An operator name is required to act on an operator review hold.", nameof(operatorName));
+            if (String.IsNullOrWhiteSpace(reason)) throw new ArgumentException("A reason is required to act on an operator review hold.", nameof(reason));
+
+            Mission? mission = await _Database.Missions.ReadAsync(missionId, token).ConfigureAwait(false);
+            if (mission == null) throw new InvalidOperationException("Mission not found: " + missionId);
+            if (!mission.HeldForOperatorReview)
+            {
+                throw new InvalidOperationException("Mission " + missionId + " is not held for operator review.");
+            }
+
+            return mission;
+        }
+
+        private static void ClearOperatorReviewHold(Mission mission)
+        {
+            mission.HeldForOperatorReview = false;
+            mission.HeldForOperatorReviewReason = null;
+        }
+
+        private async Task RecordHoldEventAsync(
+            Mission mission,
+            string eventType,
+            string message,
+            string operatorName,
+            string reason,
+            string heldReason,
+            CancellationToken token)
+        {
+            ArmadaEvent evt = new ArmadaEvent
+            {
+                TenantId = mission.TenantId,
+                UserId = mission.UserId,
+                EventType = eventType,
+                EntityType = "mission",
+                EntityId = mission.Id,
+                MissionId = mission.Id,
+                CaptainId = mission.CaptainId,
+                VesselId = mission.VesselId,
+                VoyageId = mission.VoyageId,
+                Message = message,
+                Payload = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    missionId = mission.Id,
+                    operatorName,
+                    reason,
+                    heldReason
+                })
+            };
+            await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
         }
 
         private async Task<Mission> RequireReviewMissionAsync(string missionId, CancellationToken token)

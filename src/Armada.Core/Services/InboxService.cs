@@ -14,7 +14,8 @@ namespace Armada.Core.Services
     /// Builds the operator's inbox: a single consolidated list of items across the fleet that require a
     /// human's attention or action, ordered most-urgent first. Two kinds of item qualify:
     ///
-    /// - Awaiting your decision (human-in-the-loop): a mission in Review, or a deployment pending approval.
+    /// - Awaiting your decision (human-in-the-loop): a mission in Review, a Judge PASS held for operator
+    ///   review, or a deployment pending approval.
     /// - Failed and needs intervention (autonomous work that could not finish on its own): a failed
     ///   mission or a mission whose work could not land (while its voyage is still live), an open
     ///   incident, a failed merge, a failed or verification-failed deployment, or a stalled captain.
@@ -136,6 +137,24 @@ namespace Armada.Core.Services
                         Severity = InboxSeverityEnum.Warning,
                         Title = "Review: " + mission.Title,
                         Detail = "Awaiting your review.",
+                        EntityType = "mission",
+                        EntityId = mission.Id,
+                        Href = "/missions/" + mission.Id
+                    });
+                }
+
+                // A Judge PASS held for operator review waits on the operator: it neither hands off nor
+                // lands until armada_review_hold clears or fails it.
+                List<Mission> produced = await _Database.Missions.EnumerateByStatusAsync(MissionStatusEnum.WorkProduced, token).ConfigureAwait(false);
+                foreach (Mission mission in produced.Concat(reviews).Where(m => m.HeldForOperatorReview).Take(_MaxPerCategory))
+                {
+                    items.Add(new InboxItem
+                    {
+                        Kind = "judge_pass_held",
+                        Severity = InboxSeverityEnum.Warning,
+                        Title = "Judge PASS held: " + mission.Title,
+                        Detail = "Held for operator review: " + (mission.HeldForOperatorReviewReason ?? "no reason recorded")
+                            + ". Clear it to proceed, or fail it, with armada_review_hold.",
                         EntityType = "mission",
                         EntityId = mission.Id,
                         Href = "/missions/" + mission.Id

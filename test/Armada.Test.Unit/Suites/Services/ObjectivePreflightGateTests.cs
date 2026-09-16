@@ -85,6 +85,24 @@ namespace Armada.Test.Unit.Suites.Services
                     "a force flag cannot dispatch past a second blocking issue");
                 return Task.CompletedTask;
             }).ConfigureAwait(false);
+
+            await RunTest("The gate treats a preflight model flag as preflight-class", () =>
+            {
+                ObjectiveDispatchPreview modelFlagOnly = PreviewWith(PreflightTextAdapter.ModelFlagIssueCode);
+                AssertEqual(PreflightGateOutcomeEnum.BlockedByPreflight, ObjectivePreflightGate.Classify(modelFlagOnly, false),
+                    "a model flag with no force is refused as a preflight block");
+                AssertEqual(PreflightGateOutcomeEnum.OverriddenPreflight, ObjectivePreflightGate.Classify(modelFlagOnly, true),
+                    "a force flag overrides a model flag");
+
+                ObjectiveDispatchPreview flagAndIncomplete = PreviewWith(PreflightTextAdapter.ModelFlagIssueCode, ObjectivePreflightGate.IssueCode);
+                AssertEqual(PreflightGateOutcomeEnum.OverriddenPreflight, ObjectivePreflightGate.Classify(flagAndIncomplete, true),
+                    "a force flag overrides a model flag together with an incomplete preflight");
+
+                ObjectiveDispatchPreview flagAndOther = PreviewWith(PreflightTextAdapter.ModelFlagIssueCode, "brief_acceptance_missing");
+                AssertEqual(PreflightGateOutcomeEnum.BlockedByOther, ObjectivePreflightGate.Classify(flagAndOther, true),
+                    "a force flag cannot dispatch past a non-preflight blocking issue beside a model flag");
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
         }
 
         private static ObjectiveDispatchPreview PreviewWith(params string[] errorCodes)

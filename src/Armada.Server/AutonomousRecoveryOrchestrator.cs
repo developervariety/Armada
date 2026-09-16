@@ -770,6 +770,15 @@ namespace Armada.Server
                     Mission? reviewer = await ReadMissionAsync(current.TenantId, current.Id, token).ConfigureAwait(false);
                     if (reviewer == null || !IsJudgePassMission(reviewer))
                         return false;
+
+                    // A Judge PASS held for operator review has not passed yet: only an operator
+                    // clear lets the drain land the work it reviewed.
+                    if (reviewer.HeldForOperatorReview)
+                    {
+                        _Logging.Info(_Header + "landing-drain skipped mission " + rootMissionId + ": reviewer " + reviewer.Id
+                            + " is held for operator review (" + (reviewer.HeldForOperatorReviewReason ?? "no reason recorded") + ")");
+                        return false;
+                    }
                 }
 
                 queue.AddRange(summaries.Where(item => String.Equals(item.DependsOnMissionId, current.Id, StringComparison.Ordinal)));

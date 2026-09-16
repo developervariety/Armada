@@ -32,6 +32,26 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- A Judge PASS the D4 `review_substance` decision holds for operator review is
+  now a real hold instead of an activity line. The mission records
+  `HeldForOperatorReview` and its reason (new mission columns on every provider:
+  SQLite migration 103, PostgreSQL 104, MySQL 95, SQL Server 98). While held,
+  the Judge completion path neither hands off nor lands the PASS and keeps its
+  dock, the landing handler refuses it, and the landing drain does not treat the
+  review chain as passed; each logs the hold reason. The inbox lists the mission
+  as `judge_pass_held`. The new operator-only MCP tool `armada_review_hold`
+  clears the hold (the PASS proceeds through the normal handoff or landing path)
+  or fails the mission, writing `mission.hold_cleared` or `mission.hold_failed`
+  with the operator and reason. Nothing clears a hold automatically.
+
+- The D5 `objective_preflight_model_flag` finding is now preflight-class for the
+  operator dispatch gate: `forcePreflight: true` passes it the same way it
+  passes an incomplete preflight, and any other blocking finding still refuses
+  the dispatch. The `objective.preflight_overridden` event names the
+  model-flagged question numbers, and a refusal lists them as
+  `ModelFlaggedQuestions`. The autonomous scheduler still skips a flagged
+  objective.
+
 - The dashboard is usable on phone-width screens. Below 640px the sidebar
   becomes an off-canvas drawer opened from a top-bar menu button, the content
   spans the full width, and wide tables scroll within their own container. The

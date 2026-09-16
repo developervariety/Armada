@@ -142,6 +142,9 @@ namespace Armada.Server
                         token).ConfigureAwait(false);
                     VoyageDispatchResult? gate = PreflightGateResult(preview, request.ForcePreflight, objectiveId);
                     if (gate != null) return gate;
+                    request.PreflightModelFlaggedQuestions = request.ForcePreflight
+                        ? ObjectivePreflightGate.ModelFlaggedQuestions(preview)
+                        : new List<int>();
                 }
             }
 
@@ -222,15 +225,17 @@ namespace Armada.Server
             if (dispatchObjective != null && String.IsNullOrWhiteSpace(description))
                 description = ObjectiveBriefRenderer.Render(dispatchObjective);
 
-            // An operator forced past an incomplete preflight only when force was set and the objective
-            // was actually incomplete; a force flag on a complete objective records nothing. Preconditions
+            // An operator forced past the preflight only when force was set and the objective was actually
+            // incomplete or model-flagged; a force flag on a clean objective records nothing. Preconditions
             // already refused any other blocking issue, so reaching here with both means an override.
             if (objectiveId != null
                 && request.ForcePreflight
                 && dispatchObjective != null
-                && !ObjectivePreflightEvaluator.IsComplete(dispatchObjective.Preparation?.Preflight))
+                && (!ObjectivePreflightEvaluator.IsComplete(dispatchObjective.Preparation?.Preflight)
+                    || request.PreflightModelFlaggedQuestions.Count > 0))
             {
-                await EmitPreflightOverrideEventAsync(dispatchObjective, request.ObjectiveAuthContext, token).ConfigureAwait(false);
+                await EmitPreflightOverrideEventAsync(
+                    dispatchObjective, request.ObjectiveAuthContext, request.PreflightModelFlaggedQuestions, token).ConfigureAwait(false);
             }
 
             Vessel? dispatchVessel = await _Database.Vessels.ReadAsync(vesselId, token).ConfigureAwait(false);
@@ -447,9 +452,10 @@ namespace Armada.Server
         #region Private-Methods
 
         /// <summary>
-        /// Apply the dispatch-preflight gate to a linked objective's preview. An incomplete preflight is
-        /// the one blocking issue the operator force flag may override; every other blocking issue still
-        /// refuses the dispatch. Returns the refusing result, or null when the dispatch may proceed.
+        /// Apply the dispatch-preflight gate to a linked objective's preview. An incomplete preflight and
+        /// a D5 preflight model flag are the only blocking issues the operator force flag may override;
+        /// every other blocking issue still refuses the dispatch. Returns the refusing result, or null
+        /// when the dispatch may proceed.
         /// </summary>
         private static VoyageDispatchResult? PreflightGateResult(
             ObjectiveDispatchPreview preview,
@@ -462,10 +468,11 @@ namespace Armada.Server
                 case PreflightGateOutcomeEnum.BlockedByPreflight:
                     return VoyageDispatchResult.BadRequest(new
                     {
-                        Error = "Objective dispatch preflight is incomplete. Complete it, or set forcePreflight to override.",
+                        Error = ObjectivePreflightGate.RefusalMessage,
                         Code = ObjectivePreflightGate.IssueCode,
                         ObjectiveId = objectiveId,
                         IncompleteQuestions = preview.Preflight.IncompleteQuestions,
+                        ModelFlaggedQuestions = ObjectivePreflightGate.ModelFlaggedQuestions(preview),
                         Preview = preview
                     });
                 case PreflightGateOutcomeEnum.BlockedByOther:
@@ -484,11 +491,13 @@ namespace Armada.Server
         private async Task EmitPreflightOverrideEventAsync(
             Objective objective,
             AuthContext? auth,
+            IReadOnlyList<int> modelFlaggedQuestions,
             CancellationToken token)
         {
             try
             {
-                ArmadaEvent evt = ObjectivePreflightGate.BuildOverrideEvent(objective, ObjectivePreflightGate.OperatorName(auth));
+                ArmadaEvent evt = ObjectivePreflightGate.BuildOverrideEvent(
+                    objective, ObjectivePreflightGate.OperatorName(auth), modelFlaggedQuestions);
                 await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
             }
             catch (Exception ex)
