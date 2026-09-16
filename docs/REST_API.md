@@ -4953,3 +4953,37 @@ credential references, reserve behavior, and Dashboard controls. The settings
 REST API exposes `providerUsage`; `POST /api/v1/settings/usage-preview` previews
 an optional draft policy with settings write permission. No new MCP tool is
 required. Policy updates use `PUT /api/v1/settings` and hot-reload.
+
+### Subscription account logins
+
+These routes log a subscription account in from the Dashboard. Each needs
+settings write permission (a global administrator), like `PUT /api/v1/settings`;
+a tenant administrator or ordinary user gets 403. `{accountId}` must be 1–64
+letters, digits, hyphens, or underscores, starting with a letter or digit;
+anything else returns 400 `account_id_invalid`. No route accepts a path. These
+requests and responses are never recorded in request history.
+
+| Method | Path | Body | Result |
+|---|---|---|---|
+| POST | `/api/v1/usage-accounts/{accountId}/login/home` | none | Creates `<data directory>/accounts/<accountId>` (mode 0700), idempotent. Returns `AccountId`, `HomeDirectory`, `CursorKeyFile`, `Created`. |
+| POST | `/api/v1/usage-accounts/{accountId}/login/start` | none | Starts the runtime's browser login for the saved account and returns a login session with only `VerificationUrl` and `UserCode`. |
+| POST | `/api/v1/usage-accounts/{accountId}/login/code` | `{ "code": "..." }` | Relays a pasted Claude Code sign-in code to the pending login. |
+| POST | `/api/v1/usage-accounts/{accountId}/login/key` | `{ "apiKey": "..." }` | Stores an OpenCode or Cursor API key in the account folder. The key is never returned. |
+| GET | `/api/v1/usage-accounts/{accountId}/login/status` | none | `Session` (last login since start) plus `LoginReady`, `LoginReason`, and `LoginCheckedUtc` from the server's login check. |
+| POST | `/api/v1/usage-accounts/{accountId}/login/cancel` | none | Stops a pending login and returns the status. |
+
+A login session has `SessionId`, `AccountId`, `Runtime`, `Method`
+(`DeviceCode`, `PasteCode`, `ApiKey`), `State` (`Pending`, `Succeeded`,
+`Failed`, `Expired`, `Cancelled`), a safe `Reason`, `NeedsCode`, `Reused`,
+`StartedUtc`, `ExpiresUtc`, and `CompletedUtc`.
+
+`start` and `key` need the account saved in `modelTier.usageRouting` with a
+`runtime` (404 `account_not_configured`), and its `homeDirectory` or Cursor
+`launchCredentialFile` must be the server-derived path (409
+`account_login_target_not_managed`). A second `start` while a login is pending
+returns that login with `Reused: true`. `code` with no pending paste-code login
+returns 409 `account_login_not_waiting_for_code`; `key` while a login is
+pending returns 409 `account_login_in_progress`. Failure reasons in a session
+include `account_login_cli_unavailable`, `account_login_prompt_not_found`,
+`account_login_process_failed`, `account_login_expired_before_completion`, and
+`account_login_cancelled`. See [Account logins](USAGE_ROUTING.md#account-logins).

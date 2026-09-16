@@ -23,7 +23,7 @@ namespace Armada.Core.Services
         /// <summary>The account's login home has no login file for its runtime.</summary>
         public const string ReasonLoginMissing = "account_login_missing";
 
-        /// <summary>The Cursor account's named key variable is unset or empty on the server.</summary>
+        /// <summary>The Cursor account's named key variable or key file is unset, missing, or empty on the server.</summary>
         public const string ReasonCredentialUnavailable = "account_launch_credential_unavailable";
 
         /// <summary>The captain's runtime differs from the account's runtime.</summary>
@@ -48,6 +48,7 @@ namespace Armada.Core.Services
 
         #region Private-Members
 
+        private const int _MaxCredentialFileBytes = 4096;
         private static readonly Regex _VariableName = new Regex("^[A-Za-z_][A-Za-z0-9_]{0,127}$", RegexOptions.CultureInvariant);
 
         #endregion
@@ -65,7 +66,8 @@ namespace Armada.Core.Services
         public static bool HasLaunchIdentity(UsageAccountSettings? account)
         {
             return account != null && account.Runtime.HasValue
-                && (!String.IsNullOrWhiteSpace(account.HomeDirectory) || !String.IsNullOrWhiteSpace(account.LaunchCredentialEnv));
+                && (!String.IsNullOrWhiteSpace(account.HomeDirectory) || !String.IsNullOrWhiteSpace(account.LaunchCredentialEnv)
+                    || !String.IsNullOrWhiteSpace(account.LaunchCredentialFile));
         }
 
         /// <summary>Find the account that lists a captain, or null.</summary>
@@ -76,14 +78,20 @@ namespace Armada.Core.Services
         }
 
         /// <summary>Reject account launch fields that cannot describe one runtime login.</summary>
-        public static void ValidateAccount(UsageAccountSettings account)
+        /// <param name="account">Account to validate.</param>
+        /// <param name="accountsRoot">
+        /// When set, the Admiral's account folder root; a Cursor key file must then sit in that root's folder for the
+        /// account. Null checks only the file's own shape, for callers that do not know the data directory.
+        /// </param>
+        public static void ValidateAccount(UsageAccountSettings account, string? accountsRoot = null)
         {
             if (account == null) throw new ArgumentNullException(nameof(account));
             bool hasHome = !String.IsNullOrWhiteSpace(account.HomeDirectory);
             bool hasKey = !String.IsNullOrWhiteSpace(account.LaunchCredentialEnv);
+            bool hasKeyFile = !String.IsNullOrWhiteSpace(account.LaunchCredentialFile);
             if (!account.Runtime.HasValue)
             {
-                if (hasHome || hasKey) throw new ArgumentException("Usage account " + account.Id + " sets a login home or key variable without a runtime.");
+                if (hasHome || hasKey || hasKeyFile) throw new ArgumentException("Usage account " + account.Id + " sets a login home or key reference without a runtime.");
                 return;
             }
             AgentRuntimeEnum runtime = account.Runtime.Value;
@@ -93,9 +101,12 @@ namespace Armada.Core.Services
                 // Replacing Cursor's home would hide git, gh, and ssh configuration; its switch is the key variable.
                 if (hasHome) throw new ArgumentException("Usage account " + account.Id + " is a Cursor account; use launchCredentialEnv, not homeDirectory.");
                 if (hasKey && !_VariableName.IsMatch(account.LaunchCredentialEnv!)) throw new ArgumentException("Usage account " + account.Id + " launchCredentialEnv must be an environment variable name, not a key.");
+                if (hasKey && hasKeyFile) throw new ArgumentException("Usage account " + account.Id + " sets both launchCredentialEnv and launchCredentialFile; choose one.");
+                if (hasKeyFile && !AccountLoginPaths.IsAccountKeyFile(account.Id, account.LaunchCredentialFile!, accountsRoot))
+                    throw new ArgumentException("Usage account " + account.Id + " launchCredentialFile must be the absolute path of " + AccountLoginPaths.CursorKeyFileName + " inside the account's own folder.");
                 return;
             }
-            if (hasKey) throw new ArgumentException("Usage account " + account.Id + " launchCredentialEnv applies only to Cursor accounts.");
+            if (hasKey || hasKeyFile) throw new ArgumentException("Usage account " + account.Id + " launchCredentialEnv and launchCredentialFile apply only to Cursor accounts.");
             if (hasHome && !Path.IsPathFullyQualified(account.HomeDirectory!)) throw new ArgumentException("Usage account " + account.Id + " homeDirectory must be an absolute path.");
         }
 
@@ -132,7 +143,7 @@ namespace Armada.Core.Services
             Func<string, string?> read = readEnvironment ?? Environment.GetEnvironmentVariable;
             AgentRuntimeEnum runtime = account.Runtime!.Value;
             if (runtime == AgentRuntimeEnum.Cursor)
-                return String.IsNullOrWhiteSpace(account.LaunchCredentialEnv) || String.IsNullOrWhiteSpace(read(account.LaunchCredentialEnv!)) ? ReasonCredentialUnavailable : null;
+                return ReadCursorKey(account, read) == null ? ReasonCredentialUnavailable : null;
             string home = account.HomeDirectory!;
             if (!Directory.Exists(home)) return ReasonHomeMissing;
             string? login = LoginFilePath(account);
@@ -170,10 +181,33 @@ namespace Armada.Core.Services
                 case AgentRuntimeEnum.ClaudeCode: result[ClaudeConfigDirVariable] = account.HomeDirectory!; break;
                 case AgentRuntimeEnum.Codex: result[CodexHomeVariable] = account.HomeDirectory!; break;
                 case AgentRuntimeEnum.OpenCode: result[OpenCodeDataHomeVariable] = account.HomeDirectory!; break;
-                case AgentRuntimeEnum.Cursor: result[CursorApiKeyVariable] = read(account.LaunchCredentialEnv!)!.Trim(); break;
+                case AgentRuntimeEnum.Cursor: result[CursorApiKeyVariable] = ReadCursorKey(account, read) ?? throw new CaptainAccountLaunchException(ReasonCredentialUnavailable, account.Id); break;
                 default: throw new CaptainAccountLaunchException(ReasonRuntimeMismatch, account.Id);
             }
             return result;
+        }
+
+        #endregion
+
+        #region Private-Methods
+
+        /// <summary>The Cursor key from the named variable or the key file, trimmed; null when absent or empty.</summary>
+        private static string? ReadCursorKey(UsageAccountSettings account, Func<string, string?> read)
+        {
+            string? value = null;
+            if (!String.IsNullOrWhiteSpace(account.LaunchCredentialEnv)) value = read(account.LaunchCredentialEnv!);
+            else if (!String.IsNullOrWhiteSpace(account.LaunchCredentialFile))
+            {
+                try
+                {
+                    FileInfo file = new FileInfo(account.LaunchCredentialFile!);
+                    if (!file.Exists || file.Length > _MaxCredentialFileBytes) return null;
+                    value = File.ReadAllText(file.FullName);
+                }
+                catch (IOException) { return null; }
+                catch (UnauthorizedAccessException) { return null; }
+            }
+            return String.IsNullOrWhiteSpace(value) ? null : value.Trim();
         }
 
         #endregion

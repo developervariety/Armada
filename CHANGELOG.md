@@ -8,6 +8,23 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- Subscription accounts can be added and logged in entirely from the Dashboard,
+  with any number of accounts per runtime. The Routing tab's new Subscription
+  accounts section creates a server-derived account folder
+  (`<data directory>/accounts/<id>`, mode 0700), saves the account with its
+  runtime and folder, and runs the runtime's own login: Codex device login and
+  Claude Code sign-in with a pasted code show only the provider link and code;
+  OpenCode and Cursor take an API key once, written with mode 0600 and never
+  returned, logged, or stored in settings. Captains of the same runtime can be
+  assigned or cloned onto the account. One login runs per account and a pending
+  login stops after 15 minutes. New admin-only routes live under
+  `/api/v1/usage-accounts/{accountId}/login/` (`home`, `start`, `code`, `key`,
+  `status`, `cancel`) and are never recorded in request history. Cursor accounts
+  gain `launchCredentialFile`, a key file in the account folder, as an
+  alternative to `launchCredentialEnv`; a missing or empty file reads
+  `account_launch_credential_unavailable`. The policy JSON editor moves under an
+  Advanced section.
+
 - Smart Routing (usage-aware routing) enabled with no configured route for a
   persona now passes the legacy candidate list through unchanged instead of
   deferring the mission with no idle captain. Enabling Smart Routing fleet-wide

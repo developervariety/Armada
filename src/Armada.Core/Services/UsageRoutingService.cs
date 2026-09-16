@@ -45,7 +45,9 @@ namespace Armada.Core.Services
         public static UsageRoutingService For(ArmadaSettings settings) => _Instances.GetValue(settings, _ => new UsageRoutingService());
 
         /// <summary>Validate configuration before publishing it to readers.</summary>
-        public static void Validate(UsageRoutingSettings settings)
+        /// <param name="settings">Policy to validate.</param>
+        /// <param name="accountsRoot">Optional Admiral account folder root; when set, Cursor key files must sit inside it.</param>
+        public static void Validate(UsageRoutingSettings settings, string? accountsRoot = null)
         {
             if (settings.RefreshIntervalMinutes < 1 || settings.RefreshIntervalMinutes > 60) throw new ArgumentException("Usage refresh interval must be between 1 and 60 minutes.");
             if (settings.LoginProbeIntervalMinutes < 1 || settings.LoginProbeIntervalMinutes > 1440) throw new ArgumentException("Login probe interval must be between 1 and 1440 minutes.");
@@ -73,7 +75,7 @@ namespace Armada.Core.Services
                 if (account.WindowModels == null || account.WindowModels.Any(p => String.IsNullOrWhiteSpace(p.Key) || p.Value == null || p.Value.Any(String.IsNullOrWhiteSpace))) throw new ArgumentException("Usage window model mappings are invalid.");
                 if (account.Collector == "File" && String.IsNullOrWhiteSpace(account.UsageFilePath)) throw new ArgumentException("File collector requires a usage snapshot path.");
                 if (account.ManualSnapshot != null) ValidateSnapshot(account.ManualSnapshot);
-                CaptainAccountLaunch.ValidateAccount(account);
+                CaptainAccountLaunch.ValidateAccount(account, accountsRoot);
                 if (account.Runtime.HasValue && !CollectorMatchesRuntime(account.Collector, account.Runtime.Value)) throw new ArgumentException("Usage account " + account.Id + " collector " + account.Collector + " does not measure runtime " + account.Runtime.Value + ".");
             }
             HashSet<string> personas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -119,7 +121,7 @@ namespace Armada.Core.Services
                         foreach (UsageAccountSettings account in settings.Accounts)
                         {
                             string source = account.Collector + "\n" + account.CredentialEnv + "\n" + account.CredentialFilePath + "\n" + account.UsageFilePath
-                                + "\n" + account.Runtime + "\n" + account.HomeDirectory + "\n" + account.LaunchCredentialEnv
+                                + "\n" + account.Runtime + "\n" + account.HomeDirectory + "\n" + account.LaunchCredentialEnv + "\n" + account.LaunchCredentialFile
                                 + "\n" + String.Join(",", account.CaptainIds) + "\n" + JsonSerializer.Serialize(account.WindowModels);
                             if (!_AccountSources.TryGetValue(account.Id, out string? previous) || source != previous) ForgetAccount(account.Id);
                             _AccountSources[account.Id] = source;
@@ -281,6 +283,20 @@ namespace Armada.Core.Services
             }
             if (start) StartLoginProbe(account, state, timeout);
             lock (_StateLock) return state.Reason;
+        }
+
+        /// <summary>
+        /// Discard the account's cached login probe result, so the next login check starts a fresh probe. Called after a
+        /// login completes, so a stale "expired" result does not outlive the new login.
+        /// </summary>
+        public void InvalidateLoginProbe(string accountId)
+        {
+            if (String.IsNullOrWhiteSpace(accountId)) return;
+            lock (_StateLock)
+            {
+                // A running probe keeps its state object; replacing the entry makes its late result land nowhere.
+                _LoginProbes.Remove(accountId);
+            }
         }
 
         /// <summary>When the account's last runtime login status probe finished, or null before any probe.</summary>

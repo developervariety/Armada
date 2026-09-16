@@ -140,9 +140,10 @@ counts are not treated as subscription allowance.
 ## Account logins
 
 By default every subscription captain of one runtime uses the one login of the
-Admiral service user. An account can own a separate login instead. This is
-disabled by default: an account with no `runtime`, or no `homeDirectory` or
-`launchCredentialEnv`, launches its captains exactly as before.
+Admiral service user. An account can own a separate login instead. There is no
+limit per runtime beyond the policy's 32 accounts. This is disabled by default:
+an account with no `runtime`, or no `homeDirectory`, `launchCredentialEnv`, or
+`launchCredentialFile`, launches its captains exactly as before.
 
 **Owner decision required before rollout.** Confirm that each additional
 subscription account is permitted for this use under the provider's terms
@@ -155,7 +156,7 @@ accept billing terms.
 | `ClaudeCode` | `CLAUDE_CONFIG_DIR=<homeDirectory>` | `<homeDirectory>/.credentials.json` exists |
 | `Codex` | `CODEX_HOME=<homeDirectory>` | `<homeDirectory>/auth.json` exists |
 | `OpenCode` | `XDG_DATA_HOME=<homeDirectory>` | `<homeDirectory>/opencode/auth.json` exists |
-| `Cursor` | `CURSOR_API_KEY` from the variable named by `launchCredentialEnv` | That variable is set on the server |
+| `Cursor` | `CURSOR_API_KEY` from the variable named by `launchCredentialEnv`, or read from `launchCredentialFile` | That variable is set, or that file exists and is not empty |
 
 - `homeDirectory` is an absolute path, and it holds only a path. Keep one home
   per login, for example under the Admiral's `accounts/<id>/` folder, mode
@@ -164,7 +165,10 @@ accept billing terms.
   invalidates copies.
 - Cursor keeps its normal `HOME`, so git, gh, and ssh configuration stay
   visible. `launchCredentialEnv` is a variable **name**; Armada reads the value
-  at launch and never stores it. The Cursor usage collector still needs its own
+  at launch and never stores it. `launchCredentialFile` is the alternative: the
+  absolute path of `cursor-api-key` inside the account's own folder
+  (`<data directory>/accounts/<id>/cursor-api-key`). Settings saves reject any
+  other path, and an account cannot set both. The Cursor usage collector still needs its own
   session-cookie reference in `credentialEnv` or `credentialFilePath`.
   `XDG_DATA_HOME` also moves OpenCode session storage into the home.
 - Codex external-provider profiles for a captain on an account are written into
@@ -184,6 +188,50 @@ accept billing terms.
   `WaitingForProviderUsage`. A launch that still reaches such an account fails
   with the same reason; it never falls back to the shared login.
 
+### Logging in from the Dashboard
+
+The Routing tab's **Subscription accounts** section does the whole setup without
+a shell. The JSON policy editor stays available under **Advanced**.
+
+**Add account.** Pick the runtime and type a name. The account ID is the name
+in lower case with other characters replaced by hyphens, made unique among
+existing accounts. The server creates `<data directory>/accounts/<id>` with
+mode 0700, and the account is saved with its `runtime`, a matching usage
+collector (`Codex`, `Claude`, `OpenCodeGo`; `Manual` for Cursor), and
+`homeDirectory` set to that folder, or `launchCredentialFile` set to its
+`cursor-api-key` for Cursor.
+
+**Log in**, by runtime:
+
+| Runtime | Dashboard step | What the server runs or writes |
+| --- | --- | --- |
+| Codex | Start device login, open the link, enter the code | `codex login --device-auth` with `CODEX_HOME=<folder>` |
+| Claude Code | Start sign-in, open the link, paste the code shown after sign-in | `claude auth login` with `CLAUDE_CONFIG_DIR=<folder>`; the pasted code goes to its standard input |
+| OpenCode | Enter the OpenCode Go API key | Merges `{"opencode-go": {"type": "api", "key": ...}}` into `<folder>/opencode/auth.json` (mode 0600), keeping other entries; an unreadable file is left unchanged |
+| Cursor | Enter the Cursor API key | Writes `<folder>/cursor-api-key` (mode 0600) |
+
+Cursor also offers a browser login (`cursor-agent login` with
+`NO_OPEN_BROWSER=1` and `HOME` set to the account folder, so the Admiral
+user's own Cursor login is untouched). Captains still launch with the API
+key, so the key step is the one that makes the account usable.
+
+**Assign captains.** Tick captains of the same runtime; a captain already on
+another account, or one with its own provider key or base URL, cannot be
+ticked. **Clone** creates a new captain with the same runtime, model, and
+personas, named `<captain>-<account>`, and assigns it.
+
+The page checks a pending login every three seconds. A login succeeds when the
+CLI exits cleanly; Armada then discards the cached login probe and starts a new
+one. Only the verification URL (on the provider's own domain) and the device
+code are read from the CLI output; the rest is discarded and never logged.
+A key or pasted code is sent once, cleared from the page, and never returned,
+logged, stored in settings or events, or recorded in request history. One login
+runs per account. A pending login is stopped after 15 minutes
+(`account_login_expired_before_completion`), when cancelled, and when the
+Admiral stops. A CLI that prints no link within 30 seconds is stopped with
+`account_login_prompt_not_found`. The REST routes are listed in
+[the REST API reference](REST_API.md#subscription-account-logins).
+
 ### Login status probe
 
 The file check is a fast pre-filter. When it passes, Armada also runs the
@@ -195,7 +243,7 @@ login:
 | `ClaudeCode` | `claude auth status --json` with `CLAUDE_CONFIG_DIR` | `loggedIn: true` is ready; `loggedIn: false` is `account_login_expired` |
 | `Codex` | `codex login status` with `CODEX_HOME` | Exit 0 is ready; `Not logged in` is `account_login_expired` |
 | `OpenCode` | None used | `opencode auth list` exits 0 with human-readable text even with no credential, so only the file check applies |
-| `Cursor` | None used | `cursor-agent status` reports the stored login and ignores `CURSOR_API_KEY`, so only the variable check applies |
+| `Cursor` | None used | `cursor-agent status` reports the stored login and ignores `CURSOR_API_KEY`, so only the variable or key file check applies |
 
 A probe that runs longer than `loginProbeTimeoutSeconds` (default 10, range
 1–60) is stopped and reports `account_login_probe_timeout`. A CLI that cannot
@@ -240,9 +288,13 @@ recovery state across settings updates.
 
 ## Dashboard and API
 
-The Settings hub has an admin **Routing** tab. Its Smart Routing part has an enable
-control, budget fields, an account template, the full editable policy JSON,
-reported usage, and a draft preview. Its save sends only
+The Settings hub has an admin **Routing** tab. Its Smart Routing part has the
+guided **Subscription accounts** section (see
+[Logging in from the Dashboard](#logging-in-from-the-dashboard)), an enable
+control, budget fields, reported usage, a draft preview, and an **Advanced**
+section with the account template and the full editable policy JSON. A guided
+account change saves only that change to the saved policy; unsaved JSON edits
+are kept as a draft and are not sent with it. Its save sends only
 `modelTier.usageRouting`, so it never replaces the model routing policy edited
 in the other part of the tab, and a refresh keeps unsaved edits. The policy
 hot-reloads; no restart is required.

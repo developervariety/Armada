@@ -95,6 +95,7 @@ namespace Armada.Server
         private TerminalVoyageMissionReconciler _TerminalVoyageMissions = null!;
         private OpenCodeServerLauncher _OpenCodeServerLauncher = null!;
         private RemoteTunnelManager _RemoteTunnel = null!;
+        private AccountLoginService? _AccountLogins;
         private RemoteDashboardRelayService _RemoteDashboardRelay = null!;
         private PlanningSessionCoordinator _PlanningSessions = null!;
         private ObjectiveRefinementCoordinator _ObjectiveRefinementSessions = null!;
@@ -1033,6 +1034,8 @@ namespace Armada.Server
             catch
             {
             }
+            // Pending account logins own CLI processes; stop them with the Admiral.
+            _AccountLogins?.Dispose();
             try
             {
                 _SettingsWatcher?.Dispose();
@@ -1252,6 +1255,23 @@ namespace Armada.Server
 
             // Status, health, doctor, settings, server control
             new StatusRoutes(_Database, _Settings, _Admiral, () => Stop(), _StartUtc, _JsonOptions, _Logging, _BuildDriftService, _RemoteTunnel.GetStatus, _RemoteTunnel.ReloadAsync)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Subscription account logins driven from the dashboard
+            _AccountLogins = new AccountLoginService(
+                _Settings.DataDirectory,
+                new SystemAccountLoginProcessRunner(),
+                message => _Logging.Info(_Header + message),
+                (eventType, message, accountId) => _ = EmitEventAsync(eventType, message, "usage_account", accountId));
+            _AccountLogins.OnLoginSucceeded = accountId =>
+            {
+                // A completed login replaces any cached "expired" probe result and starts a fresh check at once.
+                UsageRoutingService usage = UsageRoutingService.For(_Settings);
+                usage.InvalidateLoginProbe(accountId);
+                UsageAccountSettings? account = _Settings.ModelTier.UsageRouting.Accounts.FirstOrDefault(a => String.Equals(a.Id, accountId, StringComparison.Ordinal));
+                if (account != null) usage.GetLoginProblem(account, DateTime.UtcNow);
+            };
+            new UsageAccountLoginRoutes(_Settings, _AccountLogins, _JsonOptions)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Fleets

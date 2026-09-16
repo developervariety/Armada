@@ -2,7 +2,12 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import RoutingSettings from './RoutingSettings';
 import { getSettings, updateSettings } from '../api/client';
-vi.mock('../api/client', () => ({ getSettings: vi.fn(), updateSettings: vi.fn(), previewUsageRouting: vi.fn() }));
+vi.mock('../api/client', () => ({
+  getSettings: vi.fn(), updateSettings: vi.fn(), previewUsageRouting: vi.fn(),
+  listCaptains: vi.fn().mockResolvedValue({ objects: [] }), createCaptain: vi.fn(), createAccountHome: vi.fn(),
+  startAccountLogin: vi.fn(), submitAccountLoginCode: vi.fn(), submitAccountLoginKey: vi.fn(),
+  getAccountLoginStatus: vi.fn(), cancelAccountLogin: vi.fn(),
+}));
 vi.mock('../context/LocaleContext', () => {
   const locale = { t: (s: string, params?: Record<string, string>) => params ? Object.entries(params).reduce((text, [k, v]) => text.split(`{{${k}}}`).join(v), s) : s };
   return { useLocale: () => locale };

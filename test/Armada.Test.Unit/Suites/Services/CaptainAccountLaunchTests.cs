@@ -205,6 +205,23 @@ namespace Armada.Test.Unit.Suites.Services
                     finally { Directory.Delete(scratch, true); }
                 });
 
+                await RunTest("Cursor captain on an account launches with CURSOR_API_KEY read from its key file and keeps HOME", async () =>
+                {
+                    string scratch = TempDirectory("launch");
+                    try
+                    {
+                        string keyFile = Path.Combine(scratch, "accounts", "cursor-file", AccountLoginPaths.CursorKeyFileName);
+                        Directory.CreateDirectory(Path.GetDirectoryName(keyFile)!);
+                        File.WriteAllText(keyFile, "cursor-file-key-not-a-real-credential\n");
+                        UsageAccountSettings account = new UsageAccountSettings { Id = "cursor-file", Runtime = AgentRuntimeEnum.Cursor, LaunchCredentialFile = keyFile };
+                        Dictionary<string, string> launched = await LaunchRuntimeAsync(AgentRuntimeEnum.Cursor, account, scratch).ConfigureAwait(false);
+                        AssertEqual("cursor-file-key-not-a-real-credential", launched["CURSOR_API_KEY"]);
+                        AssertEqual(Environment.GetEnvironmentVariable("HOME"), launched["HOME"], "Cursor keeps the Admiral HOME");
+                        AssertFalse(System.Text.Json.JsonSerializer.Serialize(account).Contains("cursor-file-key-not-a-real-credential"), "settings hold only the file path");
+                    }
+                    finally { Directory.Delete(scratch, true); }
+                });
+
                 await RunTest("Cursor captain with no account launches exactly as before", async () =>
                 {
                     string scratch = TempDirectory("launch");
@@ -426,6 +443,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertLaunchRefused(captain, new UsageAccountSettings { Id = "no-login", Runtime = AgentRuntimeEnum.ClaudeCode, HomeDirectory = home }, CaptainAccountLaunch.ReasonLoginMissing);
                     AssertLaunchRefused(captain, new UsageAccountSettings { Id = "no-home", Runtime = AgentRuntimeEnum.ClaudeCode, HomeDirectory = Path.Combine(home, "absent") }, CaptainAccountLaunch.ReasonHomeMissing);
                     AssertLaunchRefused(new Captain("cursor-account", AgentRuntimeEnum.Cursor), new UsageAccountSettings { Id = "no-key", Runtime = AgentRuntimeEnum.Cursor, LaunchCredentialEnv = "ARMADA_ACCOUNT_KEY_NOT_SET_ANYWHERE" }, CaptainAccountLaunch.ReasonCredentialUnavailable);
+                    AssertLaunchRefused(new Captain("cursor-account", AgentRuntimeEnum.Cursor), new UsageAccountSettings { Id = "no-key-file", Runtime = AgentRuntimeEnum.Cursor, LaunchCredentialFile = Path.Combine(home, "no-key-file", AccountLoginPaths.CursorKeyFileName) }, CaptainAccountLaunch.ReasonCredentialUnavailable);
                     AssertLaunchRefused(new Captain("codex-captain", AgentRuntimeEnum.Codex), new UsageAccountSettings { Id = "wrong-runtime", Runtime = AgentRuntimeEnum.ClaudeCode, HomeDirectory = home }, CaptainAccountLaunch.ReasonRuntimeMismatch);
                     Captain provider = new Captain("provider-captain", AgentRuntimeEnum.ClaudeCode) { ApiKey = "k", ApiBaseUrl = "https://provider.example" };
                     File.WriteAllText(Path.Combine(home, ".credentials.json"), "{}");

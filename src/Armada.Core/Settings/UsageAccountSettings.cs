@@ -40,6 +40,14 @@ namespace Armada.Core.Settings
         /// </summary>
         public string? LaunchCredentialEnv { get; set; }
 
+        /// <summary>
+        /// Cursor only: absolute path of a file holding this account's API key, passed to the captain as CURSOR_API_KEY.
+        /// An alternative to <see cref="LaunchCredentialEnv"/>. The file must be <c>cursor-api-key</c> inside the
+        /// account's own folder; the dashboard key login writes it with owner-only permissions. The value is read at
+        /// launch and never stored in settings.
+        /// </summary>
+        public string? LaunchCredentialFile { get; set; }
+
         /// <summary>Unique operator-defined account identifier.</summary>
         public string Id { get; set; } = String.Empty;
 
