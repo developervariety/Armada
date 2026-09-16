@@ -120,6 +120,10 @@ namespace Armada.Server
         private ITypedDecisionClient _TypedDecisionClient = new NullTypedDecisionClient();
         private TypedDecisionRecorder _TypedDecisionRecorder = null!;
         private HttpClient _TypedDecisionHttpClient = null!;
+        // The context retrieval service over the built context index (manifest chunks plus bodies).
+        // Built in-process at MCP registration from AI-Memory and the docs tree; feeds the
+        // read-only captain context fetch tool. Additive; touches no loader and no brief.
+        private Armada.Core.Context.ContextRetrievalService? _ContextRetrieval;
         private PapercutMergeAdapter _PapercutMergeAdapter = null!;
         // D13 owner_digest scheduled runner. Constructed only with the live typed-decision client and
         // dormant until the owner_digest decision is enabled; the health loop drives it once per day.
@@ -853,6 +857,34 @@ namespace Armada.Server
             // Start health check loop
             _HealthCheckTask = HealthCheckLoopAsync(_TokenSource.Token);
             _ModelEndpointHealthTask = ModelEndpointHealthLoopAsync(_TokenSource.Token);
+        }
+
+        /// <summary>
+        /// Build the context retrieval service in-process by reusing the context-index generator: it
+        /// reads AI-Memory and the docs tree and returns the chunks (with bodies) that the retrieval
+        /// layer ranks. Building in-process, rather than reading the manifest file the startup
+        /// generator writes, keeps the tool independent of file write ordering; both derive from the
+        /// same generator, so they agree. Fully guarded: any failure logs a warning and returns null,
+        /// and the fetch tool is then simply not registered.
+        /// </summary>
+        private Armada.Core.Context.ContextRetrievalService? BuildContextRetrievalService()
+        {
+            try
+            {
+                string? docsRoot = ResolveDocsRoot();
+                Armada.Core.Context.ContextIndexGenerator generator = new Armada.Core.Context.ContextIndexGenerator(_Logging);
+                Armada.Core.Context.ContextIndex index = generator.Build(_Settings.AiMemoryRoot, docsRoot);
+                Armada.Core.Context.ContextRetrievalService service =
+                    new Armada.Core.Context.ContextRetrievalService(index.Chunks, null, _Logging);
+                _Logging.Info(_Header + "context retrieval service built: core=" + service.CoreCount +
+                    " leaves=" + service.LeafCount);
+                return service;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "context retrieval service build error: " + ex.Message);
+                return null;
+            }
         }
 
         /// <summary>
@@ -1735,6 +1767,8 @@ namespace Armada.Server
 
         private void RegisterMcpTools()
         {
+            _ContextRetrieval = BuildContextRetrievalService();
+
             McpToolRegistrar.RegisterAll(
                 _McpServer.RegisterTool,
                 _Database,
@@ -1781,7 +1815,9 @@ namespace Armada.Server
                 typedDecisionParticipantKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey,
                 papercutMergeAdapter: _PapercutMergeAdapter,
                 inboxTriageAdapter: _InboxTriageAdapter,
-                followUpRoutingAdapter: _FollowUpRoutingAdapter);
+                followUpRoutingAdapter: _FollowUpRoutingAdapter,
+                contextRetrieval: _ContextRetrieval,
+                contextParticipantKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey);
 
         }
 

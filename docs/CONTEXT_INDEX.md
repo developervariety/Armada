@@ -91,3 +91,48 @@ copy of a rule, and it is never hand-edited. When the active memory set
 changes, the four loaders stay in sync as today; the manifest regenerates on
 the next admiral start. A change to what is core is an owner-reviewed change to
 the tier configuration.
+
+## Retrieval and the `armada_fetch_context` tool
+
+`ContextRetrievalService` is the retrieval layer over the built index. It takes
+a request — free query text and/or explicit topics, the requesting persona, the
+vessel, and a leaf byte budget — and returns an ordered result in three
+disjoint sets:
+
+1. **Core.** Every `tier: core` chunk, in the bundle order, first, and never
+   counted against the leaf budget. The core is never filtered and never
+   dropped: retrieval only ever widens beyond it.
+2. **Must-retrieve.** Every leaf whose `must_retrieve` domain matches the
+   request's vessel, persona, or a requested topic (a vessel's safety leaves).
+   Also never budget-limited.
+3. **Leaves.** The remaining leaves, filtered by `applies_to` — a persona
+   request excludes leaves for other personas; a vessel request excludes leaves
+   for other vessels; an `all` leaf is always eligible — then ranked and cut to
+   the leaf byte budget.
+
+Ranking is deterministic: a keyword and topic match over each chunk's topic,
+summary, read-when, and applies-to metadata, plus a light body match capped so
+a long body cannot outweigh a precise metadata hit, with ties broken by topic
+id. The ranker sits behind an injectable `IContextLeafRanker`, the seam a
+future typed relevance decision (`context_route`) plugs into to re-order and
+widen the leaf set — it may only add or re-order, never drop a floor leaf and
+never touch core. Any error fails safe: every core chunk plus a conservative
+leaf superset, never zero core, and never an exception into the caller.
+
+`armada_fetch_context` is the captain-facing tool over the service. It is
+mission-scoped, read-only, and informative: a captain gives a `query` and/or a
+`topic` and its `missionId`, and the tool returns the relevant leaf bodies for
+that query (the core already ships inline in the brief, so the tool returns only
+leaves and the vessel's must-retrieve safety leaves). It resolves the caller's
+vessel and persona from the mission, so the leaf set is scoped without the
+captain naming them. It is bounded by a per-mission call budget from the
+`contextRetrieval` settings; when the budget is spent it returns a clear budget
+message. It writes nothing to any Armada record and has no side effect — it
+logs only the query length and a short hash, never the raw query — so authority
+never travels with the tool. It is enabled by default because it makes no
+external call and returns only already-sanitized memory and docs text.
+
+The service is built in-process at startup by reusing the index generator, so
+it and the written manifest derive from the same source and agree. Retrieval,
+the fetch tool, and their wiring are additive: brief generation and every
+loader are unchanged.

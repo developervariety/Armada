@@ -30,6 +30,28 @@ All notable changes to Armada are documented in this file.
   generator and startup wiring only; retrieval, brief slimming, and loader
   changes are later work.
 
+- Added the context retrieval layer over the generated index, and a
+  captain-facing fetch tool. `ContextRetrievalService` answers a request
+  (query and/or topics, requesting persona, vessel, and a leaf byte budget)
+  with an ordered result: every `tier: core` chunk first and never
+  budget-limited; every leaf whose `must_retrieve` domain matches the request
+  (a vessel's safety leaves), also never budget-limited; then the ranked
+  relevant leaves that fit the byte budget, filtered by `applies_to` so a
+  persona request excludes other-persona leaves while `all` stays eligible.
+  Ranking is deterministic (keyword and topic match over the chunk metadata
+  and a light body match, ties broken by topic id) behind an injectable
+  `IContextLeafRanker`, so a future typed relevance decision can re-order or
+  widen the leaf set without touching the core rule. Any error fails safe:
+  every core chunk plus a conservative leaf superset, never zero core, never
+  an exception into the caller. The new `armada_fetch_context` MCP tool is
+  mission-scoped, read-only, and informative: it runs the service for a
+  captain's query, returns the relevant leaf bodies (the core already ships in
+  the brief), resolves the caller's vessel and persona from the mission,
+  enforces a per-mission call budget from settings, and writes no Armada
+  record (it logs only the query length and a short hash, never the raw
+  query). The service is built in-process at startup by reusing the index
+  generator. Additive: brief generation and the loaders are unchanged.
+
 ### Code index
 
 - Replaced the code-index embedding client with a Voyage AI client. The fork

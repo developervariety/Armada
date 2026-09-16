@@ -38,6 +38,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CaptainToolServiceDiscoveryTests());
             runner.AddSuite(new TelemetryLogExportTests());
             runner.AddSuite(new ContextIndexGeneratorTests());
+            runner.AddSuite(new ContextRetrievalServiceTests());
 
             // Previously compiled suites are explicit registrations until discovery parity is proved.
             runner.AddSuite(new RequestHistoryDatabaseTests());
@@ -314,6 +315,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new TypedDecisionRecorderTests());
             runner.AddSuite(new TypedDecisionSettingsTests());
             runner.AddSuite(new McpTypedDecisionToolsTests());
+            runner.AddSuite(new McpContextToolsTests());
             runner.AddSuite(new TypedFailureCauseAdapterTests());
             runner.AddSuite(new TypedRefusalAdapterTests());
             runner.AddSuite(new TypedRuntimeFailureAdapterTests());

@@ -707,6 +707,17 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Captain context fetch tool (<c>armada_fetch_context</c>) policy: whether it is enabled,
+        /// the per-call leaf byte budget, and the per-mission call budget. The tool is read-only and
+        /// returns only sanitized memory and docs leaf text.
+        /// </summary>
+        public ContextRetrievalSettings ContextRetrieval
+        {
+            get => _ContextRetrieval;
+            set => _ContextRetrieval = value ?? new ContextRetrievalSettings();
+        }
+
+        /// <summary>
         /// Near-instant runtime crash-loop detection and captain benching policy.
         /// </summary>
         public CrashLoopDetectionSettings CrashLoopDetection
@@ -955,6 +966,7 @@ namespace Armada.Core.Settings
         private ArchitectSettings? _Architect;
         private AutonomousRecoverySettings _AutonomousRecovery = new AutonomousRecoverySettings();
         private TypedDecisionSettings _TypedDecisions = new TypedDecisionSettings();
+        private ContextRetrievalSettings _ContextRetrieval = new ContextRetrievalSettings();
         private CrashLoopDetectionSettings _CrashLoopDetection = new CrashLoopDetectionSettings();
         private CaptainQuarantineSettings _CaptainQuarantine = new CaptainQuarantineSettings();
         private ResourcePressureAdmissionSettings _ResourcePressureAdmission = new ResourcePressureAdmissionSettings();
