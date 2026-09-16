@@ -44,6 +44,11 @@ namespace Armada.Server.Mcp
             "armada_check_premise",
             "armada_memory_triage",
 
+            // The captain-facing context fetch tool. It is read-only and informative: it returns
+            // sanitized memory and docs leaf text, writes no record, and is budgeted per mission, so a
+            // mission caller may reach it like the memory tools.
+            "armada_fetch_context",
+
             // Harbor job tools apply the shared runner authorization rule to every job, and stopping also needs
             // the tenant administrator level the REST route requires.
             "armada_harbor_jobs",

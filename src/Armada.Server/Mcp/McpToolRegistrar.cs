@@ -100,7 +100,9 @@ namespace Armada.Server.Mcp
             Func<string?>? typedDecisionParticipantKeyProvider = null,
             Armada.Core.Services.PapercutMergeAdapter? papercutMergeAdapter = null,
             Armada.Core.Services.InboxTriageAdapter? inboxTriageAdapter = null,
-            Armada.Core.Services.FollowUpRoutingAdapter? followUpRoutingAdapter = null)
+            Armada.Core.Services.FollowUpRoutingAdapter? followUpRoutingAdapter = null,
+            Armada.Core.Context.ContextRetrievalService? contextRetrieval = null,
+            Func<string?>? contextParticipantKeyProvider = null)
         {
             ArmadaSettings effectiveSettings = settings ?? new ArmadaSettings();
             longRunningJobs = longRunningJobs ?? new LongRunningJobService();
@@ -146,6 +148,11 @@ namespace Armada.Server.Mcp
             McpPersonaTools.Register(register, database);
             McpPipelineTools.Register(register, database);
             McpMemoryTools.Register(register, database, logging);
+
+            // The captain-facing context fetch tool sits in the mission-scoped catalogue beside
+            // the memory tools. It is registered only when a built context index was supplied.
+            if (contextRetrieval != null)
+                McpContextTools.Register(register, contextRetrieval, database, effectiveSettings, logging, contextParticipantKeyProvider);
 
             // The captain-facing typed-decision tools sit in the mission-scoped catalogue beside the
             // memory tools. They need the recorder, which needs a logging module; where none was

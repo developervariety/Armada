@@ -24,6 +24,84 @@ All notable changes to Armada are documented in this file.
   carried on its voyage (autonomous dispatch, which has no interactive caller),
   never the operator launch credential, never operator-only tools, and never
   another tenant's records.
+### Context system
+
+- Added a startup context-index generator. On boot the admiral now reads the
+  AI-Memory tree (`shared/`, `repos/`, `machine-notes/`) and the Armada `docs/`
+  tree and writes two artifacts under the data directory:
+  `context-index/manifest.json` and `context-index/context-core.md`. The
+  manifest maps every documentation and memory chunk to its logical path,
+  topic, one-line summary, read-when trigger, `applies_to` audience, tier
+  (`core` or `leaf`), optional `must_retrieve` domains, and byte size. The core
+  bundle concatenates every `tier: core` chunk under a short header. A single
+  owner-approved tier configuration decides what is core: three memory files in
+  full (repository boundary and leak-prevention, land-then-sync, typed-decision
+  non-negotiables) and named sections of three mixed files (the unified-memory
+  Boundaries, Proving-a-fix, Domain-scope and Reporting-style sections, the
+  sole-memory-source pointer and its four-loaders rule, and the Armada
+  direct-edit rule), plus a synthesized index-and-retrieval chunk. The step is
+  purely additive: it only reads AI-Memory, changes no loader, and never gates
+  how memory currently loads. It is fail-open, so a generation error logs a
+  warning and never blocks startup. Output is deterministic: text is normalized
+  to LF, chunks are stably ordered, and neither artifact carries a timestamp or
+  a host-absolute path, so repeated runs are byte-identical. This is the
+  generator and startup wiring only; retrieval, brief slimming, and loader
+  changes are later work.
+
+- Added the context retrieval layer over the generated index, and a
+  captain-facing fetch tool. `ContextRetrievalService` answers a request
+  (query and/or topics, requesting persona, vessel, and a leaf byte budget)
+  with an ordered result: every `tier: core` chunk first and never
+  budget-limited; every leaf whose `must_retrieve` domain matches the request
+  (a vessel's safety leaves), also never budget-limited; then the ranked
+  relevant leaves that fit the byte budget, filtered by `applies_to` so a
+  persona request excludes other-persona leaves while `all` stays eligible.
+  Ranking is deterministic (keyword and topic match over the chunk metadata
+  and a light body match, ties broken by topic id) behind an injectable
+  `IContextLeafRanker`, so a future typed relevance decision can re-order or
+  widen the leaf set without touching the core rule. Any error fails safe:
+  every core chunk plus a conservative leaf superset, never zero core, never
+  an exception into the caller. The new `armada_fetch_context` MCP tool is
+  mission-scoped, read-only, and informative: it runs the service for a
+  captain's query, returns the relevant leaf bodies (the core already ships in
+  the brief), resolves the caller's vessel and persona from the mission,
+  enforces a per-mission call budget from settings, and writes no Armada
+  record (it logs only the query length and a short hash, never the raw
+  query). The service is built in-process at startup by reusing the index
+  generator. Additive: brief generation and the loaders are unchanged.
+
+- Added a chunk-metadata sidecar so the index carries hand-authored retrieval
+  metadata without editing AI-Memory. The generator now reads an optional
+  repository-versioned file, `docs/context-index/chunk-metadata.json`, that
+  maps a chunk id (the manifest `id`, equal to the chunk topic) to a `summary`,
+  a concrete `read_when` trigger, an `applies_to` scope, and, for a small set
+  of safety-shaped per-vessel leaves, a `must_retrieve` domain. The generator
+  merges the sidecar OVER the auto-derived metadata: a sidecar field wins where
+  present, and the auto-derived value fills every gap, so a chunk with no
+  sidecar entry is unchanged. The sidecar is metadata ABOUT the memory and docs
+  chunks, never a copy of their content, and it carries no `tier`: it never
+  promotes or demotes a chunk, so the core allowlist and the always-on core
+  bundle are byte-identical with or without it. The shipped sidecar enriches
+  every AI-Memory leaf and the key operator docs; the EcuLink memory leaf is
+  tagged `must_retrieve: ["eculink"]` so its source-fidelity and
+  hang-escalation rules are always retrieved for an EcuLink task. Resolution is
+  automatic (the default file under the docs root) and fully guarded: a missing
+  or malformed sidecar is ignored and the index still generates. Additive: the
+  server wiring, brief generation, and the loaders are unchanged.
+
+- Added the context-retrieval coverage census: a harness
+  (`Armada.Core/Context/Census/ContextCoverageCensus.cs`) and a committed report
+  (`docs/context-index/coverage-census.md`) that measure the built index and the
+  retrieval service to gate whether the orchestrator and captain briefs can be
+  slimmed. It reports four numbers: safety recall (an invariant that every core
+  and every domain-matched must_retrieve chunk is always returned, pinned by a
+  registered unit test), read_when leaf recall, the byte-reduction distribution
+  against the eager baseline, and a failure replay over recent papercut signals.
+  The invariant part is a gate test; the two database-sampling parts run by hand
+  and are never flaky in the suite. First run: safety recall 100%, read_when
+  recall 93.6%, byte reduction 87.8-95.3% (median 92.2%), and five failure-replay
+  regressions traced to oversized whole-file leaves, so brief wiring stays blocked
+  until the large sources are sub-chunked.
 
 ### Code index
 

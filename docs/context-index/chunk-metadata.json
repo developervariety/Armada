@@ -1,0 +1,338 @@
+{
+  "version": 1,
+  "_about": "Chunk-metadata sidecar for the context index. Maps a chunk id (manifest 'id', equal to the chunk topic) to hand-authored retrieval metadata that the ContextIndexGenerator merges over the auto-derived metadata. Metadata ABOUT the memory and docs, never a copy of their content; carries no tier and never edits AI-Memory.",
+  "chunks": {
+    "memory.shared.index": {
+      "summary": "Map of the durable memory layout: shared rules, per-repo rules, and per-host notes, and which file owns which rule.",
+      "read_when": "You are locating which memory file owns a rule, or deciding where a new memory belongs.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.shared.unified-project-memory": {
+      "summary": "The cross-tool memory core: what belongs in memory and the pointers to reporting, boundaries, diagnosis, and proof rules.",
+      "read_when": "You are starting any session and orienting to the shared cross-tool rules.",
+      "applies_to": [
+        "all"
+      ]
+    },
+    "memory.shared.unified-project-memory.what-belongs-here": {
+      "summary": "What may become durable memory: only repeated behavior and hard lessons, never current work state, counts, or reverse-engineering findings.",
+      "read_when": "You are about to write or propose a new durable memory entry.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.shared.unified-project-memory.armada-workflow": {
+      "summary": "Pointer to the Armada session workflow and operational-asset rules; they are not duplicated in shared memory.",
+      "read_when": "You are operating Armada and need the session or asset procedure.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.shared.unified-project-memory.diagnosis": {
+      "summary": "Diagnose from full context: read complete logs, compare against a known-good path, and separate environment from code before acting.",
+      "read_when": "You are diagnosing a failure or a suspected component defect.",
+      "applies_to": [
+        "all"
+      ]
+    },
+    "memory.shared.unified-project-memory.runtime-routing": {
+      "summary": "Runtime routing defaults: the Codex server model, the per-captain model record, and that Gemini is unavailable until authenticated.",
+      "read_when": "You are choosing or changing a runtime or model for a session or captain.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.shared.unified-project-memory.source-comments": {
+      "summary": "Source comments state the rule not the incident: no dates, mission or voyage ids, commit hashes, or plan-block labels in committed code.",
+      "read_when": "You are writing or reviewing a source comment, test name, or log string.",
+      "applies_to": [
+        "all"
+      ]
+    },
+    "memory.shared.audit-methods": {
+      "summary": "Two reusable audits: the coverage census before trusting a converged-to-zero result, and the test-suite growth and duplication census.",
+      "read_when": "You are running or dispatching a coverage audit or a test-suite growth or duplication census.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.shared.sole-memory-source.scope-decides-the-folder": {
+      "summary": "Scope decides the folder for a new memory: shared, one repo, or one host; a lesson spanning two repos lives with the one that causes it.",
+      "read_when": "You are adding a memory and deciding which folder it belongs in.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.shared.sole-memory-source.where-the-folder-is": {
+      "summary": "The per-host paths of the AI-Memory folder on the macOS workstation, the Windows workstation, and the Armada server.",
+      "read_when": "You need the AI-Memory folder path on a specific host.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.shared.sole-memory-source.armada-captains": {
+      "summary": "How captains receive memory: a generated brief section points them at shared and their vessel repo folder, not the host notes.",
+      "read_when": "You are configuring or reviewing how a captain receives memory rules.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.machine-notes.macos": {
+      "summary": "macOS workstation traps: the 1Password SSH agent will not sign from a sandbox, exFAT mode and AppleDouble noise, and the zsh and rebase pitfalls.",
+      "read_when": "You are running git, pushing, or shell commands on the macOS workstation.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.readme.armada-memory": {
+      "summary": "Where current Armada platform behavior is owned (the repository docs), and that live counts and captain state do not live in memory.",
+      "read_when": "You are looking for authoritative Armada platform behavior or the operator procedure entry points.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.readme.deploying-armada-on-the-server": {
+      "summary": "The full Armada deploy procedure: pause the scheduler, retain rollback image tags, rehearse against a restored database copy, and verify the running image.",
+      "read_when": "You are deploying, rebuilding, or redeploying the Armada admiral on the server.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.readme.autonomous-lead-retirement": {
+      "summary": "The autonomous lead and Grok bot are retired; do not restore the lead timer, wake, or gateway during deployment.",
+      "read_when": "You are deploying Armada or reviewing lead, wake, or gateway configuration.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.readme.host-and-container-facts": {
+      "summary": "Host and container facts: the container mounts, nested per-dock siblings, the ubuntu runtime user, tmpfs, and the resident build servers.",
+      "read_when": "You are diagnosing a dock, sibling, mount, disk, or container-user problem on the server.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.readme.runtimes-and-providers": {
+      "summary": "Runtime and provider traps: the Mux runtime identity, provider throttling and billing holds that read as captain faults, and per-runtime key routing.",
+      "read_when": "You are triaging a burst of fast captain failures or configuring an external provider.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.readme.briefs-and-captain-instructions": {
+      "summary": "Brief and captain-instruction rules: the prompt is a measured budget, deliver MCP explicitly per runtime, and never inline what the runtime auto-loads.",
+      "read_when": "You are writing a captain brief or configuring captain MCP delivery.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.readme.dispatch-and-assignment": {
+      "summary": "Dispatch and assignment rules: captains are persona-locked, ReadyForDispatch is not permission, VesselIds must name exactly the receiving vessel.",
+      "read_when": "You are dispatching an objective or diagnosing why a mission will not assign.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.readme.failures-that-look-like-something-else": {
+      "summary": "Failure classes that mimic others: Judge-stage failures, health-check synthesized exits, Infra misclassification, and merge-queue reverts.",
+      "read_when": "You are triaging a failed voyage, mission, or Check whose cause is unclear.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.readme.a-doc-comment-is-not-evidence-that-a-code-path-exists": {
+      "summary": "A doc comment is not evidence a code path exists: verify the path by grepping the symbol and reading the caller, not the paragraph.",
+      "read_when": "You are relying on a comment that names a trigger, cleanup, or code path.",
+      "applies_to": [
+        "all"
+      ]
+    },
+    "memory.repos.armada.readme.architect-stages": {
+      "summary": "Architect-stage traps: the chain walk stops at dispatched boundaries, planner stages can overreach into code, and block ordering must be honored.",
+      "read_when": "You are dispatching or diagnosing an Architect or multi-mission planner pipeline.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.readme.build-and-test": {
+      "summary": "Armada build and test facts: land the CHANGELOG and docs in the same commit, run tests through dotnet run, and a test runs only when RunTest is called.",
+      "read_when": "You are building, testing, or landing a change in the Armada repository.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.readme.deciding-whether-a-stranded-branch-is-superseded": {
+      "summary": "How to decide whether a stranded branch's work landed: cheap tests over-report work as missing; the reliable test is symbol-level.",
+      "read_when": "You are deciding whether a stranded or unlanded branch is safe to delete.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.readme.historical-shared-siblings-and-current-per-dock-siblings": {
+      "summary": "Current docks provision per-mission siblings; the older shared-lease sibling model applies only when diagnosing an older deployment.",
+      "read_when": "You are reasoning about dock siblings or a sibling-staleness failure.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.readme.model-tiering-policy": {
+      "summary": "The model-tiering policy: two tiers, the ranked frontier Judge order, unranked specialists, and dispatch by logical tier not a concrete model.",
+      "read_when": "You are choosing a model tier for dispatch or changing the tier configuration.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.readme.model-swap-procedure": {
+      "summary": "The four surfaces to update when swapping a captain model, in order, so renamed captains stay dispatchable.",
+      "read_when": "You are swapping or renaming a captain model.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.readme.captain-roster-by-runtime": {
+      "summary": "The captain roster by runtime and model; read live captain state from the platform, not from this table.",
+      "read_when": "You need the captain roster or the runtime-to-model mapping.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.session-workflow": {
+      "summary": "The Armada operator session loop: connect, read the inbox and board, claim work, the thirteen-question dispatch preflight, monitor, prove, land, and close.",
+      "read_when": "You are operating an Armada session: dispatching, monitoring, landing, or closing work.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.operational-assets": {
+      "summary": "Operator rules for playbooks, runbooks, workflow profiles, environments, personas, and pipelines, and the captain MCP boundary.",
+      "read_when": "You are creating or changing an Armada operational asset, or auditing an Architect pipeline.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.armada.reviewer.closeout": {
+      "summary": "Closing incidents in both halves, reading RecoveryNotes before a duplicate rescue, and reconciling a stale Completed backlog row.",
+      "read_when": "You are closing an incident or reconciling a stale backlog-state row.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "memory.repos.eculink.readme": {
+      "summary": "EcuLink porting rules: source fidelity, reproduce-the-defect not correct it, seed-key ground truth, and escalate a hang or crash instead of silently shipping it.",
+      "read_when": "You are porting an EcuLink decoder, seed-key, or command, or reviewing an EcuLink port for source fidelity or a hang-class defect.",
+      "applies_to": [
+        "vessel:EcuLink"
+      ],
+      "must_retrieve": [
+        "eculink"
+      ]
+    },
+    "memory.repos.otrbuddy.readme": {
+      "summary": "OtrBuddy rules: load-sensitive test tolerances, the EcuLink consumer relationship, the master default branch, the protected CLAUDE.md path, and the bundle pipeline.",
+      "read_when": "You are porting or reviewing OtrBuddy work, or triaging an OtrBuddy load flake or consumer break.",
+      "applies_to": [
+        "vessel:OtrBuddy"
+      ]
+    },
+    "memory.repos.jprodeobfuscator.readme": {
+      "summary": "JproDeobfuscator rules: the .xml.enc files are source originals, the git-tracked decrypted plaintext lives beside them, and never cite the .enc or a raw byte size.",
+      "read_when": "You are citing a JPRO catalogue, counting encrypted files, or writing a JproDeobfuscator brief.",
+      "applies_to": [
+        "vessel:JproDeobfuscator"
+      ]
+    },
+    "memory.repos.source-glossary.readme": {
+      "summary": "SourceGlossary ledger rules: root resolution, live-state guard traps, the evidence-field path contract, and what a pass record may quote.",
+      "read_when": "You are running or reviewing a SourceGlossary ledger pass or coverage census.",
+      "applies_to": [
+        "vessel:SourceGlossary"
+      ]
+    },
+    "docs.armada-ops": {
+      "summary": "The Armada operations reference: the Check-state table, dispatch mechanics, recovery, and papercut triage.",
+      "read_when": "You need authoritative Armada platform behavior, the Check-state table, or the papercut triage table.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "docs.merging": {
+      "summary": "The merge-queue reference: how landing works, its traps, and verifying the target after landing.",
+      "read_when": "You are landing work through the merge queue or diagnosing a landing failure.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "docs.operational-assets": {
+      "summary": "The operational-assets reference: the current schemas for playbooks, runbooks, profiles, environments, personas, and pipelines.",
+      "read_when": "You are creating or changing an operational asset and need its current schema.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "docs.delivery-operations": {
+      "summary": "The delivery-operations reference: deployment, environments, and release procedure.",
+      "read_when": "You are deploying or managing an Armada release or environment.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "docs.mcp-api": {
+      "summary": "The Armada MCP tool catalog and API reference.",
+      "read_when": "You need the full Armada MCP tool catalog or a tool's parameters.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "docs.personas": {
+      "summary": "The persona definitions and their roles in the pipeline.",
+      "read_when": "You are configuring personas or reviewing a persona's role.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "docs.pipelines": {
+      "summary": "The pipeline definitions and their ordered or parallel persona stages.",
+      "read_when": "You are configuring or reviewing a pipeline.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "docs.testing": {
+      "summary": "The testing reference for the Armada repository and its suites.",
+      "read_when": "You are writing or running Armada tests.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "docs.usage-routing": {
+      "summary": "The usage-aware routing (Routing V2) reference.",
+      "read_when": "You are configuring or reasoning about usage-aware routing.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "docs.context-index": {
+      "summary": "The context-index and progressive-disclosure reference: the core bundle, the manifest, and how retrieval widens beyond core.",
+      "read_when": "You are working on the context-index, the core bundle, or context retrieval.",
+      "applies_to": [
+        "all"
+      ]
+    },
+    "docs.claude-code-as-orchestrator": {
+      "summary": "How to run Claude Code as an Armada orchestrator.",
+      "read_when": "You are setting up or running Claude Code as the Armada orchestrator.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    },
+    "docs.codex-as-orchestrator": {
+      "summary": "How to run Codex as an Armada orchestrator.",
+      "read_when": "You are setting up or running Codex as the Armada orchestrator.",
+      "applies_to": [
+        "orchestrator"
+      ]
+    }
+  }
+}

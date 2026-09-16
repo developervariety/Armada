@@ -11,6 +11,7 @@ namespace Armada.Server
     using WatsonWebserver.Core;
     using WatsonWebserver.Core.OpenApi;
     using Armada.Core;
+    using Armada.Core.Context;
     using ArmadaConstants = Armada.Core.Constants;
     using Armada.Core.Database;
     using Armada.Core.Enums;
@@ -119,6 +120,10 @@ namespace Armada.Server
         private ITypedDecisionClient _TypedDecisionClient = new NullTypedDecisionClient();
         private TypedDecisionRecorder _TypedDecisionRecorder = null!;
         private HttpClient _TypedDecisionHttpClient = null!;
+        // The context retrieval service over the built context index (manifest chunks plus bodies).
+        // Built in-process at MCP registration from AI-Memory and the docs tree; feeds the
+        // read-only captain context fetch tool. Additive; touches no loader and no brief.
+        private Armada.Core.Context.ContextRetrievalService? _ContextRetrieval;
         private PapercutMergeAdapter _PapercutMergeAdapter = null!;
         // D13 owner_digest scheduled runner. Constructed only with the live typed-decision client and
         // dormant until the owner_digest decision is enabled; the health loop drives it once per day.
@@ -843,9 +848,93 @@ namespace Armada.Server
                 _Logging.Warn(_Header + "objective refinement session maintenance error: " + ex.Message);
             }
 
+            // Generate the context index (manifest + derived core bundle) from AI-Memory and the docs
+            // tree. Additive and non-critical: it only READS the sources and writes two artifacts into
+            // the data directory, changing nothing about how memory currently loads. A failure logs a
+            // warning and never breaks startup (fail-open).
+            GenerateContextIndex();
+
             // Start health check loop
             _HealthCheckTask = HealthCheckLoopAsync(_TokenSource.Token);
             _ModelEndpointHealthTask = ModelEndpointHealthLoopAsync(_TokenSource.Token);
+        }
+
+        /// <summary>
+        /// Build the context retrieval service in-process by reusing the context-index generator: it
+        /// reads AI-Memory and the docs tree and returns the chunks (with bodies) that the retrieval
+        /// layer ranks. Building in-process, rather than reading the manifest file the startup
+        /// generator writes, keeps the tool independent of file write ordering; both derive from the
+        /// same generator, so they agree. Fully guarded: any failure logs a warning and returns null,
+        /// and the fetch tool is then simply not registered.
+        /// </summary>
+        private Armada.Core.Context.ContextRetrievalService? BuildContextRetrievalService()
+        {
+            try
+            {
+                string? docsRoot = ResolveDocsRoot();
+                Armada.Core.Context.ContextIndexGenerator generator = new Armada.Core.Context.ContextIndexGenerator(_Logging);
+                Armada.Core.Context.ContextIndex index = generator.Build(_Settings.AiMemoryRoot, docsRoot);
+                Armada.Core.Context.ContextRetrievalService service =
+                    new Armada.Core.Context.ContextRetrievalService(index.Chunks, null, _Logging);
+                _Logging.Info(_Header + "context retrieval service built: core=" + service.CoreCount +
+                    " leaves=" + service.LeafCount);
+                return service;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "context retrieval service build error: " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Generate the context index at startup: a manifest over every AI-Memory and Armada docs
+        /// chunk, plus the derived always-on core bundle. Writes <c>context-index/manifest.json</c> and
+        /// <c>context-index/context-core.md</c> under the data directory. Reads AI-Memory but never
+        /// writes it, and touches no loader. Fully guarded: any failure logs a warning and returns.
+        /// </summary>
+        private void GenerateContextIndex()
+        {
+            try
+            {
+                string outputDirectory = Path.Combine(_Settings.DataDirectory, "context-index");
+                string? docsRoot = ResolveDocsRoot();
+                ContextIndexGenerator generator = new ContextIndexGenerator(_Logging);
+                ContextIndexGenerationSummary summary = generator.Generate(_Settings.AiMemoryRoot, docsRoot, outputDirectory);
+
+                _Logging.Info(_Header + "context index generated: chunks=" + summary.ChunkCount +
+                    " core=" + summary.CoreCount + " core_bytes=" + summary.CoreBundleBytes +
+                    " total_bytes=" + summary.TotalChunkBytes + " written=" + summary.Written +
+                    (String.IsNullOrEmpty(summary.Note) ? "" : " note=" + summary.Note));
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "context index generation error: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Best-effort resolution of the Armada docs directory for context indexing. Prefers the
+        /// <c>ARMADA_DOCS_ROOT</c> environment variable, then probes upward from the running assembly
+        /// and the current directory for a <c>docs</c> folder holding <c>armada-ops.md</c>. Returns null
+        /// when none is found; the generator then indexes AI-Memory only, which still yields the whole
+        /// core bundle (every core rule is an AI-Memory rule).
+        /// </summary>
+        private static string? ResolveDocsRoot()
+        {
+            string? env = Environment.GetEnvironmentVariable("ARMADA_DOCS_ROOT");
+            if (!String.IsNullOrWhiteSpace(env) && Directory.Exists(env)) return env;
+
+            foreach (string start in new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() })
+            {
+                DirectoryInfo? dir = new DirectoryInfo(start);
+                for (int depth = 0; dir != null && depth < 8; depth++, dir = dir.Parent)
+                {
+                    string candidate = Path.Combine(dir.FullName, "docs");
+                    if (File.Exists(Path.Combine(candidate, "armada-ops.md"))) return candidate;
+                }
+            }
+            return null;
         }
 
         /// <summary>
@@ -1678,6 +1767,8 @@ namespace Armada.Server
 
         private void RegisterMcpTools()
         {
+            _ContextRetrieval = BuildContextRetrievalService();
+
             McpToolRegistrar.RegisterAll(
                 _McpServer.RegisterTool,
                 _Database,
@@ -1724,7 +1815,9 @@ namespace Armada.Server
                 typedDecisionParticipantKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey,
                 papercutMergeAdapter: _PapercutMergeAdapter,
                 inboxTriageAdapter: _InboxTriageAdapter,
-                followUpRoutingAdapter: _FollowUpRoutingAdapter);
+                followUpRoutingAdapter: _FollowUpRoutingAdapter,
+                contextRetrieval: _ContextRetrieval,
+                contextParticipantKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey);
 
         }
 

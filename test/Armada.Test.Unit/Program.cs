@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit
 {
     using Armada.Test.Common;
+    using Armada.Test.Unit.Suites.Context;
     using Armada.Test.Unit.Suites.Database;
     using Armada.Test.Unit.Suites.Models;
     using Armada.Test.Unit.Suites.Recovery;
@@ -36,6 +37,9 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CaptainChatServiceTests());
             runner.AddSuite(new CaptainToolServiceDiscoveryTests());
             runner.AddSuite(new TelemetryLogExportTests());
+            runner.AddSuite(new ContextIndexGeneratorTests());
+            runner.AddSuite(new ContextRetrievalServiceTests());
+            runner.AddSuite(new ContextCoverageCensusTests());
 
             // Previously compiled suites are explicit registrations until discovery parity is proved.
             runner.AddSuite(new RequestHistoryDatabaseTests());
@@ -312,6 +316,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new TypedDecisionRecorderTests());
             runner.AddSuite(new TypedDecisionSettingsTests());
             runner.AddSuite(new McpTypedDecisionToolsTests());
+            runner.AddSuite(new McpContextToolsTests());
             runner.AddSuite(new TypedFailureCauseAdapterTests());
             runner.AddSuite(new TypedRefusalAdapterTests());
             runner.AddSuite(new TypedRuntimeFailureAdapterTests());
