@@ -1101,6 +1101,7 @@ namespace Armada.Core.Settings
 
             // Read through the shared settings instance today, but merged in place so a
             // future by-reference consumer does not silently go stale.
+            ApiCaptainCloudProviders = source.ApiCaptainCloudProviders;
             ModelTier.CopyFrom(source.ModelTier);
             VoyageDispatch.CopyFrom(source.VoyageDispatch);
 

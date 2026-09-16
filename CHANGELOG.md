@@ -8,6 +8,12 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- Deleting a captain no longer reports an error when the captain is actually
+  removed. Dependent cleanup (telemetry events, planning sessions) after the row
+  delete is now fully best-effort, so a cleanup failure leaves an orphan for a
+  later sweep instead of failing the delete the user already saw succeed.
+- `apiCaptainCloudProviders` is hot-reloadable, so enabling a cloud provider for
+  API-endpoint captains applies without an admiral restart.
 - Autonomous recovery compares two failing-test sets without regard to order, so
   the same failures printed in a different order by a parallel test runner are
   recognised as a repeat (the repeated-failure operator note is no longer lost).

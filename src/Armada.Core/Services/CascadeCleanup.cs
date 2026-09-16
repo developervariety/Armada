@@ -81,9 +81,28 @@ namespace Armada.Core.Services
             if (database == null) throw new ArgumentNullException(nameof(database));
             if (String.IsNullOrEmpty(captainId)) return 0;
 
-            int removed = await _DeleteEventsAsync(database, (int limit) => database.Events.EnumerateByCaptainAsync(captainId, limit, token), token).ConfigureAwait(false);
+            // Best-effort throughout: the parent captain row is already deleted by the caller, so a
+            // dependent-cleanup failure must not surface as a failed delete. Each step is guarded and
+            // a failure leaves an orphan for a later sweep rather than throwing.
+            int removed = 0;
+            try
+            {
+                removed = await _DeleteEventsAsync(database, (int limit) => database.Events.EnumerateByCaptainAsync(captainId, limit, token), token).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                // Skip: an events-deletion failure leaves orphan telemetry, not a blocked delete.
+            }
 
-            List<PlanningSession> sessions = await database.PlanningSessions.EnumerateByCaptainAsync(captainId, token).ConfigureAwait(false);
+            List<PlanningSession> sessions;
+            try
+            {
+                sessions = await database.PlanningSessions.EnumerateByCaptainAsync(captainId, token).ConfigureAwait(false);
+            }
+            catch (Exception)
+            {
+                return removed;
+            }
             foreach (PlanningSession session in sessions)
             {
                 try
