@@ -68,6 +68,46 @@ All notable changes to Armada are documented in this file.
   the operator confirms by removing the flag; the script never removes it and
   pre-fills no decision, only the fields the corpus rule already settles. Its
   self-check is `scripts/autonomy/test-draft-corpus-line.mjs`.
+### Typed decisions: flake score, routing hint, change substance (D15, D16, D17)
+
+- **D15 `flake_score`.** The definition-of-done gate (`DefinitionOfDoneGate`)
+  now scores a red unit-test result after the deterministic
+  `DefinitionOfDoneFailureClassifier` classifies it. The model answers a
+  `flake_likelihood` score `[deterministic, likely real, likely load, known
+  flaky family]` and an `outside_diff` noul over state carrying the failing test
+  names, the assertion lines, the touched files, whether the same tests failed on
+  another branch in the last 24 hours, and the classifier's class. In Gate mode a
+  `likely load` or `known flaky family` reading at or above threshold triggers an
+  isolated, class-filtered re-run of only the failing classes; the re-run's real
+  result is the truth (a pass clears the red, a failure leaves it red). The model
+  never marks a red check green — only a genuine passing isolated re-run does.
+  Ships Off; the re-run runs only for a `dotnet test` command that can be
+  isolated, and the red stands unchanged otherwise.
+- **D16 `routing_hint`.** Owner decision 2026-09-16: NOT wired into the legacy
+  model-tier selector. It belongs to Routing V2 (`modelTier.usageRouting`). A
+  route gains an optional `shapes` tag list; a route with no tags is eligible for
+  every shape, so existing configurations behave exactly as before. The model
+  answers a `shape` choice, a `policy_sensitive` noul, and two context nouls, and
+  the hint reorders — never re-selects — the routes V2 already approved and found
+  eligible for a persona: among eligible routes for a routine mission in Normal
+  state it prefers the first route whose `shapes` contains the chosen shape at or
+  above threshold, and `policy_sensitive >= 0.9` prefers a `policy-tolerant`
+  route (falling back to the V2 default and recording `no_tolerant_route` when
+  none is configured). Reserved personas and non-Normal account states are never
+  affected; every hard V2 constraint runs after the reorder. Disabling V2 or the
+  decision restores the plain list order. Ships Off.
+- **D17 `change_substance`.** The extension-based `ChangeSubstanceClassifier`
+  stays the rule. When wired, the D17 adapter reads the rescue's added hunks and
+  may RAISE a documentation-only (or empty) extension reading to `Substantive`
+  for the ineffective-rescue decision (`RescueEffectivenessEvaluator`), so a
+  behaviour change is not failed as prose; a `risky` noul at or above threshold
+  adds one `CriticalTriggerEvaluator` escalation reason. It NEVER lowers a
+  classification. Ships Off.
+- All three follow the shared adapter contract over `ITypedDecisionClient` and
+  `TypedDecisionAdapterBase`: the deterministic path is the fallback for Off,
+  unavailable, and below-threshold; the call is bounded by the settings timeout
+  on the caller's token; it records a `state_sha256` and byte count but never the
+  state; and it never throws into its caller. The deterministic rule always wins.
 
 ### Typed decisions: dispatch preflight text half (D5)
 

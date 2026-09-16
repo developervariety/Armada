@@ -18,6 +18,14 @@ namespace Armada.Core.Models
         /// <summary>Explains preferred selection, conservation fallback, or waiting.</summary>
         public string Reason { get; set; } = String.Empty;
 
+        /// <summary>
+        /// How the D16 <c>routing_hint</c> shape hint (when one was supplied) affected route order:
+        /// <c>applied_shape:&lt;shape&gt;</c>, <c>policy_tolerant</c>, <c>no_tolerant_route</c>,
+        /// <c>no_shape_match</c>, <c>reserved_persona_unchanged</c>, or null when no hint applied. It
+        /// never changes which routes are eligible; it only reorders already-eligible routes.
+        /// </summary>
+        public string? RoutingHintOutcome { get; set; } = null;
+
         #endregion
     }
 }

@@ -81,7 +81,7 @@ namespace Armada.Core.Services
             {
                 if (String.IsNullOrWhiteSpace(pair.Key) || !personas.Add(PersonaCatalog.NormalizeName(pair.Key)) || pair.Value == null || pair.Value.Count == 0) throw new ArgumentException("Persona route lists must be nonempty and unique after normalization.");
                 foreach (UsageRouteSettings route in pair.Value)
-                    if (route == null || !ids.Contains(route.AccountId) || route.Models == null || route.Models.Any(String.IsNullOrWhiteSpace)) throw new ArgumentException("Each usage route must reference an account and a model list.");
+                    if (route == null || !ids.Contains(route.AccountId) || route.Models == null || route.Models.Any(String.IsNullOrWhiteSpace) || route.Shapes == null || route.Shapes.Any(String.IsNullOrWhiteSpace)) throw new ArgumentException("Each usage route must reference an account and a model list, and its shape tags must be nonempty.");
             }
         }
 
@@ -365,6 +365,31 @@ namespace Armada.Core.Services
         /// <summary>Filter approved candidates without ever sorting by remaining percentage.</summary>
         public UsageRoutingDecision Select(UsageRoutingSettings settings, Mission mission, List<Captain> candidates, IReadOnlyCollection<string> busyCaptainIds, DateTime now)
         {
+            return Select(settings, mission, candidates, busyCaptainIds, now, RoutingHint.None());
+        }
+
+        /// <summary>
+        /// Filter approved candidates without ever sorting by remaining percentage, applying an optional
+        /// D16 <c>routing_hint</c> shape hint that reorders the already-approved routes.
+        /// </summary>
+        /// <remarks>
+        /// The hint is advisory and additive. It reorders the route list before eligibility is applied,
+        /// so every hard constraint — account state (Reserve, Exhausted, Low, Unknown), the reserved
+        /// persona path, the tier constraint, and the route's own model list — still runs unchanged per
+        /// route. A reordered route that is not eligible is skipped exactly as it would have been. The
+        /// reserved-persona path is never reordered at all. When the hint is <see cref="RoutingHint.None"/>
+        /// (the default overload, and whenever the decision is Off, unavailable, or below threshold), the
+        /// plain V2 list order applies.
+        /// </remarks>
+        /// <param name="settings">Usage routing settings.</param>
+        /// <param name="mission">The mission being routed.</param>
+        /// <param name="candidates">The usage-eligible captains.</param>
+        /// <param name="busyCaptainIds">Captains currently working, for account concurrency.</param>
+        /// <param name="now">The evaluation time.</param>
+        /// <param name="hint">The D16 shape hint, or <see cref="RoutingHint.None"/>.</param>
+        /// <returns>The routing decision.</returns>
+        public UsageRoutingDecision Select(UsageRoutingSettings settings, Mission mission, List<Captain> candidates, IReadOnlyCollection<string> busyCaptainIds, DateTime now, RoutingHint hint)
+        {
             UsageRoutingDecision result = new UsageRoutingDecision { Candidates = candidates, Reason = "usage_routing_disabled" };
             if (!settings.Enabled) return result;
             List<UsageRouteSettings>? routes = null;
@@ -381,7 +406,7 @@ namespace Armada.Core.Services
             List<Captain> normal = new List<Captain>();
             List<Captain> low = new List<Captain>();
             string? accountBlockReason = null;
-            IEnumerable<UsageRouteSettings> ordered = routes;
+            IEnumerable<UsageRouteSettings> ordered = ApplyRoutingHint(routes, settings, mission, hint, result);
             foreach (UsageRouteSettings route in ordered)
             {
                 UsageAccountSettings account = settings.Accounts.First(a => String.Equals(a.Id, route.AccountId, StringComparison.OrdinalIgnoreCase));
@@ -407,6 +432,83 @@ namespace Armada.Core.Services
             result.Candidates = normal.Count > 0 ? normal : low;
             result.Reason = result.Candidates.Count == 0 ? accountBlockReason ?? "usage_reserve_exhaustion_or_account_capacity" : normal.Count == 0 ? "low_allowance_no_approved_normal_fallback" : "preferred_eligible_route_with_allowance";
             return result;
+        }
+
+        /// <summary>The route tag that marks an account/model as tolerant of policy-sensitive diagnostic work.</summary>
+        public const string PolicyTolerantTag = "policy-tolerant";
+
+        /// <summary>
+        /// Reorder the persona's approved routes by the D16 shape hint, without changing eligibility.
+        /// </summary>
+        /// <remarks>
+        /// A stable reorder puts the routes the hint prefers first, so the "first eligible" default then
+        /// falls on a shape-matched or policy-tolerant route when one is eligible, and on the original
+        /// list order otherwise. The reserved-persona path is never reordered: when the mission is
+        /// reserved on any of its routes, the plain list order is kept. Every hard V2 constraint is still
+        /// applied per route by the caller after this reorder.
+        /// </remarks>
+        private static IReadOnlyList<UsageRouteSettings> ApplyRoutingHint(
+            List<UsageRouteSettings> routes,
+            UsageRoutingSettings settings,
+            Mission mission,
+            RoutingHint hint,
+            UsageRoutingDecision result)
+        {
+            if (!hint.Applied) return routes;
+
+            // Reserved personas (and reserved-priority missions) are never affected by the hint. Their
+            // route order is left exactly as configured.
+            bool reservedAnywhere = routes.Any(route =>
+            {
+                UsageAccountSettings? account = settings.Accounts.FirstOrDefault(a => String.Equals(a.Id, route.AccountId, StringComparison.OrdinalIgnoreCase));
+                if (account == null) return false;
+                return account.ReservedPersonas.Any(p => PersonaCatalog.Matches(p, mission.Persona))
+                    || (account.ReservedPriorityAtOrAbove.HasValue && mission.Priority <= account.ReservedPriorityAtOrAbove.Value);
+            });
+            if (reservedAnywhere)
+            {
+                result.RoutingHintOutcome = "reserved_persona_unchanged";
+                return routes;
+            }
+
+            if (hint.PreferPolicyTolerant)
+            {
+                bool anyTolerant = routes.Any(route => RouteHasShape(route, PolicyTolerantTag));
+                if (!anyTolerant)
+                {
+                    // No policy-tolerant route is configured for this persona; fall back to V2 default.
+                    result.RoutingHintOutcome = "no_tolerant_route";
+                    return routes;
+                }
+                result.RoutingHintOutcome = "policy_tolerant";
+                return StableOrderPreferring(routes, route => RouteHasShape(route, PolicyTolerantTag));
+            }
+
+            if (!String.IsNullOrWhiteSpace(hint.ChosenShape))
+            {
+                bool anyMatch = routes.Any(route => RouteHasShape(route, hint.ChosenShape!));
+                if (!anyMatch)
+                {
+                    result.RoutingHintOutcome = "no_shape_match";
+                    return routes;
+                }
+                result.RoutingHintOutcome = "applied_shape:" + hint.ChosenShape;
+                return StableOrderPreferring(routes, route => RouteHasShape(route, hint.ChosenShape!));
+            }
+
+            return routes;
+        }
+
+        private static bool RouteHasShape(UsageRouteSettings route, string shape)
+        {
+            if (route.Shapes == null || route.Shapes.Count == 0) return false;
+            return route.Shapes.Any(tag => String.Equals(tag, shape, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static IReadOnlyList<UsageRouteSettings> StableOrderPreferring(List<UsageRouteSettings> routes, Func<UsageRouteSettings, bool> preferred)
+        {
+            // Enumerable.OrderBy is a stable sort, so routes that share a key keep their configured order.
+            return routes.OrderBy(route => preferred(route) ? 0 : 1).ToList();
         }
 
         #endregion

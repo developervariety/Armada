@@ -31,6 +31,32 @@ namespace Armada.Core.Services
         private const int SizeThresholdAddedLines = 50;
         private const int SizeThresholdFiles = 3;
 
+        /// <summary>
+        /// Evaluate the diff and convention result, then merge in any additional escalation criteria
+        /// supplied by a caller — for example the D17 <c>change_substance</c> typed decision's
+        /// <c>risky</c> reason, which fires when the added hunks touch a safety step, a guard, or a wire
+        /// byte. Additional criteria are additive only: they can escalate an entry to deep review, never
+        /// clear a criterion the deterministic evaluator already fired.
+        /// </summary>
+        /// <param name="unifiedDiff">The unified diff of the change.</param>
+        /// <param name="conventionResult">The convention-check result.</param>
+        /// <param name="additionalCriteria">Extra escalation criteria to merge, or null.</param>
+        /// <returns>The fired criteria, including any additional ones.</returns>
+        public CriticalTriggerResult Evaluate(string unifiedDiff, ConventionCheckResult conventionResult, IEnumerable<string>? additionalCriteria)
+        {
+            CriticalTriggerResult result = Evaluate(unifiedDiff, conventionResult);
+            if (additionalCriteria != null)
+            {
+                foreach (string criterion in additionalCriteria)
+                {
+                    if (String.IsNullOrWhiteSpace(criterion)) continue;
+                    if (!result.TriggeredCriteria.Contains(criterion)) result.TriggeredCriteria.Add(criterion);
+                }
+            }
+            result.Fired = result.TriggeredCriteria.Count > 0;
+            return result;
+        }
+
         /// <summary>Evaluates the diff and convention result, returning fired criteria.</summary>
         public CriticalTriggerResult Evaluate(string unifiedDiff, ConventionCheckResult conventionResult)
         {

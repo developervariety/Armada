@@ -102,6 +102,24 @@ namespace Armada.Core.Services
         /// </summary>
         public IOwnerDecisionNotePoster? HandoffOwnerNotePoster { get; set; }
 
+        /// The D17 <c>change_substance</c> typed-decision adapter, when wired. Null keeps the
+        /// ineffective-rescue check on the deterministic, extension-based classifier alone. Set by the
+        /// server after construction so existing construction sites and tests are unchanged. The
+        /// extension classifier stays the rule and the fallback; the adapter may only RAISE a
+        /// documentation-only reading to Substantive when it reads the rescue's added hunks as behaviour,
+        /// so a behaviour change is not failed as prose. It never lowers a classification.
+        /// </summary>
+        public TypedChangeSubstanceAdapter? ChangeSubstanceAdapter { get; set; }
+
+        /// <summary>
+        /// The D16 <c>routing_hint</c> typed-decision adapter, when wired. Null keeps Routing V2 on its
+        /// plain persona route order. Set by the server after construction so existing construction sites
+        /// and tests are unchanged. It is Routing V2 only and never touches the legacy tier selector; it
+        /// reorders the already-approved, already-eligible routes for one mission by the work's shape,
+        /// and never creates a route, picks an unlisted account or model, moves a running mission, or
+        /// touches the reserved-persona path or a non-Normal account state.
+        /// </summary>
+        public TypedRoutingHintAdapter? RoutingHintAdapter { get; set; }
         private const string _CreditAuthQuarantineReason =
             "Provider credit, billing, payment, or authentication failure detected during mission execution.";
         private const string ArchitectHandoffMarker = "<!-- ARMADA:ARCHITECT-HANDOFF -->";
@@ -1903,8 +1921,13 @@ namespace Armada.Core.Services
             {
                 IReadOnlyList<string> changedPaths = DiffPathExtractor.ExtractChangedPaths(mission.DiffSnapshot);
                 Objective? rescuedObjective = await FindLinkedObjectiveAsync(mission, token).ConfigureAwait(false);
+                // D17 change_substance: the extension-based classifier is the rule. When wired, the model
+                // may RAISE a documentation-only reading to Substantive because it read the rescue's added
+                // hunks as behaviour; it never lowers it. So a behaviour change hidden behind a docs-only
+                // extension read is not failed as an ineffective rescue.
+                ChangeSubstanceEnum rescueSubstance = await ResolveRescueChangeSubstanceAsync(mission, changedPaths, token).ConfigureAwait(false);
                 RescueEffectivenessAssessment assessment = RescueEffectivenessEvaluator.Assess(
-                    changedPaths,
+                    rescueSubstance,
                     RescueEffectivenessEvaluator.RequiredChange(mission.Mode, rescuedObjective?.Kind));
 
                 if (assessment.IsIneffective)
@@ -6613,6 +6636,95 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
+        /// Resolve the change substance of a rescue's diff for the ineffective-rescue check. The
+        /// deterministic, extension-based <see cref="ChangeSubstanceClassifier"/> is the rule and the
+        /// fallback. When the D17 <c>change_substance</c> adapter is wired, it may RAISE a
+        /// documentation-only reading to Substantive because it read the added hunks as behaviour; it
+        /// never lowers a reading, so this can only make the ineffective-rescue verdict less aggressive.
+        /// Never throws into the caller.
+        /// </summary>
+        /// <param name="mission">The rescue mission.</param>
+        /// <param name="changedPaths">The rescue's changed repository paths.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The effective change substance.</returns>
+        private async Task<ChangeSubstanceEnum> ResolveRescueChangeSubstanceAsync(Mission mission, IReadOnlyList<string> changedPaths, CancellationToken token)
+        {
+            ChangeSubstanceEnum ruleSubstance = ChangeSubstanceClassifier.Classify(changedPaths);
+            if (ChangeSubstanceAdapter == null) return ruleSubstance;
+
+            try
+            {
+                ChangeSubstanceDecisionInput input = new ChangeSubstanceDecisionInput
+                {
+                    Mission = mission,
+                    ChangedPaths = changedPaths,
+                    UnifiedDiff = mission.DiffSnapshot ?? String.Empty,
+                    VesselPublicName = mission.VesselId ?? String.Empty
+                };
+                ChangeSubstanceVerdict verdict = await ChangeSubstanceAdapter.DecideAsync(input, ChangeSubstanceVerdict.Rule(ruleSubstance), token).ConfigureAwait(false);
+                return verdict.Substance;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "change-substance refinement failed for mission " + mission.Id + ", rule stands: " + ex.Message);
+                return ruleSubstance;
+            }
+        }
+
+        /// <summary>
+        /// Resolve the D16 <c>routing_hint</c> for a mission, or <see cref="RoutingHint.None"/> when the
+        /// adapter is not wired, the decision is Off/unavailable/below threshold, or anything fails. The
+        /// hint only reorders already-approved, already-eligible Routing V2 routes; it never selects a
+        /// route. Never throws into the caller.
+        /// </summary>
+        /// <param name="usagePolicy">The usage routing settings, for the persona's route shapes.</param>
+        /// <param name="mission">The mission being routed.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The routing hint.</returns>
+        private async Task<RoutingHint> ResolveRoutingHintAsync(UsageRoutingSettings usagePolicy, Mission mission, CancellationToken token)
+        {
+            if (RoutingHintAdapter == null) return RoutingHint.None();
+
+            try
+            {
+                Objective? objective = await FindLinkedObjectiveAsync(mission, token).ConfigureAwait(false);
+                string title = objective != null ? objective.Title : mission.Title;
+                string description = (objective != null ? objective.Description : mission.Description) ?? String.Empty;
+                string acceptance = objective != null ? String.Join("\n", objective.AcceptanceCriteria) : String.Empty;
+
+                List<string> routeShapes = new List<string>();
+                List<UsageRouteSettings>? personaRoutes = null;
+                foreach (KeyValuePair<string, List<UsageRouteSettings>> pair in usagePolicy.PersonaRoutes)
+                    if (PersonaCatalog.Matches(pair.Key, mission.Persona)) { personaRoutes = pair.Value; break; }
+                if (personaRoutes == null) usagePolicy.PersonaRoutes.TryGetValue("*", out personaRoutes);
+                if (personaRoutes != null)
+                    foreach (UsageRouteSettings route in personaRoutes)
+                        if (route.Shapes != null)
+                            foreach (string shape in route.Shapes)
+                                if (!String.IsNullOrWhiteSpace(shape) && !routeShapes.Contains(shape)) routeShapes.Add(shape);
+
+                RoutingHintDecisionInput input = new RoutingHintDecisionInput
+                {
+                    Mission = mission,
+                    ObjectiveTitle = title,
+                    Description = description,
+                    AcceptanceCriteria = acceptance,
+                    Persona = mission.Persona ?? String.Empty,
+                    Pipeline = String.Empty,
+                    VesselName = mission.VesselId ?? String.Empty,
+                    BriefByteSize = description.Length,
+                    EligibleRouteShapes = routeShapes
+                };
+                return await RoutingHintAdapter.DecideAsync(input, RoutingHint.None(), token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "routing-hint resolution failed for mission " + mission.Id + ", plain route order stands: " + ex.Message);
+                return RoutingHint.None();
+            }
+        }
+
+        /// <summary>
         /// A compact stat of the reviewed diff for the D4 state: files changed and lines added and
         /// removed, never the diff body. The redactor removes any path or id that leaks through.
         /// </summary>
@@ -8895,9 +9007,16 @@ namespace Armada.Core.Services
                     List<Captain> working = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
                     HashSet<string> busy = new HashSet<string>(_CaptainReservations.Keys, StringComparer.OrdinalIgnoreCase);
                     foreach (Captain active in working) busy.Add(active.Id);
-                    UsageRoutingDecision decision = usage.Select(usagePolicy, mission, eligibleForUsage, busy, DateTime.UtcNow);
+                    // D16 routing_hint: when wired, choose among the already-approved routes by the work's
+                    // shape. The hint only reorders eligible routes; every hard V2 constraint is applied
+                    // by Select afterwards, and Off / unavailable / below-threshold leaves the plain list
+                    // order.
+                    RoutingHint routingHint = await ResolveRoutingHintAsync(usagePolicy, mission, token).ConfigureAwait(false);
+                    UsageRoutingDecision decision = usage.Select(usagePolicy, mission, eligibleForUsage, busy, DateTime.UtcNow, routingHint);
                     idleCaptains = decision.Candidates;
                     usageReason = decision.Reason;
+                    if (routingHint.Applied && decision.RoutingHintOutcome != null)
+                        _Logging.Info(_Header + "routing_hint " + decision.RoutingHintOutcome + " for mission " + mission.Id);
                     if (idleCaptains.Count == 0 && eligibleForUsage.Count > 0)
                     {
                         mission.AssignmentState = MissionAssignmentStateEnum.WaitingForProviderUsage;

@@ -43,6 +43,7 @@ namespace Armada.Core.Services
         private readonly LoggingModule _Logging;
         private readonly IContainerRuntimeProbe? _ContainerRuntimeProbe;
         private readonly IGitService? _Git;
+        private readonly TypedFlakeScoreAdapter? _FlakeScoreAdapter;
         private readonly DefinitionOfDoneFailureClassifier _FailureClassifier = new DefinitionOfDoneFailureClassifier();
 
         private const int _MAX_DIAGNOSTIC_TEXT_CHARS = 16000;
@@ -73,18 +74,27 @@ namespace Armada.Core.Services
         /// consumer verification entirely, preserving the original behavior for every caller that
         /// does not supply it.
         /// </param>
+        /// <param name="flakeScoreAdapter">
+        /// Optional D15 <c>flake_score</c> adapter. When supplied and a unit-test command fails as a
+        /// test failure, the gate scores the failure; if the model recommends it (Gate mode at or above
+        /// threshold), the gate runs an isolated class-filtered re-run of only the failing classes and
+        /// the re-run's real result becomes the truth. Null — the default, and the effective state
+        /// whenever the decision is Off — preserves the original behavior exactly.
+        /// </param>
         public DefinitionOfDoneGate(
             DefinitionOfDoneSettings settings,
             DatabaseDriver database,
             LoggingModule logging,
             IContainerRuntimeProbe? containerRuntimeProbe = null,
-            IGitService? gitService = null)
+            IGitService? gitService = null,
+            TypedFlakeScoreAdapter? flakeScoreAdapter = null)
         {
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _ContainerRuntimeProbe = containerRuntimeProbe;
             _Git = gitService;
+            _FlakeScoreAdapter = flakeScoreAdapter;
         }
 
         #endregion
@@ -273,7 +283,17 @@ namespace Armada.Core.Services
                 string effectiveTest = _Settings.RunRestoreBeforeBuild ? EnsureRestore(selectedTest) : selectedTest;
                 DefinitionOfDoneResult testResult = await RunCommandAsync(testLabel, effectiveTest, worktreePath, token).ConfigureAwait(false);
                 if (!testResult.Passed)
-                    return testResult;
+                {
+                    // D15 flake_score: when the failure reads as a load flake or a known flaky family,
+                    // re-run only the failing classes in isolation; the re-run's real result is the
+                    // truth. A red that stays red here is returned unchanged. The model never marks it
+                    // green — only a genuine passing isolated re-run can.
+                    DefinitionOfDoneResult afterFlake = await MaybeRerunFlakyTestAsync(mission, effectiveTest, worktreePath, testResult, token).ConfigureAwait(false);
+                    if (!afterFlake.Passed) return afterFlake;
+
+                    // The isolated re-run passed: the failure was a flake. Fall through to the consumer
+                    // verification the gate would have run had the suite passed the first time.
+                }
             }
 
             // The vessel's own build and tests pass. That says nothing about the repositories that
@@ -659,6 +679,140 @@ namespace Armada.Core.Services
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// D15 <c>flake_score</c>: score a red unit-test result and, when the model recommends it, run an
+        /// isolated class-filtered re-run whose real result becomes the truth. Returns the original
+        /// failing result unchanged when the adapter is absent, the failure is not a test failure, the
+        /// model does not recommend a re-run, or an isolated command could not be formed. Never marks a
+        /// red result green on its own: only a genuine passing isolated re-run does.
+        /// </summary>
+        private async Task<DefinitionOfDoneResult> MaybeRerunFlakyTestAsync(
+            Mission mission,
+            string testCommand,
+            string worktreePath,
+            DefinitionOfDoneResult testResult,
+            CancellationToken token)
+        {
+            if (_FlakeScoreAdapter == null) return testResult;
+            if (testResult.FailureClass != DefinitionOfDoneFailureClassEnum.TestFail) return testResult;
+
+            // Only a complete, non-overflowed set of failing names can be isolated into a filter.
+            if (testResult.FailedTestNames == null || testResult.FailedTestNames.Count == 0 || testResult.FailedTestNamesOverflow)
+                return testResult;
+
+            IReadOnlyList<string> classNames = FlakeRerunCommand.DeriveClassNames(testResult.FailedTestNames);
+            if (classNames.Count == 0) return testResult;
+
+            bool crossBranch;
+            try
+            {
+                crossBranch = await HasRecentCrossBranchFailureAsync(mission, testResult.FailedTestNames, token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _Logging.Debug(_Header + "flake_score cross-branch history lookup failed, treating as none: " + ex.Message);
+                crossBranch = false;
+            }
+
+            FlakeScoreDecisionInput input = new FlakeScoreDecisionInput
+            {
+                Mission = mission,
+                FailingTestNames = testResult.FailedTestNames,
+                AssertionLines = testResult.OutputTail ?? String.Empty,
+                TouchedFiles = new List<string>(),
+                SameTestFailedElsewhere24h = crossBranch,
+                RuleClass = DefinitionOfDoneFailureClassEnum.TestFail
+            };
+
+            FlakeScoreVerdict verdict = await _FlakeScoreAdapter.DecideAsync(input, FlakeScoreVerdict.NoRerun(), token).ConfigureAwait(false);
+            if (!verdict.RerunRecommended) return testResult;
+
+            if (!FlakeRerunCommand.TryBuild(testCommand, classNames, out string filteredCommand))
+            {
+                _Logging.Info(_Header + "flake_score recommended a re-run but no isolated command could be formed for this test command; the red stands");
+                return testResult;
+            }
+
+            _Logging.Info(_Header + "flake_score " + verdict.Outcome + ": re-running " + classNames.Count + " failing class(es) in isolation");
+            DefinitionOfDoneResult rerunResult = await RunIsolatedRerunAsync("unit-test (flake re-run)", filteredCommand, worktreePath, token).ConfigureAwait(false);
+
+            // Record BOTH results: the original red and the isolated re-run. The re-run is the truth.
+            _Logging.Info(_Header + "flake_score re-run outcome passed=" + rerunResult.Passed
+                + " (original failure class=" + testResult.FailureClass + ", label=" + testResult.CommandLabel + ")");
+            return rerunResult;
+        }
+
+        /// <summary>
+        /// Test-only hook onto the D15 flake re-run decision path, so the re-run-is-truth behavior can be
+        /// proved without executing a real test command (the isolated re-run itself is stubbed by
+        /// overriding <see cref="RunIsolatedRerunAsync"/>).
+        /// </summary>
+        internal Task<DefinitionOfDoneResult> EvaluateFlakeRerunForTestAsync(
+            Mission mission,
+            string testCommand,
+            string worktreePath,
+            DefinitionOfDoneResult testResult,
+            CancellationToken token)
+        {
+            return MaybeRerunFlakyTestAsync(mission, testCommand, worktreePath, testResult, token);
+        }
+
+        /// <summary>
+        /// Run one isolated flake re-run command. A seam so a test can prove the re-run-is-truth behavior
+        /// without executing a real test command; production runs the command in the dock worktree.
+        /// </summary>
+        /// <param name="label">The command label.</param>
+        /// <param name="command">The isolated class-filtered command.</param>
+        /// <param name="worktreePath">The dock worktree.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The re-run result.</returns>
+        protected virtual Task<DefinitionOfDoneResult> RunIsolatedRerunAsync(string label, string command, string worktreePath, CancellationToken token)
+        {
+            return RunCommandAsync(label, command, worktreePath, token);
+        }
+
+        /// <summary>
+        /// Whether any of the failing test names failed on another branch (a different mission) in the
+        /// last 24 hours. Best-effort state for the D15 model; a lookup failure reads as "no". A seam so
+        /// a test can supply history without a database.
+        /// </summary>
+        /// <param name="mission">The mission whose failure is being scored.</param>
+        /// <param name="failingTestNames">The failing test names to look for.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>True when a matching cross-branch failure was found.</returns>
+        protected virtual async Task<bool> HasRecentCrossBranchFailureAsync(Mission mission, IReadOnlyList<string> failingTestNames, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(mission.VesselId) || failingTestNames.Count == 0) return false;
+
+            CheckRunQuery query = new CheckRunQuery
+            {
+                TenantId = mission.TenantId,
+                VesselId = mission.VesselId,
+                Status = CheckRunStatusEnum.Failed,
+                FromUtc = DateTime.UtcNow.AddHours(-24),
+                PageNumber = 1,
+                PageSize = 50
+            };
+
+            EnumerationResult<CheckRun> recent = await _Database.CheckRuns.EnumerateAsync(query, token).ConfigureAwait(false);
+            foreach (CheckRun run in recent.Objects)
+            {
+                if (String.Equals(run.MissionId, mission.Id, StringComparison.Ordinal)) continue;
+                string haystack = (run.Output ?? String.Empty) + "\n" + (run.Summary ?? String.Empty);
+                if (haystack.Length == 0) continue;
+                foreach (string name in failingTestNames)
+                {
+                    if (!String.IsNullOrWhiteSpace(name) && haystack.Contains(name, StringComparison.Ordinal)) return true;
+                }
+            }
+
+            return false;
         }
 
         private async Task<Vessel?> ReadVesselAsync(string? tenantId, string vesselId, CancellationToken token)

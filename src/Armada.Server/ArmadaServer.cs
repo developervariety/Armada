@@ -372,6 +372,12 @@ namespace Armada.Server
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 _AutonomousRecovery.FailureCauseAdapter = new TypedFailureCauseAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
+                // D17 change_substance (ineffective-rescue) and D16 routing_hint (Routing V2). Both ship
+                // Off; wiring them costs nothing until their decision is enabled.
+                missionService.ChangeSubstanceAdapter = new TypedChangeSubstanceAdapter(
+                    _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
+                missionService.RoutingHintAdapter = new TypedRoutingHintAdapter(
+                    _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
             }
 
             _ObjectiveScheduler = new AutonomousObjectiveScheduler(_Database, _ObjectiveService, _Admiral, _MergeQueue, _Settings, _Logging, _CodeIndex, _DispatchHold, _ObjectiveDispatchPreviewService);
@@ -463,12 +469,19 @@ namespace Armada.Server
                 // The git seam enables consumer verification: a passing gate also builds the
                 // vessels that declare this one as a sibling, so a public-API break is caught
                 // while the producer's change is still unlanded.
+                // D15 flake_score: score a red unit-test result and, when the model recommends it, run an
+                // isolated class-filtered re-run whose real result is the truth. Ships Off; null when the
+                // typed-decision client is the null client, which preserves the gate's original behavior.
+                TypedFlakeScoreAdapter? flakeScoreAdapter = _TypedDecisionClient is TypeSafeDecisionClient
+                    ? new TypedFlakeScoreAdapter(_TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging)
+                    : null;
                 missionService.DefinitionOfDone = new DefinitionOfDoneGate(
                     _Settings.DefinitionOfDone,
                     _Database,
                     _Logging,
                     new DockerCliContainerRuntimeProbe(),
-                    _Git);
+                    _Git,
+                    flakeScoreAdapter);
             }
             MissionOutcomeWakeHandler outcomeWake = new MissionOutcomeWakeHandler(_RemoteTriggerService, _Logging);
             missionService.OnMissionOutcome = async (Mission mission, bool willInvokeLanding) =>

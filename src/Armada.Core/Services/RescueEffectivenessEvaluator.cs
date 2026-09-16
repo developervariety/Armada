@@ -39,8 +39,27 @@ namespace Armada.Core.Services
             IEnumerable<string>? changedPaths,
             RescueChangeRequirementEnum requirement)
         {
-            ChangeSubstanceEnum substance = ChangeSubstanceClassifier.Classify(changedPaths);
+            return Assess(ChangeSubstanceClassifier.Classify(changedPaths), requirement);
+        }
 
+        /// <summary>
+        /// Assess a rescue from an already-classified change substance rather than from its paths.
+        /// </summary>
+        /// <remarks>
+        /// The extension-based <see cref="ChangeSubstanceClassifier"/> is the rule and the default. The
+        /// D17 <c>change_substance</c> typed decision may RAISE a documentation-only extension read to
+        /// <see cref="ChangeSubstanceEnum.Substantive"/> when it reads the added hunks as behaviour; that
+        /// refined substance is passed here so an ineffective-rescue decision reads a behaviour change as
+        /// behaviour rather than as prose. The typed decision never LOWERS the substance, so this
+        /// overload can only ever make the ineffective-rescue verdict less aggressive, never more.
+        /// </remarks>
+        /// <param name="substance">The classified substance of the rescue's change set.</param>
+        /// <param name="requirement">What the rescue owes, from <see cref="RequiredChange"/>.</param>
+        /// <returns>The assessment, including a reason suitable for a failure record.</returns>
+        public static RescueEffectivenessAssessment Assess(
+            ChangeSubstanceEnum substance,
+            RescueChangeRequirementEnum requirement)
+        {
             if (requirement == RescueChangeRequirementEnum.None)
             {
                 return new RescueEffectivenessAssessment(

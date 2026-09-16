@@ -38,6 +38,30 @@ V2 to restore the legacy policy; its stored settings remain available. Existing
 queued missions keep their persisted model requirements, so inspect them during
 migration if the old policy wrote a concrete model pin.
 
+### Shape tags and the D16 routing hint
+
+A route can carry an optional `shapes` tag list, for example `["mechanical",
+"doc-only"]`, `["reasoning-heavy", "port-fidelity"]`, or `["policy-tolerant"]`.
+A route with no tags is eligible for every shape, so a configuration that sets
+none behaves exactly as before. Tags never widen or narrow eligibility; they
+only order routes that are already eligible.
+
+When the `routing_hint` typed decision (D16) is enabled and V2 is on, the model
+reads the work and chooses a shape. Among the routes already approved and found
+eligible for a routine mission in the Normal state, the first route whose
+`shapes` contains the chosen shape is preferred over the plain list order. When
+the work is policy-sensitive (`policy_sensitive >= 0.9` — authorized seed-key,
+SecurityAccess, or similar diagnostic content a safety-tuned runtime has refused
+before), a route tagged `policy-tolerant` is preferred; when none is configured,
+the plain V2 default applies and the decision records `no_tolerant_route`.
+
+The hint only reorders eligible routes. It never creates a route, never picks an
+unlisted account or model, never moves a running mission, and never overrides
+Reserve or Exhausted handling. Reserved personas and reserved-priority missions
+are never reordered. Every state rule in the table above still applies after the
+reorder. The tags are set by the operator from the shadow success table, never
+by the model. Disabling V2 or the decision restores the plain list order.
+
 The defaults are Low at 25% remaining, Reserve at 10%, and recovery at 35%.
 After entering Low, an account stays there until recovery. All applicable
 windows bind: the most restrictive window wins. `windowModels` maps an exact

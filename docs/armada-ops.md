@@ -2111,6 +2111,40 @@ Two operator-side decisions gather owner decisions and pre-fill the corpus:
   `node scripts/autonomy/draft-corpus-line.mjs --input <file.json>` (or pipe the
   input object on stdin), optionally with `--out decisions.jsonl` to append the
   draft; `node scripts/autonomy/test-draft-corpus-line.mjs` is its self-check.
+Three platform-side decisions ship `Off`:
+
+- **D15 `flake_score`** runs in `DefinitionOfDoneGate` after
+  `DefinitionOfDoneFailureClassifier` classifies a failed unit-test command. It
+  asks a `flake_likelihood` Score `[deterministic, likely real, likely load,
+  known flaky family]` and an `outside_diff` Noul over state carrying the failing
+  test names, the assertion lines, the touched files, whether the same tests
+  failed on another branch in the last 24 hours, and the classifier's class. In
+  `Gate`, a `likely load` or `known flaky family` reading at or above threshold
+  triggers an isolated, class-filtered re-run of only the failing classes; the
+  re-run's real result is the truth (a pass clears the red, a failure leaves it
+  red). The model never marks a red check green — only a genuine passing isolated
+  re-run does — and a re-run runs only for a `dotnet test` command that can be
+  isolated; otherwise the red stands unchanged.
+- **D16 `routing_hint`** is Routing V2 only (owner decision 2026-09-16): it is
+  never wired into the legacy tier selector. A route gains an optional `shapes`
+  tag list (a tagless route matches every shape, so existing configs are
+  unchanged). The model answers a `shape` Choice, a `policy_sensitive` Noul, and
+  two context Nouls; the hint reorders — never re-selects — the routes V2 already
+  approved and found eligible: among eligible routes for a routine mission in the
+  Normal state it prefers the first route whose `shapes` contains the chosen shape
+  at threshold, and `policy_sensitive >= 0.9` prefers a `policy-tolerant` route
+  (falling back to the V2 default and recording `no_tolerant_route` when none is
+  configured). Reserved personas and non-Normal account states are never
+  affected; every hard V2 constraint runs after the reorder. See
+  `docs/USAGE_ROUTING.md`.
+- **D17 `change_substance`** sits over the extension-based
+  `ChangeSubstanceClassifier`, which stays the rule. The model reads the rescue's
+  added hunks and answers a `substance` Choice `{behaviour, test_only, docs_only,
+  build_config, generated}` and a `risky` Noul. In `Gate` it may RAISE a
+  documentation-only (or empty) extension reading to `Substantive` for the
+  ineffective-rescue decision (`RescueEffectivenessEvaluator`), so a behaviour
+  change is not failed as prose, and a `risky` reading at threshold adds one
+  `CriticalTriggerEvaluator` escalation reason. It NEVER lowers a classification.
 
 ### Vessel Workspace
 
