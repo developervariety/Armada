@@ -220,7 +220,7 @@ is not held (`not_held`). `clear` writes `mission.hold_cleared` and `fail`
 writes `mission.hold_failed`, each naming the operator and the reason. The model
 never resolves a hold and nothing resolves one automatically.
 
-When the D11 `inbox_triage` typed decision is enabled (`Gate`), the `inbox`
+When the `inbox_triage` typed decision is enabled (`Gate`), the `inbox`
 tool's items and the `armada_coordination_read` notes each carry an extra
 `attention` field (`informational`, `today`, `this_hour`, or
 `blocking_live_voyage`) and are ordered by it, and each board note also carries a
@@ -300,7 +300,7 @@ scheduler reads an operator-confirmed skip from the objective's
 honours it only when `confirmedBy` is set; otherwise it skips the objective as
 `stage_skip_unconfirmed`. A refinement summary never writes this field.
 
-After the deterministic preflight the preview also consults the D5 `preflight`
+After the deterministic preflight the preview also consults the `preflight`
 typed decision when it is enabled (`typedDecisions`, ships `Gate`). It reads the
 title, description, acceptance criteria, non-goals, refinement summary, Kind,
 vessel name, pipeline stages and the deterministic facts, and asks the text-half

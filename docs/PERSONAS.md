@@ -36,11 +36,11 @@ reviewers in this table are seeded only from settings:
 The seed service reconciles built-in definitions. Built-in personas cannot be
 deleted. Custom personas can be created, updated, or deleted.
 
-### Linter finding routing (D24 `lint_finding`)
+### Linter finding routing (`lint_finding`)
 
 The Linter reports style and correctness findings in its `## Code Style`,
 `## Code Correctness`, `## Documentation`, and `## Residual Issues` sections. The
-D24 `lint_finding` typed decision sits on the Linter handoff and routes those
+`lint_finding` typed decision sits on the Linter handoff and routes those
 findings for the next stage: only `correctness` or `safety` findings the model
 scores at `must_fix` or above are marked **blocking** for the Judge, and a
 `style_preference` finding becomes an **evidence note**. The Linter's own output
@@ -49,9 +49,9 @@ not presented to the Judge as a defect. The decision ships `Off` (the Linter
 output flows unchanged); a Gate flip is a settings change, not a persona change.
 The deterministic Slop Check (`SlopDiffClassifier`) is unaffected.
 
-### Prior-art analyst stage (D26 `prior_art`)
+### Prior-art analyst stage (`prior_art`)
 
-D26 `prior_art` does not add a persona to any pipeline by default: it is a
+The `prior_art` typed decision does not add a persona to any pipeline by default: it is a
 retrieval step plus typed questions inside stages that already run (the dispatch
 preflight and the Worker-to-Judge handoff), so no persona runs for nothing. It
 names one conditional persona, **PriorArtAnalyst**, a read-only Research analyst.

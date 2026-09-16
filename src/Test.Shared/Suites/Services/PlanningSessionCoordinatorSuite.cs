@@ -59,7 +59,7 @@ namespace Test.Shared.Suites.Services
                 {
                 prior = Environment.GetEnvironmentVariable("ARMADA_TEST_OPENCODE");
                 Directory.CreateDirectory(root);
-                string fixture = (await File.ReadAllTextAsync(Path.Combine(FindRepositoryRoot(), "docs", "upstream-review", "fixtures", "opencode-api-error.jsonl")).ConfigureAwait(false)).Trim();
+                string fixture = (await File.ReadAllTextAsync(Path.Combine(FindRepositoryRoot(), "src", "Test.Shared", "Fixtures", "opencode-api-error.jsonl")).ConfigureAwait(false)).Trim();
                 string encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(fixture));
                 string contents = OperatingSystem.IsWindows()
                     ? "@echo off\necho started > \"" + marker + "\"\npowershell -NoProfile -Command \"[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + encoded + "'))\"\n"
