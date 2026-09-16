@@ -95,6 +95,44 @@ namespace Armada.Core.Services
         public TypedHandoffOutcomeAdapter? HandoffOutcomeAdapter { get; set; }
 
         /// <summary>
+        /// The D21 <c>revision_kind</c> typed-decision adapter, when wired. Null keeps every Judge
+        /// NEEDS_REVISION on the deterministic path (autonomous recovery rescues it), which is the
+        /// operationally-off state. Set by the server after construction so existing construction sites
+        /// and tests are unchanged. When wired and gating, a NEEDS_REVISION whose every item is comment,
+        /// doc, or boundary wording HOLDS the rescue (the failure is marked
+        /// <see cref="RevisionCommentOnlyRescueBlockMarker"/> so recovery blocks it) and an incident is
+        /// opened tagged for operator landing. The model never lands and never overrides a behavioural
+        /// revision.
+        /// </summary>
+        public TypedRevisionKindAdapter? RevisionKindAdapter { get; set; }
+
+        /// <summary>
+        /// The D22 <c>test_covers</c> typed-decision adapter, when wired. Null keeps the TestEngineer
+        /// handoff deterministic, which is the operationally-off state. Set by the server after
+        /// construction so existing construction sites and tests are unchanged. When wired and gating, a
+        /// doubted added test becomes a Judge INSTRUCTION prepended to the next brief ("verify test X
+        /// fails without the change"); it never fails the stage.
+        /// </summary>
+        public TypedTestCoversAdapter? TestCoversAdapter { get; set; }
+
+        /// <summary>
+        /// The D24 <c>lint_finding</c> typed-decision adapter, when wired. Null keeps the Linter handoff
+        /// deterministic, which is the operationally-off state. Set by the server after construction so
+        /// existing construction sites and tests are unchanged. When wired and gating, only
+        /// correctness/safety findings at must_fix or above reach the Judge as blocking and
+        /// style-preference findings become evidence notes; the Linter's own result is unchanged.
+        /// </summary>
+        public TypedLintFindingAdapter? LintFindingAdapter { get; set; }
+
+        /// <summary>
+        /// The marker appended to a Judge NEEDS_REVISION failure reason when the D21 <c>revision_kind</c>
+        /// decision reads every revision item as non-behavioural. Autonomous recovery recognises it and
+        /// blocks the rescue with reason <c>revision_comment_only</c>, so the work is an operator
+        /// landing, not a wasted rescue chain.
+        /// </summary>
+        public const string RevisionCommentOnlyRescueBlockMarker = "[typed_decision:revision_comment_only]";
+
+        /// <summary>
         /// Owner-addressed board-note poster, used by the D20 handoff-outcome decision to reach the
         /// owner when a stage is blocked on an owner question. Null skips the note (the incident still
         /// opens). Set by the server after construction so existing construction sites and tests are
@@ -2226,6 +2264,17 @@ namespace Armada.Core.Services
                     mission.ReviewComment = BuildJudgeReviewComment(mission.AgentOutput, mission.FailureReason);
                     await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
                     _Logging.Warn(_Header + "judge mission " + mission.Id + " blocked landing with verdict " + verdict);
+
+                    // D21 revision_kind. A NEEDS_REVISION whose every item is comment, doc, or boundary
+                    // wording is an operator landing, not a rescue chain (memory: 11 comment-only rows,
+                    // each a wasted rescue). Ask the model, before autonomous recovery classifies the
+                    // failure; a gated all-non-behavioural reading marks the failure so recovery holds the
+                    // rescue and opens an incident tagged for operator landing. When the adapter is not
+                    // wired or the decision is Off, the deterministic recovery path stands unchanged.
+                    if (verdict == JudgeVerdict.NeedsRevision)
+                    {
+                        await ApplyRevisionKindDecisionAsync(mission, token).ConfigureAwait(false);
+                    }
                 }
 
                 // Persist the Judge request before any delivery-record lookup. A merge entry can
@@ -4981,6 +5030,23 @@ namespace Armada.Core.Services
                 return false;
             }
 
+            // D22 test_covers. When a TestEngineer stage hands off, ask whether each added test actually
+            // covers the reported symptom; a doubted test becomes a Judge instruction prepended to the
+            // next brief. It never fails the stage, so the handoff proceeds normally afterwards.
+            if (TestCoversAdapter != null && IsPersona(completedMission.Persona, PersonaCatalog.TestEngineer))
+            {
+                await ApplyTestCoversHandoffAsync(completedMission, dependentMissions, token).ConfigureAwait(false);
+            }
+
+            // D24 lint_finding. When a Linter stage hands off, route its findings so only correctness or
+            // safety findings at must_fix or above reach the Judge as blocking and style preferences
+            // become evidence notes. The Linter's own result is unchanged; only the next brief's routing
+            // note is added, so the handoff proceeds normally afterwards.
+            if (LintFindingAdapter != null && IsPersona(completedMission.Persona, PersonaCatalog.Linter))
+            {
+                await ApplyLintFindingHandoffAsync(completedMission, dependentMissions, token).ConfigureAwait(false);
+            }
+
             foreach (Mission nextMission in dependentMissions)
             {
                 await PrepareSingleDependentHandoffAsync(completedMission, nextMission, unreadMailboxSignals, appliedSignalIds, token).ConfigureAwait(false);
@@ -5219,6 +5285,398 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "handoff partial-Mail for mission " + completedMission.Id + " failed, handoff proceeds without the note: " + ex.Message);
             }
+        }
+
+        /// <summary>
+        /// Whether a mission's persona matches a catalogue persona, ignoring case and spaces. "Test
+        /// Engineer" is canonical and older builds wrote "TestEngineer", so the comparison normalises
+        /// both to the same token.
+        /// </summary>
+        private static bool IsPersona(string? persona, string catalogPersona)
+        {
+            if (String.IsNullOrWhiteSpace(persona)) return false;
+            string a = persona.Replace(" ", String.Empty, StringComparison.Ordinal);
+            string b = catalogPersona.Replace(" ", String.Empty, StringComparison.Ordinal);
+            return String.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// Consult the D21 <c>revision_kind</c> decision for a Judge NEEDS_REVISION and, when the model
+        /// reads every revision item as non-behavioural at or above threshold, HOLD the rescue: the
+        /// failure reason is marked <see cref="RevisionCommentOnlyRescueBlockMarker"/> so autonomous
+        /// recovery blocks the rescue with reason <c>revision_comment_only</c>, and an incident is opened
+        /// tagged for operator landing. The model never lands the work; a behavioural or test item, or a
+        /// below-threshold reading, leaves the deterministic rescue path unchanged. Never throws into the
+        /// caller.
+        /// </summary>
+        private async Task ApplyRevisionKindDecisionAsync(Mission mission, CancellationToken token)
+        {
+            if (RevisionKindAdapter == null) return;
+
+            // Cheap pre-check: when the decision is Off the adapter returns the rule without a call, so
+            // skip building the state (which reads the objective and parses the review) entirely.
+            if (_Settings.TypedDecisions.For("revision_kind").Mode == TypedDecisionModeEnum.Off) return;
+
+            try
+            {
+                IReadOnlyList<string> items = ExtractRevisionItems(mission.AgentOutput, mission.ReviewComment);
+                if (items.Count == 0) return;
+
+                RevisionKindDecisionInput input = new RevisionKindDecisionInput
+                {
+                    Mission = mission,
+                    RevisionItems = items,
+                    Symptom = await ReadObjectiveSymptomAsync(mission, token).ConfigureAwait(false)
+                };
+
+                RevisionKindVerdict verdict = await RevisionKindAdapter
+                    .DecideAsync(input, RevisionKindVerdict.Proceed(), token).ConfigureAwait(false);
+
+                if (verdict.Action != RevisionKindAction.BlockRescue) return;
+
+                // Mark the failure so autonomous recovery blocks the rescue, and record the hold on the
+                // mission. The work stays on its branch for the operator; nothing is landed here.
+                if (mission.FailureReason == null
+                    || !mission.FailureReason.Contains(RevisionCommentOnlyRescueBlockMarker, StringComparison.Ordinal))
+                {
+                    mission.FailureReason = (mission.FailureReason ?? "Judge verdict: NEEDS_REVISION")
+                        + " " + RevisionCommentOnlyRescueBlockMarker;
+                    mission.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.Missions.UpdateAsync(mission, token).ConfigureAwait(false);
+                }
+
+                await AppendMissionActivityAsync(mission.Id,
+                    "revision_kind: every NEEDS_REVISION item is non-behavioural wording; the rescue is held for an operator landing", token).ConfigureAwait(false);
+                await OpenRevisionCommentOnlyIncidentAsync(mission, items, token).ConfigureAwait(false);
+                _Logging.Info(_Header + "judge mission " + mission.Id
+                    + " NEEDS_REVISION held for operator landing by revision_kind (rescue blocked, not landed)");
+            }
+            catch (Exception ex)
+            {
+                // The adapter is contracted never to throw; guard anyway so a decision can never break
+                // Judge verdict handling. The deterministic rescue path stands.
+                _Logging.Warn(_Header + "revision_kind decision failed for mission " + mission.Id + ", rescue path stands: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Open one incident for a D21 comment-only NEEDS_REVISION, tagged for operator landing.
+        /// Idempotent per mission: an open incident whose root cause already names the marker is not
+        /// duplicated. Autonomous recovery's own block path reuses this incident rather than opening a
+        /// second one.
+        /// </summary>
+        private async Task OpenRevisionCommentOnlyIncidentAsync(Mission mission, IReadOnlyList<string> items, CancellationToken token)
+        {
+            IncidentService incidents = new IncidentService(_Database);
+            AuthContext auth = AuthContext.Authenticated(
+                mission.TenantId ?? Constants.DefaultTenantId,
+                mission.UserId ?? Constants.DefaultUserId,
+                false,
+                true,
+                "MissionHandoff",
+                principalDisplay: "Armada Mission Handoff");
+
+            EnumerationResult<Incident> existing = await incidents.EnumerateAsync(auth, new IncidentQuery
+            {
+                MissionId = mission.Id,
+                PageNumber = 1,
+                PageSize = 25
+            }, token).ConfigureAwait(false);
+            if (existing.Objects.Any(item => item.Status != IncidentStatusEnum.Closed
+                && item.Status != IncidentStatusEnum.RolledBack
+                && item.RootCause != null && item.RootCause.Contains(RevisionKindVerdict.RevisionCommentOnlyReason, StringComparison.Ordinal)))
+            {
+                return;
+            }
+
+            string title = mission.Title ?? mission.Id;
+            if (title.Length > 96) title = title.Substring(0, 96);
+            System.Text.StringBuilder revisions = new System.Text.StringBuilder();
+            foreach (string item in items) revisions.AppendLine("- " + item);
+
+            await incidents.CreateAsync(auth, new IncidentUpsertRequest
+            {
+                Title = "Operator landing: comment-only NEEDS_REVISION on " + title,
+                Summary = "The Judge returned NEEDS_REVISION for mission " + mission.Id
+                    + " whose every revision item is comment, documentation, or boundary wording. The rescue is held; this is an operator landing, not a rescue.",
+                Status = IncidentStatusEnum.Open,
+                Severity = IncidentSeverityEnum.Medium,
+                VesselId = mission.VesselId,
+                MissionId = mission.Id,
+                VoyageId = mission.VoyageId,
+                Impact = "A full rescue chain is avoided; the finished work stays on its branch for an operator to land after applying the wording revisions.",
+                RootCause = RevisionKindVerdict.RevisionCommentOnlyReason,
+                RecoveryNotes = "Apply the wording revisions below to the finished branch and land it as operator; do not dispatch a rescue.\n\nRevision items:\n" + revisions,
+                DetectedUtc = DateTime.UtcNow
+            }, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Extract the Judge's revision items from its output, best effort: bullet or numbered lines,
+        /// preferring those under a revisions-style heading. Falls back to the review comment's non-empty
+        /// prose lines when no list is present. Bounded in count and per-item length so the state stays
+        /// small.
+        /// </summary>
+        private static IReadOnlyList<string> ExtractRevisionItems(string? agentOutput, string? reviewComment)
+        {
+            const int maxItems = 12;
+            const int maxLen = 240;
+            List<string> items = new List<string>();
+
+            foreach (string source in new[] { agentOutput ?? String.Empty, reviewComment ?? String.Empty })
+            {
+                if (items.Count > 0) break;
+                foreach (string raw in source.Split('\n'))
+                {
+                    string line = raw.Trim();
+                    if (line.Length == 0) continue;
+                    bool bullet = line.StartsWith("- ", StringComparison.Ordinal)
+                        || line.StartsWith("* ", StringComparison.Ordinal)
+                        || (line.Length > 2 && Char.IsDigit(line[0]) && (line[1] == '.' || line[1] == ')'));
+                    if (!bullet) continue;
+                    string item = line.TrimStart('-', '*', ' ');
+                    int dot = item.IndexOf('.');
+                    if (dot >= 0 && dot <= 2 && item.Length > dot + 1 && Char.IsDigit(item[0])) item = item.Substring(dot + 1).Trim();
+                    if (item.Length == 0) continue;
+                    if (item.Length > maxLen) item = item.Substring(0, maxLen);
+                    items.Add(item);
+                    if (items.Count >= maxItems) break;
+                }
+            }
+
+            return items;
+        }
+
+        /// <summary>
+        /// Read the objective's reported-symptom sentence for a mission's voyage, best effort: the first
+        /// sentence of the objective description, else its title. A miss returns an empty string.
+        /// </summary>
+        private async Task<string> ReadObjectiveSymptomAsync(Mission mission, CancellationToken token)
+        {
+            if (String.IsNullOrEmpty(mission.VoyageId)) return String.Empty;
+            List<Objective> objectives = await _Database.Objectives.EnumerateAsync(token).ConfigureAwait(false);
+            Objective? objective = objectives.FirstOrDefault(item =>
+                item?.VoyageIds != null && item.VoyageIds.Contains(mission.VoyageId!, StringComparer.Ordinal));
+            if (objective == null) return String.Empty;
+
+            string text = !String.IsNullOrWhiteSpace(objective.Description) ? objective.Description! : (objective.Title ?? String.Empty);
+            text = text.Trim();
+            int stop = text.IndexOf('.');
+            if (stop > 0) text = text.Substring(0, stop + 1);
+            if (text.Length > 240) text = text.Substring(0, 240);
+            return text;
+        }
+
+        /// <summary>
+        /// Consult the D22 <c>test_covers</c> decision for a finished TestEngineer stage and, when the
+        /// model doubts an added test, prepend the Judge instructions to each pending dependent's brief.
+        /// It never fails the stage; the handoff proceeds normally afterwards. Never throws into the
+        /// handoff.
+        /// </summary>
+        private async Task ApplyTestCoversHandoffAsync(Mission completedMission, List<Mission> dependentMissions, CancellationToken token)
+        {
+            if (TestCoversAdapter == null) return;
+            if (_Settings.TypedDecisions.For("test_covers").Mode == TypedDecisionModeEnum.Off) return;
+
+            try
+            {
+                IReadOnlyList<TestCoversMethod> addedTests = ExtractAddedTestMethods(completedMission.DiffSnapshot);
+                if (addedTests.Count == 0) return;
+
+                TestCoversDecisionInput input = new TestCoversDecisionInput
+                {
+                    Mission = completedMission,
+                    AddedTests = addedTests,
+                    Symptom = await ReadObjectiveSymptomAsync(completedMission, token).ConfigureAwait(false)
+                };
+
+                TestCoversVerdict verdict = await TestCoversAdapter
+                    .DecideAsync(input, TestCoversVerdict.NoInstructions(), token).ConfigureAwait(false);
+                if (!verdict.HasInstructions) return;
+
+                System.Text.StringBuilder sb = new System.Text.StringBuilder();
+                sb.AppendLine("[ORCHESTRATOR NOTES]");
+                sb.AppendLine("The test_covers check doubts one or more added tests actually exercise the reported symptom. "
+                    + "As the Judge, verify each instruction below and treat a test that stays green without the change as a finding:");
+                foreach (string instruction in verdict.JudgeInstructions) sb.AppendLine("- " + instruction);
+                sb.Append("[/ORCHESTRATOR NOTES]");
+                string note = sb.ToString();
+
+                await PrependOrchestratorNoteAsync(dependentMissions, "test_covers check", note, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "test_covers handoff for mission " + completedMission.Id + " failed, handoff proceeds without the note: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Consult the D24 <c>lint_finding</c> decision for a finished Linter stage and, when the model
+        /// routes any finding, prepend a routing note to each pending dependent's brief: correctness and
+        /// safety findings at must_fix or above are marked blocking and style preferences become evidence
+        /// notes. The Linter's own result is unchanged; the handoff proceeds normally afterwards. Never
+        /// throws into the handoff.
+        /// </summary>
+        private async Task ApplyLintFindingHandoffAsync(Mission completedMission, List<Mission> dependentMissions, CancellationToken token)
+        {
+            if (LintFindingAdapter == null) return;
+            if (_Settings.TypedDecisions.For("lint_finding").Mode == TypedDecisionModeEnum.Off) return;
+
+            try
+            {
+                IReadOnlyList<string> findings = ExtractLintFindings(completedMission.AgentOutput);
+                if (findings.Count == 0) return;
+
+                LintFindingDecisionInput input = new LintFindingDecisionInput
+                {
+                    Mission = completedMission,
+                    Findings = findings
+                };
+
+                LintFindingVerdict verdict = await LintFindingAdapter
+                    .DecideAsync(input, LintFindingVerdict.Unrouted(), token).ConfigureAwait(false);
+                if (!verdict.HasRouting) return;
+
+                System.Text.StringBuilder sb = new System.Text.StringBuilder();
+                sb.AppendLine("[ORCHESTRATOR NOTES]");
+                sb.AppendLine("The lint_finding check routed the Linter's findings. The Linter's own report is unchanged; treat the "
+                    + "routing below as guidance on which findings block:");
+                if (verdict.BlockingFindings.Count > 0)
+                {
+                    sb.AppendLine("Blocking (correctness/safety at must_fix or above) — treat as required:");
+                    foreach (string blocking in verdict.BlockingFindings) sb.AppendLine("- " + blocking);
+                }
+                if (verdict.EvidenceNotes.Count > 0)
+                {
+                    sb.AppendLine("Evidence only (style preference) — do not block on these:");
+                    foreach (string evidence in verdict.EvidenceNotes) sb.AppendLine("- " + evidence);
+                }
+                sb.Append("[/ORCHESTRATOR NOTES]");
+                string note = sb.ToString();
+
+                await PrependOrchestratorNoteAsync(dependentMissions, "lint_finding check", note, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "lint_finding handoff for mission " + completedMission.Id + " failed, handoff proceeds without the note: " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Prepend an orchestrator note to each pending dependent's brief, idempotent on a distinctive
+        /// phrase so a repeated handoff does not append the block twice.
+        /// </summary>
+        private async Task PrependOrchestratorNoteAsync(List<Mission> dependentMissions, string idempotencyPhrase, string note, CancellationToken token)
+        {
+            foreach (Mission dependent in dependentMissions)
+            {
+                if (dependent.Description != null && dependent.Description.Contains(idempotencyPhrase, StringComparison.Ordinal))
+                    continue;
+                dependent.Description = note + "\n\n" + (dependent.Description ?? String.Empty);
+                dependent.LastUpdateUtc = DateTime.UtcNow;
+                await _Database.Missions.UpdateAsync(dependent, token).ConfigureAwait(false);
+            }
+        }
+
+        /// <summary>
+        /// Extract added test methods from a unified diff snapshot, best effort: a test method is an
+        /// added (<c>+</c>) line declaring a method whose name looks like a test, with a bounded body of
+        /// the following added lines. Bounded in count, name length, and body length so the state stays
+        /// small.
+        /// </summary>
+        private static IReadOnlyList<TestCoversMethod> ExtractAddedTestMethods(string? diffSnapshot)
+        {
+            const int maxTests = 12;
+            const int maxBodyLines = 60;
+            List<TestCoversMethod> tests = new List<TestCoversMethod>();
+            if (String.IsNullOrEmpty(diffSnapshot)) return tests;
+
+            string[] lines = diffSnapshot.Split('\n');
+            for (int i = 0; i < lines.Length && tests.Count < maxTests; i++)
+            {
+                string line = lines[i];
+                if (line.Length == 0 || line[0] != '+') continue;
+                string content = line.Substring(1).Trim();
+
+                // A method declaration whose name contains "Test" or that follows a [Fact]/[Theory]-style
+                // signature. Keep it simple and defensive: look for a parenthesised method whose name
+                // hints at a test.
+                int paren = content.IndexOf('(');
+                if (paren <= 0) continue;
+                string beforeParen = content.Substring(0, paren);
+                int lastSpace = beforeParen.LastIndexOf(' ');
+                string name = lastSpace >= 0 ? beforeParen.Substring(lastSpace + 1) : beforeParen;
+                if (name.Length == 0 || name.Length > 120) continue;
+                bool looksTest = name.Contains("Test", StringComparison.OrdinalIgnoreCase)
+                    || content.Contains("async Task", StringComparison.Ordinal)
+                    || content.Contains("void ", StringComparison.Ordinal);
+                if (!looksTest || !content.Contains(name + "(", StringComparison.Ordinal)) continue;
+
+                System.Text.StringBuilder body = new System.Text.StringBuilder();
+                int bodyLines = 0;
+                for (int j = i + 1; j < lines.Length && bodyLines < maxBodyLines; j++)
+                {
+                    string bl = lines[j];
+                    if (bl.Length == 0) continue;
+                    if (bl[0] == '@' || (bl.Length > 1 && bl[0] == '+' && bl.Substring(1).TrimStart().StartsWith("public ", StringComparison.Ordinal) && bl.Contains('(')))
+                        break;
+                    if (bl[0] == '+')
+                    {
+                        body.AppendLine(bl.Substring(1));
+                        bodyLines++;
+                    }
+                    else if (bl[0] == '-')
+                    {
+                        continue;
+                    }
+                }
+
+                tests.Add(new TestCoversMethod(name, body.ToString()));
+            }
+
+            return tests;
+        }
+
+        /// <summary>
+        /// Extract the Linter's findings from its output, best effort: bullet or numbered lines under the
+        /// Linter's finding sections (<c>## Code Style</c>, <c>## Code Correctness</c>,
+        /// <c>## Documentation</c>, <c>## Residual Issues</c>). Bounded in count and per-item length.
+        /// </summary>
+        private static IReadOnlyList<string> ExtractLintFindings(string? agentOutput)
+        {
+            const int maxFindings = 20;
+            const int maxLen = 240;
+            List<string> findings = new List<string>();
+            if (String.IsNullOrEmpty(agentOutput)) return findings;
+
+            bool inFindingSection = false;
+            foreach (string raw in agentOutput.Split('\n'))
+            {
+                string line = raw.Trim();
+                if (line.StartsWith("#", StringComparison.Ordinal))
+                {
+                    string heading = line.TrimStart('#', ' ');
+                    inFindingSection = heading.StartsWith("Code Style", StringComparison.OrdinalIgnoreCase)
+                        || heading.StartsWith("Code Correctness", StringComparison.OrdinalIgnoreCase)
+                        || heading.StartsWith("Documentation", StringComparison.OrdinalIgnoreCase)
+                        || heading.StartsWith("Residual Issues", StringComparison.OrdinalIgnoreCase);
+                    continue;
+                }
+                if (!inFindingSection || line.Length == 0) continue;
+                bool bullet = line.StartsWith("- ", StringComparison.Ordinal)
+                    || line.StartsWith("* ", StringComparison.Ordinal)
+                    || (line.Length > 2 && Char.IsDigit(line[0]) && (line[1] == '.' || line[1] == ')'));
+                if (!bullet) continue;
+                string item = line.TrimStart('-', '*', ' ');
+                int dot = item.IndexOf('.');
+                if (dot >= 0 && dot <= 2 && item.Length > dot + 1 && Char.IsDigit(item[0])) item = item.Substring(dot + 1).Trim();
+                if (item.Length == 0) continue;
+                if (item.Length > maxLen) item = item.Substring(0, maxLen);
+                findings.Add(item);
+                if (findings.Count >= maxFindings) break;
+            }
+
+            return findings;
         }
 
         /// <summary>

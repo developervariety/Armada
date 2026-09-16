@@ -2062,6 +2062,34 @@ built and dormant until a Gate flip):
   passing work through, and work that reaches the Judge is still judged. With the
   decision `Off` the deterministic handoff stands.
 
+Three persona-specific decision points sit on Judge and handoff seams (all ship
+`Off`, built and dormant until a Gate flip):
+
+- `revision_kind` (D21) sits after `ParseJudgeVerdict` on a NEEDS_REVISION's
+  revision items, before autonomous recovery classifies the failure. The model
+  answers a `kind` Choice {behaviour, test, comment_only, doc_only, boundary} per
+  item and a voyage-level `all_non_behavioural` Noul. When every item is
+  non-behavioural at or above threshold and no item is a behaviour or test change,
+  the seam marks the failure `revision_comment_only`, so autonomous recovery
+  **holds the rescue** (a comment-only NEEDS_REVISION is an operator landing, not
+  a rescue chain), and opens an incident tagged for operator landing. A single
+  behavioural or test item leaves the rule standing and the rescue proceeds. The
+  model never lands; the finished work stays on its branch for the operator.
+- `test_covers` (D22) sits on the TestEngineer handoff, over the added test
+  methods and the objective's symptom sentence. The model answers `covers_symptom`,
+  `asserts_source_text`, and `would_fail_before_fix` Nouls per added test; a
+  doubted test becomes a Judge **instruction** prepended to the next brief ("verify
+  test X fails without the change"). It **never fails the stage** by itself. With
+  the decision `Off` the handoff is deterministic.
+- `lint_finding` (D24) sits on the Linter handoff, over each finding the Linter
+  emits. The model answers a `class` Choice {correctness, safety, consistency,
+  style_preference, false_positive} and a `severity` Score [cosmetic, should_fix,
+  must_fix, blocks_merge] per finding. Only correctness/safety findings at
+  `must_fix` or above reach the Judge as **blocking**, and a `style_preference`
+  finding becomes an **evidence note**; a routing note is prepended to the next
+  brief. The Linter's own result is unchanged — only the routing is. With the
+  decision `Off` the Linter output flows unchanged.
+
 Two decision points read the papercut grouping:
 
 - **D6 `papercut_merge`** (ships `Gate`) runs at listing time

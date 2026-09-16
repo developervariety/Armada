@@ -29,6 +29,19 @@ reviewers in this table are seeded only from settings:
 The seed service reconciles built-in definitions. Built-in personas cannot be
 deleted. Custom personas can be created, updated, or deleted.
 
+### Linter finding routing (D24 `lint_finding`)
+
+The Linter reports style and correctness findings in its `## Code Style`,
+`## Code Correctness`, `## Documentation`, and `## Residual Issues` sections. The
+D24 `lint_finding` typed decision sits on the Linter handoff and routes those
+findings for the next stage: only `correctness` or `safety` findings the model
+scores at `must_fix` or above are marked **blocking** for the Judge, and a
+`style_preference` finding becomes an **evidence note**. The Linter's own output
+is unchanged — the decision prepends a routing note to the next brief so taste is
+not presented to the Judge as a defect. The decision ships `Off` (the Linter
+output flows unchanged); a Gate flip is a settings change, not a persona change.
+The deterministic Slop Check (`SlopDiffClassifier`) is unaffected.
+
 ## Prompt Assembly
 
 When Armada builds a captain prompt, it resolves the persona, loads its active

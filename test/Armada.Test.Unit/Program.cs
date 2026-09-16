@@ -327,6 +327,9 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CriteriaLintAdapterTests());
             runner.AddSuite(new InboxTriageAdapterTests());
             runner.AddSuite(new FollowUpRoutingAdapterTests());
+            runner.AddSuite(new TypedRevisionKindAdapterTests());
+            runner.AddSuite(new TypedTestCoversAdapterTests());
+            runner.AddSuite(new TypedLintFindingAdapterTests());
             runner.AddSuite(new FileMemoryCandidateProposalWriterTests());
             runner.AddSuite(new OpenCodeServerInferenceClientTests());
             runner.AddSuite(new OpenCodeServerInferenceClientNegativePathTests());

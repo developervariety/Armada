@@ -681,6 +681,16 @@ namespace Armada.Server
                 missionService.HandoffOutcomeAdapter = new TypedHandoffOutcomeAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 missionService.HandoffOwnerNotePoster = ownerNotePoster;
+                // D21 revision_kind (Judge NEEDS_REVISION), D22 test_covers (TestEngineer handoff), and
+                // D24 lint_finding (Linter handoff). All three ship Off in the decisions map, so with the
+                // live client present but the decision Off the seam still runs its deterministic path;
+                // they are wired so a later Gate flip is a settings change, not a code change.
+                missionService.RevisionKindAdapter = new TypedRevisionKindAdapter(
+                    _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
+                missionService.TestCoversAdapter = new TypedTestCoversAdapter(
+                    _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
+                missionService.LintFindingAdapter = new TypedLintFindingAdapter(
+                    _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 // D13 owner_digest runner. It reuses the owner-addressed note poster above, ranks each
                 // owner-decision candidate with its adapter, and — driven daily by the health loop —
                 // posts one owner-addressed digest note and one owner_decisions.digest event per UTC

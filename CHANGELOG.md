@@ -6,6 +6,39 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Typed decisions: revision kind (D21), test covers (D22), lint finding (D24)
+
+- Added the D21 `revision_kind` gated adapter over the shared typed-decision
+  skeleton. It sits after `ParseJudgeVerdict` on a NEEDS_REVISION's revision
+  items, before autonomous recovery classifies the failure. The model answers a
+  `kind` Choice {behaviour, test, comment_only, doc_only, boundary} per item and
+  a voyage-level `all_non_behavioural` Noul. At or above threshold, when no item
+  is a behaviour or test change, the seam marks the failure so autonomous
+  recovery HOLDS the rescue (reason `revision_comment_only`) and opens an
+  incident tagged for operator landing — a comment-only NEEDS_REVISION is an
+  operator landing, not a wasted rescue chain (census: 11 rows). A single
+  behavioural or test item forces the rule to stand and the rescue proceeds; the
+  model never lands. Ships Off (built, dormant); the deterministic rescue path
+  stands until a Gate flip.
+- Added the D22 `test_covers` gated adapter over the same skeleton. It sits on
+  the TestEngineer handoff, over the added test methods and the objective's
+  symptom sentence. Per added test the model answers `covers_symptom`,
+  `asserts_source_text`, and `would_fail_before_fix` Nouls; a doubted test
+  becomes a Judge INSTRUCTION prepended to the next brief ("verify test X fails
+  without the change"). It NEVER fails the stage by itself. Ships Off.
+- Added the D24 `lint_finding` gated adapter over the same skeleton. It sits on
+  the Linter handoff, over each finding the Linter emits. Per finding the model
+  answers a `class` Choice {correctness, safety, consistency, style_preference,
+  false_positive} and a `severity` Score [cosmetic, should_fix, must_fix,
+  blocks_merge]. Only correctness/safety findings at must_fix or above are marked
+  BLOCKING for the Judge and style-preference findings become evidence notes; a
+  routing note is prepended to the next brief. The Linter's own result is
+  unchanged — only the routing is. Ships Off.
+- Autonomous recovery's `Classify` now recognises the D21 comment-only marker on
+  a failure reason and blocks the rescue with reason `revision_comment_only`,
+  reusing the incident the MissionService seam already opened. Every rule
+  hard-block is unchanged.
+
 ### Typed decisions: pipeline stage necessity (D19) and handoff outcome (D20)
 
 - Added the D19 `stage_necessity` gated adapter over the shared typed-decision

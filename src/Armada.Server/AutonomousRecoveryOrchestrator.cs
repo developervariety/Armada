@@ -1156,6 +1156,12 @@ namespace Armada.Server
                 return RecoveryDecision.Blocked("landing failures remain owned by landing and merge recovery workflows");
             if (mission.IsReadOnlyMode)
                 return RecoveryDecision.Blocked("read-only mode " + mission.Mode + "; autonomous recovery preserves audit-only scope");
+            // The D21 revision_kind decision marks a NEEDS_REVISION whose every item is comment, doc, or
+            // boundary wording: a full rescue chain would spend a whole voyage to change wording that an
+            // operator lands directly. The MissionService seam already opened an incident tagged for
+            // operator landing; hold the rescue here.
+            if (reason.Contains(MissionService.RevisionCommentOnlyRescueBlockMarker, StringComparison.Ordinal))
+                return RecoveryDecision.Blocked("revision_comment_only: every NEEDS_REVISION item is comment, documentation, or boundary wording; this is an operator landing, not a rescue");
             if (IsAutoRescueMission(mission))
             {
                 // The deterministic repeated-failure guard: a rescue that failed its gate on the very
