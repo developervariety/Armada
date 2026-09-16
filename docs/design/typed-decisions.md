@@ -41,12 +41,12 @@ mode. Names, not index numbers, are the stable identifiers.
 | `refusal` | Whether a captain result is a model refusal rather than genuine output. |
 | `papercut_merge` | Whether two papercut reports describe the same underlying issue and should merge. |
 | `lint_finding` | How a Linter finding routes to the next stage: only `correctness`/`safety` at `must_fix` or above is marked blocking; a `style_preference` becomes an evidence note. |
+| `capacity_escalation` | Smart Routing only: whether a mission is `lighter`, `default`, or `stronger` work for its persona, which chooses the persona model list tried first (threshold 0.90; every failure is `default`; cached per mission). It never makes a captain eligible. |
 
 ### Available, off until enabled (`Off`)
 
 | Name | What it decides |
 | --- | --- |
-| `routing_hint` | The work's shape, to order a persona's already-approved Smart Routing routes (never widens or narrows eligibility). |
 | `prior_art` | Whether the requested work already exists, with evidence, before a stage begins. |
 | `premise_check` | Whether a brief's stated premise still holds at the target commit. |
 | `criteria_lint` | Whether acceptance criteria are testable and unambiguous. |
@@ -64,6 +64,12 @@ mode. Names, not index numbers, are the stable identifiers.
 | `memory_record` | The shape of a memory record for a captured decision. |
 | `owner_digest` | A digest of owner decisions for later review. |
 | `corpus_prelabel` | A provisional label for a captured decision in the evaluation corpus. |
+
+### Retired
+
+| Name | Replaced by |
+| --- | --- |
+| `routing_hint` | `capacity_escalation`. The work-shape hint and route `shapes` tags are removed; a stored `routing_hint` entry or `shapes` list is ignored. |
 
 ## Captain-facing use
 

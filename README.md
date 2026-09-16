@@ -76,9 +76,11 @@ What the fork adds on top of the shared model:
 - **Deeper review.** Linter and Recorder pipeline stages, immutable reviewed-commit
   Checks, declared-consumer builds, verified landing evidence, and full recovery
   pipelines with provider-aware rescue.
-- **Usage-aware routing.** Model-tier routing plus optional Routing V2, which moves
-  routine work to approved fallback accounts when an account's allowance runs low,
-  while preserving persona preferences.
+- **Smart Routing.** Legacy Routing (model tiers, persona locks, within-tier
+  ranking, non-native-first) plus an opt-in usage filter that removes captains on
+  exhausted accounts and demotes low ones, per-persona default, lighter, and
+  stronger model lists chosen by the `capacity_escalation` typed decision, and
+  optional persona route restrictions.
 - **Operations.** An in-place Restart Server action adapted for Docker (a graceful
   stop under the container restart policy); a Voyage AI code-index embedding client;
   supervised self-deploy, hardened but disabled pending its safety integration; and
@@ -181,7 +183,7 @@ off). A deployment applies fleet policy from settings, not from C#.
   configured specialist and Judge stages stay `high`. Preview reports separate
   requirements when mission descriptions use different literal model pins.
 - Specialist reservation, family classification, within-tier preference order, non-native-first, reserved high-tier slots, and the stage-persona title-prefix guard live in `ArmadaSettings` (`factory/settings.fleet.example.json` is the overlay that restores the former hardcoded fleet).
-- Optional [Routing V2](docs/USAGE_ROUTING.md) replaces legacy preference overrides when enabled. It preserves persona preferences and moves routine work to approved fallback accounts when allowance runs low. The Dashboard Settings hub’s Routing tab supports account usage, reserve thresholds, budget planning, and draft previews. Collectors support Codex, Claude, Cursor, OpenCode Go, and normalized local snapshots. An account can own a separate captain login for Claude Code, Codex, OpenCode, or Cursor; it is off unless configured, and a provider limit on one captain holds its whole account. A logged-out, expired, or held account blocks assignment with a named reason code in status and the usage preview.
+- **Legacy Routing** is everything above, with `modelTier.usageRouting.enabled` false. Optional [Smart Routing](docs/USAGE_ROUTING.md) (`enabled` true) keeps the Legacy Routing order and filters it: captains on Exhausted accounts are removed and captains on Low or Reserve accounts move after the rest. Per-persona `default`, `lighter`, and `stronger` model lists group the order, the `capacity_escalation` typed decision chooses the list tried first, and optional persona routes restrict a persona to named accounts. The Dashboard Settings hub’s Routing tab supports account usage, reserve thresholds, budget planning, and draft previews. Collectors support Codex, Claude, Cursor, OpenCode Go, and normalized local snapshots. An account can own a separate captain login for Claude Code, Codex, OpenCode, or Cursor; it is off unless configured, and a provider limit on one captain holds its whole account. A logged-out, expired, or held account blocks assignment with a named reason code in status and the usage preview.
 - The same Routing tab edits those fields and saves only the fields that changed. `modelTier` and `voyageDispatch` hot-reload; `modelProviders` and additional personas/pipelines/templates load at startup.
 
 ### Typed decisions (gate-enforced, operationally off until keyed)

@@ -11,7 +11,7 @@ namespace Armada.Core.Services
     using Armada.Core.Models;
     using Armada.Core.Settings;
 
-    /// <summary>Account allowance collection and preference-first conservation, shared by dispatch and preview.</summary>
+    /// <summary>Account allowance collection and the Smart Routing usage classification, shared by dispatch and preview.</summary>
     public sealed class UsageRoutingService
     {
         #region Private-Members
@@ -96,7 +96,16 @@ namespace Armada.Core.Services
             {
                 if (String.IsNullOrWhiteSpace(pair.Key) || !personas.Add(PersonaCatalog.NormalizeName(pair.Key)) || pair.Value == null || pair.Value.Count == 0) throw new ArgumentException("Persona route lists must be nonempty and unique after normalization.");
                 foreach (UsageRouteSettings route in pair.Value)
-                    if (route == null || !ids.Contains(route.AccountId) || route.Models == null || route.Models.Any(String.IsNullOrWhiteSpace) || route.Shapes == null || route.Shapes.Any(String.IsNullOrWhiteSpace)) throw new ArgumentException("Each usage route must reference an account and a model list, and its shape tags must be nonempty.");
+                    if (route == null || !ids.Contains(route.AccountId) || route.Models == null || route.Models.Any(String.IsNullOrWhiteSpace)) throw new ArgumentException("Each usage route must reference an account and a model list.");
+            }
+            if (settings.PersonaModels == null) throw new ArgumentException("Persona model preferences cannot be null.");
+            HashSet<string> modelPersonas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, PersonaModelSettings> pair in settings.PersonaModels)
+            {
+                if (String.IsNullOrWhiteSpace(pair.Key) || pair.Key == "*" || !modelPersonas.Add(PersonaCatalog.NormalizeName(pair.Key)) || pair.Value == null)
+                    throw new ArgumentException("Persona model preferences need a persona name that is unique after normalization.");
+                if (pair.Value.Default.Count == 0 || pair.Value.Default.Concat(pair.Value.Lighter).Concat(pair.Value.Stronger).Any(String.IsNullOrWhiteSpace))
+                    throw new ArgumentException("Persona model preferences for " + pair.Key + " need a nonempty Default list and no blank model names.");
             }
         }
 
@@ -517,165 +526,134 @@ namespace Armada.Core.Services
             }
         }
 
-        /// <summary>Apply the same persona and minimum tier constraints in preview and dispatch.</summary>
-        public static List<Captain> Eligible(ModelTierSettings settings, Mission mission, IEnumerable<Captain> candidates)
-        {
-            return candidates.Where(c => MissionService.CaptainSatisfiesPreferredRouting(c, mission.Persona, mission.PreferredModel, settings)
-                && (!settings.IsSpecialistPersona(mission.Persona) || !settings.HasConfiguredTierMembership
-                    || String.Equals(PreferredModelTierSelector.ClassifyModel(c.Model, settings), PreferredModelTierSelector.HighTier, StringComparison.OrdinalIgnoreCase))).ToList();
-        }
+        /// <summary>Verdict outcome: the captain keeps its Legacy Routing position.</summary>
+        public const string OutcomeKept = "kept";
 
-        /// <summary>Filter approved candidates without ever sorting by remaining percentage.</summary>
-        public UsageRoutingDecision Select(UsageRoutingSettings settings, Mission mission, List<Captain> candidates, IReadOnlyCollection<string> busyCaptainIds, DateTime now)
-        {
-            return Select(settings, mission, candidates, busyCaptainIds, now, RoutingHint.None());
-        }
+        /// <summary>Verdict outcome: the captain moves after every kept captain.</summary>
+        public const string OutcomeDemoted = "demoted";
+
+        /// <summary>Verdict outcome: the captain cannot take the mission now.</summary>
+        public const string OutcomeRemoved = "removed";
+
+        /// <summary>Verdict outcome: a persona route restriction excludes the captain.</summary>
+        public const string OutcomeOutsideRoutes = "outside_routes";
+
+        /// <summary>The captain belongs to no usage account, so usage never moves it.</summary>
+        public const string ReasonNoAccount = "no_usage_account";
+
+        /// <summary>The account's concurrent mission limit is reached.</summary>
+        public const string ReasonConcurrencyLimit = "account_concurrency_limit";
+
+        /// <summary>A reserved persona or priority keeps its position on a Low or Reserve account.</summary>
+        public const string ReasonReservedWork = "reserved_work_keeps_position";
+
+        /// <summary>No persona route names the captain's account or model.</summary>
+        public const string ReasonOutsideRoutes = "persona_route_restriction";
 
         /// <summary>
-        /// Filter approved candidates without ever sorting by remaining percentage, applying an optional
-        /// D16 <c>routing_hint</c> shape hint that reorders the already-approved routes.
+        /// Classify one captain for Smart Routing. Exhausted (measured, login, provider hold, unknown data under a
+        /// Block policy) or an account at its concurrency limit removes the captain. Low or Reserve (or unknown data
+        /// under a Conserve policy) demotes it, except for a reserved persona or priority. Normal, unknown data under
+        /// Allow, and captains in no account keep their position. Never sorts by remaining percentage.
         /// </summary>
-        /// <remarks>
-        /// The hint is advisory and additive. It reorders the route list before eligibility is applied,
-        /// so every hard constraint — account state (Reserve, Exhausted, Low, Unknown), the reserved
-        /// persona path, the tier constraint, and the route's own model list — still runs unchanged per
-        /// route. A reordered route that is not eligible is skipped exactly as it would have been. The
-        /// reserved-persona path is never reordered at all. When the hint is <see cref="RoutingHint.None"/>
-        /// (the default overload, and whenever the decision is Off, unavailable, or below threshold), the
-        /// plain V2 list order applies.
-        /// </remarks>
         /// <param name="settings">Usage routing settings.</param>
         /// <param name="mission">The mission being routed.</param>
-        /// <param name="candidates">The usage-eligible captains.</param>
-        /// <param name="busyCaptainIds">Captains currently working, for account concurrency.</param>
+        /// <param name="captain">The captain to classify.</param>
+        /// <param name="busyCaptainIds">Captains working or reserved, for the account concurrency limit.</param>
         /// <param name="now">The evaluation time.</param>
-        /// <param name="hint">The D16 shape hint, or <see cref="RoutingHint.None"/>.</param>
-        /// <returns>The routing decision.</returns>
-        public UsageRoutingDecision Select(UsageRoutingSettings settings, Mission mission, List<Captain> candidates, IReadOnlyCollection<string> busyCaptainIds, DateTime now, RoutingHint hint)
+        /// <returns>The captain's verdict.</returns>
+        public SmartRoutingCaptainVerdict ClassifyCaptain(UsageRoutingSettings settings, Mission mission, Captain captain, IReadOnlyCollection<string> busyCaptainIds, DateTime now)
         {
-            UsageRoutingDecision result = new UsageRoutingDecision { Candidates = candidates, Reason = "usage_routing_disabled" };
-            if (!settings.Enabled) return result;
-            List<UsageRouteSettings>? routes = null;
-            foreach (KeyValuePair<string, List<UsageRouteSettings>> pair in settings.PersonaRoutes)
-                if (PersonaCatalog.Matches(pair.Key, mission.Persona)) { routes = pair.Value; break; }
-            if (routes == null) settings.PersonaRoutes.TryGetValue("*", out routes);
-            result.HasPersonaRoutes = routes != null;
-            if (routes == null)
+            if (settings == null) throw new ArgumentNullException(nameof(settings));
+            if (mission == null) throw new ArgumentNullException(nameof(mission));
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            if (busyCaptainIds == null) throw new ArgumentNullException(nameof(busyCaptainIds));
+            SmartRoutingCaptainVerdict verdict = new SmartRoutingCaptainVerdict { CaptainId = captain.Id, Model = captain.Model };
+            UsageAccountSettings? account = settings.Accounts.FirstOrDefault(a => a != null && a.CaptainIds.Contains(captain.Id, StringComparer.OrdinalIgnoreCase));
+            if (account == null)
             {
-                // No route governs this persona (no persona-specific route and no "*" default), so Smart
-                // Routing does not narrow the field: keep the candidates the legacy selector already
-                // approved. Enabling Smart Routing with no configured routes is then a safe no-op rather
-                // than a blanket assignment block for every ungoverned persona.
-                result.Candidates = candidates;
-                result.Reason = "v2_no_route_pass_through";
-                return result;
+                verdict.Outcome = OutcomeKept;
+                verdict.Reason = ReasonNoAccount;
+                return verdict;
             }
-            List<Captain> normal = new List<Captain>();
-            List<Captain> low = new List<Captain>();
-            string? accountBlockReason = null;
-            IEnumerable<UsageRouteSettings> ordered = ApplyRoutingHint(routes, settings, mission, hint, result);
-            foreach (UsageRouteSettings route in ordered)
+            verdict.AccountId = account.Id;
+            if (account.MaxConcurrentMissions > 0 && account.CaptainIds.Count(id => busyCaptainIds.Contains(id, StringComparer.OrdinalIgnoreCase)) >= account.MaxConcurrentMissions)
             {
-                UsageAccountSettings account = settings.Accounts.First(a => String.Equals(a.Id, route.AccountId, StringComparison.OrdinalIgnoreCase));
-                if (account.MaxConcurrentMissions > 0 && account.CaptainIds.Count(id => busyCaptainIds.Contains(id)) >= account.MaxConcurrentMissions) continue;
-                bool important = account.ReservedPersonas.Any(p => PersonaCatalog.Matches(p, mission.Persona)) || (account.ReservedPriorityAtOrAbove.HasValue && mission.Priority <= account.ReservedPriorityAtOrAbove.Value);
-                foreach (Captain captain in candidates.OrderBy(c => route.Models.Count == 0 ? 0 : route.Models.FindIndex(m => String.Equals(m, c.Model, StringComparison.OrdinalIgnoreCase))).ThenBy(c => c.Id, StringComparer.Ordinal))
-                {
-                    if (!account.CaptainIds.Contains(captain.Id, StringComparer.OrdinalIgnoreCase) || (route.Models.Count > 0 && !route.Models.Contains(captain.Model ?? "", StringComparer.OrdinalIgnoreCase))) continue;
-                    ProviderUsageStatus status = GetStatus(account, captain.Model, now);
-                    string state = status.State == "Unknown" ? account.UnknownUsagePolicy == "Block" ? "Exhausted" : account.UnknownUsagePolicy == "Conserve" ? "Low" : "Normal" : status.State;
-                    // A login problem or provider hold names the account, not its allowance; keep the first such code so a
-                    // mission that waits says why instead of reading as a generic allowance shortage.
-                    if (state == "Exhausted" && accountBlockReason == null && status.Reason != null && status.Reason.StartsWith("account_", StringComparison.Ordinal))
-                        accountBlockReason = status.Reason;
-                    if (state == "Exhausted" || (state == "Reserve" && !important)) continue;
-                    if (state == "Low" && !important) low.Add(captain);
-                    else normal.Add(captain);
-                }
+                verdict.State = "Exhausted";
+                verdict.Outcome = OutcomeRemoved;
+                verdict.Reason = ReasonConcurrencyLimit;
+                return verdict;
             }
-            List<Captain> normalRetry = normal.Where(c => !MissionService.IsCaptainOnRetrySkipList(mission.RetrySkipCaptainIds, c.Id)).ToList();
-            List<Captain> lowRetry = low.Where(c => !MissionService.IsCaptainOnRetrySkipList(mission.RetrySkipCaptainIds, c.Id)).ToList();
-            if (normalRetry.Count + lowRetry.Count > 0) { normal = normalRetry; low = lowRetry; }
-            result.Candidates = normal.Count > 0 ? normal : low;
-            result.Reason = result.Candidates.Count == 0 ? accountBlockReason ?? "usage_reserve_exhaustion_or_account_capacity" : normal.Count == 0 ? "low_allowance_no_approved_normal_fallback" : "preferred_eligible_route_with_allowance";
-            return result;
+            ProviderUsageStatus status = GetStatus(account, captain.Model, now);
+            string state = status.State == "Unknown" ? account.UnknownUsagePolicy == "Block" ? "Exhausted" : account.UnknownUsagePolicy == "Conserve" ? "Low" : "Normal" : status.State;
+            verdict.State = status.State;
+            verdict.Reason = status.Reason ?? String.Empty;
+            if (state == "Exhausted")
+            {
+                verdict.Outcome = OutcomeRemoved;
+                return verdict;
+            }
+            if (state == "Low" || state == "Reserve")
+            {
+                bool important = account.ReservedPersonas.Any(p => PersonaCatalog.Matches(p, mission.Persona))
+                    || (account.ReservedPriorityAtOrAbove.HasValue && mission.Priority <= account.ReservedPriorityAtOrAbove.Value);
+                verdict.Outcome = important ? OutcomeKept : OutcomeDemoted;
+                if (important) verdict.Reason = ReasonReservedWork;
+                return verdict;
+            }
+            verdict.Outcome = OutcomeKept;
+            return verdict;
         }
-
-        /// <summary>The route tag that marks an account/model as tolerant of policy-sensitive diagnostic work.</summary>
-        public const string PolicyTolerantTag = "policy-tolerant";
 
         /// <summary>
-        /// Reorder the persona's approved routes by the D16 shape hint, without changing eligibility.
+        /// Find the persona's route restriction: its own routes, else a <c>*</c> entry, else null (unrestricted).
         /// </summary>
-        /// <remarks>
-        /// A stable reorder puts the routes the hint prefers first, so the "first eligible" default then
-        /// falls on a shape-matched or policy-tolerant route when one is eligible, and on the original
-        /// list order otherwise. The reserved-persona path is never reordered: when the mission is
-        /// reserved on any of its routes, the plain list order is kept. Every hard V2 constraint is still
-        /// applied per route by the caller after this reorder.
-        /// </remarks>
-        private static IReadOnlyList<UsageRouteSettings> ApplyRoutingHint(
-            List<UsageRouteSettings> routes,
-            UsageRoutingSettings settings,
-            Mission mission,
-            RoutingHint hint,
-            UsageRoutingDecision result)
+        /// <param name="settings">Usage routing settings.</param>
+        /// <param name="persona">The mission persona.</param>
+        /// <returns>The routes that restrict the persona, or null.</returns>
+        public static List<UsageRouteSettings>? FindPersonaRoutes(UsageRoutingSettings settings, string? persona)
         {
-            if (!hint.Applied) return routes;
-
-            // Reserved personas (and reserved-priority missions) are never affected by the hint. Their
-            // route order is left exactly as configured.
-            bool reservedAnywhere = routes.Any(route =>
-            {
-                UsageAccountSettings? account = settings.Accounts.FirstOrDefault(a => String.Equals(a.Id, route.AccountId, StringComparison.OrdinalIgnoreCase));
-                if (account == null) return false;
-                return account.ReservedPersonas.Any(p => PersonaCatalog.Matches(p, mission.Persona))
-                    || (account.ReservedPriorityAtOrAbove.HasValue && mission.Priority <= account.ReservedPriorityAtOrAbove.Value);
-            });
-            if (reservedAnywhere)
-            {
-                result.RoutingHintOutcome = "reserved_persona_unchanged";
-                return routes;
-            }
-
-            if (hint.PreferPolicyTolerant)
-            {
-                bool anyTolerant = routes.Any(route => RouteHasShape(route, PolicyTolerantTag));
-                if (!anyTolerant)
-                {
-                    // No policy-tolerant route is configured for this persona; fall back to V2 default.
-                    result.RoutingHintOutcome = "no_tolerant_route";
-                    return routes;
-                }
-                result.RoutingHintOutcome = "policy_tolerant";
-                return StableOrderPreferring(routes, route => RouteHasShape(route, PolicyTolerantTag));
-            }
-
-            if (!String.IsNullOrWhiteSpace(hint.ChosenShape))
-            {
-                bool anyMatch = routes.Any(route => RouteHasShape(route, hint.ChosenShape!));
-                if (!anyMatch)
-                {
-                    result.RoutingHintOutcome = "no_shape_match";
-                    return routes;
-                }
-                result.RoutingHintOutcome = "applied_shape:" + hint.ChosenShape;
-                return StableOrderPreferring(routes, route => RouteHasShape(route, hint.ChosenShape!));
-            }
-
-            return routes;
+            if (settings == null) throw new ArgumentNullException(nameof(settings));
+            foreach (KeyValuePair<string, List<UsageRouteSettings>> pair in settings.PersonaRoutes)
+                if (pair.Key != "*" && PersonaCatalog.Matches(pair.Key, persona)) return pair.Value;
+            return settings.PersonaRoutes.TryGetValue("*", out List<UsageRouteSettings>? wildcard) ? wildcard : null;
         }
 
-        private static bool RouteHasShape(UsageRouteSettings route, string shape)
+        /// <summary>
+        /// Whether a persona route admits the captain: the route's account lists the captain, and the route lists
+        /// no models or lists the captain's model.
+        /// </summary>
+        /// <param name="settings">Usage routing settings.</param>
+        /// <param name="routes">The persona's routes.</param>
+        /// <param name="captain">The captain.</param>
+        /// <returns>True when any route admits the captain.</returns>
+        public static bool RoutesAdmit(UsageRoutingSettings settings, List<UsageRouteSettings> routes, Captain captain)
         {
-            if (route.Shapes == null || route.Shapes.Count == 0) return false;
-            return route.Shapes.Any(tag => String.Equals(tag, shape, StringComparison.OrdinalIgnoreCase));
+            if (settings == null) throw new ArgumentNullException(nameof(settings));
+            if (routes == null) throw new ArgumentNullException(nameof(routes));
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            foreach (UsageRouteSettings route in routes)
+            {
+                UsageAccountSettings? account = settings.Accounts.FirstOrDefault(a => a != null && String.Equals(a.Id, route.AccountId, StringComparison.OrdinalIgnoreCase));
+                if (account == null || !account.CaptainIds.Contains(captain.Id, StringComparer.OrdinalIgnoreCase)) continue;
+                if (route.Models.Count == 0 || route.Models.Contains(captain.Model ?? String.Empty, StringComparer.OrdinalIgnoreCase)) return true;
+            }
+            return false;
         }
 
-        private static IReadOnlyList<UsageRouteSettings> StableOrderPreferring(List<UsageRouteSettings> routes, Func<UsageRouteSettings, bool> preferred)
+        /// <summary>
+        /// Find the persona's model preference entry, matching persona names after normalization.
+        /// </summary>
+        /// <param name="settings">Usage routing settings.</param>
+        /// <param name="persona">The mission persona.</param>
+        /// <returns>The entry, or null when the persona has none.</returns>
+        public static PersonaModelSettings? FindPersonaModels(UsageRoutingSettings settings, string? persona)
         {
-            // Enumerable.OrderBy is a stable sort, so routes that share a key keep their configured order.
-            return routes.OrderBy(route => preferred(route) ? 0 : 1).ToList();
+            if (settings == null) throw new ArgumentNullException(nameof(settings));
+            if (String.IsNullOrWhiteSpace(persona)) return null;
+            foreach (KeyValuePair<string, PersonaModelSettings> pair in settings.PersonaModels)
+                if (PersonaCatalog.Matches(pair.Key, persona)) return pair.Value;
+            return null;
         }
 
         #endregion

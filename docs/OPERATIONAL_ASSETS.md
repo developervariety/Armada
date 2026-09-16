@@ -290,8 +290,10 @@ REST, or the dashboard so validation and events remain intact.
 
 ## Account usage and persona routing
 
-See [Smart Routing](USAGE_ROUTING.md) for the opt-in policy, collectors,
-credential references, reserve behavior, and Dashboard controls. The settings
-REST API exposes `providerUsage`; `POST /api/v1/settings/usage-preview` previews
-an optional draft policy with settings write permission. No new MCP tool is
+See [Smart Routing](USAGE_ROUTING.md) for the opt-in policy (usage filter,
+persona model lists, the `capacity_escalation` decision, route restrictions),
+collectors, credential references, and Dashboard controls. The settings REST API
+exposes `providerUsage`; `POST /api/v1/settings/usage-preview` previews the
+Legacy Routing order, usage verdicts, model groups, capacity reading, and chosen
+captain for a saved or draft policy with settings write permission. No new MCP tool is
 required. Policy updates use `PUT /api/v1/settings` and hot-reload.

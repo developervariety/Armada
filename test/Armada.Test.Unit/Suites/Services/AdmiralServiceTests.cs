@@ -1079,7 +1079,7 @@ namespace Armada.Test.Unit.Suites.Services
                     // Routing refuses the account even for a sibling that is idle and unbenched, for example one that
                     // finished a running mission after the failure.
                     Captain freed = new Captain("account-second") { Id = sibling.Id, Model = "shared-model", State = CaptainStateEnum.Idle };
-                    UsageRoutingDecision decision = usage.Select(settings.ModelTier.UsageRouting, new Mission { Persona = "Worker" },
+                    UsageRoutingDecision decision = SmartRoutingTestSelect.Select(usage, settings.ModelTier.UsageRouting, new Mission { Persona = "Worker" },
                         new List<Captain> { freed, otherAfter }, Array.Empty<string>(), DateTime.UtcNow);
                     AssertEqual(1, decision.Candidates.Count, "Only the captain on the other account is a candidate");
                     AssertEqual(other.Id, decision.Candidates[0].Id);

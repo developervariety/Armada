@@ -56,13 +56,15 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// Per-decision-point configuration keyed by decision name. A decision absent from this
-        /// map is treated as Off.
+        /// Per-decision-point configuration keyed by decision name. A shipped decision absent from a
+        /// supplied map takes its shipped default, so a settings file written before the decision
+        /// existed still runs it at its shipped mode; set its mode to Off to switch it off. An unknown
+        /// name (for example a retired decision) is kept and never consulted.
         /// </summary>
         public Dictionary<string, TypedDecisionRuleSettings> Decisions
         {
             get => _Decisions;
-            set => _Decisions = value ?? new Dictionary<string, TypedDecisionRuleSettings>();
+            set => _Decisions = WithShippedDefaults(value);
         }
 
         /// <summary>
@@ -102,8 +104,19 @@ namespace Armada.Core.Settings
             return new ResolvedTypedDecision(effective, rule.GateThreshold);
         }
 
+        private static Dictionary<string, TypedDecisionRuleSettings> WithShippedDefaults(Dictionary<string, TypedDecisionRuleSettings>? supplied)
+        {
+            Dictionary<string, TypedDecisionRuleSettings> merged = new Dictionary<string, TypedDecisionRuleSettings>(StringComparer.Ordinal);
+            if (supplied != null)
+                foreach (KeyValuePair<string, TypedDecisionRuleSettings> pair in supplied)
+                    if (!String.IsNullOrWhiteSpace(pair.Key)) merged[pair.Key] = pair.Value ?? new TypedDecisionRuleSettings();
+            foreach (KeyValuePair<string, TypedDecisionRuleSettings> pair in DefaultDecisions())
+                if (!merged.ContainsKey(pair.Key)) merged[pair.Key] = pair.Value;
+            return merged;
+        }
+
         /// <summary>
-        /// The default decision map. The six Phase-1 decisions ship in Gate with their thresholds;
+        /// The default decision map. The six Phase-1 decisions and capacity_escalation ship in Gate with their thresholds;
         /// every other decision is Off until its adapter lane lands and the owner enables it. A
         /// decision reversed by operators too often is demoted to Shadow, not deleted.
         /// </summary>
@@ -127,7 +140,7 @@ namespace Armada.Core.Settings
                 ["owner_digest"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
                 ["corpus_prelabel"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
                 ["flake_score"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
-                ["routing_hint"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
+                ["capacity_escalation"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
                 ["change_substance"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
                 ["memory_candidate"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off, GateThreshold = 0.90 },
                 ["stage_necessity"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },

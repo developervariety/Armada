@@ -238,12 +238,26 @@ namespace Armada.Test.Automated.Suites
                 using (HttpResponseMessage before = await _AuthClient.GetAsync("/api/v1/settings").ConfigureAwait(false))
                 {
                     string saved = await before.Content.ReadAsStringAsync().ConfigureAwait(false);
-                    using (StringContent content = JsonHelper.ToJsonContent(new { persona = "Worker", usageRouting = new { enabled = true, accounts = new object[0], personaRoutes = new { } } }))
+                    using (StringContent content = JsonHelper.ToJsonContent(new
+                    {
+                        persona = "Worker",
+                        usageRouting = new
+                        {
+                            enabled = true,
+                            accounts = new object[0],
+                            personaRoutes = new { },
+                            personaModels = new { Worker = new { @default = new[] { "example-default-model" }, stronger = new[] { "example-stronger-model" } } }
+                        }
+                    }))
                     using (HttpResponseMessage response = await _AuthClient.PostAsync("/api/v1/settings/usage-preview", content).ConfigureAwait(false))
                     {
                         AssertEqual(HttpStatusCode.OK, response.StatusCode);
                         string result = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                        AssertTrue(result.Contains("v2_no_route_pass_through"));
+                        foreach (string field in new[] { "legacyOrder", "usageFilter", "modelGroups", "candidates", "capacity" })
+                            AssertTrue(result.IndexOf("\"" + field + "\"", StringComparison.OrdinalIgnoreCase) >= 0, "preview reports " + field);
+                        // Without mission text the preview reports the Default list and never calls the client.
+                        AssertTrue(result.Contains("no_work_text"), "capacity source without mission text");
+                        AssertTrue(result.Replace(" ", "").IndexOf("\"hasPersonaModels\":true", StringComparison.OrdinalIgnoreCase) >= 0, "the draft persona model entry applies");
                     }
                     using (HttpResponseMessage after = await _AuthClient.GetAsync("/api/v1/settings").ConfigureAwait(false))
                         AssertEqual(saved, await after.Content.ReadAsStringAsync().ConfigureAwait(false));

@@ -389,11 +389,11 @@ namespace Armada.Server
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 _AutonomousRecovery.FailureCauseAdapter = new TypedFailureCauseAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
-                // D17 change_substance (ineffective-rescue) and D16 routing_hint (Routing V2). Both ship
-                // Off; wiring them costs nothing until their decision is enabled.
+                // change_substance (ineffective-rescue) ships Off; capacity_escalation (Smart Routing model
+                // groups) ships in Gate and is consulted only for a persona with a Lighter or Stronger list.
                 missionService.ChangeSubstanceAdapter = new TypedChangeSubstanceAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
-                missionService.RoutingHintAdapter = new TypedRoutingHintAdapter(
+                missionService.CapacityEscalationAdapter = new TypedCapacityEscalationAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
             }
 
@@ -1278,7 +1278,8 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Status, health, doctor, settings, server control
-            new StatusRoutes(_Database, _Settings, _Admiral, () => Stop(), _StartUtc, _JsonOptions, _Logging, _BuildDriftService, _RemoteTunnel.GetStatus, _RemoteTunnel.ReloadAsync)
+            new StatusRoutes(_Database, _Settings, _Admiral, () => Stop(), _StartUtc, _JsonOptions, _Logging, _BuildDriftService, _RemoteTunnel.GetStatus, _RemoteTunnel.ReloadAsync,
+                () => (_MissionService as MissionService)?.CapacityEscalationAdapter)
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Subscription account logins driven from the dashboard

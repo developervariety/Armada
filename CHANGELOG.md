@@ -6,7 +6,45 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Changed
+
+- Smart Routing no longer replaces Legacy Routing. With
+  `modelTier.usageRouting.enabled`, Armada keeps the Legacy Routing order (model
+  tiers, persona locks, within-tier ranking, non-native-first, capability
+  scoring, the persona default captain, and the high-tier slot reserve, which
+  now apply with Smart Routing on) and filters it by account usage: captains on
+  Exhausted accounts (measured windows, login problems, provider holds, the
+  account concurrency limit, or unknown data under `Block`) are removed, and
+  captains on Low or Reserve accounts move after the others, in their legacy
+  order. `reservedPersonas`, `reservedPriorityAtOrAbove`, and the recovery
+  threshold keep their meaning. A mission waits as `WaitingForProviderUsage`
+  with reason `usage_exhausted_or_account_capacity` or the first account code.
+- `personaRoutes` restrict a persona to the named accounts and models and no
+  longer set an order. A persona without routes is unrestricted.
+- `POST /api/v1/settings/usage-preview` returns the pipeline: `legacyOrder`,
+  per-captain `usageFilter` verdicts, `modelGroups`, the `capacity` reading, and
+  `chosen`. The request accepts optional `missionTitle` and `missionText`;
+  without them the typed-decision client is not called.
+- A shipped typed decision that is missing from a stored
+  `typedDecisions.decisions` map now runs at its shipped mode instead of `Off`.
+
 ### Added
+
+- `modelTier.usageRouting.personaModels`: per-persona `default`, `lighter`, and
+  `stronger` model lists. Smart Routing groups its filtered order by the lists,
+  tries the chosen list first, then the others (default, stronger, lighter),
+  then captains whose model is in no list.
+- The `capacity_escalation` typed decision (ships `Gate`, threshold 0.90) asks
+  whether a mission is lighter, default, or stronger work for a persona with a
+  `lighter` or `stronger` list. Every failure or low-confidence answer is
+  `default`; the rule and model verdicts are recorded on every call; the reading
+  is cached per mission.
+
+### Removed
+
+- The `routing_hint` typed decision and route `shapes` tags are retired in
+  favour of `capacity_escalation`. Settings files that still contain them load
+  and the values are ignored.
 
 - Subscription accounts can be deleted and hard-refreshed from the Dashboard. `DELETE
   /api/v1/usage-accounts/{accountId}` is refused with `account_has_captains` (409) while the account lists
@@ -87,13 +125,6 @@ All notable changes to Armada are documented in this file.
   `account_launch_credential_unavailable`. The policy JSON editor moves under an
   Advanced section.
 
-- Smart Routing (usage-aware routing) enabled with no configured route for a
-  persona now passes the legacy candidate list through unchanged instead of
-  deferring the mission with no idle captain. Enabling Smart Routing fleet-wide
-  is therefore a safe no-op until accounts and persona routes are configured,
-  and it progressively governs a persona only once a route for it exists. The
-  `v2_no_route_pass_through` selection reason records the pass-through.
-
 - Context retrieval can now supply a captain brief's Shared Memory section,
   behind the `contextRetrieval.briefSlimmingEnabled` flag (default off). While
   off, brief generation is byte-for-byte unchanged: the section still names the
@@ -136,10 +167,10 @@ All notable changes to Armada are documented in this file.
   spans the full width, and wide tables scroll within their own container. The
   desktop layout and the icon-rail collapse are unchanged.
 
-- The usage-aware routing capability is now named **Smart Routing** (formerly
-  "Routing V2") and the model-tier selector it sits over is named **Legacy
-  Routing**, in the Settings > Routing dashboard and the routing docs. Settings
-  keys, event reasons, and API field names are unchanged.
+- The usage-aware routing capability is named **Smart Routing** and the
+  model-tier selector it builds on is named **Legacy Routing**, in the
+  Settings > Routing dashboard and the routing docs. Settings keys are
+  unchanged.
 
 ### Security
 
@@ -254,9 +285,6 @@ All notable changes to Armada are documented in this file.
   census now PASSES and the brief-wiring step is unblocked.
 ### Documentation
 
-- Smart Routing docs and the automated usage-preview test now state the pass-through
-  contract: a persona with no configured route returns the legacy candidates with
-  reason `v2_no_route_pass_through` instead of waiting.
 - Typed-decision hygiene, with no behaviour change. The configuration chapter no
   longer calls the typed-decision system off by default: the global mode ships
   `Gate` and the system is inert until the key is present; the recovery, review,
@@ -515,19 +543,8 @@ All notable changes to Armada are documented in this file.
   never marks a red check green — only a genuine passing isolated re-run does.
   Ships Off; the re-run runs only for a `dotnet test` command that can be
   isolated, and the red stands unchanged otherwise.
-- **`routing_hint`.** Owner decision 2026-09-16: NOT wired into the legacy
-  model-tier selector. It belongs to Routing V2 (`modelTier.usageRouting`). A
-  route gains an optional `shapes` tag list; a route with no tags is eligible for
-  every shape, so existing configurations behave exactly as before. The model
-  answers a `shape` choice, a `policy_sensitive` noul, and two context nouls, and
-  the hint reorders — never re-selects — the routes V2 already approved and found
-  eligible for a persona: among eligible routes for a routine mission in Normal
-  state it prefers the first route whose `shapes` contains the chosen shape at or
-  above threshold, and `policy_sensitive >= 0.9` prefers a `policy-tolerant`
-  route (falling back to the V2 default and recording `no_tolerant_route` when
-  none is configured). Reserved personas and non-Normal account states are never
-  affected; every hard V2 constraint runs after the reorder. Disabling V2 or the
-  decision restores the plain list order. Ships Off.
+- **`routing_hint`** (retired before release, replaced by `capacity_escalation`):
+  a work-shape hint over route tags. Stored settings for it are ignored.
 - **`change_substance`.** The extension-based `ChangeSubstanceClassifier`
   stays the rule. When wired, the D17 adapter reads the rescue's added hunks and
   may RAISE a documentation-only (or empty) extension reading to `Substantive`
@@ -1352,7 +1369,7 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 
 - Settings > Routing holds the model routing policy (tier lists, specialist
   personas, reserved slots, strategy, preference order, family rules, dispatch
-  guard, model providers, additional assets) and Routing V2. Each part saves
+  guard, model providers, additional assets) and Smart Routing. Each part saves
   only its own changed fields, so a save in one part never replaces the other.
 - A refresh, or a save in another section, keeps unsaved edits on the Routing
   and Server tabs. Fields the operator did not edit take the new server values.
@@ -1662,7 +1679,7 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - A quota, billing, or authentication failure on one captain holds its whole
   account Exhausted until the retry time and quarantines the account's idle
   captains, so the re-routed mission goes to a different account.
-- The Routing V2 account template and status table show the runtime and the
+- The Smart Routing account template and status table show the runtime and the
   hold expiry. Rollout of a second subscription account needs an owner
   decision under the provider's terms. See
   [account logins](docs/USAGE_ROUTING.md#account-logins).
@@ -3097,11 +3114,11 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   The initial failures are retained as baseline evidence; provider repairs are
   described separately. No deployment is claimed.
 
-### Routing V2
+### Account usage routing
 
 - Preserve omitted vessel and voyage bindings during mission metadata updates; reject explicit rebinding or clearing. API tests now isolate their capacity fixtures and report failed creates directly.
-- Replace legacy preference overrides with opt-in persona account routes and usage reserves. Missing persona routes wait unless an explicit default is configured.
-- Add optional account usage collection for Codex, Claude, Cursor, and OpenCode Go, plus file and manual snapshots. Keep persona preferences until allowance runs low; reserve capacity for important work and queue missions when no approved account is available.
+- Add opt-in persona account routes and usage reserves. (Retired: route order no longer replaces Legacy Routing; see the Smart Routing entries above.)
+- Add optional account usage collection for Codex, Claude, Cursor, and OpenCode Go, plus file and manual snapshots.
 - Add Dashboard policy editing, usage status, budget planning, and an admin draft preview API. Defaults contain no accounts or personal subscription data. See [usage routing](docs/USAGE_ROUTING.md).
 
 ### Operator documentation

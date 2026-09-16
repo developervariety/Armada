@@ -165,11 +165,22 @@ call as unavailable, so every decision runs its deterministic rule exactly as
 before. Per decision group:
 
 - `failure_cause`, `refusal`, `runtime_failure`, `review_substance`,
-  `preflight`, and `papercut_merge` ship in `Gate`; they span recovery, review
-  substance, the dispatch preflight, and papercut merging.
+  `preflight`, `papercut_merge`, and `capacity_escalation` ship in `Gate`; they
+  span recovery, review substance, the dispatch preflight, papercut merging,
+  and the Smart Routing model group choice.
 - `leak_hunk` and `log_watch` ship `Off`.
 - Every other decision ships `Off`: built but dormant until an operator flips a
   decision to `Gate`.
+
+**`capacity_escalation`** (ships `Gate`, threshold `0.90`) runs at assignment
+under Smart Routing, only for a persona whose `personaModels` entry has a
+`lighter` or `stronger` list. It asks one closed Choice (`lighter`, `default`,
+`stronger`) over the persona, the title, the head of the description, and the
+model lists. The answer only chooses which model group is tried first. Below
+the threshold, `Off`, no key, a timeout, 429, 529, a parse error, or a client
+fault gives `default`. The reading is cached per mission in memory for 30
+minutes. The retired `routing_hint` decision and route `shapes` tags are
+ignored when a settings file still contains them.
 
 The safety contract holds whenever it is enabled:
 
@@ -192,8 +203,9 @@ table). The global `mode` is `Off`, `Shadow`, or `Gate` and is the single kill
 switch; each entry in `decisions` has its own `mode` and `gateThreshold`, and
 the effective mode is the minimum of the two. `Shadow` consults the model and
 records the answer while the rule stands; it is also the demotion target for a
-decision operators reverse too often. The six Phase-1 decisions ship in `Gate`
-and every other decision is `Off`, but the system is operationally off until the
+decision operators reverse too often. The decisions listed above ship in `Gate`
+and every other decision is `Off`. A shipped decision missing from a stored
+`decisions` map runs at its shipped mode; set its `mode` to `Off` to stop it, but the system is operationally off until the
 key is confirmed in the container (no key means the null client). `mode` is
 hot-reloaded — a change takes effect without a restart and survives an MCP
 settings write.
@@ -449,7 +461,7 @@ Two operator-side decisions gather owner decisions and pre-fill the corpus:
   `node scripts/autonomy/draft-corpus-line.mjs --input <file.json>` (or pipe the
   input object on stdin), optionally with `--out decisions.jsonl` to append the
   draft; `node scripts/autonomy/test-draft-corpus-line.mjs` is its self-check.
-Three platform-side decisions ship `Off`:
+Two platform-side decisions ship `Off`:
 
 - **`flake_score`** runs in `DefinitionOfDoneGate` after
   `DefinitionOfDoneFailureClassifier` classifies a failed unit-test command. It
@@ -463,18 +475,6 @@ Three platform-side decisions ship `Off`:
   red). The model never marks a red check green — only a genuine passing isolated
   re-run does — and a re-run runs only for a `dotnet test` command that can be
   isolated; otherwise the red stands unchanged.
-- **`routing_hint`** is Smart Routing only (owner decision 2026-09-16): it is
-  never wired into the legacy tier selector. A route gains an optional `shapes`
-  tag list (a tagless route matches every shape, so existing configs are
-  unchanged). The model answers a `shape` Choice, a `policy_sensitive` Noul, and
-  two context Nouls; the hint reorders — never re-selects — the routes V2 already
-  approved and found eligible: among eligible routes for a routine mission in the
-  Normal state it prefers the first route whose `shapes` contains the chosen shape
-  at threshold, and `policy_sensitive >= 0.9` prefers a `policy-tolerant` route
-  (falling back to the V2 default and recording `no_tolerant_route` when none is
-  configured). Reserved personas and non-Normal account states are never
-  affected; every hard V2 constraint runs after the reorder. See
-  `docs/USAGE_ROUTING.md`.
 - **`change_substance`** sits over the extension-based
   `ChangeSubstanceClassifier`, which stays the rule. The model reads the rescue's
   added hunks and answers a `substance` Choice `{behaviour, test_only, docs_only,
@@ -588,12 +588,23 @@ the Dashboard Settings page:
 | `modelTier.withinTierStrategy` | Yes | `Random` | Within-tier strategy |
 | `modelTier.withinTierPreferenceOrder` | Yes | empty | Preference-order JSON |
 | `modelTier.preferNonNativeFirst` | Yes | `false` | Prefer non-native first |
-| `modelTier.usageRouting` | Yes | disabled, empty accounts | [Usage policy, account status, and preview](USAGE_ROUTING.md) |
+| `modelTier.usageRouting` | Yes | disabled, empty accounts | [Smart Routing: accounts, usage filter, persona model lists, routes, and preview](USAGE_ROUTING.md) |
 | `modelTier.reservedHighTierSlots` | Yes | `0` | Reserved high-tier slots |
 | `voyageDispatch.rejectStagePersonaTitlePrefixes` | Yes | `false` | Reject stage-persona title prefixes |
 | `voyageDispatch.stagePersonaTitlePrefixes` | Yes | empty | Prefix list |
 | `modelProviders` | No (startup) | empty | modelProviders JSON |
 | `additionalPromptTemplates` / `additionalPersonas` / `additionalPipelines` | No (startup) | empty | Additional-asset JSON |
+
+**Legacy Routing** is the selection these keys define while
+`modelTier.usageRouting.enabled` is false: model tiers, persona locks,
+within-tier ranking, non-native-first, capability scoring, the persona default
+captain, and the high-tier slot reserve. **Smart Routing**
+(`modelTier.usageRouting.enabled` true) keeps that order and adds the usage
+filter (Exhausted removed, Low and Reserve demoted), per-persona `default`,
+`lighter`, and `stronger` model lists (`modelTier.usageRouting.personaModels`),
+the `capacity_escalation` typed decision that chooses which list goes first,
+and optional `personaRoutes` that restrict a persona to named accounts. Routes
+never order captains. See [Smart Routing](USAGE_ROUTING.md).
 
 A `modelTier.usageRouting` account can also own a separate captain login.
 Set `runtime` plus `homeDirectory` (ClaudeCode `CLAUDE_CONFIG_DIR`, Codex
@@ -609,7 +620,7 @@ an account with no captains together with its server-derived folder; see
 the shared login, as before. A missing login blocks the account with a named
 reason. Claude Code and Codex accounts also run the runtime's login status
 command in the background, so an expired or revoked login reads
-`account_login_expired`. When such an account blocks every approved route, the
+`account_login_expired`. When such an account removes every remaining captain, the
 routing decision reason (usage preview `reason`, and the deferred-mission log)
 is that account code. A quota, billing, or authentication failure on one captain holds the
 whole account Exhausted and quarantines its idle captains until the retry time.
@@ -625,9 +636,11 @@ persona `DefaultCaptainId`. Every assignment path applies one rule:
 
 1. The captain pool keeps only captains that are Idle, in the mission's
    tenant, not quarantined, not excluded after a policy refusal, and not
-   reserved by another assignment. When usage routing is enabled, the pool
-   keeps only the captains that usage routing approves. No request overrides
-   these gates.
+   reserved by another assignment. When Smart Routing is enabled, the pool
+   also drops captains outside the persona's routes and captains the usage
+   filter removes (Exhausted or at the account concurrency limit). No request
+   overrides these gates. A demoted (Low or Reserve) requested captain is
+   still assigned.
 2. If the requested captain is in that pool, it is assigned. This is an
    explicit choice. It wins over persona preference, model-tier selection
    and the captain's `AllowedPersonas` fence.

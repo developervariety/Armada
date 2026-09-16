@@ -176,14 +176,19 @@ namespace Armada.Core.Services
         public TypedChangeSubstanceAdapter? ChangeSubstanceAdapter { get; set; }
 
         /// <summary>
-        /// The D16 <c>routing_hint</c> typed-decision adapter, when wired. Null keeps Routing V2 on its
-        /// plain persona route order. Set by the server after construction so existing construction sites
-        /// and tests are unchanged. It is Routing V2 only and never touches the legacy tier selector; it
-        /// reorders the already-approved, already-eligible routes for one mission by the work's shape,
-        /// and never creates a route, picks an unlisted account or model, moves a running mission, or
-        /// touches the reserved-persona path or a non-Normal account state.
+        /// The <c>capacity_escalation</c> typed-decision adapter, when wired. Null keeps Smart Routing on each
+        /// persona's Default model list. Set by the server after construction so existing construction sites and
+        /// tests are unchanged. Its reading only chooses which persona model group is tried first; it never makes
+        /// a captain eligible and never moves a running mission.
         /// </summary>
-        public TypedRoutingHintAdapter? RoutingHintAdapter { get; set; }
+        public TypedCapacityEscalationAdapter? CapacityEscalationAdapter
+        {
+            get => _CapacityEscalation.Adapter;
+            set => _CapacityEscalation.Adapter = value;
+        }
+
+        /// <summary>The capacity reading resolver, whose per-mission cache dispatch and preview share the adapter of.</summary>
+        public CapacityEscalationResolver CapacityEscalation => _CapacityEscalation;
 
         /// <summary>
         /// The D26 <c>prior_art</c> typed-decision adapter, when wired. Null keeps the Worker handoff
@@ -255,6 +260,8 @@ namespace Armada.Core.Services
             get { return _UnassignableIncidentTickThreshold; }
             set { _UnassignableIncidentTickThreshold = value < 1 ? 1 : value; }
         }
+
+        private readonly CapacityEscalationResolver _CapacityEscalation = new CapacityEscalationResolver();
 
         private readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _CaptainReservations =
             new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.Ordinal);
@@ -798,9 +805,9 @@ namespace Armada.Core.Services
                 return false;
             }
 
-            // Resolve preferred captain from voyage overrides or persona defaults before assignment.
-            if (!_Settings.ModelTier.UsageRouting.Enabled)
-                await ResolvePreferredCaptainAsync(mission, token).ConfigureAwait(false);
+            // Resolve preferred captain from voyage overrides or persona defaults before assignment. Legacy Routing
+            // owns this preference with or without Smart Routing.
+            await ResolvePreferredCaptainAsync(mission, token).ConfigureAwait(false);
 
             // Find an idle captain, preferring those matching the mission's persona,
             // honouring optional PreferredModel pin on the mission.
@@ -7565,56 +7572,17 @@ namespace Armada.Core.Services
         }
 
         /// <summary>
-        /// Resolve the D16 <c>routing_hint</c> for a mission, or <see cref="RoutingHint.None"/> when the
-        /// adapter is not wired, the decision is Off/unavailable/below threshold, or anything fails. The
-        /// hint only reorders already-approved, already-eligible Routing V2 routes; it never selects a
-        /// route. Never throws into the caller.
+        /// The work text the capacity decision reads for a mission: the linked objective's title and description
+        /// when one exists, otherwise the mission's own.
         /// </summary>
-        /// <param name="usagePolicy">The usage routing settings, for the persona's route shapes.</param>
-        /// <param name="mission">The mission being routed.</param>
-        /// <param name="token">Cancellation token.</param>
-        /// <returns>The routing hint.</returns>
-        private async Task<RoutingHint> ResolveRoutingHintAsync(UsageRoutingSettings usagePolicy, Mission mission, CancellationToken token)
+        private async Task<CapacityWorkText> ReadCapacityWorkTextAsync(Mission mission, CancellationToken token)
         {
-            if (RoutingHintAdapter == null) return RoutingHint.None();
-
-            try
+            Objective? objective = await FindLinkedObjectiveAsync(mission, token).ConfigureAwait(false);
+            return new CapacityWorkText
             {
-                Objective? objective = await FindLinkedObjectiveAsync(mission, token).ConfigureAwait(false);
-                string title = objective != null ? objective.Title : mission.Title;
-                string description = (objective != null ? objective.Description : mission.Description) ?? String.Empty;
-                string acceptance = objective != null ? String.Join("\n", objective.AcceptanceCriteria) : String.Empty;
-
-                List<string> routeShapes = new List<string>();
-                List<UsageRouteSettings>? personaRoutes = null;
-                foreach (KeyValuePair<string, List<UsageRouteSettings>> pair in usagePolicy.PersonaRoutes)
-                    if (PersonaCatalog.Matches(pair.Key, mission.Persona)) { personaRoutes = pair.Value; break; }
-                if (personaRoutes == null) usagePolicy.PersonaRoutes.TryGetValue("*", out personaRoutes);
-                if (personaRoutes != null)
-                    foreach (UsageRouteSettings route in personaRoutes)
-                        if (route.Shapes != null)
-                            foreach (string shape in route.Shapes)
-                                if (!String.IsNullOrWhiteSpace(shape) && !routeShapes.Contains(shape)) routeShapes.Add(shape);
-
-                RoutingHintDecisionInput input = new RoutingHintDecisionInput
-                {
-                    Mission = mission,
-                    ObjectiveTitle = title,
-                    Description = description,
-                    AcceptanceCriteria = acceptance,
-                    Persona = mission.Persona ?? String.Empty,
-                    Pipeline = String.Empty,
-                    VesselName = mission.VesselId ?? String.Empty,
-                    BriefByteSize = description.Length,
-                    EligibleRouteShapes = routeShapes
-                };
-                return await RoutingHintAdapter.DecideAsync(input, RoutingHint.None(), token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "routing-hint resolution failed for mission " + mission.Id + ", plain route order stands: " + ex.Message);
-                return RoutingHint.None();
-            }
+                Title = (objective != null ? objective.Title : mission.Title) ?? String.Empty,
+                Description = (objective != null ? objective.Description : mission.Description) ?? String.Empty
+            };
         }
 
         /// <summary>
@@ -9816,12 +9784,10 @@ namespace Armada.Core.Services
         /// <summary>
         /// Returns why no captain of the mission's tenant, in any state, can ever serve the mission, or null
         /// when at least one could. Quarantine, benching and busy captains are temporary and do not count.
-        /// Usage routing owns selection when it is enabled, so no verdict is given then.
+        /// Smart Routing only filters the Legacy Routing order, so the same verdict holds with it enabled.
         /// </summary>
         private async Task<string?> DescribeUnassignableByConstructionAsync(Mission mission, CancellationToken token)
         {
-            if (_Settings.ModelTier.UsageRouting.Enabled) return null;
-
             string assignmentTenant = AssignmentTenantOf(mission);
             List<Captain> all = await _Database.Captains.EnumerateAsync(token).ConfigureAwait(false);
             List<Captain> tenantCaptains = all
@@ -9892,49 +9858,55 @@ namespace Armada.Core.Services
             UsageRoutingSettings usagePolicy = _Settings.ModelTier.UsageRouting;
             if (usagePolicy.Enabled)
             {
-                string usageReason = "no idle captain";
-                if (idleCaptains.Count > 0)
-                {
-                    UsageRoutingService usage = UsageRoutingService.For(_Settings);
-                    await usage.RefreshAsync(usagePolicy, token).ConfigureAwait(false);
-                    List<Captain> eligibleForUsage = UsageRoutingService.Eligible(_Settings.ModelTier, mission, idleCaptains);
-                    List<Captain> working = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
-                    HashSet<string> busy = new HashSet<string>(_CaptainReservations.Keys, StringComparer.OrdinalIgnoreCase);
-                    foreach (Captain active in working) busy.Add(active.Id);
-                    // D16 routing_hint: when wired, choose among the already-approved routes by the work's
-                    // shape. The hint only reorders eligible routes; every hard V2 constraint is applied
-                    // by Select afterwards, and Off / unavailable / below-threshold leaves the plain list
-                    // order.
-                    RoutingHint routingHint = await ResolveRoutingHintAsync(usagePolicy, mission, token).ConfigureAwait(false);
-                    UsageRoutingDecision decision = usage.Select(usagePolicy, mission, eligibleForUsage, busy, DateTime.UtcNow, routingHint);
-                    idleCaptains = decision.Candidates;
-                    usageReason = decision.Reason;
-                    if (routingHint.Applied && decision.RoutingHintOutcome != null)
-                        _Logging.Info(_Header + "routing_hint " + decision.RoutingHintOutcome + " for mission " + mission.Id);
-                    if (idleCaptains.Count == 0 && eligibleForUsage.Count > 0)
-                    {
-                        mission.AssignmentState = MissionAssignmentStateEnum.WaitingForProviderUsage;
-                        _Logging.Info(_Header + "usage routing deferred mission " + mission.Id + ": " + decision.Reason);
-                        return null;
-                    }
-                }
+                // Smart Routing: the Legacy Routing order, filtered by account usage and grouped by the persona's
+                // model preference. A requested captain is still honoured unless usage removes it.
+                UsageRoutingService usage = UsageRoutingService.For(_Settings);
+                if (idleCaptains.Count > 0) await usage.RefreshAsync(usagePolicy, token).ConfigureAwait(false);
+                List<Captain> working = await _Database.Captains.EnumerateByStateAsync(CaptainStateEnum.Working, token).ConfigureAwait(false);
+                HashSet<string> busy = new HashSet<string>(_CaptainReservations.Keys, StringComparer.OrdinalIgnoreCase);
+                foreach (Captain active in working) busy.Add(active.Id);
+                DateTime now = DateTime.UtcNow;
 
-                // V2 owns selection. Legacy model/provider preferences must not reorder it; only the
-                // requested-captain rule narrows the candidates usage routing approved.
+                bool narrow = false;
                 if (hasRequest)
                 {
-                    request = await DecideRequestedCaptainAsync(mission, idleCaptains, "not approved by usage routing", token).ConfigureAwait(false);
+                    List<UsageRouteSettings>? routes = UsageRoutingService.FindPersonaRoutes(usagePolicy, mission.Persona);
+                    List<Captain> usable = idleCaptains
+                        .Where(c => (routes == null || UsageRoutingService.RoutesAdmit(usagePolicy, routes, c))
+                            && usage.ClassifyCaptain(usagePolicy, mission, c, busy, now).Outcome != UsageRoutingService.OutcomeRemoved)
+                        .ToList();
+                    request = await DecideRequestedCaptainAsync(mission, usable, "not approved by Smart Routing", token).ConfigureAwait(false);
                     if (request.Outcome == RequestedCaptainOutcomeEnum.AssignRequested) return request.Captain;
-                    idleCaptains = request.Outcome == RequestedCaptainOutcomeEnum.FallbackByTier
-                        ? RequestedCaptainAssignmentRule.NarrowToLowestTier(request.Candidates)
-                        : request.Candidates;
+                    idleCaptains = request.Candidates;
+                    narrow = request.Outcome == RequestedCaptainOutcomeEnum.FallbackByTier;
                 }
 
-                Captain? usageSelected = idleCaptains.Count > 0 ? idleCaptains[0] : null;
+                UsageRoutingDecision decision = await SmartRoutingSelector.SelectAsync(new SmartRoutingRequest
+                {
+                    Tiers = _Settings.ModelTier,
+                    Policy = usagePolicy,
+                    Usage = usage,
+                    Mission = mission,
+                    Pool = idleCaptains,
+                    BusyCaptainIds = busy,
+                    NowUtc = now,
+                    NarrowToLowestTier = narrow,
+                    Capacity = _CapacityEscalation,
+                    WorkText = t => ReadCapacityWorkTextAsync(mission!, t),
+                    UseCapacityCache = true
+                }, token).ConfigureAwait(false);
+
+                Captain? usageSelected = decision.Candidates.Count > 0 ? decision.Candidates[0] : null;
                 if (usageSelected != null)
-                    _Logging.Info(_Header + "usage routing selected captain " + usageSelected.Id + " for mission " + mission.Id + ": " + usageReason);
+                    _Logging.Info(_Header + "smart routing selected captain " + usageSelected.Id + " for mission " + mission.Id + ": " + decision.Reason
+                        + (decision.HasPersonaModels ? " (capacity " + decision.Capacity + ", " + decision.CapacitySource + ")" : String.Empty));
                 if (request != null)
                     await RecordRequestedCaptainOutcomeAsync(mission, request, usageSelected, token).ConfigureAwait(false);
+                if (usageSelected == null && decision.LegacyOrder.Count > 0)
+                {
+                    mission.AssignmentState = MissionAssignmentStateEnum.WaitingForProviderUsage;
+                    _Logging.Info(_Header + "smart routing deferred mission " + mission.Id + ": " + decision.Reason);
+                }
                 return usageSelected;
             }
 
@@ -9953,185 +9925,10 @@ namespace Armada.Core.Services
             return selected;
         }
 
-        // Normal routing over a gated pool: model-tier selection, external-provider preference, the persona
-        // fence, the retry skip list and persona preference. A tier fallback keeps the lowest tier present.
+        // Legacy Routing over a gated pool; the selector is shared with Smart Routing's ordering.
         private Captain? SelectByModelAndPersona(Mission mission, List<Captain> idleCaptains, bool narrowToLowestTier)
         {
-            string? persona = mission.Persona;
-            string? preferredModel = mission.PreferredModel;
-
-            List<string> specialistPersonas = _Settings.ModelTier.SpecialistPersonas;
-            IReadOnlyDictionary<string, List<string>> withinTierPreferenceOrder = _Settings.ModelTier.WithinTierPreferenceOrder;
-            bool isSpecialist = _Settings.ModelTier.IsSpecialistPersona(persona);
-
-            // Model filter: tier selector (random peer selection) or literal match
-            if (!String.IsNullOrEmpty(preferredModel))
-            {
-                if (PreferredModelTierSelector.IsTierSelector(preferredModel))
-                {
-                    string? selectedModel = PreferredModelTierSelector.SelectModel(
-                        preferredModel, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas, withinTierPreferenceOrder, _Settings.ModelTier, mission?.CapabilityHint);
-                    if (selectedModel == null) return null;
-                    List<Captain> filtered = new List<Captain>();
-                    foreach (Captain captain in idleCaptains)
-                    {
-                        if (!String.IsNullOrEmpty(captain.Model) &&
-                            String.Equals(captain.Model, selectedModel, StringComparison.OrdinalIgnoreCase))
-                        {
-                            filtered.Add(captain);
-                        }
-                    }
-                    if (filtered.Count == 0) return null;
-                    idleCaptains = filtered;
-                }
-                else
-                {
-                    // Literal/concrete model pin: try exact match first.
-                    List<Captain> filtered = new List<Captain>();
-                    foreach (Captain captain in idleCaptains)
-                    {
-                        if (!String.IsNullOrEmpty(captain.Model) &&
-                            String.Equals(captain.Model, preferredModel, StringComparison.OrdinalIgnoreCase))
-                        {
-                            filtered.Add(captain);
-                        }
-                    }
-                    if (filtered.Count > 0)
-                    {
-                        idleCaptains = filtered;
-                    }
-                    else
-                    {
-                        // No exact match: classify the pinned model into a tier and re-resolve.
-                        string? classifiedTier = PreferredModelTierSelector.ClassifyModel(preferredModel, _Settings.ModelTier);
-                        if (classifiedTier != null)
-                        {
-                            string? fallbackModel = PreferredModelTierSelector.SelectModel(
-                                classifiedTier, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas, withinTierPreferenceOrder, _Settings.ModelTier, mission?.CapabilityHint);
-                            if (fallbackModel == null) return null;
-                            List<Captain> tierFiltered = new List<Captain>();
-                            foreach (Captain captain in idleCaptains)
-                            {
-                                if (!String.IsNullOrEmpty(captain.Model) &&
-                                    String.Equals(captain.Model, fallbackModel, StringComparison.OrdinalIgnoreCase))
-                                {
-                                    tierFiltered.Add(captain);
-                                }
-                            }
-                            if (tierFiltered.Count == 0) return null;
-                            idleCaptains = tierFiltered;
-                        }
-                        // Else: unclassified concrete model -- leave idleCaptains unrestricted;
-                        // persona filtering below narrows to compatible candidates.
-                    }
-                }
-            }
-            else
-            {
-                // No preferredModel: route through the unified selector with a sensible
-                // default tier (high for specialists, mid for everyone else) so a non-specialist
-                // mission is never handed an idle high-tier captain while a mid/low one is free.
-                // If the selector finds no classified captain, fall through unrestricted so
-                // captains carrying custom/unclassified models still receive work.
-                string defaultTier = isSpecialist ? PreferredModelTierSelector.HighTier : PreferredModelTierSelector.MidTier;
-                string? defaultedModel = PreferredModelTierSelector.SelectModel(
-                    defaultTier, idleCaptains, persona, n => Random.Shared.Next(n), specialistPersonas, withinTierPreferenceOrder, _Settings.ModelTier, mission?.CapabilityHint);
-                if (defaultedModel != null)
-                {
-                    List<Captain> filtered = new List<Captain>();
-                    foreach (Captain captain in idleCaptains)
-                    {
-                        if (!String.IsNullOrEmpty(captain.Model) &&
-                            String.Equals(captain.Model, defaultedModel, StringComparison.OrdinalIgnoreCase))
-                        {
-                            filtered.Add(captain);
-                        }
-                    }
-                    if (filtered.Count > 0)
-                        idleCaptains = filtered;
-                }
-            }
-
-            // Prefer external-provider-served captains over native ones: a captain carrying
-            // its own provider base URL on a non-OpenCode runtime consumes the alternate
-            // (cheaper) subscription, so it wins the tie for an equal model and saves the
-            // native provider's usage. OpenCode-runtime captains are treated as native.
-            // Native captains remain the fallback when no external captain is idle. Applied
-            // to the model-filtered set so both the no-persona shortcut and the persona
-            // path honor it.
-            {
-                List<Captain> external = new List<Captain>();
-                List<Captain> native = new List<Captain>();
-                foreach (Captain captain in idleCaptains)
-                {
-                    if (captain.Runtime != AgentRuntimeEnum.OpenCode &&
-                        !String.IsNullOrWhiteSpace(captain.ApiBaseUrl))
-                    {
-                        external.Add(captain);
-                    }
-                    else
-                    {
-                        native.Add(captain);
-                    }
-                }
-                idleCaptains = external;
-                idleCaptains.AddRange(native);
-            }
-
-            // If no persona requirement, return any idle captain
-            if (String.IsNullOrEmpty(persona))
-                return narrowToLowestTier ? RequestedCaptainAssignmentRule.NarrowToLowestTier(idleCaptains)[0] : idleCaptains[0];
-
-            // Filter by AllowedPersonas (null = any persona is allowed)
-            List<Captain> eligible = new List<Captain>();
-            foreach (Captain captain in idleCaptains)
-            {
-                // Normalized match, so a captain whose allow-list carries the legacy spelling of a
-                // persona is still eligible for that persona's missions.
-                if (CaptainAllowsPersona(captain, persona))
-                {
-                    eligible.Add(captain);
-                }
-            }
-
-            if (eligible.Count == 0)
-            {
-                return null;
-            }
-
-            // In-place re-run routing: a mission whose judges produced empty output records the
-            // failing captain on RetrySkipCaptainIds. Exclude those captains from re-dispatch so
-            // the re-run routes to a different (native fallback) captain instead of re-selecting
-            // the same degraded provider. If the exclusion would empty the pool entirely (a
-            // single-captain fleet), fall back to the full eligible set so work is never stranded.
-            List<Captain> eligibleFiltersSkipped = new List<Captain>();
-            foreach (Captain captain in eligible)
-            {
-                if (!IsCaptainOnRetrySkipList(mission?.RetrySkipCaptainIds, captain.Id))
-                {
-                    eligibleFiltersSkipped.Add(captain);
-                }
-            }
-            if (eligibleFiltersSkipped.Count > 0)
-            {
-                eligible = eligibleFiltersSkipped;
-            }
-
-            if (narrowToLowestTier)
-                eligible = RequestedCaptainAssignmentRule.NarrowToLowestTier(eligible);
-
-            // Prefer captains whose PreferredPersona matches
-            foreach (Captain captain in eligible)
-            {
-                if (!String.IsNullOrEmpty(captain.PreferredPersona) &&
-                    String.Equals(captain.PreferredPersona, persona, StringComparison.OrdinalIgnoreCase))
-                {
-                    return captain;
-                }
-            }
-
-            // No preferred match -- return first eligible
-            return eligible[0];
+            return LegacyCaptainSelector.Select(_Settings.ModelTier, mission, idleCaptains, narrowToLowestTier, n => Random.Shared.Next(n));
         }
 
         private async Task<RequestedCaptainAssignmentDecision> DecideRequestedCaptainAsync(

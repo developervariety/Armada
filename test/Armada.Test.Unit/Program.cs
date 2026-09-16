@@ -125,6 +125,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new PapercutTests());
             runner.AddSuite(new SettingsTests());
             runner.AddSuite(new UsageRoutingTests());
+            runner.AddSuite(new SmartRoutingTests());
             runner.AddSuite(new CaptainAccountLaunchTests());
             runner.AddSuite(new AccountLoginServiceTests());
             runner.AddSuite(new ReleaseVersionTests());
@@ -330,7 +331,6 @@ namespace Armada.Test.Unit
             runner.AddSuite(new MemoryCandidateAdapterTests());
             runner.AddSuite(new PreflightTextAdapterTests());
             runner.AddSuite(new TypedFlakeScoreAdapterTests());
-            runner.AddSuite(new TypedRoutingHintAdapterTests());
             runner.AddSuite(new TypedChangeSubstanceAdapterTests());
             runner.AddSuite(new CriteriaLintAdapterTests());
             runner.AddSuite(new InboxTriageAdapterTests());

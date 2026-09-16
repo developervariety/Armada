@@ -60,10 +60,10 @@ namespace Armada.Core.Settings
         /// <summary>Account workload ceiling, including assignment reservations. Zero disables.</summary>
         public int MaxConcurrentMissions { get; set; } = 0;
 
-        /// <summary>Conserve routine work at or below this remaining percentage.</summary>
+        /// <summary>Demote routine work (move its captains after Normal ones) at or below this remaining percentage.</summary>
         public double LowRemainingPercent { get; set; } = 25;
 
-        /// <summary>Block routine work at or below this remaining percentage.</summary>
+        /// <summary>Reserve state at or below this remaining percentage; Smart Routing demotes routine work the same as Low.</summary>
         public double ReserveRemainingPercent { get; set; } = 10;
 
         /// <summary>Resume normal routing when all windows recover to this percentage.</summary>
@@ -78,10 +78,10 @@ namespace Armada.Core.Settings
         /// <summary>Allow, Conserve, or Block when any required usage window is unknown.</summary>
         public string UnknownUsagePolicy { get; set; } = "Allow";
 
-        /// <summary>Personas allowed to consume conserved and reserved allowance.</summary>
+        /// <summary>Personas whose captains keep their position on a Low or Reserve account instead of being demoted.</summary>
         public List<string> ReservedPersonas { get; set; } = new List<string>();
 
-        /// <summary>Allow missions at this priority or higher importance (lower numeric value).</summary>
+        /// <summary>Missions at this priority or higher importance (lower numeric value) keep their position on a Low or Reserve account.</summary>
         public int? ReservedPriorityAtOrAbove { get; set; }
 
         /// <summary>Optional bounded JSON snapshot file maintained by an external collector. No commands or credentials.</summary>
