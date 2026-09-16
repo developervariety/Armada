@@ -243,7 +243,7 @@ namespace Armada.Test.Automated.Suites
                     {
                         AssertEqual(HttpStatusCode.OK, response.StatusCode);
                         string result = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-                        AssertTrue(result.Contains("v2_persona_route_not_configured"));
+                        AssertTrue(result.Contains("v2_no_route_pass_through"));
                     }
                     using (HttpResponseMessage after = await _AuthClient.GetAsync("/api/v1/settings").ConfigureAwait(false))
                         AssertEqual(saved, await after.Content.ReadAsStringAsync().ConfigureAwait(false));

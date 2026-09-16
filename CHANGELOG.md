@@ -241,6 +241,9 @@ All notable changes to Armada are documented in this file.
   census now PASSES and the brief-wiring step is unblocked.
 ### Documentation
 
+- Smart Routing docs and the automated usage-preview test now state the pass-through
+  contract: a persona with no configured route returns the legacy candidates with
+  reason `v2_no_route_pass_through` instead of waiting.
 - Typed-decision hygiene, with no behaviour change. The configuration chapter no
   longer calls the typed-decision system off by default: the global mode ships
   `Gate` and the system is inert until the key is present, with D1–D6 shipping

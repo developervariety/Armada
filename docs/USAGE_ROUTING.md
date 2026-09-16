@@ -34,8 +34,10 @@ reorder V2 candidates. Account reserves replace that global reserve. Model tier
 classification, persona restrictions, and explicit mission/stage model
 requirements remain constraints. Already-running missions are not moved.
 
-A persona without a route waits with `v2_persona_route_not_configured`. Add a
-`"*"` route list for a shared default, or configure every persona. Unmapped
+A persona without a route passes through to the legacy candidate list with
+reason `v2_no_route_pass_through`, so enabling Smart Routing before any route
+exists changes nothing. Smart Routing governs a persona once a route for it, or
+a `"*"` default route list, is configured. Unmapped
 captains cannot become implicit fallbacks. Within a route, models follow the
 configured list order; equal candidates use stable captain ID order. Disable
 V2 to restore the legacy policy; its stored settings remain available. Existing

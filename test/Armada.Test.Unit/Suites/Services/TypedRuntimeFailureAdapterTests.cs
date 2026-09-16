@@ -48,7 +48,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             return new RuntimeFailureDecisionInput
             {
-                Mission = new Mission { Id = "msn_test", VesselId = "vsl_test", Title = "run a J1939 decode" },
+                Mission = new Mission { Id = "msn_test", VesselId = "vsl_test", Title = "run a protocol decode" },
                 ExitCode = 1,
                 Tail = "process ended non-zero",
                 Runtime = captain.Runtime.ToString(),
