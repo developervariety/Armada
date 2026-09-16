@@ -377,6 +377,8 @@ namespace Armada.Server
             {
                 TypedRefusalAdapter typedRefusalAdapter = new TypedRefusalAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
+                // A gated blocked_on_premise reading files a BriefContradiction papercut.
+                typedRefusalAdapter.PapercutDatabase = _Database;
                 missionService.RefusalAdapter = typedRefusalAdapter;
                 admiralService.RefusalAdapter = typedRefusalAdapter;
                 missionService.ReviewSubstanceAdapter = new TypedReviewSubstanceAdapter(

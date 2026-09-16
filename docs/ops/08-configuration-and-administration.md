@@ -244,7 +244,12 @@ model, where a rule hard-block always wins. The four wired today are:
   authoritative; the model may promote a prose refusal the phrase rules missed
   or demote a quoted phrase at very high confidence. The criteria state the
   domain: authorized heavy-duty vehicle diagnostics, where seed-key exchange and
-  UDS SecurityAccess are ordinary engineering, never a refusal.
+  UDS SecurityAccess are ordinary engineering, never a refusal. In `Gate`, a
+  `blocked_on_premise` outcome at or above threshold files a
+  `BriefContradiction` papercut for the mission through the same parser path a
+  captain's own `[ARMADA:PAPERCUT]` line takes. Its detail is the output tail
+  after the typed-decision redactor removes ids, paths, hosts, hashes, and
+  key-shaped tokens. The refusal verdict does not change.
 - `runtime_failure` — only a bare Crash is offered for change, and only ever
   upgraded to the more conservative UsageLimit or AuthFailure; a recognised
   signature is never downgraded and a crash is never read as clean. In `Gate`,

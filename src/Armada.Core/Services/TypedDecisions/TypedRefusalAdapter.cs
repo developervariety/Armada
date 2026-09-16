@@ -2,6 +2,10 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Text.Json;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
@@ -39,6 +43,9 @@ namespace Armada.Core.Services
         /// <summary>How strongly the model reads a matched refusal phrase as quoted, not the captain's own.</summary>
         public double QuotedNotOwn { get; init; }
 
+        /// <summary>The confidence of the outcome choice itself.</summary>
+        public double OutcomeConfidence { get; init; }
+
         private readonly double _Confidence;
 
         /// <summary>Create a reading with its action confidence.</summary>
@@ -69,6 +76,10 @@ namespace Armada.Core.Services
         #region Private-Members
 
         private const string _OutcomeRefusedPolicy = "refused_policy";
+        private const string _OutcomeBlockedOnPremise = "blocked_on_premise";
+
+        // The redacted output tail stored as a blocked-on-premise papercut's detail is bounded.
+        private const int _PapercutReasonMaxChars = 1200;
 
         // A phrase hit is demoted to no-refusal only when the model is this sure the phrase was quoted
         // material rather than the captain's own words.
@@ -91,6 +102,16 @@ namespace Armada.Core.Services
             : base(client, recorder, settings, logging)
         {
         }
+
+        #endregion
+
+        #region Public-Members
+
+        /// <summary>
+        /// Optional database the adapter files a <c>BriefContradiction</c> papercut into when the model
+        /// reads a run as blocked on a false premise. When null no papercut is filed.
+        /// </summary>
+        public DatabaseDriver? PapercutDatabase { get; set; }
 
         #endregion
 
@@ -125,7 +146,7 @@ namespace Armada.Core.Services
                     new Dictionary<string, string>(StringComparer.Ordinal)
                     {
                         [_OutcomeRefusedPolicy] = "The captain declined the work on policy grounds.",
-                        ["blocked_on_premise"] = "The captain could not proceed because the brief's premise was false or context was missing.",
+                        [_OutcomeBlockedOnPremise] = "The captain could not proceed because the brief's premise was false or context was missing.",
                         ["completed"] = "The captain completed the work.",
                         ["still_working"] = "The captain was still working when the run ended.",
                         ["unclear"] = "The outcome cannot be determined from the output."
@@ -159,7 +180,8 @@ namespace Armada.Core.Services
             return new RefusalReading(actionConfidence)
             {
                 Outcome = outcome,
-                QuotedNotOwn = quotedNotOwn
+                QuotedNotOwn = quotedNotOwn,
+                OutcomeConfidence = outcomeConfidence
             };
         }
 
@@ -194,6 +216,31 @@ namespace Armada.Core.Services
             }
 
             return ruleVerdict;
+        }
+
+        /// <inheritdoc />
+        protected override async Task OnModelReadingAsync(RefusalDecisionInput input, RefusalReading model, ResolvedTypedDecision cfg, CancellationToken token)
+        {
+            // A captain blocked on a false or incomplete premise is a brief defect, not a refusal: it is
+            // filed as a BriefContradiction papercut so the brief gets fixed. The refusal verdict is
+            // unchanged, and the reason is redacted before it is stored.
+            if (cfg.Mode != TypedDecisionModeEnum.Gate) return;
+            if (!String.Equals(model.Outcome, _OutcomeBlockedOnPremise, StringComparison.Ordinal)) return;
+            if (model.OutcomeConfidence < cfg.GateThreshold) return;
+            DatabaseDriver? database = PapercutDatabase;
+            if (database == null || input.Mission == null) return;
+
+            string reason = DecisionStateRedactor.Redact(input.AgentOutputTail, _PapercutReasonMaxChars);
+            string markerValue = JsonSerializer.Serialize(new PapercutPayload
+            {
+                Category = PapercutCategoryEnum.BriefContradiction.ToString(),
+                Severity = PapercutSeverityEnum.Medium.ToString(),
+                Title = "Captain blocked on a false or incomplete brief premise",
+                Detail = String.IsNullOrWhiteSpace(reason) ? "No output tail was captured." : reason
+            });
+
+            Papercut? filed = await PapercutService.FileAsync(database, markerValue, input.Mission, token).ConfigureAwait(false);
+            if (filed == null) Logging.Warn(_Header + "blocked-on-premise papercut was not filed");
         }
 
         /// <inheritdoc />

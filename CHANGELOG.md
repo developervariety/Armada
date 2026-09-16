@@ -8,6 +8,11 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- The D2 `refusal` decision now files a `BriefContradiction` papercut when, in
+  `Gate`, it reads a run as `blocked_on_premise` at or above threshold. The
+  papercut goes through the existing papercut parser path, and its reason is
+  the redacted output tail. The refusal verdict does not change.
+
 - The D3 `runtime_failure` decision now reports a suspected provider account
   fault. In `Gate`, a `fleet_wide` reading at or above 0.9 records a
   `provider.account_fault_suspected` event and posts a broadcast

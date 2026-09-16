@@ -73,6 +73,53 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
+            await RunTest("BlockedOnPremise_FilesRedactedBriefContradictionPapercut_RuleStands", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(OutcomeResult("blocked_on_premise", 0.95));
+                TypedRefusalAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+                adapter.PapercutDatabase = db.Driver;
+
+                RefusalDecisionInput input = new RefusalDecisionInput
+                {
+                    Mission = new Mission { Id = "msn_premise1", VesselId = "vsl_test", VoyageId = "vyg_test", Title = "port the decoder", Persona = "Worker" },
+                    AgentOutputTail = "Cannot proceed: the brief says PortedDecoder exists at /Volumes/Work/repo/src/PortedDecoder.cs on build.internal.example.com "
+                        + "but mission msn_other42 removed it in 1a2b3c4d5e6f; token sk-abcdefghijklmnopqrstuvwxyz0123",
+                    MissionTitle = "port the decoder",
+                    MarkerPresent = false
+                };
+
+                CaptainRefusal result = await adapter.DecideAsync(input, new CaptainRefusal(), CancellationToken.None).ConfigureAwait(false);
+                AssertEqual(CaptainRefusalKindEnum.None, result.Kind, "a blocked-on-premise reading never changes the refusal verdict");
+
+                List<ArmadaEvent> stored = await db.Driver.Events.EnumerateByTypeAsync(PapercutParser.EventType, 10).ConfigureAwait(false);
+                AssertEqual(1, stored.Count, "exactly one papercut is filed");
+                Papercut? papercut = PapercutService.TryFromEvent(stored[0]);
+                AssertNotNull(papercut, "the stored event is a readable papercut");
+                AssertEqual(PapercutCategoryEnum.BriefContradiction, papercut!.Category, "category");
+                AssertEqual("msn_premise1", stored[0].MissionId, "the papercut is scoped to the mission");
+
+                string text = (papercut.Title ?? "") + "\n" + (papercut.Detail ?? "");
+                AssertContains("PortedDecoder", text, "the reason survives redaction");
+                AssertFalse(text.Contains("/Volumes/Work", StringComparison.Ordinal), "absolute path is redacted");
+                AssertFalse(text.Contains("build.internal.example.com", StringComparison.Ordinal), "host is redacted");
+                AssertFalse(text.Contains("msn_other42", StringComparison.Ordinal), "Armada id is redacted");
+                AssertFalse(text.Contains("1a2b3c4d5e6f", StringComparison.Ordinal), "hash is redacted");
+                AssertFalse(text.Contains("sk-abcdefghijklmnopqrstuvwxyz0123", StringComparison.Ordinal), "key is redacted");
+            }).ConfigureAwait(false);
+
+            await RunTest("BlockedOnPremiseBelowThreshold_FilesNoPapercut", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(OutcomeResult("blocked_on_premise", 0.50));
+                TypedRefusalAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+                adapter.PapercutDatabase = db.Driver;
+
+                await adapter.DecideAsync(BuildInput(), new CaptainRefusal(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(0, await CountEventsAsync(db, PapercutParser.EventType).ConfigureAwait(false), "no papercut below threshold");
+            }).ConfigureAwait(false);
+
             await RunTest("Off_ReturnsRule_NoCall", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
