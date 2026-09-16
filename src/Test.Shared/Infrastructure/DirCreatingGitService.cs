@@ -67,9 +67,15 @@ namespace Test.Shared.Infrastructure
         /// <summary>Return a diff (empty).</summary>
         public Task<string> DiffAsync(string worktreePath, string baseBranch = "main", CancellationToken token = default) => Task.FromResult(String.Empty);
 
-        /// <summary>Return files changed since a commit (none).</summary>
+        /// <summary>
+        /// Files the simulated captain changed since its dock was provisioned. A producing stage in these
+        /// pipelines stands for a captain that committed, so one changed file is the default.
+        /// </summary>
+        public IReadOnlyList<string> ChangedFilesSinceResult { get; set; } = new string[] { "src/Simulated/Change.cs" };
+
+        /// <summary>Return files changed since a commit.</summary>
         public Task<IReadOnlyList<string>> GetChangedFilesSinceAsync(string worktreePath, string startCommit, CancellationToken token = default)
-            => Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
+            => Task.FromResult(ChangedFilesSinceResult);
 
         /// <summary>Return conflicted files (none).</summary>
         public Task<IReadOnlyList<string>> GetConflictedFilesAsync(string worktreePath, CancellationToken token = default)
