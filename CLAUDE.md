@@ -134,6 +134,28 @@ This is a fork of `jchristn/Armada`. Upstream is remote `upstream`; our fork is
 (PR-fallback flow, recovery pipeline, audit queue, cross-vessel deps,
 captain-lifecycle hardening).
 
+### Sync the easy way: cherry-pick the delta, never merge the whole
+
+The fork is a divergent superset — roughly 1500 commits ahead of upstream, with a
+few hundred new upstream commits since the last sync. A full `git merge
+upstream/main` produces thousands of conflicts and takes days; do not attempt it.
+Sync incrementally instead — review only what is new upstream and take the pieces
+you want:
+
+1. `git fetch upstream`.
+2. List only the NEW upstream commits since the baseline below:
+   `git log --oneline <baseline-upstream-sha>..upstream/main`.
+3. For each change you want, `git cherry-pick <sha>` (add `-n` to stage and
+   review before committing). Skip anything the fork already has or supersedes.
+4. Resolve any small conflict, build (`dotnet build src/Armada.sln`), run the
+   unit suite, and land through the normal flow.
+5. Move the baseline SHA below forward and update the README `## Upstream vs
+   Fork` section by capability (see the rule below).
+
+**Sync baseline:** fork `ae0431ad1` against upstream `d92e1dce6`. Each sync starts
+from this line, so a pass only reviews the new upstream delta, never the whole
+history. This is the record that used to live in `docs/upstream-review/`.
+
 **Branch retention:** keep `origin/fix/memory-dashboard-oom` until upstream
 merges or explicitly rejects the upstream memory/OOM PR. Do not delete it during
 cleanup just because the fork has already absorbed the fixes; we previously lost
