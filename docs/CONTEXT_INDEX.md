@@ -61,7 +61,7 @@ byte-identical.
 The auto-derived metadata is thin: a leaf's `summary` is its leading heading,
 its `read_when` is empty, and its `must_retrieve` is empty. An optional
 **sidecar** enriches that without editing AI-Memory, so the memory files stay
-the sole durable memory source. The sidecar is a repository-versioned file,
+the sole durable memory source. The sidecar is an operator-local, gitignored file (never committed, since it can name real vessels),
 `docs/context-index/chunk-metadata.json`, resolved automatically as the default
 file under the docs root (an explicit path may be passed to the generator).
 
