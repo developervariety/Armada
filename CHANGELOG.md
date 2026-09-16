@@ -25,6 +25,12 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- Typed decisions now parse TypeSafe score answers. The provider returns a score `legend` as an index-keyed
+  object; the client expected a list, so every decision that asked a score question (`review_substance`,
+  `lint_finding`, `flake_score`, `owner_digest`, `inbox_triage`, and the captain tool) failed with
+  `unavailable: parse` and its rule always stood. Typed-decision events also record the concrete model version
+  the provider reports (`model`, for example `jev-1.13.0`) and each answer's `probabilities`, so a threshold
+  review can compare margins and separate a model change from a behaviour change.
 - Subscription accounts can be deleted and hard-refreshed from the Dashboard. `DELETE
   /api/v1/usage-accounts/{accountId}` is refused with `account_has_captains` (409) while the account lists
   captains; otherwise it cancels a pending login, removes the account and every persona route that names it

@@ -97,6 +97,36 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("noul", body.Questions["repeat_likely"].Type);
             });
 
+            await RunTest("DecideAsync_ScoreAnswerWithLegendObject_ParsesAndReportsModel", async () =>
+            {
+                // The provider returns a score legend as an index-keyed object, noul answers without a
+                // confidence, and the concrete model version it ran.
+                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
+                    HttpStatusCode.OK,
+                    "{\"model\":\"jev-1.13.0\",\"answers\":{" +
+                    "\"cause\":{\"type\":\"choice\",\"choice\":\"work_defect\",\"confidence\":0.84," +
+                    "\"probabilities\":{\"unclear\":0.11,\"work_defect\":0.89,\"environmental\":0.0}}," +
+                    "\"repeat_likely\":{\"type\":\"noul\",\"noul\":0.53}," +
+                    "\"sev\":{\"type\":\"score\",\"score\":1.71,\"confidence\":0.56," +
+                    "\"legend\":{\"0\":\"Low\",\"1\":\"Medium\",\"2\":\"High\"}," +
+                    "\"probabilities\":{\"0\":0.04,\"1\":0.21,\"2\":0.75}}}," +
+                    "\"usage\":{\"input_tokens\":450,\"output_tokens\":80}}");
+                HttpClient http = new HttpClient(handler);
+                TypeSafeDecisionClient client = new TypeSafeDecisionClient(Settings(), new LoggingModule(), http);
+
+                TypedDecisionResult result = await client.DecideAsync(SampleRequest(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertTrue(result.Available, "a score answer with a legend object must parse, not return unavailable: " + result.UnavailableReason);
+                AssertEqual("jev-1.13.0", result.Model);
+                AssertEqual(3, result.Answers.Count);
+                AssertEqual("score", result.Answers["sev"].Type);
+                AssertEqual(1.71, result.Answers["sev"].Score);
+                AssertEqual(0.56, result.Answers["sev"].Confidence);
+                AssertEqual(0.75, result.Answers["sev"].Probabilities!["2"]);
+                AssertEqual(0.53, result.Answers["repeat_likely"].Noul);
+                AssertNull(result.Answers["repeat_likely"].Confidence);
+            });
+
             await RunTest("DecideAsync_401_ReturnsUnavailableHttp401", async () =>
             {
                 await AssertUnavailable(HttpStatusCode.Unauthorized, "http_401").ConfigureAwait(false);

@@ -223,6 +223,7 @@ namespace Armada.Core.Services
                 Available = true,
                 UnavailableReason = null,
                 Answers = answers,
+                Model = parsed.Model,
                 InputTokens = parsed.Usage?.InputTokens ?? 0,
                 OutputTokens = parsed.Usage?.OutputTokens ?? 0,
                 LatencyMs = latencyMs
@@ -294,8 +295,11 @@ namespace Armada.Core.Services
             [JsonPropertyName("score")]
             public double? Score { get; set; }
 
+            // The provider sends the score legend as an index-keyed object ({"0": "Low", ...}). It
+            // restates the request's own levels, so it is kept untyped: a strict shape here turns every
+            // score answer into a parse failure.
             [JsonPropertyName("legend")]
-            public List<string>? Legend { get; set; }
+            public JsonElement? Legend { get; set; }
 
             [JsonPropertyName("noul")]
             public double? Noul { get; set; }

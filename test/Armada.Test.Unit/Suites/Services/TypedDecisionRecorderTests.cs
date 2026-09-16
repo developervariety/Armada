@@ -26,12 +26,19 @@ namespace Armada.Test.Unit.Suites.Services
 
             Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>
             {
-                ["cause"] = new TypedAnswer { Type = "choice", Choice = "environmental", Confidence = 0.94 }
+                ["cause"] = new TypedAnswer
+                {
+                    Type = "choice",
+                    Choice = "environmental",
+                    Confidence = 0.94,
+                    Probabilities = new Dictionary<string, double> { ["environmental"] = 0.96, ["work_defect"] = 0.04 }
+                }
             };
             return new TypedDecisionResult
             {
                 Available = true,
                 Answers = answers,
+                Model = "jev-1.13.0",
                 InputTokens = 100,
                 OutputTokens = 20,
                 LatencyMs = 55
@@ -76,6 +83,8 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(100, payload.InputTokens);
                 AssertEqual(20, payload.OutputTokens);
                 AssertEqual(55, payload.LatencyMs);
+                AssertEqual("jev-1.13.0", payload.Model);
+                AssertEqual(0.96, payload.Answers!["cause"].Probabilities!["environmental"]);
             });
 
             await RunTest("RecordShadowAsync_BelowThreshold_WritesShadowEvent", async () =>
@@ -199,6 +208,18 @@ namespace Armada.Test.Unit.Suites.Services
 
             [JsonPropertyName("unavailable_reason")]
             public string? UnavailableReason { get; set; }
+
+            [JsonPropertyName("model")]
+            public string? Model { get; set; }
+
+            [JsonPropertyName("answers")]
+            public Dictionary<string, RecorderAnswer>? Answers { get; set; }
+        }
+
+        private sealed class RecorderAnswer
+        {
+            [JsonPropertyName("probabilities")]
+            public Dictionary<string, double>? Probabilities { get; set; }
         }
     }
 }

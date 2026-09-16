@@ -246,7 +246,8 @@ namespace Armada.Core.Services
                         ["choice"] = answer.Choice,
                         ["score"] = answer.Score,
                         ["noul"] = answer.Noul,
-                        ["confidence"] = answer.Confidence
+                        ["confidence"] = answer.Confidence,
+                        ["probabilities"] = answer.Probabilities
                     };
                     confidences[entry.Key] = answer.Confidence;
                 }
@@ -256,6 +257,7 @@ namespace Armada.Core.Services
             {
                 ["decision"] = context.DecisionPoint,
                 ["rule_verdict"] = context.RuleVerdict,
+                ["model"] = result?.Model,
                 ["answers"] = answers,
                 ["confidences"] = confidences,
                 ["input_tokens"] = result?.InputTokens ?? 0,

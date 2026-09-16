@@ -83,6 +83,12 @@ namespace Armada.Core.Models
         public IReadOnlyDictionary<string, TypedAnswer> Answers { get; init; } = new Dictionary<string, TypedAnswer>();
 
         /// <summary>
+        /// The concrete model version the provider reported running (for example <c>jev-1.13.0</c>),
+        /// which can differ from the requested alias. Null when unavailable or not reported.
+        /// </summary>
+        public string? Model { get; init; }
+
+        /// <summary>
         /// Prompt tokens the provider reported consuming.
         /// </summary>
         public int InputTokens { get; init; }
