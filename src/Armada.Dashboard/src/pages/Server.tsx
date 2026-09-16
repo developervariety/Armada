@@ -4,6 +4,7 @@ import {
   getSettings,
   updateSettings,
   stopServer,
+  restartServer,
   resetServer,
   downloadBackup,
   restoreBackup,
@@ -412,6 +413,24 @@ export default function Server() {
         try {
           await stopServer();
           showToast('warning', t('Server shutting down...'));
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : t('Unknown error');
+          showToast('error', t('Failed: {{message}}', { message: msg }));
+        }
+        closeConfirmDialog();
+      },
+    });
+  };
+
+  const handleRestartServer = () => {
+    setConfirmDialog({
+      open: true,
+      title: t('Restart Server'),
+      message: t('Restart the Admiral server? The admiral stops and is relaunched by its restart policy, so it will be briefly unavailable.'),
+      onConfirm: async () => {
+        try {
+          await restartServer();
+          showToast('warning', t('Server restarting...'));
         } catch (e: unknown) {
           const msg = e instanceof Error ? e.message : t('Unknown error');
           showToast('error', t('Failed: {{message}}', { message: msg }));
@@ -1301,6 +1320,14 @@ export default function Server() {
               title={remoteProxyMode ? t('Stop Server is blocked in proxy mode') : t('Shut down the admiral server process')}
             >
               {t('Stop Server')}
+            </button>
+            <button
+              className="btn btn-danger btn-sm"
+              disabled={remoteProxyMode}
+              onClick={handleRestartServer}
+              title={remoteProxyMode ? t('Restart Server is blocked in proxy mode') : t('Restart the admiral server process')}
+            >
+              {t('Restart Server')}
             </button>
             <button
               className="btn btn-danger btn-sm"

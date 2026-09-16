@@ -250,6 +250,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new VesselModelContextBoundaryTests());
             runner.AddSuite(new VesselSiblingReposRoutesTests());
             runner.AddSuite(new CodeIndexRoutesTests());
+            runner.AddSuite(new ServerRestartRouteTests());
             runner.AddSuite(new AuditDrainerTests());
             runner.AddSuite(new ArmedCheckEligibilityTests());
             runner.AddSuite(new LandingStatusTruthTests());

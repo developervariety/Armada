@@ -345,6 +345,33 @@ namespace Armada.Server.Routes
                 .WithDescription("Initiates a graceful shutdown of the Admiral server.")
                 .WithSecurity("ApiKey"));
 
+            app.Post("/api/v1/server/restart", async (ApiRequest req) =>
+            {
+                if (_settings.RequireAuthForShutdown)
+                {
+                    AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                    if (!authz.IsAuthorized(ctx, req.Http.Request.Method.ToString(), req.Http.Request.Url.RawWithoutQuery))
+                    {
+                        req.Http.Response.StatusCode = ctx.IsAuthenticated ? 403 : 401;
+                        return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
+                    }
+                }
+                _logging.Info(_Header + "restart requested via API");
+                // Production runs under a container restart policy, so a graceful stop is a restart: the supervisor
+                // relaunches the Admiral once the process exits. No child process is spawned here.
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(500).ConfigureAwait(false);
+                    _stopCallback();
+                });
+                return new { Status = "restarting" };
+            },
+            api => api
+                .WithTag("Status")
+                .WithSummary("Restart the Admiral server")
+                .WithDescription("Gracefully stops the Admiral server; the container or process supervisor restart policy relaunches it. Expect a brief period of downtime.")
+                .WithSecurity("ApiKey"));
+
             app.Post<UsageRoutingPreviewRequest>("/api/v1/settings/usage-preview", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);

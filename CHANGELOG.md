@@ -16,6 +16,16 @@ All notable changes to Armada are documented in this file.
   not only in ProductDevelopment. The Recorder placement is unchanged, and
   `FullPipeline` stays without a Linter as the minimal review shape.
 
+### Server control
+
+- Added an in-place restart action. A new `POST /api/v1/server/restart` route
+  performs the same graceful stop as `POST /api/v1/server/stop` and honours the
+  same `RequireAuthForShutdown` guard, returning `{ "Status": "restarting" }`.
+  In production the Admiral runs under a container restart policy, so the
+  graceful stop is the restart: the supervisor relaunches the Admiral once the
+  process exits, with a brief period of downtime and no orphaned child process.
+  The dashboard Server page gains a Restart Server button beside Stop Server,
+  disabled in proxy mode and behind the same confirm dialog.
 
 ### Build and deployment
 
