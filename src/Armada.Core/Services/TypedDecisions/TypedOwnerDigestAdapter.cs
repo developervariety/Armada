@@ -229,7 +229,7 @@ namespace Armada.Core.Services
 
             double defaultSafeNoul = 0.0;
             if (answers.TryGetValue("default_safe", out TypedAnswer? safe) && safe != null)
-                defaultSafeNoul = safe.Noul ?? safe.Confidence ?? 0.0;
+                defaultSafeNoul = safe.Noul ?? 0.0;
 
             string label = costLevel < 0 ? "unranked" : "cost:" + costLevel.ToString(CultureInfo.InvariantCulture);
 

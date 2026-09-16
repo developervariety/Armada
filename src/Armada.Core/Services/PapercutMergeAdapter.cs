@@ -283,8 +283,9 @@ namespace Armada.Core.Services
         {
             if (result.Answers == null) return 0.0;
             if (!result.Answers.TryGetValue(_QuestionId, out TypedAnswer? answer) || answer == null) return 0.0;
+            // A noul answer carries its probability in Noul and no confidence; a confidence is never a
+            // stand-in for the probability that the statement is true.
             if (answer.Noul.HasValue) return answer.Noul.Value;
-            if (answer.Confidence.HasValue) return answer.Confidence.Value;
             return 0.0;
         }
 

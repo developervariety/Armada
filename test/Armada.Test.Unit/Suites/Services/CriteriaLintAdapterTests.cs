@@ -86,6 +86,17 @@ namespace Armada.Test.Unit.Suites.Services
                 },
                 new LintCase
                 {
+                    Name = "GateConfidenceWithoutNoul_NoAppend_ShadowEvents",
+                    GlobalMode = TypedDecisionModeEnum.Gate,
+                    DecisionMode = TypedDecisionModeEnum.Gate,
+                    Result = FlaggedConfidenceOnly(0.95),
+                    ExpectCalls = 2,
+                    ExpectEventType = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectEventCount = 2,
+                    ExpectAppended = false
+                },
+                new LintCase
+                {
                     Name = "ShadowMode_NoAppend_ShadowEvents",
                     GlobalMode = TypedDecisionModeEnum.Shadow,
                     DecisionMode = TypedDecisionModeEnum.Gate,
@@ -215,11 +226,21 @@ namespace Armada.Test.Unit.Suites.Services
         {
             Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
             {
-                ["presence_test"] = new TypedAnswer { Type = "noul", Noul = value, Confidence = value },
-                ["pins_total"] = new TypedAnswer { Type = "noul", Noul = value, Confidence = value },
-                ["not_observable"] = new TypedAnswer { Type = "noul", Noul = 0.0, Confidence = 0.0 },
-                ["empty_diff"] = new TypedAnswer { Type = "noul", Noul = 0.0, Confidence = 0.0 },
-                ["mixes_behaviours"] = new TypedAnswer { Type = "noul", Noul = 0.0, Confidence = 0.0 }
+                ["presence_test"] = new TypedAnswer { Type = "noul", Noul = value },
+                ["pins_total"] = new TypedAnswer { Type = "noul", Noul = value },
+                ["not_observable"] = new TypedAnswer { Type = "noul", Noul = 0.0 },
+                ["empty_diff"] = new TypedAnswer { Type = "noul", Noul = 0.0 },
+                ["mixes_behaviours"] = new TypedAnswer { Type = "noul", Noul = 0.0 }
+            };
+            return new TypedDecisionResult { Available = true, Answers = answers, InputTokens = 12, OutputTokens = 6, LatencyMs = 15 };
+        }
+
+        private static TypedDecisionResult FlaggedConfidenceOnly(double confidence)
+        {
+            Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+            {
+                ["presence_test"] = new TypedAnswer { Type = "noul", Confidence = confidence },
+                ["pins_total"] = new TypedAnswer { Type = "noul", Confidence = confidence }
             };
             return new TypedDecisionResult { Available = true, Answers = answers, InputTokens = 12, OutputTokens = 6, LatencyMs = 15 };
         }

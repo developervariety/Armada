@@ -212,6 +212,27 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeGated).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
+            await RunTest("Adapter_DefaultSafeConfidenceWithoutNoul_DoesNotAnnotate", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                TypedDecisionResult confidenceOnly = new TypedDecisionResult
+                {
+                    Available = true,
+                    Answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+                    {
+                        ["cost_of_waiting"] = new TypedAnswer { Type = "score", Score = 3, Confidence = 0.95 },
+                        ["default_safe"] = new TypedAnswer { Type = "noul", Confidence = 0.95 }
+                    }
+                };
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(confidenceOnly);
+                TypedOwnerDigestAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+
+                OwnerDigestCandidate candidate = BuildCandidate(chain: 0, ageHours: 1.0);
+                OwnerDigestEntry result = await adapter.DecideAsync(candidate, TypedOwnerDigestAdapter.DeterministicRule(candidate), CancellationToken.None).ConfigureAwait(false);
+
+                AssertFalse(result.DefaultSafe, "a confidence is not the probability that the default is safe");
+            }).ConfigureAwait(false);
+
             await RunTest("Adapter_GateNeverLowersCost", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

@@ -181,6 +181,28 @@ namespace Armada.Test.Unit.Suites.Services
                 });
             }
 
+            await RunTest("FollowUpRouting_SameAsConfidenceWithoutNoul_DegradesToEvidence", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                TypedDecisionResult confidenceOnly = new TypedDecisionResult
+                {
+                    Available = true,
+                    Answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+                    {
+                        ["home"] = new TypedAnswer { Type = "choice", Choice = FollowUpRoutingAdapter.HomeDuplicate, Confidence = 0.95 },
+                        ["same_as"] = new TypedAnswer { Type = "noul", Confidence = 0.95 }
+                    }
+                };
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(confidenceOnly);
+                RecordingFollowUpRouter router = new RecordingFollowUpRouter();
+                FollowUpRoutingAdapter adapter = BuildAdapter(testDb.Driver, client, router, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
+
+                await adapter.RouteAsync(SeededFollowUp(), "Port the Ford DTC-text seam", CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(0, router.LinkedCount, "a confidence is not the probability that the item is a duplicate");
+                AssertEqual(1, router.EvidenceCount, "an unconfirmed duplicate degrades to an evidence note");
+            });
+
             await RunTest("FollowUpRouting_DuplicateWithoutCandidate_DegradesToEvidence", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -275,7 +297,7 @@ namespace Armada.Test.Unit.Suites.Services
             Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
             {
                 ["home"] = new TypedAnswer { Type = "choice", Choice = home, Confidence = homeConfidence },
-                ["same_as"] = new TypedAnswer { Type = "noul", Noul = sameAs, Confidence = sameAs }
+                ["same_as"] = new TypedAnswer { Type = "noul", Noul = sameAs }
             };
             return new TypedDecisionResult { Available = true, Answers = answers, InputTokens = 10, OutputTokens = 5, LatencyMs = 12 };
         }

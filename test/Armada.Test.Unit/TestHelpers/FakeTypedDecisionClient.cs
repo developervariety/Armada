@@ -65,22 +65,37 @@ namespace Armada.Test.Unit.TestHelpers
             return Task.FromResult(_Responder(request));
         }
 
-        /// <summary>Build an available result carrying one noul answer.</summary>
+        /// <summary>Build an available result carrying one noul answer, in the provider's shape (a noul
+        /// value and no confidence).</summary>
         /// <param name="questionId">The question id.</param>
-        /// <param name="noul">The noul value, reused as the confidence.</param>
+        /// <param name="noul">The noul value.</param>
         /// <returns>An available result.</returns>
         public static TypedDecisionResult Noul(string questionId, double noul)
         {
             Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
             {
-                [questionId] = new TypedAnswer { Type = "noul", Noul = noul, Confidence = noul }
+                [questionId] = new TypedAnswer { Type = "noul", Noul = noul }
+            };
+            return new TypedDecisionResult { Available = true, Answers = answers, InputTokens = 10, OutputTokens = 5, LatencyMs = 12 };
+        }
+
+        /// <summary>Build an available result whose noul answer carries a confidence but no noul value, so
+        /// a test can prove a confidence is never read as the probability that the statement is true.</summary>
+        /// <param name="questionId">The question id.</param>
+        /// <param name="confidence">The confidence, with the noul value absent.</param>
+        /// <returns>An available result.</returns>
+        public static TypedDecisionResult NoulConfidenceOnly(string questionId, double confidence)
+        {
+            Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+            {
+                [questionId] = new TypedAnswer { Type = "noul", Confidence = confidence }
             };
             return new TypedDecisionResult { Available = true, Answers = answers, InputTokens = 10, OutputTokens = 5, LatencyMs = 12 };
         }
 
         /// <summary>Build an available result carrying a noul plus a choice answer.</summary>
         /// <param name="noulId">The noul question id.</param>
-        /// <param name="noul">The noul value, reused as the confidence.</param>
+        /// <param name="noul">The noul value, reused as the choice confidence.</param>
         /// <param name="choiceId">The choice question id.</param>
         /// <param name="choice">The chosen option.</param>
         /// <returns>An available result.</returns>
@@ -88,7 +103,7 @@ namespace Armada.Test.Unit.TestHelpers
         {
             Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
             {
-                [noulId] = new TypedAnswer { Type = "noul", Noul = noul, Confidence = noul },
+                [noulId] = new TypedAnswer { Type = "noul", Noul = noul },
                 [choiceId] = new TypedAnswer { Type = "choice", Choice = choice, Confidence = noul }
             };
             return new TypedDecisionResult { Available = true, Answers = answers, InputTokens = 10, OutputTokens = 5, LatencyMs = 12 };
