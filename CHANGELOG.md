@@ -64,6 +64,31 @@ All notable changes to Armada are documented in this file.
   favour of `capacity_escalation`. Settings files that still contain them load
   and the values are ignored.
 
+### Fixed
+
+- Deleting a captain no longer reports an error when the captain is actually
+  removed. Dependent cleanup (telemetry events, planning sessions) after the row
+  delete is now fully best-effort, so a cleanup failure leaves an orphan for a
+  later sweep instead of failing the delete the user already saw succeed.
+- `apiCaptainCloudProviders` is hot-reloadable, so enabling a cloud provider for
+  API-endpoint captains applies without an admiral restart.
+- Autonomous recovery compares two failing-test sets without regard to order, so
+  the same failures printed in a different order by a parallel test runner are
+  recognised as a repeat (the repeated-failure operator note is no longer lost).
+- The context index warns when a chunk-metadata sidecar key matches no generated
+  chunk, naming any that carry a must_retrieve safety domain, and an independent
+  test now asserts every must_retrieve key resolves and every managed vessel keeps
+  a safety leaf — so a renamed heading or a file falling under the sub-chunk
+  threshold can no longer silently drop a safety rule from a slimmed brief.
+
+### Added
+
+- Typed decisions now parse TypeSafe score answers. The provider returns a score `legend` as an index-keyed
+  object; the client expected a list, so every decision that asked a score question (`review_substance`,
+  `lint_finding`, `flake_score`, `owner_digest`, `inbox_triage`, and the captain tool) failed with
+  `unavailable: parse` and its rule always stood. Typed-decision events also record the concrete model version
+  the provider reports (`model`, for example `jev-1.13.0`) and each answer's `probabilities`, so a threshold
+  review can compare margins and separate a model change from a behaviour change.
 - Subscription accounts can be deleted and hard-refreshed from the Dashboard. `DELETE
   /api/v1/usage-accounts/{accountId}` is refused with `account_has_captains` (409) while the account lists
   captains; otherwise it cancels a pending login, removes the account and every persona route that names it
@@ -142,6 +167,16 @@ All notable changes to Armada are documented in this file.
   alternative to `launchCredentialEnv`; a missing or empty file reads
   `account_launch_credential_unavailable`. The policy JSON editor moves under an
   Advanced section.
+- The code index can take its embedding provider from a registered Embedding
+  model endpoint instead of the `codeIndex` settings block. When an enabled
+  Embedding endpoint is registered, the code index uses its base URL, model, and
+  server-side key; `codeIndex.embeddingEndpointId` pins a specific one when more
+  than one is enabled. With no endpoint registered it falls back to the
+  `codeIndex` `EmbeddingApiBaseUrl` / `EmbeddingApiKey` / `EmbeddingModel`
+  settings, so behaviour is unchanged until an endpoint is added. This lets the
+  embedding provider and its key be managed on the model-endpoints surface
+  rather than in settings.json or an environment variable. The client resolves
+  the endpoint at startup, so add or change it then restart the admiral.
 
 - Context retrieval can now supply a captain brief's Shared Memory section,
   behind the `contextRetrieval.briefSlimmingEnabled` flag (default off). While
@@ -189,6 +224,14 @@ All notable changes to Armada are documented in this file.
   model-tier selector it builds on is named **Legacy Routing**, in the
   Settings > Routing dashboard and the routing docs. Settings keys are
   unchanged.
+
+- The Create/Edit Captain modal no longer shows the inline provider-credential
+  fields for an API Endpoint captain. That runtime draws its base URL and key
+  from the referenced inference endpoint, and the admiral already rejects inline
+  captain credentials for it, so the modal now selects the endpoint as the sole
+  credential surface and never submits an inline key or base URL for it. Native
+  runtimes keep the inline fields, which remain the way to point a captain at an
+  externally served model.
 
 ### Security
 

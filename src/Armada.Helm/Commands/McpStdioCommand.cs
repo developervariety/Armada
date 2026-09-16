@@ -84,7 +84,7 @@ namespace Armada.Helm.Commands
                 git,
                 armadaSettings);
             HttpClient codeIndexHttpClient = new HttpClient();
-            IEmbeddingClient embeddingClient = new VoyageEmbeddingClient(armadaSettings.CodeIndex, logging, codeIndexHttpClient);
+            IEmbeddingClient embeddingClient = await EmbeddingClientFactory.CreateAsync(armadaSettings, database, logging, codeIndexHttpClient, cancellationToken).ConfigureAwait(false);
             OpenCodeServerLauncher openCodeServerLauncher = new OpenCodeServerLauncher(armadaSettings, logging, codeIndexHttpClient);
             IInferenceClient inferenceClient = string.Equals(armadaSettings.CodeIndex.InferenceClient, "OpenCodeServer", StringComparison.OrdinalIgnoreCase)
                 ? new OpenCodeServerInferenceClient(armadaSettings, logging, codeIndexHttpClient)

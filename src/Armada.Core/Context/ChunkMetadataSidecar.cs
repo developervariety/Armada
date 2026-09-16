@@ -41,6 +41,9 @@ namespace Armada.Core.Context
         /// <summary>The number of chunk ids the sidecar carries an override for.</summary>
         public int Count => _ById.Count;
 
+        /// <summary>The chunk ids the sidecar carries an override for.</summary>
+        public IReadOnlyCollection<string> Keys => _ById.Keys;
+
         #endregion
 
         #region Private-Members

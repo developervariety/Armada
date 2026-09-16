@@ -78,9 +78,21 @@ namespace Armada.Core.Models
         public string? UnavailableReason { get; init; }
 
         /// <summary>
+        /// When the provider rejected the request, the provider's own short explanation (for example
+        /// which question field was invalid), redacted and capped. Null when no explanation was sent.
+        /// </summary>
+        public string? UnavailableDetail { get; init; }
+
+        /// <summary>
         /// The answers keyed by question id. Empty when unavailable.
         /// </summary>
         public IReadOnlyDictionary<string, TypedAnswer> Answers { get; init; } = new Dictionary<string, TypedAnswer>();
+
+        /// <summary>
+        /// The concrete model version the provider reported running (for example <c>jev-1.13.0</c>),
+        /// which can differ from the requested alias. Null when unavailable or not reported.
+        /// </summary>
+        public string? Model { get; init; }
 
         /// <summary>
         /// Prompt tokens the provider reported consuming.

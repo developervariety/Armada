@@ -246,7 +246,8 @@ namespace Armada.Core.Services
                         ["choice"] = answer.Choice,
                         ["score"] = answer.Score,
                         ["noul"] = answer.Noul,
-                        ["confidence"] = answer.Confidence
+                        ["confidence"] = answer.Confidence,
+                        ["probabilities"] = answer.Probabilities
                     };
                     confidences[entry.Key] = answer.Confidence;
                 }
@@ -256,6 +257,7 @@ namespace Armada.Core.Services
             {
                 ["decision"] = context.DecisionPoint,
                 ["rule_verdict"] = context.RuleVerdict,
+                ["model"] = result?.Model,
                 ["answers"] = answers,
                 ["confidences"] = confidences,
                 ["input_tokens"] = result?.InputTokens ?? 0,
@@ -264,7 +266,8 @@ namespace Armada.Core.Services
                 ["state_sha256"] = stateSha256,
                 ["state_bytes"] = stateBytes,
                 ["gate_outcome"] = gateOutcome,
-                ["unavailable_reason"] = result?.UnavailableReason
+                ["unavailable_reason"] = result?.UnavailableReason,
+                ["unavailable_detail"] = result?.UnavailableDetail
             };
 
             return JsonSerializer.Serialize(payload);

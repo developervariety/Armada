@@ -200,8 +200,9 @@ namespace Armada.Core.Services
             RecorderMemoryReviewResult outcome,
             CancellationToken token)
         {
-            object state = DecisionStateRedactor.RedactObject(BuildState(record, candidates), _Settings.MaxStateChars);
-            string redacted = state as string ?? String.Empty;
+            RedactedDecisionState redactedState = DecisionStateRedactor.RedactState(BuildState(record, candidates), _Settings.MaxStateChars);
+            object state = redactedState.State;
+            string redacted = redactedState.Text;
 
             TypedDecisionResult result;
             try

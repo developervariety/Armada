@@ -76,6 +76,17 @@ namespace Armada.Test.Unit.Suites.Services
                 },
                 new MergeCase
                 {
+                    Name = "GateConfidenceWithoutNoul_ReturnsRuleUnmerged_ShadowEvent",
+                    GlobalMode = TypedDecisionModeEnum.Gate,
+                    DecisionMode = TypedDecisionModeEnum.Gate,
+                    Result = FakeTypedDecisionClient.NoulConfidenceOnly("same_issue", 0.97),
+                    ExpectMerged = false,
+                    ExpectClientCalls = 1,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectMergeProposed = false
+                },
+                new MergeCase
+                {
                     Name = "ShadowAboveThreshold_DoesNotMerge_ProposedButNotApplied",
                     GlobalMode = TypedDecisionModeEnum.Shadow,
                     DecisionMode = TypedDecisionModeEnum.Gate,

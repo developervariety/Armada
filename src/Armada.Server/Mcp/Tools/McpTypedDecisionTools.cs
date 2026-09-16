@@ -288,8 +288,9 @@ namespace Armada.Server.Mcp.Tools
 
                 // The state is redacted here, before any egress and before the hash, so a disabled or
                 // dormant call still records a hash of exactly what WOULD have left, and never the state.
-                object redacted = DecisionStateRedactor.RedactObject(parsed.State, toolSettings.MaxStateChars);
-                string redactedState = redacted as string ?? String.Empty;
+                RedactedDecisionState redactedDecisionState = DecisionStateRedactor.RedactState(parsed.State, toolSettings.MaxStateChars);
+                object redacted = redactedDecisionState.State;
+                string redactedState = redactedDecisionState.Text;
 
                 // 1. The tool is disabled: no egress, no budget spent, one event, unavailable.
                 if (!toolSettings.Enabled)

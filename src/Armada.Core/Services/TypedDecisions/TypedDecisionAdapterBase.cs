@@ -104,8 +104,9 @@ namespace Armada.Core.Services
             TypedDecisionRequest request;
             try
             {
-                object state = DecisionStateRedactor.RedactObject(BuildState(input), _Settings.MaxStateChars);
-                redacted = state as string ?? String.Empty;
+                RedactedDecisionState redactedState = DecisionStateRedactor.RedactState(BuildState(input), _Settings.MaxStateChars);
+                object state = redactedState.State;
+                redacted = redactedState.Text;
                 request = new TypedDecisionRequest
                 {
                     DecisionPoint = DecisionPoint,
