@@ -989,7 +989,8 @@ namespace Armada.Core.Database.SqlServer.Queries
                 ),
                 new SchemaMigration(95, "Record terminal-voyage reconciliation on the mission row", MigrationV95Statements),
                 new SchemaMigration(96, "Delete unreferenced built-in reviewer personas and their templates", ReviewerPersonaPruneSchema.SqlServerStatements),
-                new SchemaMigration(97, "Cancel missions stored with the WaitingForInput status", MissionInputWaitCancelSchema.SqlServerStatements)
+                new SchemaMigration(97, "Cancel missions stored with the WaitingForInput status", MissionInputWaitCancelSchema.SqlServerStatements),
+                new SchemaMigration(99, "Persist memory proposals", MemoryProposalSchema.SqlServerStatements)
             };
         }
 

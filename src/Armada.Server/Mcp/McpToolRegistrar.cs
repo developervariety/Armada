@@ -123,6 +123,7 @@ namespace Armada.Server.Mcp
             McpTokenUsageTools.Register(register, database);
             McpProductionTools.Register(register, database);
             McpPapercutTools.Register(register, database, papercutMergeAdapter);
+            McpMemoryProposalTools.Register(register, database);
             if (logging != null) McpInboxTools.Register(register, database, logging, inboxTriageAdapter);
             McpDockTools.Register(register, database, dockService);
             if (logging != null) McpPlaybookTools.Register(register, database, logging);

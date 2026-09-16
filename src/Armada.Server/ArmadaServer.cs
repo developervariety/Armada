@@ -128,6 +128,7 @@ namespace Armada.Server
         // D13 owner_digest scheduled runner. Constructed only with the live typed-decision client and
         // dormant until the owner_digest decision is enabled; the health loop drives it once per day.
         private OwnerDigestRunner? _OwnerDigestRunner = null;
+        private PapercutMemorySweepRunner? _PapercutMemorySweepRunner = null;
         // D11 inbox_triage and D12 followup_routing adapters. Null until the live typed-decision client
         // exists; the inbox/coordination and audit MCP tools receive them through the registrar.
         private InboxTriageAdapter? _InboxTriageAdapter;
@@ -736,6 +737,23 @@ namespace Armada.Server
                     _Database,
                     () => DateTime.UtcNow,
                     _Logging);
+
+                // D18 memory_candidate and D23 seam B memory_review. Both store proposals in the database
+                // through one writer, because the AI-Memory folder is read-only to the admiral. The weekly
+                // papercut sweep is driven by the health loop; the Recorder review runs when a Recorder
+                // stage finishes. Both ship Off, so each is dormant until its decision is enabled.
+                DatabaseMemoryCandidateProposalWriter memoryProposalWriter = new DatabaseMemoryCandidateProposalWriter(_Database, _Logging);
+                MemoryCandidateAdapter memoryCandidateAdapter = new MemoryCandidateAdapter(
+                    _Settings.TypedDecisions, _TypedDecisionClient, _TypedDecisionRecorder, memoryProposalWriter, _Logging);
+                _PapercutMemorySweepRunner = new PapercutMemorySweepRunner(
+                    _Settings.TypedDecisions,
+                    memoryCandidateAdapter,
+                    _PapercutMergeAdapter,
+                    _Database,
+                    () => DateTime.UtcNow,
+                    _Logging);
+                missionService.RecorderMemoryReviewAdapter = new RecorderMemoryReviewAdapter(
+                    _Settings.TypedDecisions, _TypedDecisionClient, _TypedDecisionRecorder, memoryProposalWriter, _Database, _Logging);
                 // D10 criteria_lint: append model-flagged criteria_review lines to a refinement summary.
                 _ObjectiveRefinementSessions.CriteriaLintAdapter = new CriteriaLintAdapter(
                     _Settings.TypedDecisions, _TypedDecisionClient, _TypedDecisionRecorder, _Logging);
@@ -2106,6 +2124,16 @@ namespace Armada.Server
                     OwnerDigestRunResult digest = await _OwnerDigestRunner.RunOnceAsync(stepToken).ConfigureAwait(false);
                     if (digest.Posted)
                         _Logging.Info(_Header + "owner decision digest posted: " + digest.CandidateCount + " question(s)");
+                }),
+
+                // D18 memory_candidate. The sweep self-guards to once per seven days and returns at once
+                // while the decision is Off, so scheduling it as often as the digest costs nothing.
+                HealthLoopMaintenanceStep.EveryCycles("papercut memory sweep", () => 60, async stepToken =>
+                {
+                    if (_PapercutMemorySweepRunner == null) return;
+                    PapercutMemorySweepResult sweep = await _PapercutMemorySweepRunner.RunOnceAsync(stepToken).ConfigureAwait(false);
+                    if (sweep.Nominated > 0)
+                        _Logging.Info(_Header + "papercut memory sweep stored " + sweep.Nominated + " memory proposal(s)");
                 })
             };
         }

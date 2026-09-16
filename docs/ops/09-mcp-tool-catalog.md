@@ -194,8 +194,8 @@ for the complete record, or `outputTailLines` to widen the tail.
 
 | Risk | Tools |
 | --- | --- |
-| Read | `armada_get_dock`, `armada_list_papercuts` |
-| Write | `armada_send_signal`, `armada_nudge_voyage`, `armada_mark_signal_read`, `armada_repair_dock` |
+| Read | `armada_get_dock`, `armada_list_papercuts`, `armada_list_memory_proposals` |
+| Write | `armada_send_signal`, `armada_nudge_voyage`, `armada_mark_signal_read`, `armada_repair_dock`, `armada_dismiss_memory_proposal` |
 | Destructive | `armada_delete_dock`, `armada_purge_dock`, `armada_unstick_dock`, `armada_delete_docks`, `armada_delete_signals`, `armada_delete_event`, `armada_delete_events` |
 
 #### Coordination Board (Chatroom)

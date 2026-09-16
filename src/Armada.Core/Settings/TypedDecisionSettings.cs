@@ -129,12 +129,13 @@ namespace Armada.Core.Settings
                 ["flake_score"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
                 ["routing_hint"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
                 ["change_substance"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
-                ["memory_candidate"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
+                ["memory_candidate"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off, GateThreshold = 0.90 },
                 ["stage_necessity"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
                 ["handoff_outcome"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
                 ["revision_kind"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
                 ["test_covers"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
                 ["memory_record"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
+                ["memory_review"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off, GateThreshold = 0.90 },
                 ["lint_finding"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
                 ["prior_art"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off }
             };

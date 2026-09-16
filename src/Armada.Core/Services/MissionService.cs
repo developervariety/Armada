@@ -102,6 +102,15 @@ namespace Armada.Core.Services
         public TypedHandoffOutcomeAdapter? HandoffOutcomeAdapter { get; set; }
 
         /// <summary>
+        /// The D23 seam B <c>memory_review</c> adapter, when wired. Null leaves the memory records a
+        /// Recorder mission wrote exactly as the captain stored them, which is the operationally-off
+        /// state. When wired and gating, it may only lower a record's salience, link a duplicate to the
+        /// record it repeats, and store a memory proposal for the owner; it never deletes a record and
+        /// never changes its content.
+        /// </summary>
+        public RecorderMemoryReviewAdapter? RecorderMemoryReviewAdapter { get; set; }
+
+        /// <summary>
         /// The D21 <c>revision_kind</c> typed-decision adapter, when wired. Null keeps every Judge
         /// NEEDS_REVISION on the deterministic path (autonomous recovery rescues it), which is the
         /// operationally-off state. Set by the server after construction so existing construction sites
@@ -2379,6 +2388,22 @@ namespace Armada.Core.Services
             }
 
             await EmitMissionOutcomeTelemetryAsync(mission, captain, token).ConfigureAwait(false);
+
+            // D23 seam B. A Recorder stage that finished its work gets its memory records reviewed. The
+            // review may lower salience, link duplicates, and store memory proposals; it never deletes
+            // or rewrites a record, never throws, and does nothing while the decision is Off.
+            if (RecorderMemoryReviewAdapter != null
+                && IsPersona(mission.Persona, PersonaCatalog.Recorder)
+                && (mission.Status == MissionStatusEnum.WorkProduced || mission.Status == MissionStatusEnum.Complete))
+            {
+                RecorderMemoryReviewResult review = await RecorderMemoryReviewAdapter.ReviewAsync(mission, token).ConfigureAwait(false);
+                if (review.Reviewed > 0)
+                {
+                    _Logging.Info(_Header + "Recorder memory review for mission " + mission.Id + ": reviewed " + review.Reviewed
+                        + ", salience lowered " + review.SalienceLowered + ", duplicates linked " + review.DuplicatesLinked
+                        + ", proposals " + review.Proposed + " (" + review.Reason + ")");
+                }
+            }
 
             bool shouldAttemptLanding =
                 !preparedDownstreamStages &&

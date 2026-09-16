@@ -85,6 +85,7 @@ namespace Armada.Core.Database.Sqlite
             HarborJobs = new Armada.Core.Database.HarborJobMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             MissionAttemptFacts = new MissionAttemptFactMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
+            MemoryProposals = new MemoryProposalMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             LaneStateTransitions = new LaneStateTransitionMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             DataExpiry = new DataExpiryMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             PromptTemplates = new PromptTemplateMethods(this, _Settings, _Logging);
@@ -141,6 +142,7 @@ namespace Armada.Core.Database.Sqlite
             HarborJobs = new Armada.Core.Database.HarborJobMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             MissionAttemptFacts = new MissionAttemptFactMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
+            MemoryProposals = new MemoryProposalMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             LaneStateTransitions = new LaneStateTransitionMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             DataExpiry = new DataExpiryMethods(() => new SqliteConnection(_ConnectionString), DatabaseTypeEnum.Sqlite);
             PromptTemplates = new PromptTemplateMethods(this, _Settings, _Logging);
@@ -233,6 +235,8 @@ namespace Armada.Core.Database.Sqlite
                             await CaptainModelEndpointSchemaGuard.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, true, token).ConfigureAwait(false);
                         if (migration.Version == 90)
                             await HarborRunnerSchemaGuard.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
+                        if (migration.Version == 104)
+                            await MemoryProposalSchema.EnsureAsync(conn, tx, Armada.Core.Enums.DatabaseTypeEnum.Sqlite, token).ConfigureAwait(false);
                         for (int statementOrdinal = 0; statementOrdinal < migration.Statements.Count; statementOrdinal++)
                         {
                             string sql = migration.Statements[statementOrdinal];

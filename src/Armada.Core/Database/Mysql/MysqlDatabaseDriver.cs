@@ -76,6 +76,7 @@ namespace Armada.Core.Database.Mysql
             HarborJobs = new Armada.Core.Database.HarborJobMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             MissionAttemptFacts = new MissionAttemptFactMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             PreparationClaimObservations = new PreparationClaimObservationMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
+            MemoryProposals = new MemoryProposalMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             LaneStateTransitions = new LaneStateTransitionMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             DataExpiry = new DataExpiryMethods(() => new MySqlConnector.MySqlConnection(_ConnectionString), DatabaseTypeEnum.Mysql);
             PromptTemplates = new PromptTemplateMethods(_ConnectionString);
@@ -145,6 +146,8 @@ namespace Armada.Core.Database.Mysql
                             await CaptainModelEndpointSchemaGuard.EnsureAsync(conn, null, DatabaseTypeEnum.Mysql, false, token).ConfigureAwait(false);
                         if (migration.Version == 82)
                             await HarborRunnerSchemaGuard.EnsureAsync(conn, null, DatabaseTypeEnum.Mysql, token).ConfigureAwait(false);
+                        if (migration.Version == 96)
+                            await MemoryProposalSchema.EnsureAsync(conn, null, DatabaseTypeEnum.Mysql, token).ConfigureAwait(false);
                         await runner.ApplyAsync(migration, token).ConfigureAwait(false);
                         applied++;
                     }
@@ -670,7 +673,8 @@ namespace Armada.Core.Database.Mysql
                 new SchemaMigration(91, "Persist Harbor job records", TableQueries.MigrationV91Statements),
                 new SchemaMigration(92, "Record terminal-voyage reconciliation on the mission row", TableQueries.MigrationV92Statements),
                 new SchemaMigration(93, "Delete unreferenced built-in reviewer personas and their templates", ReviewerPersonaPruneSchema.MysqlStatements),
-                new SchemaMigration(94, "Cancel missions stored with the WaitingForInput status", MissionInputWaitCancelSchema.MysqlStatements)
+                new SchemaMigration(94, "Cancel missions stored with the WaitingForInput status", MissionInputWaitCancelSchema.MysqlStatements),
+                new SchemaMigration(96, "Persist memory proposals", MemoryProposalSchema.MysqlStatements)
             };
         }
 

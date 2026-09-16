@@ -8,6 +8,19 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- Memory proposals are stored in the database. A new `memory_proposals` table
+  (SQLite 104, PostgreSQL 105, MySQL 96, SQL Server 99) holds durable lessons
+  the typed-decision system nominates for the owner's AI-Memory, which is
+  read-only to the admiral. The D18 `memory_candidate` decision now writes there
+  instead of a proposal file, and a weekly papercut sweep in the health loop
+  feeds it. The new D23 seam B `memory_review` decision reviews the memory
+  records a finished Recorder stage wrote: it may only lower salience, link a
+  duplicate with a `duplicate-of:` tag, and store a proposal for a fleet rule; it
+  never deletes or rewrites a record. Both decisions ship Off with threshold
+  0.90 and fail closed. The operator tools `armada_list_memory_proposals` and
+  `armada_dismiss_memory_proposal` read and close proposals; they are outside
+  mission scope and require a global administrator.
+
 - Smart Routing (usage-aware routing) enabled with no configured route for a
   persona now passes the legacy candidate list through unchanged instead of
   deferring the mission with no idle captain. Enabling Smart Routing fleet-wide
