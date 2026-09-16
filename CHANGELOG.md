@@ -52,6 +52,25 @@ All notable changes to Armada are documented in this file.
   query). The service is built in-process at startup by reusing the index
   generator. Additive: brief generation and the loaders are unchanged.
 
+- Added a chunk-metadata sidecar so the index carries hand-authored retrieval
+  metadata without editing AI-Memory. The generator now reads an optional
+  repository-versioned file, `docs/context-index/chunk-metadata.json`, that
+  maps a chunk id (the manifest `id`, equal to the chunk topic) to a `summary`,
+  a concrete `read_when` trigger, an `applies_to` scope, and, for a small set
+  of safety-shaped per-vessel leaves, a `must_retrieve` domain. The generator
+  merges the sidecar OVER the auto-derived metadata: a sidecar field wins where
+  present, and the auto-derived value fills every gap, so a chunk with no
+  sidecar entry is unchanged. The sidecar is metadata ABOUT the memory and docs
+  chunks, never a copy of their content, and it carries no `tier`: it never
+  promotes or demotes a chunk, so the core allowlist and the always-on core
+  bundle are byte-identical with or without it. The shipped sidecar enriches
+  every AI-Memory leaf and the key operator docs; the EcuLink memory leaf is
+  tagged `must_retrieve: ["eculink"]` so its source-fidelity and
+  hang-escalation rules are always retrieved for an EcuLink task. Resolution is
+  automatic (the default file under the docs root) and fully guarded: a missing
+  or malformed sidecar is ignored and the index still generates. Additive: the
+  server wiring, brief generation, and the loaders are unchanged.
+
 ### Code index
 
 - Replaced the code-index embedding client with a Voyage AI client. The fork

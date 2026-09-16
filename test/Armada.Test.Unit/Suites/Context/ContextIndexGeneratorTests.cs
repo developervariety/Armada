@@ -274,6 +274,176 @@ namespace Armada.Test.Unit.Suites.Context
                 }
                 finally { SafeDelete(outDir); }
             });
+
+            await RunTest("Sidecar_Merge_OverridesLeafMetadata", () =>
+            {
+                string root = CreateFakeMemoryTree();
+                string sidecar = WriteSidecar(
+                    "{\n" +
+                    "  \"version\": 1,\n" +
+                    "  \"chunks\": {\n" +
+                    "    \"memory.repos.eculink.readme\": {\n" +
+                    "      \"summary\": \"SIDE-SUMMARY.\",\n" +
+                    "      \"read_when\": \"You are porting an EcuLink decoder.\",\n" +
+                    "      \"applies_to\": [\"vessel:EcuLink\"],\n" +
+                    "      \"must_retrieve\": [\"eculink\"]\n" +
+                    "    }\n" +
+                    "  }\n" +
+                    "}\n");
+                try
+                {
+                    ContextIndexGenerator gen = new ContextIndexGenerator();
+                    ContextIndex index = gen.Build(root, null, sidecar);
+                    ContextChunk c = index.Chunks.Single(x => x.Id == "memory.repos.eculink.readme");
+
+                    // Sidecar wins on every field it names.
+                    AssertEqual("SIDE-SUMMARY.", c.Summary);
+                    AssertEqual("You are porting an EcuLink decoder.", c.ReadWhen);
+                    AssertEqual(1, c.AppliesTo.Count);
+                    AssertEqual("vessel:EcuLink", c.AppliesTo[0]);
+                    AssertEqual(1, c.MustRetrieve.Count);
+                    AssertEqual("eculink", c.MustRetrieve[0]);
+                    // The chunk stays a leaf; the sidecar carries no tier.
+                    AssertEqual(ContextTierEnum.Leaf, c.Tier);
+
+                    // The override reaches the manifest entry too.
+                    ContextManifestEntry e = index.Manifest.Chunks.Single(x => x.Id == "memory.repos.eculink.readme");
+                    AssertEqual("SIDE-SUMMARY.", e.Summary);
+                    AssertEqual("You are porting an EcuLink decoder.", e.ReadWhen);
+                    AssertEqual(1, e.MustRetrieve.Count);
+                    AssertEqual("eculink", e.MustRetrieve[0]);
+                    return Task.CompletedTask;
+                }
+                finally { SafeDelete(root); SafeDeleteFile(sidecar); }
+            });
+
+            await RunTest("Sidecar_UnnamedChunk_KeepsAutoDerived", () =>
+            {
+                string root = CreateFakeMemoryTree();
+                // The sidecar names only the eculink leaf; the macos leaf is untouched.
+                string sidecar = WriteSidecar(
+                    "{ \"chunks\": { \"memory.repos.eculink.readme\": { \"summary\": \"X.\" } } }");
+                try
+                {
+                    ContextIndexGenerator gen = new ContextIndexGenerator();
+                    ContextIndex index = gen.Build(root, null, sidecar);
+                    ContextChunk host = index.Chunks.Single(x => x.Id == "memory.machine-notes.macos");
+                    // Auto-derived: summary is the leading heading, read_when is empty, applies_to is "all".
+                    AssertEqual("macOS Workstation Notes", host.Summary);
+                    AssertEqual("", host.ReadWhen);
+                    AssertEqual(1, host.AppliesTo.Count);
+                    AssertEqual("all", host.AppliesTo[0]);
+                    AssertEqual(0, host.MustRetrieve.Count);
+                    return Task.CompletedTask;
+                }
+                finally { SafeDelete(root); SafeDeleteFile(sidecar); }
+            });
+
+            await RunTest("Sidecar_MustRetrieve_FlowsToRetrievalService", () =>
+            {
+                string root = CreateFakeMemoryTree();
+                string sidecar = WriteSidecar(
+                    "{ \"chunks\": { \"memory.repos.eculink.readme\": { \"must_retrieve\": [\"eculink\"] } } }");
+                try
+                {
+                    ContextIndexGenerator gen = new ContextIndexGenerator();
+                    ContextIndex index = gen.Build(root, null, sidecar);
+
+                    ContextRetrievalService svc = new ContextRetrievalService(index.Chunks);
+                    // A vessel-scoped request with NO query keyword still force-includes the safety leaf.
+                    ContextRetrievalResult r = svc.Retrieve(new ContextRetrievalRequest
+                    {
+                        Vessel = "EcuLink",
+                        MaxLeafBytes = 0
+                    });
+                    AssertTrue(r.MustRetrieve.Any(c => c.Id == "memory.repos.eculink.readme"),
+                        "the eculink safety leaf must be force-included for an EcuLink request");
+                    return Task.CompletedTask;
+                }
+                finally { SafeDelete(root); SafeDeleteFile(sidecar); }
+            });
+
+            await RunTest("Sidecar_DoesNotChangeTier_NorCoreBundle", () =>
+            {
+                string root = CreateFakeMemoryTree();
+                // Name a leaf (all fields) AND a core chunk (must_retrieve only, which never prints in
+                // the bundle) to prove the sidecar changes neither the tier set nor the core bundle.
+                string sidecar = WriteSidecar(
+                    "{ \"chunks\": {" +
+                    "  \"memory.repos.eculink.readme\": { \"summary\": \"L.\", \"read_when\": \"when.\" }," +
+                    "  \"memory.shared.repository-boundary-and-leak-prevention\": { \"must_retrieve\": [\"eculink\"] }" +
+                    "} }");
+                try
+                {
+                    ContextIndexGenerator gen = new ContextIndexGenerator();
+                    ContextIndex withSidecar = gen.Build(root, null, sidecar);
+                    ContextIndex noSidecar = gen.Build(root, null, "/does/not/exist.json");
+
+                    AssertEqual(noSidecar.CoreBundle, withSidecar.CoreBundle);
+                    AssertEqual(
+                        noSidecar.Chunks.Count(c => c.Tier == ContextTierEnum.Core),
+                        withSidecar.Chunks.Count(c => c.Tier == ContextTierEnum.Core));
+
+                    // The named core chunk is still core; metadata never promotes or demotes.
+                    ContextChunk boundary = withSidecar.Chunks.Single(x => x.Id == "memory.shared.repository-boundary-and-leak-prevention");
+                    AssertEqual(ContextTierEnum.Core, boundary.Tier);
+                    return Task.CompletedTask;
+                }
+                finally { SafeDelete(root); SafeDeleteFile(sidecar); }
+            });
+
+            await RunTest("Sidecar_MissingOrMalformed_IsIgnored_NoThrow", () =>
+            {
+                // Parse of junk yields an empty sidecar; Load of a missing path yields empty.
+                AssertEqual(0, ChunkMetadataSidecar.Parse("{ not valid json").Count);
+                AssertEqual(0, ChunkMetadataSidecar.Parse("").Count);
+                AssertEqual(0, ChunkMetadataSidecar.Load(null).Count);
+                AssertEqual(0, ChunkMetadataSidecar.Load("/no/such/sidecar.json").Count);
+
+                // A build pointed at a malformed sidecar equals a build with none.
+                string root = CreateFakeMemoryTree();
+                string bad = WriteSidecar("{ this is : not json ]");
+                try
+                {
+                    ContextIndexGenerator gen = new ContextIndexGenerator();
+                    ContextIndex a = gen.Build(root, null, bad);
+                    ContextIndex b = gen.Build(root, null, "/does/not/exist.json");
+                    AssertEqual(b.ManifestJson, a.ManifestJson);
+                    return Task.CompletedTask;
+                }
+                finally { SafeDelete(root); SafeDeleteFile(bad); }
+            });
+
+            await RunTest("Sidecar_Build_IsDeterministic", () =>
+            {
+                string root = CreateFakeMemoryTree();
+                string sidecar = WriteSidecar(
+                    "{ \"chunks\": { \"memory.repos.eculink.readme\": { \"summary\": \"D.\", \"read_when\": \"t.\", \"must_retrieve\": [\"eculink\"] } } }");
+                try
+                {
+                    ContextIndexGenerator gen = new ContextIndexGenerator();
+                    ContextIndex a = gen.Build(root, null, sidecar);
+                    ContextIndex b = gen.Build(root, null, sidecar);
+                    AssertEqual(a.ManifestJson, b.ManifestJson);
+                    AssertEqual(a.CoreBundle, b.CoreBundle);
+                    return Task.CompletedTask;
+                }
+                finally { SafeDelete(root); SafeDeleteFile(sidecar); }
+            });
+        }
+
+        // Write a sidecar JSON file to a temp path and return it.
+        private static string WriteSidecar(string json)
+        {
+            string path = Path.Combine(Path.GetTempPath(), "armada_ctxsidecar_" + Guid.NewGuid().ToString("N") + ".json");
+            File.WriteAllText(path, json);
+            return path;
+        }
+
+        private static void SafeDeleteFile(string path)
+        {
+            try { if (File.Exists(path)) File.Delete(path); }
+            catch { /* best effort */ }
         }
 
         private static ContextChunk FindByPath(ContextIndex index, string path)

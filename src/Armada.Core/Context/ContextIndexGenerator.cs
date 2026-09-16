@@ -71,7 +71,12 @@ namespace Armada.Core.Context
         /// </summary>
         /// <param name="aiMemoryRoot">The AI-Memory root path, or null to index no memory.</param>
         /// <param name="docsRoot">The Armada docs directory path, or null to index no docs.</param>
-        public ContextIndex Build(string? aiMemoryRoot, string? docsRoot)
+        /// <param name="chunkMetadataPath">
+        /// An explicit path to the chunk-metadata sidecar, or null to resolve it under the docs root
+        /// (<c>context-index/chunk-metadata.json</c>). The sidecar is optional; a missing one changes
+        /// nothing.
+        /// </param>
+        public ContextIndex Build(string? aiMemoryRoot, string? docsRoot, string? chunkMetadataPath = null)
         {
             List<ContextChunk> chunks = new List<ContextChunk>();
 
@@ -94,6 +99,12 @@ namespace Armada.Core.Context
             // The synthesized index/map core chunk (allowlist item 11).
             chunks.Add(BuildMapChunk());
 
+            // Merge the optional repository-versioned sidecar over the auto-derived metadata. The
+            // sidecar wins where a field is present; the auto-derived value fills every gap. AI-Memory
+            // is never written; this only enriches the index. Merge before topic uniquing so a sidecar
+            // key matches the chunk's natural id.
+            ApplySidecar(chunks, LoadSidecar(chunkMetadataPath, docsRoot));
+
             // Deterministic ordering and unique topics.
             EnsureUniqueTopics(chunks);
             chunks.Sort((a, b) => String.CompareOrdinal(a.Topic, b.Topic));
@@ -110,9 +121,9 @@ namespace Armada.Core.Context
         /// Fail-open: a write failure is reported in the summary, not thrown. Returns a summary the caller
         /// logs.
         /// </summary>
-        public ContextIndexGenerationSummary Generate(string? aiMemoryRoot, string? docsRoot, string outputDirectory)
+        public ContextIndexGenerationSummary Generate(string? aiMemoryRoot, string? docsRoot, string outputDirectory, string? chunkMetadataPath = null)
         {
-            ContextIndex index = Build(aiMemoryRoot, docsRoot);
+            ContextIndex index = Build(aiMemoryRoot, docsRoot, chunkMetadataPath);
 
             ContextIndexGenerationSummary summary = new ContextIndexGenerationSummary
             {
@@ -429,6 +440,35 @@ namespace Armada.Core.Context
                 string candidate;
                 do { candidate = c.Topic + "-" + n; n++; } while (!seen.Add(candidate));
                 c.Topic = candidate;
+            }
+        }
+
+        // Load the optional chunk-metadata sidecar. Resolution: an explicit path wins; otherwise the
+        // default file under the docs root. Never throws; a missing sidecar yields an empty one.
+        private ChunkMetadataSidecar LoadSidecar(string? explicitPath, string? docsRoot)
+        {
+            string? path = ChunkMetadataSidecar.ResolvePath(explicitPath, docsRoot);
+            return ChunkMetadataSidecar.Load(path, _Logging);
+        }
+
+        // Merge the sidecar over the auto-derived metadata of each chunk it names. A sidecar field
+        // wins only when present and non-empty; every gap keeps the auto-derived value, and a chunk
+        // the sidecar does not name is untouched. The tier is never changed here: the sidecar carries
+        // no tier, so the core allowlist and the core bundle are unaffected.
+        private void ApplySidecar(List<ContextChunk> chunks, ChunkMetadataSidecar sidecar)
+        {
+            if (sidecar == null || sidecar.Count == 0) return;
+
+            foreach (ContextChunk c in chunks)
+            {
+                if (!sidecar.TryGet(c.Id, out ChunkMetadataOverride ov)) continue;
+
+                if (!String.IsNullOrWhiteSpace(ov.Summary)) c.Summary = ov.Summary!.Trim();
+                if (!String.IsNullOrWhiteSpace(ov.ReadWhen)) c.ReadWhen = ov.ReadWhen!.Trim();
+                if (ov.AppliesTo != null && ov.AppliesTo.Count > 0)
+                    c.AppliesTo = new List<string>(ov.AppliesTo);
+                if (ov.MustRetrieve != null && ov.MustRetrieve.Count > 0)
+                    c.MustRetrieve = new List<string>(ov.MustRetrieve);
             }
         }
 

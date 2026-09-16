@@ -47,6 +47,50 @@ the core bundle is ordered by the allowlist sequence then topic, and neither
 artifact carries a timestamp or a host path. Two runs over the same input are
 byte-identical.
 
+## The chunk-metadata sidecar
+
+The auto-derived metadata is thin: a leaf's `summary` is its leading heading,
+its `read_when` is empty, and its `must_retrieve` is empty. An optional
+**sidecar** enriches that without editing AI-Memory, so the memory files stay
+the sole durable memory source. The sidecar is a repository-versioned file,
+`docs/context-index/chunk-metadata.json`, resolved automatically as the default
+file under the docs root (an explicit path may be passed to the generator).
+
+It is a JSON object with a `chunks` map from a chunk **id** (the manifest `id`,
+which equals the chunk `topic`, for example `memory.repos.eculink.readme`) to an
+override with any of `summary`, `read_when`, `applies_to`, and `must_retrieve`:
+
+```json
+{
+  "version": 1,
+  "chunks": {
+    "memory.repos.eculink.readme": {
+      "summary": "EcuLink porting rules: source fidelity, reproduce-the-defect, seed-key ground truth, and escalate a hang.",
+      "read_when": "You are porting an EcuLink decoder, seed-key, or command, or reviewing an EcuLink port.",
+      "applies_to": ["vessel:EcuLink"],
+      "must_retrieve": ["eculink"]
+    }
+  }
+}
+```
+
+The generator **merges** the sidecar over the auto-derived metadata: a sidecar
+field wins where it is present, and the auto-derived value fills every gap. A
+chunk the sidecar does not name is unchanged. The sidecar is metadata ABOUT the
+chunks, never a copy of their content, and it carries no `tier`: it never
+promotes or demotes a chunk, so the core allowlist and the always-on core bundle
+are byte-identical with or without it. Loading is fail-open: a missing or
+malformed sidecar is ignored and the index still generates.
+
+`must_retrieve` is set only on a small set of safety-shaped per-vessel leaves
+whose absence on a task is costly. The retrieval layer force-includes such a
+leaf whenever the request's vessel, persona, or a requested topic matches one of
+its domain tokens, even with no keyword match. The shipped sidecar tags the
+EcuLink memory leaf `must_retrieve: ["eculink"]`, so its source-fidelity and
+hang-escalation rules are always retrieved for an EcuLink task. Ordinary leaves
+leave `must_retrieve` empty, and core rules are never listed (core already ships
+inline, always).
+
 ## What is core
 
 Core is an explicit, owner-approved allowlist (see `docs/design/context-system.md`,
