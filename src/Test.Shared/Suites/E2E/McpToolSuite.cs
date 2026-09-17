@@ -2605,7 +2605,7 @@ namespace Test.Shared.Suites.E2E
         {
             string uniqueName = name + "-" + Guid.NewGuid().ToString("N").Substring(0, 8);
             JsonElement result = await CallToolAsync(mcpClient, sessionId, "armada_create_fleet", new { name = uniqueName }).ConfigureAwait(false);
-            string text = GetToolResultText(result);
+            string text = McpToolResults.RequireSuccess("armada_create_fleet", GetToolResultText(result));
             Fleet fleet = JsonHelper.Deserialize<Fleet>(text);
             return fleet.Id;
         }
@@ -2629,7 +2629,7 @@ namespace Test.Shared.Suites.E2E
                 fleetId = fleetId,
                 workingDirectory = workingDirectory
             }).ConfigureAwait(false);
-            string text = GetToolResultText(result);
+            string text = McpToolResults.RequireSuccess("armada_add_vessel", GetToolResultText(result));
             Vessel vessel = JsonHelper.Deserialize<Vessel>(text);
             return vessel.Id;
         }
@@ -2649,7 +2649,7 @@ namespace Test.Shared.Suites.E2E
                 name = uniqueName,
                 runtime = "ClaudeCode"
             }).ConfigureAwait(false);
-            string text = GetToolResultText(result);
+            string text = McpToolResults.RequireSuccess("armada_create_captain", GetToolResultText(result));
             Captain captain = JsonHelper.Deserialize<Captain>(text);
             return captain.Id;
         }
@@ -2700,7 +2700,7 @@ namespace Test.Shared.Suites.E2E
                 description = "Test mission for MCP",
                 vesselId = vesselId
             }).ConfigureAwait(false);
-            string text = GetToolResultText(result);
+            string text = McpToolResults.RequireSuccess("armada_create_mission", GetToolResultText(result));
             MissionCreateResponse createResponse = JsonHelper.Deserialize<MissionCreateResponse>(text);
 
             // When mission stays Pending (no captain available), the response wraps
@@ -2731,7 +2731,8 @@ namespace Test.Shared.Suites.E2E
                     new { title = "VoyageMission1", description = "Desc1" }
                 }
             }).ConfigureAwait(false);
-            string text = await AwaitJobResultTextAsync(mcpClient, sessionId, GetToolResultText(result)).ConfigureAwait(false);
+            string text = McpToolResults.RequireSuccess("armada_dispatch",
+                await AwaitJobResultTextAsync(mcpClient, sessionId, GetToolResultText(result)).ConfigureAwait(false));
             Voyage voyage = JsonHelper.Deserialize<Voyage>(text);
             return voyage.Id;
         }
@@ -2783,13 +2784,26 @@ namespace Test.Shared.Suites.E2E
             throw new TimeoutException("MCP job " + jobId + " did not finish; last status: " + statusText);
         }
 
-        private static TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)
+        private TestCaseDescriptor CaseAsync(string caseId, string displayName, string tag, Func<Task> body)
         {
             return new TestCaseDescriptor(
                 suiteId: SuiteId,
                 caseId: caseId,
                 displayName: displayName,
-                executeAsync: (CancellationToken ct) => body(),
+                executeAsync: async (CancellationToken ct) =>
+                {
+                    // Cancel the case's active work so accumulated rows never exhaust fleet capacity for
+                    // later cases, and so no case depends on where it sits in the order. The shared fleet
+                    // and vessel survive; only missions and voyages are cancelled.
+                    try
+                    {
+                        await body().ConfigureAwait(false);
+                    }
+                    finally
+                    {
+                        await E2EServerFixture.CancelActiveWorkAsync(this).ConfigureAwait(false);
+                    }
+                },
                 tags: new List<string> { tag });
         }
 

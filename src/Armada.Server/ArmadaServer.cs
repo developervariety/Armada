@@ -465,7 +465,7 @@ namespace Armada.Server
 
             // Move the retired model tier settings onto captain and persona records once, after personas exist.
             TierRecordMigrationService tierMigration = new TierRecordMigrationService(_Database, _Logging);
-            await tierMigration.RunAsync(_Settings, ArmadaSettings.DefaultSettingsPath).ConfigureAwait(false);
+            await tierMigration.RunAsync(_Settings, _Settings.SettingsFilePath).ConfigureAwait(false);
             await TierRoutingRecords.RefreshAsync(_Settings.ModelTier, _Database).ConfigureAwait(false);
 
             // Initialize authentication services
@@ -870,8 +870,11 @@ namespace Armada.Server
 
             // Settings are otherwise read once at startup, so a hand edit to
             // settings.json would not take effect until the next restart. Started after
-            // the services above are wired so a reload cannot race construction.
-            _SettingsWatcher = new SettingsFileWatcher(_Settings, _Logging);
+            // the services above are wired so a reload cannot race construction. The watched
+            // file is the one these settings are bound to, never a fixed machine-wide path:
+            // a second server in the same process or on the same host must not adopt another
+            // server's live limits, which is how an unrelated settings write reaches this one.
+            _SettingsWatcher = new SettingsFileWatcher(_Settings, _Logging, _Settings.SettingsFilePath);
             _SettingsWatcher.Start();
 
             // Initialize MCP server

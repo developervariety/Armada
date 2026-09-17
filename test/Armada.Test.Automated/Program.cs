@@ -95,6 +95,10 @@ namespace Armada.Test.Automated
             settings.McpPort = mcpPort;
             settings.ApiKey = apiKey;
             settings.HeartbeatIntervalSeconds = 300;
+            // Bind the harness server's settings to its own temp file, so it neither hot-reloads the host
+            // operator's live settings (whose fleet capacity limits would refuse later creates) nor writes
+            // that file.
+            settings.SettingsFilePath = Path.Combine(tempDir, "settings.json");
             // CRUD and paging suites retain a bounded corpus of active rows until suite cleanup.
             // Dedicated admission tests exercise the production capacity limits separately.
             settings.AutonomousObjectiveScheduler.Enabled = false;
@@ -149,7 +153,7 @@ namespace Armada.Test.Automated
                 runner.AddSuite(new EventTests(authClient, unauthClient));
                 runner.AddSuite(new DockTests(authClient, unauthClient));
                 runner.AddSuite(new MergeQueueTests(authClient, unauthClient));
-                runner.AddSuite(new StatusTests(authClient, unauthClient));
+                runner.AddSuite(new StatusTests(authClient, unauthClient, settings.SettingsFilePath));
                 runner.AddSuite(new ProductionTests(authClient, unauthClient));
                 runner.AddSuite(new LogTests(authClient, unauthClient, tempDir));
                 runner.AddSuite(new AuthenticationTests(authClient, unauthClient, baseUrl, apiKey));
