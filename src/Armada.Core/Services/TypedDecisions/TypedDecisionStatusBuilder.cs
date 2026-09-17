@@ -34,7 +34,17 @@ namespace Armada.Core.Services
             foreach (string name in names)
             {
                 if (!settings.Decisions.TryGetValue(name, out TypedDecisionRuleSettings? rule) || rule == null) continue;
-                status.Decisions.Add(new TypedDecisionStatusEntry { Key = name, Mode = rule.Mode, Threshold = rule.GateThreshold, Description = TypedDecisionCatalog.Describe(name) });
+                status.Decisions.Add(new TypedDecisionStatusEntry
+                {
+                    Key = name,
+                    Mode = rule.Mode,
+                    Threshold = rule.GateThreshold,
+                    Description = TypedDecisionCatalog.Describe(name),
+
+                    // A decision no decision point consults reports why, so a bare mode is never read
+                    // as enforcement of something that never runs.
+                    UnwiredReason = TypedDecisionWiring.UnwiredReason(name)
+                });
             }
             foreach (KeyValuePair<string, CustomTypedDecisionSettings> pair in settings.Custom.OrderBy(p => p.Key, StringComparer.Ordinal))
             {

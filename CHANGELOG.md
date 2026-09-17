@@ -24,6 +24,14 @@ All notable changes to Armada are documented in this file.
   class, the pass names, and the tail's SHA-256 and byte count. A screen that never ran writes nothing, so an
   absent event never reads as clean. The tail itself is never stored. The whole settings section is merged in
   place by the hot reload, so an operator edit reaches the running screen without a restart.
+- Typed-decision wiring inventory. A shipped decision that no decision point consults now says so: it is
+  declared with its reason in `TypedDecisionWiring.UnwiredDecisions`, and every typed-decision status surface
+  reports that reason beside the decision's mode, so a `Gate` that consults nothing is no longer read as
+  enforcement. The `Typed Decision Wiring` suite derives the consulted set from the assemblies — each adapter is
+  asked through the member its own call path reads, and the captain helper tools are registered and driven so the
+  decision point is observed reaching the client — then fails, naming the key, when a shipped decision is neither
+  consulted nor declared, or when a declared entry is in fact consulted. Wiring a decision is the deletion of its
+  one declared line. `leak_hunk`, `log_watch` and `corpus_prelabel` are the decisions declared unwired today.
 
 - Typed-decision training data (phase 0 of the local-classifier programme, owner ruling 2026-09-17). The
   retention section is carried by the settings hot reload, so enabling it takes effect without a restart. The REDACTED

@@ -14,8 +14,13 @@ runs at its own mode. Per decision group:
   and records the rule's verdict and the model's on every call, so a post-gate
   review can move a threshold or set one decision `Off` without a deploy. This
   includes `capacity_escalation`, the Smart Routing model group choice.
-- `leak_hunk` and `log_watch` are design documents with no adapter yet, so their
-  `Gate` setting has no effect until one is wired.
+- Some shipped decisions reach no decision point yet, so their mode has no
+  effect until one is wired. Each is declared with the reason it is inert in
+  `TypedDecisionWiring.UnwiredDecisions`, and every status surface reports that
+  reason beside the decision's mode, so a `Gate` that consults nothing is never
+  read as enforcement. The `Typed Decision Wiring` suite fails when a shipped
+  decision is neither consulted nor declared there, and when a declared entry is
+  in fact consulted, so that list is the current answer rather than this page.
 
 **`capacity_escalation`** (ships `Gate`, threshold `0.90`) runs at assignment
 under Smart Routing, only for a persona whose `personaModels` entry has a
@@ -191,7 +196,9 @@ Each wired decision holds an adapter over the shared client, never the raw
 client, and every adapter follows one skeleton: Off returns the rule with no
 call; unavailable returns the rule; Shadow or below threshold returns the rule
 and records a shadow event; at or above threshold it combines the rule and the
-model, where a rule hard-block always wins. The four wired today are:
+model, where a rule hard-block always wins. Which decisions hold one is asserted
+by the `Typed Decision Wiring` suite, never counted here. The decisions,
+described in turn:
 
 - `failure_cause` — autonomous recovery consults the model only for a failure
   the rule would rescue; the repeated-identical-test and Infra/Timeout blocks
@@ -402,6 +409,9 @@ Two operator-side decisions gather owner decisions and pre-fill the corpus:
   `node scripts/autonomy/draft-corpus-line.mjs --input <file.json>` (or pipe the
   input object on stdin), optionally with `--out decisions.jsonl` to append the
   draft; `node scripts/autonomy/test-draft-corpus-line.mjs` is its self-check.
+  The script is deterministic and calls no model, so no decision point consults
+  `corpus_prelabel`: the decision is declared unwired and its mode has no effect
+  until an in-admiral seam is built.
 Two platform-side decisions ship `Gate`:
 
 - **`flake_score`** runs in `DefinitionOfDoneGate` after
