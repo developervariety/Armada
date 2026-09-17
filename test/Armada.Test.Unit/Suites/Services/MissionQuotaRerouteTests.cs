@@ -79,7 +79,7 @@ namespace Armada.Test.Unit.Suites.Services
             voyage.Status = VoyageStatusEnum.InProgress;
             voyage = await db.Voyages.CreateAsync(voyage).ConfigureAwait(false);
 
-            Mission mission = new Mission("[Worker] port signer", "port a seed-key signer");
+            Mission mission = new Mission("[Worker] port signer", "port a token signer");
             mission.VesselId = vessel.Id;
             mission.VoyageId = voyage.Id;
             mission.Persona = "Worker";

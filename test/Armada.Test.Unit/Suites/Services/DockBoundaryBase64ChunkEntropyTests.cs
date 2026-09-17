@@ -39,7 +39,7 @@ namespace Armada.Test.Unit.Suites.Services
         // Real catalog identifier shapes: CamelCase words plus digit suffix.
         private static string CatalogIdentifier1()
         {
-            return "Example" + "Request" + "AndVerify" + "Response" + "Step" + "J1939";
+            return "Example" + "Request" + "AndVerify" + "Response" + "Step" + "Frame4821";
         }
 
         private static string CatalogIdentifier2()
@@ -50,7 +50,7 @@ namespace Armada.Test.Unit.Suites.Services
         // Slash-joined action-request path list.
         private static string CatalogPathList()
         {
-            return "ActionRequests" + "/" + "RequestWriteDataByLocalIdentifier" + "/" + "KLine" + "/" + "Step";
+            return "ActionRequests" + "/" + "RequestWriteLocalValue" + "/" + "SerialLine" + "/" + "Step";
         }
 
         // 64-char lowercase hex ID run (the hex-ID shape that previously tripped the gate).

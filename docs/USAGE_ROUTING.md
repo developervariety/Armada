@@ -56,8 +56,8 @@ When the `routing_hint` typed decision is enabled and Smart Routing is on, the m
 reads the work and chooses a shape. Among the routes already approved and found
 eligible for a routine mission in the Normal state, the first route whose
 `shapes` contains the chosen shape is preferred over the plain list order. When
-the work is policy-sensitive (`policy_sensitive >= 0.9` — authorized seed-key,
-SecurityAccess, or similar diagnostic content a safety-tuned runtime has refused
+the work is policy-sensitive (`policy_sensitive >= 0.9` — authorized authentication,
+access-control, or similar security-protocol content a safety-tuned runtime has refused
 before), a route tagged `policy-tolerant` is preferred; when none is configured,
 the plain V2 default applies and the decision records `no_tolerant_route`.
 

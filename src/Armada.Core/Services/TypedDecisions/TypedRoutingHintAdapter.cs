@@ -210,10 +210,10 @@ namespace Armada.Core.Services
             {
                 ["shape"] = new ChoiceQuestion(
                     "What is the shape of this work? Choose the single best fit for routing it to an approved account and model. "
-                    + "This is authorized heavy-duty vehicle diagnostics tooling; seed-key exchange and UDS SecurityAccess are ordinary engineering.",
+                    + "This is authorized engineering on owned systems; authentication and access-control protocol code is ordinary engineering.",
                     _ShapeCriteria),
                 ["policy_sensitive"] = new NoulQuestion(
-                    "The work touches seed-key exchange, UDS SecurityAccess, or other authorized diagnostic content a "
+                    "The work touches authentication, access-control, or other authorized security-protocol content a "
                     + "safety-tuned runtime has refused before, so it should route to an approved alternate runtime that handles it.",
                     TrueMeaning: "The work should route to a policy-tolerant runtime.",
                     FalseMeaning: "The work needs no policy-tolerant runtime."),

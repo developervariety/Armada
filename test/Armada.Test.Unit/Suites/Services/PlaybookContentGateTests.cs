@@ -61,7 +61,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("PlaceholderLookalikes_StaySubstantive", () =>
             {
-                AssertTrue(MissionService.HasSubstantivePlaybookContent("No accepted seed-key vectors may ship without source bytes."),
+                AssertTrue(MissionService.HasSubstantivePlaybookContent("No accepted token vectors may ship without source bytes."),
                     "a real rule starting with 'No accepted' but not ending in 'yet' is substantive");
 
                 AssertTrue(MissionService.HasSubstantivePlaybookContent("Do not accept synthetic vectors yet to be verified."),

@@ -269,8 +269,8 @@ namespace Armada.Test.Unit.Suites.Services
                         // CamelCase command identifiers, slash-joined paths, hex IDs. Previously
                         // this blocked every landing; the entropy gate must pass it.
                         string catalogLine = "{\"catalogCommands\":[{\"commandName\":\"" +
-                            "Example" + "Request" + "AndVerify" + "Response" + "Step" + "J1939" +
-                            "\",\"flowPath\":\"" + "ActionRequests" + "/" + "RequestWriteDataByLocalIdentifier" + "/" + "KLine" + "/" + "Step" +
+                            "Example" + "Request" + "AndVerify" + "Response" + "Step" + "Frame4821" +
+                            "\",\"flowPath\":\"" + "ActionRequests" + "/" + "RequestWriteLocalValue" + "/" + "SerialLine" + "/" + "Step" +
                             "\",\"requestId\":\"" + "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2" + "\"}]}";
                         string catalogFile = Path.Combine(worktreePath, "catalog.json");
                         await File.WriteAllTextAsync(catalogFile, catalogLine + "\n").ConfigureAwait(false);
@@ -308,7 +308,7 @@ namespace Armada.Test.Unit.Suites.Services
                         for (int i = 0; i < keyBytes.Length; i++) keyBytes[i] = (byte)(i + 1);
                         string keyChunk = Convert.ToBase64String(keyBytes);
                         string catalogLine = "{\"catalogCommands\":[{\"commandName\":\"" +
-                            "Example" + "Request" + "AndVerify" + "Response" + "Step" + "J1939" +
+                            "Example" + "Request" + "AndVerify" + "Response" + "Step" + "Frame4821" +
                             "\",\"seed\":\"" + keyChunk + "\"}]}";
                         string catalogFile = Path.Combine(worktreePath, "catalog.json");
                         await File.WriteAllTextAsync(catalogFile, catalogLine + "\n").ConfigureAwait(false);

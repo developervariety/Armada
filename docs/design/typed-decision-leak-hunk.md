@@ -112,9 +112,9 @@ One `NoulQuestion` per hunk:
   `FalseMeaning`: "this hunk is ordinary product content."
 
 The instructions state the domain explicitly (see Risk, below): the vessels are
-authorized heavy-duty vehicle diagnostic tooling; seed-key exchange, J1939 /
-J1708 / UDS SecurityAccess, and cryptographic primitives over owned assemblies
-are ordinary engineering, not leaks and not secrets.
+authorized engineering on owned systems; authentication and access-control
+protocols and cryptographic primitives over owned assemblies are ordinary
+engineering, not leaks and not secrets.
 
 Optional second question for triage quality, still advisory:
 
@@ -175,14 +175,14 @@ Design-time only; the tests land with the implementation row.
 - A volume-bound test: a diff with many hunks issues no more than the per-scan
   cap of model calls.
 
-## Risk: a safety-tuned model misreads authorized diagnostics
+## Risk: a safety-tuned model misreads authorized security-protocol work
 
-The domain is authorized heavy-duty fleet diagnostics. Seed-key exchange, UDS
-SecurityAccess, K-line and J1708 timing, and cryptographic constants over owned
-ECU assemblies are legitimate, owner-authorized engineering. A safety-tuned
-classifier can misread such text — a seed-key routine, an XTEA constant, a
-challenge-response table — as a secret or an exfiltration attempt and raise a
-false leak flag. The deterministic scanner already carries a `CORE_RULE_5_seed_literal`
+The owner's domain work is authorized engineering. Authentication handshakes,
+access-control protocols, protocol timing, and cryptographic constants over owned
+assemblies are legitimate, owner-authorized engineering. A safety-tuned
+classifier can misread such text — a handshake routine, a cipher constant, a
+lookup table — as a secret or an exfiltration attempt and raise a false leak
+flag. The deterministic scanner already carries a `CORE_RULE_5_seed_literal`
 pattern for genuine secret literals; the model must not duplicate or second-guess
 that as a policy judgement.
 
@@ -190,12 +190,12 @@ Mitigations, all already implied by the non-negotiables:
 
 - The model can only **flag**, never block, so a false positive costs a human
   glance, not a failed landing.
-- The question instructions state the domain in plain terms and name seed-key /
-  SecurityAccess as ordinary engineering.
-- The four-week review measures the false-positive rate on the diagnostic
+- The question instructions state the domain in plain terms and name authentication and
+  access-control protocol code as ordinary engineering.
+- The four-week review measures the false-positive rate on the security-protocol
   vessels first; a decision reversed by operators on more than 5% of its gated
   outcomes drops back to Shadow until its criteria or threshold are fixed.
-- The hard guardrail elsewhere in the project (UDS `0x34` reflash is banned)
+- The hard guardrail elsewhere in the project (firmware reflash is banned)
   is unchanged and is not this decision's concern.
 
 ## Not in scope

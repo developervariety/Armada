@@ -37,7 +37,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             return new ReviewSubstanceDecisionInput
             {
-                Mission = new Mission { Id = "msn_test", VesselId = "vsl_test", Title = "review a seed-key port" },
+                Mission = new Mission { Id = "msn_test", VesselId = "vsl_test", Title = "review a token port" },
                 Narrative = "The review covers completeness, correctness, tests, and failure modes with specifics.",
                 RequiredSections = new List<string> { "Completeness", "Correctness", "Tests", "Failure Modes" },
                 DiffStat = "3 files, +40/-8",

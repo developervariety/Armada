@@ -287,9 +287,9 @@ All notable changes to Armada are documented in this file.
   chunks, never a copy of their content, and it carries no `tier`: it never
   promotes or demotes a chunk, so the core allowlist and the always-on core
   bundle are byte-identical with or without it. The shipped sidecar enriches
-  every AI-Memory leaf and the key operator docs; the EcuLink memory leaf is
-  tagged `must_retrieve: ["eculink"]` so its source-fidelity and
-  hang-escalation rules are always retrieved for an EcuLink task. Resolution is
+  every AI-Memory leaf and the key operator docs; a vessel's memory leaf can be
+  tagged `must_retrieve` with its vessel token so its source-fidelity and
+  hang-escalation rules are always retrieved for that vessel's task. Resolution is
   automatic (the default file under the docs root) and fully guarded: a missing
   or malformed sidecar is ignored and the index still generates. Additive: the
   server wiring, brief generation, and the loaders are unchanged.
@@ -316,7 +316,7 @@ All notable changes to Armada are documented in this file.
   so a smaller relevant leaf ranked below a large one is still included, with
   ranked order and the budget cap preserved; and the chunk-metadata sidecar tags
   each per-vessel source-fidelity / safety section `must_retrieve` for its own
-  vessel domain, as EcuLink already was, and re-keys the sub-chunked
+  vessel domain, and re-keys the sub-chunked
   session-workflow sections. Core chunks and small files are never sub-chunked, so
   the core allowlist and the core bundle are unchanged. Re-run: safety recall
   100%, read_when leaf recall 100% (62 of 62), byte reduction 78.4-86.2% (median
@@ -731,9 +731,9 @@ All notable changes to Armada are documented in this file.
 - `refusal` (D2): the structured `[ARMADA:RESULT] REFUSED` marker and a provider
   safeguard block stay authoritative. The model may promote a prose refusal the
   phrase rules missed, or demote a quoted phrase only at very high confidence.
-  The criteria state the domain: authorized heavy-duty vehicle diagnostics, so
-  seed-key exchange and UDS SecurityAccess are ordinary engineering, never a
-  refusal.
+  The criteria state the domain: authorized engineering on owned systems, so
+  authentication and access-control protocol code is ordinary engineering, never
+  a refusal.
 - `runtime_failure` (D3): only a bare Crash is offered for change, and only ever
   upgraded to the more conservative UsageLimit or AuthFailure; a recognised
   signature is never downgraded and a crash is never read as clean.

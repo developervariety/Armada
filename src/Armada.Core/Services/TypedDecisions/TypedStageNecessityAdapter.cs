@@ -311,8 +311,8 @@ namespace Armada.Core.Services
                 string slot = i.ToString(CultureInfo.InvariantCulture);
                 questions["stage_" + slot + "_adds_value"] = new NoulQuestion(
                     "Candidate stage number " + slot + " (see candidate_stages in the state, in order) ADDS VALUE for THIS objective: "
-                    + "its persona would change the outcome, not merely run for form. This is authorized heavy-duty vehicle "
-                    + "diagnostics tooling; seed-key exchange and UDS SecurityAccess are ordinary engineering. "
+                    + "its persona would change the outcome, not merely run for form. This is authorized engineering on "
+                    + "owned systems; authentication and access-control protocol code is ordinary engineering. "
                     + "If the state lists fewer than " + _MaxCandidates + " candidate stages and this slot has none, answer at the TRUE pole.",
                     TrueMeaning: "The stage adds value and must run.",
                     FalseMeaning: "The stage would not change the outcome for this objective.");

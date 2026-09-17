@@ -456,7 +456,7 @@ namespace Armada.Core.Services
         internal const string JudgeLensAndBoundedRule =
             " Review through THREE distinct lenses, not one identical pass: (1) CORRECTNESS -- does it do" +
             " what was asked, with hidden bugs surfaced; (2) SAFETY & BLAST-RADIUS -- what breaks if this" +
-            " is wrong (weigh terminal/command/write frames, seed-key, and cross-tenant/secret exposure" +
+            " is wrong (weigh terminal/command/write frames, authentication handshakes, and cross-tenant/secret exposure" +
             " highest); (3) SOURCE-FIDELITY -- ported values, frames, and test vectors must be corroborated" +
             " to real source, never synthetic." + JudgeBoundedRule + JudgeDeliveryEvidenceRule;
 

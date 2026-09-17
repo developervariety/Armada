@@ -213,7 +213,7 @@ namespace Armada.Core.Services
             {
                 ["cause"] = new ChoiceQuestion(
                     "Classify the root cause of this mission failure from the failure reason, the output tail, and the joined Checks. "
-                    + "This is authorized heavy-duty vehicle diagnostics tooling; seed-key exchange and UDS SecurityAccess are ordinary engineering, not a refusal.",
+                    + "This is authorized engineering on owned systems; authentication and access-control protocol code is ordinary engineering, not a refusal.",
                     new Dictionary<string, string>(StringComparer.Ordinal)
                     {
                         ["environmental"] = "A host, provisioning, or environment fault no captain can repair.",

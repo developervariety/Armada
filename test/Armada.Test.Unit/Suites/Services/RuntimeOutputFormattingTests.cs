@@ -324,8 +324,8 @@ namespace Armada.Test.Unit.Suites.Services
                 // A batch of long CamelCase source file names was logged as "<redacted len=40>.cs",
                 // which hides what the captain touched and protects nothing.
                 TestClaudeCodeRuntime runtime = new TestClaudeCodeRuntime();
-                string activity = runtime.Format("{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Bash\",\"input\":{\"command\":\"for f in AftOutletNOxSensorExampleJ1939.cs AirHandlingPerformanceExampleJ1939.cs; do echo $f; done\"}}]}}");
-                AssertContains("AftOutletNOxSensorExampleJ1939.cs", activity, "A long identifier is not a secret");
+                string activity = runtime.Format("{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"Bash\",\"input\":{\"command\":\"for f in AftOutletSensorExampleFrame4821.cs AirHandlingPerformanceExampleFrame4821.cs; do echo $f; done\"}}]}}");
+                AssertContains("AftOutletSensorExampleFrame4821.cs", activity, "A long identifier is not a secret");
                 AssertFalse(activity.Contains("<redacted"), "Identifiers must survive redaction intact");
                 return Task.CompletedTask;
             });
