@@ -559,7 +559,7 @@ namespace Armada.Test.Unit.Suites.Context
                 "## Reporting style\n\nASD-STE100.\n\n" +
                 "## Boundaries\n\nNever write keys. Stop before outward actions.\n\n" +
                 "## Proving a fix\n\nReproduce the symptom.\n\n" +
-                "## Domain scope\n\nFirmware reflash is banned.\n");
+                "## Domain scope\n\nDirect production writes are banned.\n");
             File.WriteAllText(Path.Combine(root, "shared", "sole-memory-source.md"),
                 "# Sole Memory Source\n\nAI-Memory is the sole durable memory source.\n\n" +
                 "## Scope decides the folder\n\nLeaf.\n\n" +

@@ -243,11 +243,11 @@ namespace Armada.Test.Unit.Suites.Services
             return new Objective
             {
                 Id = "obj_secret_row",
-                Title = "Port the Caterpillar injector result decoder",
+                Title = "Port the vendor telemetry result decoder",
                 Description = "Confirm the response predicate at the target tip and port the missing decode (row obj_secret_row).",
                 Kind = ObjectiveKindEnum.Feature,
                 AcceptanceCriteria = new List<string> { "The decode reproduces the source polarity.", "0 failed." },
-                NonGoals = new List<string> { "No RP1210 driver plumbing." },
+                NonGoals = new List<string> { "No legacy driver plumbing." },
                 RefinementSummary = "Consume the landed parameter seam; port only the missing frame.",
                 VesselIds = new List<string> { _Vessel }
             };

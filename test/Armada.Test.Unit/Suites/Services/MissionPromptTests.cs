@@ -254,7 +254,7 @@ namespace Armada.Test.Unit.Suites.Services
                         objective.Title = "Scope the token port";
                         objective.Description = "Port the token exchange to the extractor.";
                         objective.AcceptanceCriteria = new List<string> { "The exchange round-trips 128 seeds.", "No secret bytes enter the manifest." };
-                        objective.NonGoals = new List<string> { "No reflash support." };
+                        objective.NonGoals = new List<string> { "No batch import support." };
                         objective.VoyageIds = new List<string> { voyage.Id };
                         await testDb.Driver.Objectives.CreateAsync(objective).ConfigureAwait(false);
 
@@ -271,7 +271,7 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertContains("Port the token exchange to the extractor.", content);
                         AssertContains("The exchange round-trips 128 seeds.", content);
                         AssertContains("No secret bytes enter the manifest.", content);
-                        AssertContains("No reflash support.", content);
+                        AssertContains("No batch import support.", content);
                         AssertContains("the Judge reviews against these acceptance criteria", content);
 
                         int descriptionOccurrences = CountOccurrences(content, mission.Description);

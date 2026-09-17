@@ -35,7 +35,7 @@ namespace Armada.Test.Unit.Suites.Services
                 // A multi-KB structured brief would otherwise yield hundreds of distinct terms; the cap
                 // makes the term set (and thus lexical scan cost) independent of brief size.
                 string largeBrief = String.Join(" ", Enumerable.Range(0, 5000).Select(i => "termnumber" + i));
-                string smallBrief = "fix the seed key unlock regression in the example adapter";
+                string smallBrief = "fix the token refresh regression in the example adapter";
 
                 string[] largeTerms = CodeIndexService.SplitQueryTerms(largeBrief);
                 string[] smallTerms = CodeIndexService.SplitQueryTerms(smallBrief);

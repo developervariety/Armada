@@ -43,7 +43,7 @@ namespace Armada.Test.Unit.Suites.Services
         }
 
         private static OwnerDigestCandidate BuildCandidate(
-            string question = "Should the Eaton reduction be approved?",
+            string question = "Should the batch size reduction be approved?",
             int chain = 0,
             double ageHours = 1.0,
             string proposedDefault = "hold the row",
