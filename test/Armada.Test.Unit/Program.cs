@@ -367,6 +367,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new ChangeQualityRulesTests());
             runner.AddSuite(new TypedChangeQualityAdapterTests());
             runner.AddSuite(new ChangeQualityGateTests());
+            runner.AddSuite(new McpChangeQualityToolsTests());
             runner.AddSuite(new McpCheckRunToolsTests());
             runner.AddSuite(new WorkflowProfileCheckRunServiceTests());
             runner.AddSuite(new CheckRunIsolatedCheckoutTests());

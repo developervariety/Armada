@@ -152,6 +152,8 @@ namespace Armada.Server
         // exists; the inbox/coordination and audit MCP tools receive them through the registrar.
         private InboxTriageAdapter? _InboxTriageAdapter;
         private FollowUpRoutingAdapter? _FollowUpRoutingAdapter;
+        private Armada.Core.Services.Interfaces.IFollowUpRouter? _FollowUpRouter;
+        private TypedChangeQualityAdapter? _ChangeQualityAdapter;
         private LongRunningJobService _LongRunningJobs = new LongRunningJobService();
         private ProviderProgressTracker _ProviderProgress = new ProviderProgressTracker();
         private TerminalMarkerTracker _TerminalMarkers = new TerminalMarkerTracker();
@@ -790,6 +792,9 @@ namespace Armada.Server
                     _Database, _ObjectiveService, _CoordinationService, ownerNotePoster, _Logging);
                 _FollowUpRoutingAdapter = new FollowUpRoutingAdapter(
                     _Settings.TypedDecisions, _TypedDecisionClient, _TypedDecisionRecorder, followUpRouter, _Logging);
+                _FollowUpRouter = followUpRouter;
+                _ChangeQualityAdapter = new TypedChangeQualityAdapter(
+                    _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
             }
 
             _CaptainTools = new CaptainToolService(
@@ -1891,6 +1896,8 @@ namespace Armada.Server
                 papercutMergeAdapter: _PapercutMergeAdapter,
                 inboxTriageAdapter: _InboxTriageAdapter,
                 followUpRoutingAdapter: _FollowUpRoutingAdapter,
+                changeQualityAdapter: _ChangeQualityAdapter,
+                changeQualityFollowUpRouter: _FollowUpRouter,
                 contextRetrieval: _ContextRetrieval,
                 contextParticipantKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey,
                 missionService: _MissionService);

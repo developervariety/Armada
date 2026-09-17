@@ -103,6 +103,8 @@ namespace Armada.Server.Mcp
             Armada.Core.Services.PapercutMergeAdapter? papercutMergeAdapter = null,
             Armada.Core.Services.InboxTriageAdapter? inboxTriageAdapter = null,
             Armada.Core.Services.FollowUpRoutingAdapter? followUpRoutingAdapter = null,
+            Armada.Core.Services.TypedChangeQualityAdapter? changeQualityAdapter = null,
+            Armada.Core.Services.Interfaces.IFollowUpRouter? changeQualityFollowUpRouter = null,
             Armada.Core.Context.ContextRetrievalService? contextRetrieval = null,
             Func<string?>? contextParticipantKeyProvider = null,
             Armada.Core.Services.Interfaces.IMissionService? missionService = null)
@@ -189,6 +191,7 @@ namespace Armada.Server.Mcp
             if (settings != null) McpBackupTools.Register(register, new DatabaseBackupService(database, settings));
             McpAgentWakeTools.Register(register, remoteTriggerService);
             McpAuditTools.Register(register, database, remoteTriggerService, followUpRoutingAdapter);
+            McpChangeQualityTools.Register(register, changeQualityAdapter, changeQualityFollowUpRouter, logging);
             McpArchitectTools.Register(register, database, new ArchitectOutputParser(), admiral, codeIndexService, logging, settings);
             if (codeIndexService != null)
             {

@@ -8,6 +8,7 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- `armada_change_quality_gate`: an operator tool that runs the change_quality orchestrator gate on a supplied diff and files the Triaged follow-up; operator-scoped (a mission captain cannot reach it).
 - The change_quality orchestrator gate (`ChangeQualityGate`) reviews a focused diff and routes its routable (deterministically-backed MustFix) weaknesses to exactly one Triaged objective (auto-dispatch OFF) through the existing follow-up router; the model only adds informational weaknesses and nothing is ever dispatched.
 - `armada_change_quality`: a captain-facing, mission-scoped tool that returns a per-dimension quality read of a focused diff (DRY, cognitive complexity, modularity, readability, maintainability) before the Judge, so a captain can self-correct. Read-only: it lands, dispatches, and edits nothing, and the diff is redacted before egress.
 - The `change_quality` typed decision reads a focused diff across five dimensions (DRY, cognitive complexity,
