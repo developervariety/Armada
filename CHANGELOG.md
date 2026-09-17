@@ -8,6 +8,7 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- The server gate script runs its build and test commands with standard input from /dev/null, so a .NET process can no longer inherit the piped remote script and abort at start.
 - Model-tier routing now uses the captain capability tier as the only source of
   a captain's tier. `preferredModel` `low`, `mid`, and `high` name a tier floor
   (Economy, Standard, Premium); Legacy Routing admits captains at or above the

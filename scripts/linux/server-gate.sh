@@ -130,6 +130,9 @@ if ! command -v dotnet >/dev/null 2>&1; then
   exit 1
 fi
 
+# The remote script arrives on standard input, so every command that could read input runs with it
+# redirected from /dev/null; a .NET process that inherited the script as input intermittently aborted at
+# start with an internal runtime error.
 run_gate() {
   if [ ! -d "$worktree/.git" ]; then
     # The gate refs are not branches, so a clone would see an empty repository; add the remote instead.
@@ -143,7 +146,7 @@ run_gate() {
 
   echo "Building $sha on $(uname -sm), $(getconf _NPROCESSORS_ONLN 2>/dev/null || echo '?') cores"
   build_start=$(date +%s)
-  dotnet build src/Armada.sln > "$logs/build.log" 2>&1 9>&-
+  dotnet build src/Armada.sln < /dev/null > "$logs/build.log" 2>&1 9>&-
   if ! grep -q 'Build succeeded' "$logs/build.log" || grep -q ' error ' "$logs/build.log"; then
     grep ' error ' "$logs/build.log" | sort -u | head -40
     echo "RESULT: FAIL (build)"
@@ -154,9 +157,9 @@ run_gate() {
 
   declare -a gate_args=()
   if [ -n "$shards" ]; then gate_args=(--shards "$shards"); fi
-  ARMADA_TEST_KEEP_LOGS=1 ARMADA_TEST_LOG_DIR="$logs/runners" scripts/common/run-tests.sh "${gate_args[@]}" > "$logs/run-tests.log" 2>&1 9>&-
+  ARMADA_TEST_KEEP_LOGS=1 ARMADA_TEST_LOG_DIR="$logs/runners" scripts/common/run-tests.sh "${gate_args[@]}" < /dev/null > "$logs/run-tests.log" 2>&1 9>&-
   status=$?
-  dotnet build-server shutdown > /dev/null 2>&1 9>&- || true
+  dotnet build-server shutdown < /dev/null > /dev/null 2>&1 9>&- || true
   cat "$logs/run-tests.log"
   echo "Gate logs: $logs"
   if [ "$status" -ne 0 ] || [ "$(grep -E '^RESULT: ' "$logs/run-tests.log" | tail -1)" != "RESULT: PASS" ]; then
