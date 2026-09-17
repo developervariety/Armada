@@ -156,6 +156,7 @@ namespace Armada.Core.Settings
             MaxStateChars = source.MaxStateChars;
             Decisions = source.Decisions;
             CaptainTool = source.CaptainTool;
+            Retention = source.Retention;
         }
 
         private static Dictionary<string, TypedDecisionRuleSettings> WithShippedDefaults(Dictionary<string, TypedDecisionRuleSettings>? supplied)

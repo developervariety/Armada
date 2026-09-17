@@ -86,6 +86,25 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertEqual(TypedDecisionModeEnum.Shadow, current.TypedDecisions.Mode, "the section is in the hot-reload swap list");
             });
+
+            await RunTest("HotReloadSwap_CarriesRetentionSettings", () =>
+            {
+                // Retention is read per call from the live object, so a value the copy drops reads as
+                // the old one forever: enabling retention in settings would silently retain nothing.
+                ArmadaSettings current = new ArmadaSettings();
+                AssertFalse(current.TypedDecisions.Retention.Enabled, "retention is off by default");
+
+                ArmadaSettings incoming = new ArmadaSettings();
+                incoming.TypedDecisions.Retention.Enabled = true;
+                incoming.TypedDecisions.Retention.RetentionDays = 45;
+                incoming.TypedDecisions.Retention.MinimumSamplesPerDecision = 25;
+
+                current.ApplyHotReloadableFrom(incoming);
+
+                AssertTrue(current.TypedDecisions.Retention.Enabled, "a hot reload carries the retention switch");
+                AssertEqual(45, current.TypedDecisions.Retention.RetentionDays, "and the retention window");
+                AssertEqual(25, current.TypedDecisions.Retention.MinimumSamplesPerDecision, "and the minimum sample count");
+            });
         }
     }
 }

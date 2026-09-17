@@ -8,7 +8,8 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
-- Typed-decision training data (phase 0 of the local-classifier programme, owner ruling 2026-09-17). The REDACTED
+- Typed-decision training data (phase 0 of the local-classifier programme, owner ruling 2026-09-17). The
+  retention section is carried by the settings hot reload, so enabling it takes effect without a restart. The REDACTED
   state of a decision call can now be retained on the host as JSON lines under
   `<data directory>/typed-decision-samples/<decision>/<date>.jsonl`. Two switches are needed:
   `typedDecisions.retention.enabled` and the decision's own `retainState`, so enabling the feature alone retains
