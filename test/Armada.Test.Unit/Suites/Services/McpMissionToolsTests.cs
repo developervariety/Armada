@@ -148,6 +148,60 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("UpdateMission_RefusesVesselOrVoyageRebinding_AndWritesNothing", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("bound-vessel", "https://github.com/test/bound.git")).ConfigureAwait(false);
+                    Vessel otherVessel = await testDb.Driver.Vessels.CreateAsync(new Vessel("other-vessel", "https://github.com/test/other.git")).ConfigureAwait(false);
+                    Voyage voyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("bound voyage")).ConfigureAwait(false);
+                    Voyage otherVoyage = await testDb.Driver.Voyages.CreateAsync(new Voyage("other voyage")).ConfigureAwait(false);
+                    Mission mission = await testDb.Driver.Missions.CreateAsync(new Mission("bound mission")
+                    {
+                        TenantId = Armada.Core.Constants.DefaultTenantId,
+                        UserId = Armada.Core.Constants.DefaultUserId,
+                        VesselId = vessel.Id,
+                        VoyageId = voyage.Id,
+                        Status = MissionStatusEnum.Pending
+                    }).ConfigureAwait(false);
+
+                    Func<JsonElement?, Task<object>>? updateHandler = null;
+                    McpMissionTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_update_mission") updateHandler = handler; },
+                        testDb.Driver,
+                        new RecordingAdmiralDouble(),
+                        null,
+                        null);
+                    AssertNotNull(updateHandler, "armada_update_mission handler must be registered");
+
+                    foreach (object args in new object[]
+                    {
+                        new { missionId = mission.Id, title = "moved", vesselId = otherVessel.Id },
+                        new { missionId = mission.Id, title = "moved", voyageId = otherVoyage.Id }
+                    })
+                    {
+                        string json;
+                        using (McpCallerContext.Begin(McpTestCaller.Operator))
+                        {
+                            json = JsonSerializer.Serialize(await updateHandler!(JsonSerializer.SerializeToElement(args)).ConfigureAwait(false));
+                        }
+                        AssertContains("cannot be changed", json, "a rebinding update is refused like REST and WebSocket: " + json);
+                        Mission? stored = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                        AssertEqual(vessel.Id, stored!.VesselId, "the refused update keeps the vessel");
+                        AssertEqual(voyage.Id, stored.VoyageId, "the refused update keeps the voyage");
+                        AssertEqual("bound mission", stored.Title, "the refused update writes no other field");
+                    }
+
+                    string sameBinding;
+                    using (McpCallerContext.Begin(McpTestCaller.Operator))
+                    {
+                        sameBinding = JsonSerializer.Serialize(await updateHandler!(JsonSerializer.SerializeToElement(new { missionId = mission.Id, title = "renamed", vesselId = vessel.Id, voyageId = voyage.Id })).ConfigureAwait(false));
+                    }
+                    Mission? renamed = await testDb.Driver.Missions.ReadAsync(mission.Id).ConfigureAwait(false);
+                    AssertEqual("renamed", renamed!.Title, "an update naming the current bindings is accepted: " + sameBinding);
+                }
+            });
+
             await RunTest("MissionOutput_ReturnsPersistedDigestBackedPage", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))

@@ -20,7 +20,8 @@ namespace Armada.Test.Unit.Suites.Services
     /// A record created through an MCP create tool is owned by the authenticated caller: its tenant and user
     /// are the caller's, exactly as the matching REST create sets them. Each test acts as a non-administrator
     /// in a tenant other than the default one, so a create that ignores the caller is visible as a default
-    /// tenant or a missing user.
+    /// tenant or a missing user. Persona and pipeline changes follow the REST rule too: only the owning tenant's
+    /// administrator, or a global administrator, may make them.
     /// </summary>
     public class McpCreateOwnershipTests : TestSuite
     {
@@ -192,6 +193,60 @@ namespace Armada.Test.Unit.Suites.Services
                     WorkflowProfile? stored = await testDb.Driver.WorkflowProfiles.ReadAsync(created!.Id).ConfigureAwait(false);
                     AssertEqual(caller.TenantId, stored!.TenantId, "a non-administrator's profile belongs to the caller's tenant, whatever tenant the record names");
                     AssertEqual(caller.UserId, stored.UserId, "the profile belongs to the calling user");
+                }
+            }).ConfigureAwait(false);
+
+            await RunTest("PersonaAndPipelineChanges_OnlyTheOwningTenantsAdministratorMayMakeThem", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    AuthContext user = await SeedCallerAsync(testDb).ConfigureAwait(false);
+                    AuthContext owningAdmin = AuthContext.Authenticated(user.TenantId!, user.UserId! + "_admin", false, true, "Test");
+                    AuthContext otherTenantAdmin = AuthContext.Authenticated("ten_other_" + Guid.NewGuid().ToString("N"), "usr_other_admin", false, true, "Test");
+
+                    // The tool policy matches REST: a tenant administrator reaches persona and pipeline changes, a
+                    // tenant user does not.
+                    foreach (string tool in new[] { "create_persona", "update_persona", "delete_persona", "create_pipeline", "update_pipeline", "delete_pipeline" })
+                    {
+                        AssertTrue(McpToolAccessPolicy.IsAllowed(owningAdmin, tool), tool + " admits a tenant administrator");
+                        AssertFalse(McpToolAccessPolicy.IsAllowed(user, tool), tool + " refuses a tenant user");
+                    }
+
+                    Func<JsonElement?, Task<object>> updatePipeline = Capture(r => McpPipelineTools.Register(r, testDb.Driver), "update_pipeline");
+                    Func<JsonElement?, Task<object>> deletePipeline = Capture(r => McpPipelineTools.Register(r, testDb.Driver), "delete_pipeline");
+                    Func<JsonElement?, Task<object>> updatePersona = Capture(r => McpPersonaTools.Register(r, testDb.Driver), "update_persona");
+                    Func<JsonElement?, Task<object>> deletePersona = Capture(r => McpPersonaTools.Register(r, testDb.Driver), "delete_persona");
+
+                    Pipeline pipeline = new Pipeline("McpOwnedPipeline" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                    pipeline.TenantId = user.TenantId;
+                    pipeline.UserId = user.UserId;
+                    pipeline.Description = "original";
+                    pipeline = await testDb.Driver.Pipelines.CreateAsync(pipeline).ConfigureAwait(false);
+                    Persona persona = new Persona("McpOwnedPersona" + Guid.NewGuid().ToString("N").Substring(0, 8), "persona.worker");
+                    persona.TenantId = user.TenantId;
+                    persona.UserId = user.UserId;
+                    persona.Description = "original";
+                    persona = await testDb.Driver.Personas.CreateAsync(persona).ConfigureAwait(false);
+
+                    // Another tenant's administrator cannot find either record by name, so nothing is changed or deleted.
+                    string foreignUpdate = JsonSerializer.Serialize(await CallAsAsync(updatePipeline, otherTenantAdmin, new { name = pipeline.Name, description = "changed" }).ConfigureAwait(false));
+                    AssertContains("Pipeline not found", foreignUpdate, "another tenant's administrator cannot update the pipeline: " + foreignUpdate);
+                    string foreignDelete = JsonSerializer.Serialize(await CallAsAsync(deletePipeline, otherTenantAdmin, new { name = pipeline.Name }).ConfigureAwait(false));
+                    AssertContains("Pipeline not found", foreignDelete, "another tenant's administrator cannot delete the pipeline: " + foreignDelete);
+                    string foreignPersona = JsonSerializer.Serialize(await CallAsAsync(deletePersona, otherTenantAdmin, new { name = persona.Name }).ConfigureAwait(false));
+                    AssertContains("Persona not found", foreignPersona, "another tenant's administrator cannot delete the persona: " + foreignPersona);
+                    Pipeline? unchanged = await testDb.Driver.Pipelines.ReadAsync(pipeline.Id).ConfigureAwait(false);
+                    AssertNotNull(unchanged, "the refused delete keeps the pipeline");
+                    AssertEqual("original", unchanged!.Description, "the refused update writes nothing");
+                    AssertNotNull(await testDb.Driver.Personas.ReadAsync(persona.Id).ConfigureAwait(false), "the refused delete keeps the persona");
+
+                    // The owning tenant's administrator may change both.
+                    await CallAsAsync(updatePipeline, owningAdmin, new { name = pipeline.Name, description = "changed" }).ConfigureAwait(false);
+                    AssertEqual("changed", (await testDb.Driver.Pipelines.ReadAsync(pipeline.Id).ConfigureAwait(false))!.Description, "the owning tenant's administrator updates the pipeline");
+                    await CallAsAsync(updatePersona, owningAdmin, new { name = persona.Name, description = "changed" }).ConfigureAwait(false);
+                    AssertEqual("changed", (await testDb.Driver.Personas.ReadAsync(persona.Id).ConfigureAwait(false))!.Description, "the owning tenant's administrator updates the persona");
+                    await CallAsAsync(deletePipeline, owningAdmin, new { name = pipeline.Name }).ConfigureAwait(false);
+                    AssertNull(await testDb.Driver.Pipelines.ReadAsync(pipeline.Id).ConfigureAwait(false), "the owning tenant's administrator deletes the pipeline");
                 }
             }).ConfigureAwait(false);
 

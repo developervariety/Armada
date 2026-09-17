@@ -64,6 +64,18 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(PermissionLevel.NoAuthRequired, AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/status/health"));
             });
 
+            await RunTest("StopAll And WholeMergeQueueProcess AreAdminOnly", () =>
+            {
+                // Both act on every tenant at once, so a tenant administrator may not run them. Processing one
+                // merge entry stays a tenant-scoped tenant-administrator action.
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/captains/stop-all"));
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/captains/stop-all/"));
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/merge-queue/process"));
+                AssertEqual(PermissionLevel.AdminOnly, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/merge-queue/process/"));
+                AssertEqual(PermissionLevel.TenantAdmin, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/merge-queue/mrg_example/process"));
+                AssertEqual(PermissionLevel.TenantAdmin, AuthorizationConfig.GetPermissionLevel("POST", "/api/v1/captains/cpt_example/stop"));
+            });
+
             await RunTest("Tenants GET IsAdminOnly", () =>
             {
                 PermissionLevel level = AuthorizationConfig.GetPermissionLevel("GET", "/api/v1/tenants");

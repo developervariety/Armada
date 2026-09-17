@@ -147,7 +147,11 @@ this frame and not in the URL. Query strings appear in request logs.
   administrator and return `command.error` with `code`
   `global_administrator_required` to other sessions. `get_persona`,
   `get_pipeline` and `get_prompt_template` are open to any authenticated session
-  and read through the caller's scope. `list_missions_summary` reads through the
+  and read through the caller's scope. `create_persona`, `update_persona`,
+  `delete_persona`, `create_pipeline`, `update_pipeline` and `delete_pipeline`
+  are open to global and tenant administrators, as on REST and MCP, and change
+  only records of the caller's own tenant; a tenant user receives
+  `tenant_administrator_required`. `list_missions_summary` reads through the
   same caller-scoped query as `GET /api/v1/missions/summaries`, so it returns
   exactly what REST returns to the same caller.
 - A create command (`create_fleet`, `create_vessel`, `create_voyage`,
@@ -899,23 +903,28 @@ for every caller:
 2. A command without an authenticated caller returns `authentication_required`.
 3. A `GlobalAdmin` command returns `global_administrator_required` to any caller
    who is not a global administrator.
-4. A `ReadScoped` command finds its record through the shared caller scope that
+4. A `TenantAdminScoped` command returns `tenant_administrator_required` to any
+   caller who is neither a global nor a tenant administrator. The command finds
+   its record through the shared caller scope and changes it only when
+   `OwnershipPolicy.CanEdit` allows, so a tenant administrator changes only their
+   own tenant's records.
+5. A `ReadScoped` command finds its record through the shared caller scope that
    the REST route and MCP tool use (`OwnedRecordScope`, `OwnershipPolicy`). A
    record the caller may not read returns `not_found` with no record data, so
    the reply never confirms that another tenant's record exists.
-5. A `ListScoped` command lists through the shared caller-scoped query, so the
+6. A `ListScoped` command lists through the shared caller-scoped query, so the
    result holds only records the caller may read.
 
 A refused command writes nothing. A command's rule is the stricter of its REST
 route and its MCP tool. MCP reserves most tools for global administrators, so a
 command is `GlobalAdmin` unless both its REST route and its MCP tool (when one
-exists) admit any authenticated caller through the shared ownership rule. A
-command with no counterpart would be `GlobalAdmin`. A unit test derives each
+exists) admit any authenticated caller through the shared ownership rule, or
+both admit tenant administrators (`TenantAdminScoped`). A command with no
+counterpart would be `GlobalAdmin`. A unit test derives each
 rule from `AuthorizationConfig` and `McpToolAccessPolicy` and fails when a
 dispatched command has no declared rule.
 
-Inside a `GlobalAdmin` command the persona and pipeline changes still find the
-record through the shared caller scope and apply `OwnershipPolicy.CanEdit`:
+The persona and pipeline changes find the record through the shared caller scope and apply `OwnershipPolicy.CanEdit`:
 `not_found` for a record the caller cannot read, `forbidden` for one it can read
 but not change.
 
@@ -941,6 +950,14 @@ command had against REST or MCP:
   rule. REST `POST /api/v1/personas` and MCP `create_persona` had the same gap
   and now apply the rule too.
 
+The same audit aligned REST and MCP with each other. `POST
+/api/v1/captains/stop-all` and `POST /api/v1/merge-queue/process` act on every
+tenant, so they need a global administrator on REST as on MCP. MCP persona and
+pipeline changes admit tenant administrators as REST does; MCP `update_pipeline`
+and `delete_pipeline` find the pipeline through the caller scope and apply
+`CanEdit`. MCP `armada_update_mission` refuses a vessel or voyage change, as
+REST and WebSocket do.
+
 Change events: `cancel_voyage`, `cancel_mission`, `restart_mission` and
 `transition_mission_status` deliver their events to the changed record's owner
 scope and global administrators. No other command broadcasts.
@@ -949,7 +966,7 @@ scope and global administrators. No other command broadcasts.
 |---|---|---|---|---|---|---|---|
 | `status` | Read | `GET /api/v1/status` | AdminOnly | fleet-wide, no record scope | `armada_status` (global admin) | GlobalAdmin | G0 |
 | `stop_captain` | Action | `POST /api/v1/captains/{id}/stop` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_stop_captain` (global admin) | GlobalAdmin | G0 |
-| `stop_all` | Action | `POST /api/v1/captains/stop-all` | TenantAdmin | fleet-wide, no record scope | `armada_stop_all` (global admin) | GlobalAdmin | G0 |
+| `stop_all` | Action | `POST /api/v1/captains/stop-all` | AdminOnly | fleet-wide, no record scope | `armada_stop_all` (global admin) | GlobalAdmin | G0 |
 | `stop_server` | Action | `POST /api/v1/server/stop` | AdminOnly | fleet-wide, no record scope | `armada_stop_server` (global admin) | GlobalAdmin | G0 |
 | `list_fleets` | List | `GET /api/v1/fleets` | Authenticated | admin all / tenant admin tenant / user own | `armada_enumerate` (global admin) | GlobalAdmin | G0 |
 | `get_fleet` | Read | `GET /api/v1/fleets/{id}` | Authenticated | admin all / tenant admin tenant / user own | `armada_get_fleet` (global admin) | GlobalAdmin | G0 |
@@ -992,20 +1009,20 @@ scope and global administrators. No other command broadcasts.
 | `get_merge_entry` | Read | `GET /api/v1/merge-queue/{id}` | Authenticated | admin all / tenant admin tenant / user own | `armada_get_merge_entry` (global admin) | GlobalAdmin | G0 |
 | `enqueue_merge` | Create | `POST /api/v1/merge-queue` | TenantAdmin | owner = caller | `armada_enqueue_merge` (global admin) | GlobalAdmin | G0 |
 | `cancel_merge` | Delete | `DELETE /api/v1/merge-queue/{id}` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_cancel_merge` (global admin) | GlobalAdmin | G0 |
-| `process_merge_queue` | Action | `POST /api/v1/merge-queue/process` | TenantAdmin | fleet-wide, no record scope | `armada_process_merge_queue` (global admin) | GlobalAdmin | G0 |
+| `process_merge_queue` | Action | `POST /api/v1/merge-queue/process` | AdminOnly | fleet-wide, no record scope | `armada_process_merge_queue` (global admin) | GlobalAdmin | G0 |
 | `enumerate` | List | `POST /api/v1/<entity>/enumerate` | TenantAdmin | admin all / tenant admin tenant / user own | `armada_enumerate` (global admin) | GlobalAdmin | G0 |
 | `backup` | Action | `GET /api/v1/backup` | AdminOnly | fleet-wide, no record scope | `armada_backup` (global admin) | GlobalAdmin | G0 |
 | `restore` | Action | `POST /api/v1/restore` | AdminOnly | fleet-wide, no record scope | `armada_restore` (global admin) | GlobalAdmin | G0 |
 | `get_persona` | Read | `GET /api/v1/personas/{name}` | Authenticated | shared caller scope (CanView) | `get_persona` (any caller; shared caller scope) | ReadScoped | G1 |
-| `create_persona` | Create | `POST /api/v1/personas` | TenantAdmin | owner = caller | `create_persona` (global admin) | GlobalAdmin | G3, G4 |
-| `update_persona` | Update | `PUT /api/v1/personas/{name}` | TenantAdmin | tenant lookup + CanEdit (admin: all tenants) | `update_persona` (global admin) | GlobalAdmin | G1 |
-| `delete_persona` | Delete | `DELETE /api/v1/personas/{name}` | TenantAdmin | tenant lookup + CanEdit (admin: all tenants) | `delete_persona` (global admin) | GlobalAdmin | G1 |
+| `create_persona` | Create | `POST /api/v1/personas` | TenantAdmin | owner = caller | `create_persona` (global or tenant admin) | TenantAdminScoped | G3, G4 |
+| `update_persona` | Update | `PUT /api/v1/personas/{name}` | TenantAdmin | tenant lookup + CanEdit (admin: all tenants) | `update_persona` (global or tenant admin; tenant lookup + CanEdit) | TenantAdminScoped | G1 |
+| `delete_persona` | Delete | `DELETE /api/v1/personas/{name}` | TenantAdmin | tenant lookup + CanEdit (admin: all tenants) | `delete_persona` (global or tenant admin; tenant lookup + CanEdit) | TenantAdminScoped | G1 |
 | `get_prompt_template` | Read | `GET /api/v1/prompt-templates/{name}` | Authenticated | shared caller scope (CanView) | `get_prompt_template` (any caller; shared caller scope) | ReadScoped | G1 |
 | `update_prompt_template` | Update | `PUT /api/v1/prompt-templates/{name}` | AdminOnly | by name, all tenants | `update_prompt_template` (global admin) | GlobalAdmin | G0 |
 | `get_pipeline` | Read | `GET /api/v1/pipelines/{name}` | Authenticated | shared caller scope (CanView) | `get_pipeline` (any caller; shared caller scope) | ReadScoped | G1 |
-| `create_pipeline` | Create | `POST /api/v1/pipelines` | TenantAdmin | owner = caller | `create_pipeline` (global admin) | GlobalAdmin | G3 |
-| `update_pipeline` | Update | `PUT /api/v1/pipelines/{name}` | TenantAdmin | tenant lookup + CanEdit (admin: all tenants) | `update_pipeline` (global admin) | GlobalAdmin | G1 |
-| `delete_pipeline` | Delete | `DELETE /api/v1/pipelines/{name}` | TenantAdmin | tenant lookup + CanEdit (admin: all tenants) | `delete_pipeline` (global admin) | GlobalAdmin | G1 |
+| `create_pipeline` | Create | `POST /api/v1/pipelines` | TenantAdmin | owner = caller | `create_pipeline` (global or tenant admin) | TenantAdminScoped | G3 |
+| `update_pipeline` | Update | `PUT /api/v1/pipelines/{name}` | TenantAdmin | tenant lookup + CanEdit (admin: all tenants) | `update_pipeline` (global or tenant admin; tenant lookup + CanEdit) | TenantAdminScoped | G1 |
+| `delete_pipeline` | Delete | `DELETE /api/v1/pipelines/{name}` | TenantAdmin | tenant lookup + CanEdit (admin: all tenants) | `delete_pipeline` (global or tenant admin; tenant lookup + CanEdit) | TenantAdminScoped | G1 |
 
 REST levels are those `AuthorizationConfig` returns. "admin all / tenant admin
 tenant / user own" means the route reads every tenant for a global

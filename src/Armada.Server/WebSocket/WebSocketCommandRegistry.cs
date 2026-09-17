@@ -11,7 +11,8 @@ namespace Armada.Server.WebSocket
     /// A command's rule is the stricter of its REST route and its MCP tool. The MCP surface reserves most of its
     /// catalog for global administrators and lets any other caller reach only tools that apply the caller's own
     /// scope, so a command is <see cref="WebSocketCommandRuleEnum.GlobalAdmin"/> unless both its REST route and its
-    /// MCP tool (when one exists) admit a narrower caller through the shared ownership rule.
+    /// MCP tool (when one exists) admit a narrower caller through the shared ownership rule. A change both surfaces
+    /// admit for tenant administrators is <see cref="WebSocketCommandRuleEnum.TenantAdminScoped"/>.
     /// </summary>
     public static class WebSocketCommandRegistry
     {
@@ -78,15 +79,15 @@ namespace Armada.Server.WebSocket
             Rule("backup", WebSocketCommandOperationEnum.Action, WebSocketCommandRuleEnum.GlobalAdmin, "GET", "/api/v1/backup", "armada_backup"),
             Rule("restore", WebSocketCommandOperationEnum.Action, WebSocketCommandRuleEnum.GlobalAdmin, "POST", "/api/v1/restore", "armada_restore"),
             Rule("get_persona", WebSocketCommandOperationEnum.Read, WebSocketCommandRuleEnum.ReadScoped, "GET", "/api/v1/personas/{name}", "get_persona"),
-            Rule("create_persona", WebSocketCommandOperationEnum.Create, WebSocketCommandRuleEnum.GlobalAdmin, "POST", "/api/v1/personas", "create_persona"),
-            Rule("update_persona", WebSocketCommandOperationEnum.Update, WebSocketCommandRuleEnum.GlobalAdmin, "PUT", "/api/v1/personas/{name}", "update_persona"),
-            Rule("delete_persona", WebSocketCommandOperationEnum.Delete, WebSocketCommandRuleEnum.GlobalAdmin, "DELETE", "/api/v1/personas/{name}", "delete_persona"),
+            Rule("create_persona", WebSocketCommandOperationEnum.Create, WebSocketCommandRuleEnum.TenantAdminScoped, "POST", "/api/v1/personas", "create_persona"),
+            Rule("update_persona", WebSocketCommandOperationEnum.Update, WebSocketCommandRuleEnum.TenantAdminScoped, "PUT", "/api/v1/personas/{name}", "update_persona"),
+            Rule("delete_persona", WebSocketCommandOperationEnum.Delete, WebSocketCommandRuleEnum.TenantAdminScoped, "DELETE", "/api/v1/personas/{name}", "delete_persona"),
             Rule("get_prompt_template", WebSocketCommandOperationEnum.Read, WebSocketCommandRuleEnum.ReadScoped, "GET", "/api/v1/prompt-templates/{name}", "get_prompt_template"),
             Rule("update_prompt_template", WebSocketCommandOperationEnum.Update, WebSocketCommandRuleEnum.GlobalAdmin, "PUT", "/api/v1/prompt-templates/{name}", "update_prompt_template"),
             Rule("get_pipeline", WebSocketCommandOperationEnum.Read, WebSocketCommandRuleEnum.ReadScoped, "GET", "/api/v1/pipelines/{name}", "get_pipeline"),
-            Rule("create_pipeline", WebSocketCommandOperationEnum.Create, WebSocketCommandRuleEnum.GlobalAdmin, "POST", "/api/v1/pipelines", "create_pipeline"),
-            Rule("update_pipeline", WebSocketCommandOperationEnum.Update, WebSocketCommandRuleEnum.GlobalAdmin, "PUT", "/api/v1/pipelines/{name}", "update_pipeline"),
-            Rule("delete_pipeline", WebSocketCommandOperationEnum.Delete, WebSocketCommandRuleEnum.GlobalAdmin, "DELETE", "/api/v1/pipelines/{name}", "delete_pipeline")
+            Rule("create_pipeline", WebSocketCommandOperationEnum.Create, WebSocketCommandRuleEnum.TenantAdminScoped, "POST", "/api/v1/pipelines", "create_pipeline"),
+            Rule("update_pipeline", WebSocketCommandOperationEnum.Update, WebSocketCommandRuleEnum.TenantAdminScoped, "PUT", "/api/v1/pipelines/{name}", "update_pipeline"),
+            Rule("delete_pipeline", WebSocketCommandOperationEnum.Delete, WebSocketCommandRuleEnum.TenantAdminScoped, "DELETE", "/api/v1/pipelines/{name}", "delete_pipeline")
         };
 
         private static readonly Dictionary<string, WebSocketCommandRule> _ByAction = BuildIndex();
@@ -126,6 +127,8 @@ namespace Armada.Server.WebSocket
                 return new WebSocketCommandRefusal(WebSocketCommandRefusal.AuthenticationRequiredCode, action + " requires an authenticated caller");
             if (rule.Rule == WebSocketCommandRuleEnum.GlobalAdmin && !caller.IsAdmin)
                 return new WebSocketCommandRefusal(WebSocketCommandRefusal.GlobalAdministratorRequiredCode, action + " requires a global administrator");
+            if (rule.Rule == WebSocketCommandRuleEnum.TenantAdminScoped && !caller.IsAdmin && !caller.IsTenantAdmin)
+                return new WebSocketCommandRefusal(WebSocketCommandRefusal.TenantAdministratorRequiredCode, action + " requires a global or tenant administrator");
             return null;
         }
 

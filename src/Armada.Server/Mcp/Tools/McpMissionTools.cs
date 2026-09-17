@@ -236,7 +236,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 "armada_update_mission",
-                "Update an existing mission's title, description, priority, vessel, voyage, branch, or PR URL. Operational fields (status, timestamps, captain) are managed by the system.",
+                "Update an existing mission's title, description, priority, branch, or PR URL. A mission cannot move to another vessel or voyage. Operational fields (status, timestamps, captain) are managed by the system.",
                 new
                 {
                     type = "object",
@@ -245,8 +245,8 @@ namespace Armada.Server.Mcp.Tools
                         missionId = new { type = "string", description = "Mission ID (msn_ prefix)" },
                         title = new { type = "string", description = "New mission title" },
                         description = new { type = "string", description = "New mission description/instructions" },
-                        vesselId = new { type = "string", description = "New target vessel ID (vsl_ prefix)" },
-                        voyageId = new { type = "string", description = "New voyage association (vyg_ prefix)" },
+                        vesselId = new { type = "string", description = "The mission's current vessel ID (vsl_ prefix). A different vessel is refused; a mission cannot be moved." },
+                        voyageId = new { type = "string", description = "The mission's current voyage ID (vyg_ prefix). A different voyage is refused; a mission cannot be moved." },
                         priority = new { type = "integer", description = "New priority (lower is higher priority)" },
                         branchName = new { type = "string", description = "Git branch name for this mission" },
                         prUrl = new { type = "string", description = "Pull request URL" },
@@ -262,14 +262,12 @@ namespace Armada.Server.Mcp.Tools
                     string missionId = request.MissionId;
                     Mission? mission = await database.Missions.ReadAsync(missionId).ConfigureAwait(false);
                     if (mission == null) return (object)new { Error = "Mission not found" };
+                    string? bindingError = MissionMetadataUpdate.CheckBindings(mission, request.VesselId != null, request.VesselId, request.VoyageId != null, request.VoyageId);
+                    if (bindingError != null) return (object)new { Error = bindingError };
                     if (request.Title != null)
                         mission.Title = request.Title;
                     if (request.Description != null)
                         mission.Description = request.Description;
-                    if (request.VesselId != null)
-                        mission.VesselId = request.VesselId;
-                    if (request.VoyageId != null)
-                        mission.VoyageId = request.VoyageId;
                     if (request.Priority.HasValue)
                         mission.Priority = request.Priority.Value;
                     if (request.BranchName != null)

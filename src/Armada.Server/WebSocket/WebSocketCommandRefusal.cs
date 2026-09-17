@@ -25,6 +25,11 @@ namespace Armada.Server.WebSocket
         public const string GlobalAdministratorRequiredCode = "global_administrator_required";
 
         /// <summary>
+        /// Code for a command that needs a global administrator or a tenant administrator.
+        /// </summary>
+        public const string TenantAdministratorRequiredCode = "tenant_administrator_required";
+
+        /// <summary>
         /// Code for a record the caller may not read, reported exactly like a missing record so the reply never
         /// confirms that the record exists.
         /// </summary>

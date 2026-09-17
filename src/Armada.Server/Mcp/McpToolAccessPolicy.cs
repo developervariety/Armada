@@ -21,6 +21,13 @@ namespace Armada.Server.Mcp
         /// </summary>
         public static IReadOnlyCollection<string> CallerScopedTools => _CallerScopedTools;
 
+        /// <summary>
+        /// Tools a tenant administrator may also call. Each finds its record through the shared caller scope and
+        /// changes it only when the shared ownership rule lets the caller edit it, as the REST routes do, so a tenant
+        /// administrator changes only their own tenant's records.
+        /// </summary>
+        public static IReadOnlyCollection<string> TenantAdminTools => _TenantAdminTools;
+
         #endregion
 
         #region Private-Members
@@ -57,6 +64,16 @@ namespace Armada.Server.Mcp
             "armada_harbor_job_stop"
         };
 
+        private static readonly HashSet<string> _TenantAdminTools = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "create_persona",
+            "update_persona",
+            "delete_persona",
+            "create_pipeline",
+            "update_pipeline",
+            "delete_pipeline"
+        };
+
         #endregion
 
         #region Public-Methods
@@ -72,6 +89,7 @@ namespace Armada.Server.Mcp
             if (caller == null || !caller.IsAuthenticated) return false;
             if (String.IsNullOrEmpty(toolName)) return false;
             if (caller.IsAdmin) return true;
+            if (caller.IsTenantAdmin && _TenantAdminTools.Contains(toolName)) return true;
             return _CallerScopedTools.Contains(toolName);
         }
 

@@ -80,6 +80,11 @@ namespace Armada.Core.Authorization
             // messages, claims and participants. Only a global administrator may use the board.
             if (path == "/api/v1/coordination" || path.StartsWith("/api/v1/coordination/")) return PermissionLevel.AdminOnly;
 
+            // Stopping every captain and processing the whole merge queue act on every tenant at once, so
+            // only a global administrator may run them. Processing one merge entry stays tenant-scoped.
+            if (path.TrimEnd('/') == "/api/v1/captains/stop-all" && method == "POST") return PermissionLevel.AdminOnly;
+            if (path.TrimEnd('/') == "/api/v1/merge-queue/process" && method == "POST") return PermissionLevel.AdminOnly;
+
             // Code-index routes use POST bodies for search/graph reads and refresh requests.
             // Route handlers enforce the vessel ACL after authentication.
             if (path.StartsWith("/api/v1/vessels/") && path.Contains("/code-index/")) return PermissionLevel.Authenticated;

@@ -16,8 +16,8 @@ namespace Armada.Test.Unit.Suites.Routes
     /// <summary>
     /// A WebSocket command enforces its own declared authorization rule, whoever calls the handler. Owned
     /// configuration reads find the record through the shared caller scope, so another tenant's record reads as
-    /// not found and returns no data. Operator commands refuse every caller but a global administrator and write
-    /// nothing. Updates made by an administrator keep the server-owned fields REST keeps.
+    /// not found and returns no data. Persona and pipeline changes admit the owning tenant's administrator, as REST
+    /// and MCP do. Operator commands refuse every caller but a global administrator and write nothing. Updates made by an administrator keep the server-owned fields REST keeps.
     /// </summary>
     public class WebSocketCommandAuthorizationTests : TestSuite
     {
@@ -87,6 +87,47 @@ namespace Armada.Test.Unit.Suites.Routes
                 foreach (string writeAction in current.WriteActions)
                 {
                     string action = writeAction;
+                    if (current.TenantAdministratorsMayWrite)
+                    {
+                        await RunTest(current.Label + "_" + action + "_OtherTenantsAndTenantUsers_AreRefusedAndWriteNothing", async () =>
+                        {
+                            using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                            {
+                                Callers callers = await Callers.SeedAsync(testDb.Driver).ConfigureAwait(false);
+                                OwnedRecordHandle record = await current.SeedAsync(testDb.Driver, callers.TenantA, callers.AdminA.UserId!, false).ConfigureAwait(false);
+                                WebSocketCommandHandler handler = CreateHandler(testDb);
+
+                                // Another tenant's administrator cannot find the record, so the refusal never confirms it exists.
+                                string foreign = await SendAsync(handler, action, record.Name, new { Description = "changed-by-other-tenant" }, callers.AdminB).ConfigureAwait(false);
+                                AssertContains("\"code\":\"not_found\"", foreign, action + " by another tenant's administrator reads as not found: " + foreign);
+                                AssertFalse(foreign.Contains(record.Id, StringComparison.Ordinal), "the refusal returns none of the record");
+                                AssertTrue(await current.IsUnchangedAsync(testDb.Driver, record).ConfigureAwait(false), action + " by another tenant's administrator writes nothing");
+
+                                // A same-tenant user is not an administrator, as REST and MCP require.
+                                string user = await SendAsync(handler, action, record.Name, new { Description = "changed-by-user" }, callers.UserA).ConfigureAwait(false);
+                                AssertContains("\"code\":\"tenant_administrator_required\"", user, action + " names the missing role: " + user);
+                                AssertTrue(await current.IsUnchangedAsync(testDb.Driver, record).ConfigureAwait(false), action + " by a tenant user writes nothing");
+                            }
+                        }).ConfigureAwait(false);
+
+                        await RunTest(current.Label + "_" + action + "_OwningTenantAdministrator_AndGlobalAdministrator_AreAllowed", async () =>
+                        {
+                            using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                            {
+                                Callers callers = await Callers.SeedAsync(testDb.Driver).ConfigureAwait(false);
+                                WebSocketCommandHandler handler = CreateHandler(testDb);
+                                foreach (AuthContext caller in new[] { callers.AdminA, McpTestCaller.Operator })
+                                {
+                                    OwnedRecordHandle record = await current.SeedAsync(testDb.Driver, callers.TenantA, callers.AdminA.UserId!, false).ConfigureAwait(false);
+                                    string json = await SendAsync(handler, action, record.Name, new { Description = "changed-by-" + caller.UserId }, caller).ConfigureAwait(false);
+                                    AssertContains("command.result", json, action + " runs for " + caller.PrincipalDisplay + ": " + json);
+                                    AssertFalse(await current.IsUnchangedAsync(testDb.Driver, record).ConfigureAwait(false), action + " by " + caller.PrincipalDisplay + " is written");
+                                }
+                            }
+                        }).ConfigureAwait(false);
+                        continue;
+                    }
+
                     await RunTest(current.Label + "_" + action + "_NonGlobalAdministrators_AreRefusedAndWriteNothing", async () =>
                     {
                         using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -122,6 +163,34 @@ namespace Armada.Test.Unit.Suites.Routes
                     }).ConfigureAwait(false);
                 }
             }
+
+            await RunTest("CreatePersonaAndPipeline_TenantAdministratorCreatesInOwnTenant_TenantUserIsRefused", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Callers callers = await Callers.SeedAsync(testDb.Driver).ConfigureAwait(false);
+                    WebSocketCommandHandler handler = CreateHandler(testDb);
+
+                    string personaName = "WsTenantPersona" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                    string refusedPersona = await SendAsync(handler, "create_persona", null, new { Name = personaName, PromptTemplateName = "persona.worker" }, callers.UserA).ConfigureAwait(false);
+                    AssertContains("\"code\":\"tenant_administrator_required\"", refusedPersona, "a tenant user cannot create a persona: " + refusedPersona);
+                    AssertNull(await testDb.Driver.Personas.ReadByNameAsync(callers.TenantA, personaName).ConfigureAwait(false), "the refused create writes nothing");
+
+                    string createdPersona = await SendAsync(handler, "create_persona", null, new { Name = personaName, PromptTemplateName = "persona.worker", TenantId = callers.TenantB }, callers.AdminA).ConfigureAwait(false);
+                    AssertContains("command.result", createdPersona, "a tenant administrator creates a persona: " + createdPersona);
+                    Persona? storedPersona = await testDb.Driver.Personas.ReadByNameAsync(callers.TenantA, personaName).ConfigureAwait(false);
+                    AssertNotNull(storedPersona, "the persona is created in the caller's tenant, not the tenant the body names");
+
+                    string pipelineName = "WsTenantPipeline" + Guid.NewGuid().ToString("N").Substring(0, 8);
+                    string refusedPipeline = await SendAsync(handler, "create_pipeline", null, new { Name = pipelineName }, callers.UserA).ConfigureAwait(false);
+                    AssertContains("\"code\":\"tenant_administrator_required\"", refusedPipeline, "a tenant user cannot create a pipeline: " + refusedPipeline);
+                    AssertNull(await testDb.Driver.Pipelines.ReadByNameAsync(callers.TenantA, pipelineName).ConfigureAwait(false), "the refused create writes nothing");
+
+                    string createdPipeline = await SendAsync(handler, "create_pipeline", null, new { Name = pipelineName, TenantId = callers.TenantB }, callers.AdminA).ConfigureAwait(false);
+                    AssertContains("command.result", createdPipeline, "a tenant administrator creates a pipeline: " + createdPipeline);
+                    AssertNotNull(await testDb.Driver.Pipelines.ReadByNameAsync(callers.TenantA, pipelineName).ConfigureAwait(false), "the pipeline is created in the caller's tenant");
+                }
+            }).ConfigureAwait(false);
 
             // Operator record commands: every read, update and delete refuses non-administrators before it runs.
             await RunTest("OperatorRecordCommands_RefuseTenantCallers_AndWriteNothing", async () =>
@@ -310,6 +379,7 @@ namespace Armada.Test.Unit.Suites.Routes
                     "Persona",
                     "get_persona",
                     new[] { "update_persona", "delete_persona" },
+                    true,
                     async (db, tenantId, userId, builtIn) =>
                     {
                         Persona persona = new Persona("WsAuthPersona" + Guid.NewGuid().ToString("N").Substring(0, 8), "persona.worker");
@@ -329,6 +399,7 @@ namespace Armada.Test.Unit.Suites.Routes
                     "Pipeline",
                     "get_pipeline",
                     new[] { "update_pipeline", "delete_pipeline" },
+                    true,
                     async (db, tenantId, userId, builtIn) =>
                     {
                         Pipeline pipeline = new Pipeline("WsAuthPipeline" + Guid.NewGuid().ToString("N").Substring(0, 8));
@@ -348,6 +419,7 @@ namespace Armada.Test.Unit.Suites.Routes
                     "PromptTemplate",
                     "get_prompt_template",
                     new[] { "update_prompt_template" },
+                    false,
                     async (db, tenantId, userId, builtIn) =>
                     {
                         PromptTemplate template = new PromptTemplate("ws.auth." + Guid.NewGuid().ToString("N").Substring(0, 8), "original");
@@ -387,6 +459,7 @@ namespace Armada.Test.Unit.Suites.Routes
             public string Label { get; }
             public string GetAction { get; }
             public string[] WriteActions { get; }
+            public bool TenantAdministratorsMayWrite { get; }
             public Func<DatabaseDriver, string, string, bool, Task<OwnedRecordHandle>> SeedAsync { get; }
             public Func<DatabaseDriver, OwnedRecordHandle, Task<bool>> IsUnchangedAsync { get; }
 
@@ -394,12 +467,14 @@ namespace Armada.Test.Unit.Suites.Routes
                 string label,
                 string getAction,
                 string[] writeActions,
+                bool tenantAdministratorsMayWrite,
                 Func<DatabaseDriver, string, string, bool, Task<OwnedRecordHandle>> seedAsync,
                 Func<DatabaseDriver, OwnedRecordHandle, Task<bool>> isUnchangedAsync)
             {
                 Label = label;
                 GetAction = getAction;
                 WriteActions = writeActions;
+                TenantAdministratorsMayWrite = tenantAdministratorsMayWrite;
                 SeedAsync = seedAsync;
                 IsUnchangedAsync = isUnchangedAsync;
             }

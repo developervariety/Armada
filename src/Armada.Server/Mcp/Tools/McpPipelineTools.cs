@@ -108,12 +108,7 @@ namespace Armada.Server.Mcp.Tools
                     PipelineArgs request = JsonSerializer.Deserialize<PipelineArgs>(args!.Value, _JsonOptions)!;
                     string name = request.Name;
                     if (String.IsNullOrEmpty(name)) return (object)new { Error = "name is required" };
-                    Pipeline? pipeline = await Armada.Core.Services.OwnedRecordScope.ReadByNameAsync(
-                        McpCallerContext.Require(),
-                        name,
-                        (tenantId, pipelineName) => database.Pipelines.ReadByNameAsync(tenantId, pipelineName),
-                        () => database.Pipelines.EnumerateAsync(),
-                        record => record.Name).ConfigureAwait(false);
+                    Pipeline? pipeline = await ReadVisibleAsync(database, McpCallerContext.Require(), name).ConfigureAwait(false);
                     if (pipeline == null) return (object)new { Error = "Pipeline not found: " + name };
                     return (object)pipeline;
                 });
@@ -154,8 +149,9 @@ namespace Armada.Server.Mcp.Tools
                     string name = request.Name;
                     if (String.IsNullOrEmpty(name)) return (object)new { Error = "name is required" };
 
-                    Pipeline? pipeline = await database.Pipelines.ReadByNameAsync(name).ConfigureAwait(false);
-                    if (pipeline == null) return (object)new { Error = "Pipeline not found: " + name };
+                    AuthContext caller = McpCallerContext.Require();
+                    Pipeline? pipeline = await ReadVisibleAsync(database, caller, name).ConfigureAwait(false);
+                    if (pipeline == null || !Armada.Core.Authorization.OwnershipPolicy.CanEdit(caller, pipeline)) return (object)new { Error = "Pipeline not found: " + name };
 
                     if (request.Description != null)
                         pipeline.Description = request.Description;
@@ -204,13 +200,24 @@ namespace Armada.Server.Mcp.Tools
                     string name = request.Name;
                     if (String.IsNullOrEmpty(name)) return (object)new { Error = "name is required" };
 
-                    Pipeline? pipeline = await database.Pipelines.ReadByNameAsync(name).ConfigureAwait(false);
-                    if (pipeline == null) return (object)new { Error = "Pipeline not found: " + name };
+                    AuthContext caller = McpCallerContext.Require();
+                    Pipeline? pipeline = await ReadVisibleAsync(database, caller, name).ConfigureAwait(false);
+                    if (pipeline == null || !Armada.Core.Authorization.OwnershipPolicy.CanEdit(caller, pipeline)) return (object)new { Error = "Pipeline not found: " + name };
                     if (pipeline.IsBuiltIn) return (object)new { Error = "Cannot delete built-in pipeline: " + name };
 
                     await database.Pipelines.DeleteAsync(pipeline.Id).ConfigureAwait(false);
                     return (object)new { Status = "deleted", Name = name };
                 });
+        }
+
+        private static Task<Pipeline?> ReadVisibleAsync(DatabaseDriver database, AuthContext caller, string name)
+        {
+            return Armada.Core.Services.OwnedRecordScope.ReadByNameAsync(
+                caller,
+                name,
+                (tenantId, pipelineName) => database.Pipelines.ReadByNameAsync(tenantId, pipelineName),
+                () => database.Pipelines.EnumerateAsync(),
+                record => record.Name);
         }
     }
 }

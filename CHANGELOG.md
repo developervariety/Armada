@@ -140,6 +140,21 @@ All notable changes to Armada are documented in this file.
 
 ### Security
 
+- `POST /api/v1/captains/stop-all` and `POST /api/v1/merge-queue/process` act on
+  every tenant, so they now require a global administrator, as their MCP tools
+  and WebSocket commands already did. A tenant administrator could stop every
+  tenant's captains and process every tenant's merge queue. Processing one merge
+  entry stays a tenant-scoped tenant-administrator action.
+- Persona and pipeline changes follow one rule on REST, MCP and WebSocket: a
+  global administrator, or a tenant administrator for their own tenant's
+  records. MCP and WebSocket had allowed only a global administrator; WebSocket
+  now refuses a tenant user with `tenant_administrator_required`. MCP
+  `update_pipeline` and `delete_pipeline` found the pipeline by name across every
+  tenant with no ownership check; they now read through the caller scope and
+  apply `CanEdit`.
+- MCP `armada_update_mission` refuses a vessel or voyage change and writes
+  nothing, as REST and WebSocket do. It had moved a mission to any vessel or
+  voyage.
 - Every WebSocket command now has one declared authorization rule in
   `WebSocketCommandRegistry`, and the command handler enforces it before the
   command runs, for every caller. Before, the handler checked nothing: persona,

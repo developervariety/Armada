@@ -63,27 +63,50 @@ namespace Armada.Test.Unit.Suites.Routes
             await RunTest("EveryRule_IsTheStricterOfItsRestRouteAndMcpTool", () =>
             {
                 AuthContext user = AuthContext.Authenticated("ten_example", "usr_example", false, false, "Test");
+                AuthContext tenantAdmin = AuthContext.Authenticated("ten_example", "usr_example_admin", false, true, "Test");
                 foreach (WebSocketCommandRule rule in WebSocketCommandRegistry.Rules)
                 {
                     bool restAdmitsUser = true;
+                    bool restAdmitsTenantAdmin = true;
                     if (rule.RestMethod != null && rule.RestPath != null)
                     {
                         PermissionLevel level = AuthorizationConfig.GetPermissionLevel(rule.RestMethod, SamplePath(rule.RestPath));
                         restAdmitsUser = level == PermissionLevel.Authenticated || level == PermissionLevel.NoAuthRequired;
+                        restAdmitsTenantAdmin = restAdmitsUser || level == PermissionLevel.TenantAdmin;
                     }
                     bool mcpAdmitsUser = rule.McpTool == null || McpToolAccessPolicy.IsAllowed(user, rule.McpTool);
+                    bool mcpAdmitsTenantAdmin = rule.McpTool == null || McpToolAccessPolicy.IsAllowed(tenantAdmin, rule.McpTool);
                     AssertTrue(rule.RestMethod != null || rule.McpTool != null || rule.Rule == WebSocketCommandRuleEnum.GlobalAdmin,
                         rule.Action + " has no counterpart, so it is reserved for global administrators");
 
-                    WebSocketCommandRuleEnum expected = !(restAdmitsUser && mcpAdmitsUser)
-                        ? WebSocketCommandRuleEnum.GlobalAdmin
-                        : rule.Operation == WebSocketCommandOperationEnum.List
-                            ? WebSocketCommandRuleEnum.ListScoped
-                            : WebSocketCommandRuleEnum.ReadScoped;
+                    WebSocketCommandRuleEnum expected;
+                    if (restAdmitsUser && mcpAdmitsUser)
+                        expected = rule.Operation == WebSocketCommandOperationEnum.List ? WebSocketCommandRuleEnum.ListScoped : WebSocketCommandRuleEnum.ReadScoped;
+                    else if (restAdmitsTenantAdmin && mcpAdmitsTenantAdmin)
+                        expected = WebSocketCommandRuleEnum.TenantAdminScoped;
+                    else
+                        expected = WebSocketCommandRuleEnum.GlobalAdmin;
                     AssertEqual(expected, rule.Rule, rule.Action + " takes the stricter of REST (" + rule.RestMethod + " " + rule.RestPath + ") and MCP (" + rule.McpTool + ")");
-                    if (rule.Rule != WebSocketCommandRuleEnum.GlobalAdmin)
+                    if (rule.Rule == WebSocketCommandRuleEnum.ReadScoped || rule.Rule == WebSocketCommandRuleEnum.ListScoped)
                         AssertTrue(rule.Operation == WebSocketCommandOperationEnum.Read || rule.Operation == WebSocketCommandOperationEnum.List,
-                            rule.Action + " opens only a read to narrower callers");
+                            rule.Action + " opens only a read to every authenticated caller");
+                }
+                return Task.CompletedTask;
+            }).ConfigureAwait(false);
+
+            await RunTest("TenantAdminScopedRules_RefuseTenantUsers_AndAdmitAdministrators", () =>
+            {
+                AuthContext user = AuthContext.Authenticated("ten_example", "usr_example", false, false, "Test");
+                AuthContext tenantAdmin = AuthContext.Authenticated("ten_example", "usr_example_admin", false, true, "Test");
+                List<WebSocketCommandRule> scoped = WebSocketCommandRegistry.Rules.Where(rule => rule.Rule == WebSocketCommandRuleEnum.TenantAdminScoped).ToList();
+                AssertTrue(scoped.Count > 0, "tenant-administrator commands are declared");
+                foreach (WebSocketCommandRule rule in scoped)
+                {
+                    WebSocketCommandRefusal? refusal = WebSocketCommandRegistry.Authorize(rule.Action, user);
+                    AssertNotNull(refusal, rule.Action + " refuses a tenant user");
+                    AssertEqual(WebSocketCommandRefusal.TenantAdministratorRequiredCode, refusal!.Code, rule.Action + " names the missing role");
+                    AssertNull(WebSocketCommandRegistry.Authorize(rule.Action, tenantAdmin), rule.Action + " admits a tenant administrator, who is then held to the ownership rule");
+                    AssertNull(WebSocketCommandRegistry.Authorize(rule.Action, McpTestCaller.Operator), rule.Action + " admits a global administrator");
                 }
                 return Task.CompletedTask;
             }).ConfigureAwait(false);

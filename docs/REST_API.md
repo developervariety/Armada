@@ -2143,7 +2143,9 @@ Stop a running captain agent. Kills its OS process and recalls it to idle state.
 
 #### POST /api/v1/captains/stop-all
 
-Emergency stop all running captains, recalling them to idle state.
+Emergency stop all running captains, recalling them to idle state. It acts on
+every tenant, so it requires a global administrator; any other caller receives
+`403`.
 
 **Response:** `200 OK`
 
@@ -2752,7 +2754,7 @@ Cancel a queued merge entry.
 
 #### POST /api/v1/merge-queue/process
 
-Trigger processing of the merge queue. Creates integration branches, runs tests, and lands passing batches.
+Trigger processing of the merge queue. Creates integration branches, runs tests, and lands passing batches. It processes every tenant's entries, so it requires a global administrator; any other caller receives `403`. A tenant administrator processes one of their own tenant's entries with `POST /api/v1/merge-queue/{id}/process`.
 
 **Response:** `200 OK`
 
