@@ -181,9 +181,9 @@ work already exists before the captain writes a type — the D26 retrieval plus 
 answers for its stated plan; and `armada_change_quality` (`change_quality`) returns a
 per-dimension read of a focused diff before the Judge sees it. `armada_run_custom_decision`
 runs a user-defined custom decision by name (see "Custom decisions" below). Every tool
-above except the custom runner is caller-scoped, so a mission caller reaches it like the
-memory tools; `armada_run_custom_decision` is not on that list, so only an administrator
-caller reaches it. Authority does not travel with any of them. Each call redacts its state
+above is caller-scoped, so a mission caller reaches it like the memory tools; defining a
+custom decision stays a settings write, which only an administrator makes. Authority does
+not travel with any of them. Each call redacts its state
 before egress (there is no per-mission call cap), writes exactly one event carrying only
 the state hash and byte count — `typed_decision.captain`, or `typed_decision.custom` from
 the custom runner — and has no side effect on any Armada record: it dispatches nothing,

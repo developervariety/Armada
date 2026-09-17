@@ -20,12 +20,11 @@ namespace Armada.Test.Unit.Suites.Services
     using SyslogLogging;
 
     /// <summary>
-    /// Tests for the captain-facing typed-decision tools. The tool ships disabled and returns
-    /// unavailable until an operator enables it; when enabled it redacts state before egress, bounds
-    /// calls per mission, writes exactly one <c>typed_decision.captain</c> event per call, and has no
-    /// side effect on any Armada record. The two helpers are dormant until their own decision is
-    /// enabled. The smoke test proves the tool is in the mission-scoped catalogue, lists there, and
-    /// returns typed answers or unavailable.
+    /// Tests for the captain-facing typed-decision tools. The tools are enabled by default and return
+    /// unavailable once an operator disables them; when enabled they redact state before egress, write
+    /// exactly one event per call, and have no side effect on any Armada record. Each pre-shaped helper
+    /// is dormant until its own decision is enabled. The smoke test proves every tool is in the
+    /// mission-scoped catalogue, lists there, and returns typed answers or unavailable.
     /// </summary>
     public class McpTypedDecisionToolsTests : TestSuite
     {
@@ -41,19 +40,19 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
-            await RunTest("The five captain tools are registered and mission-scoped", async () =>
+            await RunTest("The six captain tools are registered and mission-scoped", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     FakeTypedDecisionClient client = new FakeTypedDecisionClient();
                     Harness harness = Harness.Create(testDb, client, enabled: false);
 
-                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art", "armada_change_quality" })
+                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art", "armada_change_quality", "armada_run_custom_decision" })
                         AssertTrue(harness.Handlers.ContainsKey(name), "Tool should be registered: " + name);
 
                     // A non-admin mission caller may list and call each tool, like the memory tools.
                     AuthContext captain = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, false, "Bearer");
-                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art", "armada_change_quality" })
+                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art", "armada_change_quality", "armada_run_custom_decision" })
                         AssertTrue(McpToolAccessPolicy.IsAllowed(captain, name), "Mission caller may use: " + name);
                 }
             });
@@ -206,7 +205,7 @@ namespace Armada.Test.Unit.Suites.Services
                     string response = await harness.CallAsync("armada_memory_triage", new { candidate = "The build takes 95 seconds as of today." }).ConfigureAwait(false);
                     AssertContains("\"available\":true", Compact(response));
 
-                    // The helper builds the four D23a questions itself; the client sees them.
+                    // The helper builds the four memory-triage questions itself; the client sees them.
                     AssertTrue(client.LastQuestionIds.Contains("type_ok"), "type_ok question shaped");
                     AssertTrue(client.LastQuestionIds.Contains("duplicate_of"), "duplicate_of question shaped");
                     AssertTrue(client.LastQuestionIds.Contains("will_go_stale"), "will_go_stale question shaped");

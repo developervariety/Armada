@@ -229,6 +229,16 @@ All notable changes to Armada are documented in this file.
 - A shipped typed decision that is missing from a stored
   `typedDecisions.decisions` map now runs at its shipped mode instead of `Off`.
 
+### Fixed
+
+- `armada_run_custom_decision` is now mission-scoped like the other captain typed-decision tools. It was registered
+  as a captain tool and documented as the `CaptainTool` surface's entry point, but was missing from the caller-scoped
+  MCP list, so a captain on a non-administrator token could neither list nor call it. Running a custom decision stays
+  advisory — a fixed non-approving binding, redacted state, one event per call — while creating or editing one
+  remains a settings write only an administrator may make. The class comment on the captain tools no longer says the
+  tool ships disabled; `typedDecisions.captainTool.enabled` has defaulted to true since the tools were enabled by
+  default.
+
 ### Added
 
 - `armada_code_duplicates` finds groups of similar code in one vessel's code index: chunks with identical content
