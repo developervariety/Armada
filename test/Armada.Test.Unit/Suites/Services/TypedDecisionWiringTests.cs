@@ -240,14 +240,17 @@ namespace Armada.Test.Unit.Suites.Services
                     candidate = "A candidate memory record for triage.",
                     plan = "Add one type and one method.",
                     diff = "--- a/file\n+++ b/file\n@@ -1 +1 @@\n-one\n+two\n",
-                    context = new { diff = "one line" }
+                    context = new { diff = "one line" },
+                    record = new { input_type = "mission_failure", failure_reason = "a run failed" }
                 },
                 _JsonOptions);
 
             AuthContext caller = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, false, "Bearer");
             StringBuilder notes = new StringBuilder();
+            List<string> silent = new List<string>();
             foreach (KeyValuePair<string, Func<JsonElement?, Task<object>>> handler in handlers)
             {
+                int before = probe.Observed.Count;
                 try
                 {
                     using (McpCallerContext.Begin(caller))
@@ -258,8 +261,23 @@ namespace Armada.Test.Unit.Suites.Services
                     // A tool the probe cannot drive is not silently dropped: its decision then reads as
                     // unwired and the inventory test fails carrying this reason.
                     notes.Append(handler.Key).Append(": ").Append(ex.GetType().Name).Append(": ").Append(ex.Message).Append("; ");
+                    continue;
                 }
+
+                // A tool that ran but consulted nothing is the probe's own blind spot, not evidence that
+                // the decision is unwired: a helper whose arguments this payload does not satisfy answers
+                // invalid without ever reaching the client. Name it, so the failure reads as "the probe
+                // could not drive this tool" instead of "this decision is inert".
+                // Two tools are expected to observe no SHIPPED decision: the general tool records under
+                // its own decision point, and the custom runner follows user-defined decisions. Listing
+                // them every time would bury the one name that matters.
+                if (probe.Observed.Count == before && !_ToolsWithoutAShippedDecision.Contains(handler.Key))
+                    silent.Add(handler.Key);
             }
+
+            if (silent.Count > 0)
+                notes.Append("drove but observed no decision point (check this tool's arguments in the probe payload): ")
+                    .Append(String.Join(", ", silent)).Append("; ");
 
             probe.Notes = notes.Length == 0 ? "every registered tool was driven" : notes.ToString();
             probe.Observed.IntersectWith(TypedDecisionSettings.ShippedDecisionNames);
@@ -267,6 +285,12 @@ namespace Armada.Test.Unit.Suites.Services
         }
 
         #endregion
+
+        private static readonly HashSet<string> _ToolsWithoutAShippedDecision = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "armada_typed_decision",
+            "armada_run_custom_decision"
+        };
 
         private sealed class CaptainToolProbe
         {
