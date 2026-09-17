@@ -168,14 +168,38 @@ provider reports a model version that has not been evaluated
 case is a finding to review — a threshold, a question, or the model — not a
 build failure.
 
-Two decision points are described as design documents before any code lands,
-reviewed by the owner before implementation:
-[`leak_hunk`](../archive/design/typed-decision-leak-hunk.md) (an advisory per-hunk leak
-classifier behind the deterministic dock-boundary scanner) and
-[`log_watch`](../archive/design/typed-decision-log-watch.md) (a read-only screen over a
-running mission's log that posts a voyage-tagged board note and a
-`captain.course_flag` event). Neither blocks, stops, or dispatches; each only
-flags.
+One decision point runs behind the deterministic dock-boundary scanner:
+
+- `leak_hunk` (D7, ships `Gate` at `0.90`) is an ADVISORY per-hunk leak
+  classifier that runs BEHIND the deterministic dock-boundary scanner, at all
+  three of its gates: the merge-queue integration scan, the pre-land mission
+  scan, and the landing handler's gate. The scanner runs
+  first and unconditionally and decides the block on its own; this pass then reads
+  the added hunks of the same diff and asks one Noul (`leaks_private_context`)
+  plus an advisory Choice (`leak_kind`: `operator_note`, `customer_detail`,
+  `orchestration_id`, `host_or_path`, `none`). At or above the threshold it
+  attaches a `leak_hunk_flag` advisory flag naming the file and the suspected
+  class. The flag never blocks: it never sets a scan result to failed, never
+  transitions a merge entry or a mission to failure, and no answer at any
+  confidence demotes, clears, or softens a deterministic finding — a clean
+  deterministic scan carrying flags still lands, and the flag asks a person to
+  look. The question states the domain: the work is authorized engineering on
+  owned systems, where authentication, access-control, handshake and
+  cryptographic code is ordinary engineering and never a leak, and where an
+  ordinal, index or corpus id is a pointer that is safe to commit while only the
+  value it resolves to is a secret. Its state is three fields — the vessel's
+  display name, the repository-relative file path, and the bounded added hunk —
+  redacted before egress, and the event carries the state hash and byte count,
+  never the hunk. Call volume is bounded per file and per scan, and a timeout, a
+  non-2xx, a 429, a 529 or a parse error leaves the deterministic verdict
+  standing with an `unavailable` event.
+
+One decision point is still a design document reviewed by the owner before any
+code lands: [`log_watch`](../archive/design/typed-decision-log-watch.md), a
+read-only screen over a running mission's log that posts a voyage-tagged board
+note and a `captain.course_flag` event. It neither blocks, stops, nor
+dispatches; it only flags.
+
 The typed-decision system is also offered to captains directly, through four
 mission-scoped MCP tools next to the memory tools: `armada_typed_decision` and
 its three pre-shaped helpers `armada_check_premise` (a captain checks its own

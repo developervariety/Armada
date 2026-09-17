@@ -39,6 +39,7 @@ namespace Armada.Server
         private ArmadaWebSocketHub? _WebSocketHub;
         private IRemoteTriggerService _RemoteTriggerService;
         private ICodeIndexService? _CodeIndexService;
+        private LeakHunkAdapter? _LeakHunkAdapter;
 
         #endregion
 
@@ -106,6 +107,18 @@ namespace Armada.Server
         public void SetWebSocketHub(ArmadaWebSocketHub? hub)
         {
             _WebSocketHub = hub;
+        }
+
+        /// <summary>
+        /// Wire the D7 <c>leak_hunk</c> advisory adapter post-construction. Null leaves the landing
+        /// dock-boundary gate deterministic, which is the operationally-off state. The adapter runs
+        /// BEHIND the deterministic scanner and can only attach advisory flags to its result: it never
+        /// changes the pass verdict, never fails a mission, and never holds a landing.
+        /// </summary>
+        /// <param name="adapter">The advisory per-hunk leak adapter.</param>
+        public void SetLeakHunkAdapter(LeakHunkAdapter? adapter)
+        {
+            _LeakHunkAdapter = adapter;
         }
 
         /// <summary>
@@ -202,6 +215,12 @@ namespace Armada.Server
                 vessel?.RepoUrl,
                 vessel?.ProtectedPaths,
                 _Settings.DockBoundary);
+
+            // The D7 advisory pass reads the same added text after the deterministic scan. It can only
+            // append advisory flags, so the gate below still reflects the deterministic findings alone:
+            // a flagged mission whose scan is clean still lands, and a finding still blocks it.
+            await AttachLeakHunkFlagsAsync(mission, vessel, boundaryResult).ConfigureAwait(false);
+
             if (!boundaryResult.Passed)
             {
                 string failureReason = FormatDockBoundaryFailureReason(boundaryResult, vessel?.Name ?? "unknown");
@@ -868,6 +887,24 @@ namespace Armada.Server
             // NOTE: Dock reclaim is NOT done here. MissionService.HandleCompletionAsync
             // owns the full finalization sequence (reclaim dock, release captain, dispatch next)
             // to prevent duplicate reclaim calls from racing.
+        }
+
+        private async Task AttachLeakHunkFlagsAsync(Mission mission, Vessel? vessel, DockBoundaryScanResult boundaryResult)
+        {
+            LeakHunkAdapter? adapter = _LeakHunkAdapter;
+            if (adapter == null) return;
+
+            // The landing gate has no caller token, so the client applies its own settings timeout: a
+            // slow decision returns unavailable and the deterministic verdict stands.
+            IReadOnlyList<DockBoundaryAdvisoryFlag> flags = await adapter
+                .EvaluateAsync(mission.DiffSnapshot, vessel?.Name, mission, boundaryResult, CancellationToken.None)
+                .ConfigureAwait(false);
+
+            foreach (DockBoundaryAdvisoryFlag flag in flags)
+            {
+                _Logging.Warn(_Header + "advisory leak flag (" + flag.Kind + ") on '" + flag.Path
+                    + "' for mission " + mission.Id + "; the landing is not held, review the hunk");
+            }
         }
 
         private static string FormatDockBoundaryFailureReason(DockBoundaryScanResult result, string vesselName)

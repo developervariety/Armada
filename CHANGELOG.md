@@ -32,6 +32,16 @@ All notable changes to Armada are documented in this file.
   decision point is observed reaching the client — then fails, naming the key, when a shipped decision is neither
   consulted nor declared, or when a declared entry is in fact consulted. Wiring a decision is the deletion of its
   one declared line. `leak_hunk`, `log_watch` and `corpus_prelabel` are the decisions declared unwired today.
+- The `leak_hunk` typed decision (D7) is now wired: an ADVISORY per-hunk leak classifier that runs BEHIND the
+  deterministic dock-boundary scanner, at all three of its gates: the merge-queue integration scan, the pre-land
+  mission scan, and the landing handler's gate. The scanner runs first and unconditionally and decides the block alone; the model pass then reads the added hunks of
+  the same diff and asks one Noul (`leaks_private_context`) plus an advisory Choice (`leak_kind`). At or above the
+  threshold it attaches a `leak_hunk_flag` advisory flag naming the file and the suspected class. It never fails a
+  scan, a merge entry or a mission, and no answer at any confidence softens a deterministic finding, so a clean scan
+  carrying flags still lands. The question states the domain, so authorized authentication and access-control work is
+  ordinary engineering and never a flag. State is the vessel display name, the file path and a bounded hunk,
+  redacted before egress; the event carries the state hash and byte count, never the hunk. Call volume is bounded per
+  file and per scan, and a timeout, non-2xx, 429, 529 or parse error leaves the deterministic verdict standing.
 
 - Typed-decision training data (phase 0 of the local-classifier programme, owner ruling 2026-09-17). The
   retention section is carried by the settings hot reload, so enabling it takes effect without a restart. The REDACTED

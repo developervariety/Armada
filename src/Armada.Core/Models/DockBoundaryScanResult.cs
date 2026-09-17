@@ -21,6 +21,13 @@ namespace Armada.Core.Models
         /// </summary>
         public List<DockBoundaryFinding> Findings { get; set; } = new List<DockBoundaryFinding>();
 
+        /// <summary>
+        /// Advisory flags raised by a second pass behind the deterministic scanner. A flag asks a
+        /// person to look; it never blocks. <see cref="Passed"/> reflects the deterministic findings
+        /// alone, so a passing scan carrying flags still lands.
+        /// </summary>
+        public List<DockBoundaryAdvisoryFlag> AdvisoryFlags { get; set; } = new List<DockBoundaryAdvisoryFlag>();
+
         #endregion
     }
 }

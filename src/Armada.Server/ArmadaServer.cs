@@ -752,6 +752,16 @@ namespace Armada.Server
                 missionService.LintFindingAdapter = new TypedLintFindingAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
 
+                // D7 leak_hunk: an ADVISORY per-hunk pass behind the deterministic dock-boundary
+                // scanner, on the pre-land mission scan and the merge-queue integration scan. It only
+                // ever attaches advisory flags; the scanner alone decides the block, so a flag never
+                // fails a mission or a merge entry and never holds a landing.
+                LeakHunkAdapter leakHunkAdapter = new LeakHunkAdapter(
+                    _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
+                missionService.LeakHunkAdapter = leakHunkAdapter;
+                ((MergeQueueService)_MergeQueue).SetLeakHunkAdapter(leakHunkAdapter);
+                _MissionLanding.SetLeakHunkAdapter(leakHunkAdapter);
+
                 // D26 prior_art. One adapter over a deterministic retriever feeds two admiral seams: the
                 // dispatch preflight (already_done / integrate / uncertain-band analyst issues) and the
                 // Worker->Judge handoff (a re-implementation review instruction). It follows its mode in
