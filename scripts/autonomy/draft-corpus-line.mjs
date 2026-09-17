@@ -15,11 +15,12 @@
 //
 // One closed question is asked of the typed-decision system: the PROVISIONAL KIND of
 // the captured decision. The script holds no provider key and never talks to a
-// provider. It calls the Armada MCP tool `armada_typed_decision` on the admiral,
-// which owns the key, redacts again on its side, and records one event carrying the
-// state's hash and byte count. The script authenticates to Armada with the operator's
-// own Armada API key, so the provider key stays in the admiral's environment variable
-// or its protected key file and never reaches an operator-side script.
+// provider. It calls the Armada MCP tool `armada_corpus_prelabel` on the admiral, which
+// owns the key, shapes the question itself, redacts again on its side, and records one
+// event under the `corpus_prelabel` decision carrying the state's hash and byte count.
+// The script authenticates to Armada with the operator's own Armada API key, so the
+// provider key stays in the admiral's environment variable or its protected key file
+// and never reaches an operator-side script.
 //
 // The shipped decision governs the helper. The script reads the decision's mode and
 // gate threshold from the admiral rather than holding its own copy: the decision Off,
@@ -72,6 +73,9 @@ export const KIND_SOURCE = Object.freeze({
   unavailable: "unavailable",
 });
 
+// The corpus kinds. The admiral's pre-shaped helper offers the same vocabulary to the
+// classifier, and a test in that repository compares the two lists against each other,
+// so a kind added on one side and not the other fails instead of drifting.
 /** The corpus kinds, with the meaning each one carries for the classifier. */
 export const KIND_MEANINGS = Object.freeze({
   preflight: "A dispatch preflight result: the objective was checked before dispatch, and the line records whether it was dispatched or held.",
@@ -107,7 +111,7 @@ export const UNSCORED_KIND_REASON = "unscored_kind: this kind records an owner r
 const DEFAULT_API_URL = "http://127.0.0.1:7890";
 const DEFAULT_MCP_URL = "http://127.0.0.1:7891/mcp";
 const DEFAULT_TIMEOUT_MS = 20000;
-const TYPED_DECISION_TOOL = "armada_typed_decision";
+const TYPED_DECISION_TOOL = "armada_corpus_prelabel";
 
 // The state budget for one call. The admiral applies its own, smaller or larger,
 // budget after this one; this cap only keeps an operator-side payload bounded.
@@ -233,20 +237,6 @@ export function buildDecisionState(input) {
   };
 }
 
-/** The one closed question this helper asks. */
-export function kindQuestion() {
-  return {
-    [KIND_QUESTION_ID]: {
-      type: "choice",
-      instructions:
-        "Read the captured record and choose the corpus kind that classifies the decision it records. "
-        + "Choose the kind the record IS, not the one its wording resembles. "
-        + "Choose blocked_question when no other kind fits.",
-      criteria: { ...KIND_MEANINGS },
-    },
-  };
-}
-
 // ----------------------------------------------------------------- transports
 
 function environmentValue(name, fallback) {
@@ -323,17 +313,17 @@ async function mcpCall(method, params, timeoutMs) {
 }
 
 /**
- * Ask the admiral's typed-decision tool one question over already-redacted state.
- * The provider key lives on the admiral; this call carries only the operator's Armada
- * API key.
+ * Ask the admiral's corpus pre-label helper for the provisional kind of an
+ * already-redacted record. The helper shapes the question and records the event under
+ * its own decision; the provider key lives on the admiral, and this call carries only
+ * the operator's Armada API key.
  *
- * @param {object} state redacted state
- * @param {object} questions the typed questions
+ * @param {object} record redacted record
  * @param {number} [timeoutMs] request timeout
  * @returns {Promise<object>} the tool's answer object
  */
-export async function askArmada(state, questions, timeoutMs = DEFAULT_TIMEOUT_MS) {
-  const result = await mcpCall("tools/call", { name: TYPED_DECISION_TOOL, arguments: { state, questions } }, timeoutMs);
+export async function askArmada(record, timeoutMs = DEFAULT_TIMEOUT_MS) {
+  const result = await mcpCall("tools/call", { name: TYPED_DECISION_TOOL, arguments: { record } }, timeoutMs);
   const text = result && Array.isArray(result.content)
     ? result.content.filter((part) => part && part.type === "text").map((part) => part.text).join("")
     : null;
@@ -382,7 +372,7 @@ export async function resolveProvisionalKind(input, options = {}) {
 
   const timeoutMs = options.timeoutMs ?? Number(environmentValue("ARMADA_TYPED_DECISION_TIMEOUT_MS", String(DEFAULT_TIMEOUT_MS)));
   const fetchStatus = options.fetchStatus ?? (() => fetchDecisionStatus(timeoutMs));
-  const askModel = options.askModel ?? ((state, questions) => askArmada(state, questions, timeoutMs));
+  const askModel = options.askModel ?? ((record) => askArmada(record, timeoutMs));
 
   let status;
   try {
@@ -406,9 +396,10 @@ export async function resolveProvisionalKind(input, options = {}) {
   const decisionMode = String(statusField(entry, "mode") ?? "Off");
   if (decisionMode === "Off") return unresolved("decision_off: " + DECISION_KEY + " is set Off");
   if (decisionMode === "Shadow" || effectiveMode === "Shadow") {
-    // Shadow records the reading without acting on it, so the draft takes no kind
-    // from it. The call itself is skipped: nothing here would use the answer.
-    return unresolved("decision_shadow: a shadowed reading is recorded, never acted on");
+    // A shadowed decision may not act, and a kind this helper cannot use is a kind not
+    // worth sending state for. So the call is not made at all, and the draft says so
+    // rather than implying a shadow reading exists somewhere to review.
+    return unresolved("decision_shadow: the decision is shadowed, so no call was made and no kind is proposed");
   }
 
   const threshold = Number(statusField(entry, "threshold"));
@@ -418,7 +409,7 @@ export async function resolveProvisionalKind(input, options = {}) {
 
   let answer;
   try {
-    answer = await askModel(egress.state, kindQuestion());
+    answer = await askModel(egress.state);
   } catch (err) {
     return unresolved("model_unavailable: " + messageOf(err), { stateSha256: egress.sha256, stateBytes: egress.bytes });
   }

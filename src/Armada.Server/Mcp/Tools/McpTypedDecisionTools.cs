@@ -15,8 +15,8 @@ namespace Armada.Server.Mcp.Tools
 
     /// <summary>
     /// Registers the captain-facing typed-decision tools: the general <c>armada_typed_decision</c>
-    /// tool and the two pre-shaped helpers <c>armada_check_premise</c> (D9) and
-    /// <c>armada_memory_triage</c> (D23 seam A). The system is offered to captains directly, but
+    /// tool and the pre-shaped helpers <c>armada_check_premise</c> (D9),
+    /// <c>armada_memory_triage</c> (D23 seam A) and <c>armada_corpus_prelabel</c> (D14). The system is offered to captains directly, but
     /// authority does not travel with it: every call redacts its state before egress, writes exactly one
     /// <c>typed_decision.captain</c> event carrying only a state hash and byte count, and has NO side
     /// effect on any Armada record. The tool never dispatches, lands, Mails, edits an objective, or
@@ -42,8 +42,18 @@ namespace Armada.Server.Mcp.Tools
         /// <summary>Registered name of the captain-facing change-quality review tool.</summary>
         public const string ChangeQualityToolName = "armada_change_quality";
 
+        /// <summary>Registered name of the D14 corpus pre-label helper.</summary>
+        public const string CorpusPrelabelToolName = "armada_corpus_prelabel";
+
         /// <summary>Registered name of the user-defined custom-decision runner tool.</summary>
         public const string RunCustomToolName = "armada_run_custom_decision";
+
+        /// <summary>
+        /// The corpus kinds the pre-label helper chooses between, in the decision corpus's own
+        /// order. The operator-side drafter holds the same vocabulary, and a test compares the two
+        /// against each other, so a kind added to one and not the other fails rather than drifting.
+        /// </summary>
+        public static IReadOnlyList<string> CorpusKinds => _CorpusKinds;
 
         #endregion
 
@@ -53,6 +63,29 @@ namespace Armada.Server.Mcp.Tools
         {
             PropertyNameCaseInsensitive = true,
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+        };
+
+        // The corpus kinds and what each one means, in the corpus's own order. The meanings are the
+        // criteria the classifier reads, so they describe the kind of decision a record holds and
+        // never the wording a record happens to use.
+        private static readonly Dictionary<string, string> _CorpusKindMeanings = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["preflight"] = "a dispatch preflight result: the work was checked before dispatch, and the record holds whether it was dispatched or held",
+            ["blocked_question"] = "a question the worker could not answer alone, which an owner or operator had to rule on",
+            ["operator_mail"] = "a message an operator sent into running work, and what it changed",
+            ["failure_class"] = "failed work whose cause had to be classified (infrastructure, provider, test, or the change itself)",
+            ["refusal"] = "a runtime declined to do the work, and a person decided how to route it",
+            ["rescue_or_land"] = "a choice between rescuing partly finished work and landing what exists",
+            ["brief_defect"] = "a defect in the instructions themselves, found after the work started"
+        };
+
+        private static readonly List<string> _CorpusKinds = new List<string>(_CorpusKindMeanings.Keys);
+
+        // The fields of a captured record this helper reads. Anything else the caller supplies is
+        // ignored, so the question is asked over the record and never over operator commentary.
+        private static readonly string[] _CorpusRecordFields =
+        {
+            "input_type", "title", "summary", "root_cause", "failure_reason", "payload", "platform_said", "disposition", "failed_questions"
         };
 
         #endregion
@@ -226,6 +259,31 @@ namespace Armada.Server.Mcp.Tools
                     logging,
                     participantKey,
                     buildStateAndQuestions: BuildChangeQuality).ConfigureAwait(false));
+
+            register(
+                CorpusPrelabelToolName,
+                "Read one captured record -- an incident, a failure reason, an operator message, or a preflight result -- and return the provisional KIND of the decision it holds, so a corpus line starts from a reading instead of a blank field. Pass the record's fields in 'record'. It answers one closed question and nothing else: it proposes no answer to the decision itself, writes no corpus line, and changes no record. The caller keeps the answer as a draft a person confirms. Your record is redacted before it leaves. Dormant (returns unavailable) while the corpus pre-label decision is Off. Pass your mission id in 'missionId' when you have one.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        record = new { type = "object", description = "The captured record's fields: input_type, title, summary, root_cause, failure_reason, payload, platform_said, disposition, failed_questions. Redacted before egress." },
+                        missionId = new { type = "string", description = "The calling mission id, for scope and event attribution. Optional." }
+                    },
+                    required = new[] { "record" }
+                },
+                async (args) => await HandleAsync(
+                    args,
+                    "corpus_prelabel",
+                    hasDecisionGate: true,
+                    database,
+                    effectiveClient,
+                    recorder,
+                    settings,
+                    logging,
+                    participantKey,
+                    buildStateAndQuestions: BuildCorpusPrelabel).ConfigureAwait(false));
 
             register(
                 RunCustomToolName,
@@ -522,6 +580,49 @@ namespace Armada.Server.Mcp.Tools
             };
 
             return new ParsedDecision(state, questions);
+        }
+
+        private static ParsedDecision? BuildCorpusPrelabel(JsonElement root)
+        {
+            if (!root.TryGetProperty("record", out JsonElement record)) return null;
+
+            Dictionary<string, object?> state = new Dictionary<string, object?>(StringComparer.Ordinal);
+            if (record.ValueKind == JsonValueKind.String)
+            {
+                state["record"] = record.GetString();
+            }
+            else if (record.ValueKind == JsonValueKind.Object)
+            {
+                foreach (string field in _CorpusRecordFields)
+                {
+                    object? value = ReadOptionalRaw(record, field);
+                    if (value != null) state[field] = value;
+                }
+            }
+
+            // An empty record answers nothing, and a kind guessed from no evidence is worse than no
+            // kind at all. The caller gets the "missing state" unavailable result and its reason.
+            if (state.Count == 0) return null;
+
+            Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
+            {
+                ["provisional_kind"] = new ChoiceQuestion(
+                    "Choose the corpus kind that classifies the decision this record holds. "
+                    + "Choose the kind the record IS, not the one its wording resembles. "
+                    + "Choose blocked_question when no other kind fits.",
+                    BuildCorpusKindCriteria())
+            };
+
+            return new ParsedDecision(state, questions);
+        }
+
+        // The criteria are built from the kind order, not from a dictionary copy, so the order the
+        // classifier sees is the corpus's own order and stays comparable to the drafter's list.
+        private static Dictionary<string, string> BuildCorpusKindCriteria()
+        {
+            Dictionary<string, string> criteria = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (string kind in _CorpusKinds) criteria[kind] = _CorpusKindMeanings[kind];
+            return criteria;
         }
 
         private static ParsedDecision? BuildMemoryTriage(JsonElement root)

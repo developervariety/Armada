@@ -250,7 +250,8 @@ check("the decision set Off proposes no kind", decisionOff.kind === null && /off
 const shadow = await resolved({
   fetchStatus: async () => ({ ...gateStatus, decisions: [{ key: DECISION_KEY, mode: "Shadow", threshold: 0.9 }] }),
 });
-check("a Shadow decision records but proposes no kind", shadow.kind === null && /shadow/i.test(String(shadow.reason)));
+check("a Shadow decision makes no call and proposes no kind", shadow.kind === null && /shadow/i.test(String(shadow.reason)));
+check("the Shadow reason claims no recorded reading", !/recorded/i.test(String(shadow.reason)));
 
 const statusDown = await resolved({ fetchStatus: async () => { throw new Error("connect refused"); } });
 check("an unreachable status endpoint proposes no kind", statusDown.kind === null && /status/i.test(String(statusDown.reason)));
@@ -341,6 +342,7 @@ async function runAgainstStubAdmiral() {
 
   let toolName = null;
   let stateOnTheWire = null;
+  let questionsOnTheWire;
   const server = createServer((req, res) => {
     let body = "";
     req.on("data", (chunk) => { body += chunk; });
@@ -353,7 +355,8 @@ async function runAgainstStubAdmiral() {
       }
       const call = JSON.parse(body);
       toolName = call.params.name;
-      stateOnTheWire = JSON.stringify(call.params.arguments.state);
+      stateOnTheWire = JSON.stringify(call.params.arguments.record);
+      questionsOnTheWire = call.params.arguments.questions;
       const answer = { available: true, answers: { provisional_kind: { type: "choice", choice: "failure_class", confidence: 0.96 } } };
       const result = { content: [{ type: "text", text: JSON.stringify(answer) }] };
       // The event-stream shape, which is the harder of the two replies to read.
@@ -381,7 +384,7 @@ async function runAgainstStubAdmiral() {
     child.stdin.end(JSON.stringify({ type: "mission_failure", mission_id: "msn_example", failure_reason: "the run failed at /srv/example/work/file.cs" }));
   });
   server.close();
-  return { ...run, toolName, stateOnTheWire };
+  return { ...run, toolName, stateOnTheWire, questionsOnTheWire };
 }
 
 const stub = await runAgainstStubAdmiral();
@@ -389,8 +392,10 @@ if (stub.skipped) {
   skip("the script answers over the admiral's typed-decision tool", stub.skipped);
 } else {
   const line = stub.err ? null : JSON.parse(stub.stdout.trim());
-  check("the script calls the admiral's typed-decision tool", stub.toolName === "armada_typed_decision");
-  check("the state on the wire is redacted", stub.stateOnTheWire !== null && !stub.stateOnTheWire.includes("/srv/example"));
+  check("the script calls the admiral's corpus pre-label helper", stub.toolName === "armada_corpus_prelabel");
+  check("the record on the wire is redacted", stub.stateOnTheWire !== null && !stub.stateOnTheWire.includes("/srv/example"));
+  check("the script sends the record and lets the helper shape the question",
+    stub.stateOnTheWire !== null && stub.questionsOnTheWire === undefined);
   check("a gated answer over the real transport fills the kind", line !== null && line.kind === "failure_class");
   check("a gated answer over the real transport is still a draft", line !== null && line[DRAFT_FLAG] === true);
   check("a gated answer over the real transport records hash and bytes",

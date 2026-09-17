@@ -2,6 +2,8 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
+    using System.Linq;
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
@@ -41,19 +43,19 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
-            await RunTest("The five captain tools are registered and mission-scoped", async () =>
+            await RunTest("The six captain tools are registered and mission-scoped", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     FakeTypedDecisionClient client = new FakeTypedDecisionClient();
                     Harness harness = Harness.Create(testDb, client, enabled: false);
 
-                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art", "armada_change_quality" })
+                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art", "armada_change_quality", "armada_corpus_prelabel" })
                         AssertTrue(harness.Handlers.ContainsKey(name), "Tool should be registered: " + name);
 
                     // A non-admin mission caller may list and call each tool, like the memory tools.
                     AuthContext captain = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, false, "Bearer");
-                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art", "armada_change_quality" })
+                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art", "armada_change_quality", "armada_corpus_prelabel" })
                         AssertTrue(McpToolAccessPolicy.IsAllowed(captain, name), "Mission caller may use: " + name);
                 }
             });
@@ -214,6 +216,98 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("The corpus-prelabel helper records its call under its own decision, never the general tool's", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient();
+                    client.NextResult = new TypedDecisionResult
+                    {
+                        Available = true,
+                        Answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+                        {
+                            ["provisional_kind"] = new TypedAnswer { Type = "choice", Choice = "failure_class", Confidence = 0.96 }
+                        }
+                    };
+                    Harness harness = Harness.Create(testDb, client, enabled: true, enableCorpusPrelabel: true);
+
+                    string response = await harness.CallAsync("armada_corpus_prelabel", new
+                    {
+                        record = new { input_type = "mission_failure", failure_reason = "the run failed at /srv/example/work/file.cs" }
+                    }).ConfigureAwait(false);
+
+                    AssertContains("\"available\":true", Compact(response));
+                    AssertTrue(client.LastQuestionIds.Contains("provisional_kind"), "provisional_kind question shaped");
+                    AssertEqual(1, client.LastQuestionIds.Count, "The helper asks exactly one question");
+
+                    // The state is redacted before egress: the path never reaches the client.
+                    AssertTrue(client.LastState != null && !client.LastState.Contains("/srv/example"), "State is redacted before egress");
+
+                    // Exactly one event, carrying this decision's key and never the general tool's.
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeCaptain).ConfigureAwait(false);
+                    AssertEqual(1, events.Count, "Exactly one event per call");
+                    AssertContains("\"decision\":\"corpus_prelabel\"", Compact(events[0].Payload ?? ""));
+                    AssertTrue(!Compact(events[0].Payload ?? "").Contains("\"decision\":\"captain_tool\""), "No event is recorded under the general tool's decision");
+
+                    // The event carries the state's measurements, never the state.
+                    AssertContains("state_sha256", events[0].Payload ?? "");
+                    AssertContains("state_bytes", events[0].Payload ?? "");
+                    AssertTrue(!(events[0].Payload ?? "").Contains("the run failed"), "The event never carries the state");
+                }
+            });
+
+            await RunTest("The corpus-prelabel helper is dormant while its decision is Off", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient();
+                    Harness dormant = Harness.Create(testDb, client, enabled: true, enableCorpusPrelabel: false);
+
+                    string response = await dormant.CallAsync("armada_corpus_prelabel", new
+                    {
+                        record = new { input_type = "mail", payload = "keep the existing output format" }
+                    }).ConfigureAwait(false);
+
+                    AssertContains("\"available\":false", Compact(response));
+                    AssertEqual(0, client.CallCount, "A dormant helper performs no egress");
+
+                    // Dormant is still observable, and still under its own decision key.
+                    List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeCaptain).ConfigureAwait(false);
+                    AssertEqual(1, events.Count, "A dormant call is still recorded once");
+                    AssertContains("\"decision\":\"corpus_prelabel\"", Compact(events[0].Payload ?? ""));
+                }
+            });
+
+            await RunTest("The corpus kinds the helper offers match the drafter script's kinds", async () =>
+            {
+                // One vocabulary, two copies in this repository: the choices this helper actually
+                // sends, and the drafter script's own list. They are compared against each other, so
+                // adding a kind to one and not the other fails here instead of drifting silently.
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient();
+                    Harness harness = Harness.Create(testDb, client, enabled: true, enableCorpusPrelabel: true);
+                    await harness.CallAsync("armada_corpus_prelabel", new
+                    {
+                        record = new { input_type = "incident", summary = "a gate rejected a review" }
+                    }).ConfigureAwait(false);
+
+                    AssertTrue(client.LastQuestions != null, "The helper sent its question");
+                    ChoiceQuestion? asked = client.LastQuestions!["provisional_kind"] as ChoiceQuestion;
+                    AssertTrue(asked != null, "The provisional-kind question is a choice question");
+
+                    string scriptPath = Path.Combine(FindRepositoryRoot(), "scripts", "autonomy", "draft-corpus-line.mjs");
+                    AssertTrue(File.Exists(scriptPath), "The drafter script exists");
+                    List<string> scriptKinds = ReadDrafterKinds(File.ReadAllText(scriptPath));
+                    AssertTrue(scriptKinds.Count > 0, "The drafter script declares its kinds");
+
+                    AssertEqual(
+                        String.Join(",", scriptKinds),
+                        String.Join(",", asked!.Criteria.Keys),
+                        "The helper offers the drafter's corpus kinds, in the same order");
+                }
+            });
+
             await RunTest("The tool has no side effect on any Armada record", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
@@ -337,6 +431,45 @@ namespace Armada.Test.Unit.Suites.Services
             }
         }
 
+        /// Read the corpus kinds the drafter script declares, in declaration order.
+        private static List<string> ReadDrafterKinds(string script)
+        {
+            List<string> kinds = new List<string>();
+            int start = script.IndexOf("KIND_MEANINGS = Object.freeze({", StringComparison.Ordinal);
+            if (start < 0) return kinds;
+            int end = script.IndexOf("});", start, StringComparison.Ordinal);
+            if (end <= start) return kinds;
+
+            foreach (string line in script.Substring(start, end - start).Split('\n'))
+            {
+                string trimmed = line.Trim();
+                if (trimmed.StartsWith("//", StringComparison.Ordinal)) continue;
+                int colon = trimmed.IndexOf(':');
+                if (colon <= 0) continue;
+                string name = trimmed.Substring(0, colon).Trim();
+                if (name.Length > 0 && name.All(c => Char.IsLetter(c) || c == '_')) kinds.Add(name);
+            }
+
+            return kinds;
+        }
+
+        private static string FindRepositoryRoot()
+        {
+            DirectoryInfo? current = new DirectoryInfo(AppContext.BaseDirectory);
+            while (current != null)
+            {
+                if (Directory.Exists(Path.Combine(current.FullName, "src")) &&
+                    Directory.Exists(Path.Combine(current.FullName, "test")))
+                {
+                    return current.FullName;
+                }
+
+                current = current.Parent;
+            }
+
+            throw new DirectoryNotFoundException("Could not locate repository root from test base directory.");
+        }
+
         private static string Compact(string json)
         {
             return json.Replace(" ", "").Replace("\n", "").Replace("\r", "");
@@ -353,12 +486,14 @@ namespace Armada.Test.Unit.Suites.Services
                 ITypedDecisionClient client,
                 bool enabled,
                 bool enablePremiseCheck = false,
-                bool enableMemoryRecord = false)
+                bool enableMemoryRecord = false,
+                bool enableCorpusPrelabel = false)
             {
                 ArmadaSettings settings = new ArmadaSettings();
                 settings.TypedDecisions.CaptainTool.Enabled = enabled;
                 settings.TypedDecisions.Decisions["premise_check"].Mode = enablePremiseCheck ? TypedDecisionModeEnum.Gate : TypedDecisionModeEnum.Off;
                 settings.TypedDecisions.Decisions["memory_record"].Mode = enableMemoryRecord ? TypedDecisionModeEnum.Gate : TypedDecisionModeEnum.Off;
+                settings.TypedDecisions.Decisions["corpus_prelabel"].Mode = enableCorpusPrelabel ? TypedDecisionModeEnum.Gate : TypedDecisionModeEnum.Off;
 
                 Harness harness = new Harness();
                 TypedDecisionRecorder recorder = new TypedDecisionRecorder(testDb.Driver, new LoggingModule());
@@ -407,6 +542,8 @@ namespace Armada.Test.Unit.Suites.Services
 
             public List<string> LastQuestionIds { get; } = new List<string>();
 
+            public IReadOnlyDictionary<string, TypedQuestion>? LastQuestions { get; private set; }
+
             public TypedDecisionResult NextResult { get; set; } = new TypedDecisionResult
             {
                 Available = true,
@@ -418,6 +555,7 @@ namespace Armada.Test.Unit.Suites.Services
                 CallCount++;
                 LastState = Armada.Test.Unit.TestHelpers.FakeTypedDecisionClient.StateText(request);
                 LastQuestionIds.Clear();
+                LastQuestions = request.Questions;
                 foreach (KeyValuePair<string, TypedQuestion> entry in request.Questions)
                     LastQuestionIds.Add(entry.Key);
                 return Task.FromResult(NextResult);

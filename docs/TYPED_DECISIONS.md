@@ -407,17 +407,24 @@ Two operator-side decisions gather owner decisions and pre-fill the corpus:
   a confirmed line.
 
   **How it reaches the classifier.** The script holds no provider key and never
-  calls a provider. It calls the MCP tool `armada_typed_decision` on the admiral,
-  which owns the key, redacts again on its side, and records the one event with
-  the state's hash and byte count. The script authenticates with the operator's
-  own `ARMADA_API_KEY`, so the provider key stays in the admiral's environment
-  variable or its protected key file. The script also holds no copy of the
-  decision's mode or threshold: it reads both from
-  `GET /api/v1/typed-decisions` per run, so this shipped decision governs the
-  helper and a settings change takes effect with no edit here.
+  calls a provider. It calls the pre-shaped MCP tool `armada_corpus_prelabel` on
+  the admiral (`docs/MCP_API.md`), which owns the key, shapes the one choice
+  question over the corpus kinds, redacts again on its side, and records one
+  event **under the `corpus_prelabel` decision** with the state's hash and byte
+  count. That tool follows this decision's own mode, so the decision is scored
+  per-decision and a post-gate review has calls to read. The script
+  authenticates with the operator's own `ARMADA_API_KEY`, so the provider key
+  stays in the admiral's environment variable or its protected key file. The
+  script also holds no copy of the decision's mode or threshold: it reads both
+  from `GET /api/v1/typed-decisions` per run, so this shipped decision governs
+  the helper and a settings change takes effect with no edit here. The corpus
+  kinds exist in two places in this repository — the tool's choices and the
+  script's list — and a unit test compares them against each other, so a kind
+  added to one and not the other fails rather than drifting.
 
   **Fail closed.** The decision `Off`, the global mode `Off`, a missing key
-  (`typed_decisions_no_key`), `Shadow` mode, an unreachable admiral, a timeout, a
+  (`typed_decisions_no_key`), `Shadow` mode (no call is made at all, since a
+  shadowed reading may not be acted on), an unreachable admiral, a timeout, a
   non-2xx reply, a rate-limited or overloaded provider, an unparsable answer, a
   choice outside the corpus kinds, or a confidence below the gate threshold all
   produce a draft with **no** kind and the reason stated in
