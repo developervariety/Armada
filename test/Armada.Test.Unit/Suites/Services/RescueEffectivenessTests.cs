@@ -90,7 +90,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
 
                 RescueEffectivenessAssessment census = RescueEffectivenessEvaluator.Assess(
-                    new List<string> { "discoveries.d/decrypted-db-census.md" },
+                    new List<string> { "discoveries.d/data-census.md" },
                     RescueEffectivenessEvaluator.RequiredChange(MissionModeEnum.Implementation, ObjectiveKindEnum.Research));
                 AssertFalse(census.IsIneffective, "A census delivered as a document under a Research objective is the work.");
                 return Task.CompletedTask;

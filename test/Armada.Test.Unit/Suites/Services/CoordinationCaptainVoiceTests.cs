@@ -31,10 +31,10 @@ namespace Armada.Test.Unit.Suites.Services
         {
             await RunTest("ProgressParser recognizes a board-note marker line", () =>
             {
-                ProgressParser.ProgressSignal? signal = ProgressParser.TryParse("[ARMADA:NOTE] landed the ExampleOem J1587 slice");
+                ProgressParser.ProgressSignal? signal = ProgressParser.TryParse("[ARMADA:NOTE] landed the ExampleOem protocol slice");
                 AssertNotNull(signal);
                 AssertEqual("note", signal!.Type);
-                AssertEqual("landed the ExampleOem J1587 slice", signal.Value);
+                AssertEqual("landed the ExampleOem protocol slice", signal.Value);
 
                 AssertNull(ProgressParser.TryParse("prose mentioning [ARMADA:NOTE] mid-line is not a signal"));
                 return Task.CompletedTask;

@@ -42,7 +42,7 @@ function summary(id: string, title: string, createdUtc: string) {
 // Two server pages at the page cap: the newest page holds no match, the older page holds the only one.
 const serverPages = [
   [summary('msn_new', 'Refresh docs', '2026-09-15T10:00:00Z')],
-  [summary('msn_old', 'Port Eaton decoder', '2026-09-01T10:00:00Z')],
+  [summary('msn_old', 'Port Alpha decoder', '2026-09-01T10:00:00Z')],
 ];
 
 function renderMissions() {
@@ -93,9 +93,9 @@ describe('Missions list', () => {
     renderMissions();
     expect(await screen.findByText('Refresh docs')).toBeInTheDocument();
 
-    fireEvent.change(screen.getAllByPlaceholderText('Search...')[0], { target: { value: 'eaton' } });
+    fireEvent.change(screen.getAllByPlaceholderText('Search...')[0], { target: { value: 'alpha' } });
 
-    expect(await screen.findByText('Port Eaton decoder')).toBeInTheDocument();
+    expect(await screen.findByText('Port Alpha decoder')).toBeInTheDocument();
     expect(screen.queryByText('Refresh docs')).not.toBeInTheDocument();
     await waitFor(() => expect(listMissionSummaries).toHaveBeenCalledWith(expect.objectContaining({ pageNumber: 2, pageSize: 1000 })));
   });
@@ -106,8 +106,8 @@ describe('Missions list', () => {
 
     fireEvent.click(screen.getByTitle('Mission title -- click to sort'));
 
-    expect(await screen.findByText('Port Eaton decoder')).toBeInTheDocument();
+    expect(await screen.findByText('Port Alpha decoder')).toBeInTheDocument();
     const titles = screen.getAllByRole('row').slice(2).map((row) => row.querySelector('strong')?.textContent).filter(Boolean);
-    expect(titles).toEqual(['Port Eaton decoder', 'Refresh docs']);
+    expect(titles).toEqual(['Port Alpha decoder', 'Refresh docs']);
   });
 });

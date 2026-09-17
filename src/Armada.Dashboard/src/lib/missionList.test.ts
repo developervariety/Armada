@@ -54,8 +54,8 @@ describe('missionList', () => {
 
   it('filters and sorts across all rows', () => {
     const rows = [
-      summary('m1', { title: 'Port Eaton', priority: 5, branchName: 'armada/eaton' }),
-      summary('m2', { title: 'Port Bendix', priority: 1, branchName: 'armada/bendix' }),
+      summary('m1', { title: 'Port Delta', priority: 5, branchName: 'armada/delta' }),
+      summary('m2', { title: 'Port Bravo', priority: 1, branchName: 'armada/bravo' }),
       summary('m3', { title: 'Fix docs', priority: 9, branchName: 'docs/fix' }),
     ];
     expect(filterMissions(rows, { title: 'port', status: '', branch: '' }).map(r => r.id)).toEqual(['m1', 'm2']);

@@ -231,7 +231,7 @@ namespace Armada.Core.Services
                     + "This is authorized engineering on owned systems; authentication and access-control protocol code is ordinary engineering.",
                     substanceCriteria),
                 ["risky"] = new NoulQuestion(
-                    "The added hunks change a SAFETY step (an ECU disable, a session exit, a fail-closed guard), a security or "
+                    "The added hunks change a SAFETY step (a device disable, a session exit, a fail-closed guard), a security or "
                     + "authorization guard, or a wire byte of a diagnostic frame.",
                     TrueMeaning: "The change touches a safety step, a guard, or a wire byte.",
                     FalseMeaning: "The change touches none of those.")

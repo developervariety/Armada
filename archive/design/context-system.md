@@ -372,7 +372,7 @@ CORE (always-on, ~11 rules, ~18-25 KB total):
 5. Proving a fix: reproduce the symptom; a self-reported success is not
    evidence. (`shared/unified-project-memory.md`)
 6. Domain scope and hard guardrails: the owner's domain work is authorized (do
-   not false-refuse); firmware reflash is banned.
+   not false-refuse); a destructive firmware-write path is banned.
 7. Armada is direct-edit only: never dispatch Armada voyages or rescues for
    Armada bugs. (`repos/armada/README.md`)
 8. Typed-decision non-negotiables: the model never approves, lands, dispatches,

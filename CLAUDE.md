@@ -25,7 +25,7 @@ flags (`includeDescription`, `includeContext`, `includeTestOutput`,
 ## Durable memory
 
 `AI-Memory` is the sole durable memory source for every runtime. On this server
-it is at `/srv/armada/AI-Memory`, mounted read-only.
+the operator mounts it read-only at the path the admiral's memory root names.
 
 Read `shared/` in full plus `repos/armada/`. The index is a map and holds no
 rules, so reading it alone tells you nothing. Skip the other repositories'

@@ -105,7 +105,7 @@ namespace Armada.Test.Unit.Suites.Services
                     "output/vendor-export/items.json"),
                     "an extractor export lives beside the dock");
                 AssertTrue(MissionSubjectExtractor.IsExternalSourceTreePath(
-                    "output/decrypted-xml/Catalog.xml"),
+                    "output/decrypted-example/Catalog.xml"),
                     "a decrypted catalogue tree is provisioned, not committed");
             });
 

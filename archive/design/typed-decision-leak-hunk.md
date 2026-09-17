@@ -195,7 +195,7 @@ Mitigations, all already implied by the non-negotiables:
 - The four-week review measures the false-positive rate on the security-protocol
   vessels first; a decision reversed by operators on more than 5% of its gated
   outcomes drops back to Shadow until its criteria or threshold are fixed.
-- The hard guardrail elsewhere in the project (firmware reflash is banned)
+- The hard guardrail elsewhere in the project (a destructive firmware-write path is banned)
   is unchanged and is not this decision's concern.
 
 ## Not in scope

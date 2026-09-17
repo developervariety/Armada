@@ -78,7 +78,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }).ConfigureAwait(false);
                 Objective objective = await testDb.Driver.Objectives.CreateAsync(new Objective
                 {
-                    Title = "ECU protocol slice",
+                    Title = "Example protocol slice",
                     Status = ObjectiveStatusEnum.Completed,
                     BacklogState = ObjectiveBacklogStateEnum.Dispatched,
                     Category = "Protocol",
