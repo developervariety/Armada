@@ -390,18 +390,49 @@ Two operator-side decisions gather owner decisions and pre-fill the corpus:
   digest event carries only ranking metadata (counts, cost levels, sources),
   never the question text.
 - **`corpus_prelabel`** (ships `Gate`) is an operator-side helper script,
-  `scripts/autonomy/draft-corpus-line.mjs`, run outside the admiral. It drafts
-  one decision-corpus line (the schema in `AI-Memory/corpus/README.md`) from an
+  `scripts/autonomy/draft-corpus-line.mjs`, run outside the admiral and never in
+  the dispatch loop. It drafts one line of the operator's decision corpus from an
   incident, a mission failure reason, a Mail signal, or a preflight result, so
-  the operator does not start the capture rule from a blank line. Its single
-  hard guarantee is that every line it emits carries `"draft": true` and nothing
-  it emits is a confirmed line: the operator confirms a draft by removing the
-  flag, and the script never removes it and never pre-fills a decision — only
-  the fields the corpus rule already settles (a preflight line's
-  `preventable_in_brief` follows from its failed questions) are set. Run
-  `node scripts/autonomy/draft-corpus-line.mjs --input <file.json>` (or pipe the
-  input object on stdin), optionally with `--out decisions.jsonl` to append the
-  draft; `node scripts/autonomy/test-draft-corpus-line.mjs` is its self-check.
+  the operator does not start the capture rule from a blank line. It asks the
+  classifier exactly one closed question, the **provisional kind** of the
+  captured record, and fills nothing else the corpus rule does not already
+  settle (a preflight line's `preventable_in_brief` follows from its failed
+  questions). It never pre-fills the decision: `decided`, `decided_by` and
+  `basis` are always left for the person.
+
+  Its single hard guarantee is that every line it emits carries `"draft": true`
+  — on the model path, on the fail-closed path, and when the model answers at
+  full confidence. The operator confirms a draft by removing that flag and the
+  `draft_meta` block beside it; the script never removes either and never writes
+  a confirmed line.
+
+  **How it reaches the classifier.** The script holds no provider key and never
+  calls a provider. It calls the MCP tool `armada_typed_decision` on the admiral,
+  which owns the key, redacts again on its side, and records the one event with
+  the state's hash and byte count. The script authenticates with the operator's
+  own `ARMADA_API_KEY`, so the provider key stays in the admiral's environment
+  variable or its protected key file. The script also holds no copy of the
+  decision's mode or threshold: it reads both from
+  `GET /api/v1/typed-decisions` per run, so this shipped decision governs the
+  helper and a settings change takes effect with no edit here.
+
+  **Fail closed.** The decision `Off`, the global mode `Off`, a missing key
+  (`typed_decisions_no_key`), `Shadow` mode, an unreachable admiral, a timeout, a
+  non-2xx reply, a rate-limited or overloaded provider, an unparsable answer, a
+  choice outside the corpus kinds, or a confidence below the gate threshold all
+  produce a draft with **no** kind and the reason stated in
+  `draft_meta.kind_reason`. A kind is never guessed from the input shape, and no
+  failure reaches the operator as an unhandled error. State is redacted before it
+  leaves the script, in the same order as the admiral's own guard, and only its
+  hash and byte count are recorded on the draft.
+
+  Run `node scripts/autonomy/draft-corpus-line.mjs --input <file.json>` (or pipe
+  the input object on stdin), with `--out decisions.jsonl` to append the draft,
+  `--kind <kind>` to set the kind yourself, or `--no-model` to draft without any
+  classifier call. `node scripts/autonomy/test-draft-corpus-line.mjs` is its
+  self-check; set `ARMADA_CORPUS_INGESTER` to the operator eval store's corpus
+  ingester to also compare the corpus-kind mapping against the second copy that
+  lives there, which is otherwise reported as skipped, never as passed.
 Two platform-side decisions ship `Gate`:
 
 - **`flake_score`** runs in `DefinitionOfDoneGate` after

@@ -8,6 +8,19 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- The `corpus_prelabel` helper (`scripts/autonomy/draft-corpus-line.mjs`) now asks the classifier for the
+  provisional kind of a captured record instead of guessing it from the input shape. It calls the
+  `armada_typed_decision` MCP tool on the admiral with the operator's Armada API key, so it holds no provider key,
+  and it reads the decision's own mode and gate threshold from `GET /api/v1/typed-decisions` rather than keeping a
+  second copy of them. It stays an operator-side script outside the dispatch loop. Every emitted line still carries
+  `"draft": true` — on the model path, on the fail-closed path, and at full confidence — and the script never
+  removes that flag and never fills `decided`, `decided_by` or `basis`. The decision Off, the global mode Off, no
+  key, Shadow mode, a timeout, a non-2xx reply, a rate-limited or overloaded provider, an unparsable answer, an
+  unknown kind, or a confidence below the threshold each yield a draft with no kind and a stated reason. State is
+  redacted before it leaves the script and only its hash and byte count are recorded on the draft. The corpus-kind
+  to scored-decision mapping is now one named map, compared by the self-check against the second copy in the
+  operator eval store when `ARMADA_CORPUS_INGESTER` names it; that comparison reports SKIP, never PASS, when it
+  cannot run.
 - Typed-decision training data (phase 0 of the local-classifier programme, owner ruling 2026-09-17). The
   retention section is carried by the settings hot reload, so enabling it takes effect without a restart. The REDACTED
   state of a decision call can now be retained on the host as JSON lines under
