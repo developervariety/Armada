@@ -88,10 +88,10 @@ namespace Armada.Test.Unit.Suites.Services
                     Harness harness = Harness.Create(testDb, client, enabled: true);
 
                     // The state carries a mission id and an absolute path (must be redacted) plus a
-                    // heavy-duty product identifier (must survive).
+                    // product identifier (must survive).
                     object args = new
                     {
-                        state = "mission msn_secret001 on host at /srv/example/docks failed decoding PGN65259 SecurityAccess seed-key",
+                        state = "mission msn_secret001 on host at /srv/example/docks failed decoding Frame65259 AccessHandshake token",
                         questions = new
                         {
                             cause = new
@@ -111,8 +111,8 @@ namespace Armada.Test.Unit.Suites.Services
                     string egressed = client.LastState ?? "";
                     AssertFalse(egressed.Contains("msn_secret001", StringComparison.Ordinal), "The mission id must be redacted before egress");
                     AssertFalse(egressed.Contains("/srv/example", StringComparison.Ordinal), "The absolute path must be redacted before egress");
-                    AssertContains("PGN65259", egressed);
-                    AssertContains("SecurityAccess", egressed);
+                    AssertContains("Frame65259", egressed);
+                    AssertContains("AccessHandshake", egressed);
 
                     // One event, and it must NOT carry the raw state.
                     List<ArmadaEvent> events = await testDb.Driver.Events.EnumerateByTypeAsync(TypedDecisionRecorder.EventTypeCaptain).ConfigureAwait(false);
@@ -156,7 +156,7 @@ namespace Armada.Test.Unit.Suites.Services
                     FakeTypedDecisionClient client = new FakeTypedDecisionClient();
                     client.NextResult = NoulResult("contradicts_scope", 0.2);
 
-                    // Tool enabled, but premise_check decision Off (the default): dormant.
+                    // Tool enabled, but premise_check decision Off: dormant.
                     Harness dormant = Harness.Create(testDb, client, enabled: true);
                     string dormantResponse = await dormant.CallAsync("armada_check_premise", new { restatement = "I will port the decoder." }).ConfigureAwait(false);
                     AssertContains("\"available\":false", Compact(dormantResponse));
@@ -338,8 +338,8 @@ namespace Armada.Test.Unit.Suites.Services
                 ArmadaSettings settings = new ArmadaSettings();
                 settings.TypedDecisions.CaptainTool.Enabled = enabled;
                 settings.TypedDecisions.CaptainTool.MaxCallsPerMission = maxCallsPerMission;
-                if (enablePremiseCheck) settings.TypedDecisions.Decisions["premise_check"].Mode = TypedDecisionModeEnum.Gate;
-                if (enableMemoryRecord) settings.TypedDecisions.Decisions["memory_record"].Mode = TypedDecisionModeEnum.Gate;
+                settings.TypedDecisions.Decisions["premise_check"].Mode = enablePremiseCheck ? TypedDecisionModeEnum.Gate : TypedDecisionModeEnum.Off;
+                settings.TypedDecisions.Decisions["memory_record"].Mode = enableMemoryRecord ? TypedDecisionModeEnum.Gate : TypedDecisionModeEnum.Off;
 
                 Harness harness = new Harness();
                 TypedDecisionRecorder recorder = new TypedDecisionRecorder(testDb.Driver, new LoggingModule());
@@ -397,7 +397,7 @@ namespace Armada.Test.Unit.Suites.Services
             public Task<TypedDecisionResult> DecideAsync(TypedDecisionRequest request, CancellationToken token)
             {
                 CallCount++;
-                LastState = request.State as string ?? request.State?.ToString();
+                LastState = Armada.Test.Unit.TestHelpers.FakeTypedDecisionClient.StateText(request);
                 LastQuestionIds.Clear();
                 foreach (KeyValuePair<string, TypedQuestion> entry in request.Questions)
                     LastQuestionIds.Add(entry.Key);

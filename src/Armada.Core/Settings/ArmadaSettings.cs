@@ -1101,16 +1101,16 @@ namespace Armada.Core.Settings
 
             // Read through the shared settings instance today, but merged in place so a
             // future by-reference consumer does not silently go stale.
+            ApiCaptainCloudProviders = source.ApiCaptainCloudProviders;
             ModelTier.CopyFrom(source.ModelTier);
             VoyageDispatch.CopyFrom(source.VoyageDispatch);
 
             // Read through the shared settings instance on every use.
             CaptainQuarantine = source.CaptainQuarantine;
             AutonomousRecovery = source.AutonomousRecovery;
-            // Swap the whole TypedDecisions section by reference so the mode flips hot and an MCP
-            // settings write that serializes the in-memory copy cannot clobber it (the 2026-09-08
-            // provider-wipe class of bug).
-            TypedDecisions = source.TypedDecisions;
+            // Decision points hold this section by reference, so it is copied in place: the reloaded mode
+            // reaches them, and a later settings write serializes the reloaded values rather than stale ones.
+            TypedDecisions.CopyFrom(source.TypedDecisions);
             CrashLoopDetection = source.CrashLoopDetection;
             AutonomousObjectiveScheduler = source.AutonomousObjectiveScheduler;
             IncidentLifecycle = source.IncidentLifecycle;

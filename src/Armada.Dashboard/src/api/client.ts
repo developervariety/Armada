@@ -141,6 +141,10 @@ import type {
   AccountLoginStatus,
   UsageAccountDeleteResult,
   UsageAccountRefreshResult,
+  TypedDecisionStatus,
+  SmartRoutingPreviewResult,
+  TypedDecisionsUpdate,
+  TypedDecisionKeyRemoveResult,
 } from '../types/models';
 import { listAllPages } from '../lib/listAllPages';
 
@@ -1172,4 +1176,12 @@ export const refreshUsageAccount = (accountId: string) =>
   post<UsageAccountRefreshResult>(`/api/v1/usage-accounts/${encodeURIComponent(accountId)}/refresh`, undefined, { timeout: 90000 });
 
 /** Administrator-only, read-only usage admission preview. */
-export const previewUsageRouting = (data: Record<string, unknown>) => post<Record<string, unknown>>('/api/v1/settings/usage-preview', data, { timeout: USAGE_SETTINGS_TIMEOUT_MS });
+export const previewUsageRouting = (data: Record<string, unknown>) => post<SmartRoutingPreviewResult>('/api/v1/settings/usage-preview', data, { timeout: USAGE_SETTINGS_TIMEOUT_MS });
+
+// ==================== Typed decisions ====================
+/** Administrator-only: effective and stored modes, key presence and source, and every decision. Never returns the key. */
+export const getTypedDecisions = () => get<TypedDecisionStatus>('/api/v1/typed-decisions');
+export const updateTypedDecisions = (data: TypedDecisionsUpdate) => put<TypedDecisionStatus>('/api/v1/typed-decisions', data);
+/** Writes the provider key file. The server answers 204 and never echoes the key. */
+export const saveTypedDecisionKey = (apiKey: string) => put<void>('/api/v1/typed-decisions/key', { apiKey });
+export const removeTypedDecisionKey = () => del<TypedDecisionKeyRemoveResult>('/api/v1/typed-decisions/key');

@@ -187,7 +187,7 @@ export default function RoutingPolicyEditor({ saved, disabled = false, onSaved }
         </p>
         {usageRoutingEnabled && (
           <p className="text-muted" role="note">
-            {t('Smart Routing is enabled below. While it is on, reserved high-tier slots and persona or voyage preferred captains are not applied; tier membership still applies.')}
+            {t('Smart Routing is on. It starts from this Legacy Routing order, then applies the usage filter and persona model lists.')}
           </p>
         )}
         <div className="settings-grid">

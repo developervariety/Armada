@@ -644,6 +644,9 @@ namespace Armada.Core.Context
         {
             if (sidecar == null || sidecar.Count == 0) return;
 
+            HashSet<string> chunkIds = new HashSet<string>(chunks.Count, StringComparer.Ordinal);
+            foreach (ContextChunk c in chunks) chunkIds.Add(c.Id);
+
             foreach (ContextChunk c in chunks)
             {
                 if (!sidecar.TryGet(c.Id, out ChunkMetadataOverride ov)) continue;
@@ -655,6 +658,26 @@ namespace Armada.Core.Context
                 if (ov.MustRetrieve != null && ov.MustRetrieve.Count > 0)
                     c.MustRetrieve = new List<string>(ov.MustRetrieve);
             }
+
+            // A sidecar key that names no generated chunk silently drops its metadata. That matters
+            // most for a must_retrieve safety leaf detached by a renamed heading or a file that fell
+            // under the sub-chunk threshold: the leaf then ships without its safety domain and no
+            // build fails. Name the orphaned keys loudly, and the safety ones especially.
+            List<string> orphaned = new List<string>();
+            List<string> orphanedSafety = new List<string>();
+            foreach (string key in sidecar.Keys)
+            {
+                if (chunkIds.Contains(key)) continue;
+                orphaned.Add(key);
+                if (sidecar.TryGet(key, out ChunkMetadataOverride o) && o.MustRetrieve != null && o.MustRetrieve.Count > 0)
+                    orphanedSafety.Add(key);
+            }
+            if (orphaned.Count > 0)
+                _Logging?.Warn(_Header + "chunk-metadata sidecar has " + orphaned.Count
+                    + " key(s) matching no generated chunk (metadata not applied)"
+                    + (orphanedSafety.Count > 0
+                        ? "; " + orphanedSafety.Count + " carry must_retrieve: " + String.Join(", ", orphanedSafety)
+                        : ""));
         }
 
         private ContextIndexManifest BuildManifest(List<ContextChunk> chunks)

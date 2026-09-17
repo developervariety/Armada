@@ -21,14 +21,20 @@ define.
 - **Modes.** Each decision runs in `Off`, `Shadow` (record only), or `Gate`
   (advise the gated action). A global mode caps every decision and is the kill
   switch. Both record the rule's verdict and the model's on every call.
+- **Off without a key.** The effective global mode is `Off` (reason
+  `typed_decisions_no_key`) until a provider key resolves. With a key, each
+  decision runs at its shipped or configured mode.
 - **Redaction.** Nothing leaves the server unredacted. Events store a hash and
-  size of the state, never the state itself. The provider key lives only in the
-  admiral environment.
+  size of the state, never the state itself. The provider key comes from the
+  admiral environment variable or the key file
+  `<data directory>/secrets/typesafe-api-key` (folder `0700`, file `0600`), which
+  an administrator can write through `PUT /api/v1/typed-decisions/key`. It is
+  never stored in settings, logged, recorded, or returned.
 
 ## Decision catalogue
 
 Each decision has a stable name (its settings key and event `area`) and a default
-mode. Names, not index numbers, are the stable identifiers.
+mode, which applies once a key is present. Names, not index numbers, are the stable identifiers.
 
 ### Enabled by default (`Gate`)
 
@@ -41,12 +47,12 @@ mode. Names, not index numbers, are the stable identifiers.
 | `refusal` | Whether a captain result is a model refusal rather than genuine output. |
 | `papercut_merge` | Whether two papercut reports describe the same underlying issue and should merge. |
 | `lint_finding` | How a Linter finding routes to the next stage: only `correctness`/`safety` at `must_fix` or above is marked blocking; a `style_preference` becomes an evidence note. |
+| `capacity_escalation` | Smart Routing only: whether a mission is `lighter`, `default`, or `stronger` work for its persona, which chooses the persona model list tried first (threshold 0.90; every failure is `default`; cached per mission). It never makes a captain eligible. |
 
-### Available, off until enabled (`Off`)
+### Also shipped in `Gate`
 
 | Name | What it decides |
 | --- | --- |
-| `routing_hint` | The work's shape, to order a persona's already-approved Smart Routing routes (never widens or narrows eligibility). |
 | `prior_art` | Whether the requested work already exists, with evidence, before a stage begins. |
 | `premise_check` | Whether a brief's stated premise still holds at the target commit. |
 | `criteria_lint` | Whether acceptance criteria are testable and unambiguous. |
@@ -64,6 +70,12 @@ mode. Names, not index numbers, are the stable identifiers.
 | `memory_record` | The shape of a memory record for a captured decision. |
 | `owner_digest` | A digest of owner decisions for later review. |
 | `corpus_prelabel` | A provisional label for a captured decision in the evaluation corpus. |
+
+### Retired
+
+| Name | Replaced by |
+| --- | --- |
+| `routing_hint` | `capacity_escalation`. The work-shape hint and route `shapes` tags are removed; a stored `routing_hint` entry or `shapes` list is ignored. |
 
 ## Captain-facing use
 

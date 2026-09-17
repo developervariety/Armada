@@ -4950,11 +4950,37 @@ Access-Control-Allow-Headers: Content-Type, Authorization, X-Token, X-Api-Key
 ```
 ## Account usage and persona routing
 
-See [Smart Routing](USAGE_ROUTING.md) for the opt-in policy, collectors,
-credential references, reserve behavior, and Dashboard controls. The settings
-REST API exposes `providerUsage`; `POST /api/v1/settings/usage-preview` previews
-an optional draft policy with settings write permission. No new MCP tool is
+See [Smart Routing](USAGE_ROUTING.md) for the opt-in policy (usage filter,
+persona model lists, the `capacity_escalation` decision, route restrictions),
+collectors, credential references, and Dashboard controls. The settings REST API
+exposes `providerUsage`; `POST /api/v1/settings/usage-preview` previews the
+Legacy Routing order, usage verdicts, model groups, capacity reading, and chosen
+captain for a saved or draft policy with settings write permission.
+
+`POST /api/v1/settings/usage-preview` request fields: `persona`, `priority`,
+`preferredModel`, `missionTitle`, `missionText`, `usageRouting` (draft). The
+typed-decision client is called only when `missionTitle` or `missionText` is
+present. Response fields: `reason`, `smartRoutingEnabled`, `hasPersonaRoutes`,
+`hasPersonaModels`, `legacyOrder`, `usageFilter`, `modelGroups`, `capacity`
+(`choice`, `source`, `asked`), `candidates`, `chosen`, `accounts`, `warnings`,
+`scope`. See [the preview table](USAGE_ROUTING.md#dashboard-and-api). No new MCP tool is
 required. Policy updates use `PUT /api/v1/settings` and hot-reload.
+
+### Typed decisions
+
+Administrator only (settings write permission). These routes are never recorded
+in request history.
+
+| Method | Path | Body | Response |
+| --- | --- | --- | --- |
+| `GET` | `/api/v1/typed-decisions` | none | `effectiveMode`, `effectiveReason` (`typed_decisions_no_key` without a key), `storedMode`, `keyPresent`, `keySource` (`env` or `file`), `decisions[]` with `key`, `mode`, `threshold`, `description` |
+| `PUT` | `/api/v1/typed-decisions` | `{ "mode"?: "Off"\|"Shadow"\|"Gate", "decisions"?: { "<name>": { "mode"?, "gateThreshold"? } } }` | The same status; 400 for an unknown decision, mode, or a threshold outside 0 to 1 |
+| `PUT` | `/api/v1/typed-decisions/key` | `{ "apiKey": "..." }` | 204, no body. Writes `<data directory>/secrets/typesafe-api-key` (folder 0700, file 0600) |
+| `DELETE` | `/api/v1/typed-decisions/key` | none | `fileRemoved`, `environmentSuppliesKey`, `keyPresent`, `keySource`, `effectiveMode`, `effectiveReason` |
+
+The key is never returned, logged, or stored in settings. The environment
+variable named by `typedDecisions.apiKeyEnv` wins over the file. See
+[typed decisions](ops/08-configuration-and-administration.md#typed-decisions).
 
 ### Subscription account logins
 

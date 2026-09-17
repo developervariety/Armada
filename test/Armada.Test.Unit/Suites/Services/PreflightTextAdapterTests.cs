@@ -216,7 +216,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertTrue(client.LastRequest != null, "the client received a request");
                 AssertEqual(PreflightTextAdapter.DecisionPoint, client.LastRequest!.DecisionPoint, "the request names the preflight decision");
-                string state = client.LastRequest.State as string ?? String.Empty;
+                string state = FakeTypedDecisionClient.StateText(client.LastRequest);
                 AssertTrue(state.Contains("#id", StringComparison.Ordinal), "the redactor replaced the objective id in the transmitted state");
                 AssertTrue(!state.Contains("obj_secret", StringComparison.Ordinal), "the raw objective id never egresses");
                 AssertTrue(client.LastRequest.Questions.ContainsKey("q13"), "the Q13 owner-question choice is asked");

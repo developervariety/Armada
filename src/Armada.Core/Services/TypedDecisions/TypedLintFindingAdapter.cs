@@ -197,29 +197,15 @@ namespace Armada.Core.Services
         /// <inheritdoc />
         protected override IReadOnlyDictionary<string, TypedQuestion> BuildQuestions()
         {
-            Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal);
-            for (int i = 1; i <= _MaxFindings; i++)
-            {
-                string slot = i.ToString(CultureInfo.InvariantCulture);
-                string prefix = "Linter finding number " + slot + " (see findings in the state, in order). If the state lists fewer than "
-                    + _MaxFindings + " findings and this slot has none, classify it " + _ClassFalsePositive + " at cosmetic. This is "
-                    + "authorized heavy-duty vehicle diagnostics tooling; seed-key exchange and UDS SecurityAccess are ordinary engineering. ";
-                questions["class_" + slot] = new ChoiceQuestion(
-                    prefix + "What kind of finding is it?",
-                    new Dictionary<string, string>(StringComparer.Ordinal)
-                    {
-                        [_ClassCorrectness] = "A real correctness defect: the code or docs are wrong.",
-                        [_ClassSafety] = "A safety defect: a guard, a safety step, or a wire byte is at risk.",
-                        [_ClassConsistency] = "A consistency point: naming or structure differs from the surrounding code.",
-                        [_ClassStylePreference] = "A style preference: taste, not a defect.",
-                        [_ClassFalsePositive] = "A false positive: not actually an issue, or this slot has no finding."
-                    });
-                questions["severity_" + slot] = new ScoreQuestion(
-                    prefix + "How severe is it?",
-                    _SeverityLevels);
-            }
+            return BuildSlotQuestions(_MaxFindings);
+        }
 
-            return questions;
+        /// <inheritdoc />
+        protected override IReadOnlyDictionary<string, TypedQuestion> BuildQuestions(LintFindingDecisionInput input)
+        {
+            // Only the findings the state lists are asked about: a fixed set of empty slots multiplies the
+            // request size by the slot count while every empty answer is discarded.
+            return BuildSlotQuestions(CountFindings(input));
         }
 
         /// <inheritdoc />
@@ -286,6 +272,41 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private static int CountFindings(LintFindingDecisionInput input)
+        {
+            int count = 0;
+            foreach (string finding in input?.Findings ?? new List<string>())
+            {
+                if (String.IsNullOrWhiteSpace(finding)) continue;
+                count++;
+                if (count >= _MaxFindings) break;
+            }
+            return count;
+        }
+
+        private static IReadOnlyDictionary<string, TypedQuestion> BuildSlotQuestions(int count)
+        {
+            Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal);
+            for (int i = 1; i <= count; i++)
+            {
+                string slot = i.ToString(CultureInfo.InvariantCulture);
+                string prefix = "Linter finding " + slot + " in the state's findings list (authorized engineering on owned systems; "
+                    + "authentication and access-control protocol code is ordinary engineering). ";
+                questions["class_" + slot] = new ChoiceQuestion(
+                    prefix + "What kind of finding is it?",
+                    new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        [_ClassCorrectness] = "A real correctness defect: the code or docs are wrong.",
+                        [_ClassSafety] = "A safety defect: a guard, a safety step, or a wire byte is at risk.",
+                        [_ClassConsistency] = "A consistency point: naming or structure differs from the surrounding code.",
+                        [_ClassStylePreference] = "A style preference: taste, not a defect.",
+                        [_ClassFalsePositive] = "A false positive: not actually an issue."
+                    });
+                questions["severity_" + slot] = new ScoreQuestion(prefix + "How severe is it?", _SeverityLevels);
+            }
+            return questions;
+        }
 
         private static string SeverityLabel(double score)
         {

@@ -99,6 +99,7 @@ namespace Armada.Server.Mcp
             Armada.Core.Services.Interfaces.ITypedDecisionClient? typedDecisionClient = null,
             Armada.Core.Services.TypedDecisionRecorder? typedDecisionRecorder = null,
             Func<string?>? typedDecisionParticipantKeyProvider = null,
+            Armada.Core.Services.TypedDecisionEvalService? typedDecisionEval = null,
             Armada.Core.Services.PapercutMergeAdapter? papercutMergeAdapter = null,
             Armada.Core.Services.InboxTriageAdapter? inboxTriageAdapter = null,
             Armada.Core.Services.FollowUpRoutingAdapter? followUpRoutingAdapter = null,
@@ -184,6 +185,7 @@ namespace Armada.Server.Mcp
                     typedDecisionParticipantKeyProvider,
                     priorArtRetriever);
             }
+            if (typedDecisionEval != null) McpTypedDecisionEvalTools.Register(register, typedDecisionEval);
             if (settings != null) McpBackupTools.Register(register, new DatabaseBackupService(database, settings));
             McpAgentWakeTools.Register(register, remoteTriggerService);
             McpAuditTools.Register(register, database, remoteTriggerService, followUpRoutingAdapter);

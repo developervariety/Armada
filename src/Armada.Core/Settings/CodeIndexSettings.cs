@@ -121,6 +121,14 @@ namespace Armada.Core.Settings
         public bool UseSemanticSearch { get; set; } = false;
 
         /// <summary>
+        /// Optional id of a registered Embedding model endpoint to use for code-index embeddings.
+        /// When empty, the single enabled Embedding endpoint is used if one is registered; otherwise
+        /// the EmbeddingApiBaseUrl / EmbeddingApiKey / EmbeddingModel below apply. Naming an endpoint
+        /// managed on the model-endpoints surface keeps the provider and its key out of this block.
+        /// </summary>
+        public string? EmbeddingEndpointId { get; set; } = null;
+
+        /// <summary>
         /// Embedding model name.
         /// </summary>
         public string EmbeddingModel

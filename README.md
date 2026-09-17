@@ -76,9 +76,11 @@ What the fork adds on top of the shared model:
 - **Deeper review.** Linter and Recorder pipeline stages, immutable reviewed-commit
   Checks, declared-consumer builds, verified landing evidence, and full recovery
   pipelines with provider-aware rescue.
-- **Usage-aware routing.** Model-tier routing plus optional Routing V2, which moves
-  routine work to approved fallback accounts when an account's allowance runs low,
-  while preserving persona preferences.
+- **Smart Routing.** Legacy Routing (model tiers, persona locks, within-tier
+  ranking, non-native-first) plus an opt-in usage filter that removes captains on
+  exhausted accounts and demotes low ones, per-persona default, lighter, and
+  stronger model lists chosen by the `capacity_escalation` typed decision, and
+  optional persona route restrictions.
 - **Operations.** An in-place Restart Server action adapted for Docker (a graceful
   stop under the container restart policy); a Voyage AI code-index embedding client;
   supervised self-deploy, hardened but disabled pending its safety integration; and
@@ -181,17 +183,22 @@ off). A deployment applies fleet policy from settings, not from C#.
   configured specialist and Judge stages stay `high`. Preview reports separate
   requirements when mission descriptions use different literal model pins.
 - Specialist reservation, family classification, within-tier preference order, non-native-first, reserved high-tier slots, and the stage-persona title-prefix guard live in `ArmadaSettings` (`factory/settings.fleet.example.json` is the overlay that restores the former hardcoded fleet).
-- Optional [Routing V2](docs/USAGE_ROUTING.md) replaces legacy preference overrides when enabled. It preserves persona preferences and moves routine work to approved fallback accounts when allowance runs low. The Dashboard Settings hub’s Routing tab supports account usage, reserve thresholds, budget planning, and draft previews. Collectors support Codex, Claude, Cursor, OpenCode Go, and normalized local snapshots. An account can own a separate captain login for Claude Code, Codex, OpenCode, or Cursor; it is off unless configured, and a provider limit on one captain holds its whole account. A logged-out, expired, or held account blocks assignment with a named reason code in status and the usage preview.
+- **Legacy Routing** is everything above, with `modelTier.usageRouting.enabled` false. Optional [Smart Routing](docs/USAGE_ROUTING.md) (`enabled` true) keeps the Legacy Routing order and filters it: captains on Exhausted accounts are removed and captains on Low or Reserve accounts move after the rest. Per-persona `default`, `lighter`, and `stronger` model lists group the order, the `capacity_escalation` typed decision chooses the list tried first, and optional persona routes restrict a persona to named accounts. The Dashboard Settings hub’s Routing tab supports account usage, reserve thresholds, budget planning, and draft previews. Collectors support Codex, Claude, Cursor, OpenCode Go, and normalized local snapshots. An account can own a separate captain login for Claude Code, Codex, OpenCode, or Cursor; it is off unless configured, and a provider limit on one captain holds its whole account. A logged-out, expired, or held account blocks assignment with a named reason code in status and the usage preview.
 - The same Routing tab edits those fields and saves only the fields that changed. `modelTier` and `voyageDispatch` hot-reload; `modelProviders` and additional personas/pipelines/templates load at startup.
 
-### Typed decisions (gate-enforced, operationally off until keyed)
+### Typed decisions (Off until a key is present)
 
 A calibrated classifier (TypeSafe Jev) the admiral can consult at a decision
-point, behind the deterministic rules it never replaces. Six decisions ship in `Gate` from the first deploy, and the rest stay `Off`
-until enabled. The decision catalogue and its principles are documented in
-[docs/design/typed-decisions.md](docs/design/typed-decisions.md). No key means the null
-client whatever the mode, so the system is operationally off until the key is
-confirmed in the container. When a decision is enabled it can only make a call
+point, behind the deterministic rules it never replaces. Without a provider key
+the effective global mode is `Off` (reason `typed_decisions_no_key`), whatever
+the stored mode. With a key, every decision ships in `Gate` and records the
+rule's verdict and the model's on every call. The key comes from the environment
+variable named by `apiKeyEnv`, or from the key file
+`<data directory>/secrets/typesafe-api-key` that `PUT /api/v1/typed-decisions/key`
+writes; adding or removing it takes effect without a restart. The decision
+catalogue and its principles are documented in
+[docs/design/typed-decisions.md](docs/design/typed-decisions.md).
+When a decision is enabled it can only make a call
 more conservative, never lands or dispatches, gates only at or above the
 confidence threshold, fails closed to the deterministic rule, and never egresses
 unredacted state. Captains can consult read-only, per-mission-budgeted tools
@@ -200,19 +207,21 @@ unredacted state. Captains can consult read-only, per-mission-budgeted tools
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `mode` | `Gate` (off until key confirmed) | Global cap and kill switch: `Off`, `Shadow`, or `Gate`. Hot-reloaded. |
+| `mode` | `Gate` (effective `Off` without a key) | Global cap and kill switch: `Off`, `Shadow`, or `Gate`. Hot-reloaded. |
 | `baseUrl` | `https://api.typesafe.ai` | Provider base URL; the client POSTs to `{baseUrl}/v1/systemone`. |
 | `model` | `jev-latest` | Model id sent with each request. |
-| `apiKeyEnv` | `ARMADA_TYPESAFE_KEY` | Environment variable holding the Bearer key. The key is read from the environment only. |
+| `apiKeyEnv` | `ARMADA_TYPESAFE_KEY` | Environment variable holding the Bearer key. When unset, the key file `<data directory>/secrets/typesafe-api-key` is read. The key is never stored in settings. |
 | `timeoutSeconds` | `10` | Per-request timeout; a slower decision is unavailable, not late. |
 | `maxStateChars` | `8000` | Character cap on redacted state per request. |
-| `decisions` | six `Gate`, rest `Off` | Per-decision `mode` (`Off`/`Shadow`/`Gate`) and `gateThreshold`. Effective mode is the minimum of the global and per-decision mode. |
-| `captainTool` | disabled | Captain-facing tool: `enabled`, `maxCallsPerMission`, `maxStateChars`. |
+| `decisions` | all `Gate` | Per-decision `mode` (`Off`/`Shadow`/`Gate`) and `gateThreshold`. Effective mode is the minimum of the global and per-decision mode. |
+| `evalOnModelChange` | `true` | Run the synthetic evaluation set in the background when the provider reports a model version not yet evaluated. |
+| `captainTool` | enabled | Captain-facing tool: `enabled`, `maxCallsPerMission`, `maxStateChars`. |
 
-The system is operationally off until the key is confirmed in the container: no
-key means the null client, whatever the mode, and no consumer calls the client
-yet. `mode` hot-reloads and is in the settings reference-swap list, so an MCP
-settings write cannot clobber it. Every enabled call emits a
+Without a key no decision calls a client or records an event. `mode` and
+`decisions` hot-reload in place, so decision points see the change and a later
+settings write cannot clobber it. `GET /api/v1/typed-decisions` reports the
+effective and stored modes, key presence and source, and every decision;
+`PUT /api/v1/typed-decisions` changes modes and thresholds. Every enabled call emits a
 `typed_decision.gated`, `typed_decision.shadow`, or `typed_decision.unavailable`
 event carrying the decision, verdicts, confidences, tokens, latency, and the
 state's hash and byte count — never the state itself. See

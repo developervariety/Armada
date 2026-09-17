@@ -37,7 +37,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             return new ReviewSubstanceDecisionInput
             {
-                Mission = new Mission { Id = "msn_test", VesselId = "vsl_test", Title = "review a seed-key port" },
+                Mission = new Mission { Id = "msn_test", VesselId = "vsl_test", Title = "review a token port" },
                 Narrative = "The review covers completeness, correctness, tests, and failure modes with specifics.",
                 RequiredSections = new List<string> { "Completeness", "Correctness", "Tests", "Failure Modes" },
                 DiffStat = "3 files, +40/-8",
@@ -46,14 +46,14 @@ namespace Armada.Test.Unit.Suites.Services
         }
 
         // section nouls (four), substantiated score index, score confidence.
-        private static TypedDecisionResult SubstanceResult(double[] sectionNouls, double score, double scoreConfidence)
+        private static TypedDecisionResult SubstanceResult(double[] sectionNouls, double score, double scoreConfidence, Dictionary<string, double>? levelProbabilities = null)
         {
             Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal);
             for (int i = 0; i < sectionNouls.Length; i++)
             {
                 answers["section_" + (i + 1)] = new TypedAnswer { Type = "noul", Noul = sectionNouls[i], Confidence = sectionNouls[i] };
             }
-            answers["substantiated"] = new TypedAnswer { Type = "score", Score = score, Confidence = scoreConfidence };
+            answers["substantiated"] = new TypedAnswer { Type = "score", Score = score, Confidence = scoreConfidence, Probabilities = levelProbabilities };
             return new TypedDecisionResult { Available = true, Answers = answers, InputTokens = 10, OutputTokens = 5, LatencyMs = 12 };
         }
 
@@ -184,6 +184,37 @@ namespace Armada.Test.Unit.Suites.Services
                 ReviewSubstanceVerdict result = await adapter.DecideAsync(BuildInput(), ValidRule(), CancellationToken.None).ConfigureAwait(false);
 
                 AssertTrue(result.Validated && !result.Held, "a low-confidence thin score does not hold the PASS");
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
+            }).ConfigureAwait(false);
+
+            await RunTest("ThinPass_SplitScoreJustAboveLimit_HeldOnThinProbability", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                // The provider's reading of a headings-only review: the expected score lands just above
+                // partly-evidenced and the score's own confidence is zero, because the mass is split
+                // between the two lowest levels. Ninety percent of the mass says thin, so it is held.
+                TypedDecisionResult split = SubstanceResult(new double[] { 0.20, 0.20, 0.20, 0.20 }, 1.06, 0.0,
+                    new Dictionary<string, double> { ["0"] = 0.45, ["1"] = 0.45, ["2"] = 0.08, ["3"] = 0.02 });
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(split);
+                TypedReviewSubstanceAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+
+                ReviewSubstanceVerdict result = await adapter.DecideAsync(BuildInput(), ValidRule(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertTrue(result.Validated && result.Held, "a review the model reads as thin with 0.90 probability is held");
+                AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeGated).ConfigureAwait(false));
+            }).ConfigureAwait(false);
+
+            await RunTest("SplitPass_MostlyEvidenced_NotHeld_RuleStands", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                TypedDecisionResult split = SubstanceResult(new double[] { 0.70, 0.70, 0.70, 0.70 }, 1.70, 0.4,
+                    new Dictionary<string, double> { ["0"] = 0.10, ["1"] = 0.20, ["2"] = 0.60, ["3"] = 0.10 });
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(split);
+                TypedReviewSubstanceAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+
+                ReviewSubstanceVerdict result = await adapter.DecideAsync(BuildInput(), ValidRule(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertTrue(result.Validated && !result.Held, "a review mostly read as evidenced is not held");
                 AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false));
             }).ConfigureAwait(false);
 

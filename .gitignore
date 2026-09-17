@@ -18,3 +18,8 @@ node_modules/
 # macOS AppleDouble / resource-fork sidecars (created on volume mounts)
 ._*
 .DS_Store
+
+# Operator-local context-index sidecar/reports and weekly baselines.
+# Real content lives on the server at runtime and can name real vessels; never commit it.
+docs/context-index/
+docs/baselines/

@@ -2,21 +2,22 @@ namespace Armada.Core.Settings
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
+    using System.Text.Json.Serialization;
     using Armada.Core.Enums;
 
     /// <summary>
-    /// Settings for the typed-decision system (TypeSafe Jev). Off by default: no decision point
-    /// consults the model until the owner sets a mode and the change is deployed. The global
-    /// <see cref="Mode"/> is a cap and kill switch; each decision has its own mode, and the
-    /// effective mode is the minimum of the two.
+    /// Settings for the typed-decision system (TypeSafe Jev). The system is Off until a provider key
+    /// resolves (the environment variable named by <see cref="ApiKeyEnv"/>, or the key file in the data
+    /// directory). With a key, every decision ships in Gate; the stored global <see cref="Mode"/> is a cap
+    /// and kill switch, each decision has its own mode, and the effective mode is the minimum of the two.
     /// </summary>
     public class TypedDecisionSettings
     {
         /// <summary>
-        /// Global operating mode. A cap over every decision and the single kill switch. Ships as
-        /// <see cref="TypedDecisionModeEnum.Gate"/>, but the system is operationally off until the
-        /// key is confirmed in the container: without the key the null client is used regardless of
-        /// mode, and no consumer calls the client until an adapter lane wires a decision point.
+        /// Stored global operating mode. A cap over every decision and the single kill switch. Ships as
+        /// <see cref="TypedDecisionModeEnum.Gate"/>; it applies only while a key resolves, and
+        /// <see cref="EffectiveMode"/> is Off otherwise.
         /// </summary>
         public TypedDecisionModeEnum Mode { get; set; } = TypedDecisionModeEnum.Gate;
 
@@ -31,8 +32,8 @@ namespace Armada.Core.Settings
         public string Model { get; set; } = "jev-latest";
 
         /// <summary>
-        /// Name of the environment variable holding the Bearer key. The key is read from the
-        /// environment only; it is never stored in settings.
+        /// Name of the environment variable holding the Bearer key. When it is not set, the key file
+        /// <c>&lt;data directory&gt;/secrets/typesafe-api-key</c> is read. The key is never stored in settings.
         /// </summary>
         public string ApiKeyEnv { get; set; } = "ARMADA_TYPESAFE_KEY";
 
@@ -56,14 +57,22 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
-        /// Per-decision-point configuration keyed by decision name. A decision absent from this
-        /// map is treated as Off.
+        /// Per-decision-point configuration keyed by decision name. A shipped decision absent from a
+        /// supplied map takes its shipped default, so a settings file written before the decision
+        /// existed still runs it at its shipped mode; set its mode to Off to switch it off. An unknown
+        /// name (for example a retired decision) is kept and never consulted.
         /// </summary>
         public Dictionary<string, TypedDecisionRuleSettings> Decisions
         {
             get => _Decisions;
-            set => _Decisions = value ?? new Dictionary<string, TypedDecisionRuleSettings>();
+            set => _Decisions = WithShippedDefaults(value);
         }
+
+        /// <summary>
+        /// Whether a model version the provider reports for the first time starts a run of the synthetic
+        /// evaluation set in the background. Default true.
+        /// </summary>
+        public bool EvalOnModelChange { get; set; } = true;
 
         /// <summary>
         /// Configuration for the captain-facing typed-decision tool.
@@ -78,6 +87,29 @@ namespace Armada.Core.Settings
         private int _MaxStateChars = 8000;
         private Dictionary<string, TypedDecisionRuleSettings> _Decisions = DefaultDecisions();
         private TypedDecisionCaptainToolSettings _CaptainTool = new TypedDecisionCaptainToolSettings();
+
+        /// <summary>
+        /// Reports whether a provider key resolves. Set by the Admiral; never serialized. Null means the
+        /// caller does not gate on a key and the stored mode applies.
+        /// </summary>
+        [JsonIgnore]
+        public Func<bool>? KeyAvailable { get; set; }
+
+        /// <summary>
+        /// The global mode in effect: Off while no key resolves, otherwise the stored <see cref="Mode"/>.
+        /// </summary>
+        [JsonIgnore]
+        public TypedDecisionModeEnum EffectiveMode
+        {
+            get
+            {
+                Func<bool>? keyAvailable = KeyAvailable;
+                return keyAvailable != null && !keyAvailable() ? TypedDecisionModeEnum.Off : Mode;
+            }
+        }
+
+        /// <summary>The shipped decision names, in catalogue order.</summary>
+        public static IReadOnlyList<string> ShippedDecisionNames { get; } = DefaultDecisions().Keys.ToList();
 
         /// <summary>
         /// Instantiate with defaults.
@@ -98,14 +130,45 @@ namespace Armada.Core.Settings
             if (String.IsNullOrWhiteSpace(decisionPoint) || !_Decisions.TryGetValue(decisionPoint, out TypedDecisionRuleSettings? rule) || rule == null)
                 return new ResolvedTypedDecision(TypedDecisionModeEnum.Off, 0.0);
 
-            TypedDecisionModeEnum effective = Mode < rule.Mode ? Mode : rule.Mode;
+            TypedDecisionModeEnum global = EffectiveMode;
+            TypedDecisionModeEnum effective = global < rule.Mode ? global : rule.Mode;
             return new ResolvedTypedDecision(effective, rule.GateThreshold);
         }
 
         /// <summary>
-        /// The default decision map. The six Phase-1 decisions ship in Gate with their thresholds;
-        /// every other decision is Off until its adapter lane lands and the owner enables it. A
-        /// decision reversed by operators too often is demoted to Shadow, not deleted.
+        /// Copy every stored value from another instance into this one, in place, so decision points that
+        /// hold this instance see a hot reload. <see cref="KeyAvailable"/> is kept.
+        /// </summary>
+        /// <param name="source">Instance to copy from. Null is ignored.</param>
+        public void CopyFrom(TypedDecisionSettings source)
+        {
+            if (source == null || ReferenceEquals(source, this)) return;
+            Mode = source.Mode;
+            BaseUrl = source.BaseUrl;
+            Model = source.Model;
+            ApiKeyEnv = source.ApiKeyEnv;
+            TimeoutSeconds = source.TimeoutSeconds;
+            MaxStateChars = source.MaxStateChars;
+            Decisions = source.Decisions;
+            CaptainTool = source.CaptainTool;
+        }
+
+        private static Dictionary<string, TypedDecisionRuleSettings> WithShippedDefaults(Dictionary<string, TypedDecisionRuleSettings>? supplied)
+        {
+            Dictionary<string, TypedDecisionRuleSettings> merged = new Dictionary<string, TypedDecisionRuleSettings>(StringComparer.Ordinal);
+            if (supplied != null)
+                foreach (KeyValuePair<string, TypedDecisionRuleSettings> pair in supplied)
+                    if (!String.IsNullOrWhiteSpace(pair.Key)) merged[pair.Key] = pair.Value ?? new TypedDecisionRuleSettings();
+            foreach (KeyValuePair<string, TypedDecisionRuleSettings> pair in DefaultDecisions())
+                if (!merged.ContainsKey(pair.Key)) merged[pair.Key] = pair.Value;
+            return merged;
+        }
+
+        /// <summary>
+        /// The default decision map. Every decision ships in Gate at its threshold (0.90 unless its
+        /// design states otherwise) and records the rule's verdict and the model's on every call, so a
+        /// post-gate review can move a threshold or switch a decision off. The per-decision mode and the
+        /// global cap stop one decision, or all of them, without a deploy.
         /// </summary>
         /// <returns>The default per-decision configuration.</returns>
         private static Dictionary<string, TypedDecisionRuleSettings> DefaultDecisions()
@@ -118,26 +181,26 @@ namespace Armada.Core.Settings
                 ["review_substance"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.85 },
                 ["preflight"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.80 },
                 ["papercut_merge"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
-                ["leak_hunk"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
-                ["log_watch"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
-                ["premise_check"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
-                ["criteria_lint"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
-                ["inbox_triage"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
-                ["followup_routing"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
-                ["owner_digest"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
-                ["corpus_prelabel"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
-                ["flake_score"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
-                ["routing_hint"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
-                ["change_substance"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
-                ["memory_candidate"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off, GateThreshold = 0.90 },
-                ["stage_necessity"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
-                ["handoff_outcome"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
-                ["revision_kind"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
-                ["test_covers"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
-                ["memory_record"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
-                ["memory_review"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off, GateThreshold = 0.90 },
-                ["lint_finding"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off },
-                ["prior_art"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Off }
+                ["leak_hunk"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["log_watch"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["premise_check"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["criteria_lint"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["inbox_triage"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["followup_routing"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["owner_digest"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["corpus_prelabel"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["flake_score"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["capacity_escalation"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["change_substance"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["memory_candidate"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["stage_necessity"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["handoff_outcome"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["revision_kind"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["test_covers"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["memory_record"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["memory_review"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["lint_finding"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 },
+                ["prior_art"] = new TypedDecisionRuleSettings { Mode = TypedDecisionModeEnum.Gate, GateThreshold = 0.90 }
             };
         }
     }
@@ -166,14 +229,15 @@ namespace Armada.Core.Settings
     }
 
     /// <summary>
-    /// Configuration for the captain-facing typed-decision tool. Disabled by default.
+    /// Configuration for the captain-facing typed-decision tool. Enabled by default.
     /// </summary>
     public class TypedDecisionCaptainToolSettings
     {
         /// <summary>
-        /// Whether captains may call the typed-decision tool. Default false.
+        /// Whether captains may call the typed-decision tool. Default true; the tool stays informative,
+        /// mission-scoped, redacted, and budgeted per mission.
         /// </summary>
-        public bool Enabled { get; set; } = false;
+        public bool Enabled { get; set; } = true;
 
         /// <summary>
         /// Maximum typed-decision calls one mission may make.

@@ -150,7 +150,7 @@ namespace Armada.Test.Unit.Suites.Services
                     RecordingFollowUpRouter router = new RecordingFollowUpRouter();
                     FollowUpRoutingAdapter adapter = BuildAdapter(testDb.Driver, client, router, testCase.GlobalMode, testCase.DecisionMode);
 
-                    FollowUpRoutingResult result = await adapter.RouteAsync(SeededFollowUp(), "Port the Ford DTC-text seam", CancellationToken.None).ConfigureAwait(false);
+                    FollowUpRoutingResult result = await adapter.RouteAsync(SeededFollowUp(), "Port the fault-text seam", CancellationToken.None).ConfigureAwait(false);
 
                     AssertEqual(testCase.ExpectCalls, client.Calls, "client call count");
                     AssertEqual(testCase.ExpectCreated, router.CreatedCount, "Triaged objectives created");
@@ -181,6 +181,28 @@ namespace Armada.Test.Unit.Suites.Services
                 });
             }
 
+            await RunTest("FollowUpRouting_SameAsConfidenceWithoutNoul_DegradesToEvidence", async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                TypedDecisionResult confidenceOnly = new TypedDecisionResult
+                {
+                    Available = true,
+                    Answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+                    {
+                        ["home"] = new TypedAnswer { Type = "choice", Choice = FollowUpRoutingAdapter.HomeDuplicate, Confidence = 0.95 },
+                        ["same_as"] = new TypedAnswer { Type = "noul", Confidence = 0.95 }
+                    }
+                };
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(confidenceOnly);
+                RecordingFollowUpRouter router = new RecordingFollowUpRouter();
+                FollowUpRoutingAdapter adapter = BuildAdapter(testDb.Driver, client, router, TypedDecisionModeEnum.Gate, TypedDecisionModeEnum.Gate);
+
+                await adapter.RouteAsync(SeededFollowUp(), "Port the fault-text seam", CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(0, router.LinkedCount, "a confidence is not the probability that the item is a duplicate");
+                AssertEqual(1, router.EvidenceCount, "an unconfirmed duplicate degrades to an evidence note");
+            });
+
             await RunTest("FollowUpRouting_DuplicateWithoutCandidate_DegradesToEvidence", async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
@@ -207,7 +229,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 FollowUpRoutingResult result = await adapter.RouteAsync(followUp, null, CancellationToken.None).ConfigureAwait(false);
 
-                AssertEqual(3, client.Calls, "one call per follow-up item");
+                AssertEqual(1, client.Calls, "independent follow-up items share one request");
                 AssertEqual(3, router.EvidenceCount, "each item routed once");
                 AssertEqual(3, result.Routes.Count, "one route recorded per item");
             });
@@ -266,7 +288,7 @@ namespace Armada.Test.Unit.Suites.Services
                 ReviewedMissionId = "msn_reviewed",
                 VesselId = "vsl_example",
                 JudgeVerdict = "PASS",
-                SuggestedFollowUps = "- Track the residual Ford DTC-text gap and add a bundle round-trip test."
+                SuggestedFollowUps = "- Track the residual fault-text gap and add a bundle round-trip test."
             };
         }
 
@@ -275,7 +297,7 @@ namespace Armada.Test.Unit.Suites.Services
             Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
             {
                 ["home"] = new TypedAnswer { Type = "choice", Choice = home, Confidence = homeConfidence },
-                ["same_as"] = new TypedAnswer { Type = "noul", Noul = sameAs, Confidence = sameAs }
+                ["same_as"] = new TypedAnswer { Type = "noul", Noul = sameAs }
             };
             return new TypedDecisionResult { Available = true, Answers = answers, InputTokens = 10, OutputTokens = 5, LatencyMs = 12 };
         }
@@ -303,7 +325,7 @@ namespace Armada.Test.Unit.Suites.Services
 
             public List<FollowUpDuplicateCandidate> Candidates { get; set; } = new List<FollowUpDuplicateCandidate>
             {
-                new FollowUpDuplicateCandidate { ObjectiveId = "obj_existing", Title = "Track the residual Ford DTC-text gap" }
+                new FollowUpDuplicateCandidate { ObjectiveId = "obj_existing", Title = "Track the residual fault-text gap" }
             };
 
             public Task<IReadOnlyList<FollowUpDuplicateCandidate>> GetDuplicateCandidatesAsync(string? vesselId, int limit, CancellationToken token)

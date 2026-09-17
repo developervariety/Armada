@@ -201,8 +201,8 @@ namespace Armada.Core.Services
             {
                 ["cost_of_waiting"] = new ScoreQuestion(
                     "How costly is it that this owner decision is still waiting? Judge from the row it blocks, "
-                    + "how many rows chain behind it, and its age. This is authorized heavy-duty vehicle diagnostics "
-                    + "tooling; seed-key exchange and UDS SecurityAccess are ordinary engineering.",
+                    + "how many rows chain behind it, and its age. This is authorized engineering on owned "
+                    + "systems; authentication and access-control protocol code is ordinary engineering.",
                     _CostLevels),
                 ["default_safe"] = new NoulQuestion(
                     "A stated default (see proposed_default in the state) could proceed without the owner: it is the "
@@ -229,7 +229,7 @@ namespace Armada.Core.Services
 
             double defaultSafeNoul = 0.0;
             if (answers.TryGetValue("default_safe", out TypedAnswer? safe) && safe != null)
-                defaultSafeNoul = safe.Noul ?? safe.Confidence ?? 0.0;
+                defaultSafeNoul = safe.Noul ?? 0.0;
 
             string label = costLevel < 0 ? "unranked" : "cost:" + costLevel.ToString(CultureInfo.InvariantCulture);
 

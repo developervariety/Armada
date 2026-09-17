@@ -16,6 +16,10 @@
                             ]
              },
     "variable":  [
+{
+    "key": "usageAccountId",
+    "value": "codex-2"
+},
                      {
                          "key":  "baseUrl",
                          "value":  "http://localhost:7890",
@@ -289,6 +293,339 @@
                      }
                  ],
     "item":  [
+{
+    "name": "Subscription Accounts",
+    "item": [
+        {
+            "name": "Delete Subscription Account",
+            "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                    "raw": "{{baseUrl}}/api/v1/usage-accounts/{{usageAccountId}}",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "usage-accounts",
+                        "{{usageAccountId}}"
+                    ]
+                },
+                "description": "Deletes a subscription account, its persona routes and its server-derived login folder. Refused with account_has_captains while captains are assigned. Requires a global administrator."
+            }
+        },
+        {
+            "name": "Refresh Subscription Account Usage",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "url": {
+                    "raw": "{{baseUrl}}/api/v1/usage-accounts/{{usageAccountId}}/refresh",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "usage-accounts",
+                        "{{usageAccountId}}",
+                        "refresh"
+                    ]
+                },
+                "description": "Collects one account's usage now and reruns its login check. Honours a provider retry-after (usage_refresh_rate_limited). Requires a global administrator.",
+                "body": {
+                    "mode": "raw",
+                    "raw": "{}"
+                }
+            }
+        },
+        {
+            "name": "Create Account Login Folder",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "url": {
+                    "raw": "{{baseUrl}}/api/v1/usage-accounts/{{usageAccountId}}/login/home",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "usage-accounts",
+                        "{{usageAccountId}}",
+                        "login",
+                        "home"
+                    ]
+                },
+                "description": "Creates the account's server-derived login folder (mode 0700). Idempotent. Requires a global administrator.",
+                "body": {
+                    "mode": "raw",
+                    "raw": "{}"
+                }
+            }
+        },
+        {
+            "name": "Start Account Login",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "url": {
+                    "raw": "{{baseUrl}}/api/v1/usage-accounts/{{usageAccountId}}/login/start",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "usage-accounts",
+                        "{{usageAccountId}}",
+                        "login",
+                        "start"
+                    ]
+                },
+                "description": "Starts the runtime's device or browser login in the account folder and returns only the verification URL and user code. Requires a global administrator.",
+                "body": {
+                    "mode": "raw",
+                    "raw": "{}"
+                }
+            }
+        },
+        {
+            "name": "Submit Account Login Code",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "url": {
+                    "raw": "{{baseUrl}}/api/v1/usage-accounts/{{usageAccountId}}/login/code",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "usage-accounts",
+                        "{{usageAccountId}}",
+                        "login",
+                        "code"
+                    ]
+                },
+                "description": "Relays a pasted sign-in code to a pending paste-code login. The code is never returned or logged. Requires a global administrator.",
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"code\": \"<pasted-code>\"\n}"
+                }
+            }
+        },
+        {
+            "name": "Save Account API Key",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "url": {
+                    "raw": "{{baseUrl}}/api/v1/usage-accounts/{{usageAccountId}}/login/key",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "usage-accounts",
+                        "{{usageAccountId}}",
+                        "login",
+                        "key"
+                    ]
+                },
+                "description": "Stores an OpenCode or Cursor API key in the account's credential file (mode 0600). The key is never returned or logged. Requires a global administrator.",
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"apiKey\": \"<api-key>\"\n}"
+                }
+            }
+        },
+        {
+            "name": "Get Account Login Status",
+            "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                    "raw": "{{baseUrl}}/api/v1/usage-accounts/{{usageAccountId}}/login/status",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "usage-accounts",
+                        "{{usageAccountId}}",
+                        "login",
+                        "status"
+                    ]
+                },
+                "description": "Returns the pending login state and the server's login check for the account. Requires a global administrator."
+            }
+        },
+        {
+            "name": "Cancel Account Login",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "url": {
+                    "raw": "{{baseUrl}}/api/v1/usage-accounts/{{usageAccountId}}/login/cancel",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "usage-accounts",
+                        "{{usageAccountId}}",
+                        "login",
+                        "cancel"
+                    ]
+                },
+                "description": "Stops a pending login process. Requires a global administrator.",
+                "body": {
+                    "mode": "raw",
+                    "raw": "{}"
+                }
+            }
+        }
+    ]
+},
+{
+    "name": "Typed Decisions",
+    "item": [
+        {
+            "name": "Get Typed Decisions",
+            "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                    "raw": "{{baseUrl}}/api/v1/typed-decisions",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "typed-decisions"
+                    ]
+                },
+                "description": "Returns the effective and stored global mode (effective Off with typed_decisions_no_key when no key resolves), whether a key is present and its source, and every decision's mode, threshold and description. Requires a global administrator."
+            }
+        },
+        {
+            "name": "Update Typed Decisions",
+            "request": {
+                "method": "PUT",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "url": {
+                    "raw": "{{baseUrl}}/api/v1/typed-decisions",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "typed-decisions"
+                    ]
+                },
+                "description": "Updates the global mode and per-decision modes and thresholds through the settings save path. Requires a global administrator.",
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"mode\": \"Gate\",\n  \"decisions\": {\n    \"capacity_escalation\": {\n      \"mode\": \"Gate\",\n      \"gateThreshold\": 0.9\n    }\n  }\n}"
+                }
+            }
+        },
+        {
+            "name": "Save Typed Decision Key",
+            "request": {
+                "method": "PUT",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json"
+                    }
+                ],
+                "url": {
+                    "raw": "{{baseUrl}}/api/v1/typed-decisions/key",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "typed-decisions",
+                        "key"
+                    ]
+                },
+                "description": "Writes the provider key to the key file under the data directory (mode 0600). Returns 204 and never echoes the key. The environment variable, when set, still wins. Requires a global administrator.",
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n  \"apiKey\": \"<provider-key>\"\n}"
+                }
+            }
+        },
+        {
+            "name": "Remove Typed Decision Key",
+            "request": {
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                    "raw": "{{baseUrl}}/api/v1/typed-decisions/key",
+                    "host": [
+                        "{{baseUrl}}"
+                    ],
+                    "path": [
+                        "api",
+                        "v1",
+                        "typed-decisions",
+                        "key"
+                    ]
+                },
+                "description": "Removes the key file and reports when the environment variable still supplies a key. Requires a global administrator."
+            }
+        }
+    ]
+},
                  {
                      "name":  "Authentication",
                      "description":  "Authentication and identity endpoints. These endpoints handle login, identity lookup, and self-registration.",
@@ -1235,6 +1572,35 @@
                      "name":  "System",
                      "description":  "System-level helper surfaces including OpenAPI discovery, request history, and runtime endpoint discovery.",
                      "item":  [
+{
+    "name": "Restart Server",
+    "request": {
+        "method": "POST",
+        "header": [
+            {
+                "key": "Content-Type",
+                "value": "application/json"
+            }
+        ],
+        "url": {
+            "raw": "{{baseUrl}}/api/v1/server/restart",
+            "host": [
+                "{{baseUrl}}"
+            ],
+            "path": [
+                "api",
+                "v1",
+                "server",
+                "restart"
+            ]
+        },
+        "description": "Restarts the Admiral process in place. Requires a global administrator.",
+        "body": {
+            "mode": "raw",
+            "raw": "{}"
+        }
+    }
+},
                                   {
                                       "name":  "API Docs",
                                       "item":  [

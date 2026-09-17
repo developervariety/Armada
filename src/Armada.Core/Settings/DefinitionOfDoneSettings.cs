@@ -121,10 +121,10 @@ namespace Armada.Core.Settings
         /// producer change touches a non-test file under any of them. Used for a consumer edge
         /// whose sibling declaration carries no <c>ConsumerTestTriggerPaths</c> of its own. A
         /// prefix is matched case-insensitively against forward-slash paths. Defaults to the
-        /// protocol-library source root, an over-approximation that runs the consumer suite for
+        /// source root, an over-approximation that runs the consumer suite for
         /// any non-test source change and never for a documentation-only or test-only change.
         /// </summary>
-        public List<string> ConsumerTestTriggerPaths { get; set; } = new List<string> { "src/EcuLink/" };
+        public List<string> ConsumerTestTriggerPaths { get; set; } = new List<string> { "src/" };
 
         #endregion
 

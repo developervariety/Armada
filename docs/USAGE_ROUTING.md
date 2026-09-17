@@ -1,81 +1,129 @@
-# Smart Routing (usage-aware routing)
+# Smart Routing
 
-> **Naming.** This capability is now called **Smart Routing** (formerly "Routing V2").
-> The model-tier selector it sits over is now called **Legacy Routing**. Settings keys,
-> event reasons, and the `modelTier.usageRouting` block keep their identifiers.
+Armada has two routing modes. Both use the same settings keys.
 
-Armada can keep the preferred account for each persona, then use an approved
-fallback when that account runs low. Enable `modelTier.usageRouting` in Settings.
-The default is disabled, with no accounts, prices, or persona routes.
+- **Legacy Routing** assigns work when `modelTier.usageRouting.enabled` is
+  false. It uses model tiers, persona locks (`AllowedPersonas`), the
+  within-tier preference order, non-native-first, capability scoring, the
+  persona default captain, requested captains, and the high-tier slot
+  reserve.
+- **Smart Routing** assigns work when `modelTier.usageRouting.enabled` is
+  true. It is Legacy Routing plus four additions: the usage filter, the
+  per-persona model lists, the `capacity_escalation` typed decision, and
+  optional persona route restrictions.
 
-## Routing rules
+The default is disabled, with no accounts, prices, model lists, or routes.
 
-`personaRoutes` lists accounts in preference order. Each route can restrict
-`models`; an empty model list accepts any eligible model on that account.
-These lists are strict: an unlisted account cannot receive that persona's work.
-Captain persona restrictions and the required model tier still apply. A route
-cannot create a captain or make an unsupported model available. Existing retry
-exclusions still apply when another approved captain is available.
+## How Smart Routing selects a captain
 
-| State | Routine work | Reserved persona or priority |
-| --- | --- | --- |
-| Normal | Use the first eligible route | Use the first eligible route |
-| Low | Prefer an approved Normal fallback; use Low if none exists | Keep the preferred route |
-| Reserve | Wait or use an approved fallback | Keep the preferred route |
-| Exhausted | Wait or use an approved fallback | Wait or use an approved fallback |
-| Unknown | Apply `unknownUsagePolicy` | Apply `unknownUsagePolicy` |
+Smart Routing never re-ranks captains. It starts from the Legacy Routing
+order and only removes, moves, and groups captains. The steps are:
 
-Armada does not sort accounts by remaining allowance. A preferred account at
-45% stays preferred over one at 95%. A routine mission can move away when the
-preferred account reaches its Low threshold. When V2 is enabled, it replaces the old preference system. Within-tier ranking,
-non-native-first preference, capability preference scoring, persona default
-captain resolution, and the old global high-tier slot reserve do not select or
-reorder V2 candidates. Account reserves replace that global reserve. Model tier
-classification, persona restrictions, and explicit mission/stage model
-requirements remain constraints. Already-running missions are not moved.
+1. **Route restriction (optional).** When the persona has `personaRoutes`
+   (or a `"*"` entry applies), only captains on the named accounts stay in
+   the pool. A route with a `models` list also limits the models. A persona
+   without routes is not restricted. Route order has no effect.
+2. **Legacy Routing order.** The Legacy Routing selector picks its first
+   captain, then its next captain from those left, until it picks none. A
+   captain that a model or persona constraint excludes is not in the order.
+3. **Usage filter.** Each captain gets a verdict from its account state:
 
-A persona without a route passes through to the legacy candidate list with
-reason `v2_no_route_pass_through`, so enabling Smart Routing before any route
-exists changes nothing. Smart Routing governs a persona once a route for it, or
-a `"*"` default route list, is configured. Unmapped
-captains cannot become implicit fallbacks. Within a route, models follow the
-configured list order; equal candidates use stable captain ID order. Disable
-V2 to restore the legacy policy; its stored settings remain available. Existing
-queued missions keep their persisted model requirements, so inspect them during
-migration if the old policy wrote a concrete model pin.
+   | Account state | Verdict |
+   | --- | --- |
+   | Exhausted (measured windows, login missing or expired, provider-failure hold) | Removed |
+   | Account at `maxConcurrentMissions` | Removed (`account_concurrency_limit`) |
+   | Low or Reserve | Demoted: moved after every kept captain |
+   | Normal | Kept in its position |
+   | Unknown | `unknownUsagePolicy`: `Allow` keeps, `Conserve` demotes, `Block` removes |
+   | No account | Kept in its position (`no_usage_account`) |
 
-### Shape tags and the routing hint
+   Demoted captains keep their Legacy Routing order among themselves.
+   `reservedPersonas` and `reservedPriorityAtOrAbove` keep a Low or Reserve
+   captain in its position for that work (`reserved_work_keeps_position`).
+   A retry does not return to a captain on its retry skip list while any
+   other kept or demoted captain remains.
+4. **Persona model groups (optional).** See the next section.
+5. The first captain that remains is assigned.
 
-A route can carry an optional `shapes` tag list, for example `["mechanical",
-"doc-only"]`, `["reasoning-heavy", "port-fidelity"]`, or `["policy-tolerant"]`.
-A route with no tags is eligible for every shape, so a configuration that sets
-none behaves exactly as before. Tags never widen or narrow eligibility; they
-only order routes that are already eligible.
+When the Legacy Routing order has captains but the usage filter removes all
+of them, the mission waits as `WaitingForProviderUsage`. The scheduler
+retries it without counting an assignment failure. The reason is the first
+account code (for example `account_login_expired`), or
+`usage_exhausted_or_account_capacity`.
 
-When the `routing_hint` typed decision is enabled and Smart Routing is on, the model
-reads the work and chooses a shape. Among the routes already approved and found
-eligible for a routine mission in the Normal state, the first route whose
-`shapes` contains the chosen shape is preferred over the plain list order. When
-the work is policy-sensitive (`policy_sensitive >= 0.9` — authorized seed-key,
-SecurityAccess, or similar diagnostic content a safety-tuned runtime has refused
-before), a route tagged `policy-tolerant` is preferred; when none is configured,
-the plain V2 default applies and the decision records `no_tolerant_route`.
+Armada never sorts by remaining allowance. A kept account at 45% stays
+ahead of a kept account at 95% when Legacy Routing puts it first.
+Already-running missions are never moved.
 
-The hint only reorders eligible routes. It never creates a route, never picks an
-unlisted account or model, never moves a running mission, and never overrides
-Reserve or Exhausted handling. Reserved personas and reserved-priority missions
-are never reordered. Every state rule in the table above still applies after the
-reorder. The tags are set by the operator from the shadow success table, never
-by the model. Disabling V2 or the decision restores the plain list order.
+### Persona model lists
+
+`personaModels` gives a persona three model lists:
+
+```json
+"personaModels": {
+  "Worker": {
+    "default": ["composer-2.5", "opencode-go/deepseek-v4-flash"],
+    "lighter": ["gpt-5.6-luna"],
+    "stronger": ["cursor-grok-4.6-high"]
+  }
+}
+```
+
+Persona names match after normalization (`TestEngineer` and
+`Test Engineer` are the same persona). `default` must not be empty.
+
+For a persona with an entry, Smart Routing builds groups from the
+usage-filtered order. The chosen list goes first. The other lists follow in
+the order default, stronger, lighter. A captain goes into the first group
+whose list contains its model. Captains whose model is in no list go last,
+so a persona is never starved by its lists. Inside each group, the
+Legacy Routing and usage order stays. The first captain of the first
+non-empty group is assigned.
+
+The chosen list is `default` unless the `capacity_escalation` decision
+chooses another list. A mission with a concrete `preferredModel` skips the
+model lists; the pin wins. A tier requirement stays a Legacy Routing
+constraint.
+
+### The capacity decision
+
+When a persona entry has a `lighter` or `stronger` list, Armada asks the
+`capacity_escalation` typed decision one closed question at assignment. The
+state holds the persona, the objective (or mission) title, the head of its
+description, and the three model lists, after redaction. The answers are:
+
+| Answer | Meaning |
+| --- | --- |
+| `lighter` | Routine, well-specified, mechanical work |
+| `default` | Work that fits the default model |
+| `stronger` | Work harder than the default model is expected to handle: a subtle fix, a cross-repository design, a hard diagnosis |
+
+The decision ships in `Gate` mode at threshold 0.90. Below the threshold,
+in `Off` mode, with no key, on a timeout, 429, 529, parse error, or a client
+fault, the result is `default`. Every call records the rule verdict and the
+model verdict (`typed_decision.gated`, `typed_decision.shadow`, or
+`typed_decision.unavailable`). Armada keeps the reading per mission in
+memory for 30 minutes (at most 1024 missions), so another assignment
+attempt does not ask again. The reading only orders the groups. It never
+makes a captain eligible, approves, lands, dispatches, or edits a record.
+
+### Retired settings
+
+The route `shapes` tags and the `routing_hint` typed decision are retired.
+Settings files that still contain them load without error; Armada ignores
+the values. Routes no longer define an order. After you add
+`personaModels`, remove any `personaRoutes` entry that only expressed a
+preference. Keep a route only to restrict a persona to named accounts.
+
+### Account thresholds
 
 The defaults are Low at 25% remaining, Reserve at 10%, and recovery at 35%.
 After entering Low, an account stays there until recovery. All applicable
 windows bind: the most restrictive window wins. `windowModels` maps an exact
 reported window name to captain model IDs. Unmapped windows apply to all
 models. The Dashboard account summary shows the worst account state; dispatch
-evaluates only windows that apply to the selected model.
+evaluates only windows that apply to the captain's model.
 
-`reservedPersonas` and `reservedPriorityAtOrAbove` define important work.
 Lower numeric mission priorities are more important. The priority rule is off
 unless set. `resetGraceMinutes` can release Low near a reported reset; it never
 releases Reserve or Exhausted. A passed reset makes the old observation Unknown
@@ -83,9 +131,7 @@ until a new measurement arrives. Armada never assumes that a reset means 100%.
 
 `maxConcurrentMissions` limits the account's active mission captains and
 in-flight mission reservations, across all listed captain IDs. Zero disables
-this limit. It does not control work launched outside Armada. When usage blocks
-assignment, the mission stays queued as `WaitingForProviderUsage`; the scheduler
-retries without treating this wait as an assignment failure.
+this limit. It does not control work launched outside Armada.
 
 ## Collection and credentials
 
@@ -182,12 +228,11 @@ accept billing terms.
 - A missing home, missing login file, or unset Cursor key variable makes the
   account `Exhausted` with reason `account_home_missing`,
   `account_login_missing`, or `account_launch_credential_unavailable`. This is
-  visible in settings status and the usage preview, and blocks assignment when
-  routing is enabled. When no approved route is left, the routing decision
-  `reason` is the first such account code rather than
-  `usage_reserve_exhaustion_or_account_capacity`; the preview returns it, and
-  the scheduler logs it for the mission that waits as
-  `WaitingForProviderUsage`. A launch that still reaches such an account fails
+  visible in settings status and the usage preview, and removes the account's
+  captains when Smart Routing is enabled. When no captain is left, the routing
+  decision `reason` is the first such account code rather than
+  `usage_exhausted_or_account_capacity`; the preview returns it, and the
+  scheduler logs it for the mission that waits as `WaitingForProviderUsage`. A launch that still reaches such an account fails
   with the same reason; it never falls back to the shared login.
 
 ### Logging in from the Dashboard
@@ -308,16 +353,39 @@ recovery state across settings updates.
 
 ## Dashboard and API
 
-The Settings hub has an admin **Routing** tab. Its Smart Routing part has the
-guided **Subscription accounts** section (see
-[Logging in from the Dashboard](#logging-in-from-the-dashboard)), an enable
-control, budget fields, reported usage, a draft preview, and an **Advanced**
-section with the account template and the full editable policy JSON. A guided
-account change saves only that change to the saved policy; unsaved JSON edits
-are kept as a draft and are not sent with it. Its save sends only
-`modelTier.usageRouting`, so it never replaces the model routing policy edited
-in the other part of the tab, and a refresh keeps unsaved edits. The policy
-hot-reloads; no restart is required.
+The Settings hub has an admin **Routing** tab. Its Legacy Routing part edits
+the tier lists and preference policy. Its Smart Routing part has:
+
+- a **Routing mode** switch between **Legacy Routing** and **Smart Routing**
+  (it sets `modelTier.usageRouting.enabled` in the draft);
+- the guided **Subscription accounts** section (see
+  [Logging in from the Dashboard](#logging-in-from-the-dashboard));
+- budget fields;
+- **Persona model lists**: one row per persona from the personas catalogue,
+  plus any persona already in `personaModels`, with Default, Lighter, and
+  Stronger model chips. Model options are the captains' models and the tier
+  model lists. Each model shows how many captains run it, and a warning chip
+  when every one of those captains is on an Exhausted account. A row without
+  models has no entry, so that persona keeps the Legacy Routing order. **Add
+  persona** adds a row for a persona the catalogue does not list;
+- **Persona restrictions** (collapsed): the `personaRoutes` entries as
+  restrictions, with add and remove per persona and per account, and a note
+  when a restriction admits no captain;
+- an **Advanced** section with the account template and the full editable
+  policy JSON. The table, the restrictions, and the JSON edit the same draft,
+  so each view shows the others' changes;
+- reported account usage;
+- **Preview Smart Routing**: a persona picker, priority, preferred model, and
+  optional mission title and text. It shows the chosen captain, the Legacy
+  Routing order, the usage filter verdict per captain (outcome and reason),
+  the capacity reading (the list chosen first and its source, or "not asked"
+  without title and text), and the model groups in the order tried.
+
+A guided account change saves only that change to the saved policy; unsaved
+JSON edits are kept as a draft and are not sent with it. **Save routing
+policy** sends only `modelTier.usageRouting`, so it never replaces the model
+routing policy edited in the other part of the tab, and a refresh keeps
+unsaved edits. The policy hot-reloads; no restart is required.
 `monthlyBudget`, `currency`, and account `monthlyCost` are operator-entered
 planning values. They show a total and an over-budget indicator. They do not
 purchase plans, enforce a billing cap, or measure prepaid spending.
@@ -327,12 +395,28 @@ purchase plans, enforce a billing cap, or measure prepaid spending.
 replacement. Invalid policies return 400 before application.
 
 `POST /api/v1/settings/usage-preview` accepts `persona`, `priority`, optional
-`preferredModel`, and an optional draft `usageRouting`. It requires settings
-write permission. It returns ordered eligible candidates, usage states, a
-reason, warnings, and scope. A draft preview does not save settings or assign a
-mission. It can fetch usage. Preview shares the policy evaluator with dispatch,
-but does not reserve captains or run every provisioning and voyage gate; it is
-not a promise of the final assignment.
+`preferredModel`, optional `missionTitle` and `missionText`, and an optional
+draft `usageRouting`. It requires settings write permission. It returns the
+steps of the selection:
+
+| Field | Content |
+| --- | --- |
+| `legacyOrder` | The Legacy Routing order of the idle, route-restricted captains |
+| `usageFilter` | One verdict per captain: `captainId`, `model`, `accountId`, `state`, `outcome` (`kept`, `demoted`, `removed`, `outside_routes`), `reason` |
+| `modelGroups` | The persona model groups in the order tried, each with its captain IDs |
+| `capacity` | `choice`, `source`, and `asked` |
+| `candidates` | The final order |
+| `chosen` | The captain that would be assigned, or null |
+| `reason` | The selection or wait reason |
+
+Without `missionTitle` and `missionText`, the preview does not call the
+typed-decision client and reports the `default` list (source
+`no_work_text`). With text, it asks the `capacity_escalation` decision once
+and does not cache the reading. A draft preview does not save settings or
+assign a mission. It can fetch usage. Preview shares the selector with
+dispatch, but it does not reserve captains, apply requested captains or retry
+exclusions, or run every provisioning and voyage gate; it is not a promise of
+the final assignment.
 
 Start with [the generic example](../factory/usage-routing.example.json), replace
 captain IDs and account sources, and keep the saved policy disabled. Enable

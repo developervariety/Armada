@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
@@ -19,7 +20,7 @@ namespace Armada.Core.Services
     /// The model never writes memory: it only nominates a candidate into the proposal store, never into
     /// the AI-Memory folder, and it never dismisses a proposal. The deterministic behaviour (no nomination) is always
     /// the fallback: an Off decision, an unavailable model, a below-threshold answer, and a
-    /// <c>not_memory</c> scope all leave the memory untouched. This decision ships Off.
+    /// <c>not_memory</c> scope all leave the memory untouched. This decision ships in Gate.
     /// </summary>
     public sealed class MemoryCandidateAdapter
     {
@@ -89,11 +90,18 @@ namespace Armada.Core.Services
             ResolvedTypedDecision cfg = _Settings.For(DecisionPoint);
             if (cfg.Mode == TypedDecisionModeEnum.Off) return nominated;
 
-            foreach (PapercutGroup group in groups)
-            {
-                if (group == null) continue;
+            // Groups are independent, so they are decided together in as few requests as the limits allow;
+            // each group still gets its own recorded event.
+            List<PapercutGroup> considered = groups.Where(group => group != null).ToList();
+            List<TypedDecisionBatchItem> batch = considered
+                .Select(group => new TypedDecisionBatchItem(DecisionStateRedactor.RedactState(BuildState(group), _Settings.MaxStateChars), Questions()))
+                .ToList();
+            List<TypedDecisionResult> results = await TypedDecisionBatcher.DecideAllAsync(
+                _Client, DecisionPoint, batch, _Settings.MaxStateChars, token).ConfigureAwait(false);
 
-                MemoryCandidateOutcome outcome = await DecideAsync(group, cfg, token).ConfigureAwait(false);
+            for (int index = 0; index < results.Count; index++)
+            {
+                MemoryCandidateOutcome outcome = await RecordAsync(considered[index], cfg, results[index], batch[index].State.Text, token).ConfigureAwait(false);
                 if (!outcome.Available) return nominated; // provider down for this pass; fall back to no nomination
                 if (outcome.Nominated && outcome.Proposal != null) nominated.Add(outcome.Proposal);
             }
@@ -105,20 +113,8 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
-        private async Task<MemoryCandidateOutcome> DecideAsync(PapercutGroup group, ResolvedTypedDecision cfg, CancellationToken token)
+        private async Task<MemoryCandidateOutcome> RecordAsync(PapercutGroup group, ResolvedTypedDecision cfg, TypedDecisionResult result, string redacted, CancellationToken token)
         {
-            object state = DecisionStateRedactor.RedactObject(BuildState(group), _Settings.MaxStateChars);
-            string redacted = state as string ?? String.Empty;
-
-            TypedDecisionResult result = await _Client.DecideAsync(
-                new TypedDecisionRequest
-                {
-                    DecisionPoint = DecisionPoint,
-                    State = state,
-                    Questions = Questions()
-                },
-                token).ConfigureAwait(false);
-
             if (!result.Available)
             {
                 await _Recorder.RecordUnavailableAsync(
@@ -200,8 +196,9 @@ namespace Armada.Core.Services
         {
             if (result.Answers == null) return 0.0;
             if (!result.Answers.TryGetValue(_DurableQuestionId, out TypedAnswer? answer) || answer == null) return 0.0;
+            // A noul answer carries its probability in Noul and no confidence; a confidence is never a
+            // stand-in for the probability that the statement is true.
             if (answer.Noul.HasValue) return answer.Noul.Value;
-            if (answer.Confidence.HasValue) return answer.Confidence.Value;
             return 0.0;
         }
 

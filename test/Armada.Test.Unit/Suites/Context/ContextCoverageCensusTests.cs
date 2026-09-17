@@ -80,6 +80,12 @@ namespace Armada.Test.Unit.Suites.Context
             });
 
             // ---- Part 2: read_when recall (reported, not gated on the 90% target). ----
+            // AI-Memory leaves carry read_when only through the docs/context-index sidecar, which is
+            // operator-local and untracked. Without it there is nothing to measure, so the case is a
+            // named skip, never a pass that measured nothing and never a false failure.
+            if (String.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ARMADA_CENSUS_DOCS_ROOT")) && FindDocsRoot() == null)
+                SkipTest("ReadWhenRecall_Reported", "docs/context-index/chunk-metadata.json sidecar not present in this checkout");
+            else
             await RunTest("ReadWhenRecall_Reported", () =>
             {
                 ContextIndex? live = TryBuildLiveIndex(out string note);
@@ -177,6 +183,43 @@ namespace Armada.Test.Unit.Suites.Context
                 Console.WriteLine("CENSUS: failurereplay budget_bytes=" + replayBudget + " mapped=" + report.Mapped + " regressions=" + report.Regressions
                     + " unmapped=" + report.Unmapped);
                 foreach (string r in report.RegressionDetails) Console.WriteLine("CENSUS: failurereplay.REGRESSION " + r);
+                return Task.CompletedTask;
+            });
+
+            // ---- Part 5: safety-leaf integrity, checked by an INDEPENDENT oracle. ----
+            // The safety-recall census derives its expectation from the same index under test, so a
+            // dropped must_retrieve mapping (a renamed heading, or a file that fell under the sub-chunk
+            // threshold) hides: the index loses the leaf, the oracle expects none, the gate stays green.
+            // This test instead loads the sidecar on its own and asserts every must_retrieve key still
+            // resolves to a generated chunk, and every managed vessel still yields a safety leaf.
+            await RunTest("Every must_retrieve sidecar key resolves to a live chunk and every vessel keeps a safety leaf", () =>
+            {
+                ContextIndex? live = TryBuildLiveIndex(out string note);
+                string? docsRoot = FindDocsRoot();
+                if (live == null || docsRoot == null)
+                {
+                    Console.WriteLine("CENSUS: safetyleaf SKIPPED (" + note + ")");
+                    return Task.CompletedTask;
+                }
+
+                ChunkMetadataSidecar sidecar = ChunkMetadataSidecar.Load(ChunkMetadataSidecar.ResolvePath(null, docsRoot), null);
+                HashSet<string> chunkIds = new HashSet<string>(live.Chunks.Select(c => c.Id), StringComparer.Ordinal);
+
+                List<string> orphanedSafety = new List<string>();
+                foreach (string key in sidecar.Keys)
+                    if (!chunkIds.Contains(key)
+                        && sidecar.TryGet(key, out ChunkMetadataOverride ov)
+                        && ov.MustRetrieve != null && ov.MustRetrieve.Count > 0)
+                        orphanedSafety.Add(key);
+                AssertEqual(0, orphanedSafety.Count,
+                    "every must_retrieve sidecar key must resolve to a generated chunk; orphaned: " + String.Join(", ", orphanedSafety));
+
+                foreach (string vessel in VesselsOf(live.Chunks).Where(v => !String.Equals(v, _UnscopedVessel, StringComparison.Ordinal)))
+                {
+                    bool hasLeaf = live.Chunks.Any(c => c.MustRetrieve != null
+                        && c.MustRetrieve.Any(d => String.Equals(d, vessel, StringComparison.OrdinalIgnoreCase)));
+                    AssertTrue(hasLeaf, "managed vessel '" + vessel + "' must keep at least one must_retrieve safety leaf");
+                }
                 return Task.CompletedTask;
             });
         }

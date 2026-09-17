@@ -1568,6 +1568,24 @@ using System.IO;
                 AssertEqual(HttpStatusCode.Unauthorized, (await _UnauthClient.PostAsync("/api/v1/usage-accounts/automated-login/refresh", null).ConfigureAwait(false)).StatusCode, "unauthenticated refresh");
             }).ConfigureAwait(false);
 
+            // Typed-decision modes and the provider key are administrator settings.
+            await RunTest("TypedDecisions_FromTenantAdminOrUser_Returns403", async () =>
+            {
+                string sampleKey = "automated-typed-SECRET-value";
+                foreach (HttpClient client in new[] { _ClientA!, _ClientA3! })
+                {
+                    AssertEqual(HttpStatusCode.Forbidden, (await client.GetAsync("/api/v1/typed-decisions").ConfigureAwait(false)).StatusCode, "get");
+                    AssertEqual(HttpStatusCode.Forbidden, (await client.PutAsync("/api/v1/typed-decisions",
+                        JsonHelper.ToJsonContent(new { mode = "Off" })).ConfigureAwait(false)).StatusCode, "put modes");
+                    HttpResponseMessage key = await client.PutAsync("/api/v1/typed-decisions/key",
+                        JsonHelper.ToJsonContent(new { apiKey = sampleKey })).ConfigureAwait(false);
+                    AssertEqual(HttpStatusCode.Forbidden, key.StatusCode, "put key");
+                    AssertFalse((await key.Content.ReadAsStringAsync().ConfigureAwait(false)).Contains("SECRET"), "the key is never echoed");
+                    AssertEqual(HttpStatusCode.Forbidden, (await client.DeleteAsync("/api/v1/typed-decisions/key").ConfigureAwait(false)).StatusCode, "delete key");
+                }
+                AssertEqual(HttpStatusCode.Unauthorized, (await _UnauthClient.GetAsync("/api/v1/typed-decisions").ConfigureAwait(false)).StatusCode, "unauthenticated");
+            }).ConfigureAwait(false);
+
             await RunTest("UsageAccountLogin_Home_FromGlobalAdmin_DerivesFolderAndRejectsUnsafeIds", async () =>
             {
                 HttpResponseMessage created = await _AdminClient.PostAsync("/api/v1/usage-accounts/automated-login/login/home", null).ConfigureAwait(false);

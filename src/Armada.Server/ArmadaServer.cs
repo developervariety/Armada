@@ -132,10 +132,12 @@ namespace Armada.Server
         private RunbookService _RunbookService = null!;
         private AutomaticCheckRunOrchestrator _AutomaticCheckRuns = null!;
         private AutonomousRecoveryOrchestrator _AutonomousRecovery = null!;
-        // Typed-decision foundation (TypeSafe Jev). Constructed off-by-default; adapters in later
-        // lanes read these. No consumer calls the client in this row.
+        // Typed-decision foundation (TypeSafe Jev): the switchable client every adapter holds, the key
+        // store it resolves the provider key from, and the event recorder.
         private ITypedDecisionClient _TypedDecisionClient = new NullTypedDecisionClient();
+        private TypedDecisionKeyStore _TypedDecisionKeys = null!;
         private TypedDecisionRecorder _TypedDecisionRecorder = null!;
+        private TypedDecisionEvalService? _TypedDecisionEval = null;
         private HttpClient _TypedDecisionHttpClient = null!;
         // The context retrieval service over the built context index (manifest chunks plus bodies).
         // Built in-process at MCP registration from AI-Memory and the docs tree; feeds the
@@ -257,36 +259,36 @@ namespace Armada.Server
                 _Logging.Warn(_Header + warning);
             }
 
-            IEmbeddingClient embeddingClient = new VoyageEmbeddingClient(_Settings.CodeIndex, _Logging, codeIndexHttpClient);
+            IEmbeddingClient embeddingClient = await EmbeddingClientFactory.CreateAsync(_Settings, _Database, _Logging, codeIndexHttpClient).ConfigureAwait(false);
             _OpenCodeServerLauncher = new OpenCodeServerLauncher(_Settings, _Logging, codeIndexHttpClient);
             IInferenceClient inferenceClient = string.Equals(_Settings.CodeIndex.InferenceClient, "OpenCodeServer", StringComparison.OrdinalIgnoreCase)
                 ? new OpenCodeServerInferenceClient(_Settings, _Logging, codeIndexHttpClient)
                 : new DeepSeekInferenceClient(_Settings.CodeIndex, _Logging, codeIndexHttpClient);
             _CodeIndex = new CodeIndexService(_Logging, _Database, _Settings, _Git, embeddingClient, inferenceClient);
 
-            // Typed-decision foundation. Construct the live client only when the global mode is not
-            // Off AND the key env var is present; otherwise the Null client keeps every decision
-            // point on its deterministic rule. The system is operationally off until the key is
-            // confirmed in the container, so this is the Null client until then, and no consumer
-            // calls the client in this row anyway. The recorder is always available; it writes only
-            // its own events and never touches dispatch, recovery, or gates.
+            // Typed-decision foundation. Every decision point holds one switchable client: it calls the
+            // provider while a key resolves (the environment variable, else the key file in the data
+            // directory) and the null client otherwise, so a key added or removed through the API takes
+            // effect without a restart. Without a key the effective global mode is Off, so no decision
+            // calls a client or records an event. The recorder writes only its own events.
             _TypedDecisionHttpClient = new HttpClient();
             _TypedDecisionRecorder = new TypedDecisionRecorder(_Database, _Logging);
-            string typedDecisionKeyEnv = _Settings.TypedDecisions.ApiKeyEnv;
-            bool typedDecisionKeyPresent = !String.IsNullOrWhiteSpace(typedDecisionKeyEnv)
-                && !String.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(typedDecisionKeyEnv));
-            if (_Settings.TypedDecisions.Mode != TypedDecisionModeEnum.Off && typedDecisionKeyPresent)
+            _TypedDecisionKeys = new TypedDecisionKeyStore(_Settings.DataDirectory);
+            _Settings.TypedDecisions.KeyAvailable = () => _TypedDecisionKeys.HasKey(_Settings.TypedDecisions, out string? _);
+            _TypedDecisionClient = new SwitchableTypedDecisionClient(_Settings.TypedDecisions, _TypedDecisionKeys, _Logging, _TypedDecisionHttpClient);
+            TypedDecisionStatus typedDecisionStatus = TypedDecisionStatusBuilder.Build(_Settings.TypedDecisions, _TypedDecisionKeys);
+            _Logging.Info(_Header + "typed decisions: effective mode " + typedDecisionStatus.EffectiveMode
+                + (typedDecisionStatus.KeyPresent
+                    ? " (stored mode " + typedDecisionStatus.StoredMode + ", key from " + typedDecisionStatus.KeySource + ")"
+                    : " (" + TypedDecisionKeyStore.ReasonNoKey + "; stored mode " + typedDecisionStatus.StoredMode + ")"));
+
+            // The synthetic evaluation set runs against the live client only: on operator request, and
+            // in the background whenever the provider reports a model version not yet evaluated.
+            if (_TypedDecisionClient is TypeSafeDecisionClient typeSafeClient)
             {
-                _TypedDecisionClient = new TypeSafeDecisionClient(_Settings.TypedDecisions, _Logging, _TypedDecisionHttpClient);
-                _Logging.Info(_Header + "typed decisions: TypeSafeDecisionClient (mode=" + _Settings.TypedDecisions.Mode + ", key present)");
-            }
-            else
-            {
-                _TypedDecisionClient = new NullTypedDecisionClient();
-                string why = _Settings.TypedDecisions.Mode == TypedDecisionModeEnum.Off
-                    ? "mode=Off"
-                    : "no key in " + typedDecisionKeyEnv;
-                _Logging.Info(_Header + "typed decisions: NullTypedDecisionClient (" + why + ")");
+                _TypedDecisionEval = new TypedDecisionEvalService(
+                    _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Database, _Logging);
+                typeSafeClient.ModelObserved = _TypedDecisionEval.ObserveModel;
             }
 
             // D6 papercut_merge adapter. Reads the client above, so it is a no-op (the plain grouping)
@@ -385,14 +387,12 @@ namespace Armada.Server
                 _MergeQueue, _Git, _AutoLandEvaluator, _ConventionChecker, _CriticalTriggerEvaluator, _ProviderProgress, _CheckRunService,
                 null, _DispatchHold, _TerminalMarkers);
 
-            // Gated typed-decision adapters (D1 failure_cause, D2 refusal, D3 runtime_failure,
-            // D4 review_substance). Each
-            // consumer holds an adapter over the shared client, never the raw client. They are wired
-            // only when the live client was constructed (mode not Off and the key present); with the
-            // Null client every seam stays on its deterministic rule with no call and no event, which
-            // is the operationally-off state. Set after construction so existing construction sites and
-            // tests are unchanged.
-            if (_TypedDecisionClient is TypeSafeDecisionClient)
+            // Gated typed-decision adapters (failure_cause, refusal, runtime_failure, review_substance,
+            // change_substance, capacity_escalation). Each consumer holds an adapter over the shared
+            // switchable client, never the raw client. They are always wired: without a key the effective
+            // mode is Off, so every seam stays on its deterministic rule with no call and no event, and a
+            // key added later takes effect without a restart. Set after construction so existing
+            // construction sites and tests are unchanged.
             {
                 TypedRefusalAdapter typedRefusalAdapter = new TypedRefusalAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
@@ -406,11 +406,11 @@ namespace Armada.Server
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 _AutonomousRecovery.FailureCauseAdapter = new TypedFailureCauseAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
-                // D17 change_substance (ineffective-rescue) and D16 routing_hint (Routing V2). Both ship
-                // Off; wiring them costs nothing until their decision is enabled.
+                // change_substance (ineffective-rescue) ships Off; capacity_escalation (Smart Routing model
+                // groups) ships in Gate and is consulted only for a persona with a Lighter or Stronger list.
                 missionService.ChangeSubstanceAdapter = new TypedChangeSubstanceAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
-                missionService.RoutingHintAdapter = new TypedRoutingHintAdapter(
+                missionService.CapacityEscalationAdapter = new TypedCapacityEscalationAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
             }
 
@@ -504,11 +504,9 @@ namespace Armada.Server
                 // vessels that declare this one as a sibling, so a public-API break is caught
                 // while the producer's change is still unlanded.
                 // D15 flake_score: score a red unit-test result and, when the model recommends it, run an
-                // isolated class-filtered re-run whose real result is the truth. Ships Off; null when the
-                // typed-decision client is the null client, which preserves the gate's original behavior.
-                TypedFlakeScoreAdapter? flakeScoreAdapter = _TypedDecisionClient is TypeSafeDecisionClient
-                    ? new TypedFlakeScoreAdapter(_TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging)
-                    : null;
+                // isolated class-filtered re-run whose real result is the truth. Ships Off; while the
+                // decision is Off (or no key resolves) the adapter returns the rule and the red stands.
+                TypedFlakeScoreAdapter? flakeScoreAdapter = new TypedFlakeScoreAdapter(_TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 missionService.DefinitionOfDone = new DefinitionOfDoneGate(
                     _Settings.DefinitionOfDone,
                     _Database,
@@ -688,12 +686,11 @@ namespace Armada.Server
                 await _RemoteTriggerService.FireBoardWakeAsync(target!, text, token).ConfigureAwait(false);
             };
 
-            // D5 preflight text-half adapter. Wired only when the live typed-decision client exists,
-            // so with the null client the preview stays fully deterministic. It runs after the
+            // D5 preflight text-half adapter. Always wired; without a key the effective mode is Off, so
+            // the preview stays fully deterministic. It runs after the
             // deterministic preflight block in the preview and posts an owner-addressed board note for
             // a Q13 owner ruling through the coordination service, targeting the registered AgentWake
             // session the same way the board wake emitter above does.
-            if (_TypedDecisionClient is TypeSafeDecisionClient)
             {
                 CoordinationOwnerDecisionNotePoster ownerNotePoster = new CoordinationOwnerDecisionNotePoster(
                     _CoordinationService,
@@ -702,10 +699,8 @@ namespace Armada.Server
                 _ObjectiveDispatchPreviewService.PreflightAdapter = new PreflightTextAdapter(
                     _Settings.TypedDecisions, _TypedDecisionClient, _TypedDecisionRecorder, ownerNotePoster, _Logging);
 
-                // D19 stage necessity (dispatch preview) and D20 handoff outcome (stage handoff). Both
-                // ship Off in the decisions map, so with the live client present but the decision Off the
-                // adapter still returns the deterministic rule; they are wired so a later Gate flip is a
-                // settings change, not a code change. The D20 owner note reuses the same poster as D5.
+                // D19 stage necessity (dispatch preview) and D20 handoff outcome (stage handoff). Each
+                // follows its mode in the decisions map; set Off, the adapter returns the deterministic rule. The D20 owner note reuses the same poster as D5.
                 _ObjectiveDispatchPreviewService.StageNecessityAdapter = new TypedStageNecessityAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 missionService.HandoffOutcomeAdapter = new TypedHandoffOutcomeAdapter(
@@ -716,9 +711,8 @@ namespace Armada.Server
                 if (admiralService.RuntimeFailureAdapter != null)
                     admiralService.RuntimeFailureAdapter.NotePoster = new CoordinationBroadcastNotePoster(_CoordinationService, _Logging);
                 // D21 revision_kind (Judge NEEDS_REVISION), D22 test_covers (TestEngineer handoff), and
-                // D24 lint_finding (Linter handoff). All three ship Off in the decisions map, so with the
-                // live client present but the decision Off the seam still runs its deterministic path;
-                // they are wired so a later Gate flip is a settings change, not a code change.
+                // D24 lint_finding (Linter handoff). Each follows its mode in the decisions map; set Off,
+                // the seam runs its deterministic path.
                 missionService.RevisionKindAdapter = new TypedRevisionKindAdapter(
                     _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging);
                 missionService.TestCoversAdapter = new TypedTestCoversAdapter(
@@ -728,10 +722,8 @@ namespace Armada.Server
 
                 // D26 prior_art. One adapter over a deterministic retriever feeds two admiral seams: the
                 // dispatch preflight (already_done / integrate / uncertain-band analyst issues) and the
-                // Worker->Judge handoff (a re-implementation review instruction). It ships Off in the
-                // decisions map, so with the live client present but the decision Off both seams run their
-                // deterministic path unchanged; wired so a later Gate flip is a settings change, not a code
-                // change. The retriever reads the four surfaces through the git service (a GitService is
+                // Worker->Judge handoff (a re-implementation review instruction). It follows its mode in
+                // the decisions map; set Off, both seams run their deterministic path unchanged. The retriever reads the four surfaces through the git service (a GitService is
                 // also the branch inventory) and the objective store.
                 if (_Git is IBranchInventory priorArtBranchInventory)
                 {
@@ -765,7 +757,7 @@ namespace Armada.Server
                 // D18 memory_candidate and D23 seam B memory_review. Both store proposals in the database
                 // through one writer, because the AI-Memory folder is read-only to the admiral. The weekly
                 // papercut sweep is driven by the health loop; the Recorder review runs when a Recorder
-                // stage finishes. Both ship Off, so each is dormant until its decision is enabled.
+                // stage finishes. Each is dormant while its decision is Off.
                 DatabaseMemoryCandidateProposalWriter memoryProposalWriter = new DatabaseMemoryCandidateProposalWriter(_Database, _Logging);
                 MemoryCandidateAdapter memoryCandidateAdapter = new MemoryCandidateAdapter(
                     _Settings.TypedDecisions, _TypedDecisionClient, _TypedDecisionRecorder, memoryProposalWriter, _Logging);
@@ -1295,7 +1287,12 @@ namespace Armada.Server
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Status, health, doctor, settings, server control
-            new StatusRoutes(_Database, _Settings, _Admiral, () => Stop(), _StartUtc, _JsonOptions, _Logging, _BuildDriftService, _RemoteTunnel.GetStatus, _RemoteTunnel.ReloadAsync)
+            new StatusRoutes(_Database, _Settings, _Admiral, () => Stop(), _StartUtc, _JsonOptions, _Logging, _BuildDriftService, _RemoteTunnel.GetStatus, _RemoteTunnel.ReloadAsync,
+                () => (_MissionService as MissionService)?.CapacityEscalationAdapter, _TypedDecisionKeys)
+                .Register(_App, authenticate, _AuthorizationService);
+
+            // Typed-decision modes and the provider key file (administrator only; never request-history captured)
+            new TypedDecisionRoutes(_Settings, _TypedDecisionKeys, _JsonOptions, _Logging, () => _Settings.SaveAsync())
                 .Register(_App, authenticate, _AuthorizationService);
 
             // Subscription account logins driven from the dashboard
@@ -1885,6 +1882,7 @@ namespace Armada.Server
                 typedDecisionClient: _TypedDecisionClient,
                 typedDecisionRecorder: _TypedDecisionRecorder,
                 typedDecisionParticipantKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey,
+                typedDecisionEval: _TypedDecisionEval,
                 papercutMergeAdapter: _PapercutMergeAdapter,
                 inboxTriageAdapter: _InboxTriageAdapter,
                 followUpRoutingAdapter: _FollowUpRoutingAdapter,

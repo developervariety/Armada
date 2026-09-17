@@ -38,9 +38,9 @@ namespace Armada.Test.Unit.Suites.Services
                     contents.Contains("new CodeIndexService(_Logging, _Database, _Settings, _Git)"),
                     "ArmadaServer should not use the legacy CodeIndexService constructor without semantic clients");
                 AssertContains(
-                    "new VoyageEmbeddingClient(_Settings.CodeIndex, _Logging, codeIndexHttpClient)",
+                    "EmbeddingClientFactory.CreateAsync(_Settings, _Database, _Logging, codeIndexHttpClient)",
                     contents,
-                    "ArmadaServer should construct VoyageEmbeddingClient with CodeIndex settings");
+                    "ArmadaServer should build the embedding client through EmbeddingClientFactory (endpoint-or-settings)");
                 AssertContains(
                     "string.Equals(_Settings.CodeIndex.InferenceClient, \"OpenCodeServer\", StringComparison.OrdinalIgnoreCase)",
                     contents,
@@ -205,9 +205,9 @@ namespace Armada.Test.Unit.Suites.Services
                     contents.Contains("new CodeIndexService(logging, database, armadaSettings, git)"),
                     "McpStdioCommand should not use the legacy CodeIndexService constructor without semantic clients");
                 AssertContains(
-                    "new VoyageEmbeddingClient(armadaSettings.CodeIndex, logging, codeIndexHttpClient)",
+                    "EmbeddingClientFactory.CreateAsync(armadaSettings, database, logging, codeIndexHttpClient, cancellationToken)",
                     contents,
-                    "McpStdioCommand should construct VoyageEmbeddingClient with CodeIndex settings");
+                    "McpStdioCommand should build the embedding client through EmbeddingClientFactory (endpoint-or-settings)");
                 AssertContains(
                     "string.Equals(armadaSettings.CodeIndex.InferenceClient, \"OpenCodeServer\", StringComparison.OrdinalIgnoreCase)",
                     contents,

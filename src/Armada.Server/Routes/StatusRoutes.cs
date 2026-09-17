@@ -33,6 +33,8 @@ namespace Armada.Server.Routes
         private readonly IBuildDriftService? _buildDrift;
         private readonly Func<RemoteTunnelStatus>? _getRemoteTunnelStatus;
         private readonly Func<Task>? _onRemoteControlSettingsChanged;
+        private readonly Func<TypedCapacityEscalationAdapter?>? _getCapacityAdapter;
+        private readonly TypedDecisionKeyStore? _typedDecisionKeys;
 
         /// <summary>
         /// Instantiate.
@@ -57,7 +59,9 @@ namespace Armada.Server.Routes
             LoggingModule logging,
             IBuildDriftService? buildDrift = null,
             Func<RemoteTunnelStatus>? getRemoteTunnelStatus = null,
-            Func<Task>? onRemoteControlSettingsChanged = null)
+            Func<Task>? onRemoteControlSettingsChanged = null,
+            Func<TypedCapacityEscalationAdapter?>? getCapacityAdapter = null,
+            TypedDecisionKeyStore? typedDecisionKeys = null)
         {
             _database = database;
             _settings = settings;
@@ -69,6 +73,8 @@ namespace Armada.Server.Routes
             _buildDrift = buildDrift;
             _getRemoteTunnelStatus = getRemoteTunnelStatus;
             _onRemoteControlSettingsChanged = onRemoteControlSettingsChanged;
+            _getCapacityAdapter = getCapacityAdapter;
+            _typedDecisionKeys = typedDecisionKeys;
         }
 
         /// <summary>
@@ -94,6 +100,8 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ctx.IsAuthenticated ? ApiResultEnum.BadRequest : ApiResultEnum.BadRequest, Message = ctx.IsAuthenticated ? "You do not have permission to perform this action" : "Authentication required" };
                 }
                 ArmadaStatus status = await _admiral.GetStatusAsync().ConfigureAwait(false);
+                if (_typedDecisionKeys != null)
+                    status.TypedDecisions = TypedDecisionStatusBuilder.Build(_settings.TypedDecisions, _typedDecisionKeys);
                 return status;
             },
             api => api
@@ -403,20 +411,45 @@ namespace Armada.Server.Routes
                     return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex.Message };
                 }
                 Mission mission = new Mission { Persona = body.Persona, Priority = body.Priority, PreferredModel = body.PreferredModel };
+                if (!String.IsNullOrWhiteSpace(body.MissionTitle)) mission.Title = body.MissionTitle;
+                if (!String.IsNullOrWhiteSpace(body.MissionText)) mission.Description = body.MissionText;
                 List<Captain> idle = captains.Where(c => c.State == CaptainStateEnum.Idle && (!c.QuarantineUntilUtc.HasValue || c.QuarantineUntilUtc <= DateTime.UtcNow)).ToList();
-                List<Captain> eligible = UsageRoutingService.Eligible(_settings.ModelTier, mission, idle);
                 List<string> busy = captains.Where(c => c.State == CaptainStateEnum.Working).Select(c => c.Id).ToList();
-                UsageRoutingDecision decision = usage.Select(policy, mission, eligible, busy, DateTime.UtcNow);
+                // Without mission text the capacity client is never called: the preview reports the Default list.
+                bool askCapacity = !String.IsNullOrWhiteSpace(body.MissionText) || !String.IsNullOrWhiteSpace(body.MissionTitle);
+                CapacityEscalationResolver capacity = new CapacityEscalationResolver(_getCapacityAdapter?.Invoke());
+                CapacityWorkText workText = new CapacityWorkText { Title = body.MissionTitle ?? String.Empty, Description = body.MissionText ?? String.Empty };
+                UsageRoutingDecision decision = await SmartRoutingSelector.SelectAsync(new SmartRoutingRequest
+                {
+                    Tiers = _settings.ModelTier,
+                    Policy = policy,
+                    Usage = usage,
+                    Mission = mission,
+                    Pool = idle,
+                    BusyCaptainIds = busy,
+                    NowUtc = DateTime.UtcNow,
+                    Capacity = capacity,
+                    WorkText = askCapacity ? _ => Task.FromResult(workText) : null,
+                    UseCapacityCache = false
+                }).ConfigureAwait(false);
+                Captain? chosen = decision.Candidates.Count > 0 ? decision.Candidates[0] : null;
                 return new
                 {
                     decision.Reason,
+                    SmartRoutingEnabled = policy.Enabled,
                     decision.HasPersonaRoutes,
+                    decision.HasPersonaModels,
+                    LegacyOrder = decision.LegacyOrder.Select(c => new { c.Id, c.Name, c.Model, c.Runtime }).ToList(),
+                    UsageFilter = decision.Verdicts,
+                    ModelGroups = decision.Groups,
+                    Capacity = new { Choice = decision.Capacity, Source = decision.CapacitySource, Asked = askCapacity },
                     Candidates = decision.Candidates.Select(c => new { c.Id, c.Name, c.Model, c.Runtime }).ToList(),
+                    Chosen = chosen == null ? null : new { chosen.Id, chosen.Name, chosen.Model, chosen.Runtime },
                     Accounts = policy.Accounts.Select(a => usage.GetStatus(a, null, DateTime.UtcNow)).ToList(),
                     Warnings = policy.Accounts.SelectMany(a => a.CaptainIds.Where(id => !captains.Any(c => c.Id == id)).Select(id => "Unknown captain: " + id)).ToList(),
-                    Scope = "Usage admission only. Live assignment reservations and vessel gates apply at dispatch. Legacy preferences apply only when V2 is disabled."
+                    Scope = "Idle captains only. Live assignment reservations, retry exclusions, requested captains, and vessel gates apply at dispatch."
                 };
-            }, api => api.WithTag("Settings").WithSummary("Preview preference-first usage admission").WithSecurity("ApiKey"));
+            }, api => api.WithTag("Settings").WithSummary("Preview Smart Routing for one persona").WithSecurity("ApiKey"));
 
             // Settings
             app.Get("/api/v1/settings", async (ApiRequest req) =>
@@ -649,6 +682,7 @@ namespace Armada.Server.Routes
                 PlanningSessionRetentionDays = _settings.PlanningSessionRetentionDays,
                 AutoCreatePr = _settings.AutoCreatePullRequests,
                 DataDirectory = _settings.DataDirectory,
+                TypedDecisionsStatus = _typedDecisionKeys != null ? TypedDecisionStatusBuilder.Build(_settings.TypedDecisions, _typedDecisionKeys) : null,
                 DatabasePath = _settings.DatabasePath,
                 LogDirectory = _settings.LogDirectory,
                 DocksDirectory = _settings.DocksDirectory,

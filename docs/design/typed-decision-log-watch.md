@@ -3,7 +3,8 @@
 Status: design only. This document describes a decision point. It wires no code,
 changes no test, and adds no migration. Implementation is a later row, opened
 only after the owner reviews this design. Decision id: `log_watch`. Default
-mode: **Off** (already `Off` in the shipped settings default).
+mode: **Gate** in the shipped settings default, with no effect until an adapter
+is wired for this decision.
 
 ## Purpose
 
@@ -34,7 +35,7 @@ the drift early. It never touches the captain.
 4. **The model informs; it never blocks or dispatches.** A flag is a note plus
    an event for the operator. The deterministic escalation rules (stall,
    overdue) are unchanged and independent.
-5. **Off by default.** The decision ships `Off`.
+5. **Gate by default.** The settings default is `Gate`; the decision only flags.
 
 ## Seams at the base tip
 
@@ -151,8 +152,8 @@ loop waiting on the model.
   brief, or an operator note now, would change the outcome." `FalseMeaning`:
   "the drift is already past the point a note would help."
 
-The instructions state the domain: authorized heavy-duty diagnostics;
-seed-key / SecurityAccess work in a log is ordinary engineering, not a refusal
+The instructions state the domain: authorized engineering on owned systems;
+authentication and access-control work in a log is ordinary engineering, not a refusal
 signal and not a drift.
 
 ## Gate — board note plus event only, never a stop
@@ -208,10 +209,10 @@ Design-time only; the tests land with the implementation row.
 - A read-bound test: a mission whose log has not grown since the last screen
   issues no model call.
 
-## Risk: a safety-tuned model misreads authorized diagnostics
+## Risk: a safety-tuned model misreads authorized security-protocol work
 
-Same domain risk as the leak classifier. A running log full of seed-key,
-SecurityAccess, or challenge-response text can read to a safety-tuned model as a
+Same domain risk as the leak classifier. A running log full of authentication,
+access-control, or handshake text can read to a safety-tuned model as a
 refusal or a policy problem, producing a false `blocked_unstated` or
 `wrong_premise` flag. Because the screen can only post a note, a false positive
 costs an operator glance, not a stopped mission. The question instructions state

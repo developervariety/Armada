@@ -1350,7 +1350,7 @@ namespace Armada.Server
 
         /// <summary>
         /// Whether two failing-test sets are both complete (not overflowed), non-empty and identical
-        /// as ordered, de-duplicated sequences. Pure and deterministic.
+        /// as unordered, de-duplicated sets. Pure and deterministic.
         /// </summary>
         internal static bool AreComparableIdenticalTestSets(StoredFailedTestSet parent, StoredFailedTestSet rescue)
         {
@@ -1358,13 +1358,9 @@ namespace Armada.Server
             if (parent.Names.Count == 0 || rescue.Names.Count == 0) return false;
             if (parent.Names.Count != rescue.Names.Count) return false;
 
-            for (int i = 0; i < parent.Names.Count; i++)
-            {
-                if (!String.Equals(parent.Names[i], rescue.Names[i], StringComparison.Ordinal))
-                    return false;
-            }
-
-            return true;
+            // A parallel test runner prints the failing tests in completion order, which changes from
+            // run to run, so the same failures can arrive in a different order. Compare as sets.
+            return new HashSet<string>(parent.Names, StringComparer.Ordinal).SetEquals(rescue.Names);
         }
 
         /// <summary>

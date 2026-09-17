@@ -184,7 +184,7 @@ namespace Armada.Core.Services
                 ["flake_likelihood"] = new ScoreQuestion(
                     "How likely is this failure a flake rather than a real defect? A load flake fails under a concurrent "
                     + "suite and passes alone, often advertised as a WRONG VALUE rather than a timeout; a known flaky family "
-                    + "is a class documented as load-sensitive. This is authorized heavy-duty vehicle diagnostics tooling.",
+                    + "is a class documented as load-sensitive. This is authorized engineering on owned systems.",
                     _LikelihoodLevels),
                 ["outside_diff"] = new NoulQuestion(
                     "The failing tests live in files the change did not touch.",

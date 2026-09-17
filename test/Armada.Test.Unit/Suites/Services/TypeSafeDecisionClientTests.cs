@@ -97,6 +97,62 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("noul", body.Questions["repeat_likely"].Type);
             });
 
+            await RunTest("DecideAsync_ScoreAnswerWithLegendObject_ParsesAndReportsModel", async () =>
+            {
+                // The provider returns a score legend as an index-keyed object, noul answers without a
+                // confidence, and the concrete model version it ran.
+                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
+                    HttpStatusCode.OK,
+                    "{\"model\":\"jev-1.13.0\",\"answers\":{" +
+                    "\"cause\":{\"type\":\"choice\",\"choice\":\"work_defect\",\"confidence\":0.84," +
+                    "\"probabilities\":{\"unclear\":0.11,\"work_defect\":0.89,\"environmental\":0.0}}," +
+                    "\"repeat_likely\":{\"type\":\"noul\",\"noul\":0.53}," +
+                    "\"sev\":{\"type\":\"score\",\"score\":1.71,\"confidence\":0.56," +
+                    "\"legend\":{\"0\":\"Low\",\"1\":\"Medium\",\"2\":\"High\"}," +
+                    "\"probabilities\":{\"0\":0.04,\"1\":0.21,\"2\":0.75}}}," +
+                    "\"usage\":{\"input_tokens\":450,\"output_tokens\":80}}");
+                HttpClient http = new HttpClient(handler);
+                TypeSafeDecisionClient client = new TypeSafeDecisionClient(Settings(), new LoggingModule(), http);
+                List<string> observed = new List<string>();
+                client.ModelObserved = observed.Add;
+
+                TypedDecisionResult result = await client.DecideAsync(SampleRequest(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertTrue(result.Available, "a score answer with a legend object must parse, not return unavailable: " + result.UnavailableReason);
+                AssertEqual(1, observed.Count, "the reported model version is passed to the observer");
+                AssertEqual("jev-1.13.0", observed[0]);
+                AssertEqual("jev-1.13.0", result.Model);
+                AssertEqual(3, result.Answers.Count);
+                AssertEqual("score", result.Answers["sev"].Type);
+                AssertEqual(1.71, result.Answers["sev"].Score);
+                AssertEqual(0.56, result.Answers["sev"].Confidence);
+                AssertEqual(0.75, result.Answers["sev"].Probabilities!["2"]);
+                AssertEqual(0.53, result.Answers["repeat_likely"].Noul);
+                AssertNull(result.Answers["repeat_likely"].Confidence);
+            });
+
+            await RunTest("DecideAsync_ObjectState_SendsStateAsJsonObject", async () =>
+            {
+                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(HttpStatusCode.OK, "{\"answers\":{}}");
+                HttpClient http = new HttpClient(handler);
+                TypeSafeDecisionClient client = new TypeSafeDecisionClient(Settings(), new LoggingModule(), http);
+                RedactedDecisionState state = DecisionStateRedactor.RedactState(
+                    new Dictionary<string, object?> { ["failure_reason"] = "build failed", ["exit_code"] = 1 }, 8000);
+
+                await client.DecideAsync(new TypedDecisionRequest
+                {
+                    DecisionPoint = "failure_cause",
+                    State = state.State,
+                    Questions = SampleRequest().Questions
+                }, CancellationToken.None).ConfigureAwait(false);
+
+                AssertNotNull(handler.LastRequestBody);
+                System.Text.Json.Nodes.JsonObject body = System.Text.Json.Nodes.JsonNode.Parse(handler.LastRequestBody!)!.AsObject();
+                AssertTrue(body["state"] is System.Text.Json.Nodes.JsonObject, "state must be a JSON object on the wire, not an encoded string");
+                AssertEqual("build failed", body["state"]!["failure_reason"]!.GetValue<string>());
+                AssertEqual(state.Text, body["state"]!.ToJsonString(), "the recorded text is exactly what was sent");
+            });
+
             await RunTest("DecideAsync_401_ReturnsUnavailableHttp401", async () =>
             {
                 await AssertUnavailable(HttpStatusCode.Unauthorized, "http_401").ConfigureAwait(false);
@@ -105,6 +161,51 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("DecideAsync_422_ReturnsUnavailableHttp422", async () =>
             {
                 await AssertUnavailable((HttpStatusCode)422, "http_422").ConfigureAwait(false);
+            });
+
+            await RunTest("DecideAsync_422ValidationBody_ReportsRedactedFieldDetail", async () =>
+            {
+                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
+                    (HttpStatusCode)422,
+                    "{\"detail\":[{\"loc\":[\"body\",\"questions\",\"sev\",\"criteria\"],\"msg\":\"needs at least two levels\"," +
+                    "\"input\":\"bearer-test-key /srv/private/checkout\"}]}");
+                HttpClient http = new HttpClient(handler);
+                TypeSafeDecisionClient client = new TypeSafeDecisionClient(Settings(), new LoggingModule(), http);
+
+                TypedDecisionResult result = await client.DecideAsync(SampleRequest(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertFalse(result.Available, "422 must be unavailable");
+                AssertEqual("http_422", result.UnavailableReason);
+                AssertEqual("body > questions > sev > criteria: needs at least two levels", result.UnavailableDetail);
+            });
+
+            await RunTest("DecideAsync_ErrorMessageBody_StripsKeyAndRedacts", async () =>
+            {
+                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(
+                    HttpStatusCode.BadRequest,
+                    "{\"error\":\"bad key bearer-test-key for msn_abc123 at /srv/example/x\"}");
+                HttpClient http = new HttpClient(handler);
+                TypeSafeDecisionClient client = new TypeSafeDecisionClient(Settings(), new LoggingModule(), http);
+
+                TypedDecisionResult result = await client.DecideAsync(SampleRequest(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual("http_400", result.UnavailableReason);
+                AssertNotNull(result.UnavailableDetail);
+                AssertFalse(result.UnavailableDetail!.Contains("bearer-test-key", StringComparison.Ordinal), "the key must not survive");
+                AssertFalse(result.UnavailableDetail.Contains("msn_abc123", StringComparison.Ordinal), "ids are redacted");
+                AssertFalse(result.UnavailableDetail.Contains("/srv/", StringComparison.Ordinal), "paths are redacted");
+            });
+
+            await RunTest("DecideAsync_ErrorBodyNotJson_DetailIsNull", async () =>
+            {
+                RecordingHttpMessageHandler handler = new RecordingHttpMessageHandler(HttpStatusCode.BadGateway, "<html>bad gateway</html>");
+                HttpClient http = new HttpClient(handler);
+                TypeSafeDecisionClient client = new TypeSafeDecisionClient(Settings(), new LoggingModule(), http);
+
+                TypedDecisionResult result = await client.DecideAsync(SampleRequest(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual("http_502", result.UnavailableReason);
+                AssertNull(result.UnavailableDetail);
             });
 
             await RunTest("DecideAsync_429_ReturnsUnavailableHttp429_NoRetry", async () =>

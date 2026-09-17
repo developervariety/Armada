@@ -3,6 +3,7 @@ import Tabs, { type TabDef } from '../components/shared/Tabs';
 import { useAuth } from '../context/AuthContext';
 
 const RoutingSettings = lazy(() => import('./RoutingSettings'));
+const TypedDecisionsSettings = lazy(() => import('./TypedDecisionsSettings'));
 const Server = lazy(() => import('./Server'));
 const Doctor = lazy(() => import('./Doctor'));
 const Tenants = lazy(() => import('./admin/Tenants'));
@@ -26,6 +27,7 @@ export default function ServerHub() {
   const tabs: TabDef[] = [
     { key: 'server', label: 'Server', render: () => panel(<Server />) },
     { key: 'routing', label: 'Routing', hidden: !isAdmin, render: () => panel(<RoutingSettings />) },
+    { key: 'typed-decisions', label: 'Typed decisions', hidden: !isAdmin, render: () => panel(<TypedDecisionsSettings />) },
     { key: 'diagnostics', label: 'Diagnostics', render: () => panel(<Doctor />) },
     { key: 'tenants', label: 'Tenants', hidden: !isAdmin, render: () => panel(<Tenants />) },
     { key: 'users', label: 'Users', hidden: !admin, render: () => panel(<Users />) },

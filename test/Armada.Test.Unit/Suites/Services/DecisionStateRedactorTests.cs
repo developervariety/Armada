@@ -1,8 +1,11 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System;
+    using System.Collections.Generic;
     using System.Text;
+    using System.Text.Json.Nodes;
     using System.Threading.Tasks;
+    using Armada.Core.Models;
     using Armada.Core.Services;
     using Armada.Test.Common;
 
@@ -50,15 +53,15 @@ namespace Armada.Test.Unit.Suites.Services
 
             await RunTest("Redact_ProductIdentifier_Survives", () =>
             {
-                // A decoder class name and a PGN name are product identifiers, not secrets: they
+                // A decoder class name and a frame name are product identifiers, not secrets: they
                 // must pass through untouched so the model sees the engineering content.
-                string text = "The J1939ParameterDecoder and PGN65259Decoder handle the DM20 record counter.";
+                string text = "The FrameParameterDecoder and Frame65259Decoder handle the RC20 record counter.";
 
                 string redacted = DecisionStateRedactor.Redact(text, 8000);
 
-                AssertContains("J1939ParameterDecoder", redacted);
-                AssertContains("PGN65259Decoder", redacted);
-                AssertContains("DM20", redacted);
+                AssertContains("FrameParameterDecoder", redacted);
+                AssertContains("Frame65259Decoder", redacted);
+                AssertContains("RC20", redacted);
             });
 
             await RunTest("Redact_LongState_TruncatesButKeepsArmadaMarkerLines", () =>
@@ -83,30 +86,94 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(String.Empty, DecisionStateRedactor.Redact(String.Empty, 8000));
             });
 
-            await RunTest("RedactObject_WalksSerializedStringFields_NoSecretSurvives", () =>
+            await RunTest("RedactState_Object_TransmitsJsonObjectWithRedactedStrings", () =>
             {
                 object state = new
                 {
                     FailureReason = "captain died at /home/user/work",
                     Commit = "deadbeefdeadbeefdeadbeef0011",
                     Mission = "msn_example0002zz",
-                    DecoderClass = "PGN64965Decoder"
+                    DecoderClass = "Frame64965Decoder"
                 };
 
-                object redactedObj = DecisionStateRedactor.RedactObject(state, 8000);
-                string redacted = redactedObj as string ?? String.Empty;
+                RedactedDecisionState result = DecisionStateRedactor.RedactState(state, 8000);
+                string redacted = result.Text;
+
+                AssertTrue(result.State is JsonObject, "an object state is transmitted as a JSON object, not a string");
+                AssertEqual(redacted, ((JsonObject)result.State).ToJsonString(), "the text is exactly the transmitted JSON");
+                AssertEqual("#id", ((JsonObject)result.State)["Mission"]!.GetValue<string>(), "field structure survives redaction");
 
                 AssertFalse(redacted.Contains("/home/user", StringComparison.Ordinal), "path in object survived");
                 AssertFalse(redacted.Contains("deadbeefdeadbeefdeadbeef0011", StringComparison.Ordinal), "sha in object survived");
                 AssertFalse(redacted.Contains("msn_example0002zz", StringComparison.Ordinal), "id in object survived");
                 // Product identifier still passes.
-                AssertContains("PGN64965Decoder", redacted);
+                AssertContains("Frame64965Decoder", redacted);
             });
 
-            await RunTest("RedactObject_Null_ReturnsEmptyString", () =>
+            await RunTest("RedactState_Null_ReturnsEmptyString", () =>
             {
-                object result = DecisionStateRedactor.RedactObject(null, 8000);
-                AssertEqual(String.Empty, result as string);
+                RedactedDecisionState result = DecisionStateRedactor.RedactState(null, 8000);
+                AssertEqual(String.Empty, result.State as string);
+                AssertEqual(String.Empty, result.Text);
+            });
+
+            await RunTest("RedactState_String_StaysText", () =>
+            {
+                RedactedDecisionState result = DecisionStateRedactor.RedactState("failed at /home/user/x", 8000);
+                AssertTrue(result.State is string, "a string state is transmitted as text");
+                AssertEqual(result.Text, (string)result.State);
+                AssertFalse(result.Text.Contains("/home/user", StringComparison.Ordinal), "path survived");
+            });
+
+            await RunTest("RedactState_OversizedObject_TruncatesLongestLeafAndStaysValidJson", () =>
+            {
+                StringBuilder tail = new StringBuilder();
+                for (int i = 0; i < 400; i++) tail.Append("output line ").Append(i).Append('\n');
+                tail.Append("[ARMADA:RESULT] BLOCKED needs the owner ruling\n");
+                for (int i = 0; i < 400; i++) tail.Append("more output ").Append(i).Append('\n');
+                Dictionary<string, object?> state = new Dictionary<string, object?>
+                {
+                    ["failure_reason"] = "build failed",
+                    ["exit_code"] = 1,
+                    ["agent_output_tail"] = tail.ToString()
+                };
+
+                RedactedDecisionState result = DecisionStateRedactor.RedactState(state, 2000);
+
+                AssertTrue(result.State is JsonObject, "an oversized object still transmits as a JSON object");
+                AssertTrue(result.Text.Length <= 2000, "the serialized state fits the budget: " + result.Text.Length);
+                JsonObject parsed = JsonNode.Parse(result.Text)!.AsObject();
+                AssertEqual("build failed", parsed["failure_reason"]!.GetValue<string>(), "short fields are untouched");
+                AssertEqual(1, parsed["exit_code"]!.GetValue<int>(), "numbers keep their type");
+                string cut = parsed["agent_output_tail"]!.GetValue<string>();
+                AssertContains("[state truncated]", cut);
+                AssertContains("[ARMADA:RESULT] BLOCKED", cut);
+            });
+
+            await RunTest("RedactState_PropertyNamesAreRedacted", () =>
+            {
+                Dictionary<string, string> state = new Dictionary<string, string>
+                {
+                    ["/home/user/private.txt"] = "changed",
+                    ["msn_example0003zz"] = "failed"
+                };
+
+                RedactedDecisionState result = DecisionStateRedactor.RedactState(state, 8000);
+
+                AssertFalse(result.Text.Contains("/home/user", StringComparison.Ordinal), "a path used as a key survived");
+                AssertFalse(result.Text.Contains("msn_example0003zz", StringComparison.Ordinal), "an id used as a key survived");
+                AssertEqual(2, ((JsonObject)result.State).Count, "keys that redact alike stay distinct");
+            });
+
+            await RunTest("RedactState_ObjectThatCannotFit_FallsBackToTruncatedText", () =>
+            {
+                List<int> numbers = new List<int>();
+                for (int i = 0; i < 2000; i++) numbers.Add(i);
+
+                RedactedDecisionState result = DecisionStateRedactor.RedactState(new Dictionary<string, object> { ["numbers"] = numbers }, 500);
+
+                AssertTrue(result.State is string, "a state with no string to shorten falls back to text");
+                AssertContains("[state truncated]", result.Text);
             });
         }
     }

@@ -84,6 +84,17 @@ namespace Armada.Test.Unit.Suites.Services
                 },
                 new CandidateCase
                 {
+                    Name = "GateConfidenceWithoutNoul_NoNomination_ShadowEvent",
+                    GlobalMode = TypedDecisionModeEnum.Gate,
+                    DecisionMode = TypedDecisionModeEnum.Gate,
+                    Result = DurableConfidenceOnly(0.95),
+                    ExpectNominated = false,
+                    ExpectClientCalls = 1,
+                    ExpectTypedEvent = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectWritten = false
+                },
+                new CandidateCase
+                {
                     Name = "ShadowAboveThreshold_NoNomination_NoProposal",
                     GlobalMode = TypedDecisionModeEnum.Shadow,
                     DecisionMode = TypedDecisionModeEnum.Shadow,
@@ -220,6 +231,16 @@ namespace Armada.Test.Unit.Suites.Services
                 Written.Add(proposal);
                 return Task.FromResult<string?>("/proposals/" + Written.Count + ".md");
             }
+        }
+
+        private static TypedDecisionResult DurableConfidenceOnly(double confidence)
+        {
+            Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+            {
+                ["durable_lesson"] = new TypedAnswer { Type = "noul", Confidence = confidence },
+                ["scope"] = new TypedAnswer { Type = "choice", Choice = "shared", Confidence = confidence }
+            };
+            return new TypedDecisionResult { Available = true, Answers = answers, InputTokens = 10, OutputTokens = 5, LatencyMs = 12 };
         }
 
         private sealed class CandidateCase

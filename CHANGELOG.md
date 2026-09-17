@@ -6,6 +6,48 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Changed
+
+- Dashboard: Settings > Routing has a Legacy Routing / Smart Routing mode
+  switch, a persona model lists table (Default, Lighter, Stronger model chips
+  with captain counts and an all-accounts-exhausted warning), collapsed
+  persona restrictions with a note when one admits no captain, and a preview
+  that shows the Legacy Routing order, the usage filter per captain, the
+  capacity reading, and the chosen captain. A new Settings > Typed decisions
+  tab shows the effective mode (with an "Off — no Jev key" banner), saves or
+  removes the provider key without ever displaying it, and edits the global
+  mode and each decision's mode and threshold.
+- Typed decisions are Off unless a provider key is available. Without a key the
+  effective global mode is `Off` with reason `typed_decisions_no_key` (startup
+  log, `GET /api/v1/status`, `GET /api/v1/settings`, and the new
+  `GET /api/v1/typed-decisions`), whatever the stored mode. With a key, every
+  decision runs at its own mode. The key comes from `ARMADA_TYPESAFE_KEY` or,
+  when unset, from `<data directory>/secrets/typesafe-api-key`, and adding or
+  removing it takes effect without a restart. Every adapter is now wired at
+  startup over one switchable client.
+- `typedDecisions` hot-reloads in place, so decision points that already hold
+  the section see a reloaded mode.
+
+- Smart Routing no longer replaces Legacy Routing. With
+  `modelTier.usageRouting.enabled`, Armada keeps the Legacy Routing order (model
+  tiers, persona locks, within-tier ranking, non-native-first, capability
+  scoring, the persona default captain, and the high-tier slot reserve, which
+  now apply with Smart Routing on) and filters it by account usage: captains on
+  Exhausted accounts (measured windows, login problems, provider holds, the
+  account concurrency limit, or unknown data under `Block`) are removed, and
+  captains on Low or Reserve accounts move after the others, in their legacy
+  order. `reservedPersonas`, `reservedPriorityAtOrAbove`, and the recovery
+  threshold keep their meaning. A mission waits as `WaitingForProviderUsage`
+  with reason `usage_exhausted_or_account_capacity` or the first account code.
+- `personaRoutes` restrict a persona to the named accounts and models and no
+  longer set an order. A persona without routes is unrestricted.
+- `POST /api/v1/settings/usage-preview` returns the pipeline: `legacyOrder`,
+  per-captain `usageFilter` verdicts, `modelGroups`, the `capacity` reading, and
+  `chosen`. The request accepts optional `missionTitle` and `missionText`;
+  without them the typed-decision client is not called.
+- A shipped typed decision that is missing from a stored
+  `typedDecisions.decisions` map now runs at its shipped mode instead of `Off`.
+
 ### Added
 
 - The unit test runner can be split into shards. `test/Armada.Test.Unit` accepts `--shard <index>/<count>` and
@@ -20,6 +62,83 @@ All notable changes to Armada are documented in this file.
   `AgentLifecycleHandler.ProcessLivenessInterval`, a `SelfDeployNativeCommandRunner` pipe drain timeout, a
   `TimeProvider` for the `OpenCodeServerLauncher` startup deadline, and retry-wait functions for
   `ReleaseWebhookDispatcher`, `DeepSeekInferenceClient` and `VoyageEmbeddingClient`. Production defaults are unchanged.
+- Administrator routes for typed decisions: `GET /api/v1/typed-decisions`,
+  `PUT /api/v1/typed-decisions` (global and per-decision modes and thresholds,
+  validated and saved), `PUT /api/v1/typed-decisions/key` (writes the key file,
+  204), and `DELETE /api/v1/typed-decisions/key`. The key is never logged,
+  recorded, stored in settings, or returned, and the routes are excluded from
+  request history.
+
+- `modelTier.usageRouting.personaModels`: per-persona `default`, `lighter`, and
+  `stronger` model lists. Smart Routing groups its filtered order by the lists,
+  tries the chosen list first, then the others (default, stronger, lighter),
+  then captains whose model is in no list.
+- The `capacity_escalation` typed decision (ships `Gate`, threshold 0.90) asks
+  whether a mission is lighter, default, or stronger work for a persona with a
+  `lighter` or `stronger` list. Every failure or low-confidence answer is
+  `default`; the rule and model verdicts are recorded on every call; the reading
+  is cached per mission.
+
+### Removed
+
+- The `routing_hint` typed decision and route `shapes` tags are retired in
+  favour of `capacity_escalation`. Settings files that still contain them load
+  and the values are ignored.
+
+### Fixed
+
+- Deleting a captain no longer reports an error when the captain is actually
+  removed. Dependent cleanup (telemetry events, planning sessions) after the row
+  delete is now fully best-effort, so a cleanup failure leaves an orphan for a
+  later sweep instead of failing the delete the user already saw succeed.
+- `apiCaptainCloudProviders` is hot-reloadable, so enabling a cloud provider for
+  API-endpoint captains applies without an admiral restart.
+- Autonomous recovery compares two failing-test sets without regard to order, so
+  the same failures printed in a different order by a parallel test runner are
+  recognised as a repeat (the repeated-failure operator note is no longer lost).
+- The context index warns when a chunk-metadata sidecar key matches no generated
+  chunk, naming any that carry a must_retrieve safety domain, and an independent
+  test now asserts every must_retrieve key resolves and every managed vessel keeps
+  a safety leaf — so a renamed heading or a file falling under the sub-chunk
+  threshold can no longer silently drop a safety rule from a slimmed brief.
+
+### Added
+
+- `review_substance` holds a thin PASS by the probability the model puts on the two lowest substance levels, not by
+  the expected score and its own confidence. A headings-only review split between levels scored just above
+  partly-evidenced with confidence 0, so the hold could not fire. Without level probabilities the old score rule
+  applies.
+- `lint_finding` asks only about the findings the Linter listed instead of twenty fixed slots, which cut one live
+  single-finding request from about 14,000 to about 1,150 input tokens with the same answers. A typed decision with
+  nothing to ask sends nothing.
+- Every typed decision ships in `Gate`, and the captain typed-decision tool ships enabled. Each decision still acts
+  only at or above its `gateThreshold`, only in its conservative direction (hold, flag, escalate, annotate, order),
+  and never approves, lands, dispatches, deletes, or writes memory; the per-decision `mode` and the global cap stop a
+  decision without a deploy.
+- A synthetic typed-decision evaluation set covers `failure_cause`, `refusal`, `runtime_failure`,
+  `review_substance`, and `lint_finding`. Each case builds its requests through the decision's own adapter; reference
+  pairs state the answer for each variant, and consistency pairs require an irrelevant change not to move the answer.
+  `armada_typed_decision_eval` (operator, global administrator) runs it and returns the report; it also runs in the
+  background when the provider reports a model version not yet evaluated (`typedDecisions.evalOnModelChange`, default
+  `true`). Each run records a `typed_decision.eval` event.
+- Decisions that ask about several independent items (`criteria_lint`, `inbox_triage`, `memory_candidate`,
+  `followup_routing`, `memory_review`, `owner_digest`) share provider requests: items are packed into requests of at
+  most 100 questions within the per-request state budget, and each item is still gated and recorded on its own event,
+  which carries `batch_size` and its share of the request's tokens.
+- Typed-decision state is sent as a JSON object instead of an escaped JSON string. Property names and string values
+  are redacted in place, and an oversized object has its longest strings shortened until it fits, so the provider
+  always receives valid structured JSON.
+- A rejected typed-decision request records the provider's redacted explanation (`unavailable_detail`), so a 422 for
+  a malformed question names the field instead of reading like an outage.
+- Typed decisions never read a noul answer's confidence as its probability. The provider returns a noul with no
+  confidence; five adapters fell back to confidence and could merge, nominate, flag, link, or mark a default safe on a
+  confident answer that carried no probability.
+- Typed decisions now parse TypeSafe score answers. The provider returns a score `legend` as an index-keyed
+  object; the client expected a list, so every decision that asked a score question (`review_substance`,
+  `lint_finding`, `flake_score`, `owner_digest`, `inbox_triage`, and the captain tool) failed with
+  `unavailable: parse` and its rule always stood. Typed-decision events also record the concrete model version
+  the provider reports (`model`, for example `jev-1.13.0`) and each answer's `probabilities`, so a threshold
+  review can compare margins and separate a model change from a behaviour change.
 - Subscription accounts can be deleted and hard-refreshed from the Dashboard. `DELETE
   /api/v1/usage-accounts/{accountId}` is refused with `account_has_captains` (409) while the account lists
   captains; otherwise it cancels a pending login, removes the account and every persona route that names it
@@ -98,13 +217,16 @@ All notable changes to Armada are documented in this file.
   alternative to `launchCredentialEnv`; a missing or empty file reads
   `account_launch_credential_unavailable`. The policy JSON editor moves under an
   Advanced section.
-
-- Smart Routing (usage-aware routing) enabled with no configured route for a
-  persona now passes the legacy candidate list through unchanged instead of
-  deferring the mission with no idle captain. Enabling Smart Routing fleet-wide
-  is therefore a safe no-op until accounts and persona routes are configured,
-  and it progressively governs a persona only once a route for it exists. The
-  `v2_no_route_pass_through` selection reason records the pass-through.
+- The code index can take its embedding provider from a registered Embedding
+  model endpoint instead of the `codeIndex` settings block. When an enabled
+  Embedding endpoint is registered, the code index uses its base URL, model, and
+  server-side key; `codeIndex.embeddingEndpointId` pins a specific one when more
+  than one is enabled. With no endpoint registered it falls back to the
+  `codeIndex` `EmbeddingApiBaseUrl` / `EmbeddingApiKey` / `EmbeddingModel`
+  settings, so behaviour is unchanged until an endpoint is added. This lets the
+  embedding provider and its key be managed on the model-endpoints surface
+  rather than in settings.json or an environment variable. The client resolves
+  the endpoint at startup, so add or change it then restart the admiral.
 
 - Context retrieval can now supply a captain brief's Shared Memory section,
   behind the `contextRetrieval.briefSlimmingEnabled` flag (default off). While
@@ -148,10 +270,18 @@ All notable changes to Armada are documented in this file.
   spans the full width, and wide tables scroll within their own container. The
   desktop layout and the icon-rail collapse are unchanged.
 
-- The usage-aware routing capability is now named **Smart Routing** (formerly
-  "Routing V2") and the model-tier selector it sits over is named **Legacy
-  Routing**, in the Settings > Routing dashboard and the routing docs. Settings
-  keys, event reasons, and API field names are unchanged.
+- The usage-aware routing capability is named **Smart Routing** and the
+  model-tier selector it builds on is named **Legacy Routing**, in the
+  Settings > Routing dashboard and the routing docs. Settings keys are
+  unchanged.
+
+- The Create/Edit Captain modal no longer shows the inline provider-credential
+  fields for an API Endpoint captain. That runtime draws its base URL and key
+  from the referenced inference endpoint, and the admiral already rejects inline
+  captain credentials for it, so the modal now selects the endpoint as the sole
+  credential surface and never submits an inline key or base URL for it. Native
+  runtimes keep the inline fields, which remain the way to point a captain at an
+  externally served model.
 
 ### Security
 
@@ -229,9 +359,9 @@ All notable changes to Armada are documented in this file.
   chunks, never a copy of their content, and it carries no `tier`: it never
   promotes or demotes a chunk, so the core allowlist and the always-on core
   bundle are byte-identical with or without it. The shipped sidecar enriches
-  every AI-Memory leaf and the key operator docs; the EcuLink memory leaf is
-  tagged `must_retrieve: ["eculink"]` so its source-fidelity and
-  hang-escalation rules are always retrieved for an EcuLink task. Resolution is
+  every AI-Memory leaf and the key operator docs; a vessel's memory leaf can be
+  tagged `must_retrieve` with its vessel token so its source-fidelity and
+  hang-escalation rules are always retrieved for that vessel's task. Resolution is
   automatic (the default file under the docs root) and fully guarded: a missing
   or malformed sidecar is ignored and the index still generates. Additive: the
   server wiring, brief generation, and the loaders are unchanged.
@@ -258,7 +388,7 @@ All notable changes to Armada are documented in this file.
   so a smaller relevant leaf ranked below a large one is still included, with
   ranked order and the budget cap preserved; and the chunk-metadata sidecar tags
   each per-vessel source-fidelity / safety section `must_retrieve` for its own
-  vessel domain, as EcuLink already was, and re-keys the sub-chunked
+  vessel domain, and re-keys the sub-chunked
   session-workflow sections. Core chunks and small files are never sub-chunked, so
   the core allowlist and the core bundle are unchanged. Re-run: safety recall
   100%, read_when leaf recall 100% (62 of 62), byte reduction 78.4-86.2% (median
@@ -266,9 +396,7 @@ All notable changes to Armada are documented in this file.
   census now PASSES and the brief-wiring step is unblocked.
 ### Documentation
 
-- Smart Routing docs and the automated usage-preview test now state the pass-through
-  contract: a persona with no configured route returns the legacy candidates with
-  reason `v2_no_route_pass_through` instead of waiting.
+- The Postman collection carries requests for the subscription account routes (delete, usage refresh, login folder, login start, code, key, status, cancel), the typed-decision routes (read, update, key save and removal) and the in-place server restart, so the route contract covers every served API route.
 - Typed-decision hygiene, with no behaviour change. The configuration chapter no
   longer calls the typed-decision system off by default: the global mode ships
   `Gate` and the system is inert until the key is present; the recovery, review,
@@ -527,19 +655,8 @@ All notable changes to Armada are documented in this file.
   never marks a red check green — only a genuine passing isolated re-run does.
   Ships Off; the re-run runs only for a `dotnet test` command that can be
   isolated, and the red stands unchanged otherwise.
-- **`routing_hint`.** Owner decision 2026-09-16: NOT wired into the legacy
-  model-tier selector. It belongs to Routing V2 (`modelTier.usageRouting`). A
-  route gains an optional `shapes` tag list; a route with no tags is eligible for
-  every shape, so existing configurations behave exactly as before. The model
-  answers a `shape` choice, a `policy_sensitive` noul, and two context nouls, and
-  the hint reorders — never re-selects — the routes V2 already approved and found
-  eligible for a persona: among eligible routes for a routine mission in Normal
-  state it prefers the first route whose `shapes` contains the chosen shape at or
-  above threshold, and `policy_sensitive >= 0.9` prefers a `policy-tolerant`
-  route (falling back to the V2 default and recording `no_tolerant_route` when
-  none is configured). Reserved personas and non-Normal account states are never
-  affected; every hard V2 constraint runs after the reorder. Disabling V2 or the
-  decision restores the plain list order. Ships Off.
+- **`routing_hint`** (retired before release, replaced by `capacity_escalation`):
+  a work-shape hint over route tags. Stored settings for it are ignored.
 - **`change_substance`.** The extension-based `ChangeSubstanceClassifier`
   stays the rule. When wired, the D17 adapter reads the rescue's added hunks and
   may RAISE a documentation-only (or empty) extension reading to `Substantive`
@@ -673,9 +790,9 @@ All notable changes to Armada are documented in this file.
 - `refusal` (D2): the structured `[ARMADA:RESULT] REFUSED` marker and a provider
   safeguard block stay authoritative. The model may promote a prose refusal the
   phrase rules missed, or demote a quoted phrase only at very high confidence.
-  The criteria state the domain: authorized heavy-duty vehicle diagnostics, so
-  seed-key exchange and UDS SecurityAccess are ordinary engineering, never a
-  refusal.
+  The criteria state the domain: authorized engineering on owned systems, so
+  authentication and access-control protocol code is ordinary engineering, never
+  a refusal.
 - `runtime_failure` (D3): only a bare Crash is offered for change, and only ever
   upgraded to the more conservative UsageLimit or AuthFailure; a recognised
   signature is never downgraded and a crash is never read as clean.
@@ -1364,7 +1481,7 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 
 - Settings > Routing holds the model routing policy (tier lists, specialist
   personas, reserved slots, strategy, preference order, family rules, dispatch
-  guard, model providers, additional assets) and Routing V2. Each part saves
+  guard, model providers, additional assets) and Smart Routing. Each part saves
   only its own changed fields, so a save in one part never replaces the other.
 - A refresh, or a save in another section, keeps unsaved edits on the Routing
   and Server tabs. Fields the operator did not edit take the new server values.
@@ -1674,7 +1791,7 @@ Focus: operator signal fidelity - make a failure say what actually failed.
 - A quota, billing, or authentication failure on one captain holds its whole
   account Exhausted until the retry time and quarantines the account's idle
   captains, so the re-routed mission goes to a different account.
-- The Routing V2 account template and status table show the runtime and the
+- The Smart Routing account template and status table show the runtime and the
   hold expiry. Rollout of a second subscription account needs an owner
   decision under the provider's terms. See
   [account logins](docs/USAGE_ROUTING.md#account-logins).
@@ -3109,11 +3226,11 @@ Focus: operator signal fidelity - make a failure say what actually failed.
   The initial failures are retained as baseline evidence; provider repairs are
   described separately. No deployment is claimed.
 
-### Routing V2
+### Account usage routing
 
 - Preserve omitted vessel and voyage bindings during mission metadata updates; reject explicit rebinding or clearing. API tests now isolate their capacity fixtures and report failed creates directly.
-- Replace legacy preference overrides with opt-in persona account routes and usage reserves. Missing persona routes wait unless an explicit default is configured.
-- Add optional account usage collection for Codex, Claude, Cursor, and OpenCode Go, plus file and manual snapshots. Keep persona preferences until allowance runs low; reserve capacity for important work and queue missions when no approved account is available.
+- Add opt-in persona account routes and usage reserves. (Retired: route order no longer replaces Legacy Routing; see the Smart Routing entries above.)
+- Add optional account usage collection for Codex, Claude, Cursor, and OpenCode Go, plus file and manual snapshots.
 - Add Dashboard policy editing, usage status, budget planning, and an admin draft preview API. Defaults contain no accounts or personal subscription data. See [usage routing](docs/USAGE_ROUTING.md).
 
 ### Operator documentation

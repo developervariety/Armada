@@ -22,16 +22,24 @@ namespace Armada.Test.Unit.Suites.Services
         private static TypedDecisionResult SampleResult(string? unavailable = null)
         {
             if (unavailable != null)
-                return new TypedDecisionResult { Available = false, UnavailableReason = unavailable };
+                return new TypedDecisionResult { Available = false, UnavailableReason = unavailable, UnavailableDetail = "provider said no" };
 
             Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>
             {
-                ["cause"] = new TypedAnswer { Type = "choice", Choice = "environmental", Confidence = 0.94 }
+                ["cause"] = new TypedAnswer
+                {
+                    Type = "choice",
+                    Choice = "environmental",
+                    Confidence = 0.94,
+                    Probabilities = new Dictionary<string, double> { ["environmental"] = 0.96, ["work_defect"] = 0.04 }
+                }
             };
             return new TypedDecisionResult
             {
                 Available = true,
                 Answers = answers,
+                Model = "jev-1.13.0",
+                BatchSize = 3,
                 InputTokens = 100,
                 OutputTokens = 20,
                 LatencyMs = 55
@@ -76,6 +84,9 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(100, payload.InputTokens);
                 AssertEqual(20, payload.OutputTokens);
                 AssertEqual(55, payload.LatencyMs);
+                AssertEqual("jev-1.13.0", payload.Model);
+                AssertEqual(3, payload.BatchSize);
+                AssertEqual(0.96, payload.Answers!["cause"].Probabilities!["environmental"]);
             });
 
             await RunTest("RecordShadowAsync_BelowThreshold_WritesShadowEvent", async () =>
@@ -120,6 +131,7 @@ namespace Armada.Test.Unit.Suites.Services
                 RecorderPayload? payload = System.Text.Json.JsonSerializer.Deserialize<RecorderPayload>(evt.Payload!);
                 AssertEqual("unavailable", payload!.GateOutcome);
                 AssertEqual("timeout", payload.UnavailableReason);
+                AssertEqual("provider said no", payload.UnavailableDetail);
             });
 
             await RunTest("Recorder_WithMission_ScopesEventToMission", async () =>
@@ -199,6 +211,24 @@ namespace Armada.Test.Unit.Suites.Services
 
             [JsonPropertyName("unavailable_reason")]
             public string? UnavailableReason { get; set; }
+
+            [JsonPropertyName("unavailable_detail")]
+            public string? UnavailableDetail { get; set; }
+
+            [JsonPropertyName("model")]
+            public string? Model { get; set; }
+
+            [JsonPropertyName("batch_size")]
+            public int BatchSize { get; set; }
+
+            [JsonPropertyName("answers")]
+            public Dictionary<string, RecorderAnswer>? Answers { get; set; }
+        }
+
+        private sealed class RecorderAnswer
+        {
+            [JsonPropertyName("probabilities")]
+            public Dictionary<string, double>? Probabilities { get; set; }
         }
     }
 }

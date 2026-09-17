@@ -4,6 +4,7 @@ namespace Armada.Core.Services
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.IO;
+    using System.Linq;
     using System.Net.Http;
     using System.Net.Http.Headers;
     using System.Text;
@@ -29,6 +30,8 @@ namespace Armada.Core.Services
         #region Private-Members
 
         private const string _Header = "[TypeSafeDecisionClient] ";
+        private const int _MaxErrorBodyBytes = 4096;
+        private const int _MaxErrorDetailChars = 300;
         private static readonly JsonSerializerOptions _JsonOptions = new JsonSerializerOptions
         {
             PropertyNameCaseInsensitive = true,
@@ -38,6 +41,7 @@ namespace Armada.Core.Services
         private readonly TypedDecisionSettings _Settings;
         private readonly LoggingModule _Logging;
         private readonly HttpClient _Http;
+        private readonly Func<string?>? _ApiKeyProvider;
 
         #endregion
 
@@ -50,11 +54,34 @@ namespace Armada.Core.Services
         /// <param name="logging">Logging module.</param>
         /// <param name="httpClient">HTTP client used for the single POST.</param>
         public TypeSafeDecisionClient(TypedDecisionSettings settings, LoggingModule logging, HttpClient httpClient)
+            : this(settings, logging, httpClient, null)
         {
+        }
+
+        /// <summary>
+        /// Create a TypeSafe typed-decision client whose Bearer key comes from a provider, read on every call.
+        /// </summary>
+        /// <param name="settings">Typed-decision settings (base URL, model, timeout).</param>
+        /// <param name="logging">Logging module.</param>
+        /// <param name="httpClient">HTTP client used for the single POST.</param>
+        /// <param name="apiKeyProvider">Returns the current key; null reads the environment variable named in settings.</param>
+        public TypeSafeDecisionClient(TypedDecisionSettings settings, LoggingModule logging, HttpClient httpClient, Func<string?>? apiKeyProvider)
+        {
+            _ApiKeyProvider = apiKeyProvider;
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Http = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         }
+
+        #endregion
+
+        #region Public-Members
+
+        /// <summary>
+        /// Called with the model version the provider reports on each answered request, so a watcher can
+        /// react to a version change. A fault in the callback never affects the decision.
+        /// </summary>
+        public Action<string>? ModelObserved { get; set; }
 
         #endregion
 
@@ -92,8 +119,10 @@ namespace Armada.Core.Services
                 if (!response.IsSuccessStatusCode)
                 {
                     string reason = "http_" + (int)response.StatusCode;
-                    _Logging.Warn(_Header + "decision '" + request.DecisionPoint + "' unavailable: " + reason);
-                    return Unavailable(reason, stopwatch.ElapsedMilliseconds);
+                    string? detail = await ReadErrorDetailAsync(response, apiKey, linked.Token).ConfigureAwait(false);
+                    _Logging.Warn(_Header + "decision '" + request.DecisionPoint + "' unavailable: " + reason
+                        + (detail != null ? " (" + detail + ")" : String.Empty));
+                    return Unavailable(reason, stopwatch.ElapsedMilliseconds, detail);
                 }
 
                 using Stream responseStream = await response.Content.ReadAsStreamAsync(linked.Token).ConfigureAwait(false);
@@ -104,7 +133,9 @@ namespace Armada.Core.Services
                     return Unavailable("parse", stopwatch.ElapsedMilliseconds);
                 }
 
-                return BuildResult(parsed, stopwatch.ElapsedMilliseconds);
+                TypedDecisionResult built = BuildResult(parsed, stopwatch.ElapsedMilliseconds);
+                NotifyModelObserved(built.Model);
+                return built;
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -133,8 +164,99 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
+        /// <summary>
+        /// Read the provider's explanation from a rejected response. A 422 names the invalid field, and
+        /// without it a malformed question looks exactly like an outage. The body is read up to a small
+        /// cap, reduced to its message text, stripped of the key, redacted, and truncated. Returns null
+        /// when the body is empty or carries no recognised message; never throws.
+        /// </summary>
+        private static async Task<string?> ReadErrorDetailAsync(HttpResponseMessage response, string? apiKey, CancellationToken token)
+        {
+            try
+            {
+                string body;
+                using (Stream stream = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false))
+                {
+                    byte[] buffer = new byte[_MaxErrorBodyBytes];
+                    int total = 0;
+                    int read;
+                    while (total < buffer.Length && (read = await stream.ReadAsync(buffer, total, buffer.Length - total, token).ConfigureAwait(false)) > 0)
+                        total += read;
+                    body = Encoding.UTF8.GetString(buffer, 0, total);
+                }
+
+                if (String.IsNullOrWhiteSpace(body)) return null;
+
+                string? text = ExtractErrorText(body);
+                if (String.IsNullOrWhiteSpace(text)) return null;
+
+                if (!String.IsNullOrWhiteSpace(apiKey)) text = text.Replace(apiKey, "<secret>", StringComparison.Ordinal);
+                string redacted = DecisionStateRedactor.Redact(text.Trim(), _MaxErrorDetailChars);
+                return String.IsNullOrWhiteSpace(redacted) ? null : redacted;
+            }
+            catch (Exception)
+            {
+                // The explanation is diagnostic only; failing to read it must not change the result.
+                return null;
+            }
+        }
+
+        private static string? ExtractErrorText(string body)
+        {
+            // Validation errors arrive as a list of { loc, msg }; other errors as a single string field.
+            try
+            {
+                WireValidationError? validation = JsonSerializer.Deserialize<WireValidationError>(body, _JsonOptions);
+                if (validation?.Detail != null && validation.Detail.Count > 0)
+                {
+                    List<string> parts = new List<string>();
+                    foreach (WireValidationItem item in validation.Detail)
+                    {
+                        if (item == null || String.IsNullOrWhiteSpace(item.Msg)) continue;
+                        // Joined with " > ", not ".", so the redactor's hostname rule does not read a
+                        // dotted field path as a host and erase it.
+                        string location = item.Loc != null && item.Loc.Count > 0
+                            ? String.Join(" > ", item.Loc.Select(segment => segment?.ToString() ?? String.Empty)) + ": "
+                            : String.Empty;
+                        parts.Add(location + item.Msg);
+                    }
+                    if (parts.Count > 0) return String.Join("; ", parts);
+                }
+            }
+            catch (JsonException)
+            {
+                // Not the validation shape; try the single-message shape.
+            }
+
+            try
+            {
+                WireErrorMessage? message = JsonSerializer.Deserialize<WireErrorMessage>(body, _JsonOptions);
+                return message?.Detail ?? message?.Error ?? message?.Message;
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
+
+        private void NotifyModelObserved(string? model)
+        {
+            if (String.IsNullOrWhiteSpace(model)) return;
+            Action<string>? observer = ModelObserved;
+            if (observer == null) return;
+            try
+            {
+                observer(model);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "model observer failed: " + ex.Message);
+            }
+        }
+
         private string? ResolveApiKey()
         {
+            if (_ApiKeyProvider != null) return _ApiKeyProvider();
             if (String.IsNullOrWhiteSpace(_Settings.ApiKeyEnv)) return null;
             return Environment.GetEnvironmentVariable(_Settings.ApiKeyEnv);
         }
@@ -223,18 +345,20 @@ namespace Armada.Core.Services
                 Available = true,
                 UnavailableReason = null,
                 Answers = answers,
+                Model = parsed.Model,
                 InputTokens = parsed.Usage?.InputTokens ?? 0,
                 OutputTokens = parsed.Usage?.OutputTokens ?? 0,
                 LatencyMs = latencyMs
             };
         }
 
-        private static TypedDecisionResult Unavailable(string reason, long latencyMs)
+        private static TypedDecisionResult Unavailable(string reason, long latencyMs, string? detail = null)
         {
             return new TypedDecisionResult
             {
                 Available = false,
                 UnavailableReason = reason,
+                UnavailableDetail = detail,
                 Answers = new Dictionary<string, TypedAnswer>(),
                 LatencyMs = latencyMs
             };
@@ -294,14 +418,43 @@ namespace Armada.Core.Services
             [JsonPropertyName("score")]
             public double? Score { get; set; }
 
+            // The provider sends the score legend as an index-keyed object ({"0": "Low", ...}), not a
+            // list. A list shape here makes every response that carries a score answer a parse failure.
             [JsonPropertyName("legend")]
-            public List<string>? Legend { get; set; }
+            public Dictionary<string, string>? Legend { get; set; }
 
             [JsonPropertyName("noul")]
             public double? Noul { get; set; }
 
             [JsonPropertyName("confidence")]
             public double? Confidence { get; set; }
+        }
+
+        private sealed class WireValidationError
+        {
+            [JsonPropertyName("detail")]
+            public List<WireValidationItem>? Detail { get; set; }
+        }
+
+        private sealed class WireValidationItem
+        {
+            [JsonPropertyName("loc")]
+            public List<object>? Loc { get; set; }
+
+            [JsonPropertyName("msg")]
+            public string? Msg { get; set; }
+        }
+
+        private sealed class WireErrorMessage
+        {
+            [JsonPropertyName("detail")]
+            public string? Detail { get; set; }
+
+            [JsonPropertyName("error")]
+            public string? Error { get; set; }
+
+            [JsonPropertyName("message")]
+            public string? Message { get; set; }
         }
 
         private sealed class WireUsage

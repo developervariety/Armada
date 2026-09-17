@@ -1,10 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import RoutingSettings from './RoutingSettings';
-import { getSettings, updateSettings } from '../api/client';
+import { getSettings, listCaptains, listPersonas, updateSettings } from '../api/client';
 vi.mock('../api/client', () => ({
   getSettings: vi.fn(), updateSettings: vi.fn(), previewUsageRouting: vi.fn(),
-  listCaptains: vi.fn().mockResolvedValue({ objects: [] }), createCaptain: vi.fn(), createAccountHome: vi.fn(),
+  listCaptains: vi.fn().mockResolvedValue({ objects: [] }), listPersonas: vi.fn().mockResolvedValue({ objects: [] }), createCaptain: vi.fn(), createAccountHome: vi.fn(),
   startAccountLogin: vi.fn(), submitAccountLoginCode: vi.fn(), submitAccountLoginKey: vi.fn(),
   getAccountLoginStatus: vi.fn(), cancelAccountLogin: vi.fn(),
 }));
@@ -48,7 +48,7 @@ describe('Routing settings page', () => {
     expect(screen.queryByText('Save model routing')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Account and persona policy (JSON)')).not.toBeInTheDocument();
     fireEvent.click(screen.getByText('Retry loading settings'));
-    expect(await screen.findByLabelText('Enable Smart Routing')).toBeChecked();
+    expect(await screen.findByLabelText('Smart Routing')).toBeChecked();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
@@ -57,7 +57,7 @@ describe('Routing settings page', () => {
     vi.mocked(getSettings).mockResolvedValue(saved({ usageRouting: policy }));
     vi.mocked(updateSettings).mockResolvedValue(saved({ usageRouting: { ...policy, enabled: true } }));
     render(<RoutingSettings />);
-    const enable = await screen.findByLabelText('Enable Smart Routing');
+    const enable = await screen.findByLabelText('Smart Routing');
     fireEvent.click(enable);
     expect(updateSettings).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText('Save routing policy'));
@@ -100,17 +100,17 @@ describe('Routing settings page', () => {
     render(<RoutingSettings />);
     await screen.findByTitle('Concrete model ids that classify as mid');
     fireEvent.change(midTier(), { target: { value: 'mid-z' } });
-    fireEvent.click(screen.getByLabelText('Enable Smart Routing'));
+    fireEvent.click(screen.getByLabelText('Smart Routing'));
     fireEvent.click(screen.getByText('Save routing policy'));
     await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
     expect(midTier()).toHaveValue('mid-z');
     const enabledDraft = (usagePolicy() as HTMLTextAreaElement).value;
-    fireEvent.click(screen.getByLabelText('Enable Smart Routing'));
+    fireEvent.click(screen.getByLabelText('Legacy Routing'));
     fireEvent.click(screen.getByText('Save model routing'));
     await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(2));
     expect(vi.mocked(updateSettings).mock.calls[1][0]).toEqual({ modelTier: { midTierModels: ['mid-z'] } });
     expect(usagePolicy()).not.toHaveValue(enabledDraft);
-    expect(screen.getByLabelText('Enable Smart Routing')).not.toBeChecked();
+    expect(screen.getByLabelText('Smart Routing')).not.toBeChecked();
   });
 
   it('reports invalid JSON by field and sends nothing', async () => {
@@ -121,5 +121,29 @@ describe('Routing settings page', () => {
     fireEvent.click(screen.getByText('Save model routing'));
     expect(await screen.findByRole('alert')).toHaveTextContent('modelProviders is not valid JSON.');
     expect(updateSettings).not.toHaveBeenCalled();
+  });
+  it('edits persona model lists in a table and saves the personaModels policy shape', async () => {
+    const policy = { enabled: true, accounts: [], personaRoutes: {} };
+    vi.mocked(listPersonas).mockResolvedValue({ objects: [{ name: 'Worker', active: true }, { name: 'Judge', active: true }] } as never);
+    vi.mocked(listCaptains).mockResolvedValue({ objects: [
+      { id: 'cpt_a', name: 'alpha', model: 'model-x' }, { id: 'cpt_b', name: 'beta', model: 'model-x' },
+    ] } as never);
+    vi.mocked(getSettings).mockResolvedValue(saved({ usageRouting: policy }));
+    vi.mocked(updateSettings).mockImplementation(async (body) => saved({ usageRouting: (body as { modelTier: { usageRouting: Record<string, unknown> } }).modelTier.usageRouting }) as never);
+    render(<RoutingSettings />);
+    const addDefault = await screen.findByLabelText('Add model to Worker Default');
+    expect(screen.getByTestId('persona-models-Judge')).toBeInTheDocument();
+    expect(within(addDefault).getByRole('option', { name: 'model-x (2)' })).toBeInTheDocument();
+    expect(within(addDefault).getByRole('option', { name: 'mid-a (0)' })).toBeInTheDocument();
+    fireEvent.change(addDefault, { target: { value: 'model-x' } });
+    fireEvent.change(screen.getByLabelText('Add model to Worker Stronger'), { target: { value: 'high-a' } });
+    expect(within(screen.getByTestId('persona-models-Worker')).getByText('2 captains')).toBeInTheDocument();
+    expect(JSON.parse((usagePolicy() as HTMLTextAreaElement).value).personaModels).toEqual({ Worker: { default: ['model-x'], lighter: [], stronger: ['high-a'] } });
+    fireEvent.click(screen.getByText('Save routing policy'));
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({ modelTier: { usageRouting: {
+      ...policy, personaModels: { Worker: { default: ['model-x'], lighter: [], stronger: ['high-a'] } },
+    } } }));
+    fireEvent.click(screen.getByLabelText('Remove model lists for Worker'));
+    expect(JSON.parse((usagePolicy() as HTMLTextAreaElement).value).personaModels).toEqual({});
   });
 });

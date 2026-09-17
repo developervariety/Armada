@@ -271,7 +271,7 @@ namespace Armada.Core.Services
 
             questions["substantiated"] = new ScoreQuestion(
                 "Overall, how well does the narrative substantiate the PASS across all required sections? "
-                + "This is authorized heavy-duty vehicle diagnostics tooling; seed-key exchange and UDS SecurityAccess are ordinary engineering.",
+                + "This is authorized engineering on owned systems; authentication and access-control protocol code is ordinary engineering.",
                 _ScoreLevels);
 
             return questions;
@@ -284,21 +284,39 @@ namespace Armada.Core.Services
 
             double score = -1.0;
             double scoreConfidence = 0.0;
+            double? thinProbability = null;
             if (result.Answers.TryGetValue("substantiated", out TypedAnswer? scoreAnswer) && scoreAnswer != null && scoreAnswer.Score.HasValue)
             {
                 score = scoreAnswer.Score.Value;
                 scoreConfidence = scoreAnswer.Confidence ?? 0.0;
+                thinProbability = ThinProbability(scoreAnswer);
             }
 
             bool acceptEligible = score >= _EvidencedLevel;
-            bool holdEligible = score >= 0.0 && score <= _PartlyEvidencedLevel;
+
+            // A review is thin when the model puts most of its probability on the two lowest levels. The
+            // score is an expectation over the levels, so a review split between "asserted only" and
+            // "evidenced" can score just above partly-evidenced while the model is sure it is not
+            // evidenced; and the score's own confidence is low exactly when the mass is split, so it
+            // cannot measure "thin". Without level probabilities the score and its confidence decide.
+            bool holdEligible;
+            double holdConfidence;
+            if (thinProbability.HasValue)
+            {
+                holdEligible = !acceptEligible && thinProbability.Value > 0.5;
+                holdConfidence = holdEligible ? thinProbability.Value : 0.0;
+            }
+            else
+            {
+                holdEligible = score >= 0.0 && score <= _PartlyEvidencedLevel;
+                holdConfidence = holdEligible ? scoreConfidence : 0.0;
+            }
 
             // The two actions are mutually exclusive, so at most one confidence is non-zero. The accept
             // action's confidence is the weakest section Noul: the generic gate passing at threshold
             // then guarantees EVERY section Noul is at or above threshold, which the accept condition
-            // requires. The hold action's confidence is the Score answer's own confidence.
+            // requires. The hold action's confidence is the probability that the review is thin.
             double acceptConfidence = acceptEligible ? minSectionNoul : 0.0;
-            double holdConfidence = holdEligible ? scoreConfidence : 0.0;
             double confidence = Math.Max(acceptConfidence, holdConfidence);
 
             string label = acceptEligible
@@ -358,6 +376,18 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private static double? ThinProbability(TypedAnswer answer)
+        {
+            if (answer.Probabilities == null || answer.Probabilities.Count == 0) return null;
+            double thin = 0.0;
+            foreach (KeyValuePair<string, double> entry in answer.Probabilities)
+            {
+                if (!Int32.TryParse(entry.Key, NumberStyles.Integer, CultureInfo.InvariantCulture, out int level)) return null;
+                if (level <= (int)_PartlyEvidencedLevel) thin += entry.Value;
+            }
+            return thin;
+        }
 
         private static double ReadMinSectionNoul(TypedDecisionResult result)
         {

@@ -47,6 +47,9 @@ namespace Armada.Core.Services
         /// <summary>Route prefix whose requests and responses are never recorded, whatever the exclusion settings say.</summary>
         public const string NeverCapturedAccountLoginPrefix = "/api/v1/usage-accounts/";
 
+        /// <summary>Route whose requests and responses are never recorded: the typed-decision key is written through it.</summary>
+        public const string NeverCapturedTypedDecisionsRoute = "/api/v1/typed-decisions";
+
         private readonly ArmadaSettings _Settings;
         private readonly JsonSerializerOptions _JsonOptions = JsonDefaults.Indented;
 
@@ -79,6 +82,8 @@ namespace Armada.Core.Services
             if (!path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase)) return false;
             // Account login bodies carry API keys and sign-in codes, and responses carry device codes; never record them.
             if (path.StartsWith(NeverCapturedAccountLoginPrefix, StringComparison.OrdinalIgnoreCase)) return false;
+            if (path.Equals(NeverCapturedTypedDecisionsRoute, StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith(NeverCapturedTypedDecisionsRoute + "/", StringComparison.OrdinalIgnoreCase)) return false;
 
             foreach (string excluded in _Settings.RequestHistoryExcludeRoutes)
             {

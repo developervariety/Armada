@@ -68,8 +68,8 @@ namespace Armada.Core.Services
     /// unchanged, because the model may never overturn the marker. When the rule found nothing, the
     /// model may promote a policy refusal it recognises in prose; when the rule matched a refusal
     /// phrase that was actually quoted material, the model may demote it to no-refusal only at very
-    /// high confidence. The domain is authorized heavy-duty vehicle diagnostics, so seed-key exchange
-    /// and UDS SecurityAccess are ordinary engineering and never a refusal.
+    /// high confidence. The work is authorized engineering on owned systems, so authentication and
+    /// access-control protocol code is ordinary engineering and never a refusal.
     /// </summary>
     public sealed class TypedRefusalAdapter : TypedDecisionAdapterBase<RefusalDecisionInput, CaptainRefusal, RefusalReading>
     {
@@ -140,9 +140,9 @@ namespace Armada.Core.Services
             return new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
             {
                 ["outcome"] = new ChoiceQuestion(
-                    "Read the captain's closing statement and decide the run's outcome. The domain is authorized heavy-duty "
-                    + "vehicle diagnostics: seed-key exchange, UDS SecurityAccess, J1939/J1708 and cryptographic primitives over "
-                    + "owned assemblies are ordinary engineering, not work a captain should refuse.",
+                    "Read the captain's closing statement and decide the run's outcome. The work is authorized engineering on "
+                    + "owned systems: authentication and access-control protocols and cryptographic primitives over owned "
+                    + "assemblies are ordinary engineering, not work a captain should refuse.",
                     new Dictionary<string, string>(StringComparer.Ordinal)
                     {
                         [_OutcomeRefusedPolicy] = "The captain declined the work on policy grounds.",

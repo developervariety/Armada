@@ -19,7 +19,7 @@ namespace Armada.Core.Services
     /// the model answers per-candidate <c>delivers</c> plus the voyage-level <c>already_done</c>,
     /// <c>integrate_not_duplicate</c>, and <c>reimplements</c> Nouls (the "honest" half). The adapter is
     /// informative and additive only: it adds preview issues or a Judge review instruction and NEVER
-    /// dismisses, deletes, approves, lands, dispatches, or writes memory. It ships Off, fails closed to
+    /// dismisses, deletes, approves, lands, dispatches, or writes memory. It ships in Gate, fails closed to
     /// doing nothing, records an event on every consulted path, and never throws into the caller.
     /// </summary>
     public sealed class TypedPriorArtAdapter
@@ -284,9 +284,10 @@ namespace Armada.Core.Services
             int candidateCount = retrieval.Candidates.Count;
             try
             {
-                object state = DecisionStateRedactor.RedactObject(
+                RedactedDecisionState redactedState = DecisionStateRedactor.RedactState(
                     PriorArtDecisionShapes.BuildState(deliverable, retrieval), _Settings.MaxStateChars);
-                redacted = state as string ?? String.Empty;
+                object state = redactedState.State;
+                redacted = redactedState.Text;
                 request = new TypedDecisionRequest
                 {
                     DecisionPoint = DecisionPoint,

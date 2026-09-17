@@ -210,8 +210,10 @@ export default function Captains() {
       payload.tier = form.tier ? form.tier : null;
       payload.allowedPersonas = form.allowedPersonas.trim() ? form.allowedPersonas.trim() : null;
       payload.preferredPersona = form.preferredPersona.trim() ? form.preferredPersona.trim() : null;
-      payload.apiKey = normalizeCredential(form.apiKey);
-      payload.apiBaseUrl = normalizeCredential(form.apiBaseUrl);
+      // An API-endpoint captain draws its credentials from the referenced endpoint; the
+      // admiral rejects inline captain credentials for that runtime, so never send them.
+      payload.apiKey = form.runtime === 'ApiEndpoint' ? null : normalizeCredential(form.apiKey);
+      payload.apiBaseUrl = form.runtime === 'ApiEndpoint' ? null : normalizeCredential(form.apiBaseUrl);
       payload.runtimeOptionsJson = buildMuxRuntimeOptionsJson(form.runtime, form);
       delete payload.muxConfigDirectory;
       delete payload.muxEndpoint;
@@ -479,11 +481,13 @@ export default function Captains() {
               {t('Allowed Personas (JSON array)')}
               <textarea value={form.allowedPersonas} onChange={e => setForm({ ...form, allowedPersonas: e.target.value })} rows={2} placeholder={t('["Worker", "Judge"]')} />
             </label>
-            <ProviderCredentialFields
-              form={form}
-              onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
-              t={t}
-            />
+            {form.runtime !== 'ApiEndpoint' && (
+              <ProviderCredentialFields
+                form={form}
+                onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
+                t={t}
+              />
+            )}
             <MuxRuntimeFields
               runtime={form.runtime}
               form={form}

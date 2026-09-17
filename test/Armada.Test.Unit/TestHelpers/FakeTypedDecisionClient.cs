@@ -55,6 +55,10 @@ namespace Armada.Test.Unit.TestHelpers
         /// <returns>A throwing fake.</returns>
         public static FakeTypedDecisionClient Throwing(Exception throwEx) => new FakeTypedDecisionClient(throwEx);
 
+        /// <summary>The per-item requests inside the last request: the request itself when it was not
+        /// batched, otherwise one reconstructed request per batched item, in order.</summary>
+        public List<TypedDecisionRequest> LastItemRequests { get; private set; } = new List<TypedDecisionRequest>();
+
         /// <inheritdoc />
         public Task<TypedDecisionResult> DecideAsync(TypedDecisionRequest request, CancellationToken token)
         {
@@ -62,25 +66,98 @@ namespace Armada.Test.Unit.TestHelpers
             LastRequest = request;
             LastToken = token;
             if (_Throw != null) throw _Throw;
-            return Task.FromResult(_Responder(request));
+
+            // A batched request is answered item by item through the same responder, so a test scripts
+            // per-item answers the same way whether or not the adapter batched them.
+            List<TypedDecisionRequest>? items = SplitBatch(request);
+            if (items == null)
+            {
+                LastItemRequests = new List<TypedDecisionRequest> { request };
+                return Task.FromResult(_Responder(request));
+            }
+
+            LastItemRequests = items;
+            Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal);
+            int inputTokens = 0;
+            int outputTokens = 0;
+            for (int index = 0; index < items.Count; index++)
+            {
+                TypedDecisionResult itemResult = _Responder(items[index]);
+                if (!itemResult.Available) return Task.FromResult(itemResult);
+                foreach (KeyValuePair<string, TypedAnswer> entry in itemResult.Answers)
+                    answers["item" + (index + 1) + "__" + entry.Key] = entry.Value;
+                inputTokens += itemResult.InputTokens;
+                outputTokens += itemResult.OutputTokens;
+            }
+            return Task.FromResult(new TypedDecisionResult
+            {
+                Available = true,
+                Answers = answers,
+                InputTokens = inputTokens,
+                OutputTokens = outputTokens,
+                LatencyMs = 12
+            });
         }
 
-        /// <summary>Build an available result carrying one noul answer.</summary>
+        private static List<TypedDecisionRequest>? SplitBatch(TypedDecisionRequest request)
+        {
+            if (request.State is not Dictionary<string, object?> state
+                || !state.TryGetValue("items", out object? listed)
+                || listed is not List<Dictionary<string, object?>> itemStates
+                || itemStates.Count < 2)
+            {
+                return null;
+            }
+
+            List<TypedDecisionRequest> items = new List<TypedDecisionRequest>(itemStates.Count);
+            for (int index = 0; index < itemStates.Count; index++)
+            {
+                string prefix = "item" + (index + 1) + "__";
+                Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal);
+                foreach (KeyValuePair<string, TypedQuestion> entry in request.Questions)
+                    if (entry.Key.StartsWith(prefix, StringComparison.Ordinal))
+                        questions[entry.Key.Substring(prefix.Length)] = entry.Value;
+                items.Add(new TypedDecisionRequest
+                {
+                    DecisionPoint = request.DecisionPoint,
+                    State = itemStates[index]["state"] ?? String.Empty,
+                    Questions = questions
+                });
+            }
+            return items;
+        }
+
+        /// <summary>Build an available result carrying one noul answer, in the provider's shape (a noul
+        /// value and no confidence).</summary>
         /// <param name="questionId">The question id.</param>
-        /// <param name="noul">The noul value, reused as the confidence.</param>
+        /// <param name="noul">The noul value.</param>
         /// <returns>An available result.</returns>
         public static TypedDecisionResult Noul(string questionId, double noul)
         {
             Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
             {
-                [questionId] = new TypedAnswer { Type = "noul", Noul = noul, Confidence = noul }
+                [questionId] = new TypedAnswer { Type = "noul", Noul = noul }
+            };
+            return new TypedDecisionResult { Available = true, Answers = answers, InputTokens = 10, OutputTokens = 5, LatencyMs = 12 };
+        }
+
+        /// <summary>Build an available result whose noul answer carries a confidence but no noul value, so
+        /// a test can prove a confidence is never read as the probability that the statement is true.</summary>
+        /// <param name="questionId">The question id.</param>
+        /// <param name="confidence">The confidence, with the noul value absent.</param>
+        /// <returns>An available result.</returns>
+        public static TypedDecisionResult NoulConfidenceOnly(string questionId, double confidence)
+        {
+            Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+            {
+                [questionId] = new TypedAnswer { Type = "noul", Confidence = confidence }
             };
             return new TypedDecisionResult { Available = true, Answers = answers, InputTokens = 10, OutputTokens = 5, LatencyMs = 12 };
         }
 
         /// <summary>Build an available result carrying a noul plus a choice answer.</summary>
         /// <param name="noulId">The noul question id.</param>
-        /// <param name="noul">The noul value, reused as the confidence.</param>
+        /// <param name="noul">The noul value, reused as the choice confidence.</param>
         /// <param name="choiceId">The choice question id.</param>
         /// <param name="choice">The chosen option.</param>
         /// <returns>An available result.</returns>
@@ -88,10 +165,19 @@ namespace Armada.Test.Unit.TestHelpers
         {
             Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
             {
-                [noulId] = new TypedAnswer { Type = "noul", Noul = noul, Confidence = noul },
+                [noulId] = new TypedAnswer { Type = "noul", Noul = noul },
                 [choiceId] = new TypedAnswer { Type = "choice", Choice = choice, Confidence = noul }
             };
             return new TypedDecisionResult { Available = true, Answers = answers, InputTokens = 10, OutputTokens = 5, LatencyMs = 12 };
+        }
+
+        /// <summary>The transmitted state as text: the string itself, or the serialized JSON object.</summary>
+        /// <param name="request">The request the adapter sent.</param>
+        /// <returns>The state text; empty when absent.</returns>
+        public static string StateText(TypedDecisionRequest? request)
+        {
+            if (request?.State == null) return String.Empty;
+            return request.State as string ?? System.Text.Json.JsonSerializer.Serialize(request.State);
         }
 
         /// <summary>Build an unavailable result.</summary>

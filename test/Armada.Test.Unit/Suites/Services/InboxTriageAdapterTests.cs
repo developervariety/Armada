@@ -61,7 +61,7 @@ namespace Armada.Test.Unit.Suites.Services
                     GlobalMode = TypedDecisionModeEnum.Gate,
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = Attention(2, 0.40),
-                    ExpectCalls = 3,
+                    ExpectCalls = 1,
                     ExpectEventType = TypedDecisionRecorder.EventTypeShadow,
                     ExpectEventCount = 3,
                     ExpectAnnotated = false
@@ -72,7 +72,7 @@ namespace Armada.Test.Unit.Suites.Services
                     GlobalMode = TypedDecisionModeEnum.Gate,
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = Attention(3, 0.95),
-                    ExpectCalls = 3,
+                    ExpectCalls = 1,
                     ExpectEventType = TypedDecisionRecorder.EventTypeGated,
                     ExpectEventCount = 3,
                     ExpectAnnotated = true
@@ -83,7 +83,7 @@ namespace Armada.Test.Unit.Suites.Services
                     GlobalMode = TypedDecisionModeEnum.Shadow,
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = Attention(3, 0.95),
-                    ExpectCalls = 3,
+                    ExpectCalls = 1,
                     ExpectEventType = TypedDecisionRecorder.EventTypeShadow,
                     ExpectEventCount = 3,
                     ExpectAnnotated = false
@@ -141,7 +141,7 @@ namespace Armada.Test.Unit.Suites.Services
                 // could only happen if the adapter re-ordered by attention rather than severity.
                 FakeTypedDecisionClient client = new FakeTypedDecisionClient(request =>
                 {
-                    string state = request.State as string ?? String.Empty;
+                    string state = FakeTypedDecisionClient.StateText(request);
                     int score = state.Contains("stalled_captain", StringComparison.Ordinal) ? 3
                         : state.Contains("review", StringComparison.Ordinal) ? 1
                         : 0;

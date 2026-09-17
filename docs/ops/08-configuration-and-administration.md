@@ -159,17 +159,29 @@ the `deferred-facts.md` lookup use the folder's real name.
 ### Typed decisions
 
 The typed-decision system (TypeSafe Jev) is an advisory classifier the admiral
-can consult at a decision point. The global `mode` ships `Gate`, and the system
-is inert until the key is present: with no key the null client answers every
-call as unavailable, so every decision runs its deterministic rule exactly as
-before. Per decision group:
+can consult at a decision point. It is **Off unless a provider key is
+available**. Without a key the effective global mode is `Off` with reason
+`typed_decisions_no_key`, whatever the stored `mode`: no decision calls a
+client or records an event, and every decision runs its deterministic rule.
+With a key, the stored global `mode` (default `Gate`) applies and each decision
+runs at its own mode. Per decision group:
 
-- `failure_cause`, `refusal`, `runtime_failure`, `review_substance`,
-  `preflight`, and `papercut_merge` ship in `Gate`; they span recovery, review
-  substance, the dispatch preflight, and papercut merging.
-- `leak_hunk` and `log_watch` ship `Off`.
-- Every other decision ships `Off`: built but dormant until an operator flips a
-  decision to `Gate`.
+- Every decision ships in `Gate` at its threshold (`0.90` unless stated below)
+  and records the rule's verdict and the model's on every call, so a post-gate
+  review can move a threshold or set one decision `Off` without a deploy. This
+  includes `capacity_escalation`, the Smart Routing model group choice.
+- `leak_hunk` and `log_watch` are design documents with no adapter yet, so their
+  `Gate` setting has no effect until one is wired.
+
+**`capacity_escalation`** (ships `Gate`, threshold `0.90`) runs at assignment
+under Smart Routing, only for a persona whose `personaModels` entry has a
+`lighter` or `stronger` list. It asks one closed Choice (`lighter`, `default`,
+`stronger`) over the persona, the title, the head of the description, and the
+model lists. The answer only chooses which model group is tried first. Below
+the threshold, `Off`, no key, a timeout, 429, 529, a parse error, or a client
+fault gives `default`. The reading is cached per mission in memory for 30
+minutes. The retired `routing_hint` decision and route `shapes` tags are
+ignored when a settings file still contains them.
 
 The safety contract holds whenever it is enabled:
 
@@ -179,39 +191,106 @@ The safety contract holds whenever it is enabled:
 - It never converts a rule hard-block into a rescue: a deterministic block
   always wins.
 - It gates only at or above the decision's confidence threshold; below it, the
-  rule stands.
+  rule stands. Gate is never an approval: at any confidence the model cannot
+  approve a Judge PASS, land, dispatch, delete, or write memory. A gated answer
+  can only take the more conservative action the decision defines (hold, flag,
+  escalate, annotate, or order).
 - Every call is bounded by the settings timeout, linked to the caller's token,
   fails closed to the rule, and never throws into the caller. A slow decision is
   unavailable, not late.
 - Nothing egresses unredacted. `DecisionStateRedactor` removes Armada ids,
   absolute paths, hosts, URLs, commit hashes, and key-shaped tokens, then
-  truncates to the state cap. The Bearer key is read from the environment only.
+  truncates to the state cap. The Bearer key is never logged, recorded, stored
+  in settings, or returned by any response.
+
+#### The provider key
+
+The key resolves in this order:
+
+1. The environment variable named by `typedDecisions.apiKeyEnv`
+   (`ARMADA_TYPESAFE_KEY`), when set.
+2. The key file `<data directory>/secrets/typesafe-api-key`. The server derives
+   the path; a client never supplies one. The folder is created `0700` and the
+   file is written `0600`.
+
+The client is resolved on every call, so adding or removing the key takes
+effect without an Admiral restart. The startup log names the effective mode
+and the key source, never the key.
+
+The Dashboard has the same controls in **Settings > Typed decisions**
+(administrators only): a banner "Off — no Jev key" when the effective mode is
+`Off` for `typed_decisions_no_key`, the effective and stored global modes, key
+presence and source, a password field that saves a key (the field is cleared
+on submit and the key is never displayed), **Remove key** (the page says when
+the environment variable still supplies a key), the global mode, and a table of
+every decision with its description, mode, and threshold (0 to 1). **Save
+modes** sends only the changed fields and reloads the status.
+
+Administrator routes (the same permission as a settings write; never recorded
+in request history):
+
+| Route | Effect |
+| --- | --- |
+| `GET /api/v1/typed-decisions` | Effective global mode and reason, stored mode, `keyPresent`, `keySource` (`env` or `file`), and every decision's `key`, `mode`, `threshold`, and `description` |
+| `PUT /api/v1/typed-decisions` | Body `{ "mode": "Gate", "decisions": { "<name>": { "mode": "Shadow", "gateThreshold": 0.9 } } }`; every field is optional. Unknown decisions, modes, and thresholds outside 0 to 1 return 400. Saved through the normal settings save. |
+| `PUT /api/v1/typed-decisions/key` | Body `{ "apiKey": "..." }`; writes the key file and returns 204 with no body |
+| `DELETE /api/v1/typed-decisions/key` | Removes the key file; `environmentSuppliesKey` is true when the variable still supplies a key |
+
+`GET /api/v1/status` (`typedDecisions`) and `GET /api/v1/settings`
+(`typedDecisionsStatus`) carry the same effective-mode summary.
 
 Configure it under `typedDecisions` in `settings.json` (see the README settings
 table). The global `mode` is `Off`, `Shadow`, or `Gate` and is the single kill
 switch; each entry in `decisions` has its own `mode` and `gateThreshold`, and
 the effective mode is the minimum of the two. `Shadow` consults the model and
 records the answer while the rule stands; it is also the demotion target for a
-decision operators reverse too often. The six Phase-1 decisions ship in `Gate`
-and every other decision is `Off`, but the system is operationally off until the
-key is confirmed in the container (no key means the null client). `mode` is
-hot-reloaded — a change takes effect without a restart and survives an MCP
-settings write.
+decision operators reverse too often. Every decision ships in `Gate`. A shipped
+decision missing from a stored `decisions` map runs at its shipped mode; set its
+`mode` to `Off` to stop it. Without a key the effective mode is `Off` whatever
+these values say. `mode` and `decisions` hot-reload in place — a change reaches
+every decision point without a restart and survives an MCP settings write.
 
 Every enabled call emits one event: `typed_decision.gated` when a gate at or
 above threshold changed the outcome, `typed_decision.shadow` when the rule stood
 (a Shadow-mode call, or a Gate-mode call below the threshold), and
 `typed_decision.unavailable` otherwise. Each event carries the decision, the
-rule verdict, the model's answers and confidences, tokens, latency, the gate
-outcome, and the state's SHA-256 and byte count — the state itself is never
-recorded. Read the flow with:
+rule verdict, the model version the provider reported (`model`), the model's
+answers with their confidences and probability distributions, tokens, latency,
+`batch_size`, the gate outcome, the provider's redacted explanation when it
+rejected the request (`unavailable_detail`), and the state's SHA-256 and byte
+count — the state itself is never recorded. Read the flow with:
 
 ```sql
 select payload from events where event_type like 'typed_decision.%';
 ```
 
-Two decision points are described as design documents before any code lands, both
-`Off` by default and reviewed by the owner before implementation:
+The state goes out as a JSON object: the redactor redacts every property name
+and string value in place and, when the object exceeds `maxStateChars`,
+shortens the longest strings (keeping head, tail, and `[ARMADA:` marker lines)
+until it fits. Decisions that ask about several independent items —
+`criteria_lint`, `inbox_triage`, `memory_candidate`, `followup_routing`,
+`memory_review`, and `owner_digest` — share requests: items are packed in order
+into requests of at most 100 questions whose combined state stays within
+`maxStateChars`, and each item is still gated and recorded on its own event
+(with an even share of the request's tokens). `papercut_merge` still asks per
+pair, because each comparison depends on the merges before it.
+
+A synthetic evaluation set checks the decisions that gate the recovery, review,
+and Linter seams (`failure_cause`, `refusal`, `runtime_failure`,
+`review_substance`, `lint_finding`). Each case builds its requests through the
+decision's own adapter, so it tests the exact state and questions production
+sends. A reference case pairs two variants that differ in one relevant fact and
+states the answer for each; a consistency case changes a fact that must not
+matter and requires the answers to agree. Operators run it with
+`armada_typed_decision_eval`; it also runs in the background whenever the
+provider reports a model version that has not been evaluated
+(`typedDecisions.evalOnModelChange`, default `true`). Each run records one
+`typed_decision.eval` event with the model and each case's outcome. A failing
+case is a finding to review — a threshold, a question, or the model — not a
+build failure.
+
+Two decision points are described as design documents before any code lands,
+reviewed by the owner before implementation:
 [`leak_hunk`](design/typed-decision-leak-hunk.md) (an advisory per-hunk leak
 classifier behind the deterministic dock-boundary scanner) and
 [`log_watch`](design/typed-decision-log-watch.md) (a read-only screen over a
@@ -229,10 +308,10 @@ the tools. Each call redacts its state before egress, is bounded by the
 per-mission call budget in `typedDecisions.captainTool`, writes exactly one
 `typed_decision.captain` event carrying only the state hash and byte count, and
 has no side effect on any Armada record — it dispatches nothing, lands nothing,
-edits no objective, and writes no memory. The tool is disabled by default
-(`typedDecisions.captainTool.enabled` is `false`) and returns `unavailable`
-until an operator enables it; each helper stays dormant until its own decision
-(`premise_check`, `memory_record`, `prior_art`) is enabled. See `docs/MCP_API.md`
+edits no objective, and writes no memory. The tool is enabled by default
+(`typedDecisions.captainTool.enabled` is `true`); setting it `false` makes every
+call return `unavailable`. Each helper also follows its own decision
+(`premise_check`, `memory_record`, `prior_art`). See `docs/MCP_API.md`
 for the tool arguments.
 Each wired decision holds an adapter over the shared client, never the raw
 client, and every adapter follows one skeleton: Off returns the rule with no
@@ -249,8 +328,8 @@ model, where a rule hard-block always wins. The four wired today are:
 - `refusal` — the structured refusal marker and a provider safeguard block stay
   authoritative; the model may promote a prose refusal the phrase rules missed
   or demote a quoted phrase at very high confidence. The criteria state the
-  domain: authorized heavy-duty vehicle diagnostics, where seed-key exchange and
-  UDS SecurityAccess are ordinary engineering, never a refusal. In `Gate`, a
+  domain: authorized engineering on owned systems, where authentication and
+  access-control protocol code is ordinary engineering, never a refusal. In `Gate`, a
   `blocked_on_premise` outcome at or above threshold files a
   `BriefContradiction` papercut for the mission through the same parser path a
   captain's own `[ARMADA:PAPERCUT]` line takes. Its detail is the output tail
@@ -314,8 +393,8 @@ One decision point reads the objective dispatch preview:
   validated PASS is never auto-failed. The model never approves, lands, or
   dispatches.
 
-Two decision points recover captain time at the pipeline level (both ship `Off`,
-built and dormant until a Gate flip):
+Two decision points recover captain time at the pipeline level (both ship
+`Gate`):
 
 - `stage_necessity` (D19) sits on the dispatch preview's resolved pipeline
   stages and lets the model propose which NON-Judge stages an objective does not
@@ -344,7 +423,7 @@ built and dormant until a Gate flip):
   decision `Off` the deterministic handoff stands.
 
 Three persona-specific decision points sit on Judge and handoff seams (all ship
-`Off`, built and dormant until a Gate flip):
+`Gate`):
 
 - `revision_kind` (D21) sits after `ParseJudgeVerdict` on a NEEDS_REVISION's
   revision items, before autonomous recovery classifies the failure. The model
@@ -384,7 +463,7 @@ Two decision points read the papercut grouping:
   skeleton as every other adapter: the listing call's token reaches the client
   (the call is bounded at two minutes), and a timeout, provider error, or thrown
   exception records `typed_decision.unavailable` and returns the plain grouping.
-- **`memory_candidate`** (ships `Off`, threshold `0.90`) runs in the weekly
+- **`memory_candidate`** (ships `Gate`, threshold `0.90`) runs in the weekly
   papercut sweep. At most once per seven days the health loop groups the
   papercuts reported in the last seven days, applies the papercut merge, and offers the
   largest repeated groups (two or more reports, at most 20) to the decision. In
@@ -398,7 +477,7 @@ Two decision points read the papercut grouping:
 
 One decision point reviews what the Recorder stage wrote:
 
-- **`memory_review`** (ships `Off`, threshold `0.90`) runs when a
+- **`memory_review`** (ships `Gate`, threshold `0.90`) runs when a
   Recorder-stage mission finishes its work. It reads the native memory records
   that mission wrote (at most 10) and asks the four memory-review questions for each:
   `type_ok`, `duplicate_of` (a choice among at most five existing records of the
@@ -420,7 +499,7 @@ SQLite 104, PostgreSQL 105, MySQL 96, SQL Server 99). See `docs/MCP_API.md`.
 
 Two operator-side decisions gather owner decisions and pre-fill the corpus:
 
-- **`owner_digest`** (ships `Off`) is a scheduled runner shaped like the
+- **`owner_digest`** (ships `Gate`) is a scheduled runner shaped like the
   health loop. Once per UTC day it collects the owner-decision candidates its
   hit source found — an owner-decision preparation claim an anchor change
   re-opened (`NeedsRecheck`) on this tip, with preflight question 13 `needs_owner_ruling`
@@ -436,7 +515,7 @@ Two operator-side decisions gather owner decisions and pre-fill the corpus:
   proposed default is a suggestion the owner still records on the row, and the
   digest event carries only ranking metadata (counts, cost levels, sources),
   never the question text.
-- **`corpus_prelabel`** (ships `Off`) is an operator-side helper script,
+- **`corpus_prelabel`** (ships `Gate`) is an operator-side helper script,
   `scripts/autonomy/draft-corpus-line.mjs`, run outside the admiral. It drafts
   one decision-corpus line (the schema in `AI-Memory/corpus/README.md`) from an
   incident, a mission failure reason, a Mail signal, or a preflight result, so
@@ -449,7 +528,7 @@ Two operator-side decisions gather owner decisions and pre-fill the corpus:
   `node scripts/autonomy/draft-corpus-line.mjs --input <file.json>` (or pipe the
   input object on stdin), optionally with `--out decisions.jsonl` to append the
   draft; `node scripts/autonomy/test-draft-corpus-line.mjs` is its self-check.
-Three platform-side decisions ship `Off`:
+Two platform-side decisions ship `Gate`:
 
 - **`flake_score`** runs in `DefinitionOfDoneGate` after
   `DefinitionOfDoneFailureClassifier` classifies a failed unit-test command. It
@@ -463,18 +542,6 @@ Three platform-side decisions ship `Off`:
   red). The model never marks a red check green — only a genuine passing isolated
   re-run does — and a re-run runs only for a `dotnet test` command that can be
   isolated; otherwise the red stands unchanged.
-- **`routing_hint`** is Smart Routing only (owner decision 2026-09-16): it is
-  never wired into the legacy tier selector. A route gains an optional `shapes`
-  tag list (a tagless route matches every shape, so existing configs are
-  unchanged). The model answers a `shape` Choice, a `policy_sensitive` Noul, and
-  two context Nouls; the hint reorders — never re-selects — the routes V2 already
-  approved and found eligible: among eligible routes for a routine mission in the
-  Normal state it prefers the first route whose `shapes` contains the chosen shape
-  at threshold, and `policy_sensitive >= 0.9` prefers a `policy-tolerant` route
-  (falling back to the V2 default and recording `no_tolerant_route` when none is
-  configured). Reserved personas and non-Normal account states are never
-  affected; every hard V2 constraint runs after the reorder. See
-  `docs/USAGE_ROUTING.md`.
 - **`change_substance`** sits over the extension-based
   `ChangeSubstanceClassifier`, which stays the rule. The model reads the rescue's
   added hunks and answers a `substance` Choice `{behaviour, test_only, docs_only,
@@ -485,7 +552,7 @@ Three platform-side decisions ship `Off`:
   `CriticalTriggerEvaluator` escalation reason. It NEVER lowers a classification.
 One decision point reads a returned refinement summary:
 
-- **`criteria_lint`** (ships `Off`) runs in
+- **`criteria_lint`** (ships `Gate`) runs in
   `ObjectiveRefinementCoordinator.SummarizeAsync` after the summary is finalized.
   It asks, per acceptance criterion, five nouls phrased as the defect: a presence
   test over an artifact the change itself commits, a pinned pass or skip total,
@@ -498,7 +565,7 @@ One decision point reads a returned refinement summary:
 
 Two operator surfaces read the attention triage:
 
-- **`inbox_triage`** (ships `Off`) runs in the `inbox` and
+- **`inbox_triage`** (ships `Gate`) runs in the `inbox` and
   `armada_coordination_read` MCP tools. It scores each inbox item and board note
   for how urgently a human is needed. In `Gate` above the threshold each item
   gains an `attention` label (`informational`, `today`, `this_hour`,
@@ -507,7 +574,7 @@ Two operator surfaces read the attention triage:
   re-ordered by attention. NOTHING is hidden, dropped, or dismissed; `Off`,
   unavailable, `Shadow`, and below-threshold leave the deterministic severity
   order and set no label.
-- **`followup_routing`** (ships `Off`) runs in
+- **`followup_routing`** (ships `Gate`) runs in
   `JudgeFollowUpService.CaptureAsync` (and the audit-tool backfill path) over each
   item of a Judge's Suggested Follow-ups section. In `Gate` above the threshold a
   `triaged_objective` home creates a Triaged objective with auto-dispatch OFF, an
@@ -517,7 +584,7 @@ Two operator surfaces read the attention triage:
   for the operator; the model NEVER creates a voyage, dispatches, or lands.
 
 One decision point asks "does this already exist?" with evidence, at three seams
-and no new persona (ships `Off`, built and dormant until a Gate flip):
+and no new persona (ships `Gate`):
 
 - **`prior_art`** answers "does this already exist?" so voyages stop
   re-implementing landed work, work on unlanded branches, or work on a `recover/`
@@ -588,12 +655,23 @@ the Dashboard Settings page:
 | `modelTier.withinTierStrategy` | Yes | `Random` | Within-tier strategy |
 | `modelTier.withinTierPreferenceOrder` | Yes | empty | Preference-order JSON |
 | `modelTier.preferNonNativeFirst` | Yes | `false` | Prefer non-native first |
-| `modelTier.usageRouting` | Yes | disabled, empty accounts | [Usage policy, account status, and preview](USAGE_ROUTING.md) |
+| `modelTier.usageRouting` | Yes | disabled, empty accounts | [Smart Routing: accounts, usage filter, persona model lists, routes, and preview](USAGE_ROUTING.md) |
 | `modelTier.reservedHighTierSlots` | Yes | `0` | Reserved high-tier slots |
 | `voyageDispatch.rejectStagePersonaTitlePrefixes` | Yes | `false` | Reject stage-persona title prefixes |
 | `voyageDispatch.stagePersonaTitlePrefixes` | Yes | empty | Prefix list |
 | `modelProviders` | No (startup) | empty | modelProviders JSON |
 | `additionalPromptTemplates` / `additionalPersonas` / `additionalPipelines` | No (startup) | empty | Additional-asset JSON |
+
+**Legacy Routing** is the selection these keys define while
+`modelTier.usageRouting.enabled` is false: model tiers, persona locks,
+within-tier ranking, non-native-first, capability scoring, the persona default
+captain, and the high-tier slot reserve. **Smart Routing**
+(`modelTier.usageRouting.enabled` true) keeps that order and adds the usage
+filter (Exhausted removed, Low and Reserve demoted), per-persona `default`,
+`lighter`, and `stronger` model lists (`modelTier.usageRouting.personaModels`),
+the `capacity_escalation` typed decision that chooses which list goes first,
+and optional `personaRoutes` that restrict a persona to named accounts. Routes
+never order captains. See [Smart Routing](USAGE_ROUTING.md).
 
 A `modelTier.usageRouting` account can also own a separate captain login.
 Set `runtime` plus `homeDirectory` (ClaudeCode `CLAUDE_CONFIG_DIR`, Codex
@@ -609,7 +687,7 @@ an account with no captains together with its server-derived folder; see
 the shared login, as before. A missing login blocks the account with a named
 reason. Claude Code and Codex accounts also run the runtime's login status
 command in the background, so an expired or revoked login reads
-`account_login_expired`. When such an account blocks every approved route, the
+`account_login_expired`. When such an account removes every remaining captain, the
 routing decision reason (usage preview `reason`, and the deferred-mission log)
 is that account code. A quota, billing, or authentication failure on one captain holds the
 whole account Exhausted and quarantines its idle captains until the retry time.
@@ -625,9 +703,11 @@ persona `DefaultCaptainId`. Every assignment path applies one rule:
 
 1. The captain pool keeps only captains that are Idle, in the mission's
    tenant, not quarantined, not excluded after a policy refusal, and not
-   reserved by another assignment. When usage routing is enabled, the pool
-   keeps only the captains that usage routing approves. No request overrides
-   these gates.
+   reserved by another assignment. When Smart Routing is enabled, the pool
+   also drops captains outside the persona's routes and captains the usage
+   filter removes (Exhausted or at the account concurrency limit). No request
+   overrides these gates. A demoted (Low or Reserve) requested captain is
+   still assigned.
 2. If the requested captain is in that pool, it is assigned. This is an
    explicit choice. It wins over persona preference, model-tier selection
    and the captain's `AllowedPersonas` fence.

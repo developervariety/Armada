@@ -34,12 +34,12 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("ShortGoal_IsPreservedExactly", () =>
             {
                 Mission mission = new Mission();
-                mission.Title = "Fix seed-key signer";
-                mission.Description = "Correct the Hino BitwiseNot index.";
+                mission.Title = "Fix token signer";
+                mission.Description = "Correct the vendor BitwiseNot index.";
 
                 string goal = MissionService.BuildCodeRetrievalGoal(mission);
 
-                AssertTrue(goal == "Fix seed-key signer -- Correct the Hino BitwiseNot index.",
+                AssertTrue(goal == "Fix token signer -- Correct the vendor BitwiseNot index.",
                     "a goal within budget must pass through unchanged; was: " + goal);
             });
 

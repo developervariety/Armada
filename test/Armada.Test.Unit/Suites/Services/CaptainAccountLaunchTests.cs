@@ -12,6 +12,7 @@ namespace Armada.Test.Unit.Suites.Services
     using Armada.Core.Settings;
     using Armada.Runtimes;
     using Armada.Test.Common;
+    using Armada.Test.Unit.TestHelpers;
     using SyslogLogging;
 
     /// <summary>
@@ -392,12 +393,12 @@ namespace Armada.Test.Unit.Suites.Services
                         AssertEqual("Exhausted", status.State);
                         AssertEqual(AccountLoginProbe.ReasonLoginExpired, status.Reason);
 
-                        UsageRoutingDecision blocked = service.Select(onlyExpired, new Mission { Persona = "Worker" }, captains, Array.Empty<string>(), DateTime.UtcNow);
+                        UsageRoutingDecision blocked = SmartRoutingTestSelect.Select(service, onlyExpired, new Mission { Persona = "Worker" }, captains, Array.Empty<string>(), DateTime.UtcNow);
                         AssertEqual(0, blocked.Candidates.Count, "no captain on the expired account receives the mission");
                         AssertEqual(AccountLoginProbe.ReasonLoginExpired, blocked.Reason, "the waiting mission names the account login problem");
 
                         onlyExpired.PersonaRoutes["Worker"].Add(new UsageRouteSettings { AccountId = "shared" });
-                        UsageRoutingDecision fallback = service.Select(onlyExpired, new Mission { Persona = "Worker" }, captains, Array.Empty<string>(), DateTime.UtcNow);
+                        UsageRoutingDecision fallback = SmartRoutingTestSelect.Select(service, onlyExpired, new Mission { Persona = "Worker" }, captains, Array.Empty<string>(), DateTime.UtcNow);
                         AssertEqual("second", fallback.Candidates.Single().Id, "an approved fallback account still takes the mission");
                     }
                     finally { Directory.Delete(scratch, true); Directory.Delete(home, true); }
@@ -470,7 +471,7 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertEqual("Exhausted", status.State);
                     AssertEqual(CaptainAccountLaunch.ReasonLoginMissing, status.Reason);
                     AssertEqual("Codex", status.Runtime);
-                    UsageRoutingDecision decision = service.Select(policy, new Mission { Persona = "Worker" },
+                    UsageRoutingDecision decision = SmartRoutingTestSelect.Select(service, policy, new Mission { Persona = "Worker" },
                         new List<Captain> { new Captain("first") { Id = "first" }, new Captain("second") { Id = "second" } }, Array.Empty<string>(), DateTime.UtcNow);
                     AssertEqual("second", decision.Candidates.Single().Id);
                     File.WriteAllText(Path.Combine(home, "auth.json"), "{}");
@@ -498,7 +499,7 @@ namespace Armada.Test.Unit.Suites.Services
                         Enabled = true, Accounts = new List<UsageAccountSettings> { loggedOut, drained },
                         PersonaRoutes = new Dictionary<string, List<UsageRouteSettings>> { ["Worker"] = new List<UsageRouteSettings> { new UsageRouteSettings { AccountId = "logged-out" } } }
                     };
-                    UsageRoutingDecision login = service.Select(loginPolicy, new Mission { Persona = "Worker" }, captains, Array.Empty<string>(), DateTime.UtcNow);
+                    UsageRoutingDecision login = SmartRoutingTestSelect.Select(service, loginPolicy, new Mission { Persona = "Worker" }, captains, Array.Empty<string>(), DateTime.UtcNow);
                     AssertEqual(0, login.Candidates.Count);
                     AssertEqual(CaptainAccountLaunch.ReasonLoginMissing, login.Reason);
 
@@ -507,13 +508,13 @@ namespace Armada.Test.Unit.Suites.Services
                         Enabled = true, Accounts = new List<UsageAccountSettings> { loggedOut, drained },
                         PersonaRoutes = new Dictionary<string, List<UsageRouteSettings>> { ["Worker"] = new List<UsageRouteSettings> { new UsageRouteSettings { AccountId = "drained" } } }
                     };
-                    UsageRoutingDecision shortage = service.Select(shortagePolicy, new Mission { Persona = "Worker" }, captains, Array.Empty<string>(), DateTime.UtcNow);
+                    UsageRoutingDecision shortage = SmartRoutingTestSelect.Select(service, shortagePolicy, new Mission { Persona = "Worker" }, captains, Array.Empty<string>(), DateTime.UtcNow);
                     AssertEqual(0, shortage.Candidates.Count);
-                    AssertEqual("usage_reserve_exhaustion_or_account_capacity", shortage.Reason, "an exhausted allowance is not an account login problem");
+                    AssertEqual(SmartRoutingSelector.ReasonUsageBlocked, shortage.Reason, "an exhausted allowance is not an account login problem");
 
                     service.MarkAccountExhausted("drained", DateTime.UtcNow.AddMinutes(30));
                     drained.ManualSnapshot!.Windows[0].RemainingPercent = 80;
-                    AssertEqual("account_provider_failure", service.Select(shortagePolicy, new Mission { Persona = "Worker" }, captains, Array.Empty<string>(), DateTime.UtcNow).Reason, "a provider-failure hold names itself");
+                    AssertEqual("account_provider_failure", SmartRoutingTestSelect.Select(service, shortagePolicy, new Mission { Persona = "Worker" }, captains, Array.Empty<string>(), DateTime.UtcNow).Reason, "a provider-failure hold names itself");
                 }
                 finally { Directory.Delete(home, true); }
             });
@@ -528,25 +529,24 @@ namespace Armada.Test.Unit.Suites.Services
                 };
                 UsageRoutingService service = new UsageRoutingService();
                 List<Captain> both = new List<Captain> { new Captain("a") { Id = "a" }, new Captain("b") { Id = "b" } };
-                AssertEqual(2, service.Select(policy, new Mission { Persona = "Worker" }, both, Array.Empty<string>(), DateTime.UtcNow).Candidates.Count);
+                AssertEqual(2, SmartRoutingTestSelect.Select(service, policy, new Mission { Persona = "Worker" }, both, Array.Empty<string>(), DateTime.UtcNow).Candidates.Count);
                 DateTime until = DateTime.UtcNow.AddMinutes(30);
                 service.MarkAccountExhausted("held", until);
-                AssertEqual(0, service.Select(policy, new Mission { Persona = "Worker" }, both, Array.Empty<string>(), DateTime.UtcNow).Candidates.Count);
+                AssertEqual(0, SmartRoutingTestSelect.Select(service, policy, new Mission { Persona = "Worker" }, both, Array.Empty<string>(), DateTime.UtcNow).Candidates.Count);
                 AssertEqual("account_provider_failure", service.GetStatus(account, null, DateTime.UtcNow).Reason);
-                AssertEqual(2, service.Select(policy, new Mission { Persona = "Worker" }, both, Array.Empty<string>(), until.AddSeconds(1)).Candidates.Count, "the hold ends at the retry time");
+                AssertEqual(2, SmartRoutingTestSelect.Select(service, policy, new Mission { Persona = "Worker" }, both, Array.Empty<string>(), until.AddSeconds(1)).Candidates.Count, "the hold ends at the retry time");
             });
 
-            await RunTest("Select with routing enabled but no route configured passes the legacy candidates through", () =>
+            await RunTest("Smart Routing enabled with no accounts or routes keeps every legacy candidate", () =>
             {
-                // Smart Routing enabled with an empty configuration must not govern any persona: it returns
-                // the candidates the legacy selector already approved, so enabling it fleet-wide is a safe
-                // no-op until accounts and routes are added, never a blanket assignment block.
+                // Smart Routing enabled with an empty configuration only filters by usage, and no captain has an
+                // account, so enabling it fleet-wide is a safe no-op until accounts are added.
                 UsageRoutingSettings policy = new UsageRoutingSettings { Enabled = true };
                 UsageRoutingService service = new UsageRoutingService();
                 List<Captain> both = new List<Captain> { new Captain("a") { Id = "a" }, new Captain("b") { Id = "b" } };
-                UsageRoutingDecision decision = service.Select(policy, new Mission { Persona = "Worker" }, both, Array.Empty<string>(), DateTime.UtcNow);
+                UsageRoutingDecision decision = SmartRoutingTestSelect.Select(service, policy, new Mission { Persona = "Worker" }, both, Array.Empty<string>(), DateTime.UtcNow);
                 AssertEqual(2, decision.Candidates.Count, "an ungoverned persona keeps every legacy candidate");
-                AssertEqual("v2_no_route_pass_through", decision.Reason);
+                AssertEqual(SmartRoutingSelector.ReasonLegacyOrder, decision.Reason);
                 AssertFalse(decision.HasPersonaRoutes, "no persona route resolved");
             });
 

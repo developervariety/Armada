@@ -29,7 +29,7 @@ namespace Armada.Test.Unit.Suites.Services
 
         private const double _Threshold = 0.80;
 
-        // Two criteria, so a per-criterion loop is exercised (2 calls, 2 events in the running cases).
+        // Two criteria, answered in one batched call with one event per criterion in the running cases.
         private static readonly List<string> _Criteria = new List<string>
         {
             "The decode reproduces the source polarity.",
@@ -68,7 +68,7 @@ namespace Armada.Test.Unit.Suites.Services
                     GlobalMode = TypedDecisionModeEnum.Gate,
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = Flagged(0.40),
-                    ExpectCalls = 2,
+                    ExpectCalls = 1,
                     ExpectEventType = TypedDecisionRecorder.EventTypeShadow,
                     ExpectEventCount = 2,
                     ExpectAppended = false
@@ -79,10 +79,21 @@ namespace Armada.Test.Unit.Suites.Services
                     GlobalMode = TypedDecisionModeEnum.Gate,
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = Flagged(0.95),
-                    ExpectCalls = 2,
+                    ExpectCalls = 1,
                     ExpectEventType = TypedDecisionRecorder.EventTypeGated,
                     ExpectEventCount = 2,
                     ExpectAppended = true
+                },
+                new LintCase
+                {
+                    Name = "GateConfidenceWithoutNoul_NoAppend_ShadowEvents",
+                    GlobalMode = TypedDecisionModeEnum.Gate,
+                    DecisionMode = TypedDecisionModeEnum.Gate,
+                    Result = FlaggedConfidenceOnly(0.95),
+                    ExpectCalls = 1,
+                    ExpectEventType = TypedDecisionRecorder.EventTypeShadow,
+                    ExpectEventCount = 2,
+                    ExpectAppended = false
                 },
                 new LintCase
                 {
@@ -90,7 +101,7 @@ namespace Armada.Test.Unit.Suites.Services
                     GlobalMode = TypedDecisionModeEnum.Shadow,
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = Flagged(0.95),
-                    ExpectCalls = 2,
+                    ExpectCalls = 1,
                     ExpectEventType = TypedDecisionRecorder.EventTypeShadow,
                     ExpectEventCount = 2,
                     ExpectAppended = false
@@ -182,9 +193,14 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertTrue(client.LastRequest != null, "the client received a request");
                 AssertEqual(CriteriaLintAdapter.DecisionPoint, client.LastRequest!.DecisionPoint, "the request names the criteria_lint decision");
-                AssertTrue(client.LastRequest.Questions.ContainsKey("presence_test"), "the presence-test noul is asked");
-                AssertTrue(client.LastRequest.Questions.ContainsKey("pins_total"), "the pins-total noul is asked");
-                AssertTrue(client.LastRequest.Questions.ContainsKey("empty_diff"), "the empty-diff noul is asked");
+                AssertEqual(1, client.Calls, "independent criteria share one request");
+                AssertEqual(2, client.LastItemRequests.Count, "both criteria are asked in that request");
+                foreach (TypedDecisionRequest item in client.LastItemRequests)
+                {
+                    AssertTrue(item.Questions.ContainsKey("presence_test"), "the presence-test noul is asked");
+                    AssertTrue(item.Questions.ContainsKey("pins_total"), "the pins-total noul is asked");
+                    AssertTrue(item.Questions.ContainsKey("empty_diff"), "the empty-diff noul is asked");
+                }
             });
         }
 
@@ -215,11 +231,21 @@ namespace Armada.Test.Unit.Suites.Services
         {
             Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
             {
-                ["presence_test"] = new TypedAnswer { Type = "noul", Noul = value, Confidence = value },
-                ["pins_total"] = new TypedAnswer { Type = "noul", Noul = value, Confidence = value },
-                ["not_observable"] = new TypedAnswer { Type = "noul", Noul = 0.0, Confidence = 0.0 },
-                ["empty_diff"] = new TypedAnswer { Type = "noul", Noul = 0.0, Confidence = 0.0 },
-                ["mixes_behaviours"] = new TypedAnswer { Type = "noul", Noul = 0.0, Confidence = 0.0 }
+                ["presence_test"] = new TypedAnswer { Type = "noul", Noul = value },
+                ["pins_total"] = new TypedAnswer { Type = "noul", Noul = value },
+                ["not_observable"] = new TypedAnswer { Type = "noul", Noul = 0.0 },
+                ["empty_diff"] = new TypedAnswer { Type = "noul", Noul = 0.0 },
+                ["mixes_behaviours"] = new TypedAnswer { Type = "noul", Noul = 0.0 }
+            };
+            return new TypedDecisionResult { Available = true, Answers = answers, InputTokens = 12, OutputTokens = 6, LatencyMs = 15 };
+        }
+
+        private static TypedDecisionResult FlaggedConfidenceOnly(double confidence)
+        {
+            Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+            {
+                ["presence_test"] = new TypedAnswer { Type = "noul", Confidence = confidence },
+                ["pins_total"] = new TypedAnswer { Type = "noul", Confidence = confidence }
             };
             return new TypedDecisionResult { Available = true, Answers = answers, InputTokens = 12, OutputTokens = 6, LatencyMs = 15 };
         }

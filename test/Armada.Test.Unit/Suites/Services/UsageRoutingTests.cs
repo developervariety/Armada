@@ -40,10 +40,20 @@ namespace Armada.Test.Unit.Suites.Services
             };
         }
 
-        private static UsageRoutingDecision Choose(UsageRoutingService service, UsageRoutingSettings policy, string persona = "Worker", int priority = 100, string[]? busy = null)
+        private static UsageRoutingDecision Choose(UsageRoutingService service, UsageRoutingSettings policy, string persona = "Worker", int priority = 100, string[]? busy = null, string? retrySkip = null)
         {
-            return service.Select(policy, new Mission { Persona = persona, Priority = priority },
-                new List<Captain> { new Captain("first") { Id = "first", Model = "model-a" }, new Captain("second") { Id = "second", Model = "model-b" } }, busy ?? Array.Empty<string>(), DateTime.UtcNow);
+            // Unclassified models with a first-index pick make the Legacy Routing order the pool order: first, second.
+            return SmartRoutingSelector.SelectAsync(new SmartRoutingRequest
+            {
+                Tiers = new ModelTierSettings(),
+                Policy = policy,
+                Usage = service,
+                Mission = new Mission { Persona = persona, Priority = priority, RetrySkipCaptainIds = retrySkip },
+                Pool = new List<Captain> { new Captain("first") { Id = "first", Model = "model-a" }, new Captain("second") { Id = "second", Model = "model-b" } },
+                BusyCaptainIds = busy ?? Array.Empty<string>(),
+                NowUtc = DateTime.UtcNow,
+                RandomPick = n => 0
+            }).GetAwaiter().GetResult();
         }
 
         private static ProviderUsageSnapshot MeasuredSnapshot(double remaining)
@@ -61,24 +71,19 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("Retry can use an approved low account instead of repeating a degraded normal account", () =>
             {
                 UsageRoutingSettings policy = Policy(Account("first", 80), Account("second", 20));
-                UsageRoutingDecision decision = new UsageRoutingService().Select(policy,
-                    new Mission { Persona = "Worker", RetrySkipCaptainIds = "first" },
-                    new List<Captain> { new Captain("first") { Id = "first" }, new Captain("second") { Id = "second" } },
-                    Array.Empty<string>(), DateTime.UtcNow);
+                UsageRoutingDecision decision = Choose(new UsageRoutingService(), policy, retrySkip: "first");
                 AssertEqual("second", decision.Candidates[0].Id);
             });
-            await RunTest("V2 missing routes pass through and wildcard routes are explicit", () =>
+            await RunTest("A persona without routes is unrestricted and a wildcard route restricts", () =>
             {
                 UsageRoutingSettings policy = Policy(Account("first", 80), Account("second", 90));
-                // A persona with no route (and no "*" default) is not governed by Smart Routing: it keeps
-                // every legacy candidate, so enabling Smart Routing before routes exist never blocks work.
                 UsageRoutingDecision ungoverned = Choose(new UsageRoutingService(), policy, "Planner");
-                AssertEqual("v2_no_route_pass_through", ungoverned.Reason);
                 AssertEqual(2, ungoverned.Candidates.Count);
                 AssertFalse(ungoverned.HasPersonaRoutes);
-                // A "*" default route now governs the persona and narrows to its account.
                 policy.PersonaRoutes["*"] = new List<UsageRouteSettings> { new UsageRouteSettings { AccountId = "second" } };
-                AssertEqual("second", Choose(new UsageRoutingService(), policy, "Planner").Candidates[0].Id);
+                UsageRoutingDecision restricted = Choose(new UsageRoutingService(), policy, "Planner");
+                AssertEqual("second", restricted.Candidates[0].Id);
+                AssertEqual(1, restricted.Candidates.Count);
             });
             await RunTest("HTTP collectors use fixed read endpoints and keep credentials out of snapshots", async () =>
             {
@@ -107,16 +112,18 @@ namespace Armada.Test.Unit.Suites.Services
                 }
                 finally { File.Delete(path); }
             });
-            await RunTest("Normal preference wins over more remaining allowance", () =>
+            await RunTest("Legacy order wins over more remaining allowance", () =>
             {
                 UsageRoutingSettings policy = Policy(Account("first", 45), Account("second", 95));
                 AssertEqual("first", Choose(new UsageRoutingService(), policy).Candidates[0].Id);
             });
-            await RunTest("Low routine work falls back but reserved persona keeps preference", () =>
+            await RunTest("Low routine work is demoted but a reserved persona keeps its position", () =>
             {
                 UsageRoutingSettings policy = Policy(Account("first", 20), Account("second", 95));
                 UsageRoutingService service = new UsageRoutingService();
-                AssertEqual("second", Choose(service, policy).Candidates[0].Id);
+                UsageRoutingDecision routine = Choose(service, policy);
+                AssertEqual("second", routine.Candidates[0].Id);
+                AssertEqual("first", routine.Candidates[1].Id, "a demoted captain stays reachable");
                 AssertEqual("first", Choose(service, policy, "Judge").Candidates[0].Id);
             });
             await RunTest("Priority reserve is opt in and lower numeric priority wins", () =>
@@ -126,11 +133,18 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("first", Choose(new UsageRoutingService(), policy, priority: 10).Candidates[0].Id);
                 AssertEqual("second", Choose(new UsageRoutingService(), policy, priority: 11).Candidates[0].Id);
             });
-            await RunTest("Exhaustion blocks even Judges and reserve queues routine work", () =>
+            await RunTest("Exhaustion removes a captain even for Judges and Reserve only demotes routine work", () =>
             {
                 UsageRoutingSettings policy = Policy(Account("first", 0), Account("second", 5));
-                AssertEqual(0, Choose(new UsageRoutingService(), policy).Candidates.Count);
+                UsageRoutingDecision routine = Choose(new UsageRoutingService(), policy);
+                AssertEqual(1, routine.Candidates.Count);
+                AssertEqual("second", routine.Candidates[0].Id);
+                AssertEqual(SmartRoutingSelector.ReasonDemotedOnly, routine.Reason);
                 AssertEqual("second", Choose(new UsageRoutingService(), policy, "Judge").Candidates[0].Id);
+                UsageRoutingSettings blocked = Policy(Account("first", 0), Account("second", 0));
+                UsageRoutingDecision none = Choose(new UsageRoutingService(), blocked);
+                AssertEqual(0, none.Candidates.Count);
+                AssertEqual(SmartRoutingSelector.ReasonUsageBlocked, none.Reason);
             });
             await RunTest("Low allowance remains usable when no normal fallback exists", () =>
             {
