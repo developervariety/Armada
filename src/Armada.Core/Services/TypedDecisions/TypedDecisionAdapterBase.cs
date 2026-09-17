@@ -120,7 +120,7 @@ namespace Armada.Core.Services
                 // The client is contracted never to throw into a caller; guard anyway so a decision is
                 // never able to break recovery, refusal handling, or runtime classification.
                 _Logging.Warn(_Header + "decision '" + DecisionPoint + "' client threw, rule stands: " + ex.Message);
-                result = ExceptionResult();
+                result = TypedDecisionResult.Exception();
             }
 
             return await CompleteAsync(input, ruleVerdict, result, item.State.Text, cfg, token).ConfigureAwait(false);
@@ -284,7 +284,7 @@ namespace Armada.Core.Services
         {
             if (result == null || !result.Available)
             {
-                await RecordUnavailableAsync(input, ruleVerdict, result ?? ExceptionResult(), redacted, token).ConfigureAwait(false);
+                await RecordUnavailableAsync(input, ruleVerdict, result ?? TypedDecisionResult.Exception(), redacted, token).ConfigureAwait(false);
                 return ruleVerdict;
             }
 
@@ -364,11 +364,6 @@ namespace Armada.Core.Services
                 RedactedState = redacted,
                 Mission = MissionOf(input)
             };
-        }
-
-        private static TypedDecisionResult ExceptionResult()
-        {
-            return new TypedDecisionResult { Available = false, UnavailableReason = "exception" };
         }
 
         #endregion

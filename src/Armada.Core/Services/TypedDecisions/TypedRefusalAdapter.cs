@@ -166,10 +166,10 @@ namespace Armada.Core.Services
             if (result.Answers.TryGetValue("outcome", out TypedAnswer? outcomeAnswer) && outcomeAnswer != null)
             {
                 if (!String.IsNullOrWhiteSpace(outcomeAnswer.Choice)) outcome = outcomeAnswer.Choice!;
-                outcomeConfidence = ResolveChoiceConfidence(outcomeAnswer, outcome);
+                outcomeConfidence = TypedAnswerReader.ResolveChoiceConfidence(outcomeAnswer, outcome);
             }
 
-            double quotedNotOwn = ReadNoul(result, "quoted_not_own");
+            double quotedNotOwn = TypedAnswerReader.ReadNoul(result, "quoted_not_own");
 
             // The single proposed action decides the gate confidence: a promote is driven by the
             // refused_policy choice confidence, a demote by how sure the model is the phrase was quoted.
@@ -248,24 +248,6 @@ namespace Armada.Core.Services
 
         /// <inheritdoc />
         protected override Mission? MissionOf(RefusalDecisionInput input) => input.Mission;
-
-        #endregion
-
-        #region Private-Methods
-
-        private static double ResolveChoiceConfidence(TypedAnswer answer, string choice)
-        {
-            if (answer.Confidence.HasValue) return answer.Confidence.Value;
-            if (answer.Probabilities != null && answer.Probabilities.TryGetValue(choice, out double probability)) return probability;
-            return 0.0;
-        }
-
-        private static double ReadNoul(TypedDecisionResult result, string key)
-        {
-            if (result.Answers.TryGetValue(key, out TypedAnswer? answer) && answer != null && answer.Noul.HasValue)
-                return answer.Noul.Value;
-            return 0.0;
-        }
 
         #endregion
     }

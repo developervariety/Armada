@@ -237,9 +237,9 @@ namespace Armada.Core.Services
                     continue;
                 }
 
-                double coversSymptom = ReadNoul(result, "covers_symptom_" + slot, 1.0);
-                double assertsSourceText = ReadNoul(result, "asserts_source_text_" + slot, 0.0);
-                double wouldFailBefore = ReadNoul(result, "would_fail_before_fix_" + slot, 1.0);
+                double coversSymptom = TypedAnswerReader.ReadNoul(result, "covers_symptom_" + slot, 1.0);
+                double assertsSourceText = TypedAnswerReader.ReadNoul(result, "asserts_source_text_" + slot, 0.0);
+                double wouldFailBefore = TypedAnswerReader.ReadNoul(result, "would_fail_before_fix_" + slot, 1.0);
 
                 // A concern is the strongest of: the test does not cover the symptom (1 - covers), it
                 // only asserts source text, or it would not fail before the fix (1 - would_fail). Each is
@@ -277,13 +277,6 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
-
-        private static double ReadNoul(TypedDecisionResult result, string key, double fallback)
-        {
-            if (result.Answers.TryGetValue(key, out TypedAnswer? answer) && answer != null && answer.Noul.HasValue)
-                return answer.Noul.Value;
-            return fallback;
-        }
 
         private static string BuildInstruction(int index, double coversSymptom, double assertsSourceText, double wouldFailBefore)
         {

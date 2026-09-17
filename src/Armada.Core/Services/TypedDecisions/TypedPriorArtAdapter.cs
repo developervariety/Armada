@@ -337,7 +337,7 @@ namespace Armada.Core.Services
         private Task RecordUnavailableAsync(PriorArtRetrieval retrieval, string redacted, Mission? mission, CancellationToken token)
         {
             return SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
-                BuildContext(retrieval, redacted, ExceptionResult(), null, mission), token));
+                BuildContext(retrieval, redacted, TypedDecisionResult.Exception(), null, mission), token));
         }
 
         private Task RecordShadowAsync(PriorArtRetrieval retrieval, string redacted, TypedDecisionResult decision, PriorArtReading reading, TypedDecisionModeEnum mode, Mission? mission, CancellationToken token)
@@ -382,11 +382,6 @@ namespace Armada.Core.Services
             {
                 _Logging.Warn(_Header + "event record failed: " + ex.Message);
             }
-        }
-
-        private static TypedDecisionResult ExceptionResult()
-        {
-            return new TypedDecisionResult { Available = false, UnavailableReason = "exception" };
         }
 
         private static void AddIssue(

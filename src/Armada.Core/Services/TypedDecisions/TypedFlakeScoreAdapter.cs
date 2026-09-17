@@ -204,7 +204,7 @@ namespace Armada.Core.Services
                 confidence = scoreAnswer.Confidence ?? 0.0;
             }
 
-            double outsideDiff = ReadNoul(result, "outside_diff");
+            double outsideDiff = TypedAnswerReader.ReadNoul(result, "outside_diff");
             bool rerunEligible = index >= _LikelyLoadLevel;
 
             // The re-run is proposed only at a flake level; a deterministic or likely-real failure
@@ -251,13 +251,6 @@ namespace Armada.Core.Services
             if (i < 0) i = 0;
             if (i >= _LikelihoodLevels.Count) i = _LikelihoodLevels.Count - 1;
             return _LikelihoodLevels[i];
-        }
-
-        private static double ReadNoul(TypedDecisionResult result, string key)
-        {
-            if (result.Answers.TryGetValue(key, out TypedAnswer? answer) && answer != null && answer.Noul.HasValue)
-                return answer.Noul.Value;
-            return 0.0;
         }
 
         #endregion

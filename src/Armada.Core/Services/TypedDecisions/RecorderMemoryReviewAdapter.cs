@@ -218,14 +218,14 @@ namespace Armada.Core.Services
             outcome.Reviewed++;
             if (result == null || !result.Available)
             {
-                await _Recorder.RecordUnavailableAsync(Context(mission, "keep", null, null, result ?? new TypedDecisionResult { Available = false, UnavailableReason = "exception" }, redacted), token).ConfigureAwait(false);
+                await _Recorder.RecordUnavailableAsync(Context(mission, "keep", null, null, result ?? TypedDecisionResult.Exception(), redacted), token).ConfigureAwait(false);
                 return false;
             }
 
             double threshold = cfg.GateThreshold;
-            double typeOk = NoulOf(result, _TypeOkQuestionId, 1.0);
-            double stale = NoulOf(result, _StaleQuestionId, 0.0);
-            double aiMemory = NoulOf(result, _AiMemoryQuestionId, 0.0);
+            double typeOk = TypedAnswerReader.ReadNoul(result, _TypeOkQuestionId, 1.0);
+            double stale = TypedAnswerReader.ReadNoul(result, _StaleQuestionId, 0.0);
+            double aiMemory = TypedAnswerReader.ReadNoul(result, _AiMemoryQuestionId, 0.0);
             Memory? duplicateOf = DuplicateOf(result, candidates, out double duplicateConfidence);
 
             bool proposeDuplicate = duplicateOf != null && duplicateConfidence >= threshold;
@@ -369,14 +369,6 @@ namespace Armada.Core.Services
         private static string OptionName(int index)
         {
             return "existing_" + (index + 1).ToString(CultureInfo.InvariantCulture);
-        }
-
-        private static double NoulOf(TypedDecisionResult result, string questionId, double fallback)
-        {
-            if (result.Answers == null) return fallback;
-            if (!result.Answers.TryGetValue(questionId, out TypedAnswer? answer) || answer == null) return fallback;
-            if (answer.Noul.HasValue) return answer.Noul.Value;
-            return fallback;
         }
 
         private static Memory? DuplicateOf(TypedDecisionResult result, List<Memory> candidates, out double confidence)

@@ -243,10 +243,10 @@ namespace Armada.Core.Services
             if (result.Answers.TryGetValue("cause", out TypedAnswer? causeAnswer) && causeAnswer != null)
             {
                 if (!String.IsNullOrWhiteSpace(causeAnswer.Choice)) cause = causeAnswer.Choice!;
-                causeConfidence = ResolveChoiceConfidence(causeAnswer, cause);
+                causeConfidence = TypedAnswerReader.ResolveChoiceConfidence(causeAnswer, cause);
             }
 
-            double repeatLikely = ReadNoul(result, "repeat_likely");
+            double repeatLikely = TypedAnswerReader.ReadNoul(result, "repeat_likely");
 
             // Contribution of each independent hold driver. A non-hold cause (work_defect, refusal,
             // unclear) contributes nothing, so the generic gate records a shadow and the rule's rescue
@@ -285,24 +285,6 @@ namespace Armada.Core.Services
 
         /// <inheritdoc />
         protected override Mission? MissionOf(FailureCauseDecisionInput input) => input.Mission;
-
-        #endregion
-
-        #region Private-Methods
-
-        private static double ResolveChoiceConfidence(TypedAnswer answer, string choice)
-        {
-            if (answer.Confidence.HasValue) return answer.Confidence.Value;
-            if (answer.Probabilities != null && answer.Probabilities.TryGetValue(choice, out double probability)) return probability;
-            return 0.0;
-        }
-
-        private static double ReadNoul(TypedDecisionResult result, string key)
-        {
-            if (result.Answers.TryGetValue(key, out TypedAnswer? answer) && answer != null && answer.Noul.HasValue)
-                return answer.Noul.Value;
-            return 0.0;
-        }
 
         #endregion
     }

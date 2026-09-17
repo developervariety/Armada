@@ -199,10 +199,10 @@ namespace Armada.Core.Services
             if (result.Answers.TryGetValue("kind", out TypedAnswer? kindAnswer) && kindAnswer != null)
             {
                 if (!String.IsNullOrWhiteSpace(kindAnswer.Choice)) kind = kindAnswer.Choice!;
-                kindConfidence = ResolveChoiceConfidence(kindAnswer, kind);
+                kindConfidence = TypedAnswerReader.ResolveChoiceConfidence(kindAnswer, kind);
             }
 
-            double fleetWide = ReadNoul(result, "fleet_wide");
+            double fleetWide = TypedAnswerReader.ReadNoul(result, "fleet_wide");
 
             // Only an upgradeable kind proposes an action; a crash/clean/unclear reading contributes no
             // confidence, so the generic gate records a shadow and the rule's classification stands.
@@ -274,24 +274,6 @@ namespace Armada.Core.Services
 
         /// <inheritdoc />
         protected override Mission? MissionOf(RuntimeFailureDecisionInput input) => input.Mission;
-
-        #endregion
-
-        #region Private-Methods
-
-        private static double ResolveChoiceConfidence(TypedAnswer answer, string choice)
-        {
-            if (answer.Confidence.HasValue) return answer.Confidence.Value;
-            if (answer.Probabilities != null && answer.Probabilities.TryGetValue(choice, out double probability)) return probability;
-            return 0.0;
-        }
-
-        private static double ReadNoul(TypedDecisionResult result, string key)
-        {
-            if (result.Answers.TryGetValue(key, out TypedAnswer? answer) && answer != null && answer.Noul.HasValue)
-                return answer.Noul.Value;
-            return 0.0;
-        }
 
         #endregion
     }

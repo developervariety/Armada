@@ -114,6 +114,18 @@ namespace Armada.Core.Models
         /// decision asked on its own; token counts on a batched item are its share of the request.
         /// </summary>
         public int BatchSize { get; init; } = 1;
+
+        /// <summary>
+        /// The unavailable result an adapter falls back to when the client throws into a caller despite
+        /// its no-throw contract. The caller then keeps its deterministic rule and records an unavailable
+        /// event. Every adapter uses this one factory so the exception fallback is defined in a single
+        /// place.
+        /// </summary>
+        /// <returns>An unavailable result carrying the <c>exception</c> reason.</returns>
+        public static TypedDecisionResult Exception()
+        {
+            return new TypedDecisionResult { Available = false, UnavailableReason = "exception" };
+        }
     }
 
     /// <summary>

@@ -248,10 +248,10 @@ namespace Armada.Core.Services
             if (result.Answers.TryGetValue("substance", out TypedAnswer? substanceAnswer) && substanceAnswer != null)
             {
                 if (!String.IsNullOrWhiteSpace(substanceAnswer.Choice)) substanceChoice = substanceAnswer.Choice!;
-                substanceConfidence = ResolveChoiceConfidence(substanceAnswer, substanceChoice);
+                substanceConfidence = TypedAnswerReader.ResolveChoiceConfidence(substanceAnswer, substanceChoice);
             }
 
-            double riskyNoul = ReadNoul(result, "risky");
+            double riskyNoul = TypedAnswerReader.ReadNoul(result, "risky");
 
             // The raise action is proposable only when the model chose "behaviour"; the docs-only / empty
             // precondition on the RULE reading is enforced in Combine, so the model never lowers a
@@ -360,20 +360,6 @@ namespace Armada.Core.Services
                 ["file"] = file,
                 ["added"] = builder.ToString()
             });
-        }
-
-        private static double ResolveChoiceConfidence(TypedAnswer answer, string choice)
-        {
-            if (answer.Confidence.HasValue) return answer.Confidence.Value;
-            if (answer.Probabilities != null && answer.Probabilities.TryGetValue(choice, out double probability)) return probability;
-            return 0.0;
-        }
-
-        private static double ReadNoul(TypedDecisionResult result, string key)
-        {
-            if (result.Answers.TryGetValue(key, out TypedAnswer? answer) && answer != null && answer.Noul.HasValue)
-                return answer.Noul.Value;
-            return 0.0;
         }
 
         #endregion
