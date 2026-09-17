@@ -1690,7 +1690,10 @@ namespace Armada.Server
         private async Task<Armada.Runtimes.Interfaces.IAgentRuntime> CreateRuntimeAsync(Captain captain)
         {
             if (captain.Runtime != AgentRuntimeEnum.ApiEndpoint)
+            {
+                await ResolveNativeEndpointCredentialsAsync(captain, CancellationToken.None).ConfigureAwait(false);
                 return _RuntimeFactory.Create(captain.Runtime);
+            }
             if (String.IsNullOrWhiteSpace(captain.TenantId) || String.IsNullOrWhiteSpace(captain.ModelEndpointId))
                 throw new InvalidOperationException("An API-endpoint captain must reference an authorized tenant-owned model endpoint.");
             ModelEndpoint? endpoint = await _Database.ModelEndpoints.ReadAsync(
@@ -1702,6 +1705,77 @@ namespace Armada.Server
                 throw new InvalidOperationException(validationError);
 
             return _RuntimeFactory.Create(captain.Runtime, endpoint);
+        }
+
+        /// <summary>
+        /// When a native-runtime captain references an inference model endpoint, resolve the endpoint's
+        /// base URL, key, and model onto the launch snapshot so the runtime's provider resolver drives the
+        /// managed endpoint instead of inline captain credentials. A captain with no endpoint id is left
+        /// unchanged, so inline-credential captains keep working.
+        /// </summary>
+        /// <param name="captain">Captain to launch; mutated in place when it references an endpoint.</param>
+        /// <param name="token">Cancellation token.</param>
+        private async Task ResolveNativeEndpointCredentialsAsync(Captain captain, CancellationToken token)
+        {
+            if (String.IsNullOrWhiteSpace(captain.ModelEndpointId)) return;
+            if (String.IsNullOrWhiteSpace(captain.TenantId))
+                throw new InvalidOperationException("A captain that references a model endpoint must belong to a tenant.");
+            ModelEndpoint? endpoint = await _Database.ModelEndpoints.ReadAsync(
+                captain.TenantId!,
+                captain.ModelEndpointId!,
+                token).ConfigureAwait(false);
+            string? error = ValidateNativeEndpointAdmission(captain, endpoint);
+            if (!String.IsNullOrEmpty(error))
+                throw new InvalidOperationException(error);
+            ApplyNativeEndpointCredentials(captain, endpoint!);
+        }
+
+        /// <summary>
+        /// Admission for a native-runtime captain that references an inference model endpoint. The endpoint
+        /// must be an enabled inference endpoint the captain can see, and its model must match the captain's
+        /// when both are set. Native runtimes already reach cloud providers through inline credentials, so
+        /// this path does not impose the API-captain cloud-provider allowlist.
+        /// </summary>
+        /// <param name="captain">Captain to admit.</param>
+        /// <param name="endpoint">Endpoint snapshot read for the captain tenant and endpoint identifier.</param>
+        /// <returns>Null when admitted, otherwise a safe admission error.</returns>
+        public static string? ValidateNativeEndpointAdmission(Captain captain, ModelEndpoint? endpoint)
+        {
+            if (captain == null)
+                return "The captain is required.";
+            if (String.IsNullOrWhiteSpace(captain.ModelEndpointId) || String.IsNullOrWhiteSpace(captain.TenantId))
+                return "A captain that references a model endpoint must reference an authorized tenant-owned model endpoint.";
+            if (endpoint == null
+                || !String.Equals(endpoint.Id, captain.ModelEndpointId, StringComparison.Ordinal)
+                || !String.Equals(endpoint.TenantId, captain.TenantId, StringComparison.Ordinal))
+                return "The referenced model endpoint is not available to this captain.";
+            if (endpoint.Scope == ScopeEnum.UserSpecific
+                && !String.Equals(endpoint.UserId, captain.UserId, StringComparison.Ordinal))
+                return "The referenced model endpoint is not available to this captain.";
+            if (endpoint.Kind != ModelEndpointKindEnum.Inference)
+                return "A captain requires an inference model endpoint.";
+            if (!endpoint.Enabled)
+                return "The referenced model endpoint is disabled.";
+            if (!String.IsNullOrWhiteSpace(captain.Model)
+                && !String.Equals(captain.Model, endpoint.Model, StringComparison.Ordinal))
+                return "The captain model must match the configured model endpoint model.";
+            return null;
+        }
+
+        /// <summary>
+        /// Carry a validated inference endpoint's base URL, key, and model onto the launch snapshot. The
+        /// endpoint wins over any inline captain credentials; a blank captain model takes the endpoint's.
+        /// </summary>
+        /// <param name="captain">Captain being launched.</param>
+        /// <param name="endpoint">Validated inference endpoint the captain references.</param>
+        public static void ApplyNativeEndpointCredentials(Captain captain, ModelEndpoint endpoint)
+        {
+            if (captain == null) throw new ArgumentNullException(nameof(captain));
+            if (endpoint == null) throw new ArgumentNullException(nameof(endpoint));
+            captain.ApiBaseUrl = endpoint.BaseUrl;
+            captain.ApiKey = endpoint.ApiKey;
+            if (String.IsNullOrWhiteSpace(captain.Model))
+                captain.Model = endpoint.Model;
         }
 
         /// <summary>

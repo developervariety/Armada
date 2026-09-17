@@ -152,6 +152,14 @@ All notable changes to Armada are documented in this file.
 - Typed decisions never read a noul answer's confidence as its probability. The provider returns a noul with no
   confidence; five adapters fell back to confidence and could merge, nominate, flag, link, or mark a default safe on a
   confident answer that carried no probability.
+- A native-runtime captain (Claude Code, Codex, and the other CLI runtimes) can
+  reference a registered inference model endpoint. When a captain has a model
+  endpoint id, the launch resolves the endpoint’s base URL, key, and model onto
+  the run instead of the inline captain credentials, so an external captain’s
+  provider and key are managed on the model-endpoints surface. The endpoint must
+  be an enabled inference endpoint the captain can see; a captain with no
+  endpoint id keeps using its inline credentials unchanged.
+
 - Typed decisions now parse TypeSafe score answers. The provider returns a score `legend` as an index-keyed
   object; the client expected a list, so every decision that asked a score question (`review_substance`,
   `lint_finding`, `flake_score`, `owner_digest`, `inbox_triage`, and the captain tool) failed with

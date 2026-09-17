@@ -341,6 +341,77 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("ValidateNativeEndpointAdmission accepts an enabled inference endpoint and rejects the wrong kind, disabled, and a model mismatch", () =>
+            {
+                Captain captain = new Captain("external-judge", AgentRuntimeEnum.ClaudeCode)
+                {
+                    TenantId = "ten_ep",
+                    UserId = "usr_ep",
+                    ModelEndpointId = "mep_native",
+                    Model = "claude-fable-5"
+                };
+                ModelEndpoint endpoint = new ModelEndpoint
+                {
+                    Id = "mep_native",
+                    TenantId = "ten_ep",
+                    UserId = "usr_ep",
+                    Name = "External Fable",
+                    Provider = ModelProviderEnum.Anthropic,
+                    Kind = ModelEndpointKindEnum.Inference,
+                    Scope = ScopeEnum.TenantWide,
+                    BaseUrl = "https://api.example.com/v1",
+                    ApiKey = "sk-endpoint",
+                    Model = "claude-fable-5",
+                    Enabled = true
+                };
+
+                AssertNull(AgentLifecycleHandler.ValidateNativeEndpointAdmission(captain, endpoint), "an enabled inference endpoint the captain owns is admitted");
+                AssertNotNull(AgentLifecycleHandler.ValidateNativeEndpointAdmission(captain, null), "a missing endpoint is rejected");
+
+                endpoint.Kind = ModelEndpointKindEnum.Embedding;
+                AssertContains("inference", AgentLifecycleHandler.ValidateNativeEndpointAdmission(captain, endpoint)!, "an embedding endpoint is rejected");
+                endpoint.Kind = ModelEndpointKindEnum.Inference;
+
+                endpoint.Enabled = false;
+                AssertContains("disabled", AgentLifecycleHandler.ValidateNativeEndpointAdmission(captain, endpoint)!, "a disabled endpoint is rejected");
+                endpoint.Enabled = true;
+
+                captain.Model = "some-other-model";
+                AssertContains("must match", AgentLifecycleHandler.ValidateNativeEndpointAdmission(captain, endpoint)!, "a model mismatch is rejected");
+                return Task.CompletedTask;
+            });
+
+            await RunTest("A native captain's referenced inference endpoint drives the runtime provider resolver", () =>
+            {
+                Captain captain = new Captain("external-judge", AgentRuntimeEnum.ClaudeCode)
+                {
+                    TenantId = "ten_ep",
+                    ModelEndpointId = "mep_native",
+                    Model = "claude-fable-5"
+                };
+                ModelEndpoint endpoint = new ModelEndpoint
+                {
+                    Id = "mep_native",
+                    TenantId = "ten_ep",
+                    Provider = ModelProviderEnum.Anthropic,
+                    Kind = ModelEndpointKindEnum.Inference,
+                    BaseUrl = "https://api.example.com/v1",
+                    ApiKey = "sk-endpoint",
+                    Model = "claude-fable-5",
+                    Enabled = true
+                };
+
+                AgentLifecycleHandler.ApplyNativeEndpointCredentials(captain, endpoint);
+                AssertEqual("https://api.example.com/v1", captain.ApiBaseUrl!, "the endpoint base URL is carried onto the launch snapshot");
+                AssertEqual("sk-endpoint", captain.ApiKey!, "the endpoint key is carried onto the launch snapshot");
+
+                ResolvedModelProvider? resolved = ModelProviderResolver.Resolve(captain, null, new ModelProvidersSettings());
+                AssertNotNull(resolved, "the runtime provider resolver must resolve from the endpoint credentials");
+                AssertEqual("https://api.example.com/v1", resolved!.BaseUrl, "the runtime uses the endpoint base URL");
+                AssertEqual("sk-endpoint", resolved.ApiKey, "the runtime uses the endpoint key");
+                return Task.CompletedTask;
+            });
+
             await RunTest("HandleLaunchAgentAsync passes captain model to runtime startup", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
