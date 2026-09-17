@@ -39,6 +39,7 @@ namespace Armada.Core.Services
             AddRuntimeFailure(cases, new TypedRuntimeFailureAdapter(silent, recorder, settings, logging));
             AddReviewSubstance(cases, new TypedReviewSubstanceAdapter(silent, recorder, settings, logging));
             AddLintFinding(cases, new TypedLintFindingAdapter(silent, recorder, settings, logging));
+            AddChangeQuality(cases, new TypedChangeQualityAdapter(silent, recorder, settings, logging));
             return cases;
         }
 
@@ -258,6 +259,84 @@ namespace Armada.Core.Services
                     "class_1", new TypedDecisionExpectation { Choice = "correctness" },
                     "severity_1", new TypedDecisionExpectation { ScoreAtLeast = 2.0 }),
                 Expect("class_1", new TypedDecisionExpectation { Choice = "style_preference" })));
+        }
+
+        private static void AddChangeQuality(List<TypedDecisionEvalCase> cases, TypedChangeQualityAdapter adapter)
+        {
+            // Reference: blatant duplication vs a clean extraction -> dry_weak high then low.
+            ChangeQualityInput duplicated = new ChangeQualityInput
+            {
+                UnifiedDiff = "diff --git a/src/Orders.cs b/src/Orders.cs\n--- a/src/Orders.cs\n+++ b/src/Orders.cs\n@@ -1,1 +1,12 @@\n"
+                    + "+    public decimal TotalWithTax(List<Item> items)\n+    {\n+        decimal sum = 0;\n+        foreach (Item i in items) sum += i.Price * i.Quantity;\n+        return sum * 1.08m;\n+    }\n"
+                    + "+    public decimal TotalWithDiscount(List<Item> items)\n+    {\n+        decimal sum = 0;\n+        foreach (Item i in items) sum += i.Price * i.Quantity;\n+        return sum * 0.9m;\n+    }\n"
+            };
+            ChangeQualityInput extracted = new ChangeQualityInput
+            {
+                UnifiedDiff = "diff --git a/src/Orders.cs b/src/Orders.cs\n--- a/src/Orders.cs\n+++ b/src/Orders.cs\n@@ -1,1 +1,10 @@\n"
+                    + "+    private decimal Subtotal(List<Item> items)\n+    {\n+        decimal sum = 0;\n+        foreach (Item i in items) sum += i.Price * i.Quantity;\n+        return sum;\n+    }\n"
+                    + "+    public decimal TotalWithTax(List<Item> items) => Subtotal(items) * 1.08m;\n+    public decimal TotalWithDiscount(List<Item> items) => Subtotal(items) * 0.9m;\n"
+            };
+            cases.Add(Pair(
+                "change_quality.duplication_vs_extraction",
+                "change_quality",
+                TypedDecisionEvalCaseKindEnum.Reference,
+                "Two methods with an identical loop body violate DRY; extracting the shared subtotal does not.",
+                adapter.DescribeRequest(duplicated),
+                adapter.DescribeRequest(extracted),
+                new Dictionary<string, TypedDecisionExpectation>(StringComparer.Ordinal)
+                {
+                    ["dry_weak"] = new TypedDecisionExpectation { NoulAtLeast = 0.6 }
+                },
+                new Dictionary<string, TypedDecisionExpectation>(StringComparer.Ordinal)
+                {
+                    ["dry_weak"] = new TypedDecisionExpectation { NoulAtMost = 0.4 }
+                }));
+
+            // Reference: deep nesting vs a flat rewrite -> cognitive_complexity_weak high then low.
+            ChangeQualityInput nested = new ChangeQualityInput
+            {
+                UnifiedDiff = "diff --git a/src/Classify.cs b/src/Classify.cs\n--- a/src/Classify.cs\n+++ b/src/Classify.cs\n@@ -1,1 +1,16 @@\n"
+                    + "+    public string Classify(int a, int b, int c)\n+    {\n+        if (a > 0)\n+        {\n+            if (b > 0)\n+            {\n+                if (c > 0)\n+                {\n+                    if (a > b)\n+                    {\n+                        if (b > c) return \"descending\";\n+                    }\n+                }\n+            }\n+        }\n+        return \"other\";\n+    }\n"
+            };
+            ChangeQualityInput flat = new ChangeQualityInput
+            {
+                UnifiedDiff = "diff --git a/src/Classify.cs b/src/Classify.cs\n--- a/src/Classify.cs\n+++ b/src/Classify.cs\n@@ -1,1 +1,6 @@\n"
+                    + "+    public string Classify(int a, int b, int c)\n+    {\n+        if (a <= 0 || b <= 0 || c <= 0) return \"other\";\n+        return a > b && b > c ? \"descending\" : \"other\";\n+    }\n"
+            };
+            cases.Add(Pair(
+                "change_quality.deep_nesting_vs_flat",
+                "change_quality",
+                TypedDecisionEvalCaseKindEnum.Reference,
+                "Five levels of nested ifs is more cognitively complex than the flat guard-clause rewrite of the same logic.",
+                adapter.DescribeRequest(nested),
+                adapter.DescribeRequest(flat),
+                new Dictionary<string, TypedDecisionExpectation>(StringComparer.Ordinal)
+                {
+                    ["cognitive_complexity_weak"] = new TypedDecisionExpectation { NoulAtLeast = 0.6 }
+                },
+                new Dictionary<string, TypedDecisionExpectation>(StringComparer.Ordinal)
+                {
+                    ["cognitive_complexity_weak"] = new TypedDecisionExpectation { NoulAtMost = 0.4 }
+                }));
+
+            // Consistency: the same clear change, reformatted, reads the same on readability.
+            ChangeQualityInput clearA = new ChangeQualityInput
+            {
+                UnifiedDiff = "diff --git a/src/Greeter.cs b/src/Greeter.cs\n--- a/src/Greeter.cs\n+++ b/src/Greeter.cs\n@@ -1,1 +1,4 @@\n"
+                    + "+    public string Greeting(string name)\n+    {\n+        return \"Hello, \" + name + \"!\";\n+    }\n"
+            };
+            ChangeQualityInput clearB = new ChangeQualityInput
+            {
+                UnifiedDiff = "diff --git a/src/Greeter.cs b/src/Greeter.cs\n--- a/src/Greeter.cs\n+++ b/src/Greeter.cs\n@@ -1,1 +1,2 @@\n"
+                    + "+    public string Greeting(string name) => \"Hello, \" + name + \"!\";\n"
+            };
+            cases.Add(Consistency(
+                "change_quality.formatting_does_not_change_readability",
+                "change_quality",
+                "A one-line method and its block form are equally readable.",
+                adapter.DescribeRequest(clearA),
+                adapter.DescribeRequest(clearB),
+                "readability_weak"));
         }
 
         private static Mission EvalMission(string title, string persona)

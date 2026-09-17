@@ -21,6 +21,7 @@ All notable changes to Armada are documented in this file.
 - `armada_typed_decision_labels` (operator): report retained calls and reversals per decision, and whether each has
   reached the minimum sample count. A decision below the minimum is named with its reason instead of being skipped.
 
+- The synthetic typed-decision eval set now covers change_quality: two Reference cases (blatant duplication vs a clean extraction; deep nesting vs a flat rewrite) and one Consistency case (a one-line method vs its block form reads the same), so a TypeSafe model-version change re-runs and flags any drift on the quality dimensions.
 - `armada_change_quality_gate`: an operator tool that runs the change_quality orchestrator gate on a supplied diff and files the Triaged follow-up; operator-scoped (a mission captain cannot reach it).
 - The change_quality orchestrator gate (`ChangeQualityGate`) reviews a focused diff and routes its routable (deterministically-backed MustFix) weaknesses to exactly one Triaged objective (auto-dispatch OFF) through the existing follow-up router; the model only adds informational weaknesses and nothing is ever dispatched.
 - `armada_change_quality`: a captain-facing, mission-scoped tool that returns a per-dimension quality read of a focused diff (DRY, cognitive complexity, modularity, readability, maintainability) before the Judge, so a captain can self-correct. Read-only: it lands, dispatches, and edits nothing, and the diff is redacted before egress.
