@@ -52,7 +52,7 @@ PART 1 -- plan-level narrative (top of the document):
 ```markdown
 # <Feature Name> Implementation Plan
 
-> **Execution model:** all code changes land via Armada per `project/CLAUDE.md` CORE RULE 15.
+> **Execution model:** all code changes land via Armada; one captain mission per task.
 > Each task below maps to one captain mission dispatched against the **<vessel> vessel**.
 > Default pipeline: Worker -> TestEngineer -> Judge. TestEngineer owns validation; Judge owns final review.
 
@@ -116,7 +116,7 @@ description: |
   - <list sibling missions whose work this should NOT include>
 
   **End-of-mission:**
-  - One commit, message: `<verb(area): M<N> -- <title>>`. Trailers added by Armada.
+  - One commit, message: `<verb(area): <title>>`. Trailers added by Armada.
   - End final response with `[ARMADA:RESULT] COMPLETE` and a one-sentence summary.
 [ARMADA:MISSION-END]
 ```

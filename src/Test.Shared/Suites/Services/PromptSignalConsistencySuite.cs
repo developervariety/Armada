@@ -59,7 +59,7 @@ namespace Test.Shared.Suites.Services
                     AssertContains("`[ARMADA:VERDICT] PASS`", embeddedSignals, "embedded runtime signals should include VERDICT PASS");
                     AssertContains("`[ARMADA:VERDICT] FAIL`", embeddedSignals, "embedded runtime signals should include VERDICT FAIL");
                     AssertContains("`[ARMADA:VERDICT] NEEDS_REVISION`", embeddedSignals, "embedded runtime signals should include VERDICT NEEDS_REVISION");
-                    AssertContains("Architect missions must not emit `[ARMADA:RESULT]` or `[ARMADA:VERDICT]`", embeddedSignals, "embedded runtime signals should restrict architect output");
+                    AssertContains("Architect missions must not emit `[ARMADA:VERDICT]`", embeddedSignals, "embedded runtime signals should restrict architect output");
                     AssertNotContains("`[ARMADA:RESULT] PASS`", embeddedSignals, "embedded runtime signals");
                     AssertNotContains("`[ARMADA:RESULT] FAIL`", embeddedSignals, "embedded runtime signals");
                     AssertNotContains("`[ARMADA:RESULT] NEEDS_REVISION`", embeddedSignals, "embedded runtime signals");
@@ -69,7 +69,7 @@ namespace Test.Shared.Suites.Services
                     AssertContains("`[ARMADA:VERDICT] PASS`", fallbackSignals, "fallback runtime signals should include VERDICT PASS");
                     AssertContains("`[ARMADA:VERDICT] FAIL`", fallbackSignals, "fallback runtime signals should include VERDICT FAIL");
                     AssertContains("`[ARMADA:VERDICT] NEEDS_REVISION`", fallbackSignals, "fallback runtime signals should include VERDICT NEEDS_REVISION");
-                    AssertContains("Architect missions must not emit `[ARMADA:RESULT]` or `[ARMADA:VERDICT]`", fallbackSignals, "fallback runtime signals should restrict architect output");
+                    AssertContains("Architect missions must not emit `[ARMADA:VERDICT]`", fallbackSignals, "fallback runtime signals should restrict architect output");
                     AssertNotContains("`[ARMADA:RESULT] PASS`", fallbackSignals, "fallback runtime signals");
                     AssertNotContains("`[ARMADA:RESULT] FAIL`", fallbackSignals, "fallback runtime signals");
                     AssertNotContains("`[ARMADA:RESULT] NEEDS_REVISION`", fallbackSignals, "fallback runtime signals");
@@ -110,13 +110,13 @@ namespace Test.Shared.Suites.Services
                         null).ConfigureAwait(false);
 
                     AssertContains("[ARMADA:MISSION]", embeddedPrompt, "architect embedded template should use mission markers");
-                    AssertContains("Do not emit `[ARMADA:RESULT]` or `[ARMADA:VERDICT]` lines.", embeddedPrompt, "architect embedded template should forbid result and verdict lines");
+                    AssertContains("Do not emit `[ARMADA:VERDICT]` lines.", embeddedPrompt, "architect embedded template should forbid result and verdict lines");
                     AssertContains("[ARMADA:MISSION]", templateParams["CaptainInstructions"], "architect captain instructions should use mission markers");
-                    AssertContains("Do not emit [ARMADA:RESULT] or [ARMADA:VERDICT] lines.", templateParams["CaptainInstructions"], "architect captain instructions should forbid result and verdict lines");
+                    AssertContains("Do not emit [ARMADA:VERDICT] lines.", templateParams["CaptainInstructions"], "architect captain instructions should forbid result and verdict lines");
                     AssertContains("[ARMADA:MISSION]", fallbackPrompt, "architect fallback prompt should use mission markers");
-                    AssertContains("Do not emit [ARMADA:RESULT] or [ARMADA:VERDICT] lines.", fallbackPrompt, "architect fallback prompt should forbid result and verdict lines");
+                    AssertContains("Do not emit [ARMADA:VERDICT] lines.", fallbackPrompt, "architect fallback prompt should forbid result and verdict lines");
                     AssertContains("[ARMADA:MISSION]", launchPrompt, "architect launch prompt should use mission markers");
-                    AssertContains("Do not emit [ARMADA:RESULT] or [ARMADA:VERDICT] lines.", launchPrompt, "architect launch prompt should forbid result and verdict lines");
+                    AssertContains("Do not emit [ARMADA:VERDICT] lines.", launchPrompt, "architect launch prompt should forbid result and verdict lines");
                 }
             }));
 

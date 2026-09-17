@@ -570,7 +570,10 @@ namespace Armada.Core.Services
                     "- `[ARMADA:VERDICT] PASS` -- judge approves the mission\n" +
                     "- `[ARMADA:VERDICT] FAIL` -- judge rejects the mission\n" +
                     "- `[ARMADA:VERDICT] NEEDS_REVISION` -- judge requests follow-up changes\n" +
-                    "Architect missions must not emit `[ARMADA:RESULT]` or `[ARMADA:VERDICT]`; they must output only real `[ARMADA:MISSION]` blocks.\n"
+                    "Architect missions must not emit `[ARMADA:VERDICT]`; they output `[ARMADA:MISSION]` blocks and end with `[ARMADA:RESULT] COMPLETE` or `[ARMADA:RESULT] BLOCKED`.\n",
+                // Superseded when the Architect signal line dropped the [ARMADA:RESULT] prohibition; the
+                // upgrader carries a live row still holding that version forward.
+                PriorContentHashes = new[] { "09ab09df90c3b7eec1987efdff57c9f0ab0ebf5c91125b621d81eed3ea58a319" }
             };
 
             defaults["ask.system"] = new EmbeddedTemplate
@@ -690,7 +693,7 @@ namespace Armada.Core.Services
                     "inputs:, deliverables:, dependencies:, risks:, or done_when:. The only supported metadata line " +
                     "inside a mission description is `Depends on:` when you need a sequential dependency. Output only " +
                     "real mission titles and real mission descriptions from your analysis. Do not emit " +
-                    "`[ARMADA:RESULT]` or `[ARMADA:VERDICT]` lines.\n"
+                    "`[ARMADA:VERDICT]` lines.\n"
             };
 
             defaults["persona.product_manager"] = new EmbeddedTemplate

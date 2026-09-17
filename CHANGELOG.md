@@ -8,6 +8,18 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- Built-in prompt-template rows now upgrade on startup. Seeding never rewrote the
+  content of an existing built-in row, so a content change made in code never
+  reached a live deployment until an operator reset the row. Each embedded default
+  can list the SHA-256 of its superseded versions; a built-in row still holding
+  one is replaced with the current content, while a row an operator edited is left
+  alone, and both outcomes record an event.
+- The Architect agent now emits `[ARMADA:RESULT]` (its system prompt ends with
+  `[ARMADA:RESULT] COMPLETE`/`BLOCKED` and the parser reads `BLOCKED`); the runtime
+  signals, captain instructions and fallback prompts now forbid only
+  `[ARMADA:VERDICT]`, resolving the contradiction. The Architect output parser
+  accepts the `low` tier, and the recovery orchestrator matches the TestEngineer
+  stage by persona catalog rather than a literal string.
 - Captains take external provider credentials only from a referenced inference
   `ModelEndpoint`, never from inline fields. The Create/Edit Captain modal, the
   captain detail page, and the setup wizard drop the per-captain Provider

@@ -4950,7 +4950,7 @@ namespace Armada.Core.Services
                         "- `[ARMADA:VERDICT] PASS` -- judge approves the mission\n" +
                         "- `[ARMADA:VERDICT] FAIL` -- judge rejects the mission\n" +
                         "- `[ARMADA:VERDICT] NEEDS_REVISION` -- judge requests follow-up changes\n" +
-                        "Architect missions must not emit `[ARMADA:RESULT]` or `[ARMADA:VERDICT]`; they must output only real `[ARMADA:MISSION]` blocks.\n";
+                        "Architect missions must not emit `[ARMADA:VERDICT]`; they output `[ARMADA:MISSION]` blocks and end with `[ARMADA:RESULT] COMPLETE` or `[ARMADA:RESULT] BLOCKED`.\n";
 
                 case "mission.playbooks_wrapper":
                     return
