@@ -113,6 +113,29 @@ namespace Armada.Core.Services
             "from your own words: begin the finding bullet with `[<class> | <severity>]`. Class is one of " +
             "correctness, safety, consistency, or style_preference. Severity is one of cosmetic, should_fix, " +
             "must_fix, or blocks_merge. Keep each finding under its existing section heading.\n";
+
+        /// <summary>Heading of the duplication-check section on the Linter template.</summary>
+        private const string _LintDuplicationCheckMarker = "## Duplication Check";
+
+        /// <summary>
+        /// The duplication check added to the Linter persona: search the vessel's code index for each method
+        /// the mission added and report a confirmed duplicate without fixing it, because consolidating shared
+        /// logic changes files outside the diff. The existing section headings the finding parser reads are
+        /// left unchanged; the finding goes under Residual Issues.
+        /// </summary>
+        private const string _LintDuplicationCheck =
+            "\n" +
+            _LintDuplicationCheckMarker + "\n" +
+            "For each method or function this mission adds or substantially rewrites, when " +
+            "`armada_mission_code_search` is available, call it with your mission id and the new code body as " +
+            "the query. Open every strong result at its path and line range and read it. It is a duplicate only " +
+            "when it does the same work on the same kind of input; the same shape alone (data classes, " +
+            "interface members, test setup, generated code) is not. Never fix a duplicate: moving shared logic " +
+            "changes files outside the diff. Report each confirmed duplicate under `## Residual Issues` as one " +
+            "line: `[consistency | should_fix] DRY: <new path:line> duplicates <existing path:line> - <the " +
+            "shared behavior>`. The index covers the default branch, so code this mission adds is not in it. " +
+            "When the tool is absent, unavailable, or warns that the index is stale or lexical only, say so under " +
+            "`## Residual Issues` and do not report that no duplication exists.\n";
         private DatabaseDriver _Database;
         private LoggingModule _Logging;
         private Dictionary<string, EmbeddedTemplate> _EmbeddedDefaults;
@@ -144,6 +167,7 @@ namespace Armada.Core.Services
             AddBlockedPathGuidance();
             AddTestCoverageEvidence();
             AddLintFindingFormat();
+            AddLintDuplicationCheck();
         }
 
         #endregion
@@ -252,6 +276,7 @@ namespace Armada.Core.Services
             await UpgradeBuiltInPersonaBlockedPathAsync(token).ConfigureAwait(false);
             await UpgradeBuiltInPersonaSectionAsync(token, "persona.test_engineer", _TestCoverageEvidenceMarker, _TestCoverageEvidence, "coverage-evidence").ConfigureAwait(false);
             await UpgradeBuiltInPersonaSectionAsync(token, "persona.linter", _LintFindingFormatMarker, _LintFindingFormat, "finding-format").ConfigureAwait(false);
+            await UpgradeBuiltInPersonaSectionAsync(token, "persona.linter", _LintDuplicationCheckMarker, _LintDuplicationCheck, "duplication-check").ConfigureAwait(false);
         }
 
         /// <summary>
@@ -448,6 +473,12 @@ namespace Armada.Core.Services
         private void AddLintFindingFormat()
         {
             AddSectionToEmbedded("persona.linter", _LintFindingFormatMarker, _LintFindingFormat);
+        }
+
+        /// <summary>Add the Linter duplication-check section to the embedded default.</summary>
+        private void AddLintDuplicationCheck()
+        {
+            AddSectionToEmbedded("persona.linter", _LintDuplicationCheckMarker, _LintDuplicationCheck);
         }
 
         /// <summary>

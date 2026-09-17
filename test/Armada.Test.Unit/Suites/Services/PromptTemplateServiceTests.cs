@@ -288,6 +288,40 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("The Linter duplication check reaches seeded and existing rows once, keeps operator edits and the finding headings", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
+                {
+                    LoggingModule logging = new LoggingModule();
+                    logging.Settings.EnableConsole = false;
+
+                    PromptTemplate linterEdit = new PromptTemplate("persona.linter", "You are a linter. OPERATOR CUSTOM.\n## Code Style\nNone\n## Residual Issues\nNone\n");
+                    linterEdit.Category = "persona";
+                    linterEdit.IsBuiltIn = true;
+                    await testDb.Driver.PromptTemplates.CreateAsync(linterEdit).ConfigureAwait(false);
+
+                    PromptTemplateService service = new PromptTemplateService(testDb.Driver, logging, FleetRoutingSettings.CreateAdditionalPromptTemplates());
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+
+                    PromptTemplate? linter = await service.ResolveAsync("persona.linter").ConfigureAwait(false);
+                    AssertStartsWith("You are a linter. OPERATOR CUSTOM.", linter!.Content, "the operator edit is preserved");
+                    AssertContains("## Duplication Check", linter.Content, "the duplication check reaches an existing built-in row");
+                    AssertContains("armada_mission_code_search", linter.Content, "the check names the captain search tool");
+                    AssertContains("Never fix a duplicate", linter.Content, "the check is report-only");
+                    AssertContains("do not report that no duplication exists", linter.Content, "an unavailable index is never read as no duplication");
+                    AssertContains("## Residual Issues", linter.Content, "the finding-section headings are preserved");
+
+                    await service.SeedDefaultsAsync().ConfigureAwait(false);
+                    PromptTemplate? reseeded = await service.ResolveAsync("persona.linter").ConfigureAwait(false);
+                    int occurrences = reseeded!.Content.Split("## Duplication Check").Length - 1;
+                    AssertEqual(1, occurrences, "a second seed does not append the section again");
+
+                    PromptTemplate? embedded = await new PromptTemplateService(testDb.Driver, logging, FleetRoutingSettings.CreateAdditionalPromptTemplates())
+                        .ResetToDefaultAsync("persona.linter").ConfigureAwait(false);
+                    AssertContains("## Duplication Check", embedded!.Content, "the embedded default carries the check");
+                }
+            });
+
             await RunTest("D22/D24 asks reach the TestEngineer and Linter, preserve operator edits, and keep the finding headings", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())

@@ -49,6 +49,20 @@ not presented to the Judge as a defect. The decision ships `Gate`; setting it
 `Off` lets the Linter output flow unchanged, a settings change, not a persona change.
 The deterministic Slop Check (`SlopDiffClassifier`) is unaffected.
 
+### Linter duplication check
+
+The Linter template carries a `## Duplication Check` section. For each method the
+mission adds or substantially rewrites, the Linter calls
+`armada_mission_code_search` with its mission id and the new code body, reads
+every strong result, and reports a confirmed duplicate under `## Residual Issues`
+as `[consistency | should_fix] DRY: <new path:line> duplicates <existing
+path:line> - <shared behavior>`. It never fixes a duplicate, because moving
+shared logic changes files outside the diff. When the tool is absent or
+unavailable, or warns that the index is stale or lexical only, the Linter says so
+instead of reporting no duplication. The section is added to the embedded default
+and, by an append-if-missing upgrader, to an existing built-in row, so an
+operator edit is kept. The finding headings are unchanged.
+
 ### Prior-art analyst stage (`prior_art`)
 
 The `prior_art` typed decision does not add a persona to any pipeline by default: it is a

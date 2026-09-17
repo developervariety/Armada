@@ -8,6 +8,13 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- The Linter checks new code for duplication: a `## Duplication Check` section tells it to search the vessel's code
+  index with `armada_mission_code_search` for each method the mission adds, read every strong result, and report a
+  confirmed duplicate under `## Residual Issues` as a `[consistency | should_fix] DRY:` finding with both locations.
+  It never fixes a duplicate, and it says so when the index is unavailable, stale or lexical only instead of
+  reporting no duplication. Added to the embedded default and, by the append-if-missing upgrader, to existing
+  built-in rows; the finding headings are unchanged.
+
 - The code index chunks brace-delimited source at declaration boundaries instead of fixed line windows
   (`codeIndex.structuralChunking`, default on). A method becomes one chunk with its doc comment, attributes and
   signature wherever it sits in its file, so two copies of it produce the same chunk; members under
