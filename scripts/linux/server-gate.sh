@@ -120,8 +120,11 @@ mkdir -p "$logs"
 export MSBUILDDISABLENODEREUSE=1
 export DOTNET_CLI_USE_MSBUILD_SERVER=0
 
-# A non-interactive ssh shell may not load the profile that puts dotnet on PATH.
-if ! command -v dotnet >/dev/null 2>&1 && [ -x "$HOME/.dotnet/dotnet" ]; then
+# Prefer the SDK the Microsoft install script puts in ~/.dotnet over a distribution package. A distribution
+# runtime built against the system libunwind can fail to unwind the stack at a managed throw and abort with
+# an internal runtime error (0x80131506); Microsoft's builds bundle their own libunwind. A non-interactive
+# ssh shell may also not load the profile that puts dotnet on PATH.
+if [ -x "$HOME/.dotnet/dotnet" ]; then
   export PATH="$HOME/.dotnet:$PATH"
   export DOTNET_ROOT="$HOME/.dotnet"
 fi
@@ -129,6 +132,14 @@ if ! command -v dotnet >/dev/null 2>&1; then
   echo "RESULT: FAIL (dotnet is not on PATH on the gate host)"
   exit 1
 fi
+dotnet_host="$(command -v dotnet)"
+dotnet_root="${DOTNET_ROOT:-$(dirname "$(readlink -f "$dotnet_host")")}"
+echo "dotnet: $dotnet_host (SDK $(dotnet --version 2>/dev/null < /dev/null || echo '?'))"
+for coreclr in "$dotnet_root"/shared/Microsoft.NETCore.App/*/libcoreclr.so; do
+  if [ -f "$coreclr" ] && ldd "$coreclr" 2>/dev/null | grep -q 'libunwind'; then
+    echo "WARNING: $coreclr links the system libunwind. This runtime can abort at a managed throw; install Microsoft's SDK in ~/.dotnet (see docs/TESTING.md, Gate Host)."
+  fi
+done
 
 # The remote script arrives on standard input, so every command that could read input runs with it
 # redirected from /dev/null; a .NET process that inherited the script as input intermittently aborted at
@@ -146,10 +157,10 @@ run_gate() {
 
   echo "Building $sha on $(uname -sm), $(getconf _NPROCESSORS_ONLN 2>/dev/null || echo '?') cores"
   build_start=$(date +%s)
-  # The .NET host occasionally aborts with an internal runtime error while restore starts its MSBuild
-  # worker processes, before anything compiles. That abort is retried, at most twice, and only when the
-  # log holds nothing else; every other build failure fails the gate at once. A crash report is written
-  # to the log directory for each abort, and each retry is printed.
+  # A runtime built against the system libunwind can abort with an internal runtime error before anything
+  # compiles (see the dotnet selection above). That abort is retried, at most twice, and only when the log
+  # holds nothing else; every other build failure fails the gate at once. A crash report is written to the
+  # log directory for each abort, and each retry is printed.
   local attempt
   for attempt in 1 2 3; do
     DOTNET_DbgEnableMiniDump=1 DOTNET_DbgMiniDumpType=1 DOTNET_EnableCrashReport=1 \

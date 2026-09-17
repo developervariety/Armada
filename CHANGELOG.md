@@ -199,6 +199,11 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- The server gate uses Microsoft's .NET SDK in `~/.dotnet` when present, before
+  a distribution `dotnet` on `PATH`, and warns when the selected runtime links
+  the system libunwind. A distribution runtime built that way can abort at a
+  managed throw with an internal runtime error (0x80131506), which intermittently
+  stopped gate builds before compiling.
 - The server gate retries a build that the .NET host aborted with an internal
   runtime error before compiling, at most twice, and keeps the runtime crash
   report. Such an abort had failed the gate with no build output; other build
