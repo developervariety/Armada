@@ -166,13 +166,12 @@ client or records an event, and every decision runs its deterministic rule.
 With a key, the stored global `mode` (default `Gate`) applies and each decision
 runs at its own mode. Per decision group:
 
-- `failure_cause`, `refusal`, `runtime_failure`, `review_substance`,
-  `preflight`, `papercut_merge`, and `capacity_escalation` ship in `Gate`; they
-  span recovery, review substance, the dispatch preflight, papercut merging,
-  and the Smart Routing model group choice.
-- `leak_hunk` and `log_watch` ship `Off`.
-- Every other decision ships `Off`: built but dormant until an operator flips a
-  decision to `Gate`.
+- Every decision ships in `Gate` at its threshold (`0.90` unless stated below)
+  and records the rule's verdict and the model's on every call, so a post-gate
+  review can move a threshold or set one decision `Off` without a deploy. This
+  includes `capacity_escalation`, the Smart Routing model group choice.
+- `leak_hunk` and `log_watch` are design documents with no adapter yet, so their
+  `Gate` setting has no effect until one is wired.
 
 **`capacity_escalation`** (ships `Gate`, threshold `0.90`) runs at assignment
 under Smart Routing, only for a persona whose `personaModels` entry has a
@@ -192,7 +191,10 @@ The safety contract holds whenever it is enabled:
 - It never converts a rule hard-block into a rescue: a deterministic block
   always wins.
 - It gates only at or above the decision's confidence threshold; below it, the
-  rule stands.
+  rule stands. Gate is never an approval: at any confidence the model cannot
+  approve a Judge PASS, land, dispatch, delete, or write memory. A gated answer
+  can only take the more conservative action the decision defines (hold, flag,
+  escalate, annotate, or order).
 - Every call is bounded by the settings timeout, linked to the caller's token,
   fails closed to the rule, and never throws into the caller. A slow decision is
   unavailable, not late.
@@ -242,27 +244,53 @@ table). The global `mode` is `Off`, `Shadow`, or `Gate` and is the single kill
 switch; each entry in `decisions` has its own `mode` and `gateThreshold`, and
 the effective mode is the minimum of the two. `Shadow` consults the model and
 records the answer while the rule stands; it is also the demotion target for a
-decision operators reverse too often. The decisions listed above ship in `Gate`
-and every other decision is `Off`. A shipped decision missing from a stored
-`decisions` map runs at its shipped mode; set its `mode` to `Off` to stop it.
-Without a key the effective mode is `Off` whatever these values say. `mode` and
-`decisions` hot-reload in place — a change reaches every decision point without
-a restart and survives an MCP settings write.
+decision operators reverse too often. Every decision ships in `Gate`. A shipped
+decision missing from a stored `decisions` map runs at its shipped mode; set its
+`mode` to `Off` to stop it. Without a key the effective mode is `Off` whatever
+these values say. `mode` and `decisions` hot-reload in place — a change reaches
+every decision point without a restart and survives an MCP settings write.
 
 Every enabled call emits one event: `typed_decision.gated` when a gate at or
 above threshold changed the outcome, `typed_decision.shadow` when the rule stood
 (a Shadow-mode call, or a Gate-mode call below the threshold), and
 `typed_decision.unavailable` otherwise. Each event carries the decision, the
-rule verdict, the model's answers and confidences, tokens, latency, the gate
-outcome, and the state's SHA-256 and byte count — the state itself is never
-recorded. Read the flow with:
+rule verdict, the model version the provider reported (`model`), the model's
+answers with their confidences and probability distributions, tokens, latency,
+`batch_size`, the gate outcome, the provider's redacted explanation when it
+rejected the request (`unavailable_detail`), and the state's SHA-256 and byte
+count — the state itself is never recorded. Read the flow with:
 
 ```sql
 select payload from events where event_type like 'typed_decision.%';
 ```
 
-Two decision points are described as design documents before any code lands, both
-`Off` by default and reviewed by the owner before implementation:
+The state goes out as a JSON object: the redactor redacts every property name
+and string value in place and, when the object exceeds `maxStateChars`,
+shortens the longest strings (keeping head, tail, and `[ARMADA:` marker lines)
+until it fits. Decisions that ask about several independent items —
+`criteria_lint`, `inbox_triage`, `memory_candidate`, `followup_routing`,
+`memory_review`, and `owner_digest` — share requests: items are packed in order
+into requests of at most 100 questions whose combined state stays within
+`maxStateChars`, and each item is still gated and recorded on its own event
+(with an even share of the request's tokens). `papercut_merge` still asks per
+pair, because each comparison depends on the merges before it.
+
+A synthetic evaluation set checks the decisions that gate the recovery, review,
+and Linter seams (`failure_cause`, `refusal`, `runtime_failure`,
+`review_substance`, `lint_finding`). Each case builds its requests through the
+decision's own adapter, so it tests the exact state and questions production
+sends. A reference case pairs two variants that differ in one relevant fact and
+states the answer for each; a consistency case changes a fact that must not
+matter and requires the answers to agree. Operators run it with
+`armada_typed_decision_eval`; it also runs in the background whenever the
+provider reports a model version that has not been evaluated
+(`typedDecisions.evalOnModelChange`, default `true`). Each run records one
+`typed_decision.eval` event with the model and each case's outcome. A failing
+case is a finding to review — a threshold, a question, or the model — not a
+build failure.
+
+Two decision points are described as design documents before any code lands,
+reviewed by the owner before implementation:
 [`leak_hunk`](design/typed-decision-leak-hunk.md) (an advisory per-hunk leak
 classifier behind the deterministic dock-boundary scanner) and
 [`log_watch`](design/typed-decision-log-watch.md) (a read-only screen over a
@@ -280,10 +308,10 @@ the tools. Each call redacts its state before egress, is bounded by the
 per-mission call budget in `typedDecisions.captainTool`, writes exactly one
 `typed_decision.captain` event carrying only the state hash and byte count, and
 has no side effect on any Armada record — it dispatches nothing, lands nothing,
-edits no objective, and writes no memory. The tool is disabled by default
-(`typedDecisions.captainTool.enabled` is `false`) and returns `unavailable`
-until an operator enables it; each helper stays dormant until its own decision
-(`premise_check`, `memory_record`, `prior_art`) is enabled. See `docs/MCP_API.md`
+edits no objective, and writes no memory. The tool is enabled by default
+(`typedDecisions.captainTool.enabled` is `true`); setting it `false` makes every
+call return `unavailable`. Each helper also follows its own decision
+(`premise_check`, `memory_record`, `prior_art`). See `docs/MCP_API.md`
 for the tool arguments.
 Each wired decision holds an adapter over the shared client, never the raw
 client, and every adapter follows one skeleton: Off returns the rule with no
@@ -365,8 +393,8 @@ One decision point reads the objective dispatch preview:
   validated PASS is never auto-failed. The model never approves, lands, or
   dispatches.
 
-Two decision points recover captain time at the pipeline level (both ship `Off`,
-built and dormant until a Gate flip):
+Two decision points recover captain time at the pipeline level (both ship
+`Gate`):
 
 - `stage_necessity` (D19) sits on the dispatch preview's resolved pipeline
   stages and lets the model propose which NON-Judge stages an objective does not
@@ -395,7 +423,7 @@ built and dormant until a Gate flip):
   decision `Off` the deterministic handoff stands.
 
 Three persona-specific decision points sit on Judge and handoff seams (all ship
-`Off`, built and dormant until a Gate flip):
+`Gate`):
 
 - `revision_kind` (D21) sits after `ParseJudgeVerdict` on a NEEDS_REVISION's
   revision items, before autonomous recovery classifies the failure. The model
@@ -435,7 +463,7 @@ Two decision points read the papercut grouping:
   skeleton as every other adapter: the listing call's token reaches the client
   (the call is bounded at two minutes), and a timeout, provider error, or thrown
   exception records `typed_decision.unavailable` and returns the plain grouping.
-- **`memory_candidate`** (ships `Off`, threshold `0.90`) runs in the weekly
+- **`memory_candidate`** (ships `Gate`, threshold `0.90`) runs in the weekly
   papercut sweep. At most once per seven days the health loop groups the
   papercuts reported in the last seven days, applies the papercut merge, and offers the
   largest repeated groups (two or more reports, at most 20) to the decision. In
@@ -449,7 +477,7 @@ Two decision points read the papercut grouping:
 
 One decision point reviews what the Recorder stage wrote:
 
-- **`memory_review`** (ships `Off`, threshold `0.90`) runs when a
+- **`memory_review`** (ships `Gate`, threshold `0.90`) runs when a
   Recorder-stage mission finishes its work. It reads the native memory records
   that mission wrote (at most 10) and asks the four memory-review questions for each:
   `type_ok`, `duplicate_of` (a choice among at most five existing records of the
@@ -471,7 +499,7 @@ SQLite 104, PostgreSQL 105, MySQL 96, SQL Server 99). See `docs/MCP_API.md`.
 
 Two operator-side decisions gather owner decisions and pre-fill the corpus:
 
-- **`owner_digest`** (ships `Off`) is a scheduled runner shaped like the
+- **`owner_digest`** (ships `Gate`) is a scheduled runner shaped like the
   health loop. Once per UTC day it collects the owner-decision candidates its
   hit source found — an owner-decision preparation claim an anchor change
   re-opened (`NeedsRecheck`) on this tip, with preflight question 13 `needs_owner_ruling`
@@ -487,7 +515,7 @@ Two operator-side decisions gather owner decisions and pre-fill the corpus:
   proposed default is a suggestion the owner still records on the row, and the
   digest event carries only ranking metadata (counts, cost levels, sources),
   never the question text.
-- **`corpus_prelabel`** (ships `Off`) is an operator-side helper script,
+- **`corpus_prelabel`** (ships `Gate`) is an operator-side helper script,
   `scripts/autonomy/draft-corpus-line.mjs`, run outside the admiral. It drafts
   one decision-corpus line (the schema in `AI-Memory/corpus/README.md`) from an
   incident, a mission failure reason, a Mail signal, or a preflight result, so
@@ -500,7 +528,7 @@ Two operator-side decisions gather owner decisions and pre-fill the corpus:
   `node scripts/autonomy/draft-corpus-line.mjs --input <file.json>` (or pipe the
   input object on stdin), optionally with `--out decisions.jsonl` to append the
   draft; `node scripts/autonomy/test-draft-corpus-line.mjs` is its self-check.
-Two platform-side decisions ship `Off`:
+Two platform-side decisions ship `Gate`:
 
 - **`flake_score`** runs in `DefinitionOfDoneGate` after
   `DefinitionOfDoneFailureClassifier` classifies a failed unit-test command. It
@@ -524,7 +552,7 @@ Two platform-side decisions ship `Off`:
   `CriticalTriggerEvaluator` escalation reason. It NEVER lowers a classification.
 One decision point reads a returned refinement summary:
 
-- **`criteria_lint`** (ships `Off`) runs in
+- **`criteria_lint`** (ships `Gate`) runs in
   `ObjectiveRefinementCoordinator.SummarizeAsync` after the summary is finalized.
   It asks, per acceptance criterion, five nouls phrased as the defect: a presence
   test over an artifact the change itself commits, a pinned pass or skip total,
@@ -537,7 +565,7 @@ One decision point reads a returned refinement summary:
 
 Two operator surfaces read the attention triage:
 
-- **`inbox_triage`** (ships `Off`) runs in the `inbox` and
+- **`inbox_triage`** (ships `Gate`) runs in the `inbox` and
   `armada_coordination_read` MCP tools. It scores each inbox item and board note
   for how urgently a human is needed. In `Gate` above the threshold each item
   gains an `attention` label (`informational`, `today`, `this_hour`,
@@ -546,7 +574,7 @@ Two operator surfaces read the attention triage:
   re-ordered by attention. NOTHING is hidden, dropped, or dismissed; `Off`,
   unavailable, `Shadow`, and below-threshold leave the deterministic severity
   order and set no label.
-- **`followup_routing`** (ships `Off`) runs in
+- **`followup_routing`** (ships `Gate`) runs in
   `JudgeFollowUpService.CaptureAsync` (and the audit-tool backfill path) over each
   item of a Judge's Suggested Follow-ups section. In `Gate` above the threshold a
   `triaged_objective` home creates a Triaged objective with auto-dispatch OFF, an
@@ -556,7 +584,7 @@ Two operator surfaces read the attention triage:
   for the operator; the model NEVER creates a voyage, dispatches, or lands.
 
 One decision point asks "does this already exist?" with evidence, at three seams
-and no new persona (ships `Off`, built and dormant until a Gate flip):
+and no new persona (ships `Gate`):
 
 - **`prior_art`** answers "does this already exist?" so voyages stop
   re-implementing landed work, work on unlanded branches, or work on a `recover/`

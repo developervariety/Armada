@@ -263,6 +263,7 @@ namespace Armada.Core.Services
                 ["input_tokens"] = result?.InputTokens ?? 0,
                 ["output_tokens"] = result?.OutputTokens ?? 0,
                 ["latency_ms"] = result?.LatencyMs ?? 0,
+                ["batch_size"] = result?.BatchSize ?? 1,
                 ["state_sha256"] = stateSha256,
                 ["state_bytes"] = stateBytes,
                 ["gate_outcome"] = gateOutcome,

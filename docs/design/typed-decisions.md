@@ -49,7 +49,7 @@ mode, which applies once a key is present. Names, not index numbers, are the sta
 | `lint_finding` | How a Linter finding routes to the next stage: only `correctness`/`safety` at `must_fix` or above is marked blocking; a `style_preference` becomes an evidence note. |
 | `capacity_escalation` | Smart Routing only: whether a mission is `lighter`, `default`, or `stronger` work for its persona, which chooses the persona model list tried first (threshold 0.90; every failure is `default`; cached per mission). It never makes a captain eligible. |
 
-### Available, off until enabled (`Off`)
+### Also shipped in `Gate`
 
 | Name | What it decides |
 | --- | --- |

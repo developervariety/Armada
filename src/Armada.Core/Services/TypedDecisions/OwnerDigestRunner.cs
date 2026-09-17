@@ -2,6 +2,7 @@ namespace Armada.Core.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Globalization;
     using System.Text;
     using System.Text.Json;
@@ -129,17 +130,19 @@ namespace Armada.Core.Services
                 if (candidates.Count == 0)
                     return new OwnerDigestRunResult(false, 0, "no_candidates");
 
-                List<RankedCandidate> ranked = new List<RankedCandidate>(candidates.Count);
-                foreach (OwnerDigestCandidate candidate in candidates)
-                {
-                    if (candidate == null || String.IsNullOrWhiteSpace(candidate.QuestionText)) continue;
+                List<OwnerDigestCandidate> eligible = candidates
+                    .Where(candidate => candidate != null && !String.IsNullOrWhiteSpace(candidate.QuestionText))
+                    .ToList();
 
-                    // The adapter never throws; a slow or unavailable model leaves the deterministic
-                    // rule entry, so the digest always ranks by at least the fan-out and age.
-                    OwnerDigestEntry entry = await _Adapter.DecideAsync(
-                        candidate, TypedOwnerDigestAdapter.DeterministicRule(candidate), token).ConfigureAwait(false);
-                    ranked.Add(new RankedCandidate(candidate, entry));
-                }
+                // The candidates are independent, so they are ranked together in as few requests as the
+                // limits allow. The adapter never throws; a slow or unavailable model leaves the
+                // deterministic rule entry, so the digest always ranks by at least the fan-out and age.
+                List<OwnerDigestEntry> entries = await _Adapter.DecideManyAsync(
+                    eligible, eligible.Select(TypedOwnerDigestAdapter.DeterministicRule).ToList(), token).ConfigureAwait(false);
+
+                List<RankedCandidate> ranked = new List<RankedCandidate>(eligible.Count);
+                for (int index = 0; index < eligible.Count; index++)
+                    ranked.Add(new RankedCandidate(eligible[index], entries[index]));
 
                 if (ranked.Count == 0)
                     return new OwnerDigestRunResult(false, 0, "no_candidates");

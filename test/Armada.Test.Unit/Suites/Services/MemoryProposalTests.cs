@@ -199,7 +199,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.NoulAndChoice("durable_lesson", 0.99, "scope", "shared"));
                 TypedDecisionSettings settings = new TypedDecisionSettings { Mode = TypedDecisionModeEnum.Gate };
-                AssertEqual(TypedDecisionModeEnum.Off, settings.Decisions[MemoryCandidateAdapter.DecisionPoint].Mode, "memory_candidate ships Off");
+                settings.Decisions[MemoryCandidateAdapter.DecisionPoint].Mode = TypedDecisionModeEnum.Off;
                 PapercutMemorySweepRunner runner = BuildSweep(testDb.Driver, client, settings, () => now);
 
                 PapercutMemorySweepResult result = await runner.RunOnceAsync(CancellationToken.None).ConfigureAwait(false);
@@ -256,7 +256,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 FakeTypedDecisionClient client = new FakeTypedDecisionClient(_ => DuplicateStaleResult(0.99, 0.99, 0.99));
                 TypedDecisionSettings settings = new TypedDecisionSettings { Mode = TypedDecisionModeEnum.Gate };
-                AssertEqual(TypedDecisionModeEnum.Off, settings.Decisions[RecorderMemoryReviewAdapter.DecisionPoint].Mode, "memory_review ships Off");
+                settings.Decisions[RecorderMemoryReviewAdapter.DecisionPoint].Mode = TypedDecisionModeEnum.Off;
                 AssertTrue(Math.Abs(settings.Decisions[RecorderMemoryReviewAdapter.DecisionPoint].GateThreshold - 0.90) < 0.0001, "memory_review carries the default threshold");
                 RecorderMemoryReviewAdapter adapter = BuildReview(testDb.Driver, client, settings);
 

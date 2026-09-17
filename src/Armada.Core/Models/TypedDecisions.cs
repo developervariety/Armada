@@ -108,6 +108,12 @@ namespace Armada.Core.Models
         /// Wall-clock latency of the call in milliseconds.
         /// </summary>
         public long LatencyMs { get; init; }
+
+        /// <summary>
+        /// How many independent items shared the provider request this result came from. One for a
+        /// decision asked on its own; token counts on a batched item are its share of the request.
+        /// </summary>
+        public int BatchSize { get; init; } = 1;
     }
 
     /// <summary>

@@ -61,7 +61,7 @@ namespace Armada.Test.Unit.Suites.Services
                     GlobalMode = TypedDecisionModeEnum.Gate,
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = Attention(2, 0.40),
-                    ExpectCalls = 3,
+                    ExpectCalls = 1,
                     ExpectEventType = TypedDecisionRecorder.EventTypeShadow,
                     ExpectEventCount = 3,
                     ExpectAnnotated = false
@@ -72,7 +72,7 @@ namespace Armada.Test.Unit.Suites.Services
                     GlobalMode = TypedDecisionModeEnum.Gate,
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = Attention(3, 0.95),
-                    ExpectCalls = 3,
+                    ExpectCalls = 1,
                     ExpectEventType = TypedDecisionRecorder.EventTypeGated,
                     ExpectEventCount = 3,
                     ExpectAnnotated = true
@@ -83,7 +83,7 @@ namespace Armada.Test.Unit.Suites.Services
                     GlobalMode = TypedDecisionModeEnum.Shadow,
                     DecisionMode = TypedDecisionModeEnum.Gate,
                     Result = Attention(3, 0.95),
-                    ExpectCalls = 3,
+                    ExpectCalls = 1,
                     ExpectEventType = TypedDecisionRecorder.EventTypeShadow,
                     ExpectEventCount = 3,
                     ExpectAnnotated = false

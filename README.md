@@ -191,12 +191,13 @@ off). A deployment applies fleet policy from settings, not from C#.
 A calibrated classifier (TypeSafe Jev) the admiral can consult at a decision
 point, behind the deterministic rules it never replaces. Without a provider key
 the effective global mode is `Off` (reason `typed_decisions_no_key`), whatever
-the stored mode. With a key, seven decisions run in `Gate` and the rest stay
-`Off` until enabled. The key comes from the environment variable named by
-`apiKeyEnv`, or from the key file `<data directory>/secrets/typesafe-api-key`
-that `PUT /api/v1/typed-decisions/key` writes; adding or removing it takes
-effect without a restart. The decision catalogue and its principles are
-documented in [docs/design/typed-decisions.md](docs/design/typed-decisions.md).
+the stored mode. With a key, every decision ships in `Gate` and records the
+rule's verdict and the model's on every call. The key comes from the environment
+variable named by `apiKeyEnv`, or from the key file
+`<data directory>/secrets/typesafe-api-key` that `PUT /api/v1/typed-decisions/key`
+writes; adding or removing it takes effect without a restart. The decision
+catalogue and its principles are documented in
+[docs/design/typed-decisions.md](docs/design/typed-decisions.md).
 When a decision is enabled it can only make a call
 more conservative, never lands or dispatches, gates only at or above the
 confidence threshold, fails closed to the deterministic rule, and never egresses
@@ -212,8 +213,9 @@ unredacted state. Captains can consult read-only, per-mission-budgeted tools
 | `apiKeyEnv` | `ARMADA_TYPESAFE_KEY` | Environment variable holding the Bearer key. When unset, the key file `<data directory>/secrets/typesafe-api-key` is read. The key is never stored in settings. |
 | `timeoutSeconds` | `10` | Per-request timeout; a slower decision is unavailable, not late. |
 | `maxStateChars` | `8000` | Character cap on redacted state per request. |
-| `decisions` | seven `Gate`, rest `Off` | Per-decision `mode` (`Off`/`Shadow`/`Gate`) and `gateThreshold`. Effective mode is the minimum of the global and per-decision mode. |
-| `captainTool` | disabled | Captain-facing tool: `enabled`, `maxCallsPerMission`, `maxStateChars`. |
+| `decisions` | all `Gate` | Per-decision `mode` (`Off`/`Shadow`/`Gate`) and `gateThreshold`. Effective mode is the minimum of the global and per-decision mode. |
+| `evalOnModelChange` | `true` | Run the synthetic evaluation set in the background when the provider reports a model version not yet evaluated. |
+| `captainTool` | enabled | Captain-facing tool: `enabled`, `maxCallsPerMission`, `maxStateChars`. |
 
 Without a key no decision calls a client or records an event. `mode` and
 `decisions` hot-reload in place, so decision points see the change and a later

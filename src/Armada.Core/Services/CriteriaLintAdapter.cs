@@ -28,7 +28,7 @@ namespace Armada.Core.Services
     /// and records one unavailable event; a below-threshold answer appends nothing and records one
     /// shadow event. Only in Gate mode, and only for a criterion whose worst defect answer is at or
     /// above the decision threshold, are review lines appended. The adapter never throws into the
-    /// caller. This decision ships Off.
+    /// caller. This decision ships in Gate.
     /// </summary>
     public sealed class CriteriaLintAdapter
     {
@@ -147,13 +147,26 @@ namespace Armada.Core.Services
             // line; the whole summary would drown the one criterion under review.
             string deliverable = FirstLine(summary.Summary);
 
+            // Criteria are independent, so they are answered together in as few requests as the limits
+            // allow; each criterion still gets its own recorded event.
+            List<TypedDecisionBatchItem> batch = new List<TypedDecisionBatchItem>(criteria.Count);
+            for (int index = 0; index < criteria.Count; index++)
+            {
+                batch.Add(new TypedDecisionBatchItem(
+                    DecisionStateRedactor.RedactState(BuildState(criteria[index], index + 1, kind, deliverable), _Settings.MaxStateChars),
+                    BuildQuestions()));
+            }
+
+            List<TypedDecisionResult> results = await TypedDecisionBatcher.DecideAllAsync(
+                _Client, DecisionPoint, batch, _Settings.MaxStateChars, token).ConfigureAwait(false);
+
             List<string> reviewLines = new List<string>();
             for (int index = 0; index < criteria.Count; index++)
             {
                 CriterionOutcome outcome;
                 try
                 {
-                    outcome = await LintCriterionAsync(criteria[index], index + 1, kind, deliverable, cfg, token).ConfigureAwait(false);
+                    outcome = await RecordCriterionAsync(criteria[index], index + 1, cfg, results[index], batch[index].State.Text, token).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -162,8 +175,8 @@ namespace Armada.Core.Services
                     return;
                 }
 
-                // The provider is unavailable for this summary; stop calling and append nothing. The
-                // deterministic summary is the fallback.
+                // The provider is unavailable for this summary; append nothing. The deterministic
+                // summary is the fallback.
                 if (!outcome.Available) return;
 
                 if (outcome.ReviewLines.Count > 0) reviewLines.AddRange(outcome.ReviewLines);
@@ -176,40 +189,14 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
-        private async Task<CriterionOutcome> LintCriterionAsync(
+        private async Task<CriterionOutcome> RecordCriterionAsync(
             string criterion,
             int number,
-            ObjectiveKindEnum kind,
-            string deliverable,
             ResolvedTypedDecision cfg,
+            TypedDecisionResult result,
+            string redacted,
             CancellationToken token)
         {
-            RedactedDecisionState redactedState = DecisionStateRedactor.RedactState(BuildState(criterion, number, kind, deliverable), _Settings.MaxStateChars);
-            object state = redactedState.State;
-            string redacted = redactedState.Text;
-
-            TypedDecisionResult result;
-            try
-            {
-                result = await _Client.DecideAsync(
-                    new TypedDecisionRequest
-                    {
-                        DecisionPoint = DecisionPoint,
-                        State = state,
-                        Questions = BuildQuestions()
-                    },
-                    token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                // The client is contracted never to throw; guard anyway so a decision can never break
-                // the refinement summary. Record one unavailable event and keep the deterministic summary.
-                _Logging.Warn(_Header + "client threw, summary stands: " + ex.Message);
-                await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
-                    BuildContext("criteria_clean", null, null, ExceptionResult(), redacted), token)).ConfigureAwait(false);
-                return new CriterionOutcome { Available = false };
-            }
-
             if (result == null || !result.Available)
             {
                 await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(

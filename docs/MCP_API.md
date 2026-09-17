@@ -226,7 +226,7 @@ tool's items and the `armada_coordination_read` notes each carry an extra
 `blocking_live_voyage`) and are ordered by it, and each board note also carries a
 `noteKind` (`handoff`, `status`, `question`, `stop_sign`, or `hold_notice`).
 Triage only annotates and re-orders — it never hides or drops an item. With the
-decision `Off` (the default) `attention` and `noteKind` are absent and the
+decision `Off` (it ships `Gate`) `attention` and `noteKind` are absent and the
 deterministic severity order stands.
 
 Set `remoteTrigger.agentWake.participantKey` for a stable addressed process
@@ -557,8 +557,8 @@ dispatches nothing, lands nothing, edits no objective, and writes no memory. A
 call returns typed answers, or an `available: false` result with an
 `unavailableReason` the captain treats as "decide it yourself".
 
-The system ships disabled (`typedDecisions.captainTool.enabled` is `false`), so
-every call returns `unavailableReason: disabled` until an operator enables it.
+The tool ships enabled (`typedDecisions.captainTool.enabled` is `true`); when an
+operator sets it `false`, every call returns `unavailableReason: disabled`.
 The domain is authorized heavy-duty vehicle diagnostics; seed-key and
 SecurityAccess content is ordinary engineering and is passed like any other
 state.
@@ -613,6 +613,31 @@ and `reimplements` readings. A branch or ref candidate carries a bounded excerpt
 checkout. The captain verifies each `path:line` itself. The tool edits nothing
 and never blocks. It is caller-scoped like the other captain tools, and it is
 dormant (returns unavailable) until the `prior_art` decision is enabled.
+
+## Typed Decision Evaluation
+
+### armada_typed_decision_eval
+
+Runs the synthetic typed-decision evaluation set against the live provider and
+returns the report. Each case builds its requests through the decision's own
+adapter, so it tests the questions production sends. A `Reference` case passes
+when every stated answer holds for both variants; a `Consistency` case passes
+when the named answers agree between its variants (choices equal, nouls within
+0.20, scores within 0.50). A case the provider does not answer is `unavailable`,
+neither passed nor failed. The run records one `typed_decision.eval` event and
+spends about two provider calls per case. It also runs by itself when the
+provider reports a model version that has not been evaluated.
+
+Operator control: not caller-scoped, and the handler refuses any caller other
+than a global administrator with `Reason: global_administrator_required`.
+
+| Argument | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `decision` | string | no | Run only this decision point's cases (for example `failure_cause`). |
+
+Returns `{ status: "complete", report }` with `model`, `total`, `passed`,
+`failed`, `unavailable`, token totals, and per-case `outcome`, `failures`, and
+`answers`; or `{ status: "busy" }` when a run is already in progress.
 
 ## Memory Proposals
 

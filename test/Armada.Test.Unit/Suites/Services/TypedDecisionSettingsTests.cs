@@ -1,5 +1,6 @@
 namespace Armada.Test.Unit.Suites.Services
 {
+    using System.Collections.Generic;
     using System.Threading.Tasks;
     using Armada.Core.Enums;
     using Armada.Core.Settings;
@@ -11,7 +12,7 @@ namespace Armada.Test.Unit.Suites.Services
 
         protected override async Task RunTestsAsync()
         {
-            await RunTest("Defaults_ShipGateForPhaseOneAndOffOtherwise", () =>
+            await RunTest("Defaults_ShipEveryDecisionInGate", () =>
             {
                 TypedDecisionSettings settings = new TypedDecisionSettings();
                 AssertEqual(TypedDecisionModeEnum.Gate, settings.Mode);
@@ -20,27 +21,25 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual("jev-latest", settings.Model);
                 AssertEqual(8000, settings.MaxStateChars);
                 AssertEqual(10, settings.TimeoutSeconds);
-                AssertFalse(settings.CaptainTool.Enabled, "captain tool disabled by default");
+                AssertTrue(settings.EvalOnModelChange, "a new model version is evaluated by default");
+                AssertTrue(settings.CaptainTool.Enabled, "captain tool enabled by default");
                 AssertEqual(40, settings.CaptainTool.MaxCallsPerMission);
 
-                // The six Phase-1 decisions ship in Gate with their thresholds.
-                AssertEqual(TypedDecisionModeEnum.Gate, settings.Decisions["failure_cause"].Mode);
+                // Decisions with a stated threshold keep it.
                 AssertEqual(0.90, settings.Decisions["failure_cause"].GateThreshold);
-                AssertEqual(TypedDecisionModeEnum.Gate, settings.Decisions["refusal"].Mode);
-                AssertEqual(TypedDecisionModeEnum.Gate, settings.Decisions["runtime_failure"].Mode);
-                AssertEqual(TypedDecisionModeEnum.Gate, settings.Decisions["review_substance"].Mode);
                 AssertEqual(0.85, settings.Decisions["review_substance"].GateThreshold);
-                AssertEqual(TypedDecisionModeEnum.Gate, settings.Decisions["preflight"].Mode);
                 AssertEqual(0.80, settings.Decisions["preflight"].GateThreshold);
-                AssertEqual(TypedDecisionModeEnum.Gate, settings.Decisions["papercut_merge"].Mode);
 
-                // Every other decision is Off until its adapter lane lands.
-                AssertEqual(TypedDecisionModeEnum.Off, settings.Decisions["leak_hunk"].Mode);
-                AssertEqual(TypedDecisionModeEnum.Off, settings.Decisions["stage_necessity"].Mode);
-                AssertEqual(TypedDecisionModeEnum.Off, settings.Decisions["handoff_outcome"].Mode);
-                AssertTrue(settings.Decisions.ContainsKey("prior_art"), "prior_art is in the decision map");
-                AssertEqual(TypedDecisionModeEnum.Off, settings.Decisions["prior_art"].Mode);
-                AssertTrue(settings.Decisions.Count >= 25, "the default decision map carries every named decision");
+                // Every named decision ships in Gate with a real threshold; none is left at an unset zero.
+                AssertTrue(settings.Decisions.Count >= 26, "the default decision map carries every named decision");
+                foreach (string name in new[] { "prior_art", "memory_review", "stage_necessity", "handoff_outcome", "lint_finding", "criteria_lint" })
+                    AssertTrue(settings.Decisions.ContainsKey(name), name + " is in the decision map");
+                foreach (KeyValuePair<string, TypedDecisionRuleSettings> entry in settings.Decisions)
+                {
+                    AssertEqual(TypedDecisionModeEnum.Gate, entry.Value.Mode, entry.Key + " ships in Gate");
+                    AssertTrue(entry.Value.GateThreshold >= 0.80, entry.Key + " has a gate threshold");
+                    AssertEqual(TypedDecisionModeEnum.Gate, settings.For(entry.Key).Mode, entry.Key + " is effective in Gate");
+                }
             });
 
             await RunTest("For_EffectiveModeIsMinOfGlobalAndDecision", () =>

@@ -156,7 +156,7 @@ namespace Armada.Test.Unit.Suites.Services
                     FakeTypedDecisionClient client = new FakeTypedDecisionClient();
                     client.NextResult = NoulResult("contradicts_scope", 0.2);
 
-                    // Tool enabled, but premise_check decision Off (the default): dormant.
+                    // Tool enabled, but premise_check decision Off: dormant.
                     Harness dormant = Harness.Create(testDb, client, enabled: true);
                     string dormantResponse = await dormant.CallAsync("armada_check_premise", new { restatement = "I will port the decoder." }).ConfigureAwait(false);
                     AssertContains("\"available\":false", Compact(dormantResponse));
@@ -338,8 +338,8 @@ namespace Armada.Test.Unit.Suites.Services
                 ArmadaSettings settings = new ArmadaSettings();
                 settings.TypedDecisions.CaptainTool.Enabled = enabled;
                 settings.TypedDecisions.CaptainTool.MaxCallsPerMission = maxCallsPerMission;
-                if (enablePremiseCheck) settings.TypedDecisions.Decisions["premise_check"].Mode = TypedDecisionModeEnum.Gate;
-                if (enableMemoryRecord) settings.TypedDecisions.Decisions["memory_record"].Mode = TypedDecisionModeEnum.Gate;
+                settings.TypedDecisions.Decisions["premise_check"].Mode = enablePremiseCheck ? TypedDecisionModeEnum.Gate : TypedDecisionModeEnum.Off;
+                settings.TypedDecisions.Decisions["memory_record"].Mode = enableMemoryRecord ? TypedDecisionModeEnum.Gate : TypedDecisionModeEnum.Off;
 
                 Harness harness = new Harness();
                 TypedDecisionRecorder recorder = new TypedDecisionRecorder(testDb.Driver, new LoggingModule());
