@@ -12,6 +12,7 @@ import StatusBadge from '../components/shared/StatusBadge';
 import ConfirmDialog from '../components/shared/ConfirmDialog';
 import JsonViewer from '../components/shared/JsonViewer';
 import RecordDetailModal from '../components/shared/RecordDetailModal';
+import { useAuth } from '../context/AuthContext';
 import DiffViewer from '../components/shared/DiffViewer';
 import PageHeader from '../components/shared/PageHeader';
 import LogViewer from '../components/shared/LogViewer';
@@ -31,6 +32,7 @@ export default function MergeQueue() {
   const navigate = useNavigate();
   const { t } = useLocale();
   const { pushToast } = useNotifications();
+  const { isAdmin } = useAuth();
   const [entries, setEntries] = useState<MergeEntry[]>([]);
   const [vessels, setVessels] = useState<Vessel[]>([]);
   const [loading, setLoading] = useState(true);
@@ -321,7 +323,8 @@ export default function MergeQueue() {
                 {t('Delete Selected')} ({selected.length})
               </button>
             )}
-            <button className="btn btn-sm" onClick={handleProcessAll} title={t('Process all queued entries')}>{t('Process All')}</button>
+            {/* Processing the whole queue acts on every tenant, so the route needs a global administrator. */}
+            {isAdmin && <button className="btn btn-sm" onClick={handleProcessAll} title={t('Process all queued entries')}>{t('Process All')}</button>}
             <button className="btn btn-primary btn-sm" onClick={() => {
               setEnqueueForm({ branchName: '', targetBranch: 'main', missionId: '', vesselId: '', testCommand: '', priority: 0 });
               setShowEnqueue(true);

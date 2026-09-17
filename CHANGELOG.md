@@ -199,6 +199,9 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- The dashboard shows the Captains "Stop All" and Merge Queue "Process All"
+  buttons only to a global administrator. Both routes act on every tenant and
+  refuse anyone else with 403, so other users saw a button that always failed.
 - A subscription-account hard refresh that started right after another one
   finished could reuse the finished read and skip the provider call it asked
   for. A finished read is no longer treated as in flight.

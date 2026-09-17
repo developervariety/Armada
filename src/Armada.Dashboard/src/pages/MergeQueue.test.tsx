@@ -12,6 +12,9 @@ vi.mock('../context/LocaleContext', () => {
   return { useLocale: () => locale };
 });
 
+const auth = vi.hoisted(() => ({ current: { isAdmin: true, isTenantAdmin: true, user: { user: { id: 'usr_admin', tenantId: 'default' } } } }));
+vi.mock('../context/AuthContext', () => ({ useAuth: () => auth.current }));
+
 vi.mock('../context/NotificationContext', () => ({
   useNotifications: () => ({ pushToast: vi.fn() }),
 }));
@@ -49,4 +52,16 @@ test('sends the status filter to the server instead of filtering one page', asyn
   await waitFor(() => expect(listMergeQueue).toHaveBeenLastCalledWith(
     expect.objectContaining({ pageNumber: 1, filters: expect.objectContaining({ status: 'Failed' }) }),
   ));
+});
+
+test('shows Process All only to a global administrator, because the route processes every tenant', async () => {
+  auth.current = { isAdmin: false, isTenantAdmin: true, user: { user: { id: 'usr_tenant_admin', tenantId: 'ten_a' } } };
+  const { unmount } = render(<MemoryRouter><MergeQueue /></MemoryRouter>);
+  expect(await screen.findByText('70 records')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Process All' })).not.toBeInTheDocument();
+  unmount();
+
+  auth.current = { isAdmin: true, isTenantAdmin: true, user: { user: { id: 'usr_admin', tenantId: 'default' } } };
+  render(<MemoryRouter><MergeQueue /></MemoryRouter>);
+  expect(await screen.findByRole('button', { name: 'Process All' })).toBeInTheDocument();
 });

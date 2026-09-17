@@ -17,6 +17,9 @@ vi.mock('../api/client', () => ({
   unquarantineCaptain: vi.fn(),
 }));
 
+const auth = vi.hoisted(() => ({ current: { isAdmin: true, isTenantAdmin: true, user: { user: { id: 'usr_admin', tenantId: 'default' } } } }));
+vi.mock('../context/AuthContext', () => ({ useAuth: () => auth.current }));
+
 vi.mock('../context/LocaleContext', () => {
   const locale = {
     t: (text: string, params?: Record<string, string | number | null | undefined>) =>
@@ -144,6 +147,18 @@ describe('Captains', () => {
     const form = await openCreateForm();
     fireEvent.change(within(form).getByRole('combobox', { name: 'Runtime' }), { target: { value: 'ClaudeCode' } });
     expect(within(form).getByText('Provider Credential')).toBeInTheDocument();
+  });
+
+  it('shows Stop All only to a global administrator, because the route acts on every tenant', async () => {
+    auth.current = { isAdmin: false, isTenantAdmin: true, user: { user: { id: 'usr_tenant_admin', tenantId: 'ten_a' } } };
+    const { unmount } = renderCaptains();
+    expect(await screen.findByRole('button', { name: '+ Captain' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Stop All' })).not.toBeInTheDocument();
+    unmount();
+
+    auth.current = { isAdmin: true, isTenantAdmin: true, user: { user: { id: 'usr_admin', tenantId: 'default' } } };
+    renderCaptains();
+    expect(await screen.findByRole('button', { name: 'Stop All' })).toBeInTheDocument();
   });
 
   it('refuses to save a Mux captain without a named Mux endpoint', async () => {

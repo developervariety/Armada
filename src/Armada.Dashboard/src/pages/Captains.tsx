@@ -18,6 +18,7 @@ import AutoRefreshSelect from '../components/shared/AutoRefreshSelect';
 import { useAutoRefresh } from '../lib/useAutoRefresh';
 import PageHeader from '../components/shared/PageHeader';
 import ErrorModal from '../components/shared/ErrorModal';
+import { useAuth } from '../context/AuthContext';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { canCaptainStartPlanning } from '../lib/captains';
@@ -49,6 +50,7 @@ export default function Captains() {
   const navigate = useNavigate();
   const { t, formatRelativeTime, formatDateTime } = useLocale();
   const { pushToast } = useNotifications();
+  const { isAdmin } = useAuth();
   const [captains, setCaptains] = useState<Captain[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -418,7 +420,8 @@ export default function Captains() {
                 {t('Delete Selected')} ({selected.length})
               </button>
             )}
-            <button className="btn btn-sm btn-danger" onClick={handleStopAll} title={t('Stop all captain processes')}>{t('Stop All')}</button>
+            {/* Stopping every captain acts on every tenant, so the route needs a global administrator. */}
+            {isAdmin && <button className="btn btn-sm btn-danger" onClick={handleStopAll} title={t('Stop all captain processes')}>{t('Stop All')}</button>}
             <button className="btn btn-primary btn-sm" onClick={openCreate}>+ {t('Captain')}</button>
           </>
         )}
