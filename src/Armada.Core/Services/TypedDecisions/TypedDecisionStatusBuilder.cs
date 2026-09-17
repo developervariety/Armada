@@ -36,6 +36,11 @@ namespace Armada.Core.Services
                 if (!settings.Decisions.TryGetValue(name, out TypedDecisionRuleSettings? rule) || rule == null) continue;
                 status.Decisions.Add(new TypedDecisionStatusEntry { Key = name, Mode = rule.Mode, Threshold = rule.GateThreshold, Description = TypedDecisionCatalog.Describe(name) });
             }
+            foreach (KeyValuePair<string, CustomTypedDecisionSettings> pair in settings.Custom.OrderBy(p => p.Key, StringComparer.Ordinal))
+            {
+                if (pair.Value == null) continue;
+                status.Custom.Add(CustomTypedDecisionView.From(pair.Key, pair.Value));
+            }
             return status;
         }
 

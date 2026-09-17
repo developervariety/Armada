@@ -142,6 +142,7 @@ import type {
   UsageAccountDeleteResult,
   UsageAccountRefreshResult,
   TypedDecisionStatus,
+  CustomTypedDecision,
   SmartRoutingPreviewResult,
   TypedDecisionsUpdate,
   TypedDecisionKeyRemoveResult,
@@ -1187,3 +1188,12 @@ export const updateTypedDecisions = (data: TypedDecisionsUpdate) => put<TypedDec
 /** Writes the provider key file. The server answers 204 and never echoes the key. */
 export const saveTypedDecisionKey = (apiKey: string) => put<void>('/api/v1/typed-decisions/key', { apiKey });
 export const removeTypedDecisionKey = () => del<TypedDecisionKeyRemoveResult>('/api/v1/typed-decisions/key');
+/** Create or replace a user-defined custom typed decision. */
+export const upsertCustomTypedDecision = (name: string, body: CustomTypedDecision) =>
+  put<TypedDecisionStatus>(`/api/v1/typed-decisions/custom/${encodeURIComponent(name)}`, body);
+/** Delete a user-defined custom typed decision. */
+export const deleteCustomTypedDecision = (name: string) =>
+  del<TypedDecisionStatus>(`/api/v1/typed-decisions/custom/${encodeURIComponent(name)}`);
+/** Install the built-in example custom decisions that are not already present. */
+export const installCustomTypedDecisionSeeds = () =>
+  post<TypedDecisionStatus>('/api/v1/typed-decisions/custom/install-seeds', {});

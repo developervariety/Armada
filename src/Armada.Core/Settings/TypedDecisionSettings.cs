@@ -69,6 +69,19 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// User-defined custom typed decisions, keyed by name. Operators create and edit these from
+        /// the dashboard or the settings API; they hot-reload in place like the built-in decisions.
+        /// A custom decision runs only at a generic surface and its binding is a fixed, non-approving
+        /// action, so it can never break the safety contract. A name here must not collide with a
+        /// shipped decision.
+        /// </summary>
+        public Dictionary<string, CustomTypedDecisionSettings> Custom
+        {
+            get => _Custom;
+            set => _Custom = value ?? new Dictionary<string, CustomTypedDecisionSettings>(StringComparer.Ordinal);
+        }
+
+        /// <summary>
         /// Whether a model version the provider reports for the first time starts a run of the synthetic
         /// evaluation set in the background. Default true.
         /// </summary>
@@ -92,6 +105,7 @@ namespace Armada.Core.Settings
         private int _MaxStateChars = 8000;
         private Dictionary<string, TypedDecisionRuleSettings> _Decisions = DefaultDecisions();
         private TypedDecisionCaptainToolSettings _CaptainTool = new TypedDecisionCaptainToolSettings();
+        private Dictionary<string, CustomTypedDecisionSettings> _Custom = new Dictionary<string, CustomTypedDecisionSettings>(StringComparer.Ordinal);
 
         /// <summary>
         /// Reports whether a provider key resolves. Set by the Admiral; never serialized. Null means the
@@ -141,6 +155,31 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Resolve the effective configuration for a custom decision. The effective mode is the
+        /// minimum of the global mode and the custom decision's own mode, so the global cap can never
+        /// be exceeded. An unknown or missing custom decision is Off.
+        /// </summary>
+        /// <param name="name">Custom decision name.</param>
+        /// <returns>The resolved effective mode and gate threshold; never null.</returns>
+        public ResolvedTypedDecision ForCustom(string name)
+        {
+            if (String.IsNullOrWhiteSpace(name) || !_Custom.TryGetValue(name, out CustomTypedDecisionSettings? custom) || custom == null)
+                return new ResolvedTypedDecision(TypedDecisionModeEnum.Off, 0.0);
+            TypedDecisionModeEnum global = EffectiveMode;
+            TypedDecisionModeEnum effective = global < custom.Mode ? global : custom.Mode;
+            return new ResolvedTypedDecision(effective, custom.GateThreshold);
+        }
+
+        private static Dictionary<string, CustomTypedDecisionSettings> CloneCustom(Dictionary<string, CustomTypedDecisionSettings>? source)
+        {
+            Dictionary<string, CustomTypedDecisionSettings> copy = new Dictionary<string, CustomTypedDecisionSettings>(StringComparer.Ordinal);
+            if (source != null)
+                foreach (KeyValuePair<string, CustomTypedDecisionSettings> pair in source)
+                    if (!String.IsNullOrWhiteSpace(pair.Key) && pair.Value != null) copy[pair.Key] = pair.Value.Clone();
+            return copy;
+        }
+
+        /// <summary>
         /// Copy every stored value from another instance into this one, in place, so decision points that
         /// hold this instance see a hot reload. <see cref="KeyAvailable"/> is kept.
         /// </summary>
@@ -156,6 +195,7 @@ namespace Armada.Core.Settings
             MaxStateChars = source.MaxStateChars;
             Decisions = source.Decisions;
             CaptainTool = source.CaptainTool;
+            Custom = CloneCustom(source.Custom);
             Retention = source.Retention;
         }
 

@@ -2775,6 +2775,33 @@ export interface TypedDecisionStatusEntry {
   description: string;
 }
 
+export type CustomDecisionSurface = 'CaptainTool' | 'MissionDiff';
+export type CustomDecisionBinding = 'None' | 'MissionDiffFlag';
+
+/** One question in a custom typed decision. */
+export interface CustomTypedQuestion {
+  id: string;
+  type: 'choice' | 'score' | 'noul';
+  instructions: string;
+  options?: Record<string, string>;
+  levels?: string[];
+  trueMeaning?: string | null;
+  falseMeaning?: string | null;
+}
+
+/** A user-defined custom typed decision, as returned in the status and sent on upsert. */
+export interface CustomTypedDecision {
+  name: string;
+  mode: TypedDecisionMode;
+  threshold: number;
+  retainState: boolean;
+  description: string;
+  surface: CustomDecisionSurface;
+  binding: CustomDecisionBinding;
+  stateFields: string[];
+  questions: CustomTypedQuestion[];
+}
+
 /** GET /api/v1/typed-decisions. The key itself is never returned. */
 export interface TypedDecisionStatus {
   effectiveMode: TypedDecisionMode;
@@ -2784,6 +2811,7 @@ export interface TypedDecisionStatus {
   /** env or file, or null when no key resolves. */
   keySource: string | null;
   decisions: TypedDecisionStatusEntry[];
+  custom?: CustomTypedDecision[];
 }
 
 /** PUT /api/v1/typed-decisions body; every field is optional. */

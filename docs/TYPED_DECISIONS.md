@@ -496,3 +496,45 @@ and no new persona (ships `Gate`):
     and the Judge still judges.
   With the decision `Off` every seam runs its deterministic path unchanged, and a
   seam with no retrieved candidate never calls the model.
+
+## Custom decisions — operators define their own
+
+Beyond the shipped decisions, an operator can define **custom typed decisions** from the
+dashboard (**Settings > Typed decisions > Custom decisions**) or the settings API. A custom
+decision carries its own questions and describes how to build its state, and it is stored in
+`typedDecisions.custom` and hot-reloads in place like the built-in decisions.
+
+A custom decision is **advisory by construction** and cannot break the safety contract:
+
+- It runs only at a generic `surface` — `CaptainTool` (invoked on demand through
+  `armada_run_custom_decision`) or `MissionDiff` (an advisory pass over a finished mission's
+  diff and output). It never wires itself into recovery, a Judge handoff, or landing.
+- Its `binding` is one of a fixed, non-approving list (`CustomDecisionSeamEnum`): today `None`
+  (record only) or `MissionDiffFlag` (record a loud advisory flag event when it gates). No
+  member lands, dispatches, approves a PASS, holds a rescue, or writes memory. Adding an
+  approving action would change the owner non-negotiables and needs a new ruling.
+- Its effective mode is the minimum of the global mode and its own, so the global kill switch
+  caps it. It is created `Off`, so nothing runs until an operator turns it on.
+- It gates only at or above its `gateThreshold`, and only its bound conservative action; below
+  the threshold, in Shadow, or unbound, it records and does nothing else.
+
+Each custom decision defines `questions` (choice, score, or noul, exactly like the built-ins),
+`stateFields` (which mission fields the `MissionDiff` surface sends), a `description`, and
+`retainState`. Every call records a `typed_decision.custom` event (or
+`typed_decision.custom_flagged` when it flags), carrying the state hash and byte count, never
+the state.
+
+Administrator routes (same permission as a settings write):
+
+| Route | Effect |
+| --- | --- |
+| `PUT /api/v1/typed-decisions/custom/{name}` | Create or replace a custom decision. Refuses a name that collides with a shipped decision, an invalid mode/threshold/surface/binding, a `MissionDiffFlag` binding without the `MissionDiff` surface, or a malformed question, with 400. |
+| `DELETE /api/v1/typed-decisions/custom/{name}` | Remove a custom decision. Deleting one does not resurrect it from the seeds. |
+| `POST /api/v1/typed-decisions/custom/install-seeds` | Install the built-in example custom decisions (`source_fidelity`, `safety_step_present`, `citation_resolves`) that are not already present. They ship `Off` and unbound. |
+
+`GET /api/v1/typed-decisions` returns every custom decision under `custom`.
+
+The example seeds are the registry-friendly members of the repo-specific decision queue in
+`AI-Memory/typed-decision-eval/PROPOSED_DECISIONS.md`. The queue's blocking or state-heavy
+members (`reflash_guardrail`, `consumer_break_direction`) stay bespoke code and are not custom
+decisions.

@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import {
   getTypedDecisions, removeTypedDecisionKey, saveTypedDecisionKey, updateTypedDecisions,
+  upsertCustomTypedDecision, deleteCustomTypedDecision, installCustomTypedDecisionSeeds,
 } from '../api/client';
 import PageHeader from '../components/shared/PageHeader';
 import RefreshButton from '../components/shared/RefreshButton';
 import { useLocale } from '../context/LocaleContext';
-import type { TypedDecisionMode, TypedDecisionStatus, TypedDecisionsUpdate } from '../types/models';
+import type {
+  TypedDecisionMode, TypedDecisionStatus, TypedDecisionsUpdate,
+  CustomTypedDecision, CustomTypedQuestion, CustomDecisionSurface, CustomDecisionBinding,
+} from '../types/models';
 
 const MODES: TypedDecisionMode[] = ['Off', 'Shadow', 'Gate'];
 const NO_KEY_REASON = 'typed_decisions_no_key';
@@ -178,8 +182,203 @@ export default function TypedDecisionsSettings() {
           {dirty && <span className="text-muted">{t('Unsaved changes.')}</span>}
         </div>
       </section>
+
+      <CustomDecisionsSection status={status} onChanged={apply} setError={setError} setMessage={setMessage} />
     </>}
     {message && <p role="status">{message}</p>}
     {error && <p role="alert" className="text-danger">{error}</p>}
   </div>;
+}
+
+
+const SURFACES: CustomDecisionSurface[] = ['CaptainTool', 'MissionDiff'];
+const BINDINGS: CustomDecisionBinding[] = ['None', 'MissionDiffFlag'];
+const QUESTION_TYPES: CustomTypedQuestion['type'][] = ['noul', 'choice', 'score'];
+
+function blankDecision(): CustomTypedDecision {
+  return {
+    name: '', mode: 'Off', threshold: 0.9, retainState: false, description: '',
+    surface: 'MissionDiff', binding: 'None', stateFields: ['diff', 'output_tail'],
+    questions: [{ id: '', type: 'noul', instructions: '', trueMeaning: '', falseMeaning: '' }],
+  };
+}
+
+function optionsToText(options?: Record<string, string>): string {
+  if (!options) return '';
+  return Object.entries(options).map(([k, v]) => `${k}: ${v}`).join('\n');
+}
+
+function textToOptions(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of text.split('\n')) {
+    const idx = line.indexOf(':');
+    if (idx <= 0) continue;
+    const key = line.slice(0, idx).trim();
+    const val = line.slice(idx + 1).trim();
+    if (key) out[key] = val;
+  }
+  return out;
+}
+
+/**
+ * Create, edit, and delete user-defined custom typed decisions. Advisory only: a custom decision
+ * records its answer and, when bound and gated, raises a flag; it never lands, dispatches, or approves.
+ * The list and the editor mirror the built-in decisions, plus the surface, binding, state fields, and
+ * questions that make a decision user-defined.
+ */
+function CustomDecisionsSection(props: {
+  status: TypedDecisionStatus;
+  onChanged: (next: TypedDecisionStatus) => void;
+  setError: (text: string) => void;
+  setMessage: (text: string) => void;
+}) {
+  const { t } = useLocale();
+  const { status, onChanged, setError, setMessage } = props;
+  const [draft, setDraft] = useState<CustomTypedDecision | null>(null);
+  const [editingName, setEditingName] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const startAdd = () => { setEditingName(null); setDraft(blankDecision()); };
+  const startEdit = (d: CustomTypedDecision) => { setEditingName(d.name); setDraft({ ...d, questions: d.questions.map((q) => ({ ...q })) }); };
+  const cancel = () => { setDraft(null); setEditingName(null); };
+
+  const run = async (fn: () => Promise<TypedDecisionStatus>, ok: string) => {
+    setBusy(true); setError(''); setMessage('');
+    try { onChanged(await fn()); setMessage(t(ok)); cancel(); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setBusy(false); }
+  };
+
+  const save = async () => {
+    if (!draft) return;
+    if (!draft.name.trim()) { setError(t('A decision name is required.')); return; }
+    await run(() => upsertCustomTypedDecision(draft.name.trim(), {
+      ...draft,
+      name: draft.name.trim(),
+      stateFields: draft.stateFields.map((f) => f.trim()).filter(Boolean),
+      questions: draft.questions.map((q) => ({ ...q, id: q.id.trim() })),
+    }), 'Custom decision saved.');
+  };
+
+  const remove = async (name: string) => { await run(() => deleteCustomTypedDecision(name), 'Custom decision deleted.'); };
+  const installSeeds = async () => { await run(() => installCustomTypedDecisionSeeds(), 'Example decisions installed.'); };
+
+  const setQuestion = (i: number, patch: Partial<CustomTypedQuestion>) => {
+    if (!draft) return;
+    const questions = draft.questions.map((q, idx) => (idx === i ? { ...q, ...patch } : q));
+    setDraft({ ...draft, questions });
+  };
+  const addQuestion = () => { if (draft) setDraft({ ...draft, questions: [...draft.questions, { id: '', type: 'noul', instructions: '', trueMeaning: '', falseMeaning: '' }] }); };
+  const removeQuestion = (i: number) => { if (draft) setDraft({ ...draft, questions: draft.questions.filter((_, idx) => idx !== i) }); };
+
+  return <section className="settings-section" data-testid="custom-decisions">
+    <h3>{t('Custom decisions')}</h3>
+    <p className="text-muted">{t('Decisions you define. They run at a generic surface, are advisory by default, and can bind only to a fixed conservative action — they never land, dispatch, or approve. The global mode caps them like any decision.')}</p>
+
+    <div className="table-wrap"><table className="data-table">
+      <thead><tr><th>{t('Name')}</th><th>{t('Mode')}</th><th>{t('Threshold')}</th><th>{t('Surface')}</th><th>{t('Binding')}</th><th>{t('Questions')}</th><th /></tr></thead>
+      <tbody>{(status.custom ?? []).length === 0
+        ? <tr><td colSpan={7} className="text-muted">{t('No custom decisions yet.')}</td></tr>
+        : (status.custom ?? []).map((d) => <tr key={d.name}>
+          <td><span className="mono">{d.name}</span><div className="text-muted">{d.description}</div></td>
+          <td>{d.mode}</td>
+          <td>{d.threshold}</td>
+          <td>{d.surface}</td>
+          <td>{d.binding}</td>
+          <td>{d.questions.length}</td>
+          <td className="typed-decisions-actions">
+            <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={() => startEdit(d)}>{t('Edit')}</button>
+            <button type="button" className="btn btn-danger btn-sm" disabled={busy} onClick={() => remove(d.name)}>{t('Delete')}</button>
+          </td>
+        </tr>)}
+      </tbody>
+    </table></div>
+
+    <div className="typed-decisions-actions">
+      <button type="button" className="btn btn-primary" disabled={busy || draft !== null} onClick={startAdd}>{t('Add custom decision')}</button>
+      <button type="button" className="btn btn-secondary" disabled={busy} onClick={installSeeds}>{t('Install examples')}</button>
+    </div>
+
+    {draft && <div className="settings-subsection custom-decision-editor">
+      <h4>{editingName ? t('Edit {{name}}', { name: editingName }) : t('New custom decision')}</h4>
+      <div className="form-group">
+        <label>{t('Name')}</label>
+        <input type="text" value={draft.name} disabled={busy || editingName !== null}
+          onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+        {editingName !== null && <span className="text-muted">{t('The name is fixed once created; delete and re-add to rename.')}</span>}
+      </div>
+      <div className="form-group">
+        <label>{t('Description')}</label>
+        <input type="text" value={draft.description} disabled={busy} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
+      </div>
+      <div className="custom-decision-row">
+        <div className="form-group">
+          <label>{t('Mode')}</label>
+          <select value={draft.mode} disabled={busy} onChange={(e) => setDraft({ ...draft, mode: e.target.value as TypedDecisionMode })}>
+            {MODES.map((m) => <option key={m} value={m}>{t(m)}</option>)}
+          </select>
+        </div>
+        <div className="form-group">
+          <label>{t('Threshold')}</label>
+          <input type="number" min={0} max={1} step={0.01} value={draft.threshold} disabled={busy}
+            onChange={(e) => setDraft({ ...draft, threshold: Number(e.target.value) })} />
+        </div>
+        <div className="form-group">
+          <label>{t('Surface')}</label>
+          <select value={draft.surface} disabled={busy} onChange={(e) => setDraft({ ...draft, surface: e.target.value as CustomDecisionSurface })}>
+            {SURFACES.map((sf) => <option key={sf} value={sf}>{sf}</option>)}
+          </select>
+        </div>
+        <div className="form-group">
+          <label>{t('Binding')}</label>
+          <select value={draft.binding} disabled={busy} onChange={(e) => setDraft({ ...draft, binding: e.target.value as CustomDecisionBinding })}>
+            {BINDINGS.map((b) => <option key={b} value={b}>{b}</option>)}
+          </select>
+        </div>
+        <div className="form-group form-check">
+          <label><input type="checkbox" checked={draft.retainState} disabled={busy}
+            onChange={(e) => setDraft({ ...draft, retainState: e.target.checked })} /> {t('Retain state')}</label>
+        </div>
+      </div>
+      <div className="form-group">
+        <label>{t('State fields (comma-separated)')}</label>
+        <input type="text" value={draft.stateFields.join(', ')} disabled={busy}
+          onChange={(e) => setDraft({ ...draft, stateFields: e.target.value.split(',').map((f) => f.trim()) })} />
+        <span className="text-muted">{t('MissionDiff surface: which mission fields to send (title, persona, diff, output_tail, changed_paths, failure_reason).')}</span>
+      </div>
+
+      <h5>{t('Questions')}</h5>
+      {draft.questions.map((q, i) => <div key={i} className="custom-decision-question">
+        <div className="custom-decision-row">
+          <div className="form-group"><label>{t('Id')}</label>
+            <input type="text" value={q.id} disabled={busy} onChange={(e) => setQuestion(i, { id: e.target.value })} /></div>
+          <div className="form-group"><label>{t('Type')}</label>
+            <select value={q.type} disabled={busy} onChange={(e) => setQuestion(i, { type: e.target.value as CustomTypedQuestion['type'] })}>
+              {QUESTION_TYPES.map((qt) => <option key={qt} value={qt}>{qt}</option>)}
+            </select></div>
+          <button type="button" className="btn btn-danger btn-sm" disabled={busy || draft.questions.length <= 1} onClick={() => removeQuestion(i)}>{t('Remove')}</button>
+        </div>
+        <div className="form-group"><label>{t('Instructions')}</label>
+          <textarea value={q.instructions} disabled={busy} rows={2} onChange={(e) => setQuestion(i, { instructions: e.target.value })} /></div>
+        {q.type === 'choice' && <div className="form-group"><label>{t('Options (one per line, name: meaning)')}</label>
+          <textarea value={optionsToText(q.options)} disabled={busy} rows={3} onChange={(e) => setQuestion(i, { options: textToOptions(e.target.value) })} /></div>}
+        {q.type === 'score' && <div className="form-group"><label>{t('Levels (one per line, lowest first)')}</label>
+          <textarea value={(q.levels ?? []).join('\n')} disabled={busy} rows={3} onChange={(e) => setQuestion(i, { levels: e.target.value.split('\n').map((l) => l.trim()).filter(Boolean) })} /></div>}
+        {q.type === 'noul' && <div className="custom-decision-row">
+          <div className="form-group"><label>{t('True meaning')}</label>
+            <input type="text" value={q.trueMeaning ?? ''} disabled={busy} onChange={(e) => setQuestion(i, { trueMeaning: e.target.value })} /></div>
+          <div className="form-group"><label>{t('False meaning')}</label>
+            <input type="text" value={q.falseMeaning ?? ''} disabled={busy} onChange={(e) => setQuestion(i, { falseMeaning: e.target.value })} /></div>
+        </div>}
+      </div>)}
+      <div className="typed-decisions-actions">
+        <button type="button" className="btn btn-secondary btn-sm" disabled={busy} onClick={addQuestion}>{t('Add question')}</button>
+      </div>
+
+      <div className="typed-decisions-actions">
+        <button type="button" className="btn btn-primary" disabled={busy} onClick={save}>{busy ? t('Saving...') : t('Save decision')}</button>
+        <button type="button" className="btn btn-secondary" disabled={busy} onClick={cancel}>{t('Cancel')}</button>
+      </div>
+    </div>}
+  </section>;
 }

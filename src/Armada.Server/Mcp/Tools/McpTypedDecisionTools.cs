@@ -42,6 +42,9 @@ namespace Armada.Server.Mcp.Tools
         /// <summary>Registered name of the captain-facing change-quality review tool.</summary>
         public const string ChangeQualityToolName = "armada_change_quality";
 
+        /// <summary>Registered name of the user-defined custom-decision runner tool.</summary>
+        public const string RunCustomToolName = "armada_run_custom_decision";
+
         #endregion
 
         #region Private-Members
@@ -223,11 +226,103 @@ namespace Armada.Server.Mcp.Tools
                     logging,
                     participantKey,
                     buildStateAndQuestions: BuildChangeQuality).ConfigureAwait(false));
+
+            register(
+                RunCustomToolName,
+                "Run a user-defined custom typed decision by name and return its typed answers. Supply 'name' (the custom decision an operator created in the dashboard) and 'context' (an object whose fields the decision's questions read; on a MissionDiff decision these are fields like diff, output_tail, changed_paths). Pass 'missionId' so the call is scoped and recorded. Advisory only: a custom decision never lands, dispatches, approves, or edits a record; it records its answer and, when its operator bound and gated it, raises an advisory flag. Returns 'unavailable' when the decision does not exist, is Off, or the provider is unreachable -- decide it yourself then. Your context is redacted before it leaves.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        name = new { type = "string", description = "The custom decision's name, as created in the dashboard." },
+                        context = new { type = "object", description = "The fields the decision's questions read, e.g. { diff, output_tail, changed_paths }. Redacted before egress." },
+                        missionId = new { type = "string", description = "The calling mission id, for scope and event attribution. Optional." }
+                    },
+                    required = new[] { "name", "context" }
+                },
+                async (args) => await HandleCustomAsync(args, database, effectiveClient, recorder, settings, logging, participantKey).ConfigureAwait(false));
         }
 
         #endregion
 
         #region Private-Methods
+
+        private static async Task<object> HandleCustomAsync(
+            JsonElement? args,
+            DatabaseDriver database,
+            ITypedDecisionClient client,
+            TypedDecisionRecorder recorder,
+            ArmadaSettings settings,
+            LoggingModule? logging,
+            Func<string?> participantKeyProvider)
+        {
+            try
+            {
+                if (!args.HasValue || args.Value.ValueKind != JsonValueKind.Object)
+                    return Unavailable("invalid", "The call carried no arguments object.");
+                JsonElement root = args.Value;
+
+                string? name = ReadOptionalString(root, "name");
+                if (String.IsNullOrWhiteSpace(name))
+                    return Unavailable("invalid", "A custom decision 'name' is required.");
+
+                if (!settings.TypedDecisions.CaptainTool.Enabled)
+                    return Unavailable("disabled", "The typed-decision tool is not enabled. Decide it yourself.");
+
+                Dictionary<string, object?> context = new Dictionary<string, object?>(StringComparer.Ordinal);
+                if (root.TryGetProperty("context", out JsonElement contextElement) && contextElement.ValueKind == JsonValueKind.Object)
+                {
+                    foreach (JsonProperty property in contextElement.EnumerateObject())
+                    {
+                        context[property.Name] = property.Value.ValueKind == JsonValueKind.String
+                            ? property.Value.GetString()
+                            : property.Value.GetRawText();
+                    }
+                }
+                if (context.Count == 0)
+                    return Unavailable("invalid", "A non-empty 'context' object is required.");
+
+                string? missionId = ReadOptionalString(root, "missionId");
+                Mission? mission = null;
+                if (!String.IsNullOrWhiteSpace(missionId))
+                {
+                    try { mission = await database.Missions.ReadAsync(missionId!, CancellationToken.None).ConfigureAwait(false); }
+                    catch (Exception ex) { logging?.Warn("[McpTypedDecisionTools] mission lookup failed for " + missionId + ": " + ex.Message); }
+                }
+
+                CustomTypedDecisionAdapter adapter = new CustomTypedDecisionAdapter(client, recorder, settings.TypedDecisions, logging ?? new LoggingModule());
+                CustomDecisionOutcome outcome = await adapter.RunAsync(name!, context, mission, participantKeyProvider(), CancellationToken.None).ConfigureAwait(false);
+
+                if (outcome.Status == "not_found")
+                    return Unavailable("invalid", "No custom decision named '" + name + "'. Create it in the dashboard first.");
+                if (outcome.Status == "inactive")
+                    return Unavailable("disabled", "The custom decision '" + name + "' is Off. Decide it yourself.");
+                if (outcome.Result == null || !outcome.Result.Available)
+                    return Unavailable(outcome.Result?.UnavailableReason ?? "unavailable", "The provider was unavailable. Decide it yourself.");
+
+                Dictionary<string, object?> answers = new Dictionary<string, object?>(StringComparer.Ordinal);
+                foreach (KeyValuePair<string, TypedAnswer> entry in outcome.Result.Answers)
+                {
+                    TypedAnswer a = entry.Value;
+                    answers[entry.Key] = new { type = a.Type, choice = a.Choice, score = a.Score, noul = a.Noul, confidence = a.Confidence, probabilities = a.Probabilities };
+                }
+                return new
+                {
+                    available = true,
+                    name = name,
+                    flagged = outcome.DidFlag,
+                    confidence = outcome.Confidence,
+                    model = outcome.Result.Model,
+                    answers
+                };
+            }
+            catch (Exception ex)
+            {
+                logging?.Warn("[McpTypedDecisionTools] custom decision call failed: " + ex.Message);
+                return Unavailable("exception", "The custom decision call failed. Decide it yourself.");
+            }
+        }
 
         private static async Task<object> HandleAsync(
             JsonElement? args,

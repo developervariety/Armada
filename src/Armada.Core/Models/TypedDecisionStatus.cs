@@ -27,6 +27,9 @@ namespace Armada.Core.Models
         /// <summary>Every decision in the settings map.</summary>
         public List<TypedDecisionStatusEntry> Decisions { get; set; } = new List<TypedDecisionStatusEntry>();
 
+        /// <summary>Every user-defined custom decision.</summary>
+        public List<CustomTypedDecisionView> Custom { get; set; } = new List<CustomTypedDecisionView>();
+
         #endregion
     }
 }

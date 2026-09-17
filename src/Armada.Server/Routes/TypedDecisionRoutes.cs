@@ -145,6 +145,110 @@ namespace Armada.Server.Routes
                 .WithResponse(200, OpenApiJson.For<TypedDecisionStatus>("Typed-decision status"))
                 .WithSecurity("ApiKey"));
 
+            app.Post("/api/v1/typed-decisions/custom/install-seeds", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!IsPermitted(ctx, authz)) return Refuse(req, ctx);
+                await _Lock.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    TypedDecisionSettings live = _Settings.TypedDecisions;
+                    Dictionary<string, CustomTypedDecisionSettings> previous = CloneCustom(live.Custom);
+                    int added = 0;
+                    foreach (KeyValuePair<string, CustomTypedDecisionSettings> seed in CustomDecisionSeeds.Build())
+                    {
+                        if (!live.Custom.ContainsKey(seed.Key)) { live.Custom[seed.Key] = seed.Value; added++; }
+                    }
+                    if (!await TrySaveAsync(live, previous).ConfigureAwait(false))
+                    {
+                        req.Http.Response.StatusCode = 500;
+                        return new ApiErrorResponse { Error = ApiResultEnum.InternalError, Message = "typed_decisions_save_failed: nothing changed." };
+                    }
+                    _Logging.Info(_Header + "installed " + added + " seed custom decisions via API");
+                }
+                finally { _Lock.Release(); }
+                return TypedDecisionStatusBuilder.Build(_Settings.TypedDecisions, _Keys);
+            },
+            api => api
+                .WithTag("Settings")
+                .WithSummary("Install the example custom decisions")
+                .WithDescription("Adds the built-in example custom decisions (source_fidelity, safety_step_present, citation_resolves) that are not already present. They ship Off and unbound, so nothing runs until you turn them on. Existing decisions of the same name are left unchanged.")
+                .WithResponse(200, OpenApiJson.For<TypedDecisionStatus>("Typed-decision status"))
+                .WithSecurity("ApiKey"));
+
+            app.Put("/api/v1/typed-decisions/custom/{name}", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!IsPermitted(ctx, authz)) return Refuse(req, ctx);
+                string name = req.Parameters["name"] ?? String.Empty;
+                CustomTypedDecisionSettings? body;
+                try
+                {
+                    body = JsonSerializer.Deserialize<CustomTypedDecisionSettings>(req.Http.Request.DataAsString, _JsonOptions)
+                        ?? throw new ArgumentException("A request body is required.");
+                    ValidateCustom(name, body);
+                }
+                catch (Exception ex) when (ex is ArgumentException || ex is JsonException)
+                {
+                    req.Http.Response.StatusCode = 400;
+                    return new ApiErrorResponse { Error = ApiResultEnum.BadRequest, Message = ex is JsonException ? "The request body is not valid JSON." : ex.Message };
+                }
+                await _Lock.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    TypedDecisionSettings live = _Settings.TypedDecisions;
+                    Dictionary<string, CustomTypedDecisionSettings> previous = CloneCustom(live.Custom);
+                    live.Custom[name] = body;
+                    if (!await TrySaveAsync(live, previous).ConfigureAwait(false))
+                    {
+                        req.Http.Response.StatusCode = 500;
+                        return new ApiErrorResponse { Error = ApiResultEnum.InternalError, Message = "typed_decisions_save_failed: nothing changed." };
+                    }
+                    _Logging.Info(_Header + "custom decision '" + name + "' saved via API");
+                }
+                finally { _Lock.Release(); }
+                return TypedDecisionStatusBuilder.Build(_Settings.TypedDecisions, _Keys);
+            },
+            api => api
+                .WithTag("Settings")
+                .WithSummary("Create or replace a custom typed decision")
+                .WithDescription("Upserts a user-defined custom decision by name. The body carries its mode, gateThreshold, description, surface, binding, stateFields, and questions. A name that collides with a shipped decision, an invalid mode/threshold/surface/binding, or a malformed question is refused with 400. Advisory only: a custom decision never lands, dispatches, or approves.")
+                .WithResponse(200, OpenApiJson.For<TypedDecisionStatus>("Typed-decision status"))
+                .WithSecurity("ApiKey"));
+
+            app.Delete("/api/v1/typed-decisions/custom/{name}", async (ApiRequest req) =>
+            {
+                AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
+                if (!IsPermitted(ctx, authz)) return Refuse(req, ctx);
+                string name = req.Parameters["name"] ?? String.Empty;
+                await _Lock.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    TypedDecisionSettings live = _Settings.TypedDecisions;
+                    if (!live.Custom.ContainsKey(name))
+                    {
+                        req.Http.Response.StatusCode = 404;
+                        return new ApiErrorResponse { Error = ApiResultEnum.NotFound, Message = "typed_decisions_custom_not_found: " + name };
+                    }
+                    Dictionary<string, CustomTypedDecisionSettings> previous = CloneCustom(live.Custom);
+                    live.Custom.Remove(name);
+                    if (!await TrySaveAsync(live, previous).ConfigureAwait(false))
+                    {
+                        req.Http.Response.StatusCode = 500;
+                        return new ApiErrorResponse { Error = ApiResultEnum.InternalError, Message = "typed_decisions_save_failed: nothing changed." };
+                    }
+                    _Logging.Info(_Header + "custom decision '" + name + "' deleted via API");
+                }
+                finally { _Lock.Release(); }
+                return TypedDecisionStatusBuilder.Build(_Settings.TypedDecisions, _Keys);
+            },
+            api => api
+                .WithTag("Settings")
+                .WithSummary("Delete a custom typed decision")
+                .WithDescription("Removes a user-defined custom decision. Deleting one does not resurrect it from the seeds.")
+                .WithResponse(200, OpenApiJson.For<TypedDecisionStatus>("Typed-decision status"))
+                .WithSecurity("ApiKey"));
+
             app.Put<TypedDecisionKeyRequest>("/api/v1/typed-decisions/key", async (ApiRequest req) =>
             {
                 AuthContext ctx = await authenticate(req.Http).ConfigureAwait(false);
@@ -237,6 +341,68 @@ namespace Armada.Server.Routes
                     throw new ArgumentException("typed_decisions_mode_invalid: " + pair.Key + " mode must be Off, Shadow, or Gate.");
                 if (pair.Value.GateThreshold.HasValue && (!Double.IsFinite(pair.Value.GateThreshold.Value) || pair.Value.GateThreshold.Value < 0 || pair.Value.GateThreshold.Value > 1))
                     throw new ArgumentException("typed_decisions_threshold_invalid: " + pair.Key + " gateThreshold must be between 0 and 1.");
+            }
+        }
+
+        private async Task<bool> TrySaveAsync(TypedDecisionSettings live, Dictionary<string, CustomTypedDecisionSettings> previousCustom)
+        {
+            try
+            {
+                await _Save().ConfigureAwait(false);
+                return true;
+            }
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            {
+                live.Custom = previousCustom;
+                return false;
+            }
+        }
+
+        private static Dictionary<string, CustomTypedDecisionSettings> CloneCustom(Dictionary<string, CustomTypedDecisionSettings> custom)
+        {
+            Dictionary<string, CustomTypedDecisionSettings> copy = new Dictionary<string, CustomTypedDecisionSettings>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, CustomTypedDecisionSettings> pair in custom)
+                if (pair.Value != null) copy[pair.Key] = pair.Value.Clone();
+            return copy;
+        }
+
+        private static void ValidateCustom(string name, CustomTypedDecisionSettings body)
+        {
+            if (String.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("typed_decisions_custom_name_required: a decision name is required.");
+            if (TypedDecisionSettings.ShippedDecisionNames.Contains(name))
+                throw new ArgumentException("typed_decisions_custom_name_collision: " + name + " is a shipped decision; choose another name.");
+            if (!Enum.IsDefined(typeof(TypedDecisionModeEnum), body.Mode))
+                throw new ArgumentException("typed_decisions_mode_invalid: mode must be Off, Shadow, or Gate.");
+            if (!Double.IsFinite(body.GateThreshold) || body.GateThreshold < 0 || body.GateThreshold > 1)
+                throw new ArgumentException("typed_decisions_threshold_invalid: gateThreshold must be between 0 and 1.");
+            if (!Enum.IsDefined(typeof(Armada.Core.Enums.CustomDecisionSurfaceEnum), body.Surface))
+                throw new ArgumentException("typed_decisions_surface_invalid: surface must be CaptainTool or MissionDiff.");
+            if (!Enum.IsDefined(typeof(Armada.Core.Enums.CustomDecisionSeamEnum), body.Binding))
+                throw new ArgumentException("typed_decisions_binding_invalid: binding must be None or MissionDiffFlag.");
+            // The only bound action wired today acts on the MissionDiff surface, so a CaptainTool
+            // decision cannot claim it. This keeps the enum honest: every offered binding is enforced.
+            if (body.Binding == Armada.Core.Enums.CustomDecisionSeamEnum.MissionDiffFlag
+                && body.Surface != Armada.Core.Enums.CustomDecisionSurfaceEnum.MissionDiff)
+                throw new ArgumentException("typed_decisions_binding_surface_mismatch: MissionDiffFlag requires the MissionDiff surface.");
+            if (body.Questions == null || body.Questions.Count == 0)
+                throw new ArgumentException("typed_decisions_custom_no_questions: a custom decision needs at least one question.");
+            HashSet<string> ids = new HashSet<string>(StringComparer.Ordinal);
+            foreach (CustomTypedQuestionSettings question in body.Questions)
+            {
+                if (question == null || String.IsNullOrWhiteSpace(question.Id))
+                    throw new ArgumentException("typed_decisions_custom_question_id: every question needs a non-empty id.");
+                if (!ids.Add(question.Id))
+                    throw new ArgumentException("typed_decisions_custom_question_duplicate: question id '" + question.Id + "' is repeated.");
+                if (String.IsNullOrWhiteSpace(question.Instructions))
+                    throw new ArgumentException("typed_decisions_custom_question_instructions: question '" + question.Id + "' needs instructions.");
+                string kind = (question.Type ?? "noul").Trim().ToLowerInvariant();
+                if (kind != "choice" && kind != "score" && kind != "noul")
+                    throw new ArgumentException("typed_decisions_custom_question_type: question '" + question.Id + "' type must be choice, score, or noul.");
+                if (kind == "choice" && (question.Options == null || question.Options.Count < 2))
+                    throw new ArgumentException("typed_decisions_custom_choice_options: choice question '" + question.Id + "' needs at least two options.");
+                if (kind == "score" && (question.Levels == null || question.Levels.Count < 2))
+                    throw new ArgumentException("typed_decisions_custom_score_levels: score question '" + question.Id + "' needs at least two levels.");
             }
         }
 
