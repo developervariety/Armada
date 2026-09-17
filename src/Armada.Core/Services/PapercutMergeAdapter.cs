@@ -213,7 +213,7 @@ namespace Armada.Core.Services
             }
 
             if (result == null)
-                result = new TypedDecisionResult { Available = false, UnavailableReason = "exception" };
+                result = TypedDecisionResult.Exception();
 
             if (!result.Available)
             {

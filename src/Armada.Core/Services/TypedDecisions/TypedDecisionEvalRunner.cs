@@ -119,7 +119,7 @@ namespace Armada.Core.Services
                     DecisionPoint = evalCase.DecisionPoint,
                     State = variant.State.State,
                     Questions = variant.Questions
-                }, token).ConfigureAwait(false) ?? new TypedDecisionResult { Available = false, UnavailableReason = "exception" };
+                }, token).ConfigureAwait(false) ?? TypedDecisionResult.Exception();
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -127,7 +127,7 @@ namespace Armada.Core.Services
             }
             catch (Exception)
             {
-                result = new TypedDecisionResult { Available = false, UnavailableReason = "exception" };
+                result = TypedDecisionResult.Exception();
             }
 
             report.InputTokens += result.InputTokens;
