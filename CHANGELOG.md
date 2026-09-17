@@ -8,6 +8,15 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- Dashboard: Settings > Routing has a Legacy Routing / Smart Routing mode
+  switch, a persona model lists table (Default, Lighter, Stronger model chips
+  with captain counts and an all-accounts-exhausted warning), collapsed
+  persona restrictions with a note when one admits no captain, and a preview
+  that shows the Legacy Routing order, the usage filter per captain, the
+  capacity reading, and the chosen captain. A new Settings > Typed decisions
+  tab shows the effective mode (with an "Off — no Jev key" banner), saves or
+  removes the provider key without ever displaying it, and edits the global
+  mode and each decision's mode and threshold.
 - Typed decisions are Off unless a provider key is available. Without a key the
   effective global mode is `Off` with reason `typed_decisions_no_key` (startup
   log, `GET /api/v1/status`, `GET /api/v1/settings`, and the new

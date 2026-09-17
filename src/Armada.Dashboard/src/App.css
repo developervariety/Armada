@@ -8192,3 +8192,44 @@ thead tr.column-filter-row td input.col-filter::placeholder {
 .account-login-code { font-size: 1.25em; letter-spacing: 0.1em; }
 .account-captain-list { list-style: none; margin: 0 0 0.5rem; padding: 0; }
 .account-captain-list label { overflow-wrap: anywhere; }
+
+/* Smart Routing and typed decisions */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.routing-mode { border: 1px solid var(--border); border-radius: var(--radius); padding: 0.5rem 0.75rem; margin: 0 0 1rem; min-width: 0; display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; }
+.routing-mode legend { padding: 0 0.25rem; font-weight: 600; }
+.routing-mode-option { display: flex; gap: 0.5rem; align-items: flex-start; flex: 1 1 14rem; min-width: 0; cursor: pointer; }
+.routing-mode-option input[type="radio"] { width: auto; margin: 0.2rem 0 0; flex: 0 0 auto; }
+.routing-mode-option > span { min-width: 0; flex: 1 1 auto; }
+.persona-models, .persona-restrictions, .smart-routing-preview { margin-top: 1.25rem; min-width: 0; }
+.persona-models-table td { vertical-align: top; min-width: 10rem; }
+.persona-models-table td:first-child { min-width: 7rem; overflow-wrap: anywhere; }
+.persona-models-table th { position: relative; }
+.model-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; min-width: 0; }
+.model-chips select { max-width: 100%; min-width: 0; font-size: 0.8rem; }
+.model-chip { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; align-items: center; border: 1px solid var(--border); border-radius: 8px; padding: 0.15rem 0.25rem 0.15rem 0.5rem; background: var(--bg); max-width: 100%; }
+.model-chip-name { overflow-wrap: anywhere; font-size: 0.8rem; }
+.model-chip-remove { border: 0; background: transparent; color: var(--text-dim); cursor: pointer; padding: 0 0.3rem; font-size: 1rem; line-height: 1; }
+.model-chip-remove:hover { color: var(--text); }
+.persona-models-add { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-top: 0.75rem; }
+.persona-models-add input, .persona-models-add select { flex: 1 1 10rem; min-width: 0; max-width: 100%; }
+.persona-restrictions > summary { cursor: pointer; font-weight: 600; }
+.persona-restriction { border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; margin-top: 0.75rem; min-width: 0; }
+.persona-restriction-head { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; justify-content: space-between; overflow-wrap: anywhere; }
+.persona-restriction-route { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: flex-end; margin: 0.5rem 0; min-width: 0; }
+.persona-restriction-route label { display: flex; flex-direction: column; gap: 0.25rem; min-width: 0; }
+.persona-restriction-route select { max-width: 100%; }
+.persona-restriction-route > div { flex: 1 1 14rem; min-width: 0; }
+.smart-routing-preview textarea { width: 100%; max-width: 100%; box-sizing: border-box; }
+.smart-routing-preview-result { min-width: 0; overflow-wrap: anywhere; }
+.smart-routing-preview-result h5 { margin: 1rem 0 0.35rem; }
+.smart-routing-order { margin: 0; padding-left: 1.25rem; }
+.typed-decisions-banner { margin: 1rem 0 0; flex-wrap: wrap; justify-content: flex-start; }
+.typed-decisions-key { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: flex-end; }
+.typed-decisions-key .form-group { flex: 1 1 14rem; min-width: 0; margin-bottom: 0; }
+.typed-decisions-key input { width: 100%; box-sizing: border-box; }
+.typed-decisions-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin-top: 1rem; }
+.typed-decisions-key .typed-decisions-actions { margin-top: 0; }
+.typed-decisions-global select { max-width: 100%; }
+.typed-decisions-threshold { width: 5.5rem; }
+.typed-decisions-table select { min-width: 6.5rem; }
+.typed-decisions-table td:first-child { min-width: 10rem; overflow-wrap: anywhere; }

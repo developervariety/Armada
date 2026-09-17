@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { getSettings, updateSettings } from '../api/client';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { getSettings, listCaptains, listPersonas, updateSettings } from '../api/client';
+import type { Captain } from '../types/models';
+import { tierModels } from '../lib/smartRouting';
 import UsageRoutingEditor, { emptyUsageRouting } from '../components/UsageRoutingEditor';
 import RoutingPolicyEditor from '../components/RoutingPolicyEditor';
 import SubscriptionAccountsPanel from '../components/SubscriptionAccountsPanel';
@@ -45,6 +47,8 @@ export default function RoutingSettings() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [captains, setCaptains] = useState<Captain[]>([]);
+  const [personas, setPersonas] = useState<string[]>([]);
 
   const applySaved = useCallback((settings: SettingsRecord, sentUsageRouting?: string) => {
     const next = usageRoutingText(settings);
@@ -65,6 +69,18 @@ export default function RoutingSettings() {
       setLoading(false);
     }
   }, [applySaved]);
+
+  // Captains and personas only feed the model options and pickers; a failure leaves them empty.
+  const loadRoster = useCallback(async () => {
+    const [captainResult, personaResult] = await Promise.all([
+      listCaptains({ pageSize: 9999 }).catch(() => null),
+      listPersonas({ pageSize: 9999 }).catch(() => null),
+    ]);
+    if (captainResult?.objects) setCaptains(captainResult.objects);
+    if (personaResult?.objects) setPersonas(personaResult.objects.filter(p => p.active !== false).map(p => p.name));
+  }, []);
+
+  useEffect(() => { void loadRoster(); }, [loadRoster]);
 
   useEffect(() => {
     setLoading(true);
@@ -107,6 +123,7 @@ export default function RoutingSettings() {
     setMessage(t('Subscription account saved.'));
   }, [t]);
 
+  const savedTierModels = useMemo(() => tierModels(saved), [saved]);
   const usageDirty = policy !== policyBaseRef.current;
   let savedPolicy: PolicyRecord | null = null;
   try { savedPolicy = JSON.parse(policyBaseRef.current) as PolicyRecord; } catch { /* The saved text is always server JSON. */ }
@@ -114,11 +131,11 @@ export default function RoutingSettings() {
   return <div>
     <PageHeader
       title={t('Routing')}
-      subtitle={t('Legacy Routing model-tier policy and Smart Routing usage-aware routing. Each part saves only its own settings.')}
+      subtitle={t('Legacy Routing picks captains by tier and preference. Smart Routing adds usage, persona model lists, and the capacity decision. Each part saves only its own settings.')}
       actions={saved ? (
         <>
           <AutoRefreshSelect seconds={refreshSeconds} onChange={setRefreshSeconds} />
-          <RefreshButton onRefresh={load} title={t('Refresh routing settings')} />
+          <RefreshButton onRefresh={() => { void loadRoster(); return load(); }} title={t('Refresh routing settings')} />
         </>
       ) : undefined}
     />
@@ -126,11 +143,11 @@ export default function RoutingSettings() {
       <button className="btn btn-secondary" type="button" onClick={() => setLoadAttempt(attempt => attempt + 1)}>{t('Retry loading settings')}</button> : <>
       {remoteProxyMode && <p>{t('Edit routing on the Admiral directly. Settings changes are disabled in remote proxy mode.')}</p>}
       <RoutingPolicyEditor saved={saved} disabled={remoteProxyMode} onSaved={(settings) => applySaved(settings)} />
-      <p className="text-muted" style={{ marginTop: '1.5rem' }}>{t('V2 replaces legacy model and provider preferences when enabled. Tier membership and captain persona restrictions still apply. Configure every persona, or use a * default route, before enabling.')}</p>
       <SubscriptionAccountsPanel savedPolicy={savedPolicy} statuses={statuses} disabled={remoteProxyMode || saving}
         onSavePolicy={saveAccountChange} onRefresh={load} />
       <fieldset disabled={remoteProxyMode || saving} style={{ border: 0, padding: 0, minWidth: 0 }}>
-        <UsageRoutingEditor value={policy} onChange={value => { setPolicy(value); setMessage(''); }} statuses={statuses} />
+        <UsageRoutingEditor value={policy} onChange={value => { setPolicy(value); setMessage(''); }} statuses={statuses}
+          personas={personas} captains={captains} tierModels={savedTierModels} />
         <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem', alignItems: 'center' }}>
           <button className="btn btn-primary" type="button" onClick={saveUsageRouting}>{saving ? t('Saving...') : t('Save routing policy')}</button>
           <button className="btn btn-secondary" type="button" onClick={() => setPolicy(policyBaseRef.current)} disabled={!usageDirty}>{t('Discard changes')}</button>
