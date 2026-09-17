@@ -2247,7 +2247,7 @@ namespace Armada.Server
             if (pipeline == null) return false;
 
             return pipeline.Stages.Any(stage =>
-                String.Equals(stage.PersonaName, "TestEngineer", StringComparison.OrdinalIgnoreCase));
+                PersonaCatalog.Matches(stage.PersonaName, PersonaCatalog.TestEngineer));
         }
 
         private async Task<bool> IsAlreadyHandledAsync(Mission failedMission, CancellationToken token)

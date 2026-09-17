@@ -53,6 +53,20 @@ namespace Armada.Test.Unit.Suites.Services
                 return Task.CompletedTask;
             });
 
+            await RunTest("Parse_LowTier_ReturnsValid", () =>
+            {
+                // The Architect resource offers preferredModel low|mid|high and the tier selector accepts
+                // low (an Economy floor), so the parser must accept it too rather than raising invalid_tier.
+                ArchitectOutputParser sut = CreateSut();
+                string input = MakePlanPrefix() + MakeMissionBlock("M1", "Cheap chore", "low");
+                ArchitectParseResult result = sut.Parse(input);
+
+                AssertEqual(ArchitectParseVerdict.Valid, result.Verdict, "A low-tier mission should return Valid");
+                AssertEqual(0, result.Errors.Count, "No errors expected for a low tier");
+                AssertEqual("low", result.Missions[0].PreferredModel, "PreferredModel should be low");
+                return Task.CompletedTask;
+            });
+
             await RunTest("Parse_ValidThreeMissions_ReturnsValid", () =>
             {
                 ArchitectOutputParser sut = CreateSut();

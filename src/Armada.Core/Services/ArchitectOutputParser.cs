@@ -16,6 +16,7 @@ namespace Armada.Core.Services
     {
         private static readonly HashSet<string> _KnownTierValues = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
+            PreferredModelTierSelector.LowTier,
             PreferredModelTierSelector.MidTier,
             PreferredModelTierSelector.HighTier,
             "quick",
