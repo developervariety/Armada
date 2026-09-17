@@ -2,8 +2,13 @@ namespace Armada.Server.Mcp.Tools
 {
     using System;
     using System.Threading;
+    using System.Threading.Tasks;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
+    using Armada.Core.Settings;
+    using SyslogLogging;
 
     internal static class CodeIndexDispatchGuard
     {
@@ -13,6 +18,8 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="codeIndexService">Code index service, or null when indexing is disabled.</param>
         /// <param name="vesselId">Vessel being dispatched to.</param>
         /// <param name="actionName">Action name echoed back in the blocked response.</param>
+        /// <param name="settings">Code-index settings; supplies the dispatch staleness policy. Null defaults to Proceed.</param>
+        /// <param name="logging">Logging module used to schedule a background refresh. Null skips the refresh kick.</param>
         /// <param name="logWarning">Optional sink for the timeout warning.</param>
         /// <param name="token">Caller cancellation token.</param>
         /// <returns>A blocked-response object, or null when dispatch may proceed.</returns>
@@ -20,6 +27,8 @@ namespace Armada.Server.Mcp.Tools
             ICodeIndexService? codeIndexService,
             string vesselId,
             string actionName,
+            CodeIndexSettings? settings = null,
+            LoggingModule? logging = null,
             Action<string>? logWarning = null,
             CancellationToken token = default)
         {
@@ -43,51 +52,140 @@ namespace Armada.Server.Mcp.Tools
                 return null;
             }
 
+            CodeIndexDispatchStalenessPolicyEnum policy =
+                settings?.DispatchStalenessPolicy ?? CodeIndexDispatchStalenessPolicyEnum.Proceed;
+
+            // An update is already running. Only Block waits for it; Proceed and RefreshInline dispatch
+            // against the current index so a landing-triggered refresh never gates the next voyage.
             if (status.UpdateInProgress)
             {
-                string vesselName = String.IsNullOrWhiteSpace(status.VesselName) ? vesselId : status.VesselName;
-                string started = status.UpdateStartedUtc.HasValue ? status.UpdateStartedUtc.Value.ToString("o") : "unknown time";
-                string reason =
-                    "Voyage dispatch is blocked because Armada is currently refreshing the code index for vessel "
-                    + vesselId + " (" + vesselName + ") since " + started
-                    + ". Dispatch is delayed until indexing finishes so generated context packs and search results include the most recently landed code. Retry after codeIndex.updateInProgress is false.";
-
-                return new
+                if (policy == CodeIndexDispatchStalenessPolicyEnum.Block)
                 {
-                    Error = reason,
-                    Code = "code_index_update_in_progress",
-                    Reason = reason,
-                    Action = actionName,
-                    VesselId = vesselId,
-                    VesselName = vesselName,
-                    CodeIndex = status
-                };
+                    string vesselName = String.IsNullOrWhiteSpace(status.VesselName) ? vesselId : status.VesselName;
+                    string started = status.UpdateStartedUtc.HasValue ? status.UpdateStartedUtc.Value.ToString("o") : "unknown time";
+                    string reason =
+                        "Voyage dispatch is blocked because Armada is currently refreshing the code index for vessel "
+                        + vesselId + " (" + vesselName + ") since " + started
+                        + ". Dispatch is delayed until indexing finishes so generated context packs and search results include the most recently landed code. Retry after codeIndex.updateInProgress is false.";
+
+                    return new
+                    {
+                        Error = reason,
+                        Code = "code_index_update_in_progress",
+                        Reason = reason,
+                        Action = actionName,
+                        VesselId = vesselId,
+                        VesselName = vesselName,
+                        CodeIndex = status
+                    };
+                }
+
+                logging?.Info("[CodeIndexDispatchGuard] code index for vessel " + vesselId
+                    + " is refreshing; dispatch proceeds against the current index (policy " + policy + ").");
+                return null;
             }
 
-            if (IsStale(status))
+            if (!IsStale(status)) return null;
+
+            // The index is stale: its indexed commit is behind the current default-branch commit.
+            switch (policy)
             {
-                string vesselName = String.IsNullOrWhiteSpace(status.VesselName) ? vesselId : status.VesselName;
-                string reason =
-                    "Voyage dispatch is blocked because Armada's code index is stale for vessel "
-                    + vesselId + " (" + vesselName + "). Indexed commit "
-                    + (String.IsNullOrWhiteSpace(status.IndexedCommitSha) ? "unknown" : status.IndexedCommitSha)
-                    + " does not match current commit "
-                    + (String.IsNullOrWhiteSpace(status.CurrentCommitSha) ? "unknown" : status.CurrentCommitSha)
-                    + ". Run armada_index_update and retry after codeIndex.freshness is Fresh.";
-
-                return new
+                case CodeIndexDispatchStalenessPolicyEnum.Block:
                 {
-                    Error = reason,
-                    Code = "code_index_stale",
-                    Reason = reason,
-                    Action = actionName,
-                    VesselId = vesselId,
-                    VesselName = vesselName,
-                    CodeIndex = status
-                };
+                    string vesselName = String.IsNullOrWhiteSpace(status.VesselName) ? vesselId : status.VesselName;
+                    string reason =
+                        "Voyage dispatch is blocked because Armada's code index is stale for vessel "
+                        + vesselId + " (" + vesselName + "). Indexed commit "
+                        + (String.IsNullOrWhiteSpace(status.IndexedCommitSha) ? "unknown" : status.IndexedCommitSha)
+                        + " does not match current commit "
+                        + (String.IsNullOrWhiteSpace(status.CurrentCommitSha) ? "unknown" : status.CurrentCommitSha)
+                        + ". Run armada_index_update and retry after codeIndex.freshness is Fresh.";
+
+                    return new
+                    {
+                        Error = reason,
+                        Code = "code_index_stale",
+                        Reason = reason,
+                        Action = actionName,
+                        VesselId = vesselId,
+                        VesselName = vesselName,
+                        CodeIndex = status
+                    };
+                }
+
+                case CodeIndexDispatchStalenessPolicyEnum.RefreshInline:
+                {
+                    await RefreshInlineAsync(codeIndexService, settings, logging, vesselId, token).ConfigureAwait(false);
+                    return null;
+                }
+
+                default:
+                {
+                    // Proceed: dispatch now against the current index and schedule a debounced background
+                    // refresh so the next dispatch sees the newest landed code without any manual step.
+                    ScheduleBackgroundRefresh(codeIndexService, settings, logging, vesselId, "stale index at dispatch");
+                    logging?.Info("[CodeIndexDispatchGuard] code index for vessel " + vesselId
+                        + " is stale; dispatch proceeds against the current index and a background refresh was scheduled.");
+                    return null;
+                }
+            }
+        }
+
+        private static void ScheduleBackgroundRefresh(
+            ICodeIndexService? codeIndexService,
+            CodeIndexSettings? settings,
+            LoggingModule? logging,
+            string vesselId,
+            string reason)
+        {
+            if (codeIndexService == null || settings == null || logging == null) return;
+            CodeIndexRefreshScheduler.Schedule(codeIndexService, settings, logging, "[CodeIndexDispatchGuard] ", vesselId, reason);
+        }
+
+        private static async Task RefreshInlineAsync(
+            ICodeIndexService? codeIndexService,
+            CodeIndexSettings? settings,
+            LoggingModule? logging,
+            string vesselId,
+            CancellationToken token)
+        {
+            if (codeIndexService == null) return;
+
+            // The refresh is incremental (unchanged files keep their embeddings), so a refresh after a
+            // small landing is fast. It is bounded so a large or wedged refresh cannot re-introduce the
+            // dispatch stall; on timeout or failure the refresh continues in the background.
+            TimeSpan timeout = CodeContextTimeouts.Resolve(CodeContextTimeouts.DefaultDispatchTimeoutMs);
+            Task updateTask;
+            try
+            {
+                updateTask = codeIndexService.UpdateAsync(vesselId, token);
+            }
+            catch (Exception ex)
+            {
+                logging?.Warn("[CodeIndexDispatchGuard] inline refresh could not start for vessel " + vesselId + ": " + ex.Message);
+                ScheduleBackgroundRefresh(codeIndexService, settings, logging, vesselId, "inline refresh start failed");
+                return;
             }
 
-            return null;
+            Task completed = await Task.WhenAny(updateTask, Task.Delay(timeout, token)).ConfigureAwait(false);
+            if (completed != updateTask)
+            {
+                logging?.Info("[CodeIndexDispatchGuard] inline refresh for vessel " + vesselId
+                    + " exceeded " + timeout.TotalSeconds.ToString("F0") + "s; it continues in the background and dispatch proceeds.");
+                _ = updateTask.ContinueWith(t => { _ = t.Exception; }, CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+                return;
+            }
+
+            try
+            {
+                await updateTask.ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logging?.Warn("[CodeIndexDispatchGuard] inline refresh failed for vessel " + vesselId + ": " + ex.Message
+                    + "; dispatch proceeds against the current index.");
+            }
         }
 
         /// <summary>

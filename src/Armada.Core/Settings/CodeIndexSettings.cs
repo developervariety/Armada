@@ -3,6 +3,7 @@ namespace Armada.Core.Settings
     using System.Collections.Generic;
     using System.IO;
     using Armada.Core;
+    using Armada.Core.Enums;
 
     /// <summary>
     /// Settings for Admiral-owned codebase indexing.
@@ -119,6 +120,14 @@ namespace Armada.Core.Settings
         /// Whether semantic search is enabled.
         /// </summary>
         public bool UseSemanticSearch { get; set; } = false;
+
+        /// <summary>
+        /// How voyage dispatch reacts to a stale or updating code index for the target vessel.
+        /// Default <see cref="CodeIndexDispatchStalenessPolicyEnum.Proceed"/>: dispatch never waits on a
+        /// reindex; it uses the current index and schedules a background refresh.
+        /// </summary>
+        public CodeIndexDispatchStalenessPolicyEnum DispatchStalenessPolicy { get; set; }
+            = CodeIndexDispatchStalenessPolicyEnum.Proceed;
 
         /// <summary>
         /// Optional id of a registered Embedding model endpoint to use for code-index embeddings.

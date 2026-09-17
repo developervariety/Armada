@@ -4,6 +4,9 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Threading;
     using System.Threading.Tasks;
     using Armada.Core.Models;
+    using SyslogLogging;
+    using Armada.Core.Settings;
+    using Armada.Core.Enums;
     using Armada.Core.Services;
     using Armada.Core.Services.Interfaces;
     using Armada.Server.Mcp.Tools;
@@ -101,7 +104,7 @@ namespace Armada.Test.Unit.Suites.Services
                     string? warning = null;
                     DateTime started = DateTime.UtcNow;
                     object? blocked = await CodeIndexDispatchGuard.BuildVoyageDispatchBlockedResponseAsync(
-                        blocking, "vsl_test", "armada_dispatch", message => warning = message)
+                        blocking, "vsl_test", "armada_dispatch", null, null, message => warning = message)
                         .ConfigureAwait(false);
                     TimeSpan elapsed = DateTime.UtcNow - started;
 
@@ -121,14 +124,66 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("DispatchGuard_HealthyStatus_StillBlocksOnStaleIndex", async () =>
+            await RunTest("DispatchGuard_StaleIndex_BlockPolicy_StillBlocks", async () =>
             {
-                // Guard against over-correcting: bounding the call must not disable the precondition.
                 StaleCodeIndexService stale = new StaleCodeIndexService();
+                CodeIndexSettings settings = new CodeIndexSettings { DispatchStalenessPolicy = CodeIndexDispatchStalenessPolicyEnum.Block };
                 object? blocked = await CodeIndexDispatchGuard.BuildVoyageDispatchBlockedResponseAsync(
-                    stale, "vsl_test", "armada_dispatch").ConfigureAwait(false);
-                AssertNotNull(blocked, "a genuinely stale index must still block dispatch");
+                    stale, "vsl_test", "armada_dispatch", settings, Silent()).ConfigureAwait(false);
+                AssertNotNull(blocked, "Block policy must still block a stale index");
+                AssertContains("code_index_stale", System.Text.Json.JsonSerializer.Serialize(blocked));
             });
+
+            await RunTest("DispatchGuard_StaleIndex_DefaultAndProceed_DispatchesAndSchedulesBackgroundRefresh", async () =>
+            {
+                RecordingRefreshCodeIndexService svc = new RecordingRefreshCodeIndexService();
+                // debounce 0 so the coalesced refresh fires promptly for the test.
+                CodeIndexSettings settings = new CodeIndexSettings { PostLandRefreshDebounceSeconds = 0 };
+                // default policy is Proceed
+                AssertEqual(CodeIndexDispatchStalenessPolicyEnum.Proceed, settings.DispatchStalenessPolicy);
+
+                object? blocked = await CodeIndexDispatchGuard.BuildVoyageDispatchBlockedResponseAsync(
+                    svc, "vsl_test", "armada_dispatch", settings, Silent()).ConfigureAwait(false);
+
+                AssertNull(blocked, "Proceed policy must NOT block a stale index");
+                bool refreshed = await svc.UpdateCalled.Task.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                AssertTrue(refreshed, "Proceed must schedule a background refresh (UpdateAsync should be invoked)");
+            });
+
+            await RunTest("DispatchGuard_StaleIndex_RefreshInline_RefreshesBeforeReturningAndProceeds", async () =>
+            {
+                RecordingRefreshCodeIndexService svc = new RecordingRefreshCodeIndexService();
+                CodeIndexSettings settings = new CodeIndexSettings { DispatchStalenessPolicy = CodeIndexDispatchStalenessPolicyEnum.RefreshInline };
+
+                object? blocked = await CodeIndexDispatchGuard.BuildVoyageDispatchBlockedResponseAsync(
+                    svc, "vsl_test", "armada_dispatch", settings, Silent()).ConfigureAwait(false);
+
+                AssertNull(blocked, "RefreshInline proceeds after refreshing");
+                AssertTrue(svc.UpdateCalled.Task.IsCompleted, "RefreshInline must run the refresh inline, before returning");
+                AssertEqual(1, svc.UpdateInvocations, "the inline refresh runs exactly once");
+            });
+
+            await RunTest("DispatchGuard_UpdateInProgress_ProceedDoesNotBlock_BlockDoes", async () =>
+            {
+                UpdatingCodeIndexService svc = new UpdatingCodeIndexService();
+                object? proceed = await CodeIndexDispatchGuard.BuildVoyageDispatchBlockedResponseAsync(
+                    svc, "vsl_test", "armada_dispatch",
+                    new CodeIndexSettings { DispatchStalenessPolicy = CodeIndexDispatchStalenessPolicyEnum.Proceed }, Silent()).ConfigureAwait(false);
+                AssertNull(proceed, "a refresh already running must not block dispatch under Proceed");
+
+                object? blocked = await CodeIndexDispatchGuard.BuildVoyageDispatchBlockedResponseAsync(
+                    svc, "vsl_test", "armada_dispatch",
+                    new CodeIndexSettings { DispatchStalenessPolicy = CodeIndexDispatchStalenessPolicyEnum.Block }, Silent()).ConfigureAwait(false);
+                AssertNotNull(blocked, "Block waits for the in-progress refresh");
+                AssertContains("code_index_update_in_progress", System.Text.Json.JsonSerializer.Serialize(blocked));
+            });
+        }
+
+        private static LoggingModule Silent()
+        {
+            LoggingModule l = new LoggingModule();
+            l.Settings.EnableConsole = false;
+            return l;
         }
 
         #region Test-Doubles
@@ -184,6 +239,69 @@ namespace Armada.Test.Unit.Suites.Services
                     CurrentCommitSha = "bbbbbbbb"
                 });
             }
+
+            public Task WarmBaselineCacheAsync(string vesselId, CancellationToken token = default) => Task.CompletedTask;
+            public Task<ContextPackResponse?> TryGetCachedContextPackAsync(ContextPackRequest request, CancellationToken token = default) => Task.FromResult<ContextPackResponse?>(null);
+            public Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<CodeSearchResponse> SearchAsync(CodeSearchRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<FleetCodeSearchResponse> SearchFleetAsync(FleetCodeSearchRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<FleetContextPackResponse> BuildFleetContextPackAsync(FleetContextPackRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<CodeGraphSymbolSearchResponse> SearchSymbolsAsync(CodeGraphSymbolSearchRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<CodeGraphNeighborsResponse> GetCallersAsync(CodeGraphNeighborsRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<CodeGraphNeighborsResponse> GetCalleesAsync(CodeGraphNeighborsRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<CodeGraphImpactResponse> GetImpactAsync(CodeGraphImpactRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<CodeGraphAffectedTestsResponse> SuggestAffectedTestsAsync(CodeGraphAffectedTestsRequest request, CancellationToken token = default) => throw new NotSupportedException();
+        }
+
+        /// <summary>Reports Stale, records UpdateAsync, and returns Fresh after a refresh.</summary>
+        private sealed class RecordingRefreshCodeIndexService : ICodeIndexService
+        {
+            private int _Refreshed;
+
+            public System.Threading.Tasks.TaskCompletionSource<bool> UpdateCalled { get; }
+                = new System.Threading.Tasks.TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            public int UpdateInvocations => System.Threading.Volatile.Read(ref _Refreshed);
+
+            public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
+            {
+                bool fresh = System.Threading.Volatile.Read(ref _Refreshed) > 0;
+                return Task.FromResult(new CodeIndexStatus
+                {
+                    VesselId = vesselId,
+                    VesselName = "test",
+                    Freshness = fresh ? "Fresh" : "Stale",
+                    IndexedCommitSha = fresh ? "bbbbbbbb" : "aaaaaaaa",
+                    CurrentCommitSha = "bbbbbbbb"
+                });
+            }
+
+            public Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default)
+            {
+                System.Threading.Interlocked.Increment(ref _Refreshed);
+                UpdateCalled.TrySetResult(true);
+                return Task.FromResult(new CodeIndexStatus { VesselId = vesselId, Freshness = "Fresh", IndexedCommitSha = "bbbbbbbb", CurrentCommitSha = "bbbbbbbb" });
+            }
+
+            public Task WarmBaselineCacheAsync(string vesselId, CancellationToken token = default) => Task.CompletedTask;
+            public Task<ContextPackResponse?> TryGetCachedContextPackAsync(ContextPackRequest request, CancellationToken token = default) => Task.FromResult<ContextPackResponse?>(null);
+            public Task<CodeSearchResponse> SearchAsync(CodeSearchRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<FleetCodeSearchResponse> SearchFleetAsync(FleetCodeSearchRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<FleetContextPackResponse> BuildFleetContextPackAsync(FleetContextPackRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<CodeGraphSymbolSearchResponse> SearchSymbolsAsync(CodeGraphSymbolSearchRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<CodeGraphNeighborsResponse> GetCallersAsync(CodeGraphNeighborsRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<CodeGraphNeighborsResponse> GetCalleesAsync(CodeGraphNeighborsRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<CodeGraphImpactResponse> GetImpactAsync(CodeGraphImpactRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<CodeGraphAffectedTestsResponse> SuggestAffectedTestsAsync(CodeGraphAffectedTestsRequest request, CancellationToken token = default) => throw new NotSupportedException();
+        }
+
+        /// <summary>Reports an update already in progress.</summary>
+        private sealed class UpdatingCodeIndexService : ICodeIndexService
+        {
+            public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
+                => Task.FromResult(new CodeIndexStatus { VesselId = vesselId, VesselName = "test", Freshness = "Updating", UpdateInProgress = true, UpdateStartedUtc = DateTime.UtcNow });
 
             public Task WarmBaselineCacheAsync(string vesselId, CancellationToken token = default) => Task.CompletedTask;
             public Task<ContextPackResponse?> TryGetCachedContextPackAsync(ContextPackRequest request, CancellationToken token = default) => Task.FromResult<ContextPackResponse?>(null);

@@ -15,6 +15,7 @@ Check these settings before you depend on the related workflow:
 | Setting or record | Effect |
 | --- | --- |
 | `codeIndex.enabled` | Enables code search, graph search, and context packs. |
+| `codeIndex.dispatchStalenessPolicy` | How dispatch reacts to a stale/updating index: `Proceed` (default, dispatch now + background refresh), `RefreshInline` (incremental refresh then dispatch), or `Block` (wait for Fresh, the legacy behaviour). |
 | `seedDockRuntimeMcpConfig` | Gives supported captains the local Armada MCP URL through runtime-appropriate dock or launch configuration. Default: enabled. |
 | `apiCaptainCloudProviders` | Lists the hosted providers (`OpenAI`, `Anthropic`, `Gemini`) an API-endpoint captain may run against. Default: empty, so only operator-hosted `Ollama` and `OpenAICompatible` endpoints run. Azure OpenAI, Vertex AI and Bedrock are not available. |
 | `autonomousRecovery.enabled` | Enables bounded server-side mission recovery. |
@@ -50,6 +51,17 @@ wherever they sit. A file whose braces do not balance, and every other language,
 uses fixed line windows. Expect several times more chunks than line windows on a
 method-heavy repository. Changing either setting rebuilds the index on the next
 update.
+
+Dispatch never waits on a reindex by default. When a voyage dispatches to a
+vessel whose index is stale (a landing moved the branch) or mid-refresh,
+`codeIndex.dispatchStalenessPolicy` decides: `Proceed` (default) dispatches
+immediately against the current index and schedules a debounced background
+refresh, so the context pack may trail the newest landed commit until the
+refresh lands; `RefreshInline` runs an incremental refresh (only changed files
+re-embed) bounded by the dispatch timeout, then dispatches, falling back to
+Proceed on timeout; `Block` keeps the legacy strict wait (dispatch is refused
+until the index is Fresh). The debounced post-land refresh and the periodic
+staleness sweep keep indexes warm regardless.
 
 `armada_code_duplicates` compares one vessel's indexed chunks and returns groups
 of similar code with path and line ranges. It pairs chunks with identical content

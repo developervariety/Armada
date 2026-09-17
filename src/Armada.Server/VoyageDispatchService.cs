@@ -163,6 +163,8 @@ namespace Armada.Server
                     _CodeIndexService,
                     vesselId,
                     "armada_dispatch",
+                    _Settings?.CodeIndex,
+                    _Logging,
                     LogCodeContextWarning,
                     token).ConfigureAwait(false);
                 if (blockedByIndex != null) return VoyageDispatchResult.BadRequest(blockedByIndex);

@@ -8,6 +8,14 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- Voyage dispatch no longer blocks on a stale code index by default. A landing moves the branch and marks the
+  vessel's index stale, which previously refused the next dispatch until a manual `armada_index_update`. The new
+  `codeIndex.dispatchStalenessPolicy` governs this: `Proceed` (default) dispatches against the current index and
+  schedules a debounced background refresh; `RefreshInline` runs an incremental refresh (only changed files
+  re-embed) bounded by the dispatch timeout, then dispatches; `Block` keeps the previous strict wait. An
+  update-in-progress no longer blocks dispatch except under `Block`. The existing post-land refresh scheduler and
+  staleness sweep keep indexes warm, so operators stop reindexing before each dispatch.
+
 - The Linter checks new code for duplication: a `## Duplication Check` section tells it to search the vessel's code
   index with `armada_mission_code_search` for each method the mission adds, read every strong result, and report a
   confirmed duplicate under `## Residual Issues` as a `[consistency | should_fix] DRY:` finding with both locations.

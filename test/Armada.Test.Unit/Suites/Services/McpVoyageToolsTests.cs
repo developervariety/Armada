@@ -261,7 +261,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Dispatch_BlocksWhenCodeIndexUpdateInProgress", async () =>
+            await RunTest("Dispatch_BlockPolicy_BlocksWhenCodeIndexUpdateInProgress", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -278,7 +278,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
-                        LegacyContextSettings(),
+                        BlockingContextSettings(),
                         null,
                         null,
                         codeIndex);
@@ -304,7 +304,7 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("Dispatch_BlocksWhenCodeIndexStale", async () =>
+            await RunTest("Dispatch_BlockPolicy_BlocksWhenCodeIndexStale", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
@@ -322,7 +322,7 @@ namespace Armada.Test.Unit.Suites.Services
                         (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
                         testDb.Driver,
                         admiralDouble,
-                        LegacyContextSettings(),
+                        BlockingContextSettings(),
                         null,
                         null,
                         codeIndex);
@@ -345,6 +345,44 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("Run armada_index_update", resultJson);
                     AssertEqual(0, codeIndex.ContextPackRequests.Count, "Dispatch should block before stale context pack generation");
                     AssertFalse(admiralDouble.DispatchVoyageCalled, "Dispatch must not persist a voyage while the vessel index is stale");
+                }
+            });
+
+            await RunTest("Dispatch_DefaultProceed_StaleIndex_DispatchesAnyway", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Vessel vessel = await testDb.Driver.Vessels.CreateAsync(
+                        new Vessel("index-stale-proceed-vessel", "https://github.com/test/repo.git")).ConfigureAwait(false);
+
+                    RecordingAdmiralDouble admiralDouble = new RecordingAdmiralDouble();
+                    RecordingCodeIndexService codeIndex = new RecordingCodeIndexService();
+                    codeIndex.Status.Freshness = "Stale";
+                    codeIndex.Status.IndexedCommitSha = "old";
+                    codeIndex.Status.CurrentCommitSha = "new";
+
+                    Func<JsonElement?, Task<object>>? dispatchHandler = null;
+                    McpVoyageTools.Register(
+                        (name, _, _, handler) => { if (name == "armada_dispatch") dispatchHandler = McpTestCaller.Wrap(handler); },
+                        testDb.Driver,
+                        admiralDouble,
+                        LegacyContextSettings(),
+                        null,
+                        null,
+                        codeIndex);
+
+                    JsonElement args = JsonSerializer.SerializeToElement(new
+                    {
+                        title = "stale but proceeds",
+                        vesselId = vessel.Id,
+                        missions = new object[] { new { title = "Task A", description = "proceeds against current index" } }
+                    });
+
+                    object result = await dispatchHandler!(args).ConfigureAwait(false);
+                    string resultJson = JsonSerializer.Serialize(result);
+
+                    AssertFalse(resultJson.Contains("code_index_stale", StringComparison.Ordinal), "default Proceed must not block a stale index");
+                    AssertTrue(admiralDouble.DispatchVoyageCalled, "default Proceed must persist the voyage despite the stale index");
                 }
             });
 
@@ -2232,6 +2270,13 @@ namespace Armada.Test.Unit.Suites.Services
         {
             ArmadaSettings settings = new ArmadaSettings();
             settings.CodeIndex.RequireContextPackWhenEnabled = false;
+            return settings;
+        }
+
+        private static ArmadaSettings BlockingContextSettings()
+        {
+            ArmadaSettings settings = LegacyContextSettings();
+            settings.CodeIndex.DispatchStalenessPolicy = CodeIndexDispatchStalenessPolicyEnum.Block;
             return settings;
         }
 

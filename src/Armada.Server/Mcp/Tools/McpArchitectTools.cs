@@ -129,7 +129,9 @@ namespace Armada.Server.Mcp.Tools
                         object? blockedByIndex = await CodeIndexDispatchGuard.BuildVoyageDispatchBlockedResponseAsync(
                             codeIndexService,
                             vesselId,
-                            "armada_decompose_plan").ConfigureAwait(false);
+                            "armada_decompose_plan",
+                            settings?.CodeIndex,
+                            logging).ConfigureAwait(false);
                         if (blockedByIndex != null) return blockedByIndex;
                     }
 
