@@ -41,6 +41,9 @@ namespace Armada.Server.Mcp.Tools
         /// <summary>Registered name of the D26 prior-art premise helper.</summary>
         public const string CheckPriorArtToolName = "armada_check_prior_art";
 
+        /// <summary>Registered name of the captain-facing change-quality review tool.</summary>
+        public const string ChangeQualityToolName = "armada_change_quality";
+
         #endregion
 
         #region Private-Members
@@ -206,6 +209,31 @@ namespace Armada.Server.Mcp.Tools
                     buildStateAndQuestions: null,
                     buildStateAndQuestionsAsync: (root, mission, token) =>
                         BuildPriorArtAsync(root, mission, priorArtRetriever, database, logging, token)).ConfigureAwait(false));
+
+            register(
+                ChangeQualityToolName,
+                "Get a multi-dimension quality read of a focused diff BEFORE the Judge, so you can self-correct. Pass the unified diff of your change in 'diff' and your mission id in 'missionId'. The tool returns per-dimension signals -- DRY, cognitive complexity, modularity, readability, maintainability -- as weaknesses to weigh, not a synthetic score. It takes no action: it never lands, dispatches, fails a stage, or edits a record, and your change is redacted before it leaves. It is budgeted per mission. Dormant by default (returns unavailable) until an operator enables the change-quality decision.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        diff = new { type = "string", description = "The unified diff of the change to review." },
+                        missionId = new { type = "string", description = "The calling mission id, for budget scope and event attribution. Optional." }
+                    },
+                    required = new[] { "diff" }
+                },
+                async (args) => await HandleAsync(
+                    args,
+                    "change_quality",
+                    hasDecisionGate: true,
+                    database,
+                    effectiveClient,
+                    recorder,
+                    settings,
+                    logging,
+                    participantKey,
+                    buildStateAndQuestions: BuildChangeQuality).ConfigureAwait(false));
         }
 
         /// <summary>
@@ -458,6 +486,38 @@ namespace Armada.Server.Mcp.Tools
                 ["belongs_in_ai_memory"] = new NoulQuestion(
                     "The candidate is a fleet rule that belongs in shared external memory, not a vessel fact for native memory.",
                     "belongs in shared memory", "is a native vessel fact")
+            };
+
+            return new ParsedDecision(state, questions);
+        }
+
+        private static ParsedDecision? BuildChangeQuality(JsonElement root)
+        {
+            string diff = ReadOptionalString(root, "diff") ?? String.Empty;
+            if (String.IsNullOrWhiteSpace(diff)) return null;
+
+            Dictionary<string, object?> state = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["diff"] = diff
+            };
+
+            Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
+            {
+                [ChangeQualityDimensions.Dry + "_weak"] = new NoulQuestion(
+                    "The change duplicates logic that already exists or repeats itself, rather than reusing or extracting a shared path.",
+                    "violates DRY", "does not duplicate logic"),
+                [ChangeQualityDimensions.CognitiveComplexity + "_weak"] = new NoulQuestion(
+                    "The change is more cognitively complex or bloated than the work requires: deep nesting, long methods, or convoluted control flow.",
+                    "is over-complex or bloated", "is about as simple as the work allows"),
+                [ChangeQualityDimensions.Modularity + "_weak"] = new NoulQuestion(
+                    "The change weakens module boundaries or cohesion: a type or method takes on unrelated responsibilities, or reaches across a boundary it should not.",
+                    "weakens modularity", "respects module boundaries"),
+                [ChangeQualityDimensions.Readability + "_weak"] = new NoulQuestion(
+                    "The change is hard to read: unclear names, missing intent, or dense code a later reader would struggle with.",
+                    "is hard to read", "reads clearly"),
+                [ChangeQualityDimensions.Maintainability + "_weak"] = new NoulQuestion(
+                    "The change will be hard to maintain or change safely later: hidden coupling, fragile assumptions, or missing seams.",
+                    "harms maintainability", "is maintainable")
             };
 
             return new ParsedDecision(state, questions);

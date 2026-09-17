@@ -8,6 +8,7 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- `armada_change_quality`: a captain-facing, mission-scoped, budgeted tool that returns a per-dimension quality read of a focused diff (DRY, cognitive complexity, modularity, readability, maintainability) before the Judge, so a captain can self-correct. Read-only: it lands, dispatches, and edits nothing, and the diff is redacted before egress.
 - The `change_quality` typed decision reads a focused diff across five dimensions (DRY, cognitive complexity,
   modularity, readability, maintainability). Two are backed by a deterministic, authoritative rule and hard-flag
   without the model — `cognitive_complexity` by an added-line nesting/length metric and `core_rule` by the Slop

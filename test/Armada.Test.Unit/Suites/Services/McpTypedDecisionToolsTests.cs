@@ -41,20 +41,44 @@ namespace Armada.Test.Unit.Suites.Services
         /// <summary>Run all tests.</summary>
         protected override async Task RunTestsAsync()
         {
-            await RunTest("The four captain tools are registered and mission-scoped", async () =>
+            await RunTest("The five captain tools are registered and mission-scoped", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     FakeTypedDecisionClient client = new FakeTypedDecisionClient();
                     Harness harness = Harness.Create(testDb, client, enabled: false);
 
-                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art" })
+                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art", "armada_change_quality" })
                         AssertTrue(harness.Handlers.ContainsKey(name), "Tool should be registered: " + name);
 
                     // A non-admin mission caller may list and call each tool, like the memory tools.
                     AuthContext captain = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, false, "Bearer");
-                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art" })
+                    foreach (string name in new[] { "armada_typed_decision", "armada_check_premise", "armada_memory_triage", "armada_check_prior_art", "armada_change_quality" })
                         AssertTrue(McpToolAccessPolicy.IsAllowed(captain, name), "Mission caller may use: " + name);
+                }
+            });
+
+            await RunTest("armada_change_quality asks the five dimension questions and returns the readings", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    Dictionary<string, TypedAnswer> answers = new Dictionary<string, TypedAnswer>(StringComparer.Ordinal)
+                    {
+                        ["dry_weak"] = new TypedAnswer { Type = "noul", Noul = 0.95, Confidence = 0.95 },
+                        ["readability_weak"] = new TypedAnswer { Type = "noul", Noul = 0.91, Confidence = 0.91 },
+                        ["cognitive_complexity_weak"] = new TypedAnswer { Type = "noul", Noul = 0.1, Confidence = 0.1 },
+                        ["modularity_weak"] = new TypedAnswer { Type = "noul", Noul = 0.1, Confidence = 0.1 },
+                        ["maintainability_weak"] = new TypedAnswer { Type = "noul", Noul = 0.1, Confidence = 0.1 }
+                    };
+                    FakeTypedDecisionClient client = new FakeTypedDecisionClient();
+                    client.NextResult = new TypedDecisionResult { Available = true, Answers = answers };
+                    Harness harness = Harness.Create(testDb, client, enabled: true);
+
+                    string response = await harness.CallAsync("armada_change_quality", new { diff = "diff --git a/x b/x\n@@ -1 +1,2 @@\n a\n+b\n" }).ConfigureAwait(false);
+
+                    AssertContains("\"available\":true", Compact(response));
+                    foreach (string q in new[] { "dry_weak", "cognitive_complexity_weak", "modularity_weak", "readability_weak", "maintainability_weak" })
+                        AssertTrue(client.LastQuestionIds.Contains(q), "asked dimension question: " + q);
                 }
             });
 
