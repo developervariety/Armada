@@ -25,7 +25,7 @@ namespace Armada.Test.Unit.Suites.Services
         {
             TypedDecisionSettings settings = new TypedDecisionSettings { Mode = TypedDecisionModeEnum.Gate };
             settings.KeyAvailable = () => true;
-            settings.Custom["source_fidelity"] = new CustomTypedDecisionSettings
+            settings.Custom["example_decision"] = new CustomTypedDecisionSettings
             {
                 Mode = mode,
                 GateThreshold = 0.9,
@@ -35,7 +35,7 @@ namespace Armada.Test.Unit.Suites.Services
                 StateFields = new List<string> { "diff" },
                 Questions = new List<CustomTypedQuestionSettings>
                 {
-                    new CustomTypedQuestionSettings { Id = "reproduces_source", Type = "noul", Instructions = "matches source", TrueMeaning = "yes", FalseMeaning = "no" }
+                    new CustomTypedQuestionSettings { Id = "matches_intent", Type = "noul", Instructions = "matches source", TrueMeaning = "yes", FalseMeaning = "no" }
                 }
             };
             return settings;
@@ -62,7 +62,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 TypedDecisionSettings settings = GatedSettings(CustomDecisionSeamEnum.None, TypedDecisionModeEnum.Gate);
                 settings.Mode = TypedDecisionModeEnum.Shadow;
-                AssertEqual(TypedDecisionModeEnum.Shadow, settings.ForCustom("source_fidelity").Mode, "the global cap wins");
+                AssertEqual(TypedDecisionModeEnum.Shadow, settings.ForCustom("example_decision").Mode, "the global cap wins");
                 AssertEqual(TypedDecisionModeEnum.Off, settings.ForCustom("nope").Mode, "an unknown custom decision is Off");
             });
 
@@ -70,10 +70,10 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 TypedDecisionSettings settings = GatedSettings(CustomDecisionSeamEnum.MissionDiffFlag, TypedDecisionModeEnum.Off);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("reproduces_source", 0.97));
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("matches_intent", 0.97));
                 CustomTypedDecisionAdapter adapter = new CustomTypedDecisionAdapter(client, new TypedDecisionRecorder(db.Driver, new LoggingModule()), settings, new LoggingModule());
 
-                CustomDecisionOutcome outcome = await adapter.RunAsync("source_fidelity", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
+                CustomDecisionOutcome outcome = await adapter.RunAsync("example_decision", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
                 AssertEqual("inactive", outcome.Status, "an Off decision is inactive");
                 AssertEqual(0, client.CallCount, "and never calls the provider");
                 AssertFalse(outcome.DidFlag, "and never flags");
@@ -83,10 +83,10 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 TypedDecisionSettings settings = GatedSettings(CustomDecisionSeamEnum.MissionDiffFlag);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("reproduces_source", 0.97));
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("matches_intent", 0.97));
                 CustomTypedDecisionAdapter adapter = new CustomTypedDecisionAdapter(client, new TypedDecisionRecorder(db.Driver, new LoggingModule()), settings, new LoggingModule());
 
-                CustomDecisionOutcome outcome = await adapter.RunAsync("source_fidelity", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
+                CustomDecisionOutcome outcome = await adapter.RunAsync("example_decision", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
                 AssertEqual("flagged", outcome.Status, "a bound decision gated above threshold flags");
                 AssertTrue(outcome.DidFlag, "and DidFlag is true");
             });
@@ -95,10 +95,10 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 TypedDecisionSettings settings = GatedSettings(CustomDecisionSeamEnum.None);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("reproduces_source", 0.99));
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("matches_intent", 0.99));
                 CustomTypedDecisionAdapter adapter = new CustomTypedDecisionAdapter(client, new TypedDecisionRecorder(db.Driver, new LoggingModule()), settings, new LoggingModule());
 
-                CustomDecisionOutcome outcome = await adapter.RunAsync("source_fidelity", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
+                CustomDecisionOutcome outcome = await adapter.RunAsync("example_decision", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
                 AssertEqual("recorded", outcome.Status, "an unbound decision records but does not flag, even at high confidence");
                 AssertFalse(outcome.DidFlag, "the safety property: no binding, no action");
             });
@@ -108,10 +108,10 @@ namespace Armada.Test.Unit.Suites.Services
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 TypedDecisionSettings settings = GatedSettings(CustomDecisionSeamEnum.MissionDiffFlag);
                 // noul 0.6 -> confidence |0.6-0.5|*2 = 0.2, below the 0.9 threshold.
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("reproduces_source", 0.6));
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("matches_intent", 0.6));
                 CustomTypedDecisionAdapter adapter = new CustomTypedDecisionAdapter(client, new TypedDecisionRecorder(db.Driver, new LoggingModule()), settings, new LoggingModule());
 
-                CustomDecisionOutcome outcome = await adapter.RunAsync("source_fidelity", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
+                CustomDecisionOutcome outcome = await adapter.RunAsync("example_decision", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
                 AssertEqual("recorded", outcome.Status, "below threshold records without flagging");
                 AssertFalse(outcome.DidFlag, "and never flags");
             });
@@ -123,7 +123,7 @@ namespace Armada.Test.Unit.Suites.Services
                 FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Unavailable("timeout"));
                 CustomTypedDecisionAdapter adapter = new CustomTypedDecisionAdapter(client, new TypedDecisionRecorder(db.Driver, new LoggingModule()), settings, new LoggingModule());
 
-                CustomDecisionOutcome outcome = await adapter.RunAsync("source_fidelity", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
+                CustomDecisionOutcome outcome = await adapter.RunAsync("example_decision", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
                 AssertEqual("unavailable", outcome.Status, "an unavailable provider yields unavailable");
                 AssertFalse(outcome.DidFlag, "and never flags");
             });
@@ -132,7 +132,7 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
                 TypedDecisionSettings settings = GatedSettings(CustomDecisionSeamEnum.MissionDiffFlag);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("reproduces_source", 0.97));
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("matches_intent", 0.97));
                 CustomTypedDecisionAdapter adapter = new CustomTypedDecisionAdapter(client, new TypedDecisionRecorder(db.Driver, new LoggingModule()), settings, new LoggingModule());
 
                 CustomDecisionOutcome outcome = await adapter.RunAsync("missing", Context(), null, null, CancellationToken.None).ConfigureAwait(false);
@@ -143,13 +143,13 @@ namespace Armada.Test.Unit.Suites.Services
             await RunTest("DescribeRequest_SelectsStateFieldsAndBuildsQuestions", () =>
             {
                 TypedDecisionSettings settings = GatedSettings(CustomDecisionSeamEnum.MissionDiffFlag);
-                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("reproduces_source", 0.97));
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(FakeTypedDecisionClient.Noul("matches_intent", 0.97));
                 CustomTypedDecisionAdapter adapter = new CustomTypedDecisionAdapter(client, new TypedDecisionRecorder(new Armada.Core.Database.Sqlite.SqliteDatabaseDriver("Data Source=:memory:", new LoggingModule()), new LoggingModule()), settings, new LoggingModule());
 
                 Dictionary<string, object?> context = new Dictionary<string, object?> { ["diff"] = "the-diff", ["ignored"] = "x" };
-                TypedDecisionBatchItem? item = adapter.DescribeRequest("source_fidelity", context);
+                TypedDecisionBatchItem? item = adapter.DescribeRequest("example_decision", context);
                 AssertNotNull(item, "a request is built");
-                AssertTrue(item!.Questions.ContainsKey("reproduces_source"), "the question is present");
+                AssertTrue(item!.Questions.ContainsKey("matches_intent"), "the question is present");
                 AssertTrue(FakeTypedDecisionClient.StateText(new TypedDecisionRequest { DecisionPoint = "x", State = item.State.State, Questions = item.Questions }).Contains("the-diff"), "the selected state field is included");
             });
         }

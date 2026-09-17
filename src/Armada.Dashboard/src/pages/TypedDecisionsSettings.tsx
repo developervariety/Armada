@@ -263,6 +263,12 @@ function CustomDecisionsSection(props: {
   const remove = async (name: string) => { await run(() => deleteCustomTypedDecision(name), 'Custom decision deleted.'); };
   const installSeeds = async () => { await run(() => installCustomTypedDecisionSeeds(), 'Example decisions installed.'); };
 
+  // Inline mode/threshold change from the list row: send the full existing decision with the
+  // override, so an operator can flip Off -> Gate (or tune the threshold) without opening the editor.
+  const quickSave = async (d: CustomTypedDecision, patch: Partial<CustomTypedDecision>) => {
+    await run(() => upsertCustomTypedDecision(d.name, { ...d, ...patch }), 'Custom decision updated.');
+  };
+
   const setQuestion = (i: number, patch: Partial<CustomTypedQuestion>) => {
     if (!draft) return;
     const questions = draft.questions.map((q, idx) => (idx === i ? { ...q, ...patch } : q));
@@ -281,8 +287,13 @@ function CustomDecisionsSection(props: {
         ? <tr><td colSpan={7} className="text-muted">{t('No custom decisions yet.')}</td></tr>
         : (status.custom ?? []).map((d) => <tr key={d.name}>
           <td><span className="mono">{d.name}</span><div className="text-muted">{d.description}</div></td>
-          <td>{d.mode}</td>
-          <td>{d.threshold}</td>
+          <td><select aria-label={t('Mode for {{decision}}', { decision: d.name })} value={d.mode} disabled={busy}
+            onChange={(e) => quickSave(d, { mode: e.target.value as TypedDecisionMode })}>
+            {MODES.map((m) => <option key={m} value={m}>{t(m)}</option>)}
+          </select></td>
+          <td><input type="number" min={0} max={1} step={0.01} className="typed-decisions-threshold" defaultValue={d.threshold} disabled={busy}
+            aria-label={t('Threshold for {{decision}}', { decision: d.name })}
+            onBlur={(e) => { const v = Number(e.target.value); if (Number.isFinite(v) && v >= 0 && v <= 1 && v !== d.threshold) void quickSave(d, { threshold: v }); }} /></td>
           <td>{d.surface}</td>
           <td>{d.binding}</td>
           <td>{d.questions.length}</td>

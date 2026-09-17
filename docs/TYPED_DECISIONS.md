@@ -530,11 +530,10 @@ Administrator routes (same permission as a settings write):
 | --- | --- |
 | `PUT /api/v1/typed-decisions/custom/{name}` | Create or replace a custom decision. Refuses a name that collides with a shipped decision, an invalid mode/threshold/surface/binding, a `MissionDiffFlag` binding without the `MissionDiff` surface, or a malformed question, with 400. |
 | `DELETE /api/v1/typed-decisions/custom/{name}` | Remove a custom decision. Deleting one does not resurrect it from the seeds. |
-| `POST /api/v1/typed-decisions/custom/install-seeds` | Install the built-in example custom decisions (`source_fidelity`, `safety_step_present`, `citation_resolves`) that are not already present. They ship `Off` and unbound. |
+| `POST /api/v1/typed-decisions/custom/install-seeds` | Install the built-in generic example custom decisions that are not already present. They ship `Off` and unbound. |
 
 `GET /api/v1/typed-decisions` returns every custom decision under `custom`.
 
-The example seeds are the registry-friendly members of the repo-specific decision queue in
-`AI-Memory/typed-decision-eval/PROPOSED_DECISIONS.md`. The queue's blocking or state-heavy
-members (`reflash_guardrail`, `consumer_break_direction`) stay bespoke code and are not custom
-decisions.
+The example seeds are generic software-engineering checks, meant only to show the shape of a
+custom decision. A deployment defines its own decisions in the dashboard or imports them as
+configuration; domain-specific decisions are never shipped in this source.
