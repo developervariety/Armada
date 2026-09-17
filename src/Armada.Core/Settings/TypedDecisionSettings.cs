@@ -75,6 +75,11 @@ namespace Armada.Core.Settings
         public bool EvalOnModelChange { get; set; } = true;
 
         /// <summary>
+        /// Retention of redacted decision state on this host as training data. Off by default.
+        /// </summary>
+        public TypedDecisionRetentionSettings Retention { get; set; } = new TypedDecisionRetentionSettings();
+
+        /// <summary>
         /// Configuration for the captain-facing typed-decision tool.
         /// </summary>
         public TypedDecisionCaptainToolSettings CaptainTool
@@ -207,6 +212,40 @@ namespace Armada.Core.Settings
     }
 
     /// <summary>
+    /// Retention of redacted decision state on this host, as the training and evaluation set for a
+    /// local classifier. Off by default. Enabling it retains nothing on its own: each decision opts
+    /// in with <see cref="TypedDecisionRuleSettings.RetainState"/>.
+    /// </summary>
+    public class TypedDecisionRetentionSettings
+    {
+        /// <summary>
+        /// Whether retention runs at all. The kill switch for the whole store. Default false.
+        /// </summary>
+        public bool Enabled { get; set; } = false;
+
+        /// <summary>
+        /// Days of samples kept. Files older than this are deleted by the prune sweep. Default 90.
+        /// </summary>
+        public int RetentionDays
+        {
+            get => _RetentionDays;
+            set => _RetentionDays = Math.Clamp(value, 1, 3650);
+        }
+
+        /// <summary>
+        /// Samples one decision needs before it is reported as trainable. Default 200.
+        /// </summary>
+        public int MinimumSamplesPerDecision
+        {
+            get => _MinimumSamplesPerDecision;
+            set => _MinimumSamplesPerDecision = Math.Max(1, value);
+        }
+
+        private int _RetentionDays = 90;
+        private int _MinimumSamplesPerDecision = 200;
+    }
+
+    /// <summary>
     /// Per-decision-point configuration. Off by default with no threshold.
     /// </summary>
     public class TypedDecisionRuleSettings
@@ -215,6 +254,14 @@ namespace Armada.Core.Settings
         /// The decision's own mode. Capped by the global mode. Default Off.
         /// </summary>
         public TypedDecisionModeEnum Mode { get; set; } = TypedDecisionModeEnum.Off;
+
+        /// <summary>
+        /// Whether this decision's REDACTED state is retained on the host as training and evaluation
+        /// data (owner ruling 2026-09-17). Opt-in per decision and additionally gated by
+        /// <see cref="TypedDecisionRetentionSettings.Enabled"/>. Retained text never leaves the host
+        /// and never enters an event payload. Default false.
+        /// </summary>
+        public bool RetainState { get; set; } = false;
 
         /// <summary>
         /// Confidence at or above which the model may gate this decision. Below it, the rule

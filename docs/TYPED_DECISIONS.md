@@ -47,6 +47,36 @@ The safety contract holds whenever it is enabled:
   truncates to the state cap. The Bearer key is never logged, recorded, stored
   in settings, or returned by any response.
 
+## Retained training data
+
+**Owner ruling 2026-09-17.** The REDACTED state of a decision call may be kept
+on this host as the training and evaluation set for a local classifier. Only
+retention changed; egress did not. An event still carries the state's hash and
+byte count and never the state, and nothing extra leaves the host.
+
+- **Two switches, both needed.** `typedDecisions.retention.enabled` turns the
+  store on, and each decision opts in with its own `retainState`. Enabling the
+  feature alone retains nothing, and turning it off is the kill switch for every
+  decision. Both are read per call, so a change needs no restart.
+- **Where it is kept.** JSON lines under
+  `<data directory>/typed-decision-samples/<decision>/<date>.jsonl`. A line holds
+  the redacted state, its hash, the rule's verdict, the model's verdict and
+  confidence, the gate outcome, and the mission id. A file store, because the set
+  is written once and read in bulk by a trainer, and a retention window is a file
+  delete.
+- **`retentionDays`** (default 90) bounds it; files outside the window are deleted
+  at startup. **`minimumSamplesPerDecision`** (default 200) decides when a
+  decision is reported as trainable.
+- **Labels come from reversals.** `armada_typed_decision_reversal` records that a
+  gated outcome was wrong and writes the corrected answer beside the call, joined
+  by the state hash. That pair — what the rule said, what the model said, what a
+  person decided — is the labelled example a local model is trained and reviewed
+  against.
+- **Retention never changes an outcome.** Every write is best effort; a failure is
+  logged and swallowed, exactly like a recorder failure.
+- **Report before you train.** `armada_typed_decision_labels` names every decision
+  with retained data and says which are short of the minimum and by how much.
+
 ### The provider key
 
 The key resolves in this order:

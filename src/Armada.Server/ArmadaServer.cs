@@ -18,6 +18,7 @@ namespace Armada.Server
     using Armada.Core.Models;
     using Armada.Core.Recovery;
     using Armada.Core.Services;
+    using Armada.Core.Services.TypedDecisions;
     using Armada.Core.Services.Interfaces;
     using Armada.Core.Settings;
     using Armada.Runtimes;
@@ -137,6 +138,7 @@ namespace Armada.Server
         private ITypedDecisionClient _TypedDecisionClient = new NullTypedDecisionClient();
         private TypedDecisionKeyStore _TypedDecisionKeys = null!;
         private TypedDecisionRecorder _TypedDecisionRecorder = null!;
+        private TypedDecisionSampleStore _TypedDecisionSamples = null!;
         private TypedDecisionEvalService? _TypedDecisionEval = null;
         private HttpClient _TypedDecisionHttpClient = null!;
         // The context retrieval service over the built context index (manifest chunks plus bodies).
@@ -274,7 +276,18 @@ namespace Armada.Server
             // effect without a restart. Without a key the effective global mode is Off, so no decision
             // calls a client or records an event. The recorder writes only its own events.
             _TypedDecisionHttpClient = new HttpClient();
-            _TypedDecisionRecorder = new TypedDecisionRecorder(_Database, _Logging);
+            // Retention of redacted decision state on this host, as the training and evaluation set for
+            // a local classifier (owner ruling 2026-09-17). Off until typedDecisions.retention.enabled
+            // AND the decision's own retainState, and read live so a change needs no restart. The store
+            // never leaves the host, and the event payload still carries only the state's hash.
+            _TypedDecisionSamples = new TypedDecisionSampleStore(_Settings.DataDirectory, _Logging);
+            _TypedDecisionRecorder = new TypedDecisionRecorder(
+                _Database, _Logging, _TypedDecisionSamples, () => _Settings.TypedDecisions);
+            if (_Settings.TypedDecisions.Retention.Enabled)
+            {
+                int pruned = _TypedDecisionSamples.Prune(_Settings.TypedDecisions.Retention.RetentionDays);
+                if (pruned > 0) _Logging.Info(_Header + "typed-decision samples: pruned " + pruned + " file(s) outside the retention window");
+            }
             _TypedDecisionKeys = new TypedDecisionKeyStore(_Settings.DataDirectory);
             _Settings.TypedDecisions.KeyAvailable = () => _TypedDecisionKeys.HasKey(_Settings.TypedDecisions, out string? _);
             _TypedDecisionClient = new SwitchableTypedDecisionClient(_Settings.TypedDecisions, _TypedDecisionKeys, _Logging, _TypedDecisionHttpClient);
@@ -1893,6 +1906,7 @@ namespace Armada.Server
                 typedDecisionRecorder: _TypedDecisionRecorder,
                 typedDecisionParticipantKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey,
                 typedDecisionEval: _TypedDecisionEval,
+                typedDecisionSamples: _TypedDecisionSamples,
                 papercutMergeAdapter: _PapercutMergeAdapter,
                 inboxTriageAdapter: _InboxTriageAdapter,
                 followUpRoutingAdapter: _FollowUpRoutingAdapter,

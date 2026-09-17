@@ -754,6 +754,27 @@ count per family on origin through the vessel working checkout:
 A WorkProduced mission under an ended voyage is terminal only after 8.26
 reconciles it. Until then its branch counts as kept for active missions.
 
+### 8.27 Typed-Decision Training Data
+
+| Risk | Tools |
+| --- | --- |
+| Read | `armada_typed_decision_labels` |
+| Write | `armada_typed_decision_reversal` |
+
+Both are operator tools; a mission captain reaches neither.
+
+`armada_typed_decision_reversal` records that a gated decision was wrong. Give
+the decision event id, the answer that was correct, and why. It writes one
+`typed_decision.reversed` event naming the original, and — when that decision
+retains state — a labelled example in the host-local store. It reverses nothing
+by itself: the work you already corrected stands, and no gate, threshold, or
+record changes.
+
+`armada_typed_decision_labels` reports what the host has retained per decision:
+retained calls, recorded reversals, and whether the decision has reached the
+minimum sample count. A decision below the minimum is named with its reason,
+never left out, so "nothing to train on" is always visible rather than silent.
+
 ### 8.26 Terminal Voyage Mission Reconciliation
 
 WorkProduced means that work exists and a later stage or landing will act on

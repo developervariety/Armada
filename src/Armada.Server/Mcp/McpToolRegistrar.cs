@@ -100,6 +100,7 @@ namespace Armada.Server.Mcp
             Armada.Core.Services.TypedDecisionRecorder? typedDecisionRecorder = null,
             Func<string?>? typedDecisionParticipantKeyProvider = null,
             Armada.Core.Services.TypedDecisionEvalService? typedDecisionEval = null,
+            Armada.Core.Services.TypedDecisions.TypedDecisionSampleStore? typedDecisionSamples = null,
             Armada.Core.Services.PapercutMergeAdapter? papercutMergeAdapter = null,
             Armada.Core.Services.InboxTriageAdapter? inboxTriageAdapter = null,
             Armada.Core.Services.FollowUpRoutingAdapter? followUpRoutingAdapter = null,
@@ -186,6 +187,16 @@ namespace Armada.Server.Mcp
                     logging,
                     typedDecisionParticipantKeyProvider,
                     priorArtRetriever);
+
+                // The operator-facing data tools over the same programme: record that a gated outcome
+                // was wrong, and report what the host has retained. Operator-scoped, so they are not in
+                // the caller-scoped catalogue a mission captain reaches.
+                McpTypedDecisionDataTools.Register(
+                    register,
+                    typedRecorder,
+                    typedDecisionSamples,
+                    () => effectiveSettings.TypedDecisions,
+                    logging);
             }
             if (typedDecisionEval != null) McpTypedDecisionEvalTools.Register(register, typedDecisionEval);
             if (settings != null) McpBackupTools.Register(register, new DatabaseBackupService(database, settings));

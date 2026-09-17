@@ -218,6 +218,7 @@ unredacted state. Captains can consult read-only tools
 | `decisions` | all `Gate` | Per-decision `mode` (`Off`/`Shadow`/`Gate`) and `gateThreshold`. Effective mode is the minimum of the global and per-decision mode. |
 | `evalOnModelChange` | `true` | Run the synthetic evaluation set in the background when the provider reports a model version not yet evaluated. |
 | `captainTool` | enabled | Captain-facing tool: `enabled`, `maxStateChars`. There is no per-mission call cap. |
+| `retention` | off | Host-local retention of REDACTED decision state as training data: `enabled`, `retentionDays`, `minimumSamplesPerDecision`, plus `retainState` per decision. Nothing leaves the host and no event carries the state. |
 
 Without a key no decision calls a client or records an event. `mode` and
 `decisions` hot-reload in place, so decision points see the change and a later

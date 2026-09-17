@@ -10,6 +10,8 @@ namespace Armada.Core.Services
     using System.Threading.Tasks;
     using Armada.Core.Database;
     using Armada.Core.Models;
+    using Armada.Core.Services.TypedDecisions;
+    using Armada.Core.Settings;
     using SyslogLogging;
 
     /// <summary>
@@ -18,6 +20,11 @@ namespace Armada.Core.Services
     /// confidences, token and latency counts, the gate outcome, and a hash and byte count of the
     /// transmitted state. It NEVER carries the state itself — only <c>state_sha256</c> and
     /// <c>state_bytes</c>.
+    ///
+    /// When a sample store is supplied and the decision opts in, the same call also appends its
+    /// REDACTED state to the host-local training store (<see cref="TypedDecisionSampleStore"/>).
+    /// That store is the only place the text is kept, it never leaves the host, and a retention
+    /// failure never changes a decision's outcome.
     /// </summary>
     public sealed class TypedDecisionRecorder
     {
@@ -45,8 +52,13 @@ namespace Armada.Core.Services
         /// </summary>
         public const string EventTypeCaptain = "typed_decision.captain";
 
+        /// <summary>Event type for an operator reversing a gated outcome.</summary>
+        public const string EventTypeReversed = "typed_decision.reversed";
+
         private readonly DatabaseDriver _Database;
         private readonly LoggingModule _Logging;
+        private readonly TypedDecisionSampleStore? _Samples;
+        private readonly Func<TypedDecisionSettings?>? _Settings;
 
         #endregion
 
@@ -57,10 +69,19 @@ namespace Armada.Core.Services
         /// </summary>
         /// <param name="database">Database driver whose Events collection receives the record.</param>
         /// <param name="logging">Logging module.</param>
-        public TypedDecisionRecorder(DatabaseDriver database, LoggingModule logging)
+        /// <param name="samples">Optional host-local sample store for retained state; null retains nothing.</param>
+        /// <param name="settings">Optional accessor for live typed-decision settings, read on each call so a
+        /// retention change takes effect without a restart; null retains nothing.</param>
+        public TypedDecisionRecorder(
+            DatabaseDriver database,
+            LoggingModule logging,
+            TypedDecisionSampleStore? samples = null,
+            Func<TypedDecisionSettings?>? settings = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _Samples = samples;
+            _Settings = settings;
         }
 
         #endregion
@@ -165,9 +186,135 @@ namespace Armada.Core.Services
             }
         }
 
+        /// <summary>
+        /// Record an operator reversing a gated outcome: the decision acted, and a person judged the
+        /// result wrong. Writes a <c>typed_decision.reversed</c> event naming the original event, and
+        /// appends a label to the sample store when the decision retains state. This is the labelled
+        /// example a local classifier is trained and reviewed against, so it is recorded by the
+        /// platform rather than left to a hand-written note. Never throws.
+        /// </summary>
+        /// <param name="eventId">The typed-decision event being reversed.</param>
+        /// <param name="correctedVerdict">The answer the operator says was correct.</param>
+        /// <param name="reason">Why the gated outcome was wrong.</param>
+        /// <param name="reversedBy">Who reversed it.</param>
+        /// <param name="token">Cancellation token.</param>
+        /// <returns>The reversal outcome: the created event, or the reason none was created.</returns>
+        public async Task<TypedDecisionReversalResult> RecordReversalAsync(
+            string eventId,
+            string correctedVerdict,
+            string reason,
+            string reversedBy,
+            CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(eventId))
+                return TypedDecisionReversalResult.Refused("an event id is required");
+            if (String.IsNullOrWhiteSpace(correctedVerdict))
+                return TypedDecisionReversalResult.Refused("a corrected verdict is required");
+
+            ArmadaEvent? original;
+            try
+            {
+                original = await _Database.Events.ReadAsync(eventId, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "reversal lookup failed for " + eventId + ": " + ex.Message);
+                return TypedDecisionReversalResult.Refused("the event could not be read");
+            }
+
+            if (original == null) return TypedDecisionReversalResult.Refused("no event with that id");
+            if (!IsTypedDecisionEvent(original.EventType))
+                return TypedDecisionReversalResult.Refused("event " + eventId + " is not a typed-decision event");
+
+            string decisionPoint = ReadPayloadString(original.Payload, "decision") ?? "unknown";
+            string stateSha256 = ReadPayloadString(original.Payload, "state_sha256") ?? String.Empty;
+
+            Dictionary<string, object?> payload = new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["decision"] = decisionPoint,
+                ["original_event_id"] = original.Id,
+                ["original_event_type"] = original.EventType,
+                ["rule_verdict"] = ReadPayloadString(original.Payload, "rule_verdict"),
+                ["gate_outcome"] = ReadPayloadString(original.Payload, "gate_outcome"),
+                ["corrected_verdict"] = correctedVerdict,
+                ["reason"] = reason ?? String.Empty,
+                ["reversed_by"] = reversedBy ?? String.Empty,
+                ["state_sha256"] = stateSha256
+            };
+
+            ArmadaEvent? recorded;
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent(EventTypeReversed,
+                    "decision=" + decisionPoint + " reversed to=" + correctedVerdict)
+                {
+                    Payload = JsonSerializer.Serialize(payload),
+                    TenantId = original.TenantId ?? Constants.DefaultTenantId,
+                    UserId = original.UserId,
+                    EntityType = original.EntityType,
+                    EntityId = original.EntityId,
+                    MissionId = original.MissionId,
+                    VesselId = original.VesselId,
+                    VoyageId = original.VoyageId,
+                    CaptainId = original.CaptainId
+                };
+                recorded = await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to record " + EventTypeReversed + ": " + ex.Message);
+                return TypedDecisionReversalResult.Refused("the reversal event could not be written");
+            }
+
+            bool labelled = false;
+            if (_Samples != null && _Settings != null && TypedDecisionSampleStore.Retains(_Settings(), decisionPoint))
+            {
+                labelled = await _Samples.AppendAsync(new TypedDecisionSample
+                {
+                    Kind = TypedDecisionSampleStore.KindReversal,
+                    DecisionPoint = decisionPoint,
+                    EventId = original.Id,
+                    StateSha256 = stateSha256,
+                    RuleVerdict = ReadPayloadString(original.Payload, "rule_verdict"),
+                    GateOutcome = ReadPayloadString(original.Payload, "gate_outcome"),
+                    CorrectedVerdict = correctedVerdict,
+                    Reason = reason,
+                    MissionId = original.MissionId
+                }, token).ConfigureAwait(false);
+            }
+
+            return TypedDecisionReversalResult.Recorded(recorded, decisionPoint, labelled);
+        }
+
         #endregion
 
         #region Private-Methods
+
+        private static bool IsTypedDecisionEvent(string? eventType)
+        {
+            return String.Equals(eventType, EventTypeGated, StringComparison.Ordinal)
+                || String.Equals(eventType, EventTypeShadow, StringComparison.Ordinal)
+                || String.Equals(eventType, EventTypeUnavailable, StringComparison.Ordinal)
+                || String.Equals(eventType, EventTypeCaptain, StringComparison.Ordinal);
+        }
+
+        private static string? ReadPayloadString(string? payload, string property)
+        {
+            if (String.IsNullOrWhiteSpace(payload)) return null;
+            try
+            {
+                using (JsonDocument document = JsonDocument.Parse(payload))
+                {
+                    if (document.RootElement.ValueKind != JsonValueKind.Object) return null;
+                    if (!document.RootElement.TryGetProperty(property, out JsonElement value)) return null;
+                    return value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+                }
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+        }
 
         private async Task<ArmadaEvent?> RecordAsync(string eventType, string gateOutcome, TypedDecisionEventContext context, CancellationToken token)
         {
@@ -196,13 +343,40 @@ namespace Armada.Core.Services
 
                 if (!String.IsNullOrWhiteSpace(context.CaptainId)) evt.CaptainId = context.CaptainId;
 
-                return await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+                ArmadaEvent created = await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+                await RetainAsync(context, gateOutcome, created, token).ConfigureAwait(false);
+                return created;
             }
             catch (Exception ex)
             {
                 _Logging.Warn(_Header + "failed to record " + eventType + ": " + ex.Message);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Append the call's redacted state to the host-local store when the decision opts in. Best
+        /// effort: a failure is logged and swallowed, exactly like a recorder failure.
+        /// </summary>
+        private async Task RetainAsync(TypedDecisionEventContext context, string gateOutcome, ArmadaEvent? evt, CancellationToken token)
+        {
+            if (_Samples == null || _Settings == null) return;
+            TypedDecisionSettings? settings = _Settings();
+            if (!TypedDecisionSampleStore.Retains(settings, context.DecisionPoint)) return;
+
+            await _Samples.AppendAsync(new TypedDecisionSample
+            {
+                Kind = TypedDecisionSampleStore.KindDecision,
+                DecisionPoint = context.DecisionPoint,
+                EventId = evt?.Id,
+                RedactedState = context.RedactedState ?? String.Empty,
+                StateSha256 = ComputeSha256(context.RedactedState),
+                RuleVerdict = context.RuleVerdict,
+                ModelVerdict = context.ModelVerdict,
+                Confidence = context.Confidence,
+                GateOutcome = gateOutcome,
+                MissionId = context.Mission?.Id
+            }, token).ConfigureAwait(false);
         }
 
         private static string BuildMessage(string eventType, TypedDecisionEventContext context)
@@ -331,5 +505,44 @@ namespace Armada.Core.Services
         /// The captain that made the call, when known. Set on captain-tool events for attribution.
         /// </summary>
         public string? CaptainId { get; init; }
+    }
+
+    /// <summary>
+    /// The outcome of recording an operator reversal: the event written, or why none was.
+    /// </summary>
+    public sealed class TypedDecisionReversalResult
+    {
+        /// <summary>Whether the reversal was recorded.</summary>
+        public bool Success { get; init; }
+
+        /// <summary>Why the reversal was refused, when it was.</summary>
+        public string? Refusal { get; init; }
+
+        /// <summary>The reversal event, when one was written.</summary>
+        public ArmadaEvent? Event { get; init; }
+
+        /// <summary>The decision point the reversed call belonged to.</summary>
+        public string? DecisionPoint { get; init; }
+
+        /// <summary>Whether a labelled sample was appended to the training store.</summary>
+        public bool Labelled { get; init; }
+
+        /// <summary>A refused reversal, with its reason.</summary>
+        /// <param name="reason">Why the reversal was refused.</param>
+        /// <returns>The refusal.</returns>
+        public static TypedDecisionReversalResult Refused(string reason)
+        {
+            return new TypedDecisionReversalResult { Success = false, Refusal = reason };
+        }
+
+        /// <summary>A recorded reversal.</summary>
+        /// <param name="evt">The reversal event.</param>
+        /// <param name="decisionPoint">The decision point.</param>
+        /// <param name="labelled">Whether a labelled sample was appended.</param>
+        /// <returns>The result.</returns>
+        public static TypedDecisionReversalResult Recorded(ArmadaEvent? evt, string decisionPoint, bool labelled)
+        {
+            return new TypedDecisionReversalResult { Success = true, Event = evt, DecisionPoint = decisionPoint, Labelled = labelled };
+        }
     }
 }
