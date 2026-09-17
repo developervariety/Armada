@@ -43,6 +43,25 @@ All notable changes to Armada are documented in this file.
   redacted before egress; the event carries the state hash and byte count, never the hunk. Call volume is bounded per
   file and per scan, and a timeout, non-2xx, 429, 529 or parse error leaves the deterministic verdict standing.
 
+- `armada_corpus_prelabel`: a pre-shaped, mission-scoped captain/operator tool that reads one captured record and
+  returns the provisional corpus KIND of the decision it holds. It follows the `corpus_prelabel` decision's own
+  mode, so its one event per call is recorded under that decision and a post-gate review has calls to score; it is
+  dormant while that decision is Off. It asks one choice question, proposes no answer to the decision itself,
+  writes no corpus line, and changes no record. An empty record is refused rather than answered.
+- The `corpus_prelabel` helper (`scripts/autonomy/draft-corpus-line.mjs`) now asks the classifier for the
+  provisional kind of a captured record instead of guessing it from the input shape. It calls the
+  `armada_corpus_prelabel` MCP tool on the admiral with the operator's Armada API key, so it holds no provider key,
+  and it reads the decision's own mode and gate threshold from `GET /api/v1/typed-decisions` rather than keeping a
+  second copy of them. It stays an operator-side script outside the dispatch loop. Every emitted line still carries
+  `"draft": true` — on the model path, on the fail-closed path, and at full confidence — and the script never
+  removes that flag and never fills `decided`, `decided_by` or `basis`. The decision Off, the global mode Off, no
+  key, Shadow mode, a timeout, a non-2xx reply, a rate-limited or overloaded provider, an unparsable answer, an
+  unknown kind, or a confidence below the threshold each yield a draft with no kind and a stated reason. State is
+  redacted before it leaves the script and only its hash and byte count are recorded on the draft. The corpus-kind
+  to scored-decision mapping is now one named map, compared by the self-check against the second copy in the
+  operator eval store when `ARMADA_CORPUS_INGESTER` names it; that comparison reports SKIP, never PASS, when it
+  cannot run. The corpus kinds the tool offers and the ones the script knows are compared by a unit test for the
+  same reason.
 - Typed-decision training data (phase 0 of the local-classifier programme, owner ruling 2026-09-17). The
   retention section is carried by the settings hot reload, so enabling it takes effect without a restart. The REDACTED
   state of a decision call can now be retained on the host as JSON lines under

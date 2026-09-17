@@ -52,6 +52,7 @@ namespace Armada.Server.Mcp
             "armada_memory_triage",
             "armada_check_prior_art",
             "armada_change_quality",
+            "armada_corpus_prelabel",
 
             // The captain-facing context fetch tool. It is read-only and informative: it returns
             // sanitized memory and docs leaf text, writes no record, and is budgeted per mission, so a
