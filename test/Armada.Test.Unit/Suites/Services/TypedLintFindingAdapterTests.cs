@@ -194,6 +194,32 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(1, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeUnavailable).ConfigureAwait(false));
             }).ConfigureAwait(false);
 
+            await RunTest("AsksOnlyAboutListedFindings", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(LintResult((1, "correctness", 2.0, 0.97)));
+                TypedLintFindingAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+
+                await adapter.DecideAsync(BuildInput(), LintFindingVerdict.Unrouted(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(6, client.LastRequest!.Questions.Count, "three findings ask a class and a severity each, no empty slots");
+                AssertTrue(client.LastRequest.Questions.ContainsKey("severity_3"), "the last listed finding is asked");
+                AssertFalse(client.LastRequest.Questions.ContainsKey("class_4"), "no slot beyond the listed findings is asked");
+            }).ConfigureAwait(false);
+
+            await RunTest("NoFindings_NoCall_RuleStands", async () =>
+            {
+                using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                FakeTypedDecisionClient client = new FakeTypedDecisionClient(LintResult((1, "correctness", 2.0, 0.97)));
+                TypedLintFindingAdapter adapter = BuildAdapter(db, client, BuildSettings(TypedDecisionModeEnum.Gate));
+                LintFindingDecisionInput empty = new LintFindingDecisionInput { Mission = BuildInput().Mission, Findings = new List<string> { " " } };
+
+                LintFindingVerdict result = await adapter.DecideAsync(empty, LintFindingVerdict.Unrouted(), CancellationToken.None).ConfigureAwait(false);
+
+                AssertEqual(0, client.Calls, "nothing to classify sends nothing");
+                AssertEqual(LintFindingVerdict.Unrouted().OutcomeLabel, result.OutcomeLabel);
+            }).ConfigureAwait(false);
+
             await RunTest("CallerTokenReachesClient_AndDecisionPoint", async () =>
             {
                 using TestDatabase db = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

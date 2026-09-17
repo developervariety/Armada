@@ -33,6 +33,17 @@ namespace Armada.Core.Models
         /// </summary>
         public double? ScoreAtMost { get; init; }
 
+        /// <summary>
+        /// For a score question, the highest level counted by <see cref="ScoreLevelsProbabilityAtLeast"/>.
+        /// </summary>
+        public int? ScoreLevelsUpTo { get; init; }
+
+        /// <summary>
+        /// For a score question, the lowest acceptable probability that the answer is at or below level
+        /// <see cref="ScoreLevelsUpTo"/>.
+        /// </summary>
+        public double? ScoreLevelsProbabilityAtLeast { get; init; }
+
         #endregion
     }
 }

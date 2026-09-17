@@ -25,6 +25,13 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- `review_substance` holds a thin PASS by the probability the model puts on the two lowest substance levels, not by
+  the expected score and its own confidence. A headings-only review split between levels scored just above
+  partly-evidenced with confidence 0, so the hold could not fire. Without level probabilities the old score rule
+  applies.
+- `lint_finding` asks only about the findings the Linter listed instead of twenty fixed slots, which cut one live
+  single-finding request from about 14,000 to about 1,150 input tokens with the same answers. A typed decision with
+  nothing to ask sends nothing.
 - Every typed decision ships in `Gate`, and the captain typed-decision tool ships enabled. Each decision still acts
   only at or above its `gateThreshold`, only in its conservative direction (hold, flag, escalate, annotate, order),
   and never approves, lands, dispatches, deletes, or writes memory; the per-decision `mode` and the global cap stop a
