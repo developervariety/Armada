@@ -8,6 +8,7 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- The server gate script runs builds and tests with MSBuild node reuse off and without the gate lock descriptor, and shuts build servers down afterwards, so a finished gate no longer leaves workers holding the lock that refuses the next gate.
 - Dashboard: Settings > Routing has a Legacy Routing / Smart Routing mode
   switch, a persona model lists table (Default, Lighter, Stronger model chips
   with captain counts and an all-accounts-exhausted warning), collapsed

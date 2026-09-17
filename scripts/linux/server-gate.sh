@@ -114,6 +114,12 @@ worktree="$scratch/worktree"
 logs="$scratch/logs/$(date -u +%Y%m%dT%H%M%SZ)-${sha:0:12}"
 mkdir -p "$logs"
 
+# Build servers outlive the gate. Node reuse would keep MSBuild workers alive after the gate exits, and
+# any child that inherited the lock descriptor would hold the lock and refuse every later gate, so reuse is
+# off, the build and test commands run with the lock descriptor closed, and build servers are shut down.
+export MSBUILDDISABLENODEREUSE=1
+export DOTNET_CLI_USE_MSBUILD_SERVER=0
+
 # A non-interactive ssh shell may not load the profile that puts dotnet on PATH.
 if ! command -v dotnet >/dev/null 2>&1 && [ -x "$HOME/.dotnet/dotnet" ]; then
   export PATH="$HOME/.dotnet:$PATH"
@@ -137,7 +143,7 @@ run_gate() {
 
   echo "Building $sha on $(uname -sm), $(getconf _NPROCESSORS_ONLN 2>/dev/null || echo '?') cores"
   build_start=$(date +%s)
-  dotnet build src/Armada.sln > "$logs/build.log" 2>&1
+  dotnet build src/Armada.sln > "$logs/build.log" 2>&1 9>&-
   if ! grep -q 'Build succeeded' "$logs/build.log" || grep -q ' error ' "$logs/build.log"; then
     grep ' error ' "$logs/build.log" | sort -u | head -40
     echo "RESULT: FAIL (build)"
@@ -148,8 +154,9 @@ run_gate() {
 
   declare -a gate_args=()
   if [ -n "$shards" ]; then gate_args=(--shards "$shards"); fi
-  ARMADA_TEST_KEEP_LOGS=1 ARMADA_TEST_LOG_DIR="$logs/runners" scripts/common/run-tests.sh "${gate_args[@]}" > "$logs/run-tests.log" 2>&1
+  ARMADA_TEST_KEEP_LOGS=1 ARMADA_TEST_LOG_DIR="$logs/runners" scripts/common/run-tests.sh "${gate_args[@]}" > "$logs/run-tests.log" 2>&1 9>&-
   status=$?
+  dotnet build-server shutdown > /dev/null 2>&1 9>&- || true
   cat "$logs/run-tests.log"
   echo "Gate logs: $logs"
   if [ "$status" -ne 0 ] || [ "$(grep -E '^RESULT: ' "$logs/run-tests.log" | tail -1)" != "RESULT: PASS" ]; then
