@@ -31,7 +31,7 @@ All notable changes to Armada are documented in this file.
   asked through the member its own call path reads, and the captain helper tools are registered and driven so the
   decision point is observed reaching the client — then fails, naming the key, when a shipped decision is neither
   consulted nor declared, or when a declared entry is in fact consulted. Wiring a decision is the deletion of its
-  one declared line. `leak_hunk`, `log_watch` and `corpus_prelabel` are the decisions declared unwired today.
+  one declared line, and the suite then proves the decision is genuinely consulted.
 - The `leak_hunk` typed decision (D7) is now wired: an ADVISORY per-hunk leak classifier that runs BEHIND the
   deterministic dock-boundary scanner, at all three of its gates: the merge-queue integration scan, the pre-land
   mission scan, and the landing handler's gate. The scanner runs first and unconditionally and decides the block alone; the model pass then reads the added hunks of

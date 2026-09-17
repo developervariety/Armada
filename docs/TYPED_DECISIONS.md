@@ -200,13 +200,18 @@ read-only screen over a running mission's log that posts a voyage-tagged board
 note and a `captain.course_flag` event. It neither blocks, stops, nor
 dispatches; it only flags.
 
-The typed-decision system is also offered to captains directly, through four
-mission-scoped MCP tools next to the memory tools: `armada_typed_decision` and
-its three pre-shaped helpers `armada_check_premise` (a captain checks its own
-reading of the task before it starts), `armada_memory_triage` (the Recorder
-triages a memory candidate before writing it), and `armada_check_prior_art` (a
-captain checks whether the work already exists before it writes a type — the D26
-retrieval plus typed answers for its stated plan). Authority does not travel with
+The typed-decision system is also offered to captains directly, through six
+mission-scoped MCP tools next to the memory tools: the general
+`armada_typed_decision` and its five pre-shaped helpers `armada_check_premise` (a
+captain checks its own reading of the task before it starts),
+`armada_memory_triage` (the Recorder triages a memory candidate before writing
+it), `armada_check_prior_art` (a captain checks whether the work already exists
+before it writes a type — the D26 retrieval plus typed answers for its stated
+plan), `armada_change_quality` (a per-dimension read of a focused diff), and
+`armada_corpus_prelabel` (the provisional kind of a captured decision). A helper
+follows its own decision, so its call is recorded under that decision rather than
+the general tool's. The registration suite asserts this set, so it is measured
+rather than restated here. Authority does not travel with
 the tools. Each call redacts its state before egress (there is no per-mission
 call cap), writes exactly one
 `typed_decision.captain` event carrying only the state hash and byte count, and
