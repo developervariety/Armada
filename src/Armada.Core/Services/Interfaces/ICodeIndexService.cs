@@ -47,6 +47,23 @@ namespace Armada.Core.Services.Interfaces
         Task<CodeSearchResponse> SearchAsync(CodeSearchRequest request, CancellationToken token = default);
 
         /// <summary>
+        /// Find groups of similar code chunks in one vessel's persisted index: identical content, and
+        /// embedding similarity at or above a threshold when the index carries vectors. Defaults to an
+        /// unavailable report so doubles and minimal implementations opt out unless they override it; an
+        /// unavailable report never means "no duplicates".
+        /// </summary>
+        Task<CodeDuplicateReport> FindDuplicatesAsync(CodeDuplicateRequest request, CancellationToken token = default)
+        {
+            return Task.FromResult(new CodeDuplicateReport
+            {
+                VesselId = request?.VesselId ?? "",
+                Available = false,
+                UnavailableReason = "not_supported",
+                Message = "This code index implementation does not compare chunks."
+            });
+        }
+
+        /// <summary>
         /// Search indexed code across all vessels in a fleet.
         /// </summary>
         Task<FleetCodeSearchResponse> SearchFleetAsync(FleetCodeSearchRequest request, CancellationToken token = default);

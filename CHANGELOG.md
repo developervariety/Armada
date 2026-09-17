@@ -148,6 +148,12 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- `armada_code_duplicates` finds groups of similar code in one vessel's code index: chunks with identical content
+  (no embeddings needed) and, when the index has vectors, chunks at or above `codeIndex.duplicateSimilarityThreshold`
+  cosine similarity, joined transitively into groups with path and line ranges. The comparison is exhaustive and
+  runs as a background job; the report states what was compared and skipped (reference-only, filtered, excluded,
+  too short, no vector) and warns on a stale index, identical-content-only mode, or a pair cap. A missing or failed
+  index returns an unavailable report rather than an empty one. Operator-only.
 - Captains can search code: `armada_mission_code_search` is a caller-scoped tool that searches the code index of the
   calling mission's own vessel. It resolves the vessel from the mission id and takes no vessel or fleet argument,
   refuses another tenant's or a finished mission, never returns reference-only records, and is budgeted per mission

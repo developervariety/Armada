@@ -569,6 +569,48 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<CodeDuplicateReport> FindDuplicatesAsync(CodeDuplicateRequest request, CancellationToken token = default)
+        {
+            if (request == null) throw new ArgumentNullException(nameof(request));
+            if (String.IsNullOrWhiteSpace(request.VesselId)) throw new ArgumentNullException(nameof(request.VesselId));
+
+            double threshold = Math.Clamp(request.Threshold ?? _Settings.CodeIndex.DuplicateSimilarityThreshold, 0.5, 1.0);
+            int minLines = Math.Clamp(request.MinLines ?? _Settings.CodeIndex.DuplicateMinLines, 1, 200);
+
+            if (!_Settings.CodeIndex.Enabled)
+                return UnavailableDuplicateReport(request.VesselId, "disabled", "Code indexing is disabled.", null);
+
+            CodeIndexStatus status = await GetStatusAsync(request.VesselId, token).ConfigureAwait(false);
+            if (String.Equals(status.Freshness, "Missing", StringComparison.OrdinalIgnoreCase)
+                || String.Equals(status.Freshness, "Error", StringComparison.OrdinalIgnoreCase))
+            {
+                return UnavailableDuplicateReport(
+                    request.VesselId,
+                    "index_" + status.Freshness.ToLowerInvariant(),
+                    "The code index for this vessel is " + status.Freshness + ", so no comparison ran. Run armada_index_update first.",
+                    status);
+            }
+
+            List<CodeIndexRecord> records = await ReadRecordsAsync(request.VesselId, status.Freshness, token).ConfigureAwait(false);
+            CodeDuplicateReport report = await Task.Run(
+                () => CodeDuplicateFinder.Find(records, request, threshold, minLines, token),
+                token).ConfigureAwait(false);
+
+            report.Freshness = status.Freshness;
+            report.IndexedCommitSha = status.IndexedCommitSha;
+            if (!String.Equals(status.Freshness, "Fresh", StringComparison.OrdinalIgnoreCase))
+                report.Warnings.Add("The index is " + status.Freshness + " (built at " + (status.IndexedCommitSha ?? "an unknown commit") + "); code changed since then is not compared.");
+            if (!report.SimilarityCompared)
+                report.Warnings.Add("No embedding vectors were available, so only identical content was compared. Similar code with different names or formatting is not found; enable codeIndex.useSemanticSearch and update the index.");
+            if (report.Coverage.WithoutEmbedding > 0 && report.SimilarityCompared)
+                report.Warnings.Add(report.Coverage.WithoutEmbedding + " compared chunks had no embedding vector and took part in the identical-content comparison only.");
+            if (report.Truncated)
+                report.Warnings.Add("Pair collection stopped at its cap, so the groups cover only part of the index. Raise the threshold or narrow the path prefix.");
+
+            return report;
+        }
+
+        /// <inheritdoc />
         public async Task<FleetCodeSearchResponse> SearchFleetAsync(FleetCodeSearchRequest request, CancellationToken token = default)
         {
             EnsureEnabled();
@@ -1640,6 +1682,19 @@ namespace Armada.Core.Services
                 ResolvedSeedSymbols = seeds,
                 Results = results,
                 Warnings = context.Warnings
+            };
+        }
+
+        private static CodeDuplicateReport UnavailableDuplicateReport(string vesselId, string reason, string message, CodeIndexStatus? status)
+        {
+            return new CodeDuplicateReport
+            {
+                VesselId = vesselId,
+                Available = false,
+                UnavailableReason = reason,
+                Message = message,
+                Freshness = status?.Freshness ?? "Missing",
+                IndexedCommitSha = status?.IndexedCommitSha
             };
         }
 

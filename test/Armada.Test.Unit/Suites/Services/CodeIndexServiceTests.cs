@@ -972,6 +972,85 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("FindDuplicatesAsync_GroupsTheSharedMethodAcrossFiles_AndReportsCoverage", async () =>
+            {
+                TestRepository repository = await CreateRepositoryWithFilesAsync(new Dictionary<string, string>
+                {
+                    ["src/First.cs"] = DuplicateFixtures.FileWithTarget(prefixMembers: 9, suffixMembers: 2, seed: "alpha"),
+                    ["src/Second.cs"] = DuplicateFixtures.FileWithTarget(prefixMembers: 5, suffixMembers: 6, seed: "beta")
+                }).ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        CodeIndexService service = CreateService(testDb, dataRoot, new TokenHashEmbeddingClient(),
+                            ci => { ci.UseSemanticSearch = true; ci.DuplicateSimilarityThreshold = 0.999; });
+
+                        CodeDuplicateReport before = await service.FindDuplicatesAsync(new CodeDuplicateRequest { VesselId = vessel.Id }).ConfigureAwait(false);
+                        AssertFalse(before.Available, "no comparison runs before the index exists");
+                        AssertEqual("index_missing", before.UnavailableReason);
+                        AssertEqual(0, before.Groups.Count);
+
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+                        CodeDuplicateReport report = await service.FindDuplicatesAsync(new CodeDuplicateRequest { VesselId = vessel.Id }).ConfigureAwait(false);
+
+                        AssertTrue(report.Available);
+                        AssertTrue(report.SimilarityCompared);
+                        AssertEqual("Fresh", report.Freshness);
+                        AssertEqual(1, report.GroupCount, "only the shared method groups at a 0.999 threshold");
+                        CodeDuplicateGroup group = report.Groups[0];
+                        AssertTrue(group.IdenticalContent);
+                        AssertEqual(2, group.Members.Count);
+                        AssertEqual("src/First.cs", group.Members[0].Path);
+                        AssertEqual("src/Second.cs", group.Members[1].Path);
+                        AssertTrue(group.Members[0].StartLine != group.Members[1].StartLine, "the copies sit at different offsets");
+                        AssertTrue(report.Coverage.ChunksCompared > 2);
+                        AssertEqual(2, report.Coverage.FilesCompared);
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
+            await RunTest("FindDuplicatesAsync_SemanticSearchOff_ComparesIdenticalContentAndWarns", async () =>
+            {
+                TestRepository repository = await CreateRepositoryWithFilesAsync(new Dictionary<string, string>
+                {
+                    ["src/First.cs"] = DuplicateFixtures.FileWithTarget(prefixMembers: 9, suffixMembers: 2, seed: "alpha"),
+                    ["src/Second.cs"] = DuplicateFixtures.FileWithTarget(prefixMembers: 5, suffixMembers: 6, seed: "beta")
+                }).ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        CodeIndexService service = CreateService(testDb, dataRoot);
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        CodeDuplicateReport report = await service.FindDuplicatesAsync(new CodeDuplicateRequest { VesselId = vessel.Id }).ConfigureAwait(false);
+
+                        AssertTrue(report.Available);
+                        AssertFalse(report.SimilarityCompared);
+                        AssertEqual(1, report.GroupCount, "the identical method still groups without vectors");
+                        AssertTrue(report.Warnings.Any(w => w.Contains("only identical content was compared", StringComparison.Ordinal)),
+                            "the report says the similarity pass did not run");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
             await RunTest("UpdateAsync_SemanticSearchOn_UsesEmbeddingBatchRequests", async () =>
             {
                 TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);

@@ -400,7 +400,7 @@ authentication before approving a real release.
 | Risk | Tools |
 | --- | --- |
 | Read | `armada_index_status`, `armada_code_search`, `armada_mission_code_search` (captain-facing, own vessel only), `armada_context_pack`, `armada_fleet_code_search`, `armada_fleet_context_pack`, `armada_graph_search_symbols`, `armada_graph_get_callers`, `armada_graph_get_callees`, `armada_graph_get_impact`, `armada_graph_suggest_affected_tests`, `armada_graph_get_node`, `armada_graph_get_files`, `armada_graph_explore` |
-| Execute | `armada_index_update` |
+| Execute | `armada_index_update`, `armada_code_duplicates` (background job; operator-only) |
 
 ### 8.17 AgentWake
 

@@ -51,6 +51,18 @@ uses fixed line windows. Expect several times more chunks than line windows on a
 method-heavy repository. Changing either setting rebuilds the index on the next
 update.
 
+`armada_code_duplicates` compares one vessel's indexed chunks and returns groups
+of similar code with path and line ranges. It pairs chunks with identical content
+(after trimming each line), and, when the index carries embedding vectors, chunks
+whose cosine similarity is at least `codeIndex.duplicateSimilarityThreshold`
+(default 0.92); pairs join transitively into groups. The comparison is exhaustive,
+runs as a background job, and skips reference-only chunks and chunks under
+`codeIndex.duplicateMinLines`. Its report lists what it compared and left out,
+and warns when the index is stale, has no vectors (identical content only), or
+stopped at its pair cap. A missing or failed index returns an unavailable report,
+which never means "no duplicates". The groups are candidates: read both members
+before calling one a duplicate.
+
 Captains search code through `armada_mission_code_search`, which resolves the
 vessel from the calling mission and searches no other vessel. Its budget and
 result cap are `codeIndex.captainSearchMaxCallsPerMission` (default 40) and

@@ -363,6 +363,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CodeIndexProductionWiringTests());
             runner.AddSuite(new McpCodeIndexToolsTests());
             runner.AddSuite(new StructuralChunkerTests());
+            runner.AddSuite(new CodeDuplicateFinderTests());
             runner.AddSuite(new McpCheckRunToolsTests());
             runner.AddSuite(new WorkflowProfileCheckRunServiceTests());
             runner.AddSuite(new CheckRunIsolatedCheckoutTests());

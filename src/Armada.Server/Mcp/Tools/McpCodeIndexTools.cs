@@ -129,6 +129,42 @@ namespace Armada.Server.Mcp.Tools
                 });
 
             register(
+                "armada_code_duplicates",
+                (jobs == null
+                    ? "Find groups of similar code in a vessel's code index. "
+                    : "Start a background comparison that finds groups of similar code in a vessel's code index and immediately return an accepted job handle; use armada_job_status for the report. ") +
+                "Pairs chunks with identical content, and chunks whose embedding similarity is at or above the threshold when the index has vectors, then joins pairs into groups with path and line ranges. The report states what it compared and skipped, and warns when the index is stale, has no vectors (identical content only), or stopped at its pair cap. An unavailable report (missing or failed index) never means no duplicates. Read-only.",
+                new
+                {
+                    type = "object",
+                    properties = new
+                    {
+                        vesselId = new { type = "string", description = "Vessel ID (vsl_ prefix)" },
+                        threshold = new { type = "number", description = "Cosine similarity for a pair, 0.5 to 1.0 (default codeIndex.duplicateSimilarityThreshold, normally 0.92)" },
+                        minLines = new { type = "integer", description = "Minimum non-blank lines a chunk needs to be compared (default codeIndex.duplicateMinLines, normally 6)" },
+                        pathPrefix = new { type = "string", description = "Optional repo-relative path prefix; only chunks under it are compared" },
+                        language = new { type = "string", description = "Optional language filter, e.g. csharp" },
+                        excludePathFragments = new { type = "array", items = new { type = "string" }, description = "Optional path fragments to leave out, e.g. /generated/" },
+                        maxGroups = new { type = "integer", description = "Maximum groups returned, largest first (default 50, max 500)" },
+                        includeContent = new { type = "boolean", description = "Include each member's chunk content (default false)" }
+                    },
+                    required = new[] { "vesselId" }
+                },
+                async (args) =>
+                {
+                    if (!args.HasValue) return (object)new { Error = "missing args" };
+                    CodeDuplicateRequest request = JsonSerializer.Deserialize<CodeDuplicateRequest>(args.Value, _JsonOptions)!;
+                    if (String.IsNullOrWhiteSpace(request.VesselId)) return (object)new { Error = "vesselId is required" };
+                    if (jobs != null)
+                    {
+                        return (object)jobs.Start(
+                            "code_duplicates",
+                            async (token) => (object)await codeIndex.FindDuplicatesAsync(request, token).ConfigureAwait(false));
+                    }
+                    return (object)await codeIndex.FindDuplicatesAsync(request).ConfigureAwait(false);
+                });
+
+            register(
                 "armada_context_pack",
                 "Build dispatch-ready code context for a vessel and mission goal. Returns markdown plus a prestagedFiles entry for _briefing/context-pack.md.",
                 new

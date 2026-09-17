@@ -614,6 +614,21 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Default cosine similarity at or above which two chunks are reported as a duplicate pair.
+        /// Clamped to [0.5 .. 0.999]. Default 0.92.
+        /// </summary>
+        public double DuplicateSimilarityThreshold
+        {
+            get => _DuplicateSimilarityThreshold;
+            set
+            {
+                if (value < 0.5) value = 0.5;
+                if (value > 0.999) value = 0.999;
+                _DuplicateSimilarityThreshold = value;
+            }
+        }
+
+        /// <summary>
         /// Minimum non-blank lines a member needs to be a chunk of its own under structural chunking,
         /// and to take part in duplicate detection. Smaller members are packed with their neighbours, so
         /// one-line members and short property blocks are neither separate chunks nor reported as
@@ -669,6 +684,7 @@ namespace Armada.Core.Settings
         private int _MaxReadContextFileCount = 200;
         private int _CaptainSearchMaxCallsPerMission = 40;
         private int _CaptainSearchMaxResults = 10;
+        private double _DuplicateSimilarityThreshold = 0.92;
         private int _DuplicateMinLines = 6;
 
         #endregion

@@ -2,6 +2,7 @@ namespace Armada.Test.Unit.Suites.Services
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
@@ -50,6 +51,54 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertTrue(handlers.ContainsKey("armada_graph_get_node"));
                 AssertTrue(handlers.ContainsKey("armada_graph_get_files"));
                 AssertTrue(handlers.ContainsKey("armada_graph_explore"));
+                AssertTrue(handlers.ContainsKey("armada_code_duplicates"));
+            });
+
+            await RunTest("armada_code_duplicates forwards the request and stays operator-only", async () =>
+            {
+                RecordingCodeIndexService service = new RecordingCodeIndexService();
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterHandlers(service);
+                JsonElement args = JsonSerializer.SerializeToElement(new
+                {
+                    vesselId = "vsl_dups",
+                    threshold = 0.95,
+                    minLines = 9,
+                    pathPrefix = "src/",
+                    language = "csharp",
+                    excludePathFragments = new[] { "/generated/" },
+                    maxGroups = 7,
+                    includeContent = true
+                });
+
+                object result = await handlers["armada_code_duplicates"](args).ConfigureAwait(false);
+
+                AssertNotNull(service.LastDuplicateRequest);
+                AssertEqual("vsl_dups", service.LastDuplicateRequest!.VesselId);
+                AssertEqual(0.95, service.LastDuplicateRequest.Threshold);
+                AssertEqual(9, service.LastDuplicateRequest.MinLines);
+                AssertEqual("src/", service.LastDuplicateRequest.PathPrefix);
+                AssertEqual("csharp", service.LastDuplicateRequest.Language);
+                AssertEqual("/generated/", service.LastDuplicateRequest.ExcludePathFragments.Single());
+                AssertEqual(7, service.LastDuplicateRequest.MaxGroups);
+                AssertTrue(service.LastDuplicateRequest.IncludeContent);
+                AssertTrue(result is CodeDuplicateReport);
+
+                AuthContext captain = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, false, "Bearer");
+                AssertFalse(McpToolAccessPolicy.IsAllowed(captain, "armada_code_duplicates"), "the repository-wide comparison is an operator tool");
+            });
+
+            await RunTest("armada_code_duplicates runs as a background job when jobs are available", async () =>
+            {
+                RecordingCodeIndexService service = new RecordingCodeIndexService();
+                LongRunningJobService jobs = new LongRunningJobService();
+                Dictionary<string, Func<JsonElement?, Task<object>>> handlers = RegisterJobHandlers(service, jobs);
+                JsonElement args = JsonSerializer.SerializeToElement(new { vesselId = "vsl_dups_job" });
+
+                LongRunningJob accepted = (LongRunningJob)await handlers["armada_code_duplicates"](args).ConfigureAwait(false);
+                object succeeded = await WaitForJobStatusAsync(handlers, accepted.JobId, LongRunningJobStatusEnum.Succeeded).ConfigureAwait(false);
+
+                AssertContains("vsl_dups_job", JsonSerializer.Serialize(succeeded));
+                AssertEqual("vsl_dups_job", service.LastDuplicateRequest!.VesselId);
             });
 
             await RunTest("armada_index_update returns accepted job before work completes", async () =>
@@ -1389,6 +1438,14 @@ namespace Armada.Test.Unit.Suites.Services
             {
                 LastSearchRequest = request;
                 return Task.FromResult(SearchResponse);
+            }
+
+            public CodeDuplicateRequest? LastDuplicateRequest { get; private set; }
+
+            public Task<CodeDuplicateReport> FindDuplicatesAsync(CodeDuplicateRequest request, CancellationToken token = default)
+            {
+                LastDuplicateRequest = request;
+                return Task.FromResult(new CodeDuplicateReport { VesselId = request.VesselId, Available = true });
             }
 
             public Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default)
