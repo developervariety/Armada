@@ -17,6 +17,8 @@ namespace Armada.Test.Unit
             // explicit DataDirectory otherwise resolve under the live Armada home and write there.
             TestDataDirectory.Redirect();
             TestDataDirectory.Verify();
+            // Test repositories are short-lived, so git auto maintenance after commits is start-up cost only.
+            global::Test.Shared.Infrastructure.TestGitEnvironment.DisableAutoMaintenance();
 
             TestHostOptions options;
             try

@@ -66,6 +66,21 @@ also unsets `ANTHROPIC_*` for the child, because `ClaudeCodeProviderRoutingTests
 asserts on the environment a captain process would inherit and fails when the
 caller exports those variables.
 
+**The gate runs on a Linux host.** The gate is all four runners (unit, automated,
+runtimes, shared) passing in one combined run. Git-heavy unit suites start git
+thousands of times, and process start-up on macOS dominates them: measured on the
+same commit, a 16-core idle Linux server ran unit in 177 s and automated in 50 s,
+a loaded macOS workstation took 541 s and 160 s (Branch Cleanup Sweep 2 s vs 55 s;
+non-git suites are equal). Run the gate for a commit with
+`scripts/linux/server-gate.sh <ref> [--ssh-host <alias>] [--scratch-dir <path>]`
+(or `ARMADA_GATE_SSH_HOST` / `ARMADA_GATE_SCRATCH_DIR`). It pushes the commit to a
+scratch bare repository on the host, tests it detached in a scratch worktree, and
+prints the combined result; it refuses to run with uncommitted tracked changes.
+The gate always tests a commit pushed to scratch, never a shared or deployed
+checkout. Never commit a real host alias or scratch path. Sharded gate wall time
+on the Linux host: TODO (fill in after measuring). Use `run-tests.sh` locally for
+quick single-runner or single-suite runs. Details: `docs/TESTING.md`, "Gate Host".
+
 Sharded and concurrent runs are the default. The script splits the unit runner
 into N shard processes (`--shard i/N`, N = min(cores/2, 6); override with
 `--shards N` before the suite name or `ARMADA_TEST_UNIT_SHARDS`), sums their

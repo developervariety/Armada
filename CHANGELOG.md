@@ -50,6 +50,17 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- `scripts/linux/server-gate.sh <ref> [--ssh-host <alias>] [--scratch-dir <path>]` runs the full test gate for one
+  committed ref on a Linux gate host over ssh. It pushes the commit to a scratch bare repository on the host under a
+  gate-only ref, checks it out detached in a scratch worktree, builds, runs the sharded combined runner with the logs
+  kept on the host, prints the combined summary, and exits non-zero on any failure. The host and scratch directory
+  come from the arguments or `ARMADA_GATE_SSH_HOST` / `ARMADA_GATE_SCRATCH_DIR`; it refuses to run while tracked files
+  have uncommitted changes. A Linux host is now the recommended gate host (`docs/TESTING.md`, "Gate Host").
+- Test hosts (unit, automated, runtimes and shared) turn off git auto maintenance, auto gc and `receive.autogc` for
+  every git process they start, including the production code under test and the receiving side of a push to a
+  file-path remote, through `GIT_CONFIG_COUNT` entries plus a generated `GIT_CONFIG_SYSTEM` file that includes the
+  original system configuration. Production git defaults are unchanged. A traced Branch Cleanup Sweep run went from
+  259 `git maintenance` processes to none.
 - The unit test runner can be split into shards. `test/Armada.Test.Unit` accepts `--shard <index>/<count>` and
   `--list-suites`; suites are assigned deterministically, balanced by the committed
   `test/Armada.Test.Unit/shard-weights.json` (regenerated from unit logs by `scripts/common/generate-shard-weights.py`),

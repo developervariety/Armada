@@ -19,6 +19,8 @@ namespace Armada.Test.Automated
             TestDataDirectory.Redirect();
             TestDataDirectory.Verify();
             TestProcessEnvironment.RemoveProviderVariablesAndReport();
+            // Test repositories are short-lived, so git auto maintenance after commits is start-up cost only.
+            TestGitEnvironment.DisableAutoMaintenance();
 
             CommandLineOptions options;
             IReadOnlyCollection<AgentRuntimeEnum> realRuntimes;

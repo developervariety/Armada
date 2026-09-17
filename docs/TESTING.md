@@ -39,7 +39,70 @@ scripts/macos/run-tests.sh unit --suite "Git Service"   # one runner with its ow
 
 The script prints one summary line per process, the summed unit totals, and one combined `RESULT: PASS` or `RESULT: FAIL`. It fails when any process exits non-zero or prints no `Total:` line. For the unit shards it also fails when a shard's last `RESULT:` line is not `PASS`, when fewer shards summarised than were started, or when the per-shard suite counts do not add up to the registered suite count. A shard that crashed or executed nothing therefore fails the gate. The logs stay in the printed directory on failure, and on success when `ARMADA_TEST_KEEP_LOGS` is set. The script unsets `ANTHROPIC_*` for every child. When `ARMADA_TEST_RESULTS_DIRECTORY` is set, the unit runner runs as one process, because a results manifest is keyed by executable.
 
-The measured wall clock for the sharded default is recorded after a quiet-window run.
+Use the script locally for quick runs of one runner or one suite. The full gate runs on a Linux host; see [Gate Host](#gate-host).
+
+## Gate Host
+
+The gate is the four runners together: `unit` (sharded), `automated`, `runtimes` and `shared`. A commit passes only when all four pass in one combined run. Run the gate on a Linux host, not on a macOS workstation.
+
+**Why.** Many unit suites start git thousands of times. Process start-up is far slower on macOS than on Linux, and that overhead, not git's own work, dominates the git-heavy suites. The other suites take about the same time on both.
+
+**Measurements.** Same commit, serial runs:
+
+| Runner or suite | Linux server, 16 cores, idle | macOS workstation, under load |
+|-----------------|------------------------------|-------------------------------|
+| Build from a clean clone | 23 s | — |
+| `unit` | 177 s | 541 s |
+| `automated` | 50 s | 160 s |
+| `runtimes` | 24 s | 25 s |
+| Merge Queue Branch Cleanup | 5 s | 99 s |
+| Branch Cleanup Sweep | 2 s | 55 s |
+| Vessel Branch Write Service | under 2 s | 28 s |
+| Git Service | under 2 s | 26 s |
+| Self Deploy Cutover (no git) | 25 s | 25 s |
+| Harbor Transport (no git) | 10 s | 10 s |
+
+A git trace of Branch Cleanup Sweep on the macOS workstation recorded 21 tests, 45 s of wall time and 1884 git processes, but only 10 s inside git (4.6 ms per process on average). About 35 s was process start-up outside git. 259 of the processes were `git maintenance` runs that git starts by itself after commits; the test hosts now turn those off (see [Git in test processes](#git-in-test-processes)).
+
+Sharded combined run on the Linux server, wall clock: **TODO: fill in after measuring the sharded gate on the Linux host.**
+
+**Running the gate.** `scripts/linux/server-gate.sh` runs the gate for one commit from a workstation:
+
+```bash
+scripts/linux/server-gate.sh <ref> [--ssh-host <alias>] [--scratch-dir <path>] [--shards <n>]
+
+# host and scratch directory from the environment
+export ARMADA_GATE_SSH_HOST=<server-host>
+export ARMADA_GATE_SCRATCH_DIR=<scratch-dir>
+scripts/linux/server-gate.sh HEAD
+```
+
+The script:
+
+1. Refuses to run while tracked files have uncommitted changes. The gate tests a commit, so commit first.
+2. Creates `<scratch-dir>/repo.git` on the host when it is absent, and pushes the commit to it under `refs/gate/<sha>`. No branch moves.
+3. Clones or fetches into `<scratch-dir>/worktree`, checks the commit out detached, and removes untracked build output.
+4. Builds `src/Armada.sln`, then runs `scripts/common/run-tests.sh` with its logs kept.
+5. Prints the combined summary and exits non-zero when the build or any runner fails. The build log and every runner log stay on the host under `<scratch-dir>/logs/<time>-<sha>/`.
+
+Only one gate runs per scratch directory at a time. The host needs git, bash and the .NET SDK; `~/.dotnet` is added to `PATH` when `dotnet` is not already on it.
+
+**Rules.**
+
+- The gate tests a commit pushed to the scratch repository. It never runs in a shared checkout, a deployed checkout, or any directory outside the scratch directory, and it never touches a running service.
+- Keep the host alias and the scratch path out of the repository. Pass them as arguments or through `ARMADA_GATE_SSH_HOST` and `ARMADA_GATE_SCRATCH_DIR`.
+- Only ssh reaches the network; every other step runs locally or on the host.
+
+## Git in Test Processes
+
+Every test host (`unit`, `automated`, `runtimes` and `shared`) calls `TestGitEnvironment.DisableAutoMaintenance()` before any test runs. It sets `maintenance.auto=false`, `gc.auto=0` and `receive.autogc=false` for every git process the host starts: test helpers and the production code under test (for example `GitService`) inherit them. Production defaults are unchanged.
+
+The settings use two layers:
+
+- `GIT_CONFIG_COUNT` / `GIT_CONFIG_KEY_n` / `GIT_CONFIG_VALUE_n`, appended after any entries already set, so the settings have command-line precedence for the processes the host starts.
+- `GIT_CONFIG_SYSTEM`, pointed at a generated file in the temp directory that includes the original system configuration and adds the same settings. Git's local transport clears the `GIT_CONFIG_COUNT` entries before it starts `git-receive-pack` in the other repository, so without this layer a push to a file-path remote still runs maintenance there.
+
+The `Test runner contracts` suite asserts both: git reads the settings, and a traced commit and push to a file-path remote start no `git maintenance` or `git gc`.
 
 ## Sharded Unit Runs
 

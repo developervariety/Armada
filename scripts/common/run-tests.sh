@@ -19,6 +19,10 @@
 #   ARMADA_TEST_KEEP_LOGS=1 scripts/common/run-tests.sh
 #                                                  # keep the log directory on PASS (for shard weights)
 #
+# The full gate for a commit runs on a Linux host through scripts/linux/server-gate.sh, which builds the
+# commit in a scratch worktree there and runs this script (see docs/TESTING.md, "Gate Host"). Run this
+# script directly for quick single-runner or single-suite runs.
+#
 # "shared" is the Touchstone runner over src/Test.Shared. It prints every skipped
 # case with its recorded reason and exits non-zero on any failure, on a stale
 # disposition record, or when the selection would execute nothing.

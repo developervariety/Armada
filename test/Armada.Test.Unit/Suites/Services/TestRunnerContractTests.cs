@@ -256,6 +256,137 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertThrows<Exception>(() => throw new InvalidOperationException());
                 await AssertThrowsAsync<Exception>(() => Task.FromException(new InvalidOperationException()));
             });
+            await RunTest("Git started by the test host has auto maintenance and auto gc off", async () =>
+            {
+                string directory = Path.Combine(Path.GetTempPath(), "armada_git_env_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(directory);
+                try
+                {
+                    AssertEqual("false", await TestGit.RunAsync(directory, "config", "--get", "maintenance.auto"));
+                    AssertEqual("0", await TestGit.RunAsync(directory, "config", "--get", "gc.auto"));
+                    AssertEqual("false", await TestGit.RunAsync(directory, "config", "--get", "receive.autogc"));
+                }
+                finally
+                {
+                    Directory.Delete(directory, true);
+                }
+            });
+            await RunTest("Commit and push to a file-path remote start no git maintenance", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_git_push_" + Guid.NewGuid().ToString("N"));
+                string bare = Path.Combine(root, "origin.git");
+                string work = Path.Combine(root, "work");
+                string trace = Path.Combine(root, "trace");
+                Directory.CreateDirectory(bare);
+                Directory.CreateDirectory(work);
+                Directory.CreateDirectory(trace);
+                try
+                {
+                    await TestGit.RunAsync(bare, "init", "--bare", "--initial-branch=main");
+                    await TestGit.InitializeAsync(work);
+                    await TestGit.RunAsync(work, "remote", "add", "origin", bare);
+                    await RunTracedGitAsync(work, trace, "commit", "--allow-empty", "-m", "traced");
+                    await RunTracedGitAsync(work, trace, "push", "origin", "main");
+
+                    int processes = 0;
+                    List<string> maintenance = new List<string>();
+                    foreach (string file in Directory.GetFiles(trace))
+                    {
+                        processes++;
+                        foreach (string line in File.ReadAllLines(file))
+                        {
+                            if (line.Contains("\"event\":\"start\"", StringComparison.Ordinal)
+                                && (line.Contains("\",\"maintenance\"", StringComparison.Ordinal)
+                                    || line.Contains("\",\"gc\"", StringComparison.Ordinal)))
+                                maintenance.Add(line);
+                        }
+                    }
+
+                    AssertTrue(processes >= 3, "the trace recorded the commit, the push and the receiving side");
+                    AssertEqual(0, maintenance.Count, String.Join(Environment.NewLine, maintenance));
+                }
+                finally
+                {
+                    Directory.Delete(root, true);
+                }
+            });
+            await RunTest("Git environment settings append to existing entries without duplicates", () =>
+            {
+                Dictionary<string, string?> current = new Dictionary<string, string?>
+                {
+                    { "GIT_CONFIG_COUNT", "1" },
+                    { "GIT_CONFIG_KEY_0", "safe.directory" },
+                    { "GIT_CONFIG_VALUE_0", "*" }
+                };
+                Dictionary<string, string> added = global::Test.Shared.Infrastructure.TestGitEnvironment.ComputeVariables(
+                    name => current.TryGetValue(name, out string? value) ? value : null);
+                AssertEqual("4", added["GIT_CONFIG_COUNT"]);
+                AssertEqual("maintenance.auto", added["GIT_CONFIG_KEY_1"]);
+                AssertEqual("false", added["GIT_CONFIG_VALUE_1"]);
+                AssertEqual("gc.auto", added["GIT_CONFIG_KEY_2"]);
+                AssertEqual("0", added["GIT_CONFIG_VALUE_2"]);
+                AssertEqual("receive.autogc", added["GIT_CONFIG_KEY_3"]);
+                AssertEqual("false", added["GIT_CONFIG_VALUE_3"]);
+                AssertFalse(added.ContainsKey("GIT_CONFIG_KEY_0"));
+
+                foreach (KeyValuePair<string, string> variable in added) current[variable.Key] = variable.Value;
+                Dictionary<string, string> again = global::Test.Shared.Infrastructure.TestGitEnvironment.ComputeVariables(
+                    name => current.TryGetValue(name, out string? value) ? value : null);
+                AssertEqual(0, again.Count);
+
+                AssertThrows<InvalidOperationException>(() =>
+                    global::Test.Shared.Infrastructure.TestGitEnvironment.ComputeVariables(
+                        name => name == "GIT_CONFIG_COUNT" ? "two" : null));
+            });
+            await RunTest("Generated git system configuration keeps the original system file", async () =>
+            {
+                string root = Path.Combine(Path.GetTempPath(), "armada_git_sys_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(root);
+                try
+                {
+                    string original = Path.Combine(root, "original gitconfig");
+                    File.WriteAllText(original, "[armadaprobe]\n\tkept = yes\n");
+                    string generated = Path.Combine(root, "generated.gitconfig");
+                    File.WriteAllText(generated, global::Test.Shared.Infrastructure.TestGitEnvironment.BuildSystemConfig(original));
+                    AssertEqual("yes", await TestGit.RunAsync(root, "config", "--file", generated, "--includes", "--get", "armadaprobe.kept"));
+                    AssertEqual("false", await TestGit.RunAsync(root, "config", "--file", generated, "--get", "receive.autogc"));
+                    AssertStartsWith(global::Test.Shared.Infrastructure.TestGitEnvironment.GeneratedMarker,
+                        File.ReadAllText(generated));
+                }
+                finally
+                {
+                    Directory.Delete(root, true);
+                }
+            });
+        }
+
+        private static async Task RunTracedGitAsync(string directory, string traceDirectory, params string[] arguments)
+        {
+            System.Diagnostics.ProcessStartInfo start = new System.Diagnostics.ProcessStartInfo("git")
+            {
+                WorkingDirectory = directory,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false
+            };
+            start.Environment["GIT_TRACE2_EVENT"] = traceDirectory;
+            start.ArgumentList.Add("-c");
+            start.ArgumentList.Add("user.name=Fixture");
+            start.ArgumentList.Add("-c");
+            start.ArgumentList.Add("user.email=fixture@example.invalid");
+            start.ArgumentList.Add("-c");
+            start.ArgumentList.Add("commit.gpgsign=false");
+            foreach (string argument in arguments) start.ArgumentList.Add(argument);
+            using (System.Diagnostics.Process process = System.Diagnostics.Process.Start(start)
+                ?? throw new InvalidOperationException("Cannot start traced Git"))
+            {
+                Task<string> output = process.StandardOutput.ReadToEndAsync();
+                Task<string> error = process.StandardError.ReadToEndAsync();
+                await process.WaitForExitAsync().ConfigureAwait(false);
+                await output.ConfigureAwait(false);
+                string errorText = await error.ConfigureAwait(false);
+                if (process.ExitCode != 0) throw new InvalidOperationException("Traced Git failed: " + errorText);
+            }
         }
 
         private abstract class CountingSuite : TestSuite
