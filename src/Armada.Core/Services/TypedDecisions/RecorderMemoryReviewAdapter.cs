@@ -161,10 +161,23 @@ namespace Armada.Core.Services
                 }
 
                 HashSet<string> writtenIds = new HashSet<string>(written.Select(memory => memory.Id), StringComparer.Ordinal);
-                foreach (Memory record in written)
+                // Records are reviewed against the same snapshot, so they are independent and are asked
+                // together in as few requests as the limits allow; each still gets its own event.
+                List<List<Memory>> candidateSets = written.Select(record => DuplicateCandidates(record, all, writtenIds)).ToList();
+                List<TypedDecisionBatchItem> batch = new List<TypedDecisionBatchItem>(written.Count);
+                for (int index = 0; index < written.Count; index++)
                 {
-                    List<Memory> candidates = DuplicateCandidates(record, all, writtenIds);
-                    bool available = await ReviewRecordAsync(mission, record, candidates, cfg, outcome, token).ConfigureAwait(false);
+                    batch.Add(new TypedDecisionBatchItem(
+                        DecisionStateRedactor.RedactState(BuildState(written[index], candidateSets[index]), _Settings.MaxStateChars),
+                        Questions(candidateSets[index].Count)));
+                }
+                List<TypedDecisionResult> results = await TypedDecisionBatcher.DecideAllAsync(
+                    _Client, DecisionPoint, batch, _Settings.MaxStateChars, token).ConfigureAwait(false);
+
+                for (int index = 0; index < written.Count; index++)
+                {
+                    bool available = await ReviewRecordAsync(
+                        mission, written[index], candidateSets[index], cfg, outcome, results[index], batch[index].State.Text, token).ConfigureAwait(false);
                     if (!available)
                     {
                         outcome.Reason = "unavailable";
@@ -198,30 +211,10 @@ namespace Armada.Core.Services
             List<Memory> candidates,
             ResolvedTypedDecision cfg,
             RecorderMemoryReviewResult outcome,
+            TypedDecisionResult result,
+            string redacted,
             CancellationToken token)
         {
-            RedactedDecisionState redactedState = DecisionStateRedactor.RedactState(BuildState(record, candidates), _Settings.MaxStateChars);
-            object state = redactedState.State;
-            string redacted = redactedState.Text;
-
-            TypedDecisionResult result;
-            try
-            {
-                result = await _Client.DecideAsync(
-                    new TypedDecisionRequest
-                    {
-                        DecisionPoint = DecisionPoint,
-                        State = state,
-                        Questions = Questions(candidates.Count)
-                    },
-                    token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _Logging.Warn(_Header + "client threw, records stand: " + ex.Message);
-                result = new TypedDecisionResult { Available = false, UnavailableReason = "exception" };
-            }
-
             outcome.Reviewed++;
             if (result == null || !result.Available)
             {

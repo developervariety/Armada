@@ -229,7 +229,7 @@ namespace Armada.Test.Unit.Suites.Services
 
                 FollowUpRoutingResult result = await adapter.RouteAsync(followUp, null, CancellationToken.None).ConfigureAwait(false);
 
-                AssertEqual(3, client.Calls, "one call per follow-up item");
+                AssertEqual(1, client.Calls, "independent follow-up items share one request");
                 AssertEqual(3, router.EvidenceCount, "each item routed once");
                 AssertEqual(3, result.Routes.Count, "one route recorded per item");
             });

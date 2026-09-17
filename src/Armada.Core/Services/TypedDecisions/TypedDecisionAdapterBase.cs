@@ -100,71 +100,76 @@ namespace Armada.Core.Services
             ResolvedTypedDecision cfg = _Settings.For(DecisionPoint);
             if (cfg.Mode == TypedDecisionModeEnum.Off) return ruleVerdict;
 
-            string redacted;
-            TypedDecisionRequest request;
-            try
-            {
-                RedactedDecisionState redactedState = DecisionStateRedactor.RedactState(BuildState(input), _Settings.MaxStateChars);
-                object state = redactedState.State;
-                redacted = redactedState.Text;
-                request = new TypedDecisionRequest
-                {
-                    DecisionPoint = DecisionPoint,
-                    State = state,
-                    Questions = BuildQuestions()
-                };
-            }
-            catch (Exception ex)
-            {
-                // Building state or questions must never throw into the caller; keep the rule.
-                _Logging.Warn(_Header + "decision '" + DecisionPoint + "' state build failed, rule stands: " + ex.Message);
-                return ruleVerdict;
-            }
+            TypedDecisionBatchItem? item = Prepare(input);
+            if (item == null) return ruleVerdict;
 
             TypedDecisionResult result;
             try
             {
                 // The caller's token is forwarded unchanged so the client links its settings timeout to
                 // it: a slow decision cancels through this same token and returns unavailable, not late.
-                result = await _Client.DecideAsync(request, token).ConfigureAwait(false);
+                result = await _Client.DecideAsync(new TypedDecisionRequest
+                {
+                    DecisionPoint = DecisionPoint,
+                    State = item.State.State,
+                    Questions = item.Questions
+                }, token).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 // The client is contracted never to throw into a caller; guard anyway so a decision is
                 // never able to break recovery, refusal handling, or runtime classification.
                 _Logging.Warn(_Header + "decision '" + DecisionPoint + "' client threw, rule stands: " + ex.Message);
-                await RecordUnavailableAsync(input, ruleVerdict, ExceptionResult(), redacted, token).ConfigureAwait(false);
-                return ruleVerdict;
+                result = ExceptionResult();
             }
 
-            if (result == null || !result.Available)
+            return await CompleteAsync(input, ruleVerdict, result, item.State.Text, cfg, token).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Consult the model for several independent inputs at once and return each effective verdict,
+        /// in order. The inputs are answered in as few provider requests as the limits allow; each input
+        /// is then gated and recorded exactly as <see cref="DecideAsync"/> would. Use this only when no
+        /// input's outcome affects another's. An input whose state cannot be built keeps its rule. When
+        /// the provider is unavailable, the first affected input records the unavailable event and every
+        /// later input keeps its rule without a further event. Never throws.
+        /// </summary>
+        /// <param name="inputs">The decision inputs.</param>
+        /// <param name="ruleVerdicts">The deterministic rule verdict for each input, in the same order.</param>
+        /// <param name="token">Cancellation token, forwarded to the client.</param>
+        /// <returns>One verdict per input, in order.</returns>
+        public async Task<List<TVerdict>> DecideManyAsync(IReadOnlyList<TInput> inputs, IReadOnlyList<TVerdict> ruleVerdicts, CancellationToken token)
+        {
+            if (inputs == null) throw new ArgumentNullException(nameof(inputs));
+            if (ruleVerdicts == null) throw new ArgumentNullException(nameof(ruleVerdicts));
+            if (inputs.Count != ruleVerdicts.Count) throw new ArgumentException("Each input needs one rule verdict.", nameof(ruleVerdicts));
+
+            List<TVerdict> verdicts = new List<TVerdict>(ruleVerdicts);
+            ResolvedTypedDecision cfg = _Settings.For(DecisionPoint);
+            if (cfg.Mode == TypedDecisionModeEnum.Off || inputs.Count == 0) return verdicts;
+
+            List<int> positions = new List<int>();
+            List<TypedDecisionBatchItem> batch = new List<TypedDecisionBatchItem>();
+            for (int index = 0; index < inputs.Count; index++)
             {
-                await RecordUnavailableAsync(input, ruleVerdict, result ?? ExceptionResult(), redacted, token).ConfigureAwait(false);
-                return ruleVerdict;
+                TypedDecisionBatchItem? item = Prepare(inputs[index]);
+                if (item == null) continue;
+                positions.Add(index);
+                batch.Add(item);
             }
+            if (batch.Count == 0) return verdicts;
 
-            TModel model = Interpret(result);
+            List<TypedDecisionResult> results = await TypedDecisionBatcher.DecideAllAsync(
+                _Client, DecisionPoint, batch, _Settings.MaxStateChars, token).ConfigureAwait(false);
 
-            try
+            for (int slot = 0; slot < results.Count; slot++)
             {
-                await OnModelReadingAsync(input, model, cfg, token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                // An observation is informative only; its failure must never change the verdict.
-                _Logging.Warn(_Header + "decision '" + DecisionPoint + "' reading observer failed, rule stands: " + ex.Message);
+                int index = positions[slot];
+                verdicts[index] = await CompleteAsync(inputs[index], ruleVerdicts[index], results[slot], batch[slot].State.Text, cfg, token).ConfigureAwait(false);
+                if (!results[slot].Available) break;
             }
 
-            if (cfg.Mode == TypedDecisionModeEnum.Shadow || model.Confidence < cfg.GateThreshold)
-            {
-                string outcome = cfg.Mode == TypedDecisionModeEnum.Shadow ? "shadow_mode" : "below_threshold";
-                await RecordShadowAsync(input, ruleVerdict, model, result, outcome, redacted, token).ConfigureAwait(false);
-                return ruleVerdict;
-            }
-
-            TVerdict gated = Combine(ruleVerdict, model);
-            await RecordGatedAsync(input, ruleVerdict, model, result, redacted, token).ConfigureAwait(false);
-            return gated;
+            return verdicts;
         }
 
         #endregion
@@ -229,6 +234,63 @@ namespace Armada.Core.Services
         #endregion
 
         #region Private-Methods
+
+        private TypedDecisionBatchItem? Prepare(TInput input)
+        {
+            try
+            {
+                return new TypedDecisionBatchItem(
+                    DecisionStateRedactor.RedactState(BuildState(input), _Settings.MaxStateChars),
+                    BuildQuestions());
+            }
+            catch (Exception ex)
+            {
+                // Building state or questions must never throw into the caller; keep the rule.
+                _Logging.Warn(_Header + "decision '" + DecisionPoint + "' state build failed, rule stands: " + ex.Message);
+                return null;
+            }
+        }
+
+        private async Task<TVerdict> CompleteAsync(TInput input, TVerdict ruleVerdict, TypedDecisionResult? result, string redacted, ResolvedTypedDecision cfg, CancellationToken token)
+        {
+            if (result == null || !result.Available)
+            {
+                await RecordUnavailableAsync(input, ruleVerdict, result ?? ExceptionResult(), redacted, token).ConfigureAwait(false);
+                return ruleVerdict;
+            }
+
+            TModel model;
+            try
+            {
+                model = Interpret(result);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "decision '" + DecisionPoint + "' interpretation failed, rule stands: " + ex.Message);
+                return ruleVerdict;
+            }
+
+            try
+            {
+                await OnModelReadingAsync(input, model, cfg, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // An observation is informative only; its failure must never change the verdict.
+                _Logging.Warn(_Header + "decision '" + DecisionPoint + "' reading observer failed, rule stands: " + ex.Message);
+            }
+
+            if (cfg.Mode == TypedDecisionModeEnum.Shadow || model.Confidence < cfg.GateThreshold)
+            {
+                string outcome = cfg.Mode == TypedDecisionModeEnum.Shadow ? "shadow_mode" : "below_threshold";
+                await RecordShadowAsync(input, ruleVerdict, model, result, outcome, redacted, token).ConfigureAwait(false);
+                return ruleVerdict;
+            }
+
+            TVerdict gated = Combine(ruleVerdict, model);
+            await RecordGatedAsync(input, ruleVerdict, model, result, redacted, token).ConfigureAwait(false);
+            return gated;
+        }
 
         private Task RecordUnavailableAsync(TInput input, TVerdict ruleVerdict, TypedDecisionResult result, string redacted, CancellationToken token)
         {

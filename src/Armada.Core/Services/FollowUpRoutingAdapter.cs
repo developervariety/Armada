@@ -130,12 +130,23 @@ namespace Armada.Core.Services
                 candidates = new List<FollowUpDuplicateCandidate>();
             }
 
-            foreach (string item in items)
+            // Items are classified together in as few requests as the limits allow; each item is still
+            // routed and recorded on its own, in order.
+            List<TypedDecisionBatchItem> batch = items
+                .Select(item => new TypedDecisionBatchItem(
+                    DecisionStateRedactor.RedactState(BuildState(followUp, objectiveTitle, item, candidates), _Settings.MaxStateChars),
+                    BuildQuestions()))
+                .ToList();
+            List<TypedDecisionResult> decisions = await TypedDecisionBatcher.DecideAllAsync(
+                _Client, DecisionPoint, batch, _Settings.MaxStateChars, token).ConfigureAwait(false);
+
+            for (int index = 0; index < items.Count; index++)
             {
+                string item = items[index];
                 FollowUpItemOutcome outcome;
                 try
                 {
-                    outcome = await RouteItemAsync(followUp, objectiveTitle, item, candidates, cfg, token).ConfigureAwait(false);
+                    outcome = await RouteItemAsync(followUp, objectiveTitle, item, candidates, cfg, decisions[index], batch[index].State.Text, token).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -162,29 +173,10 @@ namespace Armada.Core.Services
             string item,
             IReadOnlyList<FollowUpDuplicateCandidate> candidates,
             ResolvedTypedDecision cfg,
+            TypedDecisionResult result,
+            string redacted,
             CancellationToken token)
         {
-            RedactedDecisionState redactedState = DecisionStateRedactor.RedactState(BuildState(followUp, objectiveTitle, item, candidates), _Settings.MaxStateChars);
-            object state = redactedState.State;
-            string redacted = redactedState.Text;
-
-            TypedDecisionResult result;
-            try
-            {
-                result = await _Client.DecideAsync(
-                    new TypedDecisionRequest { DecisionPoint = DecisionPoint, State = state, Questions = BuildQuestions() },
-                    token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                // The client is contracted never to throw; guard anyway so a decision can never break
-                // capture. Record one unavailable event and route nothing.
-                _Logging.Warn(_Header + "client threw, capture unaffected: " + ex.Message);
-                await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
-                    BuildContext(followUp, "unrouted", null, null, ExceptionResult(), redacted), token)).ConfigureAwait(false);
-                return new FollowUpItemOutcome { Available = false };
-            }
-
             if (result == null || !result.Available)
             {
                 await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(

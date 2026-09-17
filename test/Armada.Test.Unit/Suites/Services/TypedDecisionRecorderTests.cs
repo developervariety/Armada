@@ -39,6 +39,7 @@ namespace Armada.Test.Unit.Suites.Services
                 Available = true,
                 Answers = answers,
                 Model = "jev-1.13.0",
+                BatchSize = 3,
                 InputTokens = 100,
                 OutputTokens = 20,
                 LatencyMs = 55
@@ -84,6 +85,7 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(20, payload.OutputTokens);
                 AssertEqual(55, payload.LatencyMs);
                 AssertEqual("jev-1.13.0", payload.Model);
+                AssertEqual(3, payload.BatchSize);
                 AssertEqual(0.96, payload.Answers!["cause"].Probabilities!["environmental"]);
             });
 
@@ -215,6 +217,9 @@ namespace Armada.Test.Unit.Suites.Services
 
             [JsonPropertyName("model")]
             public string? Model { get; set; }
+
+            [JsonPropertyName("batch_size")]
+            public int BatchSize { get; set; }
 
             [JsonPropertyName("answers")]
             public Dictionary<string, RecorderAnswer>? Answers { get; set; }

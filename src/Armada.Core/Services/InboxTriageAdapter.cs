@@ -107,30 +107,29 @@ namespace Armada.Core.Services
             if (cfg.Mode == TypedDecisionModeEnum.Off || input.Count == 0) return input;
 
             List<InboxAttentionAssignment> annotated = new List<InboxAttentionAssignment>();
-            int budget = MaxItemsPerCall;
+            List<InboxItem> scored = input.Where(item => item != null).Take(MaxItemsPerCall).ToList();
 
-            foreach (InboxItem item in input)
+            List<AttentionOutcome> outcomes;
+            try
             {
-                if (item == null || budget <= 0) continue;
-                budget--;
+                outcomes = await ScoreAttentionAsync(scored.Select(BuildInboxState).ToList(), "severity_order", null, cfg, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                // A scoring fault must never break the inbox; return the deterministic order.
+                _Logging.Warn(_Header + "inbox triage failed, deterministic order stands: " + ex.Message);
+                return input;
+            }
 
-                AttentionOutcome outcome;
-                try
-                {
-                    outcome = await ScoreAttentionAsync(BuildInboxState(item), "severity_order", null, cfg, token).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    // A scoring fault must never break the inbox; return the deterministic order.
-                    _Logging.Warn(_Header + "inbox triage failed, deterministic order stands: " + ex.Message);
-                    return input;
-                }
+            for (int index = 0; index < outcomes.Count; index++)
+            {
+                AttentionOutcome outcome = outcomes[index];
 
                 // The provider is unavailable for this call; return the plain deterministic order.
                 if (!outcome.Available) return input;
 
                 if (outcome.Applied && outcome.Attention != null)
-                    annotated.Add(new InboxAttentionAssignment { Item = item, Attention = outcome.Attention });
+                    annotated.Add(new InboxAttentionAssignment { Item = scored[index], Attention = outcome.Attention });
             }
 
             // Gate applies the labels and re-sorts; Shadow and below-threshold leave the order alone.
@@ -162,27 +161,26 @@ namespace Armada.Core.Services
             ResolvedTypedDecision cfg = _Settings.For(DecisionPoint);
             if (cfg.Mode == TypedDecisionModeEnum.Off) return results;
 
-            int budget = MaxItemsPerCall;
-            foreach (BoardNoteTriageInput note in notes)
+            List<BoardNoteTriageInput> scored = notes.Where(note => note != null).Take(MaxItemsPerCall).ToList();
+
+            List<AttentionOutcome> outcomes;
+            try
             {
-                if (note == null || budget <= 0) continue;
-                budget--;
+                outcomes = await ScoreAttentionAsync(scored.Select(BuildNoteState).ToList(), "unsorted", NoteKindQuestion(), cfg, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "board-note triage failed, deterministic order stands: " + ex.Message);
+                return new List<BoardNoteTriage>();
+            }
 
-                AttentionOutcome outcome;
-                try
-                {
-                    outcome = await ScoreAttentionAsync(BuildNoteState(note), "unsorted", NoteKindQuestion(), cfg, token).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _Logging.Warn(_Header + "board-note triage failed, deterministic order stands: " + ex.Message);
-                    return new List<BoardNoteTriage>();
-                }
-
+            for (int index = 0; index < outcomes.Count; index++)
+            {
+                AttentionOutcome outcome = outcomes[index];
                 if (!outcome.Available) return new List<BoardNoteTriage>();
 
                 if (outcome.Applied && outcome.Attention != null)
-                    results.Add(new BoardNoteTriage { Id = note.Id, Attention = outcome.Attention, NoteKind = outcome.NoteKind });
+                    results.Add(new BoardNoteTriage { Id = scored[index].Id, Attention = outcome.Attention, NoteKind = outcome.NoteKind });
             }
 
             return results;
@@ -192,17 +190,13 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
-        private async Task<AttentionOutcome> ScoreAttentionAsync(
-            object rawState,
+        private async Task<List<AttentionOutcome>> ScoreAttentionAsync(
+            List<object> rawStates,
             string ruleVerdict,
             TypedQuestion? extraQuestion,
             ResolvedTypedDecision cfg,
             CancellationToken token)
         {
-            RedactedDecisionState redactedState = DecisionStateRedactor.RedactState(rawState, _Settings.MaxStateChars);
-            object state = redactedState.State;
-            string redacted = redactedState.Text;
-
             Dictionary<string, TypedQuestion> questions = new Dictionary<string, TypedQuestion>(StringComparer.Ordinal)
             {
                 [_AttentionQuestionId] = new ScoreQuestion(
@@ -211,48 +205,50 @@ namespace Armada.Core.Services
             };
             if (extraQuestion != null) questions[_NoteKindQuestionId] = extraQuestion;
 
-            TypedDecisionResult result;
-            try
+            // Items are independent, so they are scored together in as few requests as the limits allow;
+            // each item still gets its own recorded event.
+            List<TypedDecisionBatchItem> batch = rawStates
+                .Select(raw => new TypedDecisionBatchItem(DecisionStateRedactor.RedactState(raw, _Settings.MaxStateChars), questions))
+                .ToList();
+            List<TypedDecisionResult> results = await TypedDecisionBatcher.DecideAllAsync(
+                _Client, DecisionPoint, batch, _Settings.MaxStateChars, token).ConfigureAwait(false);
+
+            List<AttentionOutcome> outcomes = new List<AttentionOutcome>(results.Count);
+            for (int index = 0; index < results.Count; index++)
             {
-                result = await _Client.DecideAsync(
-                    new TypedDecisionRequest { DecisionPoint = DecisionPoint, State = state, Questions = questions },
-                    token).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                // The client is contracted never to throw; guard anyway so a decision can never break the
-                // inbox or coordination read. Record one unavailable event and keep the deterministic order.
-                _Logging.Warn(_Header + "client threw, deterministic order stands: " + ex.Message);
-                await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
-                    BuildContext(ruleVerdict, null, null, ExceptionResult(), redacted), token)).ConfigureAwait(false);
-                return new AttentionOutcome { Available = false };
+                TypedDecisionResult result = results[index];
+                string redacted = batch[index].State.Text;
+
+                if (result == null || !result.Available)
+                {
+                    // Record the unavailable call once; the caller stops at the first unavailable item.
+                    await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
+                        BuildContext(ruleVerdict, null, null, result ?? ExceptionResult(), redacted), token)).ConfigureAwait(false);
+                    outcomes.Add(new AttentionOutcome { Available = false });
+                    return outcomes;
+                }
+
+                string attention = InterpretAttention(result, out double confidence);
+                string? noteKind = extraQuestion == null ? null : InterpretNoteKind(result);
+                bool apply = cfg.Mode == TypedDecisionModeEnum.Gate && confidence >= cfg.GateThreshold;
+                string verdict = noteKind == null ? attention : attention + "/" + noteKind;
+
+                if (apply)
+                {
+                    await SafeRecordAsync(() => _Recorder.RecordGatedAsync(
+                        BuildContext(ruleVerdict, verdict, confidence, result, redacted), token)).ConfigureAwait(false);
+                }
+                else
+                {
+                    string outcome = cfg.Mode == TypedDecisionModeEnum.Shadow ? "shadow_mode" : "below_threshold";
+                    await SafeRecordAsync(() => _Recorder.RecordShadowAsync(
+                        BuildContext(ruleVerdict, verdict, confidence, result, redacted), outcome, token)).ConfigureAwait(false);
+                }
+
+                outcomes.Add(new AttentionOutcome { Available = true, Applied = apply, Attention = attention, NoteKind = noteKind });
             }
 
-            if (result == null || !result.Available)
-            {
-                await SafeRecordAsync(() => _Recorder.RecordUnavailableAsync(
-                    BuildContext(ruleVerdict, null, null, result ?? ExceptionResult(), redacted), token)).ConfigureAwait(false);
-                return new AttentionOutcome { Available = false };
-            }
-
-            string attention = InterpretAttention(result, out double confidence);
-            string? noteKind = extraQuestion == null ? null : InterpretNoteKind(result);
-            bool apply = cfg.Mode == TypedDecisionModeEnum.Gate && confidence >= cfg.GateThreshold;
-            string verdict = noteKind == null ? attention : attention + "/" + noteKind;
-
-            if (apply)
-            {
-                await SafeRecordAsync(() => _Recorder.RecordGatedAsync(
-                    BuildContext(ruleVerdict, verdict, confidence, result, redacted), token)).ConfigureAwait(false);
-            }
-            else
-            {
-                string outcome = cfg.Mode == TypedDecisionModeEnum.Shadow ? "shadow_mode" : "below_threshold";
-                await SafeRecordAsync(() => _Recorder.RecordShadowAsync(
-                    BuildContext(ruleVerdict, verdict, confidence, result, redacted), outcome, token)).ConfigureAwait(false);
-            }
-
-            return new AttentionOutcome { Available = true, Applied = apply, Attention = attention, NoteKind = noteKind };
+            return outcomes;
         }
 
         private static object BuildInboxState(InboxItem item)

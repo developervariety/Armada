@@ -330,6 +330,9 @@ namespace Armada.Test.Unit.Suites.Services
 
                 AssertTrue(result.Posted, "candidates must produce a post");
                 AssertEqual(2, result.CandidateCount);
+                AssertEqual(1, client.Calls, "independent candidates are ranked in one request");
+                AssertEqual(2, await CountEventsAsync(db, TypedDecisionRecorder.EventTypeShadow).ConfigureAwait(false),
+                    "each candidate still records its own decision event");
                 AssertEqual(1, poster.Posts.Count, "exactly one owner-addressed note per pass");
                 AssertEqual(1, await CountEventsAsync(db, OwnerDigestRunner.DigestEventType).ConfigureAwait(false));
                 string note = poster.Posts[0];

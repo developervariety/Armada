@@ -317,6 +317,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new TypeSafeDecisionClientTests());
             runner.AddSuite(new DecisionStateRedactorTests());
             runner.AddSuite(new TypedDecisionRecorderTests());
+            runner.AddSuite(new TypedDecisionBatcherTests());
             runner.AddSuite(new TypedDecisionSettingsTests());
             runner.AddSuite(new McpTypedDecisionToolsTests());
             runner.AddSuite(new McpContextToolsTests());
