@@ -124,16 +124,19 @@ OpenCode accepts the prompt as its `run` argument.
 ### Per-captain provider credentials
 
 A captain whose model is served by an external provider (a `provider/model` id such as `example-provider/claude-fable-5`) normally uses
-the provider's host-level environment variable (for example `EXAMPLE_PROVIDER_KEY`). A captain may instead carry
-its own `apiKey` (and optional `apiBaseUrl`) on its record, which wins over
-the environment variable. This lets captains on separate provider subscriptions
-run side by side on one Admiral; burn down each subscription, then delete its
-captains. The MCP captain surface returns the key masked (last four
-characters preserved); the dashboard keeps the raw value so the edit form can
-prefill it, and entering the key in the dashboard never passes it through an
-orchestrator. Creating a captain whose model is not entitled on the
-environment key persists with a warning instead of failing, so a credential
-that arrives after creation can be attached from the dashboard.
+the provider's host-level environment variable (for example `EXAMPLE_PROVIDER_KEY`). To point a captain at a
+different base URL or key, reference an enabled **Inference `ModelEndpoint`** on
+the captain: an API-endpoint captain requires one, and a native-runtime captain
+(ClaudeCode, Codex, OpenCode, …) may optionally reference one, in which case the
+runtime resolves its base URL, key, and model from the endpoint at launch
+instead of the host default. This lets captains on separate provider
+subscriptions run side by side on one Admiral; burn down each subscription, then
+delete its captains. Endpoints are managed under Configuration > Endpoints.
+
+The key lives on the endpoint, never inline on the captain: the dashboard no
+longer offers per-captain credential fields. The captain record's `apiKey` and
+`apiBaseUrl` are internal launch-snapshot fields populated from the referenced
+endpoint at launch and never persisted back onto the captain row.
 
 Vessel instruction files and generated briefing files are protected paths.
 Captains must propose instruction changes. The orchestrator reviews and applies

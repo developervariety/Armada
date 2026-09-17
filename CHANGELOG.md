@@ -8,6 +8,14 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- Captains take external provider credentials only from a referenced inference
+  `ModelEndpoint`, never from inline fields. The Create/Edit Captain modal, the
+  captain detail page, and the setup wizard drop the per-captain Provider
+  Credential fields; a native-runtime captain now shows an optional inference
+  endpoint picker (an API-endpoint captain still requires one). Existing
+  non-native Judges were already migrated onto endpoints, so no captain relied on
+  inline credentials. The captain record's `apiKey`/`apiBaseUrl` remain as
+  internal launch-snapshot fields the endpoint resolution populates.
 - The server gate script runs its build and test commands with standard input from /dev/null, so a .NET process can no longer inherit the piped remote script and abort at start.
 - Model-tier routing now uses the captain capability tier as the only source of
   a captain's tier. `preferredModel` `low`, `mid`, and `high` name a tier floor

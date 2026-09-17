@@ -122,9 +122,11 @@ describe('Captains', () => {
       runtime: 'ApiEndpoint',
       modelEndpointId: 'mep_inf',
       tier: 'Standard',
-      apiKey: null,
-      apiBaseUrl: null,
     }));
+    // Inline provider credentials are retired: the modal never sends them for any runtime.
+    const apiEndpointPayload = vi.mocked(createCaptain).mock.calls[0][0] as Record<string, unknown>;
+    expect(apiEndpointPayload).not.toHaveProperty('apiKey');
+    expect(apiEndpointPayload).not.toHaveProperty('apiBaseUrl');
   });
 
   it('sends the preference rank from the captain modal, clamped to its range', async () => {
@@ -142,11 +144,28 @@ describe('Captains', () => {
     expect(createCaptain).toHaveBeenCalledWith(expect.objectContaining({ tier: 'Premium', preferenceRank: 1000 }));
   });
 
-  it('keeps the inline provider-credential fields for a native runtime', async () => {
+  it('offers an optional inference-endpoint picker for a native runtime and no inline credential fields', async () => {
     renderCaptains();
     const form = await openCreateForm();
     fireEvent.change(within(form).getByRole('combobox', { name: 'Runtime' }), { target: { value: 'ClaudeCode' } });
-    expect(within(form).getByText('Provider Credential')).toBeInTheDocument();
+    // The inline provider-credential fields are retired for every runtime.
+    expect(within(form).queryByText('Provider Credential')).not.toBeInTheDocument();
+    // A native runtime may optionally resolve its credentials from an inference endpoint; the picker
+    // lists only inference endpoints and is not required.
+    const endpoint = within(form).getByRole('combobox', { name: 'Inference Endpoint (optional)' }) as HTMLSelectElement;
+    expect(Array.from(endpoint.options).map((option) => option.value)).toEqual(['', 'mep_inf']);
+    expect(endpoint.required).toBe(false);
+
+    fireEvent.change(within(form).getByRole('textbox', { name: 'Name' }), { target: { value: 'native-endpoint-captain' } });
+    fireEvent.change(endpoint, { target: { value: 'mep_inf' } });
+    fireEvent.change(within(form).getByRole('combobox', { name: 'Capability tier' }), { target: { value: 'Premium' } });
+    fireEvent.submit(form);
+
+    await waitFor(() => expect(createCaptain).toHaveBeenCalledTimes(1));
+    expect(createCaptain).toHaveBeenCalledWith(expect.objectContaining({
+      runtime: 'ClaudeCode',
+      modelEndpointId: 'mep_inf',
+    }));
   });
 
   it('shows Stop All only to a global administrator, because the route acts on every tenant', async () => {

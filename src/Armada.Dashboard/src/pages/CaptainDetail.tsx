@@ -33,8 +33,6 @@ import CopyButton from '../components/shared/CopyButton';
 import { useLocale } from '../context/LocaleContext';
 import { useNotifications } from '../context/NotificationContext';
 import { buildMuxRuntimeOptionsJson, EMPTY_MUX_CAPTAIN_FORM, isMuxRuntime, muxFormFromCaptain, parseMuxCaptainOptions, type MuxCaptainFormFields } from '../lib/mux';
-import { EMPTY_CAPTAIN_CREDENTIAL_FORM, credentialFormFromCaptain, normalizeCredential, type CaptainCredentialFormFields } from '../lib/captainCredential';
-import ProviderCredentialFields from '../components/captains/ProviderCredentialFields';
 import { buildCaptainDuplicatePayload } from '../lib/duplicates';
 
 const RUNTIMES = ['ClaudeCode', 'Codex', 'Gemini', 'Cursor', 'Mux', 'OpenCode', 'ApiEndpoint', 'Custom'];
@@ -48,7 +46,7 @@ type CaptainDetailFormState = {
   preferenceRank: string;
   allowedPersonas: string;
   preferredPersona: string;
-} & MuxCaptainFormFields & CaptainCredentialFormFields;
+} & MuxCaptainFormFields;
 
 export default function CaptainDetail() {
   const { t, formatDateTime, formatRelativeTime } = useLocale();
@@ -67,7 +65,7 @@ export default function CaptainDetail() {
 
   // Edit
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<CaptainDetailFormState>({ name: '', runtime: 'ClaudeCode', systemInstructions: '', model: '', modelEndpointId: '', tier: '', preferenceRank: '0', allowedPersonas: '', preferredPersona: '', ...EMPTY_MUX_CAPTAIN_FORM, ...EMPTY_CAPTAIN_CREDENTIAL_FORM });
+  const [form, setForm] = useState<CaptainDetailFormState>({ name: '', runtime: 'ClaudeCode', systemInstructions: '', model: '', modelEndpointId: '', tier: '', preferenceRank: '0', allowedPersonas: '', preferredPersona: '', ...EMPTY_MUX_CAPTAIN_FORM });
   const [saving, setSaving] = useState(false);
   const [inferenceEndpoints, setInferenceEndpoints] = useState<ModelEndpoint[]>([]);
 
@@ -152,7 +150,6 @@ export default function CaptainDetail() {
       allowedPersonas: captain.allowedPersonas ?? '',
       preferredPersona: captain.preferredPersona ?? '',
       ...muxFormFromCaptain(captain),
-      ...credentialFormFromCaptain(captain),
     });
     setShowForm(true);
   }
@@ -175,11 +172,11 @@ export default function CaptainDetail() {
       const payload = { ...form } as Record<string, unknown>;
       if (!payload.systemInstructions) delete payload.systemInstructions;
       payload.model = form.model.trim() ? form.model.trim() : null;
-      payload.modelEndpointId = form.runtime === 'ApiEndpoint' ? (form.modelEndpointId || null) : null;
+      // Credentials come from a referenced inference endpoint, never inline fields: required for an
+      // API-endpoint captain, optional for a native runtime, and configured through its own fields for Mux.
+      payload.modelEndpointId = isMuxRuntime(form.runtime) ? null : (form.modelEndpointId || null);
       payload.tier = form.tier ? form.tier : null;
       payload.preferenceRank = parsePreferenceRank(form.preferenceRank);
-      payload.apiKey = normalizeCredential(form.apiKey);
-      payload.apiBaseUrl = normalizeCredential(form.apiBaseUrl);
       if (!payload.allowedPersonas) delete payload.allowedPersonas;
       if (!payload.preferredPersona) delete payload.preferredPersona;
       payload.runtimeOptionsJson = buildMuxRuntimeOptionsJson(form.runtime, form);
@@ -390,16 +387,18 @@ export default function CaptainDetail() {
               {t('Model')}
               <input value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder={form.runtime === 'ApiEndpoint' ? t('Optional; overrides the endpoint model') : t('e.g., gpt-5.4-mini')} />
             </label>
-            {form.runtime === 'ApiEndpoint' && (
-              <label title={t('The configured inference endpoint this captain drives. Manage endpoints under Configuration > Endpoints.')}>
-                {t('Inference Endpoint')}
-                <select value={form.modelEndpointId} onChange={e => setForm({ ...form, modelEndpointId: e.target.value })} required>
-                  <option value="">{t('Select an inference endpoint...')}</option>
+            {form.runtime !== '' && !isMuxRuntime(form.runtime) && (
+              <label title={form.runtime === 'ApiEndpoint'
+                ? t('The configured inference endpoint this captain drives. Manage endpoints under Configuration > Endpoints.')
+                : t('Optional. Resolve this captain\'s base URL and key from an inference endpoint instead of the host provider default. Manage endpoints under Configuration > Endpoints.')}>
+                {form.runtime === 'ApiEndpoint' ? t('Inference Endpoint') : t('Inference Endpoint (optional)')}
+                <select value={form.modelEndpointId} onChange={e => setForm({ ...form, modelEndpointId: e.target.value })} required={form.runtime === 'ApiEndpoint'}>
+                  <option value="">{form.runtime === 'ApiEndpoint' ? t('Select an inference endpoint...') : t('Host provider default (no endpoint)')}</option>
                   {inferenceEndpoints.map(ep => (
                     <option key={ep.id} value={ep.id}>{ep.name} ({ep.provider}{ep.model ? ' / ' + ep.model : ''})</option>
                   ))}
                 </select>
-                {inferenceEndpoints.length === 0 && (
+                {form.runtime === 'ApiEndpoint' && inferenceEndpoints.length === 0 && (
                   <small className="text-dim" style={{ display: 'block', marginTop: '0.25rem' }}>
                     {t('No inference endpoints configured. Add one under Configuration > Endpoints first.')}
                   </small>
@@ -425,11 +424,6 @@ export default function CaptainDetail() {
                 {t('Among captains of the same tier, a higher rank is tried first. Equal ranks are equal peers. Range -1000 to 1000.')}
               </span>
             </label>
-            <ProviderCredentialFields
-              form={form}
-              onChange={(patch) => setForm((current) => ({ ...current, ...patch }))}
-              t={t}
-            />
             <MuxRuntimeFields
               runtime={form.runtime}
               form={form}

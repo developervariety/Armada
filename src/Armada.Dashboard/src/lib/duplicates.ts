@@ -118,8 +118,9 @@ export function buildCaptainDuplicatePayload(captain: Captain): Partial<Captain>
     runtime: captain.runtime,
     systemInstructions: captain.systemInstructions ?? null,
     model: captain.model ?? null,
-    apiKey: captain.apiKey ?? null,
-    apiBaseUrl: captain.apiBaseUrl ?? null,
+    // Credentials come from the referenced inference endpoint, so a duplicate carries the endpoint
+    // reference rather than the retired inline fields.
+    modelEndpointId: captain.modelEndpointId ?? null,
     allowedPersonas: captain.allowedPersonas ?? null,
     preferredPersona: captain.preferredPersona ?? null,
     runtimeOptionsJson: captain.runtimeOptionsJson ?? null,
