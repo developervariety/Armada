@@ -35,7 +35,8 @@ namespace Armada.Core.Services
             ["memory_record"] = "The shape of a memory record for a captured decision.",
             ["memory_review"] = "Whether a reviewed memory's salience should be lowered.",
             ["lint_finding"] = "How a Linter finding routes to the next stage.",
-            ["prior_art"] = "Whether the requested work already exists before a stage begins."
+            ["prior_art"] = "Whether the requested work already exists before a stage begins.",
+            ["change_quality"] = "A multi-dimension quality read of a focused diff: DRY, cognitive complexity, modularity, readability, and maintainability."
         };
 
         #endregion

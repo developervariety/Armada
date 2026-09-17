@@ -6,6 +6,16 @@ All notable changes to Armada are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- The `change_quality` typed decision reads a focused diff across five dimensions (DRY, cognitive complexity,
+  modularity, readability, maintainability). Two are backed by a deterministic, authoritative rule and hard-flag
+  without the model — `cognitive_complexity` by an added-line nesting/length metric and `core_rule` by the Slop
+  check (`ChangeQualityRules`); the rest are informational, the model may flag or propose them but they never
+  hard-gate. The verdict is a set of weak dimensions; the deterministic weaknesses are always kept and the model
+  may only add informational ones, never remove a rule's. Ships in Gate at 0.90, fails closed to the deterministic
+  weaknesses, records both verdicts. (Captain tool and orchestrator follow-up routing land next.)
+
 ### Changed
 
 - Dispatch treats a stale code index as relevant only when the diff since the indexed commit touches indexable
