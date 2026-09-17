@@ -19,6 +19,20 @@ All notable changes to Armada are documented in this file.
   later model-backed pass sits behind. Its classes are `unproved_fix`, `pipe_gated_build`, `silent_skip`,
   `plan_label` and `boundary_token`. `boundaryPatterns` is operator configuration and ships empty, so that
   rule is inert until a deployment supplies its own terms.
+- The `log_watch` typed decision (D8) is wired as the second screening pass, so the model reading arrives
+  through the same read-only screen as the deterministic one. Over the bounded tail the screen already read it
+  asks one Choice `off_course` (`on_track`, `wrong_premise`, `wrong_base`, `misread_stage`, `blocked_unstated`,
+  `unclear`) and one Noul `correctable_now`. At or above its threshold with a class other than `on_track` it
+  reports one finding, so the screen posts its one voyage-tagged board note naming the drift class with one line
+  of evidence, and the decision emits one `captain.course_flag` event carrying the mission, the voyage, the class
+  and the reading. That event is distinct from the typed-decision bookkeeping events, so an operator query for
+  course flags returns only flags. Off, below threshold, or unavailable reports nothing and records the
+  decision's own shadow or unavailable event; a timeout, a non-2xx, or a parse error never reaches the screen.
+  The pass makes at most one model call per tail, none at all for a tail the screen skipped as unchanged, and it
+  cannot cancel, pause, mail, re-dispatch or steer a mission. The tail is redacted before egress and the recorded
+  state is a hash and a byte count. The questions state the domain: the captains do authorized engineering on
+  owned systems, so authentication and access-control work in a log is ordinary engineering, never a drift.
+
 - Per-class screening counts are readable over a date range: every screen that runs writes one
   `captain.log_screen` event, clean screens included, whose payload carries the outcome, the counts by rule
   class, the pass names, and the tail's SHA-256 and byte count. A screen that never ran writes nothing, so an

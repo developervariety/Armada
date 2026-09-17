@@ -241,6 +241,7 @@ namespace Armada.Test.Unit
             runner.AddSuite(new CriticalTriggerEvaluatorTests());
             runner.AddSuite(new DeterministicLogScreenPassTests());
             runner.AddSuite(new CaptainLogScreenServiceTests());
+            runner.AddSuite(new LogWatchScreenPassTests());
             runner.AddSuite(new CaptainLogScreeningSettingsTests());
             runner.AddSuite(new AutoLandLandingHandlerTests());
             runner.AddSuite(new WorkerNoOpFailureGuardTests());

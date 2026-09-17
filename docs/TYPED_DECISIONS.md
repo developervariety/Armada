@@ -21,6 +21,9 @@ runs at its own mode. Per decision group:
   read as enforcement. The `Typed Decision Wiring` suite fails when a shipped
   decision is neither consulted nor declared there, and when a declared entry is
   in fact consulted, so that list is the current answer rather than this page.
+- `log_watch` is wired as the model pass of the read-only captain-log screen
+  (`captainLogScreening`). The screen reads the tail; the decision reads it for
+  drift. With the screen off it is never called, whatever its mode says.
 
 **`capacity_escalation`** (ships `Gate`, threshold `0.90`) runs at assignment
 under Smart Routing, only for a persona whose `personaModels` entry has a
@@ -194,11 +197,22 @@ One decision point runs behind the deterministic dock-boundary scanner:
   non-2xx, a 429, a 529 or a parse error leaves the deterministic verdict
   standing with an `unavailable` event.
 
-One decision point is still a design document reviewed by the owner before any
-code lands: [`log_watch`](../archive/design/typed-decision-log-watch.md), a
-read-only screen over a running mission's log that posts a voyage-tagged board
-note and a `captain.course_flag` event. It neither blocks, stops, nor
-dispatches; it only flags.
+**`log_watch`** (ships `Gate`, threshold `0.90`) is the model pass of the
+read-only captain-log screen, beside the deterministic pass. Over the bounded
+tail the screen already read, it asks one Choice `off_course` (`on_track`,
+`wrong_premise`, `wrong_base`, `misread_stage`, `blocked_unstated`, `unclear`)
+and one Noul `correctable_now`. At or above the threshold with a class other
+than `on_track`, it returns one finding, so the screen posts its single
+voyage-tagged board note naming the drift class with one line of evidence, and
+the decision emits one `captain.course_flag` event carrying the mission, the
+voyage, the class and the reading. That event is deliberately distinct from the
+typed-decision bookkeeping events, so an operator query for course flags is
+clean. Off, below threshold, or unavailable reports nothing and records the
+decision's own shadow or unavailable event. The screen never stops a captain:
+its only writes are the note and the events, and the deterministic stall and
+overdue rules are untouched. The questions state the domain — the captains do
+authorized engineering on owned systems, so authentication and access-control
+work in a log is ordinary engineering and never a drift.
 
 The typed-decision system is also offered to captains directly, through six
 mission-scoped MCP tools next to the memory tools: the general

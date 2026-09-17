@@ -710,12 +710,25 @@ namespace Armada.Server
             // The read-only captain-log screen. It holds the screening settings section by reference so
             // an operator edit reaches it without a restart, and it is driven by the health loop below.
             // Its only writes are one voyage-tagged board note and one event per screened mission.
+            // D8 log_watch is the model pass of the same screen, beside the deterministic one. It holds
+            // the decision's own mode and threshold, so an Off decision makes no call and reports nothing;
+            // its course-flag event is written through the database so it carries the mission's owner scope.
+            TypedLogWatchAdapter logWatchAdapter = new TypedLogWatchAdapter(
+                _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Logging)
+            {
+                EventDatabase = _Database
+            };
+
             _CaptainLogScreen = new CaptainLogScreenService(
                 _Logging,
                 _Database,
                 _Settings.CaptainLogScreening,
                 new CaptainLogTailReader(_Settings),
-                new List<ICaptainLogScreenPass> { new DeterministicLogScreenPass(_Settings.CaptainLogScreening) },
+                new List<ICaptainLogScreenPass>
+                {
+                    new DeterministicLogScreenPass(_Settings.CaptainLogScreening),
+                    new LogWatchScreenPass(logWatchAdapter)
+                },
                 new CoordinationVoyageNotePoster(_CoordinationService, "Captain Log Screen", _Logging));
 
             // D5 preflight text-half adapter. Always wired; without a key the effective mode is Off, so

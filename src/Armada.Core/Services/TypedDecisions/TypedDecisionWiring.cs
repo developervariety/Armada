@@ -25,7 +25,6 @@ namespace Armada.Core.Services
         /// </summary>
         public static IReadOnlyDictionary<string, string> UnwiredDecisions { get; } = new Dictionary<string, string>(StringComparer.Ordinal)
         {
-            ["log_watch"] = "No adapter consults it: the decision is a design document, so its mode has no effect."
         };
 
         #endregion
