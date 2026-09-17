@@ -175,6 +175,10 @@ namespace Armada.Core.Services
                 }
             }
 
+            // Run the content upgrader first, while the live rows still hold their raw content: the
+            // reference and memory-recall upgraders below mutate content, which would change a stale
+            // row's hash and make it read as an operator edit.
+            await UpgradeBuiltInPersonaContentAsync(token).ConfigureAwait(false);
             await UpgradeLegacyPersonaTemplateReferencesAsync(token).ConfigureAwait(false);
             await UpgradeBuiltInPersonaMemoryRecallAsync(token).ConfigureAwait(false);
         }
@@ -300,6 +304,119 @@ namespace Armada.Core.Services
                 template.LastUpdateUtc = DateTime.UtcNow;
                 await _Database.PromptTemplates.UpdateAsync(template, token).ConfigureAwait(false);
                 _Logging.Info(_Header + "added memory-recall guidance to built-in template '" + template.Name + "'");
+            }
+        }
+
+        /// <summary>
+        /// The decision the content upgrader makes for one built-in row.
+        /// </summary>
+        internal enum TemplateContentDecision
+        {
+            /// <summary>The live content already equals the current embedded default.</summary>
+            Current,
+
+            /// <summary>The live content equals a superseded embedded version, so it is safe to upgrade.</summary>
+            Upgrade,
+
+            /// <summary>The live content matches no known embedded version, so an operator edited it.</summary>
+            Drift
+        }
+
+        /// <summary>
+        /// Classify a built-in row's live content against the current embedded content and the known
+        /// prior embedded versions. Pure and side-effect free so the upgrade rule is tested without a
+        /// database: <see cref="TemplateContentDecision.Upgrade"/> only when the live content matches a
+        /// recorded prior version, never a version the upgrader has not seen.
+        /// </summary>
+        /// <param name="liveContent">The content of the live built-in row.</param>
+        /// <param name="embeddedContent">The current embedded default content.</param>
+        /// <param name="priorHashes">Lowercase SHA-256 hex of superseded embedded versions.</param>
+        /// <returns>The decision.</returns>
+        internal static TemplateContentDecision ClassifyBuiltInContent(string liveContent, string embeddedContent, IReadOnlyList<string>? priorHashes)
+        {
+            string liveHash = HashContent(liveContent);
+            if (String.Equals(liveHash, HashContent(embeddedContent), StringComparison.Ordinal))
+                return TemplateContentDecision.Current;
+            if (priorHashes != null && priorHashes.Contains(liveHash, StringComparer.Ordinal))
+                return TemplateContentDecision.Upgrade;
+            return TemplateContentDecision.Drift;
+        }
+
+        /// <summary>
+        /// Lowercase SHA-256 hex of a template content string, the stable identity a prior embedded
+        /// version is recorded and matched by.
+        /// </summary>
+        /// <param name="content">The content to hash; null is treated as empty.</param>
+        /// <returns>The 64-character lowercase hex digest.</returns>
+        internal static string HashContent(string? content)
+        {
+            byte[] digest = System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(content ?? String.Empty));
+            return Convert.ToHexString(digest).ToLowerInvariant();
+        }
+
+        /// <summary>
+        /// Replace a built-in row that still holds a superseded embedded version with the current
+        /// embedded content, and leave an operator-edited row alone. Seeding never rewrites the content
+        /// of an existing row, so without this a content change in code never reaches a live row. Only a
+        /// row whose content matches a recorded prior version is upgraded; a row matching no known
+        /// version is logged and recorded for a manual merge. Every outcome records an event.
+        /// </summary>
+        /// <param name="token">Cancellation token.</param>
+        private async Task UpgradeBuiltInPersonaContentAsync(CancellationToken token)
+        {
+            foreach (KeyValuePair<string, EmbeddedTemplate> pair in _EmbeddedDefaults)
+            {
+                EmbeddedTemplate embedded = pair.Value;
+                if (embedded.PriorContentHashes.Count == 0) continue;
+
+                PromptTemplate? existing = await _Database.PromptTemplates.ReadByNameAsync(pair.Key, token).ConfigureAwait(false);
+                if (existing == null || !existing.IsBuiltIn) continue;
+
+                string liveContent = existing.Content ?? String.Empty;
+                TemplateContentDecision decision = ClassifyBuiltInContent(liveContent, embedded.Content, embedded.PriorContentHashes);
+                if (decision == TemplateContentDecision.Current) continue;
+
+                string liveHash = HashContent(liveContent);
+                if (decision == TemplateContentDecision.Upgrade)
+                {
+                    existing.Content = embedded.Content;
+                    existing.LastUpdateUtc = DateTime.UtcNow;
+                    await _Database.PromptTemplates.UpdateAsync(existing, token).ConfigureAwait(false);
+                    _Logging.Info(_Header + "upgraded built-in template '" + pair.Key + "' from superseded version " + liveHash.Substring(0, 12));
+                    await RecordTemplateContentEventAsync(
+                        "prompt_template.content_upgraded", existing.Id, pair.Key,
+                        "upgraded '" + pair.Key + "' from " + liveHash.Substring(0, 12) + " to " + HashContent(embedded.Content).Substring(0, 12), token).ConfigureAwait(false);
+                }
+                else
+                {
+                    _Logging.Info(_Header + "built-in template '" + pair.Key + "' content " + liveHash.Substring(0, 12)
+                        + " matches no known embedded version; left for operator merge");
+                    await RecordTemplateContentEventAsync(
+                        "prompt_template.content_drift", existing.Id, pair.Key,
+                        "'" + pair.Key + "' content " + liveHash.Substring(0, 12) + " matches no embedded version; left for operator merge", token).ConfigureAwait(false);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Record a content-upgrade or content-drift event, swallowing a recorder failure so an event
+        /// write never blocks seeding.
+        /// </summary>
+        private async Task RecordTemplateContentEventAsync(string eventType, string? entityId, string name, string message, CancellationToken token)
+        {
+            try
+            {
+                ArmadaEvent evt = new ArmadaEvent(eventType, message)
+                {
+                    EntityType = "prompt_template",
+                    EntityId = entityId
+                };
+                await _Database.Events.CreateAsync(evt, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "failed to record " + eventType + " for '" + name + "': " + ex.Message);
             }
         }
 
@@ -1120,6 +1237,15 @@ namespace Armada.Core.Services
             /// Template content with {Placeholder} parameters.
             /// </summary>
             public string Content { get; set; } = "";
+
+            /// <summary>
+            /// Lowercase SHA-256 hex of each superseded embedded content version. The startup content
+            /// upgrader replaces a built-in row whose live content still equals one of these prior
+            /// versions with the current <see cref="Content"/>; a row that matches none of them is an
+            /// operator edit and is left alone. When the embedded content changes, add the hash of the
+            /// version it replaces here so the next deploy carries un-edited rows forward.
+            /// </summary>
+            public IReadOnlyList<string> PriorContentHashes { get; set; } = Array.Empty<string>();
         }
 
         #endregion

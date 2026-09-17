@@ -187,6 +187,30 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("Content upgrader upgrades a superseded row and leaves an operator edit alone", () =>
+            {
+                string embedded = "## Rules\nline one\nline two\n";
+                string prior = "## Rules\nline one\n";
+                string operatorEdit = "## Rules\nline one\nOPERATOR ADDED\n";
+                IReadOnlyList<string> priors = new List<string> { PromptTemplateService.HashContent(prior) };
+
+                AssertEqual(PromptTemplateService.TemplateContentDecision.Current,
+                    PromptTemplateService.ClassifyBuiltInContent(embedded, embedded, priors),
+                    "A row equal to the current embedded default is Current");
+                AssertEqual(PromptTemplateService.TemplateContentDecision.Upgrade,
+                    PromptTemplateService.ClassifyBuiltInContent(prior, embedded, priors),
+                    "A row equal to a recorded prior version is upgraded");
+                AssertEqual(PromptTemplateService.TemplateContentDecision.Drift,
+                    PromptTemplateService.ClassifyBuiltInContent(operatorEdit, embedded, priors),
+                    "A row matching no known version is an operator edit and is left alone");
+                // Without a recorded prior hash, even a genuine old version is treated as drift, so an
+                // un-catalogued row is never silently overwritten.
+                AssertEqual(PromptTemplateService.TemplateContentDecision.Drift,
+                    PromptTemplateService.ClassifyBuiltInContent(prior, embedded, new List<string>()),
+                    "An old version with no recorded prior hash is drift, never a silent overwrite");
+                return Task.CompletedTask;
+            });
+
             await RunTest("Working persona templates carry the memory-recall note; the Recorder does not", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync())
