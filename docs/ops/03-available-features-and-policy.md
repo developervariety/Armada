@@ -39,6 +39,18 @@ when several are enabled; with none registered the `codeIndex` embedding
 settings above apply. The endpoint is resolved at startup, so add or change it
 then restart the admiral.
 
+Source in brace-delimited languages (C#, Java, JavaScript, TypeScript, Go, Rust,
+Kotlin, C, C++, Swift, Scala, Dart, PHP) is chunked at declaration boundaries
+when `codeIndex.structuralChunking` is on (the default): a member with at least
+`codeIndex.duplicateMinLines` non-blank lines (default 6) is one chunk with its
+doc comment, attributes and signature, smaller neighbouring members are packed
+together up to `codeIndex.maxChunkLines`, and a member larger than that budget is
+split at its inner blocks. Two copies of a method then produce the same chunk
+wherever they sit. A file whose braces do not balance, and every other language,
+uses fixed line windows. Expect several times more chunks than line windows on a
+method-heavy repository. Changing either setting rebuilds the index on the next
+update.
+
 Captains search code through `armada_mission_code_search`, which resolves the
 vessel from the calling mission and searches no other vessel. Its budget and
 result cap are `codeIndex.captainSearchMaxCallsPerMission` (default 40) and

@@ -8,6 +8,14 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- The code index chunks brace-delimited source at declaration boundaries instead of fixed line windows
+  (`codeIndex.structuralChunking`, default on). A method becomes one chunk with its doc comment, attributes and
+  signature wherever it sits in its file, so two copies of it produce the same chunk; members under
+  `codeIndex.duplicateMinLines` non-blank lines are packed with their neighbours, and a block larger than
+  `codeIndex.maxChunkLines` is split at its inner blocks. The scanner skips comments, strings, character literals,
+  C# verbatim, raw and interpolated strings, and template literals; a file whose braces do not balance, and every
+  other language, keeps line windows. Both settings are part of the index fingerprint, so the next update rebuilds.
+
 - The TestEngineer and Linter personas ask for structured evidence the typed
   decisions read: the TestEngineer names, per added test, the symptom it covers
   and that it fails without the change (feeding `test_covers`); the Linter tags

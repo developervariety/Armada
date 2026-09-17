@@ -1,6 +1,7 @@
 namespace Armada.Test.Unit.Suites.Services
 {
     using System.Diagnostics;
+    using System.Text;
     using System.Text.Json;
     using Armada.Core.Models;
     using Armada.Core.Services;
@@ -925,6 +926,52 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("UpdateAsync_StructuralChunking_DuplicateMethodIsIdenticalChunkAcrossFiles_LineWindowsAreNot", async () =>
+            {
+                TestRepository repository = await CreateRepositoryWithFilesAsync(new Dictionary<string, string>
+                {
+                    ["src/First.cs"] = DuplicateFixtures.FileWithTarget(prefixMembers: 9, suffixMembers: 2, seed: "alpha"),
+                    ["src/Second.cs"] = DuplicateFixtures.FileWithTarget(prefixMembers: 5, suffixMembers: 6, seed: "beta")
+                }).ConfigureAwait(false);
+                string structuralRoot = NewTempDirectory("armada-code-index-data-");
+                string windowRoot = NewTempDirectory("armada-code-index-data-");
+
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+
+                        CodeIndexService structural = CreateService(testDb, structuralRoot, new TokenHashEmbeddingClient(),
+                            ci => { ci.UseSemanticSearch = true; ci.StructuralChunking = true; });
+                        CodeIndexStatus structuralStatus = await structural.UpdateAsync(vessel.Id).ConfigureAwait(false);
+                        List<CodeIndexRecord> structuralRecords = await ReadChunkRecordsAsync(structuralStatus).ConfigureAwait(false);
+
+                        CodeIndexService windows = CreateService(testDb, windowRoot, new TokenHashEmbeddingClient(),
+                            ci => { ci.UseSemanticSearch = true; ci.StructuralChunking = false; });
+                        CodeIndexStatus windowStatus = await windows.UpdateAsync(vessel.Id).ConfigureAwait(false);
+                        List<CodeIndexRecord> windowRecords = await ReadChunkRecordsAsync(windowStatus).ConfigureAwait(false);
+
+                        // Identical chunk text embeds identically under any model; that is what lets two
+                        // copies of a method meet at similarity 1.0.
+                        List<CodeIndexRecord[]> structuralPairs = IdenticalCrossFilePairs(structuralRecords, "src/First.cs", "src/Second.cs");
+                        AssertEqual(1, structuralPairs.Count, "structural chunking yields exactly one identical cross-file chunk pair");
+                        AssertContains("MergeOverlappingRanges", structuralPairs[0][0].Content ?? "");
+                        AssertTrue(Cosine(structuralPairs[0][0].EmbeddingVector!, structuralPairs[0][1].EmbeddingVector!) >= 0.999,
+                            "the identical chunks carry identical persisted vectors");
+
+                        AssertEqual(0, IdenticalCrossFilePairs(windowRecords, "src/First.cs", "src/Second.cs").Count,
+                            "line windows cut the shared method differently in each file, so no chunk pair is identical");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(structuralRoot);
+                    TryDeleteDirectory(windowRoot);
+                }
+            });
+
             await RunTest("UpdateAsync_SemanticSearchOn_UsesEmbeddingBatchRequests", async () =>
             {
                 TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
@@ -1762,6 +1809,80 @@ namespace Armada.Test.Unit.Suites.Services
             return await testDb.Driver.Vessels.CreateAsync(vessel).ConfigureAwait(false);
         }
 
+        private static async Task<TestRepository> CreateRepositoryWithFilesAsync(Dictionary<string, string> files)
+        {
+            string root = NewTempDirectory("armada-code-index-repo-");
+            string repo = Path.Combine(root, "repo");
+            Directory.CreateDirectory(repo);
+
+            try
+            {
+                await RunGitAsync(repo, "init", "-b", "main").ConfigureAwait(false);
+                await RunGitAsync(repo, "config", "user.name", "Armada Tests").ConfigureAwait(false);
+                await RunGitAsync(repo, "config", "user.email", "armada-tests@example.com").ConfigureAwait(false);
+
+                foreach (KeyValuePair<string, string> file in files)
+                {
+                    string fullPath = Path.Combine(repo, file.Key.Replace('/', Path.DirectorySeparatorChar));
+                    Directory.CreateDirectory(Path.GetDirectoryName(fullPath)!);
+                    await File.WriteAllTextAsync(fullPath, file.Value).ConfigureAwait(false);
+                }
+
+                await RunGitAsync(repo, "add", ".").ConfigureAwait(false);
+                await RunGitAsync(repo, "commit", "-m", "Fixture files").ConfigureAwait(false);
+                string commitSha = (await RunGitAsync(repo, "rev-parse", "HEAD").ConfigureAwait(false)).Trim();
+                return new TestRepository(root, repo, commitSha);
+            }
+            catch
+            {
+                TryDeleteDirectory(root);
+                throw;
+            }
+        }
+
+        private static async Task<List<CodeIndexRecord>> ReadChunkRecordsAsync(CodeIndexStatus status)
+        {
+            string chunksPath = Path.Combine(status.IndexDirectory, "chunks.jsonl");
+            List<CodeIndexRecord> records = new List<CodeIndexRecord>();
+            foreach (string line in await File.ReadAllLinesAsync(chunksPath).ConfigureAwait(false))
+            {
+                if (String.IsNullOrWhiteSpace(line)) continue;
+                records.Add(JsonSerializer.Deserialize<CodeIndexRecord>(line, _IndexJsonOptions)!);
+            }
+
+            return records;
+        }
+
+        private static List<CodeIndexRecord[]> IdenticalCrossFilePairs(List<CodeIndexRecord> records, string firstPath, string secondPath)
+        {
+            List<CodeIndexRecord[]> pairs = new List<CodeIndexRecord[]>();
+            foreach (CodeIndexRecord first in records.Where(r => r.Path == firstPath))
+            {
+                foreach (CodeIndexRecord second in records.Where(r => r.Path == secondPath))
+                {
+                    if (String.Equals(first.Content, second.Content, StringComparison.Ordinal))
+                        pairs.Add(new[] { first, second });
+                }
+            }
+
+            return pairs;
+        }
+
+        private static double Cosine(float[] a, float[] b)
+        {
+            double dot = 0;
+            double normA = 0;
+            double normB = 0;
+            for (int i = 0; i < a.Length; i++)
+            {
+                dot += a[i] * b[i];
+                normA += a[i] * a[i];
+                normB += b[i] * b[i];
+            }
+
+            return normA == 0 || normB == 0 ? 0 : dot / (Math.Sqrt(normA) * Math.Sqrt(normB));
+        }
+
         private static async Task<TestRepository> CreateRepositoryAsync()
         {
             string root = NewTempDirectory("armada-code-index-repo-");
@@ -1862,6 +1983,49 @@ namespace Armada.Test.Unit.Suites.Services
                 }
 
                 return stdout;
+            }
+        }
+
+        /// <summary>
+        /// Deterministic bag-of-tokens embedding: identical text gives identical vectors, and text that
+        /// shares only part of its tokens gives a lower cosine.
+        /// </summary>
+        private sealed class TokenHashEmbeddingClient : IEmbeddingClient
+        {
+            private const int _Dimensions = 256;
+
+            public Task<float[]> EmbedAsync(string text, CancellationToken token = default)
+            {
+                float[] vector = new float[_Dimensions];
+                StringBuilder current = new StringBuilder();
+                foreach (char c in (text ?? String.Empty) + " ")
+                {
+                    if (Char.IsLetterOrDigit(c) || c == '_')
+                    {
+                        current.Append(c);
+                        continue;
+                    }
+
+                    if (current.Length > 0)
+                    {
+                        vector[StableBucket(current.ToString())] += 1F;
+                        current.Clear();
+                    }
+                }
+
+                return Task.FromResult(vector);
+            }
+
+            private static int StableBucket(string tokenText)
+            {
+                uint hash = 2166136261;
+                foreach (char c in tokenText)
+                {
+                    hash ^= c;
+                    hash *= 16777619;
+                }
+
+                return (int)(hash % _Dimensions);
             }
         }
 

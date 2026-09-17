@@ -2554,14 +2554,18 @@ namespace Armada.Core.Services
                 bool isReferenceOnly = IsReferenceOnlyPath(relativePath);
                 string[] lines = NormalizeLineEndings(content).Split('\n');
 
+                List<CodeChunkRange> ranges = _Settings.CodeIndex.StructuralChunking
+                    ? StructuralChunker.Chunk(lines, language, _Settings.CodeIndex.MaxChunkLines, _Settings.CodeIndex.DuplicateMinLines)
+                    : StructuralChunker.ChunkByLineWindows(lines, _Settings.CodeIndex.MaxChunkLines);
+
                 // Reused per-file to avoid an intermediate string[] from LINQ Skip/Take +
-                // String.Join + a second Trim allocation per chunk. The previous shape
-                // allocated 3-4 transient strings per chunk under a hot loop.
+                // String.Join + a second Trim allocation per chunk.
                 StringBuilder chunkBuilder = new StringBuilder();
 
-                for (int start = 0; start < lines.Length; start += _Settings.CodeIndex.MaxChunkLines)
+                foreach (CodeChunkRange range in ranges)
                 {
-                    int endExclusive = Math.Min(lines.Length, start + _Settings.CodeIndex.MaxChunkLines);
+                    int start = range.StartIndex;
+                    int endExclusive = range.EndIndexExclusive;
 
                     chunkBuilder.Clear();
                     for (int i = start; i < endExclusive; i++)
@@ -2938,6 +2942,8 @@ namespace Armada.Core.Services
             {
                 _Settings.CodeIndex.MaxFileBytes,
                 _Settings.CodeIndex.MaxChunkLines,
+                _Settings.CodeIndex.StructuralChunking,
+                _Settings.CodeIndex.DuplicateMinLines,
                 ExcludedDirectoryNames = NormalizeList(_Settings.CodeIndex.ExcludedDirectoryNames),
                 ExcludedFileNames = NormalizeList(_Settings.CodeIndex.ExcludedFileNames),
                 ExcludedExtensions = NormalizeList(_Settings.CodeIndex.ExcludedExtensions),

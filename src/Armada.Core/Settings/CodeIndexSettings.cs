@@ -575,6 +575,15 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Whether source files in brace-delimited languages are chunked at declaration boundaries
+        /// (a method, or a whole type that fits) instead of fixed line windows. Two copies of the same
+        /// method then produce identical chunks wherever they sit in their files, which duplicate
+        /// detection depends on. A file whose braces do not balance falls back to line windows.
+        /// Default true.
+        /// </summary>
+        public bool StructuralChunking { get; set; } = true;
+
+        /// <summary>
         /// Maximum <c>armada_mission_code_search</c> calls one mission may make.
         /// Clamped to [1 .. 500]. Default 40.
         /// </summary>
@@ -601,6 +610,23 @@ namespace Armada.Core.Settings
                 if (value < 1) value = 1;
                 if (value > 25) value = 25;
                 _CaptainSearchMaxResults = value;
+            }
+        }
+
+        /// <summary>
+        /// Minimum non-blank lines a member needs to be a chunk of its own under structural chunking,
+        /// and to take part in duplicate detection. Smaller members are packed with their neighbours, so
+        /// one-line members and short property blocks are neither separate chunks nor reported as
+        /// duplicates. Clamped to [1 .. 200]. Default 6.
+        /// </summary>
+        public int DuplicateMinLines
+        {
+            get => _DuplicateMinLines;
+            set
+            {
+                if (value < 1) value = 1;
+                if (value > 200) value = 200;
+                _DuplicateMinLines = value;
             }
         }
 
@@ -643,6 +669,7 @@ namespace Armada.Core.Settings
         private int _MaxReadContextFileCount = 200;
         private int _CaptainSearchMaxCallsPerMission = 40;
         private int _CaptainSearchMaxResults = 10;
+        private int _DuplicateMinLines = 6;
 
         #endregion
     }
