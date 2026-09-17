@@ -33,6 +33,7 @@ namespace Armada.Core.Services
         private ICodeIndexService? _CodeIndexService;
         private IMergeRecoveryHandler? _RecoveryHandler;
         private ISelfDeployService? _SelfDeployService;
+        private LeakHunkAdapter? _LeakHunkAdapter;
         private JudgeFollowUpService _JudgeFollowUps;
 
         private bool _Processing = false;
@@ -94,6 +95,18 @@ namespace Armada.Core.Services
         public void SetSelfDeployService(ISelfDeployService selfDeployService)
         {
             _SelfDeployService = selfDeployService;
+        }
+
+        /// <summary>
+        /// Wire the D7 <c>leak_hunk</c> advisory adapter post-construction. Null leaves the
+        /// dock-boundary scan deterministic, which is the operationally-off state. The adapter runs
+        /// BEHIND the deterministic scanner and can only attach advisory flags to its result: it never
+        /// changes the pass verdict, never fails a merge entry, and never softens a finding.
+        /// </summary>
+        /// <param name="adapter">The advisory per-hunk leak adapter.</param>
+        public void SetLeakHunkAdapter(LeakHunkAdapter adapter)
+        {
+            _LeakHunkAdapter = adapter;
         }
 
         #endregion
@@ -1682,7 +1695,8 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "dock-boundary validation could not collect unified diff in " + worktreePath + ": " + ex.Message);
             }
 
-            return new DockBoundaryScanner().Scan(
+            // The deterministic scan runs first and unconditionally, and decides the block on its own.
+            DockBoundaryScanResult result = new DockBoundaryScanner().Scan(
                 unifiedDiff,
                 changedFiles,
                 vessel?.Id ?? entry.VesselId,
@@ -1690,6 +1704,32 @@ namespace Armada.Core.Services
                 vessel?.RepoUrl,
                 vessel?.ProtectedPaths,
                 _Settings.DockBoundary);
+
+            // The D7 advisory pass reads the same added text afterwards. It can only append advisory
+            // flags: the pass verdict and the findings above are never changed, so a flagged entry that
+            // passed the deterministic scan still lands and a deterministic finding still fails it.
+            await AttachLeakHunkFlagsAsync(result, unifiedDiff, vessel?.Name, token).ConfigureAwait(false);
+            return result;
+        }
+
+        private async Task AttachLeakHunkFlagsAsync(
+            DockBoundaryScanResult result,
+            string? unifiedDiff,
+            string? vesselName,
+            CancellationToken token)
+        {
+            LeakHunkAdapter? adapter = _LeakHunkAdapter;
+            if (adapter == null) return;
+
+            IReadOnlyList<DockBoundaryAdvisoryFlag> flags = await adapter
+                .EvaluateAsync(unifiedDiff, vesselName, null, result, token)
+                .ConfigureAwait(false);
+
+            foreach (DockBoundaryAdvisoryFlag flag in flags)
+            {
+                _Logging.Warn(_Header + "advisory leak flag (" + flag.Kind + ") on '" + flag.Path
+                    + "'; the landing is not held, review the hunk");
+            }
         }
 
         private async Task<Vessel?> ReadEntryVesselAsync(MergeEntry entry, CancellationToken token)

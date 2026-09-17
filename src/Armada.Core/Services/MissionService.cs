@@ -198,6 +198,16 @@ namespace Armada.Core.Services
         /// the next brief; it is a review instruction, never a verdict, and the Judge still judges.
         /// </summary>
         public TypedPriorArtAdapter? PriorArtAdapter { get; set; }
+
+        /// <summary>
+        /// The D7 <c>leak_hunk</c> advisory adapter, when wired. Null leaves the pre-land dock-boundary
+        /// scan deterministic, which is the operationally-off state. Set by the server after
+        /// construction so existing construction sites and tests are unchanged. The deterministic
+        /// scanner runs first and unconditionally and decides the block; the adapter can only attach
+        /// advisory flags to its result, so it never fails a mission, never holds a landing, and never
+        /// softens a deterministic finding.
+        /// </summary>
+        public LeakHunkAdapter? LeakHunkAdapter { get; set; }
         private const string _CreditAuthQuarantineReason =
             "Provider credit, billing, payment, or authentication failure detected during mission execution.";
         private const string ArchitectHandoffMarker = "<!-- ARMADA:ARCHITECT-HANDOFF -->";
@@ -10314,6 +10324,8 @@ namespace Armada.Core.Services
             if (vessel == null) return false;
 
             DockBoundarySettings settings = _Settings?.DockBoundary ?? new DockBoundarySettings();
+
+            // The deterministic scan runs first and unconditionally, and decides the block on its own.
             DockBoundaryScanResult scanResult = new DockBoundaryScanner().Scan(
                 mission.DiffSnapshot,
                 null,
@@ -10322,6 +10334,11 @@ namespace Armada.Core.Services
                 vessel.RepoUrl,
                 vessel.ProtectedPaths,
                 settings);
+
+            // The D7 advisory pass reads the same added text afterwards. It can only append advisory
+            // flags, so the pass verdict below reflects the deterministic findings alone: a flagged
+            // mission whose scan is clean still lands, and a deterministic finding still fails it.
+            await AttachLeakHunkFlagsAsync(mission, vessel, scanResult, token).ConfigureAwait(false);
 
             if (scanResult.Passed) return false;
 
@@ -10343,6 +10360,22 @@ namespace Armada.Core.Services
             await CancelDependentPipelineStagesAsync(mission, token).ConfigureAwait(false);
             await UpdateVoyageTerminalStatusAsync(mission.VoyageId, token).ConfigureAwait(false);
             return true;
+        }
+
+        private async Task AttachLeakHunkFlagsAsync(Mission mission, Vessel vessel, DockBoundaryScanResult scanResult, CancellationToken token)
+        {
+            LeakHunkAdapter? adapter = LeakHunkAdapter;
+            if (adapter == null) return;
+
+            IReadOnlyList<DockBoundaryAdvisoryFlag> flags = await adapter
+                .EvaluateAsync(mission.DiffSnapshot, vessel.Name, mission, scanResult, token)
+                .ConfigureAwait(false);
+
+            foreach (DockBoundaryAdvisoryFlag flag in flags)
+            {
+                _Logging.Warn(_Header + "advisory leak flag (" + flag.Kind + ") on '" + flag.Path
+                    + "' for mission " + mission.Id + "; the landing is not held, review the hunk");
+            }
         }
 
         private static string FormatDockBoundaryFailure(DockBoundaryScanResult result)
