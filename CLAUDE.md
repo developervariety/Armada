@@ -77,8 +77,9 @@ non-git suites are equal). Run the gate for a commit with
 scratch bare repository on the host, tests it detached in a scratch worktree, and
 prints the combined result; it refuses to run with uncommitted tracked changes.
 The gate always tests a commit pushed to scratch, never a shared or deployed
-checkout. Never commit a real host alias or scratch path. Sharded gate wall time
-on the Linux host: TODO (fill in after measuring). Use `run-tests.sh` locally for
+checkout. Never commit a real host alias or scratch path. Measured sharded gate on the
+Linux host (16 cores): build 24 s, then all four suites in 59 s (six unit
+shards plus automated, runtimes and shared at once). Use `run-tests.sh` locally for
 quick single-runner or single-suite runs. Details: `docs/TESTING.md`, "Gate Host".
 
 Sharded and concurrent runs are the default. The script splits the unit runner
