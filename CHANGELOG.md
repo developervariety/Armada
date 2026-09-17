@@ -36,6 +36,11 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- `docs/TYPED_DECISIONS.md` describes the captain-facing MCP tools the server actually registers, instead of a
+  stale count and a short helper list. The paragraph now names `armada_change_quality` and its `change_quality`
+  decision and `armada_run_custom_decision`, says which tools are caller-scoped and which needs an administrator
+  caller, and names each helper's decision beside the tool rather than in a separate trailing sentence.
+
 - The typed-decision captain tools (`armada_typed_decision`, `armada_check_premise`, `armada_check_prior_art`,
   `armada_memory_triage`, `armada_change_quality`) no longer cap calls per mission. The
   `typedDecisions.captainTool.maxCallsPerMission` setting, the `budget_exhausted` result, and the `callsUsed` and

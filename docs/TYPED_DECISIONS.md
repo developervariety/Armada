@@ -171,22 +171,26 @@ classifier behind the deterministic dock-boundary scanner) and
 running mission's log that posts a voyage-tagged board note and a
 `captain.course_flag` event). Neither blocks, stops, or dispatches; each only
 flags.
-The typed-decision system is also offered to captains directly, through four
-mission-scoped MCP tools next to the memory tools: `armada_typed_decision` and
-its three pre-shaped helpers `armada_check_premise` (a captain checks its own
-reading of the task before it starts), `armada_memory_triage` (the Recorder
-triages a memory candidate before writing it), and `armada_check_prior_art` (a
-captain checks whether the work already exists before it writes a type — the D26
-retrieval plus typed answers for its stated plan). Authority does not travel with
-the tools. Each call redacts its state before egress (there is no per-mission
-call cap), writes exactly one
-`typed_decision.captain` event carrying only the state hash and byte count, and
-has no side effect on any Armada record — it dispatches nothing, lands nothing,
-edits no objective, and writes no memory. The tool is enabled by default
-(`typedDecisions.captainTool.enabled` is `true`); setting it `false` makes every
-call return `unavailable`. Each helper also follows its own decision
-(`premise_check`, `memory_record`, `prior_art`). See `docs/MCP_API.md`
-for the tool arguments.
+The typed-decision system is also offered to captains directly, as MCP tools next to
+the memory tools. `armada_typed_decision` is the general form: the captain supplies its
+own state and questions. The rest are pre-shaped, and each follows its own decision:
+`armada_check_premise` (`premise_check`) checks a captain's own reading of the task
+before it starts; `armada_memory_triage` (`memory_record`) triages a memory candidate
+before the Recorder writes it; `armada_check_prior_art` (`prior_art`) checks whether the
+work already exists before the captain writes a type — the D26 retrieval plus typed
+answers for its stated plan; and `armada_change_quality` (`change_quality`) returns a
+per-dimension read of a focused diff before the Judge sees it. `armada_run_custom_decision`
+runs a user-defined custom decision by name (see "Custom decisions" below). Every tool
+above except the custom runner is caller-scoped, so a mission caller reaches it like the
+memory tools; `armada_run_custom_decision` is not on that list, so only an administrator
+caller reaches it. Authority does not travel with any of them. Each call redacts its state
+before egress (there is no per-mission call cap), writes exactly one event carrying only
+the state hash and byte count — `typed_decision.captain`, or `typed_decision.custom` from
+the custom runner — and has no side effect on any Armada record: it dispatches nothing,
+lands nothing, edits no objective, and writes no memory.
+The tools are enabled by default (`typedDecisions.captainTool.enabled` is `true`); setting
+it `false` makes every call return `unavailable`. See `docs/MCP_API.md` for the tool
+arguments.
 Each wired decision holds an adapter over the shared client, never the raw
 client, and every adapter follows one skeleton: Off returns the rule with no
 call; unavailable returns the rule; Shadow or below threshold returns the rule
