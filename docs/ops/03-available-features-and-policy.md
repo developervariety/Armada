@@ -39,6 +39,14 @@ when several are enabled; with none registered the `codeIndex` embedding
 settings above apply. The endpoint is resolved at startup, so add or change it
 then restart the admiral.
 
+Captains search code through `armada_mission_code_search`, which resolves the
+vessel from the calling mission and searches no other vessel. Its budget and
+result cap are `codeIndex.captainSearchMaxCallsPerMission` (default 40) and
+`codeIndex.captainSearchMaxResults` (default 10). Enabling indexing for a vessel
+with semantic search on sends that vessel's source chunks to the embedding
+provider; exclude trees that must not leave the server with
+`codeIndex.excludedPathFragments` before the first index update.
+
 When a feature is off, use the explicit fallback. For example, search the
 checkout directly when code indexing is off. Do not call disabled tools in a
 loop.

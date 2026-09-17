@@ -140,6 +140,12 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- Captains can search code: `armada_mission_code_search` is a caller-scoped tool that searches the code index of the
+  calling mission's own vessel. It resolves the vessel from the mission id and takes no vessel or fleet argument,
+  refuses another tenant's or a finished mission, never returns reference-only records, and is budgeted per mission
+  (`codeIndex.captainSearchMaxCallsPerMission`, `codeIndex.captainSearchMaxResults`). A missing or failed index runs
+  no search and says so, so an empty result never reads as "the code is absent"; a stale or lexical-only index
+  searches with a warning. The operator search tools stay outside mission scope.
 - `scripts/linux/server-gate.sh <ref> [--ssh-host <alias>] [--scratch-dir <path>]` runs the full test gate for one
   committed ref on a Linux gate host over ssh. It pushes the commit to a scratch bare repository on the host under a
   gate-only ref, checks it out detached in a scratch worktree, builds, runs the sharded combined runner with the logs

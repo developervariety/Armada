@@ -57,6 +57,12 @@ namespace Armada.Server.Mcp
             // mission caller may reach it like the memory tools.
             "armada_fetch_context",
 
+            // The captain-facing code search. It takes no vessel or fleet argument: it resolves the
+            // vessel from the calling mission, refuses a mission outside the caller's tenant or no longer
+            // active, writes no record, and is budgeted per mission. The operator search tools
+            // (armada_code_search, armada_fleet_code_search) stay outside mission scope.
+            "armada_mission_code_search",
+
             // Harbor job tools apply the shared runner authorization rule to every job, and stopping also needs
             // the tenant administrator level the REST route requires.
             "armada_harbor_jobs",

@@ -190,7 +190,14 @@ namespace Armada.Server.Mcp
             McpAgentWakeTools.Register(register, remoteTriggerService);
             McpAuditTools.Register(register, database, remoteTriggerService, followUpRoutingAdapter);
             McpArchitectTools.Register(register, database, new ArchitectOutputParser(), admiral, codeIndexService, logging, settings);
-            if (codeIndexService != null) McpCodeIndexTools.Register(register, codeIndexService, longRunningJobs);
+            if (codeIndexService != null)
+            {
+                McpCodeIndexTools.Register(register, codeIndexService, longRunningJobs);
+
+                // The captain-facing code search sits in the mission-scoped catalogue. It resolves the
+                // vessel from the calling mission, so a captain reaches its own vessel's index only.
+                McpMissionCodeSearchTools.Register(register, codeIndexService, database, effectiveSettings, logging);
+            }
             if (diskLifecycle != null) McpDiskLifecycleTools.Register(register, diskLifecycle, longRunningJobs);
             if (terminalVoyageMissions != null) McpTerminalVoyageMissionTools.Register(register, terminalVoyageMissions, longRunningJobs);
             if (harborJobs != null) McpHarborJobTools.Register(register, harborJobs);

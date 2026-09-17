@@ -387,7 +387,7 @@ What a caller may use:
 | --- | --- |
 | Global administrator (admiral API key, or a global-admin user credential) | The whole catalog |
 | Tenant administrator | The caller-scoped tools below, plus `create_persona`, `update_persona`, `delete_persona`, `create_pipeline`, `update_pipeline` and `delete_pipeline`, as on REST. Each change finds the record through the caller scope and applies `OwnershipPolicy.CanEdit`, so it changes only the caller's own tenant's records; another tenant's record reads as not found |
-| Any other authenticated user | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, `armada_typed_decision`, `armada_check_premise`, `armada_check_prior_art`, `armada_memory_triage`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
+| Any other authenticated user | Only caller-scoped tools: `get_persona`, `get_pipeline`, `get_prompt_template`, `list_prompt_templates`, `create_memory`, `get_memory`, `search_memory`, `update_memory`, `delete_memory`, `armada_typed_decision`, `armada_check_premise`, `armada_check_prior_art`, `armada_memory_triage`, `armada_fetch_context`, `armada_mission_code_search`, and while Harbor is enabled `armada_harbor_jobs`, `armada_harbor_job`, `armada_harbor_job_stop` |
 
 The Harbor job tools apply the runner authority rule that Harbor enrollment
 uses: a caller sees a job when it is the runner owner or has authority over the
@@ -614,6 +614,27 @@ and `reimplements` readings. A branch or ref candidate carries a bounded excerpt
 checkout. The captain verifies each `path:line` itself. The tool edits nothing
 and never blocks. It is caller-scoped like the other captain tools, and it is
 dormant (returns unavailable) until the `prior_art` decision is enabled.
+
+### armada_mission_code_search
+
+Search the code index of the calling mission's own vessel. Args: `missionId`
+(required), `query` (required), optional `limit`, `pathPrefix`, `language`, and
+`includeContent`. The tool resolves the vessel from the mission and takes no
+vessel or fleet argument, so a captain reaches only its own vessel's index. It
+refuses a mission outside the caller's tenant (`mission_not_found`) or one that
+has finished (`mission_not_active`), never returns reference-only records, and
+clamps `limit` to `codeIndex.captainSearchMaxResults`. Each result carries
+`Score`, `Path`, `StartLine`, `EndLine`, `Language`, `Excerpt`, and `Content`
+when asked.
+
+The index covers the vessel's default branch, not the dock branch. When the
+index is `Missing` or `Error` no search runs and the answer is unavailable with
+`index_missing` or `index_error`, so an empty result never stands in for "the
+code is absent". A `Stale` or lexical-only index still searches and says so in
+`Warnings`. The tool writes no record, is budgeted per mission by
+`codeIndex.captainSearchMaxCallsPerMission` (reason `budget` when spent), and is
+caller-scoped like the other captain tools. The operator tools
+`armada_code_search` and `armada_fleet_code_search` stay outside mission scope.
 
 ## Typed Decision Evaluation
 

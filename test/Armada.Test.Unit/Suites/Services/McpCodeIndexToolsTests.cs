@@ -5,11 +5,16 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Text.Json;
     using System.Threading;
     using System.Threading.Tasks;
+    using Armada.Core;
+    using Armada.Core.Enums;
     using Armada.Core.Models;
     using Armada.Core.Services.Interfaces;
+    using Armada.Core.Settings;
     using Armada.Server;
+    using Armada.Server.Mcp;
     using Armada.Server.Mcp.Tools;
     using Armada.Test.Common;
+    using Armada.Test.Unit.TestHelpers;
 
     /// <summary>
     /// Tests for MCP tool registration and dispatch for code index tools.
@@ -982,6 +987,127 @@ namespace Armada.Test.Unit.Suites.Services
                     Environment.SetEnvironmentVariable(CodeContextTimeouts.TimeoutEnvVar, priorTimeout);
                 }
             });
+
+            await RunTest("Mission code search is in mission scope and the operator search tools are not", () =>
+            {
+                AuthContext captain = AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, false, "Bearer");
+                AssertTrue(McpToolAccessPolicy.IsAllowed(captain, McpMissionCodeSearchTools.ToolName), "a mission caller may use the mission code search");
+                AssertFalse(McpToolAccessPolicy.IsAllowed(captain, "armada_code_search"), "vessel-argument search stays operator-only");
+                AssertFalse(McpToolAccessPolicy.IsAllowed(captain, "armada_fleet_code_search"), "fleet search stays operator-only");
+            });
+
+            await RunTest("Mission code search searches only the mission's own vessel", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    RecordingCodeIndexService service = new RecordingCodeIndexService();
+                    MissionSearchHarness harness = MissionSearchHarness.Create(testDb, service);
+                    string ownVesselId = await harness.SeedVesselAsync("OwnVessel").ConfigureAwait(false);
+                    string otherVesselId = await harness.SeedVesselAsync("OtherVessel").ConfigureAwait(false);
+                    string missionId = await harness.SeedMissionAsync(ownVesselId, MissionStatusEnum.InProgress).ConfigureAwait(false);
+
+                    // A vesselId argument naming another vessel is not part of the schema and is ignored.
+                    string json = await harness.CallAsync(new { missionId, query = "needle", vesselId = otherVesselId }).ConfigureAwait(false);
+
+                    AssertContains("\"Available\":true", json);
+                    AssertNotNull(service.LastSearchRequest);
+                    AssertEqual(ownVesselId, service.LastSearchRequest!.VesselId);
+                    AssertEqual(ownVesselId, service.LastStatusVesselId);
+                    AssertFalse(service.LastSearchRequest.IncludeReferenceOnly, "captains never see reference-only records");
+                }
+            });
+
+            await RunTest("Mission code search refuses a mission from another tenant without searching", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    RecordingCodeIndexService service = new RecordingCodeIndexService();
+                    MissionSearchHarness harness = MissionSearchHarness.Create(testDb, service);
+                    string vesselId = await harness.SeedVesselAsync("TenantVessel").ConfigureAwait(false);
+                    string missionId = await harness.SeedMissionAsync(vesselId, MissionStatusEnum.InProgress).ConfigureAwait(false);
+
+                    AuthContext outsider = AuthContext.Authenticated("ten_other", "usr_other", false, false, "Bearer");
+                    string json = await harness.CallAsync(new { missionId, query = "needle" }, outsider).ConfigureAwait(false);
+
+                    AssertContains("\"UnavailableReason\":\"mission_not_found\"", json);
+                    AssertNull(service.LastSearchRequest, "no search runs for another tenant's mission");
+                }
+            });
+
+            await RunTest("Mission code search refuses a finished mission without searching", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    RecordingCodeIndexService service = new RecordingCodeIndexService();
+                    MissionSearchHarness harness = MissionSearchHarness.Create(testDb, service);
+                    string vesselId = await harness.SeedVesselAsync("DoneVessel").ConfigureAwait(false);
+                    string missionId = await harness.SeedMissionAsync(vesselId, MissionStatusEnum.Complete).ConfigureAwait(false);
+
+                    string json = await harness.CallAsync(new { missionId, query = "needle" }).ConfigureAwait(false);
+
+                    AssertContains("\"UnavailableReason\":\"mission_not_active\"", json);
+                    AssertNull(service.LastSearchRequest);
+                }
+            });
+
+            await RunTest("Mission code search on a missing index says no search ran instead of returning no results", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    RecordingCodeIndexService service = new RecordingCodeIndexService();
+                    service.StatusFreshness = "Missing";
+                    MissionSearchHarness harness = MissionSearchHarness.Create(testDb, service);
+                    string vesselId = await harness.SeedVesselAsync("UnindexedVessel").ConfigureAwait(false);
+                    string missionId = await harness.SeedMissionAsync(vesselId, MissionStatusEnum.InProgress).ConfigureAwait(false);
+
+                    string json = await harness.CallAsync(new { missionId, query = "needle" }).ConfigureAwait(false);
+
+                    AssertContains("\"Available\":false", json);
+                    AssertContains("\"UnavailableReason\":\"index_missing\"", json);
+                    AssertFalse(json.Contains("\"Results\"", StringComparison.Ordinal), "a missing index returns no result list at all");
+                    AssertNull(service.LastSearchRequest, "no search runs against a missing index");
+                }
+            });
+
+            await RunTest("Mission code search warns when the index is stale or lexical only", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    RecordingCodeIndexService service = new RecordingCodeIndexService();
+                    service.StatusFreshness = "Stale";
+                    service.StatusUseSemanticSearch = false;
+                    MissionSearchHarness harness = MissionSearchHarness.Create(testDb, service);
+                    string vesselId = await harness.SeedVesselAsync("StaleVessel").ConfigureAwait(false);
+                    string missionId = await harness.SeedMissionAsync(vesselId, MissionStatusEnum.InProgress).ConfigureAwait(false);
+
+                    string json = await harness.CallAsync(new { missionId, query = "needle" }).ConfigureAwait(false);
+
+                    AssertContains("\"Available\":true", json);
+                    AssertContains("The index is Stale", json);
+                    AssertContains("lexical only", json);
+                }
+            });
+
+            await RunTest("Mission code search clamps the limit and enforces the per-mission budget", async () =>
+            {
+                using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                {
+                    RecordingCodeIndexService service = new RecordingCodeIndexService();
+                    MissionSearchHarness harness = MissionSearchHarness.Create(testDb, service, maxCalls: 2, maxResults: 3);
+                    string vesselId = await harness.SeedVesselAsync("BudgetVessel").ConfigureAwait(false);
+                    string missionId = await harness.SeedMissionAsync(vesselId, MissionStatusEnum.InProgress).ConfigureAwait(false);
+
+                    string first = await harness.CallAsync(new { missionId, query = "a", limit = 50 }).ConfigureAwait(false);
+                    AssertEqual(3, service.LastSearchRequest!.Limit, "the limit is clamped to the captain maximum");
+                    string second = await harness.CallAsync(new { missionId, query = "b" }).ConfigureAwait(false);
+                    string third = await harness.CallAsync(new { missionId, query = "c" }).ConfigureAwait(false);
+
+                    AssertContains("\"Available\":true", first);
+                    AssertContains("\"Available\":true", second);
+                    AssertContains("\"UnavailableReason\":\"budget\"", third);
+                    AssertEqual("b", service.LastSearchRequest.Query, "the over-budget call runs no search");
+                }
+            });
         }
 
         private static Dictionary<string, Func<JsonElement?, Task<object>>> RegisterHandlers(RecordingCodeIndexService service)
@@ -1070,6 +1196,64 @@ namespace Armada.Test.Unit.Suites.Services
                 ChunkCount = 1,
                 IndexDirectory = "C:/tmp/index"
             };
+        }
+
+        private sealed class MissionSearchHarness
+        {
+            private readonly TestDatabase _TestDb;
+
+            private readonly Dictionary<string, Func<JsonElement?, Task<object>>> _Handlers =
+                new Dictionary<string, Func<JsonElement?, Task<object>>>();
+
+            private MissionSearchHarness(TestDatabase testDb)
+            {
+                _TestDb = testDb;
+            }
+
+            public static MissionSearchHarness Create(TestDatabase testDb, RecordingCodeIndexService service, int maxCalls = 40, int maxResults = 10)
+            {
+                McpMissionCodeSearchTools.ResetBudgetForTests();
+                ArmadaSettings settings = new ArmadaSettings();
+                settings.CodeIndex.CaptainSearchMaxCallsPerMission = maxCalls;
+                settings.CodeIndex.CaptainSearchMaxResults = maxResults;
+                MissionSearchHarness harness = new MissionSearchHarness(testDb);
+                McpMissionCodeSearchTools.Register(
+                    (name, _, _, handler) => { harness._Handlers[name] = handler; },
+                    service,
+                    testDb.Driver,
+                    settings);
+                return harness;
+            }
+
+            public async Task<string> SeedVesselAsync(string name)
+            {
+                Vessel vessel = await _TestDb.Driver.Vessels.CreateAsync(
+                    new Vessel(name, "https://github.com/test/" + name + ".git")).ConfigureAwait(false);
+                return vessel.Id;
+            }
+
+            public async Task<string> SeedMissionAsync(string vesselId, MissionStatusEnum status)
+            {
+                Mission mission = new Mission();
+                mission.TenantId = Constants.DefaultTenantId;
+                mission.UserId = Constants.DefaultUserId;
+                mission.VesselId = vesselId;
+                mission.Title = "code search mission";
+                mission.Status = status;
+                Mission created = await _TestDb.Driver.Missions.CreateAsync(mission).ConfigureAwait(false);
+                return created.Id;
+            }
+
+            public async Task<string> CallAsync(object args, AuthContext? caller = null)
+            {
+                JsonElement element = JsonSerializer.SerializeToElement(args);
+                AuthContext effectiveCaller = caller ?? AuthContext.Authenticated(Constants.DefaultTenantId, Constants.DefaultUserId, false, false, "Bearer");
+                using (McpCallerContext.Begin(effectiveCaller))
+                {
+                    object result = await _Handlers[McpMissionCodeSearchTools.ToolName](element).ConfigureAwait(false);
+                    return JsonSerializer.Serialize(result);
+                }
+            }
         }
 
         private sealed class RecordingCodeIndexService : ICodeIndexService
@@ -1179,10 +1363,17 @@ namespace Armada.Test.Unit.Suites.Services
                 Query = "default"
             };
 
+            public string StatusFreshness { get; set; } = "Fresh";
+
+            public bool StatusUseSemanticSearch { get; set; } = true;
+
             public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
             {
                 LastStatusVesselId = vesselId;
-                return Task.FromResult(NewStatus(vesselId));
+                CodeIndexStatus status = NewStatus(vesselId);
+                status.Freshness = StatusFreshness;
+                status.UseSemanticSearch = StatusUseSemanticSearch;
+                return Task.FromResult(status);
             }
 
             public Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default)

@@ -574,6 +574,36 @@ namespace Armada.Core.Settings
             }
         }
 
+        /// <summary>
+        /// Maximum <c>armada_mission_code_search</c> calls one mission may make.
+        /// Clamped to [1 .. 500]. Default 40.
+        /// </summary>
+        public int CaptainSearchMaxCallsPerMission
+        {
+            get => _CaptainSearchMaxCallsPerMission;
+            set
+            {
+                if (value < 1) value = 1;
+                if (value > 500) value = 500;
+                _CaptainSearchMaxCallsPerMission = value;
+            }
+        }
+
+        /// <summary>
+        /// Maximum results one <c>armada_mission_code_search</c> call returns.
+        /// Clamped to [1 .. 25]. Default 10.
+        /// </summary>
+        public int CaptainSearchMaxResults
+        {
+            get => _CaptainSearchMaxResults;
+            set
+            {
+                if (value < 1) value = 1;
+                if (value > 25) value = 25;
+                _CaptainSearchMaxResults = value;
+            }
+        }
+
         #endregion
 
         #region Private-Members
@@ -611,6 +641,8 @@ namespace Armada.Core.Settings
         private long _MaxReadContextFileBytes = 1024 * 1024;
         private long _MaxReadContextTotalBytes = 16 * 1024 * 1024;
         private int _MaxReadContextFileCount = 200;
+        private int _CaptainSearchMaxCallsPerMission = 40;
+        private int _CaptainSearchMaxResults = 10;
 
         #endregion
     }
