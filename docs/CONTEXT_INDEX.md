@@ -116,7 +116,7 @@ dispatching Armada work that must be direct-edit. The v1 core is eleven chunks:
 4. Unified-memory Boundaries (keys stay in the environment; stop before
    outward actions).
 5. Unified-memory Proving-a-fix.
-6. Unified-memory Domain-scope (the firmware reflash ban).
+6. Unified-memory Domain-scope (the owner's hard guardrails).
 7. The Armada direct-edit rule (README "Where Armada runs").
 8. Unified-memory Reporting-style (ASD-STE100).
 9. The sole-memory-source pointer.

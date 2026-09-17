@@ -51,15 +51,19 @@ namespace Armada.Core.Services
             @"^(flt|vsl|cpt|msn|vyg|dck|sig|art|obj|rbx|chk|inc)_",
             RegexOptions.Compiled);
 
-        // Directory names that only ever occur in a sibling read-only source tree: a deobfuscator's
-        // decompiled or decrypted output, or an extractor's export. A mission cites those trees as
-        // the SOURCE it ports from, never as a path it may create, so an absent one is not new work.
-        private static readonly string[] _ExternalSourceTreeMarkers = new string[]
+        // Directory-name SHAPES that only ever occur in a sibling read-only source tree: an external
+        // tool's decompiled or decrypted output, or an extractor's export. A mission cites those trees
+        // as the SOURCE it ports from, never as a path it may create, so an absent one is not new work.
+        // These are generic shapes, not specific product directories: a segment matches when it begins
+        // with a prefix shape or ends with a suffix shape.
+        private static readonly string[] _ExternalSourceTreePrefixShapes = new string[]
         {
-            "decompiled-src",
-            "decompiled-src-clean",
-            "decrypted-xml",
-            "decrypted-db",
+            "decompiled-",
+            "decrypted-"
+        };
+
+        private static readonly string[] _ExternalSourceTreeSuffixShapes = new string[]
+        {
             "-export"
         };
 
@@ -139,9 +143,13 @@ namespace Armada.Core.Services
             string[] segments = path!.Split('/');
             foreach (string segment in segments)
             {
-                foreach (string marker in _ExternalSourceTreeMarkers)
+                foreach (string prefix in _ExternalSourceTreePrefixShapes)
                 {
-                    if (segment.EndsWith(marker, StringComparison.OrdinalIgnoreCase)) return true;
+                    if (segment.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) return true;
+                }
+                foreach (string suffix in _ExternalSourceTreeSuffixShapes)
+                {
+                    if (segment.EndsWith(suffix, StringComparison.OrdinalIgnoreCase)) return true;
                 }
             }
 

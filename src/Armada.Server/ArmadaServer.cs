@@ -382,7 +382,7 @@ namespace Armada.Server
             _WorkflowProfileService = new WorkflowProfileService(_Database, _Logging);
             _VesselReadinessService = new VesselReadinessService(_Database, _WorkflowProfileService, _Logging);
             _EnvironmentService = new DeploymentEnvironmentService(_Database, _WorkflowProfileService, _Logging);
-            _CheckRunService = new CheckRunService(_Database, _WorkflowProfileService, _VesselReadinessService, _Logging);
+            _CheckRunService = new CheckRunService(_Database, _WorkflowProfileService, _VesselReadinessService, _Logging, () => _Settings.BannedDiffPatterns);
             _ObjectiveService = new ObjectiveService(_Database);
             _ObjectiveDispatchPreviewService = new ObjectiveDispatchPreviewService(
                 _Database,

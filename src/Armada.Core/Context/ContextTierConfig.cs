@@ -28,7 +28,7 @@ namespace Armada.Core.Context
     ///   3. Land-then-sync hard limits. (Whole file in v1; the hard-limits section is its core.)
     ///   4. Stop before shared-state or outward actions; wait for owner authority. (unified "Boundaries".)
     ///   5. Proving a fix: reproduce the symptom; a self-reported success is not evidence.
-    ///   6. Domain scope and hard guardrails: the owner's domain work authorized; firmware reflash banned.
+    ///   6. Domain scope and hard guardrails: the owner's domain work authorized; the owner's stated hard guardrails apply.
     ///   7. Armada is direct-edit only. (repos/armada/README.md "Where Armada runs".)
     ///   8. Typed-decision non-negotiables. (Whole file in v1; the non-negotiables section is its core.)
     ///   9. ASD-STE100 reporting style. (unified "Reporting style".)
@@ -113,7 +113,7 @@ namespace Armada.Core.Context
                     ["domain-scope"] = new CoreRuleMeta
                     {
                         Order = 6,
-                        Summary = "The owner's domain work is authorized engineering; the hard guardrail is that a firmware download or reflash request is banned.",
+                        Summary = "The owner's domain work is authorized engineering; the owner's stated hard guardrails apply, and are carried in full from the shared memory.",
                     },
                 },
                 ["shared/sole-memory-source.md"] = new Dictionary<string, CoreRuleMeta>(StringComparer.OrdinalIgnoreCase)

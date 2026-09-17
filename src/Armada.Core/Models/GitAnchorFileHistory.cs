@@ -53,7 +53,7 @@ namespace Armada.Core.Models
 
         /// <summary>
         /// Whether the path names a read-only tree outside this repository, such as a sibling
-        /// deobfuscator's decompiled output. Such a path is absent from the checkout for a reason
+        /// external tool's decompiled output. Such a path is absent from the checkout for a reason
         /// that has nothing to do with the mission, so it must never be reported as new work.
         /// </summary>
         public bool IsExternalSourceTree { get; set; } = false;

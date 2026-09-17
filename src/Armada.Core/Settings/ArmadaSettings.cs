@@ -707,6 +707,18 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Operator-configured banned-diff patterns. The banned-diff guard fails a change whose added
+        /// lines match any of these; the list ships EMPTY, so the guard is a no-op until a deployment
+        /// adds a pattern. Domain-specific bans (a deployment's own forbidden code paths) live here as
+        /// configuration, never in this product's source. Hot-reloads in place.
+        /// </summary>
+        public List<BannedDiffPatternRule> BannedDiffPatterns
+        {
+            get => _BannedDiffPatterns;
+            set => _BannedDiffPatterns = value ?? new List<BannedDiffPatternRule>();
+        }
+
+        /// <summary>
         /// Captain context fetch tool (<c>armada_fetch_context</c>) policy: whether it is enabled,
         /// the per-call leaf byte budget, and the per-mission call budget. The tool is read-only and
         /// returns only sanitized memory and docs leaf text.
@@ -966,6 +978,7 @@ namespace Armada.Core.Settings
         private ArchitectSettings? _Architect;
         private AutonomousRecoverySettings _AutonomousRecovery = new AutonomousRecoverySettings();
         private TypedDecisionSettings _TypedDecisions = new TypedDecisionSettings();
+        private List<BannedDiffPatternRule> _BannedDiffPatterns = new List<BannedDiffPatternRule>();
         private ContextRetrievalSettings _ContextRetrieval = new ContextRetrievalSettings();
         private CrashLoopDetectionSettings _CrashLoopDetection = new CrashLoopDetectionSettings();
         private CaptainQuarantineSettings _CaptainQuarantine = new CaptainQuarantineSettings();
@@ -1111,6 +1124,12 @@ namespace Armada.Core.Settings
             // Decision points hold this section by reference, so it is copied in place: the reloaded mode
             // reaches them, and a later settings write serializes the reloaded values rather than stale ones.
             TypedDecisions.CopyFrom(source.TypedDecisions);
+
+            // Banned-diff patterns: replaced in place so a running check reads the current list.
+            List<BannedDiffPatternRule> patterns = new List<BannedDiffPatternRule>();
+            foreach (BannedDiffPatternRule rule in source.BannedDiffPatterns)
+                if (rule != null) patterns.Add(rule.Clone());
+            BannedDiffPatterns = patterns;
             CrashLoopDetection = source.CrashLoopDetection;
             AutonomousObjectiveScheduler = source.AutonomousObjectiveScheduler;
             IncidentLifecycle = source.IncidentLifecycle;

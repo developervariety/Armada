@@ -10,6 +10,7 @@ namespace Armada.Core.Services
     using Armada.Core.Database;
     using Armada.Core.Enums;
     using Armada.Core.Models;
+    using Armada.Core.Settings;
     using SyslogLogging;
 
     /// <summary>
@@ -35,6 +36,7 @@ namespace Armada.Core.Services
         private readonly WorkflowProfileService _WorkflowProfiles;
         private readonly VesselReadinessService _Readiness;
         private readonly LoggingModule _Logging;
+        private readonly Func<IReadOnlyList<BannedDiffPatternRule>>? _BannedDiffPatterns;
         private readonly TimeSpan _DefaultTimeout = TimeSpan.FromMinutes(30);
         private static readonly ConcurrentDictionary<string, SemaphoreSlim> _PendingRunLocks =
             new ConcurrentDictionary<string, SemaphoreSlim>(StringComparer.Ordinal);
@@ -49,12 +51,14 @@ namespace Armada.Core.Services
             DatabaseDriver database,
             WorkflowProfileService workflowProfiles,
             VesselReadinessService readiness,
-            LoggingModule logging)
+            LoggingModule logging,
+            Func<IReadOnlyList<BannedDiffPatternRule>>? bannedDiffPatterns = null)
         {
             _Database = database ?? throw new ArgumentNullException(nameof(database));
             _WorkflowProfiles = workflowProfiles ?? throw new ArgumentNullException(nameof(workflowProfiles));
             _Readiness = readiness ?? throw new ArgumentNullException(nameof(readiness));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
+            _BannedDiffPatterns = bannedDiffPatterns;
         }
 
         /// <summary>
@@ -673,7 +677,7 @@ namespace Armada.Core.Services
             SlopCheckOutcome outcome;
             try
             {
-                outcome = await new SlopCheckRunner(_Logging)
+                outcome = await new SlopCheckRunner(_Logging, _BannedDiffPatterns)
                     .RunAsync(repoPath, run.CommitHash, run.BranchName, vessel.DefaultBranch, token)
                     .ConfigureAwait(false);
             }
