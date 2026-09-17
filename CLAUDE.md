@@ -190,12 +190,6 @@ you want:
 from this line, so a pass only reviews the new upstream delta, never the whole
 history. This is the record that used to live in `docs/upstream-review/`.
 
-**Branch retention:** keep `origin/fix/memory-dashboard-oom` until upstream
-merges or explicitly rejects the upstream memory/OOM PR. Do not delete it during
-cleanup just because the fork has already absorbed the fixes; we previously lost
-a Cursor-related bug branch by cleaning it up before the upstream disposition
-was settled.
-
 **Any commit that merges `upstream/main`, cherry-picks an upstream commit, or
 reverts a previously-absorbed upstream feature MUST also update the
 `## Upstream vs Fork` section of `README.md`.** The README delta is part of the
