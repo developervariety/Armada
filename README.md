@@ -71,7 +71,7 @@ What the fork adds on top of the shared model:
   ship gated from the first deploy with no shadow period; the rest stay off until
   their adapter lane lands. It only ever makes a call more conservative, never lands
   or dispatches, fails closed to the rule, and never egresses unredacted state.
-  Captains get read-only, per-mission-budgeted tools, including prior-art retrieval
+  Captains get read-only tools, including prior-art retrieval
   that answers "does this already exist?" with evidence before work starts.
 - **Deeper review.** Linter and Recorder pipeline stages, immutable reviewed-commit
   Checks, declared-consumer builds, verified landing evidence, and full recovery
@@ -203,7 +203,7 @@ catalogue and its principles are documented in
 When a decision is enabled it can only make a call
 more conservative, never lands or dispatches, gates only at or above the
 confidence threshold, fails closed to the deterministic rule, and never egresses
-unredacted state. Captains can consult read-only, per-mission-budgeted tools
+unredacted state. Captains can consult read-only tools
 (`armada_typed_decision`, `armada_check_premise`, `armada_check_prior_art`,
 `armada_memory_triage`). Configure it under `typedDecisions` in `settings.json`:
 
@@ -217,7 +217,7 @@ unredacted state. Captains can consult read-only, per-mission-budgeted tools
 | `maxStateChars` | `8000` | Character cap on redacted state per request. |
 | `decisions` | all `Gate` | Per-decision `mode` (`Off`/`Shadow`/`Gate`) and `gateThreshold`. Effective mode is the minimum of the global and per-decision mode. |
 | `evalOnModelChange` | `true` | Run the synthetic evaluation set in the background when the provider reports a model version not yet evaluated. |
-| `captainTool` | enabled | Captain-facing tool: `enabled`, `maxCallsPerMission`, `maxStateChars`. |
+| `captainTool` | enabled | Captain-facing tool: `enabled`, `maxStateChars`. There is no per-mission call cap. |
 
 Without a key no decision calls a client or records an event. `mode` and
 `decisions` hot-reload in place, so decision points see the change and a later

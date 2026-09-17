@@ -148,8 +148,8 @@ reading of the task before it starts), `armada_memory_triage` (the Recorder
 triages a memory candidate before writing it), and `armada_check_prior_art` (a
 captain checks whether the work already exists before it writes a type — the D26
 retrieval plus typed answers for its stated plan). Authority does not travel with
-the tools. Each call redacts its state before egress, is bounded by the
-per-mission call budget in `typedDecisions.captainTool`, writes exactly one
+the tools. Each call redacts its state before egress (there is no per-mission
+call cap), writes exactly one
 `typed_decision.captain` event carrying only the state hash and byte count, and
 has no side effect on any Armada record — it dispatches nothing, lands nothing,
 edits no objective, and writes no memory. The tool is enabled by default

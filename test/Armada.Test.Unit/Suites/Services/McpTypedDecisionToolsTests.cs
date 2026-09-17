@@ -146,30 +146,30 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
-            await RunTest("The per-mission call budget caps egress", async () =>
+            await RunTest("Repeated calls from one mission are never capped", async () =>
             {
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 {
                     FakeTypedDecisionClient client = new FakeTypedDecisionClient();
                     client.NextResult = ChoiceResult("provider", 0.93);
-                    Harness harness = Harness.Create(testDb, client, enabled: true, maxCallsPerMission: 2);
+                    Harness harness = Harness.Create(testDb, client, enabled: true);
 
                     string missionId = await harness.SeedMissionAsync(testDb).ConfigureAwait(false);
-                    object BudgetArgs() => new
+                    object RepeatArgs() => new
                     {
                         state = "a state to reason over",
                         questions = new { cause = new { type = "choice", instructions = "why", criteria = new { provider = "provider" } } },
                         missionId = missionId
                     };
 
-                    string first = await harness.CallAsync("armada_typed_decision", BudgetArgs()).ConfigureAwait(false);
-                    string second = await harness.CallAsync("armada_typed_decision", BudgetArgs()).ConfigureAwait(false);
-                    string third = await harness.CallAsync("armada_typed_decision", BudgetArgs()).ConfigureAwait(false);
-
-                    AssertContains("\"available\":true", Compact(first));
-                    AssertContains("\"available\":true", Compact(second));
-                    AssertContains("budget_exhausted", third);
-                    AssertEqual(2, client.CallCount, "The third call is refused before egress");
+                    const int calls = 60;
+                    for (int i = 0; i < calls; i++)
+                    {
+                        string response = await harness.CallAsync("armada_typed_decision", RepeatArgs()).ConfigureAwait(false);
+                        AssertContains("\"available\":true", Compact(response), "call " + (i + 1) + " should be answered");
+                        AssertFalse(response.Contains("budget_exhausted", StringComparison.Ordinal), "no call may be refused for a budget");
+                    }
+                    AssertEqual(calls, client.CallCount, "Every call reaches the provider");
                 }
             });
 
@@ -255,7 +255,6 @@ namespace Armada.Test.Unit.Suites.Services
                     AssertContains("\"available\":false", Compact(offResponse));
 
                     // Enabled path with a fake client returns typed answers.
-                    McpTypedDecisionTools.ResetBudgetForTests();
                     ArmadaSettings onSettings = new ArmadaSettings();
                     onSettings.TypedDecisions.CaptainTool.Enabled = true;
                     FakeTypedDecisionClient client = new FakeTypedDecisionClient();
@@ -314,7 +313,6 @@ namespace Armada.Test.Unit.Suites.Services
 
         private static Dictionary<string, Func<JsonElement?, Task<object>>> RegisterAll(TestDatabase testDb, ArmadaSettings settings, ITypedDecisionClient client)
         {
-            McpTypedDecisionTools.ResetBudgetForTests();
             Dictionary<string, Func<JsonElement?, Task<object>>> handlers = new Dictionary<string, Func<JsonElement?, Task<object>>>();
             TypedDecisionRecorder recorder = new TypedDecisionRecorder(testDb.Driver, new LoggingModule());
             McpToolRegistrar.RegisterAll(
@@ -354,14 +352,11 @@ namespace Armada.Test.Unit.Suites.Services
                 TestDatabase testDb,
                 ITypedDecisionClient client,
                 bool enabled,
-                int maxCallsPerMission = 40,
                 bool enablePremiseCheck = false,
                 bool enableMemoryRecord = false)
             {
-                McpTypedDecisionTools.ResetBudgetForTests();
                 ArmadaSettings settings = new ArmadaSettings();
                 settings.TypedDecisions.CaptainTool.Enabled = enabled;
-                settings.TypedDecisions.CaptainTool.MaxCallsPerMission = maxCallsPerMission;
                 settings.TypedDecisions.Decisions["premise_check"].Mode = enablePremiseCheck ? TypedDecisionModeEnum.Gate : TypedDecisionModeEnum.Off;
                 settings.TypedDecisions.Decisions["memory_record"].Mode = enableMemoryRecord ? TypedDecisionModeEnum.Gate : TypedDecisionModeEnum.Off;
 

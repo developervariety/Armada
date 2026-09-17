@@ -236,18 +236,9 @@ namespace Armada.Core.Settings
     {
         /// <summary>
         /// Whether captains may call the typed-decision tool. Default true; the tool stays informative,
-        /// mission-scoped, redacted, and budgeted per mission.
+        /// mission-scoped, and redacted. There is no per-mission call cap.
         /// </summary>
         public bool Enabled { get; set; } = true;
-
-        /// <summary>
-        /// Maximum typed-decision calls one mission may make.
-        /// </summary>
-        public int MaxCallsPerMission
-        {
-            get => _MaxCallsPerMission;
-            set => _MaxCallsPerMission = Math.Max(0, value);
-        }
 
         /// <summary>
         /// Maximum characters of state a captain call may transmit after redaction.
@@ -258,7 +249,6 @@ namespace Armada.Core.Settings
             set => _MaxStateChars = Math.Max(256, value);
         }
 
-        private int _MaxCallsPerMission = 40;
         private int _MaxStateChars = 8000;
     }
 

@@ -39,8 +39,8 @@ namespace Armada.Core.Services
 
         /// <summary>
         /// Event type for a call the captain-facing tool made directly. One is written per captain
-        /// tool call, whatever the outcome: a delivered answer, a disabled or dormant tool, an
-        /// exhausted per-mission budget, or an unavailable provider. It carries the same state hash
+        /// tool call, whatever the outcome: a delivered answer, a disabled or dormant tool,
+        /// or an unavailable provider. It carries the same state hash
         /// and byte count as every other typed-decision event and never the state itself.
         /// </summary>
         public const string EventTypeCaptain = "typed_decision.captain";
@@ -110,7 +110,7 @@ namespace Armada.Core.Services
         /// <summary>
         /// Record a call the captain-facing tool made directly. Emits <see cref="EventTypeCaptain"/>
         /// with the supplied <paramref name="outcome"/> as <c>gate_outcome</c> (for example
-        /// <c>delivered</c>, <c>disabled</c>, <c>dormant</c>, <c>budget_exhausted</c>, or
+        /// <c>delivered</c>, <c>disabled</c>, <c>dormant</c>, or
         /// <c>unavailable</c>). The captain tool takes no deterministic rule and applies no gate, so
         /// the event exists for observability only; it changes no Armada record.
         /// </summary>

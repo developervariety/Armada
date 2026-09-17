@@ -23,7 +23,6 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertEqual(10, settings.TimeoutSeconds);
                 AssertTrue(settings.EvalOnModelChange, "a new model version is evaluated by default");
                 AssertTrue(settings.CaptainTool.Enabled, "captain tool enabled by default");
-                AssertEqual(40, settings.CaptainTool.MaxCallsPerMission);
 
                 // Decisions with a stated threshold keep it.
                 AssertEqual(0.90, settings.Decisions["failure_cause"].GateThreshold);

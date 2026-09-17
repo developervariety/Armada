@@ -9,7 +9,7 @@ All notable changes to Armada are documented in this file.
 ### Added
 
 - The change_quality orchestrator gate (`ChangeQualityGate`) reviews a focused diff and routes its routable (deterministically-backed MustFix) weaknesses to exactly one Triaged objective (auto-dispatch OFF) through the existing follow-up router; the model only adds informational weaknesses and nothing is ever dispatched.
-- `armada_change_quality`: a captain-facing, mission-scoped, budgeted tool that returns a per-dimension quality read of a focused diff (DRY, cognitive complexity, modularity, readability, maintainability) before the Judge, so a captain can self-correct. Read-only: it lands, dispatches, and edits nothing, and the diff is redacted before egress.
+- `armada_change_quality`: a captain-facing, mission-scoped tool that returns a per-dimension quality read of a focused diff (DRY, cognitive complexity, modularity, readability, maintainability) before the Judge, so a captain can self-correct. Read-only: it lands, dispatches, and edits nothing, and the diff is redacted before egress.
 - The `change_quality` typed decision reads a focused diff across five dimensions (DRY, cognitive complexity,
   modularity, readability, maintainability). Two are backed by a deterministic, authoritative rule and hard-flag
   without the model — `cognitive_complexity` by an added-line nesting/length metric and `core_rule` by the Slop
@@ -19,6 +19,13 @@ All notable changes to Armada are documented in this file.
   weaknesses, records both verdicts. (Captain tool and orchestrator follow-up routing land next.)
 
 ### Changed
+
+- The typed-decision captain tools (`armada_typed_decision`, `armada_check_premise`, `armada_check_prior_art`,
+  `armada_memory_triage`, `armada_change_quality`) no longer cap calls per mission. The
+  `typedDecisions.captainTool.maxCallsPerMission` setting, the `budget_exhausted` result, and the `callsUsed` and
+  `maxCallsPerMission` response fields are removed; an old settings file that still names the key loads unchanged.
+  Every call still redacts before egress, records one event, and fails closed to "decide it yourself" when the
+  provider is unavailable. The code-search and context-pack budgets are unchanged.
 
 - The operator guide chapters under `docs/ops/` are operator-local and no longer tracked: a filled chapter names a
   deployment's real hosts, vessels, accounts, and policy. The repository tracks a template per chapter

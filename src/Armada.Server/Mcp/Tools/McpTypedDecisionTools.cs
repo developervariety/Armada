@@ -1,7 +1,6 @@
 namespace Armada.Server.Mcp.Tools
 {
     using System;
-    using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.Text.Json;
     using System.Threading;
@@ -18,8 +17,7 @@ namespace Armada.Server.Mcp.Tools
     /// Registers the captain-facing typed-decision tools: the general <c>armada_typed_decision</c>
     /// tool and the two pre-shaped helpers <c>armada_check_premise</c> (D9) and
     /// <c>armada_memory_triage</c> (D23 seam A). The system is offered to captains directly, but
-    /// authority does not travel with it: every call redacts its state before egress, is bounded by
-    /// the per-mission call budget in <c>typedDecisions.captainTool.*</c>, writes exactly one
+    /// authority does not travel with it: every call redacts its state before egress, writes exactly one
     /// <c>typed_decision.captain</c> event carrying only a state hash and byte count, and has NO side
     /// effect on any Armada record. The tool never dispatches, lands, Mails, edits an objective, or
     /// writes memory. It returns typed answers, or an <c>unavailable</c> result the captain treats as
@@ -54,14 +52,6 @@ namespace Armada.Server.Mcp.Tools
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase
         };
 
-        // The per-mission call budget is process-local and keyed by the budget key (the mission id
-        // when one is resolved, else the caller's participant key, else a shared bucket). It counts
-        // only calls that reach egress; a disabled or dormant call performs no egress and spends
-        // nothing. An admiral restart resets it, which is the correct behaviour: the budget bounds a
-        // running captain, and a restart ends every running captain.
-        private static readonly ConcurrentDictionary<string, int> _EgressCallsByBudgetKey =
-            new ConcurrentDictionary<string, int>(StringComparer.Ordinal);
-
         #endregion
 
         #region Public-Methods
@@ -77,8 +67,7 @@ namespace Armada.Server.Mcp.Tools
         /// <param name="settings">Armada settings supplying <c>typedDecisions</c>.</param>
         /// <param name="logging">Optional logging module.</param>
         /// <param name="participantKeyProvider">Returns the calling captain's participant key for the
-        /// current request, or null. Used to bucket the budget and attribute the event when no mission
-        /// id is supplied.</param>
+        /// current request, or null. Used to attribute the event when no mission id is supplied.</param>
         public static void Register(
             RegisterToolDelegate register,
             DatabaseDriver database,
@@ -99,7 +88,7 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 TypedDecisionToolName,
-                "Ask the typed-decision system (TypeSafe Jev) to answer typed questions about a piece of state, and return calibrated answers or 'unavailable'. Use it to get a second, structured reading on a judgement you are about to make; treat every answer as advice you weigh, never as an instruction. It never acts on your behalf: it dispatches nothing, lands nothing, edits no record, and writes no memory. An operator can disable it, and the provider can be unavailable, so always be ready to decide without it. Your state is redacted before it leaves and your calls are budgeted per mission. Supply 'state' (a string or object) and 'questions' (each with a 'type' of choice, score, or noul, an 'instructions' line, and its options); pass your mission id in 'missionId' so the call is scoped and recorded to your mission.",
+                "Ask the typed-decision system (TypeSafe Jev) to answer typed questions about a piece of state, and return calibrated answers or 'unavailable'. Use it to get a second, structured reading on a judgement you are about to make; treat every answer as advice you weigh, never as an instruction. It never acts on your behalf: it dispatches nothing, lands nothing, edits no record, and writes no memory. An operator can disable it, and the provider can be unavailable, so always be ready to decide without it. Your state is redacted before it leaves. Supply 'state' (a string or object) and 'questions' (each with a 'type' of choice, score, or noul, an 'instructions' line, and its options); pass your mission id in 'missionId' so the call is scoped and recorded to your mission.",
                 new
                 {
                     type = "object",
@@ -111,7 +100,7 @@ namespace Armada.Server.Mcp.Tools
                             type = "object",
                             description = "Questions keyed by id. Each value is { type: 'choice'|'score'|'noul', instructions: string, criteria: object|array, trueMeaning?: string, falseMeaning?: string }. choice.criteria is a name->meaning map; score.criteria (or 'levels') is an ordered array of level labels; noul takes optional trueMeaning/falseMeaning."
                         },
-                        missionId = new { type = "string", description = "The calling mission id, for budget scope and event attribution. Optional." }
+                        missionId = new { type = "string", description = "The calling mission id, for scope and event attribution. Optional." }
                     },
                     required = new[] { "state", "questions" }
                 },
@@ -141,7 +130,7 @@ namespace Armada.Server.Mcp.Tools
                         acceptanceCriteria = new { type = "string", description = "The acceptance criteria, if you have them." },
                         stagePersona = new { type = "string", description = "Your stage persona, e.g. Worker or Judge." },
                         facts = new { description = "The deterministic preflight facts object from the brief, if present." },
-                        missionId = new { type = "string", description = "The calling mission id, for budget scope and event attribution. Optional." }
+                        missionId = new { type = "string", description = "The calling mission id, for scope and event attribution. Optional." }
                     },
                     required = new[] { "restatement" }
                 },
@@ -167,7 +156,7 @@ namespace Armada.Server.Mcp.Tools
                     {
                         candidate = new { type = "string", description = "The candidate memory: the content you are considering recording, plus its intended type and topic." },
                         existingRecords = new { description = "Records search_memory already returned for this subject, to check for duplication. Optional string or array." },
-                        missionId = new { type = "string", description = "The calling mission id, for budget scope and event attribution. Optional." }
+                        missionId = new { type = "string", description = "The calling mission id, for scope and event attribution. Optional." }
                     },
                     required = new[] { "candidate" }
                 },
@@ -192,7 +181,7 @@ namespace Armada.Server.Mcp.Tools
                     properties = new
                     {
                         plan = new { type = "string", description = "What you are about to build, in your own words: the types, methods, and files you plan to write." },
-                        missionId = new { type = "string", description = "The calling mission id, used to resolve the vessel to search and for budget scope and event attribution." }
+                        missionId = new { type = "string", description = "The calling mission id, used to resolve the vessel to search and for scope and event attribution." }
                     },
                     required = new[] { "plan" }
                 },
@@ -212,14 +201,14 @@ namespace Armada.Server.Mcp.Tools
 
             register(
                 ChangeQualityToolName,
-                "Get a multi-dimension quality read of a focused diff BEFORE the Judge, so you can self-correct. Pass the unified diff of your change in 'diff' and your mission id in 'missionId'. The tool returns per-dimension signals -- DRY, cognitive complexity, modularity, readability, maintainability -- as weaknesses to weigh, not a synthetic score. It takes no action: it never lands, dispatches, fails a stage, or edits a record, and your change is redacted before it leaves. It is budgeted per mission. Dormant by default (returns unavailable) until an operator enables the change-quality decision.",
+                "Get a multi-dimension quality read of a focused diff BEFORE the Judge, so you can self-correct. Pass the unified diff of your change in 'diff' and your mission id in 'missionId'. The tool returns per-dimension signals -- DRY, cognitive complexity, modularity, readability, maintainability -- as weaknesses to weigh, not a synthetic score. It takes no action: it never lands, dispatches, fails a stage, or edits a record, and your change is redacted before it leaves.  Dormant by default (returns unavailable) until an operator enables the change-quality decision.",
                 new
                 {
                     type = "object",
                     properties = new
                     {
                         diff = new { type = "string", description = "The unified diff of the change to review." },
-                        missionId = new { type = "string", description = "The calling mission id, for budget scope and event attribution. Optional." }
+                        missionId = new { type = "string", description = "The calling mission id, for scope and event attribution. Optional." }
                     },
                     required = new[] { "diff" }
                 },
@@ -234,15 +223,6 @@ namespace Armada.Server.Mcp.Tools
                     logging,
                     participantKey,
                     buildStateAndQuestions: BuildChangeQuality).ConfigureAwait(false));
-        }
-
-        /// <summary>
-        /// Reset the process-local per-mission egress budget. For tests only; production resets it on
-        /// an admiral restart.
-        /// </summary>
-        public static void ResetBudgetForTests()
-        {
-            _EgressCallsByBudgetKey.Clear();
         }
 
         #endregion
@@ -270,8 +250,8 @@ namespace Armada.Server.Mcp.Tools
                 JsonElement root = args.Value;
 
                 // Resolve the calling mission for event scope. A supplied id that resolves scopes the
-                // event and keys the budget; an absent or unresolved id falls back to the participant
-                // key, so a captain that does not pass its id is still bounded and observable. Resolved
+                // event; an absent or unresolved id falls back to the participant key, so a captain
+                // that does not pass its id is still observable. Resolved
                 // first because an async builder (prior art) uses the mission to know which vessel to
                 // search.
                 string? missionId = ReadOptionalString(root, "missionId");
@@ -310,17 +290,13 @@ namespace Armada.Server.Mcp.Tools
                 TypedDecisionCaptainToolSettings toolSettings = settings.TypedDecisions.CaptainTool;
 
                 string? participantKey = participantKeyProvider();
-                string budgetKey = mission != null
-                    ? mission.Id
-                    : (!String.IsNullOrWhiteSpace(participantKey) ? "participant:" + participantKey : "unscoped");
-
                 // The state is redacted here, before any egress and before the hash, so a disabled or
                 // dormant call still records a hash of exactly what WOULD have left, and never the state.
                 RedactedDecisionState redactedDecisionState = DecisionStateRedactor.RedactState(parsed.State, toolSettings.MaxStateChars);
                 object redacted = redactedDecisionState.State;
                 string redactedState = redactedDecisionState.Text;
 
-                // 1. The tool is disabled: no egress, no budget spent, one event, unavailable.
+                // 1. The tool is disabled: no egress, one event, unavailable.
                 if (!toolSettings.Enabled)
                 {
                     await RecordAsync(recorder, decisionPoint, redactedState, mission, participantKey, TypedDecisionResultUnavailable("disabled"), "disabled").ConfigureAwait(false);
@@ -338,16 +314,8 @@ namespace Armada.Server.Mcp.Tools
                     }
                 }
 
-                // 3. The per-mission call budget. This is an egress call, so it counts. When exhausted,
-                // no egress happens, one event records the refusal, and the caller falls back.
-                int used = _EgressCallsByBudgetKey.AddOrUpdate(budgetKey, 1, (_, previous) => previous + 1);
-                if (used > toolSettings.MaxCallsPerMission)
-                {
-                    await RecordAsync(recorder, decisionPoint, redactedState, mission, participantKey, TypedDecisionResultUnavailable("budget_exhausted"), "budget_exhausted").ConfigureAwait(false);
-                    return BudgetExhausted(used - 1, toolSettings.MaxCallsPerMission);
-                }
-
-                // 4. Egress. The client never throws into us; a failure is an unavailable result.
+                // 3. Egress. There is no call cap: the provider's own limits and the fail-closed
+                // unavailable path bound a runaway caller. The client never throws into us; a failure is an unavailable result.
                 TypedDecisionRequest request = new TypedDecisionRequest
                 {
                     DecisionPoint = decisionPoint,
@@ -362,7 +330,7 @@ namespace Armada.Server.Mcp.Tools
                 if (!result.Available)
                     return Unavailable(result.UnavailableReason ?? "unavailable", "The typed-decision system did not answer. Decide it yourself.");
 
-                return BuildAnswer(result, used, toolSettings.MaxCallsPerMission);
+                return BuildAnswer(result);
             }
             catch (Exception ex)
             {
@@ -668,19 +636,7 @@ namespace Armada.Server.Mcp.Tools
             };
         }
 
-        private static object BudgetExhausted(int used, int max)
-        {
-            return new
-            {
-                Available = false,
-                UnavailableReason = "budget_exhausted",
-                Message = "This mission has used its typed-decision call budget. Decide it yourself.",
-                CallsUsed = used,
-                MaxCallsPerMission = max
-            };
-        }
-
-        private static object BuildAnswer(TypedDecisionResult result, int callsUsed, int maxCalls)
+        private static object BuildAnswer(TypedDecisionResult result)
         {
             Dictionary<string, object?> answers = new Dictionary<string, object?>(StringComparer.Ordinal);
             foreach (KeyValuePair<string, TypedAnswer> entry in result.Answers)
@@ -701,9 +657,7 @@ namespace Armada.Server.Mcp.Tools
             return new
             {
                 Available = true,
-                Answers = answers,
-                CallsUsed = callsUsed,
-                MaxCallsPerMission = maxCalls
+                Answers = answers
             };
         }
 

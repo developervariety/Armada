@@ -550,8 +550,8 @@ conflict. The memory tools never write to that repository.
 Four mission-scoped tools let a captain consult the typed-decision system
 (TypeSafe Jev) for a structured second reading on a judgement it is about to
 make. They are caller-scoped, next to the memory tools. Authority does not
-travel with them: every call redacts its state before egress, is bounded by the
-per-mission call budget in `typedDecisions.captainTool.*`, writes exactly one
+travel with them: every call redacts its state before egress (there is no
+per-mission call cap), writes exactly one
 `typed_decision.captain` event carrying only a `state_sha256` and byte count
 (never the state), and has **no side effect on any Armada record** - it
 dispatches nothing, lands nothing, edits no objective, and writes no memory. A
@@ -570,11 +570,11 @@ Answer typed questions about a piece of state. Args: `state` (required, a string
 or an object whose string fields are redacted), `questions` (required, an object
 keyed by question id where each value is `{ type: choice|score|noul,
 instructions, criteria|levels, trueMeaning?, falseMeaning? }`), and optional
-`missionId` for budget scope and event attribution. `choice.criteria` is a
+`missionId` for scope and event attribution. `choice.criteria` is a
 name-to-meaning map; `score` takes an ordered `criteria`/`levels` array; `noul`
-takes optional `trueMeaning`/`falseMeaning`. Returns `{ available, answers,
-callsUsed, maxCallsPerMission }` or an unavailable result whose reason is one of
-`disabled`, `budget_exhausted`, `invalid`, or a client reason (`timeout`,
+takes optional `trueMeaning`/`falseMeaning`. Returns `{ available, answers }` or an
+unavailable result whose reason is one of `disabled`, `invalid`, or a client
+reason (`timeout`,
 `http_401`, `http_429`, `parse`, `exception`, ...).
 
 ### armada_check_premise
@@ -602,7 +602,7 @@ external memory rather than native memory. It writes nothing. Dormant until the
 Check whether the work already exists before writing a new type (decision
 `prior_art`). Args: `plan` (required, what the captain is about to build:
 the types, methods, and files it plans to write) and `missionId` (used to
-resolve the vessel to search, and for budget scope and event attribution). The
+resolve the vessel to search, and for scope and event attribution). The
 tool runs a deterministic retrieval over the target tip, unlanded mission
 branches, preserved and `recover/` refs, and open objectives for the
 identifiers in the plan. It returns the candidates, each with its surface,
@@ -640,11 +640,11 @@ caller-scoped like the other captain tools. The operator tools
 
 Get a multi-dimension quality read of a focused diff before the Judge (decision
 `change_quality`). Args: `diff` (required, the unified diff to review) and
-`missionId` (budget scope and event attribution). Returns per-dimension model
+`missionId` (scope and event attribution). Returns per-dimension model
 signals — DRY, cognitive complexity, modularity, readability, maintainability —
 as weaknesses to weigh, not a synthetic score. It takes no action: it never
 lands, dispatches, fails a stage, or edits a record, and the diff is redacted
-before egress. Budgeted per mission, caller-scoped like the other captain tools,
+before egress. Caller-scoped like the other captain tools, with no call cap,
 and dormant (returns unavailable) until the `change_quality` decision is enabled.
 The deterministic backing (the Slop core-rule check and the complexity metric)
 is authoritative at the orchestrator gate; this tool is the captain's advisory
