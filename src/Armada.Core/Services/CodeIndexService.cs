@@ -569,6 +569,70 @@ namespace Armada.Core.Services
         }
 
         /// <inheritdoc />
+        public async Task<CodeIndexStalenessRelevance> GetStalenessRelevanceAsync(string vesselId, CancellationToken token = default)
+        {
+            if (String.IsNullOrWhiteSpace(vesselId)) throw new ArgumentNullException(nameof(vesselId));
+
+            CodeIndexStalenessRelevance relevance = new CodeIndexStalenessRelevance { VesselId = vesselId };
+            if (!_Settings.CodeIndex.Enabled) return relevance;
+
+            CodeIndexStatus status;
+            try
+            {
+                status = await GetStatusAsync(vesselId, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "staleness relevance: status lookup failed for " + vesselId + ": " + ex.Message);
+                relevance.IsRelevant = true;
+                relevance.DiffUnavailable = true;
+                return relevance;
+            }
+
+            relevance.IndexedCommitSha = status.IndexedCommitSha;
+            relevance.CurrentCommitSha = status.CurrentCommitSha;
+            relevance.IsStale = !String.IsNullOrWhiteSpace(status.IndexedCommitSha)
+                && !String.IsNullOrWhiteSpace(status.CurrentCommitSha)
+                && !String.Equals(status.IndexedCommitSha, status.CurrentCommitSha, StringComparison.OrdinalIgnoreCase);
+
+            // A fresh (or never-indexed) index has no relevant staleness to weigh.
+            if (!relevance.IsStale) return relevance;
+
+            Vessel vessel;
+            string repoPath;
+            try
+            {
+                vessel = await ReadVesselOrThrowAsync(vesselId, token).ConfigureAwait(false);
+                repoPath = await ResolveRepositoryPathAsync(vessel, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "staleness relevance: repo resolve failed for " + vesselId + ": " + ex.Message);
+                relevance.IsRelevant = true;
+                relevance.DiffUnavailable = true;
+                return relevance;
+            }
+
+            HashSet<string>? changed = await TryGetChangedPathsAsync(repoPath, status.IndexedCommitSha!, status.CurrentCommitSha!, token).ConfigureAwait(false);
+            if (changed == null)
+            {
+                // The diff could not be computed: fail safe to relevant so a needed refresh is not skipped.
+                relevance.IsRelevant = true;
+                relevance.DiffUnavailable = true;
+                return relevance;
+            }
+
+            relevance.ChangedFileCount = changed.Count;
+            foreach (string path in changed)
+            {
+                if (IsIndexableSourcePath(path)) relevance.ChangedSourceFileCount++;
+            }
+
+            relevance.IsRelevant = relevance.ChangedSourceFileCount > 0;
+            return relevance;
+        }
+
+        /// <inheritdoc />
         public async Task<CodeDuplicateReport> FindDuplicatesAsync(CodeDuplicateRequest request, CancellationToken token = default)
         {
             if (request == null) throw new ArgumentNullException(nameof(request));
@@ -2851,6 +2915,39 @@ namespace Armada.Core.Services
                 _Logging.Warn(_Header + "could not compute incremental changed paths: " + ex.Message);
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Path-only indexability: the exclusion and extension rules of <see cref="ShouldIndexPath"/> without
+        /// the on-disk size check, for judging a changed path from a git diff where the file is not staged.
+        /// </summary>
+        private bool IsIndexableSourcePath(string relativePath)
+        {
+            if (String.IsNullOrWhiteSpace(relativePath)) return false;
+            string fileName = Path.GetFileName(relativePath);
+            string extension = Path.GetExtension(relativePath);
+            string normalized = "/" + relativePath.Replace('\\', '/').Trim('/') + "/";
+
+            if (IsSecretOrCredentialPath(fileName, extension, normalized)) return false;
+
+            if (!IsReferenceOnlyPath(relativePath))
+            {
+                string[] segments = relativePath.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (string segment in segments)
+                {
+                    if (ContainsOrdinalIgnoreCase(_Settings.CodeIndex.ExcludedDirectoryNames, segment)) return false;
+                }
+
+                foreach (string fragment in _Settings.CodeIndex.ExcludedPathFragments)
+                {
+                    if (!String.IsNullOrWhiteSpace(fragment) && normalized.Contains(fragment.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase))
+                        return false;
+                }
+            }
+
+            if (ContainsOrdinalIgnoreCase(_Settings.CodeIndex.ExcludedFileNames, fileName)) return false;
+            if (!String.IsNullOrEmpty(extension) && ContainsOrdinalIgnoreCase(_Settings.CodeIndex.ExcludedExtensions, extension)) return false;
+            return IsSourceExtension(extension);
         }
 
         private bool ShouldIndexPath(string relativePath, string absolutePath)

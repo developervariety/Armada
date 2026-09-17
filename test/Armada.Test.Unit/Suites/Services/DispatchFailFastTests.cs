@@ -134,6 +134,16 @@ namespace Armada.Test.Unit.Suites.Services
                 AssertContains("code_index_stale", System.Text.Json.JsonSerializer.Serialize(blocked));
             });
 
+            await RunTest("DispatchGuard_StaleButIrrelevant_ProceedsWithoutRefresh_EvenUnderBlock", async () =>
+            {
+                IrrelevantStaleCodeIndexService svc = new IrrelevantStaleCodeIndexService();
+                CodeIndexSettings settings = new CodeIndexSettings { DispatchStalenessPolicy = CodeIndexDispatchStalenessPolicyEnum.Block };
+                object? blocked = await CodeIndexDispatchGuard.BuildVoyageDispatchBlockedResponseAsync(
+                    svc, "vsl_test", "armada_dispatch", settings, Silent()).ConfigureAwait(false);
+                AssertNull(blocked, "a stale index whose diff touches no indexable source must not block, even under Block");
+                AssertFalse(svc.UpdateCalled, "no refresh is scheduled for irrelevant staleness");
+            });
+
             await RunTest("DispatchGuard_StaleIndex_DefaultAndProceed_DispatchesAndSchedulesBackgroundRefresh", async () =>
             {
                 RecordingRefreshCodeIndexService svc = new RecordingRefreshCodeIndexService();
@@ -306,6 +316,31 @@ namespace Armada.Test.Unit.Suites.Services
             public Task WarmBaselineCacheAsync(string vesselId, CancellationToken token = default) => Task.CompletedTask;
             public Task<ContextPackResponse?> TryGetCachedContextPackAsync(ContextPackRequest request, CancellationToken token = default) => Task.FromResult<ContextPackResponse?>(null);
             public Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<CodeSearchResponse> SearchAsync(CodeSearchRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<FleetCodeSearchResponse> SearchFleetAsync(FleetCodeSearchRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<FleetContextPackResponse> BuildFleetContextPackAsync(FleetContextPackRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<CodeGraphSymbolSearchResponse> SearchSymbolsAsync(CodeGraphSymbolSearchRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<CodeGraphNeighborsResponse> GetCallersAsync(CodeGraphNeighborsRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<CodeGraphNeighborsResponse> GetCalleesAsync(CodeGraphNeighborsRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<CodeGraphImpactResponse> GetImpactAsync(CodeGraphImpactRequest request, CancellationToken token = default) => throw new NotSupportedException();
+            public Task<CodeGraphAffectedTestsResponse> SuggestAffectedTestsAsync(CodeGraphAffectedTestsRequest request, CancellationToken token = default) => throw new NotSupportedException();
+        }
+
+        /// <summary>Stale index whose diff touches no indexable source (relevance not relevant).</summary>
+        private sealed class IrrelevantStaleCodeIndexService : ICodeIndexService
+        {
+            public bool UpdateCalled { get; private set; }
+
+            public Task<CodeIndexStatus> GetStatusAsync(string vesselId, CancellationToken token = default)
+                => Task.FromResult(new CodeIndexStatus { VesselId = vesselId, VesselName = "test", Freshness = "Stale", IndexedCommitSha = "aaaaaaaa", CurrentCommitSha = "bbbbbbbb" });
+
+            public Task<CodeIndexStalenessRelevance> GetStalenessRelevanceAsync(string vesselId, CancellationToken token = default)
+                => Task.FromResult(new CodeIndexStalenessRelevance { VesselId = vesselId, IsStale = true, ChangedFileCount = 2, ChangedSourceFileCount = 0, IsRelevant = false, DiffUnavailable = false });
+
+            public Task<CodeIndexStatus> UpdateAsync(string vesselId, CancellationToken token = default) { UpdateCalled = true; return Task.FromResult(new CodeIndexStatus()); }
+            public Task WarmBaselineCacheAsync(string vesselId, CancellationToken token = default) => Task.CompletedTask;
+            public Task<ContextPackResponse?> TryGetCachedContextPackAsync(ContextPackRequest request, CancellationToken token = default) => Task.FromResult<ContextPackResponse?>(null);
             public Task<CodeSearchResponse> SearchAsync(CodeSearchRequest request, CancellationToken token = default) => throw new NotSupportedException();
             public Task<FleetCodeSearchResponse> SearchFleetAsync(FleetCodeSearchRequest request, CancellationToken token = default) => throw new NotSupportedException();
             public Task<ContextPackResponse> BuildContextPackAsync(ContextPackRequest request, CancellationToken token = default) => throw new NotSupportedException();

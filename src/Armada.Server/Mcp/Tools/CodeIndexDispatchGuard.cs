@@ -87,7 +87,31 @@ namespace Armada.Server.Mcp.Tools
 
             if (!IsStale(status)) return null;
 
-            // The index is stale: its indexed commit is behind the current default-branch commit.
+            // Is the staleness relevant? A stale index whose diff since the indexed commit touches no
+            // indexable source (docs-only, excluded paths, non-source) is byte-identical in indexable
+            // content to a fresh one, so dispatch proceeds with no refresh under any policy -- Block
+            // included, because the operator's freshness intent is already met for what the index covers.
+            // This is the authoritative deterministic rule a dispatch_staleness decision tie-breaks over.
+            CodeIndexStalenessRelevance relevance;
+            try
+            {
+                relevance = await codeIndexService.GetStalenessRelevanceAsync(vesselId, token).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                logWarning?.Invoke("staleness relevance lookup for vessel " + vesselId + " failed (" + ex.Message + "); treating as relevant");
+                relevance = new CodeIndexStalenessRelevance { VesselId = vesselId, IsRelevant = true, DiffUnavailable = true };
+            }
+
+            if (!relevance.IsRelevant && !relevance.DiffUnavailable)
+            {
+                logging?.Info("[CodeIndexDispatchGuard] code index for vessel " + vesselId
+                    + " is stale but the change since the indexed commit touches no indexable source ("
+                    + relevance.ChangedFileCount + " files changed, 0 source); dispatch proceeds without a refresh (policy " + policy + ").");
+                return null;
+            }
+
+            // The index is stale on indexable source: apply the configured policy.
             switch (policy)
             {
                 case CodeIndexDispatchStalenessPolicyEnum.Block:

@@ -52,6 +52,22 @@ namespace Armada.Core.Services.Interfaces
         /// unavailable report so doubles and minimal implementations opt out unless they override it; an
         /// unavailable report never means "no duplicates".
         /// </summary>
+        /// <summary>
+        /// Judge whether a vessel's stale index matters for dispatch: diff the indexed commit against the
+        /// current default-branch commit and report how many changed files are indexable source. Defaults
+        /// to a fail-safe relevant/unavailable result so doubles and minimal implementations opt out; an
+        /// unavailable result is treated as relevant so a needed refresh is never skipped.
+        /// </summary>
+        Task<CodeIndexStalenessRelevance> GetStalenessRelevanceAsync(string vesselId, CancellationToken token = default)
+        {
+            return Task.FromResult(new CodeIndexStalenessRelevance
+            {
+                VesselId = vesselId ?? "",
+                IsRelevant = true,
+                DiffUnavailable = true
+            });
+        }
+
         Task<CodeDuplicateReport> FindDuplicatesAsync(CodeDuplicateRequest request, CancellationToken token = default)
         {
             return Task.FromResult(new CodeDuplicateReport

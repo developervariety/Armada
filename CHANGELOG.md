@@ -8,6 +8,12 @@ All notable changes to Armada are documented in this file.
 
 ### Changed
 
+- Dispatch treats a stale code index as relevant only when the diff since the indexed commit touches indexable
+  source. A docs-only or excluded-only landing marks the index stale but no longer triggers a refresh or a wait at
+  the next dispatch (under any policy, `Block` included), because the indexed content is unchanged. The rule is
+  deterministic and authoritative (`ICodeIndexService.GetStalenessRelevanceAsync`); it is the structured state a
+  future `dispatch_staleness` typed decision will tie-break over.
+
 - Retired the three orphan reviewer pipelines (`MigrationDataTested`, `PerformanceMemoryTested`,
   `FrontendWorkflowTested`) and their specialist reviewer personas (`MigrationDataReviewer`,
   `PerformanceMemoryReviewer`, `FrontendWorkflowReviewer`): deactivated (not deleted, so a row can be restored);

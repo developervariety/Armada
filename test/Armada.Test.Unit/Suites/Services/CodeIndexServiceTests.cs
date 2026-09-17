@@ -1051,6 +1051,51 @@ namespace Armada.Test.Unit.Suites.Services
                 }
             });
 
+            await RunTest("GetStalenessRelevanceAsync_DocsOnlyChange_NotRelevant_SourceChange_Relevant", async () =>
+            {
+                TestRepository repository = await CreateRepositoryWithFilesAsync(new Dictionary<string, string>
+                {
+                    ["src/Thing.cs"] = "namespace S { public class Thing { public int N() => 1; } }\n",
+                    ["docs/readme.md"] = "# hello\n"
+                }).ConfigureAwait(false);
+                string dataRoot = NewTempDirectory("armada-code-index-data-");
+                try
+                {
+                    using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
+                    {
+                        Vessel vessel = await CreateVesselAsync(testDb, repository.Path).ConfigureAwait(false);
+                        CodeIndexService service = CreateService(testDb, dataRoot);
+                        await service.UpdateAsync(vessel.Id).ConfigureAwait(false);
+
+                        // Fresh index: nothing stale, nothing relevant.
+                        CodeIndexStalenessRelevance fresh = await service.GetStalenessRelevanceAsync(vessel.Id).ConfigureAwait(false);
+                        AssertFalse(fresh.IsStale, "just indexed, not stale");
+                        AssertFalse(fresh.IsRelevant, "a fresh index has no relevant staleness");
+
+                        // A docs-only commit makes the index stale but NOT relevant.
+                        await AppendCommitAsync(repository.Path, "docs/readme.md", "# hello\nmore docs\n", "docs only").ConfigureAwait(false);
+                        CodeIndexStalenessRelevance docs = await service.GetStalenessRelevanceAsync(vessel.Id).ConfigureAwait(false);
+                        AssertTrue(docs.IsStale, "the docs commit made the index stale");
+                        AssertFalse(docs.DiffUnavailable);
+                        AssertEqual(1, docs.ChangedFileCount);
+                        AssertEqual(0, docs.ChangedSourceFileCount, "a markdown change is not indexable source");
+                        AssertFalse(docs.IsRelevant, "docs-only staleness is not relevant");
+
+                        // A source commit makes it relevant.
+                        await AppendCommitAsync(repository.Path, "src/Thing.cs", "namespace S { public class Thing { public int N() => 2; } }\n", "source change").ConfigureAwait(false);
+                        CodeIndexStalenessRelevance src = await service.GetStalenessRelevanceAsync(vessel.Id).ConfigureAwait(false);
+                        AssertTrue(src.IsStale);
+                        AssertTrue(src.ChangedSourceFileCount >= 1, "the .cs change is indexable source");
+                        AssertTrue(src.IsRelevant, "a source change makes staleness relevant");
+                    }
+                }
+                finally
+                {
+                    TryDeleteDirectory(repository.Root);
+                    TryDeleteDirectory(dataRoot);
+                }
+            });
+
             await RunTest("UpdateAsync_SemanticSearchOn_UsesEmbeddingBatchRequests", async () =>
             {
                 TestRepository repository = await CreateRepositoryAsync().ConfigureAwait(false);
@@ -1917,6 +1962,15 @@ namespace Armada.Test.Unit.Suites.Services
                 TryDeleteDirectory(root);
                 throw;
             }
+        }
+
+        private static async Task AppendCommitAsync(string repoPath, string relativePath, string content, string message)
+        {
+            string full = Path.Combine(repoPath, relativePath.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+            await File.WriteAllTextAsync(full, content).ConfigureAwait(false);
+            await RunGitAsync(repoPath, "add", ".").ConfigureAwait(false);
+            await RunGitAsync(repoPath, "commit", "-m", message).ConfigureAwait(false);
         }
 
         private static async Task<List<CodeIndexRecord>> ReadChunkRecordsAsync(CodeIndexStatus status)

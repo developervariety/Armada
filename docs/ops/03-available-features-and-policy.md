@@ -83,6 +83,13 @@ with semantic search on sends that vessel's source chunks to the embedding
 provider; exclude trees that must not leave the server with
 `codeIndex.excludedPathFragments` before the first index update.
 
+A stale index is not always relevant. Before applying the policy, the guard asks
+whether the diff between the indexed commit and the current commit touches any
+indexable source; a stale index whose only changes are docs, excluded paths, or
+non-source is byte-identical in indexable content to a fresh one, so dispatch
+proceeds with no refresh under any policy, `Block` included. This
+staleness-relevance rule is deterministic and authoritative.
+
 When a feature is off, use the explicit fallback. For example, search the
 checkout directly when code indexing is off. Do not call disabled tools in a
 loop.
