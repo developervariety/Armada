@@ -70,11 +70,14 @@ namespace Armada.Test.Unit.Suites.Services
                     SummarizerApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiKey = "test-inference-key"
                 };
-                DeepSeekInferenceClient client = new DeepSeekInferenceClient(settings, new LoggingModule(), http);
+                List<TimeSpan> waits = new List<TimeSpan>();
+                DeepSeekInferenceClient client = new DeepSeekInferenceClient(settings, new LoggingModule(), http, RecordingDelay(waits));
 
                 string result = await client.CompleteAsync("system prompt", "user message").ConfigureAwait(false);
 
                 AssertEqual(string.Empty, result);
+                AssertEqual(2, waits.Count, "one backoff wait before each retry");
+                AssertTrue(waits[0] >= TimeSpan.FromMilliseconds(500), "the first backoff is at least 500 ms");
             });
 
             await RunTest("CompleteAsync_429ThenSuccess_RetriesAndReturnsCompletion", async () =>
@@ -89,12 +92,15 @@ namespace Armada.Test.Unit.Suites.Services
                     SummarizerApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiKey = "k"
                 };
-                DeepSeekInferenceClient client = new DeepSeekInferenceClient(settings, new LoggingModule(), http);
+                List<TimeSpan> waits = new List<TimeSpan>();
+                DeepSeekInferenceClient client = new DeepSeekInferenceClient(settings, new LoggingModule(), http, RecordingDelay(waits));
 
                 string result = await client.CompleteAsync("sys", "user").ConfigureAwait(false);
 
                 AssertEqual("summary text", result);
                 AssertEqual(2, handler.RequestCount);
+                AssertEqual(1, waits.Count, "one backoff wait before each retry");
+                AssertTrue(waits[0] >= TimeSpan.FromMilliseconds(500), "the first backoff is at least 500 ms");
             });
 
             await RunTest("CompleteAsync_5xxExhausted_TriesThreeTimes", async () =>
@@ -110,12 +116,15 @@ namespace Armada.Test.Unit.Suites.Services
                     SummarizerApiBaseUrl = "https://api.deepseek.com",
                     SummarizerApiKey = "k"
                 };
-                DeepSeekInferenceClient client = new DeepSeekInferenceClient(settings, new LoggingModule(), http);
+                List<TimeSpan> waits = new List<TimeSpan>();
+                DeepSeekInferenceClient client = new DeepSeekInferenceClient(settings, new LoggingModule(), http, RecordingDelay(waits));
 
                 string result = await client.CompleteAsync("sys", "user").ConfigureAwait(false);
 
                 AssertEqual(string.Empty, result);
                 AssertEqual(3, handler.RequestCount);
+                AssertEqual(2, waits.Count, "one backoff wait before each retry");
+                AssertTrue(waits[0] >= TimeSpan.FromMilliseconds(500), "the first backoff is at least 500 ms");
             });
 
             await RunTest("CompleteAsync_EmptySummarizerBaseUrl_FallsBackToEmbeddingBaseUrl", async () =>
@@ -466,6 +475,16 @@ namespace Armada.Test.Unit.Suites.Services
                     cancellationToken.ThrowIfCancellationRequested();
                 throw _Exception;
             }
+        }
+
+        /// <summary>A retry wait that records the requested backoff and returns at once.</summary>
+        private static Func<TimeSpan, CancellationToken, Task> RecordingDelay(List<TimeSpan> waits)
+        {
+            return (delay, token) =>
+            {
+                waits.Add(delay);
+                return Task.CompletedTask;
+            };
         }
     }
 }

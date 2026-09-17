@@ -66,6 +66,24 @@ also unsets `ANTHROPIC_*` for the child, because `ClaudeCodeProviderRoutingTests
 asserts on the environment a captain process would inherit and fails when the
 caller exports those variables.
 
+Sharded and concurrent runs are the default. The script splits the unit runner
+into N shard processes (`--shard i/N`, N = min(cores/2, 6); override with
+`--shards N` before the suite name or `ARMADA_TEST_UNIT_SHARDS`), sums their
+totals, and fails when a shard crashes, prints no summary, or the shard suite
+counts do not add up to the registered suites. Extra arguments after the suite
+name run that one runner unsharded:
+`scripts/macos/run-tests.sh unit --suite "Git Service"`. `--list-suites` prints
+the suite names a run (or one shard) would execute.
+
+Shards are balanced by `test/Armada.Test.Unit/shard-weights.json`; regenerate it
+with `scripts/common/generate-shard-weights.py` from unit logs. A suite that
+touches process-global or machine-wide state, or asserts a wall-clock bound, is
+listed with its reason in `test/Armada.Test.Unit/serial-suites.json` and always
+runs on shard 1. A new suite of that kind goes in that list in the same change.
+A test that waits on a real timeout, interval or retry backoff takes the delay
+through an injectable parameter (constructor `TimeSpan`, `TimeProvider`, or delay
+function) with the production default unchanged, rather than waiting it out.
+
 **A test runs only when `RunTest` is called for it.** `TestSuite` has no
 reflection-based discovery, so a `public async Task` method that is never
 registered in `RunTestsAsync` never executes, never fails, and never appears in

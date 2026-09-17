@@ -97,6 +97,9 @@ namespace Armada.Test.Unit.Suites.Services
                 logging.Settings.EnableConsole = false;
 
                 ArmadaServer server = new ArmadaServer(logging, settings, quiet: true);
+                // The reconciliation runs on a health loop tick, not at startup, so a short tick keeps the test
+                // from waiting out the five-second settings floor.
+                server.HealthLoopInterval = TimeSpan.FromMilliseconds(200);
                 try
                 {
                     await server.StartAsync().ConfigureAwait(false);
@@ -134,7 +137,7 @@ namespace Armada.Test.Unit.Suites.Services
                         {
                             status = (await driver.Voyages.ReadAsync(orphan.Id).ConfigureAwait(false))!.Status;
                             if (status == VoyageStatusEnum.Cancelled) break;
-                            await Task.Delay(500).ConfigureAwait(false);
+                            await Task.Delay(100).ConfigureAwait(false);
                         }
 
                         AssertEqual(VoyageStatusEnum.Cancelled, status,

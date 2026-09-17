@@ -162,6 +162,9 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     SelfDeployProcessIdentity old = fixture.StartShell("sleep 1");
                     fixture.Options.OldProcessExitTimeout = TimeSpan.FromSeconds(10);
+                    // The health timeout is waited out once for the candidate; the healthy rollback reports ready
+                    // well inside it.
+                    fixture.Options.HealthTimeout = TimeSpan.FromMilliseconds(1500);
                     SelfDeployRestartRecord record = await fixture.CreateRecordAsync(SelfDeployRestartStateEnum.Prepared, old,
                         await fixture.CreateArtifactAsync("candidate", NeverHealthyScript),
                         await fixture.CreateArtifactAsync("rollback", HealthyScript));
@@ -271,6 +274,8 @@ namespace Armada.Test.Unit.Suites.Services
                 if (SkipWindows("Supervise_RollbackUnhealthy_FailsAndStopsRollback")) return;
                 using (CutoverFixture fixture = new CutoverFixture())
                 {
+                    // Only the never-healthy rollback waits on the health timeout; the candidate exits at once.
+                    fixture.Options.HealthTimeout = TimeSpan.FromMilliseconds(750);
                     SelfDeployProcessIdentity old = fixture.StartShell("exec sleep 60");
                     SelfDeployRestartRecord record = await fixture.CreateRecordAsync(SelfDeployRestartStateEnum.Prepared, old,
                         await fixture.CreateArtifactAsync("candidate", CrashScript),

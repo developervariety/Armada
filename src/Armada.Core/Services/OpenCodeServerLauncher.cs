@@ -83,6 +83,7 @@ namespace Armada.Core.Services
         private readonly HttpClient _Http;
         private readonly IProcessRunner _ProcessRunner;
         private readonly Func<TimeSpan, CancellationToken, Task> _DelayAsync;
+        private readonly TimeProvider _Time;
 
         private ILaunchedProcess? _SpawnedProcess;
         private bool _AttachedToExisting;
@@ -108,12 +109,29 @@ namespace Armada.Core.Services
             HttpClient http,
             IProcessRunner processRunner,
             Func<TimeSpan, CancellationToken, Task> delayAsync)
+            : this(settings, logging, http, processRunner, delayAsync, TimeProvider.System)
+        {
+        }
+
+        /// <summary>
+        /// Testing constructor with injectable process runner, delay strategy and clock. The startup deadline is
+        /// measured on <paramref name="timeProvider"/>, so a test can pair a fake clock with a delay that advances
+        /// it and exercise the full startup timeout without waiting for it.
+        /// </summary>
+        public OpenCodeServerLauncher(
+            ArmadaSettings settings,
+            LoggingModule logging,
+            HttpClient http,
+            IProcessRunner processRunner,
+            Func<TimeSpan, CancellationToken, Task> delayAsync,
+            TimeProvider timeProvider)
         {
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Http = http ?? throw new ArgumentNullException(nameof(http));
             _ProcessRunner = processRunner ?? throw new ArgumentNullException(nameof(processRunner));
             _DelayAsync = delayAsync ?? throw new ArgumentNullException(nameof(delayAsync));
+            _Time = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         }
 
         #endregion
@@ -143,8 +161,8 @@ namespace Armada.Core.Services
             _ = DrainOutputAsync(_SpawnedProcess.DrainStandardOutputAsync(), "stdout");
             _ = DrainOutputAsync(_SpawnedProcess.DrainStandardErrorAsync(), "stderr");
 
-            DateTime deadline = DateTime.UtcNow.AddSeconds(_Settings.CodeIndex.OpenCodeServer.StartupTimeoutSeconds);
-            while (DateTime.UtcNow < deadline)
+            DateTimeOffset deadline = _Time.GetUtcNow().AddSeconds(_Settings.CodeIndex.OpenCodeServer.StartupTimeoutSeconds);
+            while (_Time.GetUtcNow() < deadline)
             {
                 token.ThrowIfCancellationRequested();
                 if (await IsHealthyAsync(token).ConfigureAwait(false))

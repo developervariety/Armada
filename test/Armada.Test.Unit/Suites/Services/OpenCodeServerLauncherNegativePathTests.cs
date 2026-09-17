@@ -9,6 +9,7 @@ namespace Armada.Test.Unit.Suites.Services
     using System.Text;
     using System.Threading;
     using System.Threading.Tasks;
+    using Microsoft.Extensions.Time.Testing;
     using Armada.Core.Services;
     using Armada.Core.Settings;
     using Armada.Test.Common;
@@ -303,12 +304,25 @@ namespace Armada.Test.Unit.Suites.Services
                 RecordingProcessRunner runner = new RecordingProcessRunner();
                 ArmadaSettings settings = BuildSettings("OpenCodeServer", true);
                 settings.CodeIndex.OpenCodeServer.StartupTimeoutSeconds = 5;
-                OpenCodeServerLauncher launcher = new OpenCodeServerLauncher(settings, SilentLogging(), http, runner, RealOneSecondDelayAsync);
+                // The startup deadline runs on a fake clock that each poll delay advances, so the full five-second
+                // timeout elapses without the test waiting for it.
+                FakeTimeProvider time = new FakeTimeProvider();
+                DateTimeOffset started = time.GetUtcNow();
+                OpenCodeServerLauncher launcher = new OpenCodeServerLauncher(settings, SilentLogging(), http, runner,
+                    (delay, token) =>
+                    {
+                        time.Advance(delay);
+                        return Task.CompletedTask;
+                    },
+                    time);
 
                 await AssertThrowsAsync<InvalidOperationException>(async () =>
                 {
                     await launcher.StartAsync().ConfigureAwait(false);
                 }).ConfigureAwait(false);
+
+                AssertTrue(time.GetUtcNow() - started >= TimeSpan.FromSeconds(5), "The launcher must wait out the configured startup timeout before giving up.");
+                AssertTrue(handler.RequestCount >= 5, "The launcher must keep probing health until the startup timeout, got " + handler.RequestCount + " probe(s).");
 
                 AssertEqual(1, runner.StartCallCount, "Daemon must be spawned exactly once before giving up.");
                 AssertNotNull(runner.LastLaunched);
@@ -339,11 +353,6 @@ namespace Armada.Test.Unit.Suites.Services
         private static Task NoDelayAsync(TimeSpan delay, CancellationToken token)
         {
             return Task.CompletedTask;
-        }
-
-        private static Task RealOneSecondDelayAsync(TimeSpan delay, CancellationToken token)
-        {
-            return Task.Delay(TimeSpan.FromSeconds(1), token);
         }
 
         private sealed class EmptyHandler : HttpMessageHandler

@@ -44,7 +44,8 @@ namespace Armada.Test.Unit.Suites.Services
                     SkipTest("NativeCommandRunner_ParentExitWithInheritedPipeTimesOut", "Inherited Unix pipe fixture is unavailable on Windows.");
                     return;
                 }
-                SelfDeployNativeCommandRunner runner = new SelfDeployNativeCommandRunner();
+                // The descendant holds the pipes for 30 s, so any drain timeout shorter than that proves the bound.
+                SelfDeployNativeCommandRunner runner = new SelfDeployNativeCommandRunner(TimeSpan.FromMilliseconds(500));
                 InvalidOperationException? captured = null;
                 try
                 {
@@ -65,7 +66,8 @@ namespace Armada.Test.Unit.Suites.Services
                     SkipTest("NativeCommandRunner_ParentExitWithRedirectedInputPipeTimesOut", "Inherited Unix pipe fixture is unavailable on Windows.");
                     return;
                 }
-                SelfDeployNativeCommandRunner runner = new SelfDeployNativeCommandRunner();
+                // The descendant holds the pipes for 30 s, so any drain timeout shorter than that proves the bound.
+                SelfDeployNativeCommandRunner runner = new SelfDeployNativeCommandRunner(TimeSpan.FromMilliseconds(500));
                 InvalidOperationException? captured = null;
                 try
                 {

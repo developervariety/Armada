@@ -17,18 +17,21 @@ namespace Armada.Test.Unit
             // explicit DataDirectory otherwise resolve under the live Armada home and write there.
             TestDataDirectory.Redirect();
             TestDataDirectory.Verify();
-            global::Test.Shared.Infrastructure.TestProcessEnvironment.RemoveProviderVariablesAndReport();
 
-            List<string> suiteFilters;
+            TestHostOptions options;
             try
             {
-                suiteFilters = SuiteCommandLineOptions.Parse(args);
+                options = SuiteCommandLineOptions.ParseHost(args);
             }
             catch (ArgumentException ex)
             {
                 Console.Error.WriteLine(ex.Message);
                 return 1;
             }
+
+            // A listing runs no test, and its output must be suite names only.
+            if (!options.ListSuites)
+                global::Test.Shared.Infrastructure.TestProcessEnvironment.RemoveProviderVariablesAndReport();
 
             TestRunner runner = new TestRunner("ARMADA UNIT TEST SUITE");
 
@@ -452,7 +455,25 @@ namespace Armada.Test.Unit
 
             runner.VerifyRegistration(typeof(Program).Assembly);
 
-            int exitCode = await runner.RunAllAsync(suiteFilters).ConfigureAwait(false);
+            // The weight table and serial list are loaded for every run, so a stale serial entry fails a
+            // plain run as well as a sharded one instead of silently unpinning a suite.
+            SuiteShardPlan plan;
+            try
+            {
+                plan = SuiteShardPlan.Load(
+                    Path.Combine(AppContext.BaseDirectory, "shard-weights.json"),
+                    Path.Combine(AppContext.BaseDirectory, "serial-suites.json"));
+                plan.Assign(runner.GetSuiteNames(), 1);
+            }
+            catch (Exception ex) when (ex is IOException || ex is InvalidOperationException || ex is System.Text.Json.JsonException)
+            {
+                Console.Error.WriteLine("Invalid shard plan: " + ex.Message);
+                return 1;
+            }
+
+            if (options.ListSuites) return runner.ListSuites(options.Shard, plan);
+
+            int exitCode = await runner.RunAllAsync(options.SuiteFilters, options.Shard, plan).ConfigureAwait(false);
             return exitCode;
         }
     }

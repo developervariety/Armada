@@ -265,12 +265,11 @@ namespace Armada.Test.Unit.Suites.Services
                 using (TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false))
                 using (CursorShimScope shim = CursorShimScope.Create())
                 {
-                    // The hang-model shim blocks ~4s. The production ceiling is 30s, so with the
-                    // default this validation SUCCEEDS and the timeout path is never reached -- which
-                    // is why this test could not pass on any platform since it was written. Drive a
-                    // short ceiling instead of making the fake runtime outlast 30 seconds.
+                    // The hang-model shim blocks longer than this ceiling but far shorter than the 30 s
+                    // production ceiling, under which the validation would succeed and never reach the
+                    // timeout path. Drive a short ceiling instead of making the fake runtime outlast 30 seconds.
                     AgentLifecycleHandler handler = CreateHandler(
-                        testDb.Driver, out _, TimeSpan.FromSeconds(2));
+                        testDb.Driver, out _, TimeSpan.FromSeconds(1));
                     Captain captain = new Captain("timeout-captain", AgentRuntimeEnum.Cursor)
                     {
                         Model = "hang-model"
@@ -578,6 +577,8 @@ namespace Armada.Test.Unit.Suites.Services
                 {
                     AgentLifecycleHandler handler = CreateHandler(testDb.Driver, out ArmadaSettings settings);
                     settings.HeartbeatIntervalSeconds = 5;
+                    // Several liveness ticks fit well inside the wait below; the production floor is five seconds.
+                    handler.ProcessLivenessInterval = TimeSpan.FromMilliseconds(200);
 
                     Captain captain = new Captain("silent-heartbeat-captain", AgentRuntimeEnum.Cursor);
                     await testDb.Driver.Captains.CreateAsync(captain).ConfigureAwait(false);
@@ -1718,9 +1719,9 @@ namespace Armada.Test.Unit.Suites.Services
                     "  exit 3\n" +
                     "fi\n" +
                     "if [ \"$model\" = \"hang-model\" ]; then\n" +
-                    // Only has to outlast the 2s ceiling the timeout test drives. It used to
-                    // sleep 10s, so the test spent 8s waiting on a result it already had.
-                    "  sleep 4\n" +
+                    // Only has to outlast the 1 s ceiling the timeout test drives, with margin for a
+                    // loaded host; every second beyond that is time the test waits on a result it has.
+                    "  sleep 3\n" +
                     "  exit 0\n" +
                     "fi\n" +
                     "if [ \"$model\" = \"slow-launch-model\" ]; then\n" +

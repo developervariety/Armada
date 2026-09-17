@@ -30,6 +30,7 @@ namespace Armada.Core.Services
         private readonly CodeIndexSettings _Settings;
         private readonly LoggingModule _Logging;
         private readonly HttpClient _Http;
+        private readonly Func<TimeSpan, CancellationToken, Task> _DelayAsync;
 
         #endregion
 
@@ -39,10 +40,20 @@ namespace Armada.Core.Services
         /// Create a DeepSeek inference client.
         /// </summary>
         public DeepSeekInferenceClient(CodeIndexSettings settings, LoggingModule logging, HttpClient http)
+            : this(settings, logging, http, (delay, token) => Task.Delay(delay, token))
+        {
+        }
+
+        /// <summary>
+        /// Create a DeepSeek inference client. <paramref name="delayAsync"/> performs each retry backoff wait, so a test can observe the
+        /// backoff without waiting for it.
+        /// </summary>
+        public DeepSeekInferenceClient(CodeIndexSettings settings, LoggingModule logging, HttpClient http, Func<TimeSpan, CancellationToken, Task> delayAsync)
         {
             _Settings = settings ?? throw new ArgumentNullException(nameof(settings));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Http = http ?? throw new ArgumentNullException(nameof(http));
+            _DelayAsync = delayAsync ?? throw new ArgumentNullException(nameof(delayAsync));
         }
 
         #endregion
@@ -150,11 +161,11 @@ namespace Armada.Core.Services
             return statusCode == 429 || statusCode >= 500;
         }
 
-        private static Task DelayForRetryAsync(int attempt, CancellationToken token)
+        private Task DelayForRetryAsync(int attempt, CancellationToken token)
         {
             int exponentialMs = Math.Min(8000, 500 * (1 << Math.Max(0, attempt - 1)));
             int jitterMs = Random.Shared.Next(0, 101);
-            return Task.Delay(exponentialMs + jitterMs, token);
+            return _DelayAsync(TimeSpan.FromMilliseconds(exponentialMs + jitterMs), token);
         }
 
         #endregion

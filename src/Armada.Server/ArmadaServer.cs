@@ -45,6 +45,22 @@ namespace Armada.Server
         /// </summary>
         public SelfDeployService? SelfDeploy { get; private set; }
 
+        /// <summary>
+        /// Delay between health loop ticks. Null, the default, uses <see cref="ArmadaSettings.HeartbeatIntervalSeconds"/>,
+        /// whose settings floor is five seconds; an in-process host can set a shorter positive interval. Read at
+        /// each tick.
+        /// </summary>
+        public TimeSpan? HealthLoopInterval
+        {
+            get => _HealthLoopInterval;
+            set
+            {
+                if (value.HasValue && value.Value <= TimeSpan.Zero)
+                    throw new ArgumentOutOfRangeException(nameof(HealthLoopInterval), "Must be positive.");
+                _HealthLoopInterval = value;
+            }
+        }
+
         #endregion
 
         #region Private-Members
@@ -159,6 +175,7 @@ namespace Armada.Server
         private Task _HealthCheckTask = null!;
         private Task _ModelEndpointHealthTask = null!;
         private int _HealthCheckCycles = 0;
+        private TimeSpan? _HealthLoopInterval = null;
         private DateTime _StartUtc = DateTime.UtcNow;
         private readonly ConditionalWeakTable<HttpContextBase, AuthContext> _RequestAuthContexts = new ConditionalWeakTable<HttpContextBase, AuthContext>();
 
@@ -2032,7 +2049,7 @@ namespace Armada.Server
             {
                 try
                 {
-                    await Task.Delay(_Settings.HeartbeatIntervalSeconds * 1000, token).ConfigureAwait(false);
+                    await Task.Delay(_HealthLoopInterval ?? TimeSpan.FromSeconds(_Settings.HeartbeatIntervalSeconds), token).ConfigureAwait(false);
 
                     // The health check is isolated from maintenance: a health check that throws on
                     // every tick must not stop the cycle count, or no periodic step would ever run.

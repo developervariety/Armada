@@ -37,6 +37,7 @@ namespace Armada.Core.Services
         private readonly TimeSpan _RetryBackoff;
         private readonly HttpClient _Http;
         private readonly LoggingModule _Logging;
+        private readonly Func<TimeSpan, CancellationToken, Task> _DelayAsync;
 
         /// <summary>Production constructor: creates its own HttpClient from the supplied settings.</summary>
         public ReleaseWebhookDispatcher(CdWebhookSettings settings, LoggingModule logging)
@@ -46,10 +47,20 @@ namespace Armada.Core.Services
 
         /// <summary>Test constructor: accepts a pre-configured HttpClient for injecting hand-rolled HttpMessageHandler doubles.</summary>
         public ReleaseWebhookDispatcher(CdWebhookSettings settings, LoggingModule logging, HttpClient http)
+            : this(settings, logging, http, (delay, token) => Task.Delay(delay, token))
+        {
+        }
+
+        /// <summary>
+        /// Test constructor with an injectable retry wait. <paramref name="delayAsync"/> receives the configured
+        /// backoff before each retry, so a test can assert the backoff without waiting for it.
+        /// </summary>
+        public ReleaseWebhookDispatcher(CdWebhookSettings settings, LoggingModule logging, HttpClient http, Func<TimeSpan, CancellationToken, Task> delayAsync)
         {
             if (settings == null) throw new ArgumentNullException(nameof(settings));
             _Logging = logging ?? throw new ArgumentNullException(nameof(logging));
             _Http = http ?? throw new ArgumentNullException(nameof(http));
+            _DelayAsync = delayAsync ?? throw new ArgumentNullException(nameof(delayAsync));
             if (String.IsNullOrWhiteSpace(settings.Url))
                 throw new ArgumentException("CdWebhookSettings.Url is required.", nameof(settings));
 
@@ -82,7 +93,7 @@ namespace Armada.Core.Services
                     return result;
 
                 _Logging.Warn(_Header + "retriable failure (attempt " + attempt + "/" + totalAttempts + "); retrying in " + _RetryBackoff.TotalSeconds + "s");
-                await Task.Delay(_RetryBackoff, token).ConfigureAwait(false);
+                await _DelayAsync(_RetryBackoff, token).ConfigureAwait(false);
             }
 
             return result;

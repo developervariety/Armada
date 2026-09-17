@@ -1,0 +1,31 @@
+{
+  "Suites": {
+    "Disk Lifecycle": "Cross-process: reconciliation lists the shared system temp directory and deletes entries with Armada test prefixes past the retention window, which can include files another test process owns.",
+    "Dispatch Assignment State": "Wall-clock bound: asserts an operation finishes in under 500 ms.",
+    "Captain Account Launch": "Wall-clock bound: asserts a hanging login probe is not awaited (under 500 ms); also sets ARMADA_TEST_OPENCODE, ARMADA_TEST_CURSOR_AGENT and a provider key variable.",
+    "Autonomous Objective Scheduler": "Wall-clock bound: asserts a sweep completes in under 2 s with a 40 ms per-sweep budget.",
+    "Objective Dispatch Attempts": "Wall-clock bound: asserts a contended admission returns in under 3 s; also starts an in-process server on ports found by binding port 0.",
+    "Dispatch Code Context Bounded": "Wall-clock bound: asserts dispatch returns in under 5 s when code context stalls.",
+    "Dispatch Fail Fast": "Wall-clock bound: asserts dispatch fails in under 15 s; also sets the git and code-context timeout environment variables.",
+    "PostgreSQL UTC Reads": "Process-global: sets TZ and clears the cached time zone data.",
+    "Captain Update Validation": "Process-global: sets PATH and the cursor shim environment variables.",
+    "Agent Lifecycle Handler": "Process-global: sets PATH and the cursor shim environment variables, subscribes to TaskScheduler.UnobservedTaskException and registers synthetic processes in the static process supervisor.",
+    "Captain Tool Service Discovery": "Process-global: points HOME at a sentinel profile directory.",
+    "Claude Code Provider Routing": "Process-global: sets and asserts on provider key environment variables a child process inherits.",
+    "Code Context Timeouts": "Process-global: sets the code-context timeout environment variable.",
+    "MCP Architect Tools": "Process-global: sets ARMADA_PROJECT_CLAUDE_MD.",
+    "MCP Code Index Tools": "Process-global: sets the code-context timeout environment variable.",
+    "MCP Voyage Tools": "Process-global: sets ARMADA_CODE_CONTEXT_TIMEOUT_MS.",
+    "Self Deploy Build Runner": "Process-global: sets arbitrary environment variables through a scoped helper.",
+    "Native Client Availability": "Process-global: sets PATH.",
+    "Self Deploy Service": "Process-global: sets the self-deploy rehearsal gate and hold environment variables.",
+    "TypeSafe Decision Client": "Process-global: clears the decision service API key environment variable.",
+    "Workflow Profile and Check Run Services": "Process-global: sets build, deploy and AWS environment variables.",
+    "Test Data Directory Isolation": "Process-global: sets ARMADA_DATA_DIRECTORY and ARMADA_DATA_DIR.",
+    "Private Storage Backend": "Process-global: replaces the static private file backend.",
+    "Dashboard Static Files": "Process-global: sets the static file handler's external path.",
+    "Captain Stall Decision": "Process-global: registers a synthetic process in the static process supervisor.",
+    "MCP Context Tools": "Process-global: resets the static tool budget.",
+    "MCP Typed Decision Tools": "Process-global: resets the static tool budget."
+  }
+}

@@ -25,6 +25,51 @@ dotnet run --project test/Armada.Test.Database --framework net10.0 -- --type sql
 dotnet run --project test/Armada.Test.Database --framework net10.0 -- --type mysql --hostname localhost --port 3306 --username root --password secret --database armada_test
 ```
 
+## Combined Gate Script
+
+`scripts/macos/run-tests.sh` and `scripts/linux/run-tests.sh` build the four console runners in sequence, then run them at the same time, each writing its own log. Sharded and concurrent runs are the default.
+
+```bash
+scripts/macos/run-tests.sh                              # unit shards, automated, runtimes, shared
+scripts/macos/run-tests.sh unit                         # one runner (unit|automated|runtimes|shared)
+scripts/macos/run-tests.sh --shards 4                   # unit shard count; flags go before the runner name
+ARMADA_TEST_UNIT_SHARDS=1 scripts/macos/run-tests.sh    # unit as one process
+scripts/macos/run-tests.sh unit --suite "Git Service"   # one runner with its own arguments, never sharded
+```
+
+The script prints one summary line per process, the summed unit totals, and one combined `RESULT: PASS` or `RESULT: FAIL`. It fails when any process exits non-zero or prints no `Total:` line. For the unit shards it also fails when a shard's last `RESULT:` line is not `PASS`, when fewer shards summarised than were started, or when the per-shard suite counts do not add up to the registered suite count. A shard that crashed or executed nothing therefore fails the gate. The logs stay in the printed directory on failure, and on success when `ARMADA_TEST_KEEP_LOGS` is set. The script unsets `ANTHROPIC_*` for every child. When `ARMADA_TEST_RESULTS_DIRECTORY` is set, the unit runner runs as one process, because a results manifest is keyed by executable.
+
+The measured wall clock for the sharded default is recorded after a quiet-window run.
+
+## Sharded Unit Runs
+
+`test/Armada.Test.Unit` accepts `--shard <index>/<count>` (1-based) and runs only the suites assigned to that shard. `--list-suites` prints the suite names a run would execute, one per line; with `--shard` it prints that shard's names. A shard cannot be combined with `--suite`. A shard assigned no suites fails like any other empty selection.
+
+```bash
+dotnet run --project test/Armada.Test.Unit/Test.Unit.csproj --framework net10.0 -- --shard 2/6
+dotnet run --project test/Armada.Test.Unit/Test.Unit.csproj --framework net10.0 -- --list-suites --shard 2/6
+```
+
+Each shard prints `Shard i/N: k of m suites` and the normal summary.
+
+- **Assignment.** `SuiteShardPlan` (in `Armada.Test.Common`) is deterministic. Serial suites go to shard 1. The other suites are placed heaviest first on the shard with the least expected time, ties broken by suite name and then by the lowest shard index. Each shard keeps registration order. Every suite lands on exactly one shard, so the union of the shards' `--list-suites` output is the full list with no duplicates.
+- **Weights.** `test/Armada.Test.Unit/shard-weights.json` maps suite name to expected seconds; a suite it does not name gets `DefaultSeconds`. Regenerate it from one or more unit logs (serial or shard logs); the largest total per suite wins:
+
+  ```bash
+  dotnet run --project test/Armada.Test.Unit/Test.Unit.csproj --framework net10.0 --no-build -- --list-suites > suites.txt
+  python3 scripts/common/generate-shard-weights.py unit-shard-*.log --suites suites.txt > test/Armada.Test.Unit/shard-weights.json
+  ```
+
+- **Serial suites.** `test/Armada.Test.Unit/serial-suites.json` names each suite that always runs on shard 1, with its reason: it touches machine-wide state (for example the shared temp directory), asserts a wall-clock bound, or changes process-global state (environment variables, `HOME`, `PATH`, `TZ`, static registries). Each shard is its own process, so process-global state cannot leak between shards; keeping these suites together keeps them out of the balanced split and in one place to review. Every run loads the list, and a name that is not a registered suite fails the run, so a rename cannot silently unpin a suite. A new suite of this kind is added to the list in the same change.
+
+## Tests That Wait On Time
+
+A test does not wait out a real timeout, interval or retry backoff. When production code has one, it exposes an injectable value with the production default unchanged, and the test passes a short value or a fake clock:
+
+- a constructor `TimeSpan` or settable interval (for example `SelfDeployNativeCommandRunner(TimeSpan)`, `ArmadaServer.HealthLoopInterval`, `AgentLifecycleHandler.ProcessLivenessInterval`);
+- a `TimeProvider` paired with a delay that advances it (`FakeTimeProvider` from `Microsoft.Extensions.TimeProvider.Testing`, as in `OpenCodeServerLauncher`);
+- a delay function that records the requested wait and returns at once, so the test asserts the backoff instead of sleeping (`ReleaseWebhookDispatcher`, `DeepSeekInferenceClient`, `VoyageEmbeddingClient`).
+
 ## Test Projects
 
 | Project | Tests | What It Covers |

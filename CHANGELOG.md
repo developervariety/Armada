@@ -8,6 +8,18 @@ All notable changes to Armada are documented in this file.
 
 ### Added
 
+- The unit test runner can be split into shards. `test/Armada.Test.Unit` accepts `--shard <index>/<count>` and
+  `--list-suites`; suites are assigned deterministically, balanced by the committed
+  `test/Armada.Test.Unit/shard-weights.json` (regenerated from unit logs by `scripts/common/generate-shard-weights.py`),
+  and every suite named in `test/Armada.Test.Unit/serial-suites.json` runs on shard 1 with its recorded reason.
+  `scripts/{macos,linux}/run-tests.sh` now runs the unit shards (min(cores/2, 6) by default, `--shards N` or
+  `ARMADA_TEST_UNIT_SHARDS` to override), the automated, runtimes and shared runners at the same time, sums the unit
+  totals, and fails when a shard crashes, prints no summary, or the shard suite counts do not add up to the registered
+  suites. Extra arguments after a runner name run that one runner unsharded. Tests that waited out real timeouts,
+  intervals or retry backoffs now inject the delay: `ArmadaServer.HealthLoopInterval`,
+  `AgentLifecycleHandler.ProcessLivenessInterval`, a `SelfDeployNativeCommandRunner` pipe drain timeout, a
+  `TimeProvider` for the `OpenCodeServerLauncher` startup deadline, and retry-wait functions for
+  `ReleaseWebhookDispatcher`, `DeepSeekInferenceClient` and `VoyageEmbeddingClient`. Production defaults are unchanged.
 - Subscription accounts can be deleted and hard-refreshed from the Dashboard. `DELETE
   /api/v1/usage-accounts/{accountId}` is refused with `account_has_captains` (409) while the account lists
   captains; otherwise it cancels a pending login, removes the account and every persona route that names it

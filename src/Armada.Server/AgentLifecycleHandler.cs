@@ -24,6 +24,7 @@ namespace Armada.Server
         #region Private-Members
 
         private string _Header = "[AgentLifecycle] ";
+        private TimeSpan? _ProcessLivenessInterval = null;
         private LoggingModule _Logging;
         private DatabaseDriver _Database;
         private ArmadaSettings _Settings;
@@ -182,6 +183,22 @@ namespace Armada.Server
         /// is still in flight is recognised regardless of this value.
         /// </summary>
         public TimeSpan HandledExitRetention { get; set; } = TimeSpan.FromMinutes(5);
+
+        /// <summary>
+        /// Delay between process-liveness refreshes for a tracked process. Null, the default, uses
+        /// <see cref="ArmadaSettings.HeartbeatIntervalSeconds"/> with a five-second floor; a host that needs faster
+        /// ticks sets a shorter positive interval before the process is tracked.
+        /// </summary>
+        public TimeSpan? ProcessLivenessInterval
+        {
+            get => _ProcessLivenessInterval;
+            set
+            {
+                if (value.HasValue && value.Value <= TimeSpan.Zero)
+                    throw new ArgumentOutOfRangeException(nameof(ProcessLivenessInterval), "Must be positive.");
+                _ProcessLivenessInterval = value;
+            }
+        }
 
         #endregion
 
@@ -979,7 +996,7 @@ namespace Armada.Server
                 return;
             }
 
-            TimeSpan interval = TimeSpan.FromSeconds(Math.Max(5, _Settings.HeartbeatIntervalSeconds));
+            TimeSpan interval = _ProcessLivenessInterval ?? TimeSpan.FromSeconds(Math.Max(5, _Settings.HeartbeatIntervalSeconds));
 
             // Read the token HERE, while the source is guaranteed alive. Reading cts.Token inside the
             // task body raced with StopProcessLivenessHeartbeat disposing the source: the property
