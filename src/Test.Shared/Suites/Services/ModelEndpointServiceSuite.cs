@@ -396,6 +396,45 @@ namespace Test.Shared.Suites.Services
                 }
             }));
 
+            cases.Add(CaseAsync("health_sweep_probes_the_provider_wire_contract", "Health sweep validates the model instead of a bare base-URL GET", TestTags.Positive, async () =>
+            {
+                using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);
+                AuthContext auth = AuthContext.Authenticated("ten_mep_sweep", "usr_mep_sweep", false, true, "UnitTest");
+                TcpListener listener = new TcpListener(IPAddress.Loopback, 0);
+                listener.Start();
+                int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+                try
+                {
+                    ModelEndpoint endpoint = new ModelEndpoint
+                    {
+                        Name = "Voyage embedding sweep",
+                        Provider = ModelProviderEnum.VoyageAI,
+                        Kind = ModelEndpointKindEnum.Embedding,
+                        BaseUrl = "http://127.0.0.1:" + port,
+                        Model = "voyage-code-3",
+                        Enabled = true
+                    };
+                    endpoint.ApiKey = "fixture-key";
+                    ModelEndpoint created = await new ModelEndpointService(testDb.Driver, CreateLogging()).CreateAsync(auth, endpoint).ConfigureAwait(false);
+
+                    // A valid Voyage /v1/embeddings response. The sweep must send the real embeddings
+                    // request, not a bare GET to the base URL (which VoyageAI/OpenAI 404, so a working
+                    // endpoint used to read Unhealthy). The captured target is the failing-first guard.
+                    Task<CapturedHttpRequest> sweepTask = CaptureAndRespondAsync(listener, "{\"data\":[{\"embedding\":[0.1,0.2]}]}");
+                    int probed = await new ModelEndpointService(testDb.Driver, CreateLogging()).CheckHealthAllAsync().ConfigureAwait(false);
+                    CapturedHttpRequest sweepRequest = await sweepTask.ConfigureAwait(false);
+
+                    AssertEqual(1, probed, "the one enabled endpoint must be probed");
+                    AssertEqual("/v1/embeddings", sweepRequest.Target, "the health sweep must send the real embeddings request, not a base-URL GET");
+                    ModelEndpoint persisted = (await testDb.Driver.ModelEndpoints.ReadAsync(created.Id).ConfigureAwait(false))!;
+                    AssertEqual(EndpointHealthStatusEnum.Healthy, persisted.HealthStatus, "a working embedding endpoint must read Healthy after the sweep");
+                }
+                finally
+                {
+                    listener.Stop();
+                }
+            }));
+
             cases.Add(CaseAsync("model_validation_rejects_missing_or_invalid_response", "Model validation rejects missing model and invalid response", TestTags.Negative, async () =>
             {
                 using TestDatabase testDb = await TestDatabaseHelper.CreateDatabaseAsync().ConfigureAwait(false);

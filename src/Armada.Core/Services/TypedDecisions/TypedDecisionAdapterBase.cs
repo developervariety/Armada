@@ -235,6 +235,18 @@ namespace Armada.Core.Services
 
         #region Private-Methods
 
+        /// <summary>
+        /// Build the exact redacted state and questions this decision would send for an input, without
+        /// calling the provider or recording anything. The evaluation set uses it so a case tests the
+        /// questions production asks. Returns null when the state or questions cannot be built.
+        /// </summary>
+        /// <param name="input">The decision input.</param>
+        /// <returns>The request item, or null.</returns>
+        public TypedDecisionBatchItem? DescribeRequest(TInput input)
+        {
+            return Prepare(input);
+        }
+
         private TypedDecisionBatchItem? Prepare(TInput input)
         {
             try

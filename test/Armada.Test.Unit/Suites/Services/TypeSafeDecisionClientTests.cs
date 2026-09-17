@@ -113,10 +113,14 @@ namespace Armada.Test.Unit.Suites.Services
                     "\"usage\":{\"input_tokens\":450,\"output_tokens\":80}}");
                 HttpClient http = new HttpClient(handler);
                 TypeSafeDecisionClient client = new TypeSafeDecisionClient(Settings(), new LoggingModule(), http);
+                List<string> observed = new List<string>();
+                client.ModelObserved = observed.Add;
 
                 TypedDecisionResult result = await client.DecideAsync(SampleRequest(), CancellationToken.None).ConfigureAwait(false);
 
                 AssertTrue(result.Available, "a score answer with a legend object must parse, not return unavailable: " + result.UnavailableReason);
+                AssertEqual(1, observed.Count, "the reported model version is passed to the observer");
+                AssertEqual("jev-1.13.0", observed[0]);
                 AssertEqual("jev-1.13.0", result.Model);
                 AssertEqual(3, result.Answers.Count);
                 AssertEqual("score", result.Answers["sev"].Type);

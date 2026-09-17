@@ -61,6 +61,16 @@ namespace Armada.Core.Services
 
         #endregion
 
+        #region Public-Members
+
+        /// <summary>
+        /// Called with the model version the provider reports on each answered request, so a watcher can
+        /// react to a version change. A fault in the callback never affects the decision.
+        /// </summary>
+        public Action<string>? ModelObserved { get; set; }
+
+        #endregion
+
         #region Public-Methods
 
         /// <inheritdoc />
@@ -109,7 +119,9 @@ namespace Armada.Core.Services
                     return Unavailable("parse", stopwatch.ElapsedMilliseconds);
                 }
 
-                return BuildResult(parsed, stopwatch.ElapsedMilliseconds);
+                TypedDecisionResult built = BuildResult(parsed, stopwatch.ElapsedMilliseconds);
+                NotifyModelObserved(built.Model);
+                return built;
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
@@ -210,6 +222,21 @@ namespace Armada.Core.Services
             catch (JsonException)
             {
                 return null;
+            }
+        }
+
+        private void NotifyModelObserved(string? model)
+        {
+            if (String.IsNullOrWhiteSpace(model)) return;
+            Action<string>? observer = ModelObserved;
+            if (observer == null) return;
+            try
+            {
+                observer(model);
+            }
+            catch (Exception ex)
+            {
+                _Logging.Warn(_Header + "model observer failed: " + ex.Message);
             }
         }
 

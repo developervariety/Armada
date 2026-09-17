@@ -233,8 +233,11 @@ namespace Armada.Core.Services
             foreach (ModelEndpoint endpoint in enabled)
             {
                 token.ThrowIfCancellationRequested();
+                // The health sweep runs the same real provider request as a manual validation, so a
+                // provider whose base URL rejects a bare GET (VoyageAI, OpenAI) is not read as Unhealthy
+                // while its model endpoint answers correctly.
                 ModelEndpointProbeResult result = _Probe == null
-                    ? await HealthCheckEndpointAsync(endpoint, token).ConfigureAwait(false)
+                    ? await ValidateEndpointAsync(endpoint, token).ConfigureAwait(false)
                     : await _Probe(endpoint, token).ConfigureAwait(false);
                 probed++;
                 await PersistProbeAsync(endpoint, result, token).ConfigureAwait(false);
@@ -355,28 +358,6 @@ namespace Armada.Core.Services
             return result;
         }
 
-        private async Task<ModelEndpointProbeResult> HealthCheckEndpointAsync(ModelEndpoint endpoint, CancellationToken token)
-        {
-            ModelEndpointProbeResult result = new ModelEndpointProbeResult();
-            result.BaseUrl = endpoint.BaseUrl;
-            Stopwatch sw = Stopwatch.StartNew();
-
-            try { result = await ProbeHttpAsync(endpoint, token).ConfigureAwait(false); }
-            catch (OperationCanceledException) when (token.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception e)
-            {
-                sw.Stop();
-                result.LatencyMs = sw.ElapsedMilliseconds;
-                result.Success = false;
-                result.Error = SafeProbeError(e);
-            }
-
-            return result;
-        }
-
         private async Task PersistProbeAsync(ModelEndpoint endpoint, ModelEndpointProbeResult result, CancellationToken token)
         {
             // The probe ran against the snapshot supplied by the caller. If configuration changed while the
@@ -437,8 +418,12 @@ namespace Armada.Core.Services
 
         private static string? SanitizeProbeError(string? error)
         {
+            // The probe builds its own safe, provider-agnostic reason strings (an HTTP status, a parse
+            // outcome, or an exception type name) and never puts a URL or key in them, so the specific
+            // reason is surfaced instead of a generic message. The length cap guards a future source.
             if (String.IsNullOrWhiteSpace(error)) return "Provider probe failed.";
-            return "Provider probe failed.";
+            string trimmed = error.Trim();
+            return trimmed.Length > 200 ? trimmed.Substring(0, 200) : trimmed;
         }
 
         private static bool IsReferenceConstraintViolation(Exception exception)
@@ -621,24 +606,6 @@ namespace Armada.Core.Services
         private sealed class CompletionCandidateDto { public CompletionContentDto? Content { get; set; } }
         private sealed class CompletionContentDto { public List<CompletionPartDto>? Parts { get; set; } }
         private sealed class CompletionPartDto { public string? Text { get; set; } }
-
-        private static async Task<ModelEndpointProbeResult> ProbeHttpAsync(ModelEndpoint endpoint, CancellationToken token)
-        {
-            ModelEndpointProbeResult result = new ModelEndpointProbeResult { BaseUrl = endpoint.BaseUrl };
-            using (HttpClient client = ModelEndpointClientFactory.CreateHttpClient(endpoint))
-            using (HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, endpoint.BaseUrl))
-            {
-                Stopwatch stopwatch = Stopwatch.StartNew();
-                using (HttpResponseMessage response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false))
-                {
-                    result.LatencyMs = stopwatch.ElapsedMilliseconds;
-                    result.StatusCode = (int)response.StatusCode;
-                    result.Success = response.IsSuccessStatusCode;
-                    result.Error = result.Success ? null : "Provider did not respond successfully to a connectivity probe.";
-                }
-            }
-            return result;
-        }
 
         #endregion
     }

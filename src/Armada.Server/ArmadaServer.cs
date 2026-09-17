@@ -120,6 +120,7 @@ namespace Armada.Server
         // lanes read these. No consumer calls the client in this row.
         private ITypedDecisionClient _TypedDecisionClient = new NullTypedDecisionClient();
         private TypedDecisionRecorder _TypedDecisionRecorder = null!;
+        private TypedDecisionEvalService? _TypedDecisionEval = null;
         private HttpClient _TypedDecisionHttpClient = null!;
         // The context retrieval service over the built context index (manifest chunks plus bodies).
         // Built in-process at MCP registration from AI-Memory and the docs tree; feeds the
@@ -270,6 +271,15 @@ namespace Armada.Server
                     ? "mode=Off"
                     : "no key in " + typedDecisionKeyEnv;
                 _Logging.Info(_Header + "typed decisions: NullTypedDecisionClient (" + why + ")");
+            }
+
+            // The synthetic evaluation set runs against the live client only: on operator request, and
+            // in the background whenever the provider reports a model version not yet evaluated.
+            if (_TypedDecisionClient is TypeSafeDecisionClient typeSafeClient)
+            {
+                _TypedDecisionEval = new TypedDecisionEvalService(
+                    _TypedDecisionClient, _TypedDecisionRecorder, _Settings.TypedDecisions, _Database, _Logging);
+                typeSafeClient.ModelObserved = _TypedDecisionEval.ObserveModel;
             }
 
             // D6 papercut_merge adapter. Reads the client above, so it is a no-op (the plain grouping)
@@ -1868,6 +1878,7 @@ namespace Armada.Server
                 typedDecisionClient: _TypedDecisionClient,
                 typedDecisionRecorder: _TypedDecisionRecorder,
                 typedDecisionParticipantKeyProvider: () => ArmadaMcpHttpServer.CurrentParticipantKey,
+                typedDecisionEval: _TypedDecisionEval,
                 papercutMergeAdapter: _PapercutMergeAdapter,
                 inboxTriageAdapter: _InboxTriageAdapter,
                 followUpRoutingAdapter: _FollowUpRoutingAdapter,

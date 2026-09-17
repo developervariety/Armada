@@ -66,6 +66,12 @@ namespace Armada.Core.Settings
         }
 
         /// <summary>
+        /// Whether a model version the provider reports for the first time starts a run of the synthetic
+        /// evaluation set in the background. Default true.
+        /// </summary>
+        public bool EvalOnModelChange { get; set; } = true;
+
+        /// <summary>
         /// Configuration for the captain-facing typed-decision tool.
         /// </summary>
         public TypedDecisionCaptainToolSettings CaptainTool
