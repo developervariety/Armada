@@ -100,6 +100,12 @@ All notable changes to Armada are documented in this file.
 
 ### Fixed
 
+- The model-endpoint health sweep now runs the same real provider request as a
+  manual validation, so a registered embedding or inference endpoint whose base
+  URL rejects a bare GET (VoyageAI, OpenAI) is no longer read as Unhealthy while
+  its model answers correctly. The recorded health error carries the specific
+  probe reason instead of a generic message.
+
 - Deleting a captain no longer reports an error when the captain is actually
   removed. Dependent cleanup (telemetry events, planning sessions) after the row
   delete is now fully best-effort, so a cleanup failure leaves an orphan for a
